@@ -206,6 +206,8 @@ describe("moduleManifestSchema", () => {
 });
 ```
 
+Also add regression cases that reject `//evil.example/app`, encoded traversal `/%2e%2e/secret`, malformed encoding, scheduled refresh without cron, manual refresh with cron, unnamespaced Manifest events, and unknown nested fields.
+
 - [ ] **Step 3: Run the test and confirm failure**
 
 Run: `npm install && npm run test:run -w @vibe-visualization/contracts`
@@ -217,19 +219,50 @@ Expected: FAIL because `src/module.ts` does not exist.
 ```ts
 import { z } from "zod";
 
-const safeRelativeUrl = z.string().refine(
-  (value) => value.startsWith("/") && !value.includes(".."),
-  "local module URL must be an absolute safe path",
-);
+import { moduleEventNameSchema } from "./event";
+
+const LOCAL_URL_ORIGIN = "https://module.local";
+
+function fullyDecode(value: string): string | undefined {
+  let decoded = value;
+  for (let pass = 0; pass < 10; pass += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) return decoded;
+      decoded = next;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+const safeRelativeUrl = z.string().refine((url) => {
+  if (!url.startsWith("/") || url.startsWith("//") || url.includes("\\") || url.includes("..")) return false;
+  const pathEnd = url.search(/[?#]/);
+  const encodedPath = pathEnd === -1 ? url : url.slice(0, pathEnd);
+  const decodedPath = fullyDecode(encodedPath);
+  if (!decodedPath || decodedPath.startsWith("//") || decodedPath.includes("\\") || decodedPath.includes("..")) return false;
+  try {
+    return new URL(url, LOCAL_URL_ORIGIN).origin === LOCAL_URL_ORIGIN;
+  } catch {
+    return false;
+  }
+});
 const safeExternalUrl = z.string().url().refine(
   (value) => ["http:", "https:"].includes(new URL(value).protocol),
   "external URL must use http or https",
 );
 
 export const moduleEntrySchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("structured"), url: safeRelativeUrl }),
-  z.object({ type: z.literal("static"), url: safeRelativeUrl }),
-  z.object({ type: z.literal("external"), url: safeExternalUrl }),
+  z.object({ type: z.literal("structured"), url: safeRelativeUrl }).strict(),
+  z.object({ type: z.literal("static"), url: safeRelativeUrl }).strict(),
+  z.object({ type: z.literal("external"), url: safeExternalUrl }).strict(),
+]);
+
+const refreshSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("manual") }).strict(),
+  z.object({ mode: z.literal("schedule"), cron: z.string().min(1) }).strict(),
 ]);
 
 export const moduleManifestSchema = z.object({
@@ -244,14 +277,11 @@ export const moduleManifestSchema = z.object({
   dataServices: z.array(z.string()).default([]),
   agentCapabilities: z.array(z.string()).default([]),
   events: z.object({
-    emits: z.array(z.string()).default([]),
-    accepts: z.array(z.string()).default([]),
-  }).default({ emits: [], accepts: [] }),
-  refresh: z.object({
-    mode: z.enum(["manual", "schedule"]),
-    cron: z.string().optional(),
-  }).optional(),
-});
+    emits: z.array(moduleEventNameSchema).default([]),
+    accepts: z.array(moduleEventNameSchema).default([]),
+  }).strict().default({}),
+  refresh: refreshSchema.optional(),
+}).strict();
 
 export type ModuleManifest = z.infer<typeof moduleManifestSchema>;
 ```
@@ -287,14 +317,18 @@ describe("moduleEventSchema", () => {
 // packages/contracts/src/event.ts
 import { z } from "zod";
 
+export const moduleEventNameSchema = z.string().regex(
+  /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/,
+);
+
 export const moduleEventSchema = z.object({
   version: z.literal("1.0"),
-  event: z.string().regex(/^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/),
+  event: moduleEventNameSchema,
   source: z.string().min(1),
   target: z.string().min(1).optional(),
   traceId: z.string().min(1),
   payload: z.record(z.unknown()),
-});
+}).strict();
 
 export type ModuleEvent = z.infer<typeof moduleEventSchema>;
 
