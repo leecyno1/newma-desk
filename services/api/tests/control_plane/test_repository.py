@@ -164,7 +164,22 @@ def test_two_repository_instances_allocate_unique_revisions(tmp_path: Path) -> N
     assert (first.revision, second.revision) == (1, 2)
 
 
-@pytest.mark.parametrize("manifest", [{}, {"id": ""}, {"id": "   "}, {"id": 1}])
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        {},
+        {"id": ""},
+        {"id": "   "},
+        {"id": 1},
+        {"id": "A"},
+        {"id": "ab"},
+        {"id": "foo/bar"},
+        {"id": "-foo"},
+        {"id": "foo-"},
+        {"id": "foo_bar"},
+        {"id": "a" * 65},
+    ],
+)
 def test_create_draft_rejects_missing_or_invalid_module_id(
     tmp_path: Path, manifest: dict[str, object]
 ) -> None:
@@ -172,3 +187,14 @@ def test_create_draft_rejects_missing_or_invalid_module_id(
 
     with pytest.raises(ValueError, match=r"manifest\['id'\]"):
         repo.create_draft(manifest)
+
+
+@pytest.mark.parametrize("module_id", ["abc", "a-b", "a" * 64])
+def test_create_draft_accepts_valid_module_id_boundaries(
+    tmp_path: Path, module_id: str
+) -> None:
+    repo = ModuleRepository(tmp_path / "registry.db")
+
+    stored = repo.create_draft({**MANIFEST, "id": module_id})
+
+    assert stored.module_id == module_id

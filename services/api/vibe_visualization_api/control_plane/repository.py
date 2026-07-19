@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -8,6 +9,9 @@ from typing import Any, cast
 
 from vibe_visualization_api.control_plane.database import connect
 from vibe_visualization_api.control_plane.models import ModuleStatus, StoredModule
+
+
+MODULE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
 
 
 class ModuleRepositoryError(Exception):
@@ -83,8 +87,15 @@ class ModuleRepository:
 
     def create_draft(self, manifest: dict[str, object]) -> StoredModule:
         module_id = manifest.get("id")
-        if not isinstance(module_id, str) or not module_id.strip():
-            raise ValueError("manifest['id'] must be a non-empty string")
+        if (
+            not isinstance(module_id, str)
+            or MODULE_ID_PATTERN.fullmatch(module_id) is None
+            or module_id.endswith("-")
+        ):
+            raise ValueError(
+                "manifest['id'] must match ^[a-z][a-z0-9-]{2,63}$ "
+                "and must not end with a hyphen"
+            )
 
         manifest_json = _json_dumps(manifest)
         created_at = _utc_now()
