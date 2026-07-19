@@ -1,0 +1,13 @@
+{
+  "name": "vibe-visualization",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*", "packages/*", "modules/*", "integrations/*"],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test:run --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:shell": "npm run dev -w @vibe-visualization/shell"
+  },
+  "engines": {"node": ">=22", "npm": ">=10"}
+}
