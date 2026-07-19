@@ -29,11 +29,63 @@ describe("moduleManifestSchema", () => {
     ).toThrow();
   });
 
+  it.each(["//evil.example/app", "/%2e%2e/secret", "/%ZZ"])(
+    "rejects the unsafe local entry URL %s",
+    (url) => {
+      expect(() =>
+        moduleManifestSchema.parse({
+          ...valid,
+          entry: { type: "static", url },
+        }),
+      ).toThrow();
+    },
+  );
+
   it("rejects an external entry with a non-HTTP protocol", () => {
     expect(() =>
       moduleManifestSchema.parse({
         ...valid,
         entry: { type: "external", url: "javascript:alert(1)" },
+      }),
+    ).toThrow();
+  });
+
+  it("requires cron for scheduled refreshes", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...valid,
+        refresh: { mode: "schedule" },
+      }),
+    ).toThrow();
+  });
+
+  it("forbids cron for manual refreshes", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...valid,
+        refresh: { mode: "manual", cron: "* * * * *" },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an unnamespaced manifest event", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...valid,
+        events: { emits: ["selected"], accepts: [] },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects unknown nested fields", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...valid,
+        entry: {
+          type: "structured",
+          url: "/modules/market-daily/",
+          sandbox: false,
+        },
       }),
     ).toThrow();
   });

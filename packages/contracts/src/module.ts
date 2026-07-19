@@ -1,8 +1,60 @@
 import { z } from "zod";
 
+import { moduleEventNameSchema } from "./event";
+
+const LOCAL_URL_ORIGIN = "https://module.local";
+
+function fullyDecode(value: string): string | undefined {
+  let decoded = value;
+
+  for (let pass = 0; pass < 10; pass += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) return decoded;
+      decoded = next;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+}
+
+function isSafeRelativeUrl(url: string): boolean {
+  if (
+    !url.startsWith("/") ||
+    url.startsWith("//") ||
+    url.includes("\\") ||
+    url.includes("..")
+  ) {
+    return false;
+  }
+
+  const pathEnd = url.search(/[?#]/);
+  const encodedPath = pathEnd === -1 ? url : url.slice(0, pathEnd);
+  const decodedPath = fullyDecode(encodedPath);
+
+  if (
+    decodedPath === undefined ||
+    !decodedPath.startsWith("/") ||
+    decodedPath.startsWith("//") ||
+    decodedPath.includes("\\") ||
+    decodedPath.includes("..") ||
+    decodedPath.split("/").includes(".")
+  ) {
+    return false;
+  }
+
+  try {
+    return new URL(url, LOCAL_URL_ORIGIN).origin === LOCAL_URL_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
 const safeRelativeUrl = z
   .string()
-  .refine((url) => url.startsWith("/") && !url.includes(".."));
+  .refine(isSafeRelativeUrl);
 
 const safeExternalUrl = z
   .string()
@@ -13,9 +65,16 @@ const safeExternalUrl = z
   });
 
 export const moduleEntrySchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("structured"), url: safeRelativeUrl }),
-  z.object({ type: z.literal("static"), url: safeRelativeUrl }),
-  z.object({ type: z.literal("external"), url: safeExternalUrl }),
+  z.object({ type: z.literal("structured"), url: safeRelativeUrl }).strict(),
+  z.object({ type: z.literal("static"), url: safeRelativeUrl }).strict(),
+  z.object({ type: z.literal("external"), url: safeExternalUrl }).strict(),
+]);
+
+const refreshSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("manual") }).strict(),
+  z
+    .object({ mode: z.literal("schedule"), cron: z.string().min(1) })
+    .strict(),
 ]);
 
 export const moduleManifestSchema = z.object({
@@ -31,16 +90,12 @@ export const moduleManifestSchema = z.object({
   agentCapabilities: z.array(z.string()).default([]),
   events: z
     .object({
-      emits: z.array(z.string()).default([]),
-      accepts: z.array(z.string()).default([]),
+      emits: z.array(moduleEventNameSchema).default([]),
+      accepts: z.array(moduleEventNameSchema).default([]),
     })
+    .strict()
     .default({}),
-  refresh: z
-    .object({
-      mode: z.enum(["manual", "schedule"]),
-      cron: z.string().optional(),
-    })
-    .optional(),
-});
+  refresh: refreshSchema.optional(),
+}).strict();
 
 export type ModuleManifest = z.infer<typeof moduleManifestSchema>;
