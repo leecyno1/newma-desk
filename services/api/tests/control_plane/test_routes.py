@@ -163,11 +163,11 @@ def test_publish_missing_target_returns_not_found(client: TestClient) -> None:
     assert response.json() == {"detail": "module revision not found"}
 
 
-def test_disable_missing_module_returns_conflict(client: TestClient) -> None:
+def test_disable_missing_module_returns_not_found(client: TestClient) -> None:
     response = client.post("/api/modules/missing/disable")
 
-    assert response.status_code == 409
-    assert response.json() == {"detail": "invalid module state"}
+    assert response.status_code == 404
+    assert response.json() == {"detail": "module revision not found"}
 
 
 def test_rollback_missing_target_returns_not_found(client: TestClient) -> None:
@@ -192,6 +192,19 @@ def test_invalid_publish_state_returns_conflict(client: TestClient) -> None:
 
 def test_invalid_disable_state_returns_conflict(client: TestClient) -> None:
     client.post("/api/modules/drafts", json=MANIFEST)
+
+    response = client.post("/api/modules/market-daily/disable")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "invalid module state"}
+
+
+def test_disabled_module_cannot_be_disabled_again(client: TestClient) -> None:
+    draft = client.post("/api/modules/drafts", json=MANIFEST).json()
+    client.post(
+        f"/api/modules/market-daily/revisions/{draft['revision']}/publish"
+    )
+    client.post("/api/modules/market-daily/disable")
 
     response = client.post("/api/modules/market-daily/disable")
 

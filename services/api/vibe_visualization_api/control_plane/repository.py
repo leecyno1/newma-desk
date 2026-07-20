@@ -182,6 +182,19 @@ class ModuleRepository:
         with self._transaction() as connection:
             current = self._get_published_row(connection, module_id)
             if current is None:
+                exists = connection.execute(
+                    """
+                    SELECT 1
+                    FROM module_revisions
+                    WHERE module_id = ?
+                    LIMIT 1
+                    """,
+                    (module_id,),
+                ).fetchone()
+                if exists is None:
+                    raise ModuleNotFoundError(
+                        f"module {module_id!r} was not found"
+                    )
                 raise InvalidModuleStateError(
                     f"module {module_id!r} has no published revision to disable"
                 )

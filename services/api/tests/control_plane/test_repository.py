@@ -121,6 +121,25 @@ def test_disable_without_published_revision_raises_invalid_state(
         repo.disable("market-daily")
 
 
+def test_disable_missing_module_raises_not_found(tmp_path: Path) -> None:
+    repo = ModuleRepository(tmp_path / "registry.db")
+
+    with pytest.raises(ModuleNotFoundError):
+        repo.disable("missing")
+
+
+def test_disable_already_disabled_module_raises_invalid_state(
+    tmp_path: Path,
+) -> None:
+    repo = ModuleRepository(tmp_path / "registry.db")
+    draft = repo.create_draft(MANIFEST)
+    repo.publish("market-daily", draft.revision)
+    repo.disable("market-daily")
+
+    with pytest.raises(InvalidModuleStateError):
+        repo.disable("market-daily")
+
+
 def test_rollback_to_current_published_revision_raises_invalid_state(
     tmp_path: Path,
 ) -> None:
