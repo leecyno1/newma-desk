@@ -1,0 +1,33 @@
+{
+  "name": "@vibe-visualization/structured-renderer",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test:run": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vibe-visualization/contracts": "0.1.0",
+    "echarts": "^6.0.0",
+    "echarts-for-react": "^3.0.2",
+    "react": "^19.0.0",
+    "react-markdown": "^9.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^27.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.4.0",
+    "vitest": "^4.0.0"
+  },
+  "peerDependencies": {
+    "react-dom": "^19.0.0"
+  }
+}
