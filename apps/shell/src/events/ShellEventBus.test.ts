@@ -223,6 +223,20 @@ describe("ShellEventBus", () => {
     );
   });
 
+  it("notifies the shell event log and supports unsubscribe", () => {
+    const bus = new ShellEventBus(runtime());
+    const observed = vi.fn();
+    const unsubscribe = bus.subscribe(observed);
+    const first = event();
+
+    bus.route(first);
+    unsubscribe();
+    bus.route(event({ traceId: "trace-2" }));
+
+    expect(observed).toHaveBeenCalledTimes(1);
+    expect(observed).toHaveBeenCalledWith(first);
+  });
+
   it("does not route hostile events received from the broadcast channel", () => {
     const bus = new ShellEventBus(runtime());
     const target = targetWindow();

@@ -1,6 +1,8 @@
 import { AlertTriangle, Boxes, Eye, LoaderCircle, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { ModuleEvent } from "@vibe-visualization/contracts";
+
 import {
   getModuleRevision,
   listModules,
@@ -31,6 +33,11 @@ function rememberSelection(moduleId: string) {
   } catch {
     // A blocked storage backend must not prevent module navigation.
   }
+}
+
+function eventSummary(event: ModuleEvent): string {
+  const symbol = event.payload.symbol;
+  return `${event.event}${typeof symbol === "string" ? ` · ${symbol}` : ""}`;
 }
 
 function preferredModule(modules: StoredModule[]): StoredModule | undefined {
@@ -74,6 +81,7 @@ function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
 
 export function App() {
   const [eventBus] = useState(() => new ShellEventBus());
+  const [lastEvent, setLastEvent] = useState<ModuleEvent>();
   const [modules, setModules] = useState<StoredModule[]>([]);
   const modulesRef = useRef<StoredModule[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -211,6 +219,8 @@ export function App() {
     return () => eventBus.close();
   }, [eventBus]);
 
+  useEffect(() => eventBus.subscribe(setLastEvent), [eventBus]);
+
   useEffect(() => {
     void loadRegistry();
     syncLocation();
@@ -297,6 +307,12 @@ export function App() {
             manifest={activeModule.manifest}
             eventBus={eventBus}
           />
+        ) : null}
+        {lastEvent ? (
+          <div className="shell-event-log" aria-label="模块事件日志">
+            <span>最近事件</span>
+            <code>{eventSummary(lastEvent)}</code>
+          </div>
         ) : null}
       </main>
     </div>

@@ -68,6 +68,7 @@ export class ShellEventBus {
     ShellEventRegistration
   >();
   private readonly traces = new TraceCache();
+  private readonly observers = new Set<(event: ModuleEvent) => void>();
   private readonly channel?: BroadcastChannelPort;
   private closed = false;
 
@@ -112,10 +113,17 @@ export class ShellEventBus {
     this.routeValidated(value, sourceWindow);
   }
 
+  subscribe(handler: (event: ModuleEvent) => void): () => void {
+    if (this.closed) return () => undefined;
+    this.observers.add(handler);
+    return () => this.observers.delete(handler);
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;
     this.channel?.close();
+    this.observers.clear();
     this.registrationsByModule.clear();
     this.registrationsByWindow.clear();
   }
@@ -135,6 +143,7 @@ export class ShellEventBus {
       this.routeBroadcast(event, sourceWindow);
     }
 
+    for (const observer of this.observers) observer(event);
     this.channel?.postMessage(event);
   }
 

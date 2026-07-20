@@ -313,6 +313,24 @@ iframe:focus-visible {
   border-radius: 10px;
 }
 
+.shell-event-log {
+  display: flex;
+  min-height: 34px;
+  flex: none;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px;
+  border-top: 1px solid #272a2c;
+  color: #8c9496;
+  background: #121516;
+  font-size: 11px;
+}
+
+.shell-event-log code {
+  color: #9edfcf;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 .frame-error {
   color: #ffc9c0;
   border: 1px solid #603a35;

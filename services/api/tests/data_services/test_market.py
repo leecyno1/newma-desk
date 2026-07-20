@@ -52,7 +52,15 @@ def test_market_snapshot_has_stable_shape() -> None:
     assert snapshot["leaders"][0]["symbol"] == "600519"
     assert snapshot["leaders"][0]["market"] == "CN"
     assert "rawResponse" not in str(snapshot)
-    assert snapshot["charts"]["indexTrend"]["series"][0]["data"] == [0.8]
+    assert snapshot["charts"]["indexTrend"]["series"][0]["data"] == [
+        {"value": 0.8, "itemStyle": {"color": "#e66a62"}}
+    ]
+    assert snapshot["charts"]["indexTrend"]["series"][0]["label"] == {
+        "show": True,
+        "formatter": "{c}%",
+        "color": "#c9cfcd",
+    }
+    assert snapshot["charts"]["indexTrend"]["animation"] is False
 
 
 def test_research_base_url_is_server_configuration_without_credentials() -> None:

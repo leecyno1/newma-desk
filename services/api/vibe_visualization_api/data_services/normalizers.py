@@ -138,6 +138,21 @@ def normalize_market_snapshot(
     normalized_indices = _normalize_indices(indices)
     normalized_global = _normalize_global_indices(global_indices)
     normalized_leaders = _normalize_leaders(leaders)
+    chart_data = [
+        {
+            "value": item["changePct"],
+            "itemStyle": {
+                "color": (
+                    "#e66a62"
+                    if item["changePct"] > 0
+                    else "#49b68f"
+                    if item["changePct"] < 0
+                    else "#7f8789"
+                )
+            },
+        }
+        for item in normalized_indices
+    ]
     timestamp = as_of or overview_row.get("updated")
     if timestamp is None and isinstance(leaders, dict):
         timestamp = leaders.get("updated")
@@ -154,22 +169,40 @@ def normalize_market_snapshot(
         "leaders": normalized_leaders,
         "charts": {
             "indexTrend": {
-                "tooltip": {"trigger": "axis"},
+                "animation": False,
+                "tooltip": {
+                    "trigger": "axis",
+                    "backgroundColor": "#171a1b",
+                    "borderColor": "#3a3f41",
+                    "textStyle": {"color": "#eef1f0"},
+                },
+                "grid": {"left": 56, "right": 24, "top": 42, "bottom": 42},
                 "xAxis": {
                     "type": "category",
                     "data": [item["name"] for item in normalized_indices],
+                    "axisLine": {"lineStyle": {"color": "#4a5052"}},
+                    "axisLabel": {"color": "#8f9698"},
+                    "axisTick": {"show": False},
                 },
                 "yAxis": {
                     "type": "value",
-                    "axisLabel": {"formatter": "{value}%"},
+                    "axisLabel": {
+                        "formatter": "{value}%",
+                        "color": "#8f9698",
+                    },
+                    "splitLine": {"lineStyle": {"color": "#2a2e30"}},
                 },
                 "series": [
                     {
                         "name": "涨跌幅",
                         "type": "bar",
-                        "data": [
-                            item["changePct"] for item in normalized_indices
-                        ],
+                        "barMaxWidth": 52,
+                        "data": chart_data,
+                        "label": {
+                            "show": True,
+                            "formatter": "{c}%",
+                            "color": "#c9cfcd",
+                        },
                     }
                 ],
             }
