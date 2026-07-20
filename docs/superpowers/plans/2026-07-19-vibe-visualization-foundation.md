@@ -781,8 +781,8 @@ The Shell must:
 - Store the selected module ID in the `module` query parameter and localStorage.
 - Render an offline/error card without removing other modules.
 - Provide an “独立打开” link using the same manifest URL.
-- Support `?preview={module_id}@{revision}` by loading the exact draft revision from the revision API, showing a persistent “预览，尚未发布” banner, and never adding that draft to the normal sidebar.
-- Resolve `structured` and `static` entry paths against `VITE_MODULE_ORIGIN` (default `http://127.0.0.1:5891`). External entries keep their absolute URL. Reject a local module origin equal to `window.location.origin` so `allow-same-origin` never gives a module access to the Shell origin.
+- Support `?preview={module_id}@{revision}` by loading the exact draft revision from the revision API, showing a persistent “预览，尚未发布” banner, and never adding that draft to the normal sidebar. Accept only API rows whose status is `draft`; abort or ignore stale preview requests when the target changes, preview mode exits, or the component unmounts.
+- Resolve `structured` and `static` entry paths against `VITE_MODULE_ORIGIN` (default `http://127.0.0.1:5891`). External entries keep their absolute URL. After resolution, reject every entry type whose final origin equals `window.location.origin` so `allow-same-origin` never gives a module access to the Shell origin.
 
 `ModuleFrame` must render:
 
@@ -796,7 +796,9 @@ The Shell must:
 />
 ```
 
-`allow-same-origin` is permitted only because static/structured modules are served from the dedicated module origin. Add a unit test that rejects a module origin matching the Shell origin.
+`allow-same-origin` is permitted only because modules are served from an origin distinct from the Shell. Add unit tests that reject same-origin local and external entries. Treat iframe `onError` as best-effort UI only; it is not the module health protocol.
+
+Add regression tests for preview target switching, leaving preview before a request resolves, and non-draft revision responses.
 
 - [ ] **Step 6: Run shell tests, type checking, and build**
 
