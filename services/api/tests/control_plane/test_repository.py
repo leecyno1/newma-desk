@@ -199,6 +199,30 @@ def test_disable_and_rollback_write_audit_events(tmp_path: Path) -> None:
     assert json.loads(rollback[3]) == {"source_revision": second.revision}
 
 
+def test_rollback_recovers_module_after_current_revision_is_disabled(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "registry.db"
+    repo = ModuleRepository(database_path)
+    first = repo.create_draft(MANIFEST)
+    repo.publish("market-daily", first.revision)
+    second = repo.create_draft({**MANIFEST, "version": "0.2.0"})
+    repo.publish("market-daily", second.revision)
+    repo.disable("market-daily")
+
+    rolled_back = repo.rollback("market-daily", first.revision)
+
+    assert rolled_back.status == "published"
+    assert rolled_back.revision == first.revision
+    assert repo.list_published() == [rolled_back]
+    with sqlite3.connect(database_path) as connection:
+        detail_json = connection.execute(
+            "SELECT detail_json FROM audit_events "
+            "WHERE event_type = 'rollback' ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+    assert json.loads(detail_json) == {"source_revision": None}
+
+
 def test_two_repository_instances_allocate_unique_revisions(tmp_path: Path) -> None:
     database_path = tmp_path / "registry.db"
     first_repo = ModuleRepository(database_path)

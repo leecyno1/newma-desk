@@ -212,24 +212,17 @@ class ModuleRepository:
                     "before rollback"
                 )
             current = self._get_published_row(connection, module_id)
-            if current is None:
-                raise InvalidModuleStateError(
-                    f"module {module_id!r} has no published revision to roll back"
+            source_revision: int | None = None
+            if current is not None:
+                source_revision = cast(int, current["revision"])
+                connection.execute(
+                    """
+                    UPDATE module_revisions
+                    SET status = 'disabled'
+                    WHERE module_id = ? AND revision = ?
+                    """,
+                    (module_id, source_revision),
                 )
-            source_revision = cast(int, current["revision"])
-            if source_revision == revision:
-                raise InvalidModuleStateError(
-                    f"module {module_id!r} revision {revision} is already published"
-                )
-
-            connection.execute(
-                """
-                UPDATE module_revisions
-                SET status = 'disabled'
-                WHERE module_id = ? AND revision = ?
-                """,
-                (module_id, source_revision),
-            )
             connection.execute(
                 """
                 UPDATE module_revisions

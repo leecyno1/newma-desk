@@ -21,6 +21,14 @@ MANIFEST = {
 }
 
 
+def _path_snapshot(path: Path) -> tuple[int, int, int, int] | None:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
 def test_module_must_be_published_before_sidebar_listing(
     client: TestClient,
 ) -> None:
@@ -43,6 +51,8 @@ def test_module_must_be_published_before_sidebar_listing(
 def test_app_factory_settings_drive_repository_dependency(
     tmp_path: Path,
 ) -> None:
+    default_database_path = Path("runtime/vibe-visualization.db")
+    default_database_before = _path_snapshot(default_database_path)
     database_path = tmp_path / "factory-settings.db"
     application = create_app(
         Settings(runtime_dir=tmp_path, database_path=database_path)
@@ -56,7 +66,7 @@ def test_app_factory_settings_drive_repository_dependency(
 
     assert response.status_code == 201
     assert database_path.exists()
-    assert not Path("runtime/vibe-visualization.db").exists()
+    assert _path_snapshot(default_database_path) == default_database_before
 
 
 def test_get_exact_revision_preserves_camel_case_manifest(
@@ -115,8 +125,53 @@ def test_rollback_republishes_disabled_prior_revision(
     assert client.get("/api/modules").json()[0]["revision"] == first["revision"]
 
 
+def test_rollback_recovers_module_after_disable(client: TestClient) -> None:
+    first = client.post("/api/modules/drafts", json=MANIFEST).json()
+    client.post(
+        f"/api/modules/market-daily/revisions/{first['revision']}/publish"
+    )
+    second = client.post(
+        "/api/modules/drafts",
+        json={**MANIFEST, "version": "0.2.0"},
+    ).json()
+    client.post(
+        f"/api/modules/market-daily/revisions/{second['revision']}/publish"
+    )
+    client.post("/api/modules/market-daily/disable")
+
+    response = client.post(
+        f"/api/modules/market-daily/revisions/{first['revision']}/rollback"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "published"
+    assert response.json()["revision"] == first["revision"]
+    assert client.get("/api/modules").json() == [response.json()]
+
+
 def test_missing_revision_returns_not_found(client: TestClient) -> None:
     response = client.get("/api/modules/missing/revisions/999")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "module revision not found"}
+
+
+def test_publish_missing_target_returns_not_found(client: TestClient) -> None:
+    response = client.post("/api/modules/missing/revisions/999/publish")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "module revision not found"}
+
+
+def test_disable_missing_module_returns_conflict(client: TestClient) -> None:
+    response = client.post("/api/modules/missing/disable")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "invalid module state"}
+
+
+def test_rollback_missing_target_returns_not_found(client: TestClient) -> None:
+    response = client.post("/api/modules/missing/revisions/999/rollback")
 
     assert response.status_code == 404
     assert response.json() == {"detail": "module revision not found"}
