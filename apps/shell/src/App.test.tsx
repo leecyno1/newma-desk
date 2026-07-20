@@ -41,6 +41,7 @@ function storedModule({
   name,
   category,
   entry,
+  navigation,
   revision = 1,
   status = "published",
 }: {
@@ -50,6 +51,7 @@ function storedModule({
   entry:
     | { type: "structured" | "static"; url: string }
     | { type: "external"; url: string };
+  navigation?: StoredModule["manifest"]["navigation"];
   revision?: number;
   status?: StoredModule["status"];
 }): StoredModule {
@@ -63,6 +65,7 @@ function storedModule({
       name,
       version: "0.1.0",
       category,
+      ...(navigation ? { navigation } : {}),
       entry,
       permissions: ["market.read"],
       dataServices: ["market-data"],
@@ -95,6 +98,68 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("uses module navigation metadata for the Web Base sidebar", async () => {
+    const laterResearch = storedModule({
+      id: "research-later",
+      name: "后置研究",
+      category: "research-custom",
+      navigation: {
+        groupLabel: "研究工作",
+        groupOrder: 30,
+        itemOrder: 20,
+        icon: "research",
+      },
+      entry: { type: "static", url: "/modules/research-later/" },
+    });
+    const firstResearch = storedModule({
+      id: "research-first",
+      name: "前置研究",
+      category: "research-custom",
+      navigation: {
+        groupLabel: "研究工作",
+        groupOrder: 30,
+        itemOrder: 10,
+        icon: "research",
+      },
+      entry: { type: "static", url: "/modules/research-first/" },
+    });
+    const firstGroup = storedModule({
+      id: "quant-first",
+      name: "量化入口",
+      category: "quant-custom",
+      navigation: {
+        groupLabel: "量化工作",
+        groupOrder: 10,
+        itemOrder: 10,
+        icon: "quant",
+      },
+      entry: { type: "structured", url: "/modules/quant-first/" },
+    });
+    const fallback = storedModule({
+      id: "custom-module",
+      name: "自定义模块",
+      category: "custom",
+      entry: { type: "structured", url: "/modules/custom-module/" },
+    });
+    serveRegistry([laterResearch, fallback, firstGroup, firstResearch]);
+
+    render(<App />);
+
+    expect(await screen.findByText("Vibe Visualization")).toBeVisible();
+    expect(screen.getByText("Web Base")).toBeVisible();
+    const navigation = screen.getByRole("navigation", { name: "研究模块" });
+    expect(
+      within(navigation)
+        .getAllByRole("heading", { level: 2 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["量化工作", "研究工作", "custom"]);
+    expect(
+      within(
+        screen.getByRole("group", { name: "研究工作" }),
+      ).getAllByRole("button").map((button) => button.textContent),
+    ).toEqual(["前置研究", "后置研究"]);
+  });
+
   it("closes its shell event bus on unmount", async () => {
     const close = vi.spyOn(ShellEventBus.prototype, "close");
     serveRegistry([marketModule]);

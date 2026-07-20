@@ -75,7 +75,10 @@ iframe:focus-visible {
 }
 
 .brand strong {
+  font-size: 13px;
+  line-height: 1.2;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .brand small {

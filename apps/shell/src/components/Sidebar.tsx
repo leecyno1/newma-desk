@@ -16,23 +16,48 @@ interface SidebarProps {
   loading: boolean;
 }
 
-const categoryLabels: Record<string, string> = {
-  research: "研究",
-  market: "市场",
-  quant: "量化",
-};
-
-const categoryOrder: Record<string, number> = {
-  research: 0,
-  market: 1,
-  quant: 2,
-};
-
 const categoryIcons = {
   research: BookOpenText,
   market: BarChart3,
   quant: Binary,
+  module: Boxes,
 } as const;
+
+const legacyNavigation = {
+  research: {
+    groupLabel: "研究",
+    groupOrder: 0,
+    itemOrder: 100,
+    icon: "research" as const,
+  },
+  market: {
+    groupLabel: "市场",
+    groupOrder: 10,
+    itemOrder: 100,
+    icon: "market" as const,
+  },
+  quant: {
+    groupLabel: "量化",
+    groupOrder: 20,
+    itemOrder: 100,
+    icon: "quant" as const,
+  },
+};
+
+function navigationFor(module: StoredModule) {
+  return (
+    module.manifest.navigation ?? {
+      ...(legacyNavigation[
+        module.manifest.category as keyof typeof legacyNavigation
+      ] ?? {
+        groupLabel: module.manifest.category,
+        groupOrder: 100,
+        itemOrder: 100,
+        icon: "module" as const,
+      }),
+    }
+  );
+}
 
 function groupedModules(modules: StoredModule[]) {
   const groups = new Map<string, StoredModule[]>();
@@ -44,18 +69,41 @@ function groupedModules(modules: StoredModule[]) {
   }
 
   return [...groups.entries()]
-    .sort(([left], [right]) => {
-      const orderDifference =
-        (categoryOrder[left] ?? Number.MAX_SAFE_INTEGER) -
-        (categoryOrder[right] ?? Number.MAX_SAFE_INTEGER);
-      return orderDifference || left.localeCompare(right);
+    .map(([category, categoryModules]) => {
+      const sortedModules = [...categoryModules].sort((left, right) => {
+        const orderDifference =
+          navigationFor(left).itemOrder - navigationFor(right).itemOrder;
+        return orderDifference || left.moduleId.localeCompare(right.moduleId);
+      });
+      const representative = [...sortedModules].sort((left, right) => {
+        const groupDifference =
+          navigationFor(left).groupOrder - navigationFor(right).groupOrder;
+        if (groupDifference) return groupDifference;
+        const itemDifference =
+          navigationFor(left).itemOrder - navigationFor(right).itemOrder;
+        return itemDifference || left.moduleId.localeCompare(right.moduleId);
+      })[0];
+      const navigation = representative
+        ? navigationFor(representative)
+        : {
+            groupLabel: category,
+            groupOrder: 100,
+            itemOrder: 100,
+            icon: "module" as const,
+          };
+
+      return {
+        category,
+        label: navigation.groupLabel,
+        order: navigation.groupOrder,
+        icon: navigation.icon,
+        modules: sortedModules,
+      };
     })
-    .map(([category, categoryModules]) => ({
-      category,
-      modules: [...categoryModules].sort((left, right) =>
-        left.moduleId.localeCompare(right.moduleId),
-      ),
-    }));
+    .sort((left, right) => {
+      const orderDifference = left.order - right.order;
+      return orderDifference || left.category.localeCompare(right.category);
+    });
 }
 
 export function Sidebar({
@@ -72,15 +120,14 @@ export function Sidebar({
           <Boxes size={20} />
         </span>
         <span>
-          <strong>Vibe</strong>
-          <small>Research Shell</small>
+          <strong>Vibe Visualization</strong>
+          <small>Web Base</small>
         </span>
       </div>
       <nav aria-label="研究模块" className="module-nav">
-        {groupedModules(modules).map(({ category, modules: group }) => {
-          const label = categoryLabels[category] ?? category;
-          const Icon =
-            categoryIcons[category as keyof typeof categoryIcons] ?? Boxes;
+        {groupedModules(modules).map(
+          ({ category, icon, label, modules: group }) => {
+          const Icon = categoryIcons[icon] ?? Boxes;
           const headingId = `category-${category}`;
 
           return (
@@ -109,7 +156,8 @@ export function Sidebar({
               ))}
             </section>
           );
-        })}
+          },
+        )}
       </nav>
       <button
         className="reload-button"
