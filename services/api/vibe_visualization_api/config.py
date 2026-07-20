@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     trade_confirmation_secret: SecretStr = SecretStr("")
     research_base_url: str = "http://127.0.0.1:8900"
     research_api_key: SecretStr = SecretStr("")
+    enable_scheduler: bool = False
+    scheduler_poll_seconds: float = Field(default=30.0, gt=0, le=3600)
 
     @field_validator("openai_base_url")
     @classmethod

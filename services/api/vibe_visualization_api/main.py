@@ -1,6 +1,7 @@
 import asyncio
 import sqlite3
 from collections.abc import Sequence
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +26,7 @@ from vibe_visualization_api.agent_gateway.store import (
 from vibe_visualization_api.config import Settings, get_settings
 from vibe_visualization_api.control_plane.repository import (
     InvalidModuleStateError,
+    ModuleRepository,
     ModuleNotFoundError,
 )
 from vibe_visualization_api.control_plane.routes import router as modules_router
@@ -42,9 +44,15 @@ from vibe_visualization_api.data_services.registry import (
     DataServiceNotFoundError,
     DataServiceRegistry,
 )
+from vibe_visualization_api.data_services.market import VibeResearchMarketClient
 from vibe_visualization_api.data_services.routes import router as data_services_router
+from vibe_visualization_api.scheduler.service import (
+    RefreshSchedulerService,
+    SchedulerLifecycle,
+)
+from vibe_visualization_api.scheduler.store import SchedulerStore
 from vibe_visualization_api.snapshots.routes import router as snapshots_router
-from vibe_visualization_api.snapshots.store import SnapshotNotFoundError
+from vibe_visualization_api.snapshots.store import SnapshotNotFoundError, SnapshotStore
 
 
 def create_app(
@@ -53,6 +61,7 @@ def create_app(
     agent_adapters: Sequence[AgentAdapter] | None = None,
     data_services: Sequence[DataServiceDescriptor] | None = None,
     data_service_client: DataServiceClient | None = None,
+    scheduler_service: SchedulerLifecycle | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     configured_adapters = (
@@ -64,7 +73,29 @@ def create_app(
         configured_adapters,
         default_id=app_settings.agent_default_adapter,
     )
-    application = FastAPI(title="vibe-visualization API", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        active_scheduler = application.state.scheduler_service
+        if app_settings.enable_scheduler:
+            if active_scheduler is None:
+                active_scheduler = application.state.scheduler_service_factory()
+                application.state.scheduler_service = active_scheduler
+            await active_scheduler.start()
+        try:
+            yield
+        finally:
+            if app_settings.enable_scheduler and active_scheduler is not None:
+                await active_scheduler.stop()
+            agent_service = application.state.agent_task_service
+            if agent_service is not None:
+                await agent_service.shutdown()
+
+    application = FastAPI(
+        title="vibe-visualization API",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
     application.dependency_overrides[get_settings] = lambda: app_settings
     application.state.agent_task_service = None
     application.state.agent_task_service_lock = asyncio.Lock()
@@ -77,6 +108,24 @@ def create_app(
         )
 
     application.state.agent_task_service_factory = create_agent_task_service
+    application.state.scheduler_service = scheduler_service
+
+    def create_scheduler_service() -> RefreshSchedulerService:
+        return RefreshSchedulerService(
+            store=SchedulerStore(app_settings.database_path),
+            repository=ModuleRepository(app_settings.database_path),
+            snapshot_store=SnapshotStore(
+                app_settings.runtime_dir,
+                app_settings.database_path,
+            ),
+            market_client=VibeResearchMarketClient(
+                app_settings.research_base_url,
+                api_key=app_settings.research_api_key.get_secret_value(),
+            ),
+            poll_seconds=app_settings.scheduler_poll_seconds,
+        )
+
+    application.state.scheduler_service_factory = create_scheduler_service
     application.state.data_service_registry = DataServiceRegistry(
         list(data_services or [])
     )
@@ -201,13 +250,6 @@ def create_app(
             status_code=502,
             content={"detail": "data service upstream failed"},
         )
-
-    async def shutdown_agent_gateway() -> None:
-        service = application.state.agent_task_service
-        if service is not None:
-            await service.shutdown()
-
-    application.router.add_event_handler("shutdown", shutdown_agent_gateway)
 
     @application.get("/api/health")
     def health() -> dict[str, bool | str]:
