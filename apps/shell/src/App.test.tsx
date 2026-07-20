@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,6 +78,14 @@ function storedModule({
 
 function serveRegistry(modules: StoredModule[]) {
   server.use(http.get("/api/modules", () => HttpResponse.json(modules)));
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 afterEach(() => vi.unstubAllEnvs());
@@ -228,6 +243,28 @@ describe("App", () => {
     ).toBeVisible();
   });
 
+  it("rejects a same-origin external module without removing the sidebar", async () => {
+    const sameOriginExternal = storedModule({
+      id: "external-local",
+      name: "同源外部模块",
+      category: "research",
+      entry: {
+        type: "external",
+        url: `${window.location.origin}/embedded`,
+      },
+    });
+    serveRegistry([sameOriginExternal]);
+    render(<App />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "模块页面必须使用与 Web Shell 不同的 origin",
+    );
+    expect(screen.queryByRole("iframe")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "同源外部模块" }),
+    ).toBeVisible();
+  });
+
   it("keeps an external URL and exposes it through the open link", async () => {
     const external = storedModule({
       id: "external-research",
@@ -266,6 +303,111 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "重试" })).toBeVisible();
   });
 
+  it("ignores an older preview response after switching preview targets", async () => {
+    const firstStarted = deferred();
+    const releaseFirst = deferred();
+    const firstDraft = storedModule({
+      id: "preview-one",
+      name: "预览一",
+      category: "quant",
+      entry: { type: "structured", url: "/modules/preview-one/" },
+      revision: 1,
+      status: "draft",
+    });
+    const secondDraft = storedModule({
+      id: "preview-two",
+      name: "预览二",
+      category: "quant",
+      entry: { type: "structured", url: "/modules/preview-two/" },
+      revision: 2,
+      status: "draft",
+    });
+    window.history.replaceState(null, "", "/?preview=preview-one@1");
+    serveRegistry([marketModule]);
+    server.use(
+      http.get("/api/modules/preview-one/revisions/1", async () => {
+        firstStarted.resolve();
+        await releaseFirst.promise;
+        return HttpResponse.json(firstDraft);
+      }),
+      http.get("/api/modules/preview-two/revisions/2", () =>
+        HttpResponse.json(secondDraft),
+      ),
+    );
+    render(<App />);
+    await firstStarted.promise;
+
+    window.history.replaceState(null, "", "/?preview=preview-two@2");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect(await screen.findByTitle("预览二")).toBeVisible();
+
+    await act(async () => releaseFirst.resolve());
+
+    await waitFor(() => {
+      expect(screen.getByTitle("预览二")).toBeVisible();
+      expect(screen.queryByTitle("预览一")).not.toBeInTheDocument();
+    });
+  });
+
+  it("ignores a stale preview error after returning to a published module", async () => {
+    const previewStarted = deferred();
+    const releasePreview = deferred();
+    window.history.replaceState(null, "", "/?preview=preview-one@1");
+    serveRegistry([marketModule]);
+    server.use(
+      http.get("/api/modules/preview-one/revisions/1", async () => {
+        previewStarted.resolve();
+        await releasePreview.promise;
+        return new HttpResponse(null, { status: 503 });
+      }),
+    );
+    render(<App />);
+    await previewStarted.promise;
+
+    window.history.replaceState(null, "", "/?module=market-daily");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect(await screen.findByTitle("每日股票行情")).toBeVisible();
+
+    await act(async () => releasePreview.resolve());
+
+    await waitFor(() => {
+      expect(screen.getByTitle("每日股票行情")).toBeVisible();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByText("预览，尚未发布")).not.toBeInTheDocument();
+    });
+  });
+
+  it.each(["published", "disabled"] as const)(
+    "rejects a %s revision as a draft preview",
+    async (status) => {
+      const nonDraft = storedModule({
+        id: "preview-lab",
+        name: "非草稿修订",
+        category: "quant",
+        entry: { type: "structured", url: "/modules/preview-lab/" },
+        revision: 7,
+        status,
+      });
+      window.history.replaceState(null, "", "/?preview=preview-lab@7");
+      serveRegistry([marketModule]);
+      server.use(
+        http.get("/api/modules/preview-lab/revisions/7", () =>
+          HttpResponse.json(nonDraft),
+        ),
+      );
+      render(<App />);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "仅草稿修订可预览",
+      );
+      expect(screen.queryByTitle("非草稿修订")).not.toBeInTheDocument();
+      expect(screen.queryByText("预览，尚未发布")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "每日股票行情" }),
+      ).toBeVisible();
+    },
+  );
+
   it("orders category groups and module buttons deterministically", async () => {
     const secondMarket = storedModule({
       id: "market-alpha",
@@ -298,7 +440,7 @@ describe("App", () => {
     fireEvent.error(frame);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "模块页面加载失败",
+      "模块页面可能未能加载",
     );
     expect(
       screen.getByRole("button", { name: "每日股票行情" }),

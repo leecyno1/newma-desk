@@ -32,4 +32,14 @@ describe("resolveModuleUrl", () => {
       ),
     ).toThrow("模块服务必须使用与 Web Shell 不同的 origin");
   });
+
+  it("rejects a same-origin external entry", () => {
+    expect(() =>
+      resolveModuleUrl(
+        { type: "external", url: "http://localhost:5173/embedded" },
+        "http://127.0.0.1:5891",
+        "http://localhost:5173",
+      ),
+    ).toThrow("模块页面必须使用与 Web Shell 不同的 origin");
+  });
 });

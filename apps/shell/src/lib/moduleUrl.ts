@@ -7,14 +7,21 @@ export function resolveModuleUrl(
   configuredOrigin = import.meta.env.VITE_MODULE_ORIGIN as string | undefined,
   shellOrigin = window.location.origin,
 ): string {
-  if (entry.type === "external") return entry.url;
+  const resolved =
+    entry.type === "external"
+      ? new URL(entry.url)
+      : new URL(
+          entry.url,
+          `${new URL(configuredOrigin || DEFAULT_MODULE_ORIGIN).origin}/`,
+        );
 
-  const moduleOrigin = new URL(configuredOrigin || DEFAULT_MODULE_ORIGIN);
-  if (moduleOrigin.origin === shellOrigin) {
+  if (resolved.origin === shellOrigin) {
     throw new Error(
-      "模块服务必须使用与 Web Shell 不同的 origin，请检查 VITE_MODULE_ORIGIN。",
+      entry.type === "external"
+        ? "模块页面必须使用与 Web Shell 不同的 origin。"
+        : "模块服务必须使用与 Web Shell 不同的 origin，请检查 VITE_MODULE_ORIGIN。",
     );
   }
 
-  return new URL(entry.url, `${moduleOrigin.origin}/`).toString();
+  return resolved.toString();
 }

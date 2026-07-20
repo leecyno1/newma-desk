@@ -78,9 +78,11 @@ export async function listModules(): Promise<StoredModule[]> {
 export async function getModuleRevision(
   moduleId: string,
   revision: string,
+  signal?: AbortSignal,
 ): Promise<StoredModule> {
   const response = await fetch(
     `/api/modules/${encodeURIComponent(moduleId)}/revisions/${encodeURIComponent(revision)}`,
+    { signal },
   );
   if (!response.ok) {
     throw new Error(`module registry returned ${response.status}`);

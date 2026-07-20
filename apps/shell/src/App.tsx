@@ -82,6 +82,14 @@ export function App() {
   const [preview, setPreview] = useState<StoredModule>();
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string>();
+  const previewRequestRef = useRef<AbortController | undefined>(undefined);
+  const previewRequestSequenceRef = useRef(0);
+
+  const cancelPreviewRequest = useCallback(() => {
+    previewRequestSequenceRef.current += 1;
+    previewRequestRef.current?.abort();
+    previewRequestRef.current = undefined;
+  }, []);
 
   const loadRegistry = useCallback(async () => {
     setRegistryLoading(true);
@@ -119,31 +127,65 @@ export function App() {
     }
   }, []);
 
-  const loadPreviewValue = useCallback(async (rawPreview: string) => {
-    setPreviewMode(true);
-    setPreview(undefined);
-    setPreviewError(undefined);
+  const loadPreviewValue = useCallback(
+    async (rawPreview: string) => {
+      cancelPreviewRequest();
+      const requestSequence = previewRequestSequenceRef.current;
+      setPreviewMode(true);
+      setPreview(undefined);
+      setPreviewError(undefined);
 
-    const match = PREVIEW_PATTERN.exec(rawPreview);
-    if (!match) {
-      setPreviewLoading(false);
-      setPreviewError("预览地址无效，请使用 module-id@revision。");
-      return;
-    }
+      const match = PREVIEW_PATTERN.exec(rawPreview);
+      if (!match) {
+        setPreviewLoading(false);
+        setPreviewError("预览地址无效，请使用 module-id@revision。");
+        return;
+      }
 
-    const moduleId = match[1];
-    const revision = match[2];
-    if (!moduleId || !revision) return;
+      const moduleId = match[1];
+      const revision = match[2];
+      if (!moduleId || !revision) return;
 
-    setPreviewLoading(true);
-    try {
-      setPreview(await getModuleRevision(moduleId, revision));
-    } catch (reason) {
-      setPreviewError(errorMessage(reason));
-    } finally {
-      setPreviewLoading(false);
-    }
-  }, []);
+      const controller = new AbortController();
+      previewRequestRef.current = controller;
+      setPreviewLoading(true);
+
+      try {
+        const result = await getModuleRevision(
+          moduleId,
+          revision,
+          controller.signal,
+        );
+        if (
+          controller.signal.aborted ||
+          previewRequestSequenceRef.current !== requestSequence
+        ) {
+          return;
+        }
+        if (result.status !== "draft") {
+          setPreviewError(
+            `仅草稿修订可预览，当前修订状态为 ${result.status}。`,
+          );
+          return;
+        }
+        setPreview(result);
+      } catch (reason) {
+        if (
+          controller.signal.aborted ||
+          previewRequestSequenceRef.current !== requestSequence
+        ) {
+          return;
+        }
+        setPreviewError(errorMessage(reason));
+      } finally {
+        if (previewRequestSequenceRef.current === requestSequence) {
+          previewRequestRef.current = undefined;
+          setPreviewLoading(false);
+        }
+      }
+    },
+    [cancelPreviewRequest],
+  );
 
   const syncLocation = useCallback(() => {
     const params = new URLSearchParams(window.location.search);
@@ -153,6 +195,7 @@ export function App() {
       return;
     }
 
+    cancelPreviewRequest();
     setPreviewMode(false);
     setPreview(undefined);
     setPreviewError(undefined);
@@ -160,16 +203,20 @@ export function App() {
     const selection = preferredModule(modulesRef.current);
     setSelectedId(selection?.moduleId);
     if (selection) rememberSelection(selection.moduleId);
-  }, [loadPreviewValue]);
+  }, [cancelPreviewRequest, loadPreviewValue]);
 
   useEffect(() => {
     void loadRegistry();
     syncLocation();
     window.addEventListener("popstate", syncLocation);
-    return () => window.removeEventListener("popstate", syncLocation);
-  }, [loadRegistry, syncLocation]);
+    return () => {
+      window.removeEventListener("popstate", syncLocation);
+      cancelPreviewRequest();
+    };
+  }, [cancelPreviewRequest, loadRegistry, syncLocation]);
 
   const selectModule = (module: StoredModule) => {
+    cancelPreviewRequest();
     setPreviewMode(false);
     setPreview(undefined);
     setPreviewError(undefined);
@@ -204,7 +251,7 @@ export function App() {
         loading={registryLoading}
       />
       <main className="shell-content">
-        {preview ? (
+        {previewMode && preview ? (
           <div className="preview-banner">
             <Eye size={16} aria-hidden="true" />
             预览，尚未发布

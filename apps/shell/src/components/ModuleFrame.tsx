@@ -31,6 +31,8 @@ export function ModuleFrame({ manifest }: ModuleFrameProps) {
     if (!frame) return;
 
     const handleLoad = () => setFrameState("ready");
+    // Browsers do not emit iframe error events for every navigation/network
+    // failure. This fallback is intentionally best-effort, not a health check.
     const handleError = () => setFrameState("error");
     frame.addEventListener("load", handleLoad);
     frame.addEventListener("error", handleError);
@@ -70,7 +72,7 @@ export function ModuleFrame({ manifest }: ModuleFrameProps) {
       {frameState === "error" ? (
         <div className="frame-message frame-error" role="alert">
           <TriangleAlert size={18} aria-hidden="true" />
-          模块页面加载失败，请稍后重试或独立打开。
+          模块页面可能未能加载，请尝试独立打开。
         </div>
       ) : null}
       <iframe
