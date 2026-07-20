@@ -170,6 +170,14 @@ class ModuleRepository:
         finally:
             connection.close()
 
+    def get_revision(self, module_id: str, revision: int) -> StoredModule:
+        connection = connect(self._database_path)
+        try:
+            row = self._get_revision_row(connection, module_id, revision)
+            return _stored_module(row)
+        finally:
+            connection.close()
+
     def disable(self, module_id: str) -> StoredModule:
         with self._transaction() as connection:
             current = self._get_published_row(connection, module_id)

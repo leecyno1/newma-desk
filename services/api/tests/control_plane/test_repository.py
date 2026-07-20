@@ -210,6 +210,20 @@ def test_two_repository_instances_allocate_unique_revisions(tmp_path: Path) -> N
     assert (first.revision, second.revision) == (1, 2)
 
 
+def test_get_revision_returns_exact_revision_and_missing_raises(
+    tmp_path: Path,
+) -> None:
+    repo = ModuleRepository(tmp_path / "registry.db")
+    first = repo.create_draft(MANIFEST)
+    second = repo.create_draft({**MANIFEST, "version": "0.2.0"})
+
+    assert repo.get_revision("market-daily", first.revision) == first
+    assert repo.get_revision("market-daily", second.revision) == second
+
+    with pytest.raises(ModuleNotFoundError):
+        repo.get_revision("market-daily", 999)
+
+
 @pytest.mark.parametrize(
     "manifest",
     [
