@@ -116,8 +116,10 @@ export function createModuleBridge(
 ): ModuleBridge {
   validateModuleId(config.moduleId);
   const parentOrigin = validateOrigin(config.parentOrigin);
-  const createChannel = runtime.createBroadcastChannel;
-  const channel = createChannel?.(EVENT_CHANNEL);
+  const embedded = runtime.window.parent !== runtime.window;
+  const channel = embedded
+    ? undefined
+    : runtime.createBroadcastChannel?.(EVENT_CHANNEL);
   const subscriptions = new Set<() => void>();
   let closed = false;
 
@@ -133,10 +135,11 @@ export function createModuleBridge(
       payload,
     });
 
-    if (runtime.window.parent !== runtime.window) {
+    if (embedded) {
       runtime.window.parent.postMessage(envelope, parentOrigin);
+    } else {
+      channel?.postMessage(envelope);
     }
-    channel?.postMessage(envelope);
     return envelope;
   };
 
@@ -166,15 +169,21 @@ export function createModuleBridge(
       deliver(message.data);
     };
 
-    runtime.window.addEventListener("message", handleParentMessage);
-    channel?.addEventListener("message", handleBroadcastMessage);
+    if (embedded) {
+      runtime.window.addEventListener("message", handleParentMessage);
+    } else {
+      channel?.addEventListener("message", handleBroadcastMessage);
+    }
 
     let subscribed = true;
     const unsubscribe = () => {
       if (!subscribed) return;
       subscribed = false;
-      runtime.window.removeEventListener("message", handleParentMessage);
-      channel?.removeEventListener("message", handleBroadcastMessage);
+      if (embedded) {
+        runtime.window.removeEventListener("message", handleParentMessage);
+      } else {
+        channel?.removeEventListener("message", handleBroadcastMessage);
+      }
       subscriptions.delete(unsubscribe);
     };
     subscriptions.add(unsubscribe);

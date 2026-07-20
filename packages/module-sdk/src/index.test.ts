@@ -111,13 +111,15 @@ function event(overrides: Partial<ModuleEvent> = {}): ModuleEvent {
 beforeEach(() => FakeBroadcastChannel.reset());
 
 describe("createModuleBridge", () => {
-  it("emits an embedded event to the exact parent origin and broadcast channel", () => {
+  it("emits an embedded event only to the exact parent origin", () => {
     const parent = { postMessage: vi.fn() };
     const fakeWindow = makeWindow(parent);
+    const handler = vi.fn();
     const bridge = createModuleBridge(
       { moduleId: "market-daily", parentOrigin: "https://shell.example" },
       runtime(fakeWindow),
     );
+    bridge.subscribe(handler);
 
     const emitted = bridge.emit(
       "security.selected",
@@ -137,8 +139,13 @@ describe("createModuleBridge", () => {
       emitted,
       "https://shell.example",
     );
-    expect(FakeBroadcastChannel.posts).toHaveLength(1);
-    expect(FakeBroadcastChannel.posts[0]?.data).toEqual(emitted);
+    expect(FakeBroadcastChannel.channels.size).toBe(0);
+    expect(FakeBroadcastChannel.posts).toHaveLength(0);
+
+    new FakeBroadcastChannel(CHANNEL_NAME).postMessage(
+      event({ target: "market-daily", traceId: "untrusted-peer" }),
+    );
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("emits a standalone event only to the broadcast channel", () => {
@@ -246,7 +253,7 @@ describe("createModuleBridge", () => {
     ]);
   });
 
-  it("deduplicates the same trace received from parent and broadcast", () => {
+  it("deduplicates the same trace received repeatedly from the parent", () => {
     const parent = { postMessage: vi.fn() };
     const fakeWindow = makeWindow(parent);
     const handler = vi.fn();
@@ -262,7 +269,11 @@ describe("createModuleBridge", () => {
       origin: "https://shell.example",
       source: parent as unknown as Window,
     } as MessageEvent);
-    new FakeBroadcastChannel(CHANNEL_NAME).postMessage(duplicate);
+    fakeWindow.dispatchMessage({
+      data: duplicate,
+      origin: "https://shell.example",
+      source: parent as unknown as Window,
+    } as MessageEvent);
 
     expect(handler).toHaveBeenCalledTimes(1);
   });

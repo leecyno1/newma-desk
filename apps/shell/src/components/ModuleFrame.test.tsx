@@ -15,7 +15,10 @@ const manifest: ModuleManifest = {
   permissions: [],
   dataServices: [],
   agentCapabilities: [],
-  events: { emits: ["security.selected"], accepts: [] },
+  events: {
+    emits: ["security.selected"],
+    accepts: ["security.selected"],
+  },
 };
 
 function event(overrides: Partial<ModuleEvent> = {}): ModuleEvent {
@@ -48,6 +51,7 @@ describe("ModuleFrame event boundary", () => {
     const frame = screen.getByTitle("每日股票行情") as HTMLIFrameElement;
     const valid = event();
 
+    fireEvent.load(frame);
     dispatchFromFrame(frame, valid);
 
     expect(route).toHaveBeenCalledWith(valid, frame.contentWindow);
@@ -75,6 +79,7 @@ describe("ModuleFrame event boundary", () => {
     render(<ModuleFrame manifest={manifest} eventBus={eventBus} />);
     const frame = screen.getByTitle("每日股票行情") as HTMLIFrameElement;
 
+    fireEvent.load(frame);
     dispatchFromFrame(
       frame,
       data,
@@ -86,7 +91,7 @@ describe("ModuleFrame event boundary", () => {
     eventBus.close();
   });
 
-  it("registers the current iframe window on mount/load and unregisters it on cleanup", () => {
+  it("registers only after load, replaces the registration on reload, and unregisters on cleanup", () => {
     const eventBus = new ShellEventBus();
     const register = vi.spyOn(eventBus, "register");
     const unregister = vi.spyOn(eventBus, "unregister");
@@ -95,6 +100,19 @@ describe("ModuleFrame event boundary", () => {
     );
     const frame = screen.getByTitle("每日股票行情") as HTMLIFrameElement;
     const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error("expected iframe window");
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    eventBus.route(
+      event({ target: "market-daily", traceId: "before-load" }),
+    );
+
+    expect(register).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalled();
+
+    fireEvent.load(frame);
 
     expect(register).toHaveBeenCalledWith({
       moduleId: "market-daily",
@@ -102,15 +120,103 @@ describe("ModuleFrame event boundary", () => {
       target: frameWindow,
       origin: "http://127.0.0.1:5891",
     });
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(unregister).not.toHaveBeenCalled();
+
+    eventBus.route(
+      event({ target: "market-daily", traceId: "after-load" }),
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ traceId: "after-load" }),
+      "http://127.0.0.1:5891",
+    );
 
     fireEvent.load(frame);
-
     expect(unregister).toHaveBeenCalledWith(frameWindow);
     expect(register).toHaveBeenCalledTimes(2);
 
     view.unmount();
 
     expect(unregister).toHaveBeenLastCalledWith(frameWindow);
+    eventBus.close();
+  });
+
+  it("routes only declared post-load events without echoing to the source frame", () => {
+    const targetManifest: ModuleManifest = {
+      ...manifest,
+      id: "research-news",
+      name: "研究资讯",
+      category: "research",
+      entry: { type: "structured", url: "/modules/research-news/" },
+      events: {
+        emits: [],
+        accepts: ["security.selected", "date.changed"],
+      },
+    };
+    const eventBus = new ShellEventBus();
+    render(
+      <>
+        <ModuleFrame manifest={manifest} eventBus={eventBus} />
+        <ModuleFrame manifest={targetManifest} eventBus={eventBus} />
+      </>,
+    );
+    const sourceFrame = screen.getByTitle(
+      "每日股票行情",
+    ) as HTMLIFrameElement;
+    const targetFrame = screen.getByTitle("研究资讯") as HTMLIFrameElement;
+    if (!sourceFrame.contentWindow || !targetFrame.contentWindow) {
+      throw new Error("expected iframe windows");
+    }
+    const sourcePost = vi
+      .spyOn(sourceFrame.contentWindow, "postMessage")
+      .mockImplementation(() => undefined);
+    const targetPost = vi
+      .spyOn(targetFrame.contentWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    fireEvent.load(targetFrame);
+    dispatchFromFrame(
+      sourceFrame,
+      event({ target: "research-news", traceId: "before-source-load" }),
+    );
+    expect(targetPost).not.toHaveBeenCalled();
+
+    fireEvent.load(sourceFrame);
+    dispatchFromFrame(
+      sourceFrame,
+      event({
+        event: "date.changed",
+        target: "research-news",
+        traceId: "undeclared-event",
+      }),
+    );
+    expect(targetPost).not.toHaveBeenCalled();
+
+    const targeted = event({
+      target: "research-news",
+      traceId: "valid-targeted",
+    });
+    dispatchFromFrame(sourceFrame, targeted);
+    expect(targetPost).toHaveBeenCalledWith(
+      targeted,
+      "http://127.0.0.1:5891",
+    );
+
+    targetPost.mockClear();
+    dispatchFromFrame(
+      sourceFrame,
+      event({ target: "market-daily", traceId: "self-targeted" }),
+    );
+    expect(sourcePost).not.toHaveBeenCalled();
+    expect(targetPost).not.toHaveBeenCalled();
+
+    const broadcast = event({ traceId: "valid-broadcast" });
+    dispatchFromFrame(sourceFrame, broadcast);
+    expect(sourcePost).not.toHaveBeenCalled();
+    expect(targetPost).toHaveBeenCalledWith(
+      broadcast,
+      "http://127.0.0.1:5891",
+    );
     eventBus.close();
   });
 });

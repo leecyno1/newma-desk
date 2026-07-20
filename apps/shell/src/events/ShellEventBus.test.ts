@@ -208,25 +208,36 @@ describe("ShellEventBus", () => {
     expect(target.postMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("publishes local events to other shell tabs and routes channel events without loops", () => {
-    const first = new ShellEventBus(runtime());
-    const second = new ShellEventBus(runtime());
+  it("publishes validated local events to the shell broadcast channel", () => {
+    const observer = new FakeBroadcastChannel(CHANNEL_NAME);
+    const observed = vi.fn();
+    observer.addEventListener("message", observed);
+    const bus = new ShellEventBus(runtime());
+    const routed = event({ target: "research-news" });
+
+    bus.route(routed, targetWindow());
+
+    expect(FakeBroadcastChannel.posts).toEqual([routed]);
+    expect(observed).toHaveBeenCalledWith(
+      expect.objectContaining({ data: routed }),
+    );
+  });
+
+  it("does not route hostile events received from the broadcast channel", () => {
+    const bus = new ShellEventBus(runtime());
     const target = targetWindow();
-    second.register({
+    bus.register({
       moduleId: "research-news",
       manifest: manifest("research-news", ["security.selected"]),
       target,
       origin: "https://research.example",
     });
-    const routed = event({ target: "research-news" });
 
-    first.route(routed, targetWindow());
-
-    expect(FakeBroadcastChannel.posts).toEqual([routed]);
-    expect(target.postMessage).toHaveBeenCalledWith(
-      routed,
-      "https://research.example",
+    new FakeBroadcastChannel(CHANNEL_NAME).postMessage(
+      event({ target: "research-news", traceId: "spoofed-trace" }),
     );
+
+    expect(target.postMessage).not.toHaveBeenCalled();
   });
 
   it("unregisters exact windows and closes without affecting a separate bus", () => {
@@ -249,7 +260,7 @@ describe("ShellEventBus", () => {
 
     first.unregister(removed);
     first.close();
-    new FakeBroadcastChannel(CHANNEL_NAME).postMessage(
+    second.route(
       event({ target: "research-news", traceId: "after-close" }),
     );
 

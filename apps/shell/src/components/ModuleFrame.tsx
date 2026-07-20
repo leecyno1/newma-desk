@@ -1,5 +1,5 @@
 import { ExternalLink, LoaderCircle, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   moduleEventSchema,
@@ -36,7 +36,7 @@ export function ModuleFrame({ manifest, eventBus }: ModuleFrameProps) {
   );
   const frameRef = useRef<HTMLIFrameElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setFrameState("loading");
     const frame = frameRef.current;
     if (!frame || !resolution.src) return;
@@ -60,12 +60,16 @@ export function ModuleFrame({ manifest, eventBus }: ModuleFrameProps) {
       setFrameState("ready");
       registerCurrentWindow();
     };
-    // Browsers do not emit iframe error events for every navigation/network
-    // failure. This fallback is intentionally best-effort, not a health check.
+    // Browser iframe error reporting is incomplete; this remains a
+    // best-effort navigation hint rather than a module health protocol.
     const handleError = () => setFrameState("error");
     const handleMessage = (message: MessageEvent) => {
       const currentWindow = frame.contentWindow;
-      if (message.source !== currentWindow) {
+      if (
+        !registeredWindow ||
+        currentWindow !== registeredWindow ||
+        message.source !== registeredWindow
+      ) {
         warnIgnoredMessage("unexpected source window");
         return;
       }
@@ -91,7 +95,6 @@ export function ModuleFrame({ manifest, eventBus }: ModuleFrameProps) {
       eventBus.route(parsed.data, currentWindow ?? undefined);
     };
 
-    registerCurrentWindow();
     frame.addEventListener("load", handleLoad);
     frame.addEventListener("error", handleError);
     window.addEventListener("message", handleMessage);

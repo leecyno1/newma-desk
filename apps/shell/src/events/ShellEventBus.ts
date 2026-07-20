@@ -8,14 +8,6 @@ const EVENT_CHANNEL = "vibe-visualization-events";
 const TRACE_CACHE_LIMIT = 256;
 
 interface BroadcastChannelPort {
-  addEventListener(
-    type: "message",
-    listener: (event: MessageEvent) => void,
-  ): void;
-  removeEventListener(
-    type: "message",
-    listener: (event: MessageEvent) => void,
-  ): void;
   postMessage(data: unknown): void;
   close(): void;
 }
@@ -81,7 +73,6 @@ export class ShellEventBus {
 
   constructor(runtime: ShellEventBusRuntime = defaultRuntime()) {
     this.channel = runtime.createBroadcastChannel?.(EVENT_CHANNEL);
-    this.channel?.addEventListener("message", this.handleChannelMessage);
   }
 
   register(registration: ShellEventRegistration): void {
@@ -118,26 +109,20 @@ export class ShellEventBus {
   }
 
   route(value: unknown, sourceWindow?: Window): void {
-    this.routeValidated(value, sourceWindow, true);
+    this.routeValidated(value, sourceWindow);
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    this.channel?.removeEventListener("message", this.handleChannelMessage);
     this.channel?.close();
     this.registrationsByModule.clear();
     this.registrationsByWindow.clear();
   }
 
-  private readonly handleChannelMessage = (message: MessageEvent) => {
-    this.routeValidated(message.data, undefined, false);
-  };
-
   private routeValidated(
     value: unknown,
     sourceWindow: Window | undefined,
-    publishToShellTabs: boolean,
   ) {
     if (this.closed) return;
     const parsed = moduleEventSchema.safeParse(value);
@@ -150,7 +135,7 @@ export class ShellEventBus {
       this.routeBroadcast(event, sourceWindow);
     }
 
-    if (publishToShellTabs) this.channel?.postMessage(event);
+    this.channel?.postMessage(event);
   }
 
   private routeTargeted(event: ModuleEvent, sourceWindow: Window | undefined) {
