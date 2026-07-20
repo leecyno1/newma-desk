@@ -226,6 +226,40 @@ class ModuleRepository:
         finally:
             connection.close()
 
+    def get_published(self, module_id: str) -> StoredModule:
+        connection = connect(self._database_path)
+        try:
+            row = self._get_published_row(connection, module_id)
+            if row is None:
+                exists = connection.execute(
+                    "SELECT 1 FROM module_revisions WHERE module_id = ? LIMIT 1",
+                    (module_id,),
+                ).fetchone()
+                if exists is None:
+                    raise ModuleNotFoundError(f"module {module_id!r} was not found")
+                raise InvalidModuleStateError(
+                    f"module {module_id!r} has no published revision"
+                )
+            return _stored_module(row)
+        finally:
+            connection.close()
+
+    def record_action_audit(
+        self,
+        module_id: str,
+        revision: int,
+        detail: dict[str, object],
+    ) -> None:
+        with self._transaction() as connection:
+            self._get_revision_row(connection, module_id, revision)
+            _append_audit(
+                connection,
+                event_type="module_action",
+                module_id=module_id,
+                revision=revision,
+                detail=detail,
+            )
+
     def disable(self, module_id: str) -> StoredModule:
         with self._transaction() as connection:
             current = self._get_published_row(connection, module_id)
@@ -240,9 +274,7 @@ class ModuleRepository:
                     (module_id,),
                 ).fetchone()
                 if exists is None:
-                    raise ModuleNotFoundError(
-                        f"module {module_id!r} was not found"
-                    )
+                    raise ModuleNotFoundError(f"module {module_id!r} was not found")
                 raise InvalidModuleStateError(
                     f"module {module_id!r} has no published revision to disable"
                 )

@@ -28,6 +28,7 @@ from vibe_visualization_api.control_plane.repository import (
     ModuleNotFoundError,
 )
 from vibe_visualization_api.control_plane.routes import router as modules_router
+from vibe_visualization_api.control_plane.actions import TradeConfirmationService
 from vibe_visualization_api.data_services.client import (
     DataServiceClient,
     MissingServiceSecret,
@@ -79,6 +80,9 @@ def create_app(
     )
     application.state.data_service_client = data_service_client or DataServiceClient(
         public_mode=app_settings.data_service_public_mode
+    )
+    application.state.trade_confirmation_service = TradeConfirmationService(
+        app_settings.trade_confirmation_secret.get_secret_value()
     )
     application.add_middleware(
         CORSMiddleware,
