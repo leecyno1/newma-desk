@@ -146,12 +146,20 @@ class ModuleEvents(ApiModel):
     accepts: list[ModuleEventName] = Field(default_factory=list)
 
 
+class ModuleNavigation(ApiModel):
+    group_label: str = Field(min_length=1, max_length=40)
+    group_order: int = Field(default=100, ge=0)
+    item_order: int = Field(default=100, ge=0)
+    icon: Literal["research", "market", "quant", "module"] = "module"
+
+
 class ModuleManifest(ApiModel):
     schema_version: Literal["1.0"]
     id: str = Field(pattern=MODULE_ID_PATTERN)
     name: str = Field(min_length=1, max_length=80)
     version: str = Field(pattern=MODULE_VERSION_PATTERN)
     category: str = Field(pattern=MODULE_CATEGORY_PATTERN)
+    navigation: ModuleNavigation | None = None
     entry: ModuleEntry
     icon: str | None = None
     permissions: list[str] = Field(default_factory=list)
@@ -160,7 +168,7 @@ class ModuleManifest(ApiModel):
     events: ModuleEvents = Field(default_factory=ModuleEvents)
     refresh: ModuleRefresh | None = None
 
-    @field_validator("icon", "refresh", mode="before")
+    @field_validator("icon", "navigation", "refresh", mode="before")
     @classmethod
     def reject_explicit_null(cls, value: object) -> object:
         if value is None:

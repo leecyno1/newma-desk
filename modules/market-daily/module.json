@@ -4,6 +4,12 @@
   "name": "每日股票行情",
   "version": "0.1.0",
   "category": "market",
+  "navigation": {
+    "groupLabel": "市场",
+    "groupOrder": 20,
+    "itemOrder": 10,
+    "icon": "market"
+  },
   "entry": {
     "type": "structured",
     "url": "/modules/market-daily/"

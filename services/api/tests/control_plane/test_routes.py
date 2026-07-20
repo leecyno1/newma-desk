@@ -87,6 +87,23 @@ def test_get_exact_revision_preserves_camel_case_manifest(
     assert "schema_version" not in response.json()["manifest"]
 
 
+def test_navigation_metadata_survives_draft_storage(client: TestClient) -> None:
+    navigation = {
+        "groupLabel": "市场",
+        "groupOrder": 20,
+        "itemOrder": 10,
+        "icon": "market",
+    }
+
+    response = client.post(
+        "/api/modules/drafts",
+        json={**MANIFEST, "navigation": navigation},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["manifest"]["navigation"] == navigation
+
+
 def test_disable_removes_module_from_sidebar_listing(client: TestClient) -> None:
     draft = client.post("/api/modules/drafts", json=MANIFEST).json()
     client.post(

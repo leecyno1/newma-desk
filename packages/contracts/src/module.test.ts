@@ -20,6 +20,53 @@ describe("moduleManifestSchema", () => {
     expect(moduleManifestSchema.parse(valid)).toEqual(valid);
   });
 
+  it("preserves optional navigation metadata", () => {
+    const navigation = {
+      groupLabel: "市场",
+      groupOrder: 20,
+      itemOrder: 10,
+      icon: "market",
+    };
+
+    expect(moduleManifestSchema.parse({ ...valid, navigation })).toEqual({
+      ...valid,
+      navigation,
+    });
+  });
+
+  it("keeps manifests without navigation metadata valid", () => {
+    expect(moduleManifestSchema.parse(valid)).not.toHaveProperty("navigation");
+  });
+
+  it("rejects negative navigation order values", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...valid,
+        navigation: {
+          groupLabel: "市场",
+          groupOrder: -1,
+          itemOrder: 10,
+          icon: "market",
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects unknown navigation fields", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...valid,
+        navigation: {
+          groupLabel: "市场",
+          groupOrder: 20,
+          itemOrder: 10,
+          icon: "market",
+          color: "red",
+        },
+      }),
+    ).toThrow();
+  });
+
   it("rejects a static entry with an unsafe relative URL", () => {
     expect(() =>
       moduleManifestSchema.parse({
