@@ -1,5 +1,17 @@
 import { defineConfig } from "@playwright/test";
 
+import {
+  apiHealthUrl,
+  apiOrigin,
+  apiPort,
+  databasePath,
+  demoModuleUrl,
+  moduleOrigin,
+  modulePort,
+  shellOrigin,
+  shellPort,
+} from "./tests/e2e/runtime-config";
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
@@ -10,6 +22,7 @@ export default defineConfig({
     timeout: 5_000,
   },
   globalSetup: "./tests/e2e/global-setup.ts",
+  globalTeardown: "./tests/e2e/global-teardown.ts",
   use: {
     actionTimeout: 5_000,
     navigationTimeout: 10_000,
@@ -26,31 +39,33 @@ export default defineConfig({
   webServer: [
     {
       command:
-        "services/api/.venv/bin/uvicorn vibe_visualization_api.main:app --app-dir services/api --host 127.0.0.1 --port 8901",
-      url: "http://127.0.0.1:8901/api/health",
+        "services/api/.venv/bin/uvicorn vibe_visualization_api.main:app " +
+        `--app-dir services/api --host 127.0.0.1 --port ${apiPort}`,
+      url: apiHealthUrl,
       reuseExistingServer: false,
       timeout: 30_000,
       env: {
-        VIBE_VIS_DATABASE_PATH: "runtime/e2e-foundation.db",
-        VIBE_VIS_ALLOWED_ORIGINS:
-          "http://127.0.0.1:15888,http://127.0.0.1:5891",
+        VIBE_VIS_DATABASE_PATH: databasePath,
+        VIBE_VIS_ALLOWED_ORIGINS: `${shellOrigin},${moduleOrigin}`,
       },
     },
     {
       command:
-        "npm run dev -w @vibe-visualization/shell -- --host 127.0.0.1 --port 15888",
-      url: "http://127.0.0.1:15888/",
+        "npm run dev -w @vibe-visualization/shell -- " +
+        `--host 127.0.0.1 --port ${shellPort}`,
+      url: `${shellOrigin}/`,
       reuseExistingServer: false,
       timeout: 30_000,
       env: {
-        VITE_MODULE_ORIGIN: "http://127.0.0.1:5891",
-        VITE_API_PROXY_TARGET: "http://127.0.0.1:8901",
+        VITE_MODULE_ORIGIN: moduleOrigin,
+        VITE_API_PROXY_TARGET: apiOrigin,
       },
     },
     {
       command:
-        "python3 -m http.server 5891 --bind 127.0.0.1 --directory tests/e2e/fixtures",
-      url: "http://127.0.0.1:5891/modules/demo/",
+        `python3 -m http.server ${modulePort} --bind 127.0.0.1 ` +
+        "--directory tests/e2e/fixtures",
+      url: demoModuleUrl,
       reuseExistingServer: false,
       timeout: 30_000,
     },

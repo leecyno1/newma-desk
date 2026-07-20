@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-const moduleUrl = "http://127.0.0.1:5891/modules/demo/";
-const shellUrl = "http://127.0.0.1:15888/?module=demo";
+import { demoModuleUrl, shellModuleUrl } from "./runtime-config";
+
 const requiredSandboxFlags = [
   "allow-scripts",
   "allow-forms",
@@ -11,7 +11,7 @@ const requiredSandboxFlags = [
 ];
 
 test("demo module runs directly in standalone mode", async ({ page }) => {
-  await page.goto(moduleUrl);
+  await page.goto(demoModuleUrl);
 
   await expect(
     page.getByRole("heading", { name: "Demo Module" }),
@@ -22,7 +22,11 @@ test("demo module runs directly in standalone mode", async ({ page }) => {
 test("Shell embeds the demo module with its isolation contract", async ({
   page,
 }) => {
-  await page.goto(shellUrl);
+  await page.goto(shellModuleUrl);
+
+  await expect(
+    page.getByRole("button", { name: "Demo Module" }),
+  ).toBeVisible();
 
   const frameElement = page.locator('iframe[title="Demo Module"]');
   const frame = page.frameLocator('iframe[title="Demo Module"]');
@@ -34,7 +38,7 @@ test("Shell embeds the demo module with its isolation contract", async ({
 
   await expect(page.getByRole("link", { name: "独立打开" })).toHaveAttribute(
     "href",
-    moduleUrl,
+    demoModuleUrl,
   );
 
   const sandbox =
