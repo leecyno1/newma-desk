@@ -1,0 +1,8 @@
+{
+  "name": "@vibe-visualization/ui-foundation",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./tokens.css": "./src/tokens.css"
+  }
+}

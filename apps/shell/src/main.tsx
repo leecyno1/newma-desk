@@ -1,5 +1,7 @@
 import { createRoot } from "react-dom/client";
 
+import "@vibe-visualization/ui-foundation/tokens.css";
+
 import { App } from "./App";
 import "./styles.css";
 
