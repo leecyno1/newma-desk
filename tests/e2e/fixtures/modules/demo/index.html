@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Demo Module</title>
+  </head>
+  <body>
+    <main>
+      <h1>Demo Module</h1>
+      <p id="mode">Mode: standalone</p>
+    </main>
+    <script>
+      document.querySelector("#mode").textContent =
+        window.parent === window ? "Mode: standalone" : "Mode: embedded";
+    </script>
+  </body>
+</html>
