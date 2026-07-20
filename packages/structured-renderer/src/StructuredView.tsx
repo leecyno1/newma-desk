@@ -26,7 +26,11 @@ export function StructuredView({
   onRowSelect,
 }: StructuredViewProps) {
   return (
-    <main className="vv-structured-view">
+    <main
+      className="vv-structured-view"
+      data-vibe-page="1.0"
+      data-vibe-title={schema.title}
+    >
       <h1>{schema.title}</h1>
       {schema.blocks.map((block) => {
         switch (block.type) {

@@ -80,7 +80,26 @@ describe("StructuredView", () => {
     expect(screen.getAllByText("3.2%")).toHaveLength(2);
     expect(screen.getByText("¥1,234.50")).toBeVisible();
     expect(screen.getByText("市场走强")).toBeVisible();
-    expect(container.querySelector("script")).toBeNull();
+    const page = container.querySelector('[data-vibe-page="1.0"]');
+    expect(page).toHaveAttribute("data-vibe-title", "每日行情");
+    for (const [blockId, blockType] of [
+      ["metrics", "metrics"],
+      ["leaders", "table"],
+      ["trend", "chart"],
+      ["analysis", "markdown"],
+    ]) {
+      expect(
+        container.querySelector(`[data-vibe-block-id="${blockId}"]`),
+      ).toHaveAttribute("data-vibe-block", blockType);
+    }
+    const embeddedOption = container.querySelector(
+      'script[type="application/json"][data-vibe-chart-option]',
+    );
+    expect(embeddedOption).not.toBeNull();
+    expect(JSON.parse(embeddedOption?.textContent ?? "")).toEqual(option);
+    expect(
+      container.querySelector('script:not([type="application/json"])'),
+    ).toBeNull();
     expect(chartSpy).toHaveBeenCalledWith(option);
     expect(screen.getByTestId("chart")).toHaveStyle({ height: "320px" });
   });

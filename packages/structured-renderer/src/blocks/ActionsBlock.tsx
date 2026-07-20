@@ -17,7 +17,12 @@ export function ActionsBlock({ block, onAction }: ActionsBlockProps) {
   }
 
   return (
-    <section className="vv-view-block vv-actions-block" data-block-id={block.id}>
+    <section
+      className="vv-view-block vv-actions-block"
+      data-block-id={block.id}
+      data-vibe-block="actions"
+      data-vibe-block-id={block.id}
+    >
       <div className="vv-actions">
         {block.items.map((item) => (
           <button key={item.id} onClick={() => invokeAction(item)} type="button">

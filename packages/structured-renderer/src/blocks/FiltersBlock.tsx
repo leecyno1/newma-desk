@@ -21,7 +21,12 @@ export function FiltersBlock({ block, onFiltersChange }: FiltersBlockProps) {
   }
 
   return (
-    <section className="vv-view-block vv-filters-block" data-block-id={block.id}>
+    <section
+      className="vv-view-block vv-filters-block"
+      data-block-id={block.id}
+      data-vibe-block="filters"
+      data-vibe-block-id={block.id}
+    >
       <div className="vv-filters">
         {block.fields.map((field) => (
           <label key={field.key}>

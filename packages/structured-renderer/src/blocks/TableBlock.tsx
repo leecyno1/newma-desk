@@ -58,7 +58,13 @@ export function TableBlock({ block, data, onRowSelect }: TableBlockProps) {
   }, [rows, sort]);
 
   return (
-    <section className="vv-view-block vv-table-block" data-block-id={block.id}>
+    <section
+      className="vv-view-block vv-table-block"
+      data-block-id={block.id}
+      data-vibe-block="table"
+      data-vibe-block-id={block.id}
+      data-vibe-rows-path={block.rowsPath}
+    >
       {block.title ? <h2>{block.title}</h2> : null}
       <div className="vv-table-scroll">
         <table>
