@@ -43,6 +43,8 @@ from vibe_visualization_api.data_services.registry import (
     DataServiceRegistry,
 )
 from vibe_visualization_api.data_services.routes import router as data_services_router
+from vibe_visualization_api.snapshots.routes import router as snapshots_router
+from vibe_visualization_api.snapshots.store import SnapshotNotFoundError
 
 
 def create_app(
@@ -94,6 +96,7 @@ def create_app(
     application.include_router(modules_router)
     application.include_router(agent_router)
     application.include_router(data_services_router)
+    application.include_router(snapshots_router)
 
     @application.exception_handler(ModuleNotFoundError)
     async def module_not_found(
@@ -108,6 +111,15 @@ def create_app(
         request: Request, error: InvalidModuleStateError
     ) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": "invalid module state"})
+
+    @application.exception_handler(SnapshotNotFoundError)
+    async def snapshot_not_found(
+        request: Request, error: SnapshotNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "module snapshot not found"},
+        )
 
     @application.exception_handler(sqlite3.Error)
     async def database_error(request: Request, error: sqlite3.Error) -> JSONResponse:
