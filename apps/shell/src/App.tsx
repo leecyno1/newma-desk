@@ -8,6 +8,7 @@ import {
 } from "./api/modules";
 import { ModuleFrame } from "./components/ModuleFrame";
 import { Sidebar } from "./components/Sidebar";
+import { ShellEventBus } from "./events/ShellEventBus";
 
 const ACTIVE_MODULE_KEY = "vibe.shell.activeModule";
 const PREVIEW_PATTERN = /^([a-z][a-z0-9-]{2,63})@([1-9]\d*)$/;
@@ -72,6 +73,7 @@ function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
 }
 
 export function App() {
+  const [eventBus] = useState(() => new ShellEventBus());
   const [modules, setModules] = useState<StoredModule[]>([]);
   const modulesRef = useRef<StoredModule[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -206,6 +208,10 @@ export function App() {
   }, [cancelPreviewRequest, loadPreviewValue]);
 
   useEffect(() => {
+    return () => eventBus.close();
+  }, [eventBus]);
+
+  useEffect(() => {
     void loadRegistry();
     syncLocation();
     window.addEventListener("popstate", syncLocation);
@@ -289,6 +295,7 @@ export function App() {
           <ModuleFrame
             key={`${activeModule.moduleId}@${activeModule.revision}`}
             manifest={activeModule.manifest}
+            eventBus={eventBus}
           />
         ) : null}
       </main>

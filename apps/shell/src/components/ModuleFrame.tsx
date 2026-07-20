@@ -1,15 +1,26 @@
 import { ExternalLink, LoaderCircle, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { ModuleManifest } from "@vibe-visualization/contracts";
+import {
+  moduleEventSchema,
+  type ModuleManifest,
+} from "@vibe-visualization/contracts";
 
+import type { ShellEventBus } from "../events/ShellEventBus";
 import { resolveModuleUrl } from "../lib/moduleUrl";
 
 interface ModuleFrameProps {
   manifest: ModuleManifest;
+  eventBus: ShellEventBus;
 }
 
-export function ModuleFrame({ manifest }: ModuleFrameProps) {
+function warnIgnoredMessage(reason: string) {
+  if (import.meta.env.DEV && import.meta.env.MODE !== "test") {
+    console.warn(`[ModuleFrame] ignored module message: ${reason}`);
+  }
+}
+
+export function ModuleFrame({ manifest, eventBus }: ModuleFrameProps) {
   const resolution = useMemo(() => {
     try {
       return { src: resolveModuleUrl(manifest.entry), error: undefined };
@@ -28,19 +39,69 @@ export function ModuleFrame({ manifest }: ModuleFrameProps) {
   useEffect(() => {
     setFrameState("loading");
     const frame = frameRef.current;
-    if (!frame) return;
+    if (!frame || !resolution.src) return;
 
-    const handleLoad = () => setFrameState("ready");
+    const expectedOrigin = new URL(resolution.src).origin;
+    let registeredWindow: Window | null = null;
+
+    const registerCurrentWindow = () => {
+      if (registeredWindow) eventBus.unregister(registeredWindow);
+      registeredWindow = frame.contentWindow;
+      if (!registeredWindow) return;
+      eventBus.register({
+        moduleId: manifest.id,
+        manifest,
+        target: registeredWindow,
+        origin: expectedOrigin,
+      });
+    };
+
+    const handleLoad = () => {
+      setFrameState("ready");
+      registerCurrentWindow();
+    };
     // Browsers do not emit iframe error events for every navigation/network
     // failure. This fallback is intentionally best-effort, not a health check.
     const handleError = () => setFrameState("error");
+    const handleMessage = (message: MessageEvent) => {
+      const currentWindow = frame.contentWindow;
+      if (message.source !== currentWindow) {
+        warnIgnoredMessage("unexpected source window");
+        return;
+      }
+      if (message.origin !== expectedOrigin) {
+        warnIgnoredMessage("unexpected origin");
+        return;
+      }
+
+      const parsed = moduleEventSchema.safeParse(message.data);
+      if (!parsed.success) {
+        warnIgnoredMessage("invalid envelope");
+        return;
+      }
+      if (parsed.data.source !== manifest.id) {
+        warnIgnoredMessage("source module mismatch");
+        return;
+      }
+      if (!manifest.events.emits.includes(parsed.data.event)) {
+        warnIgnoredMessage("undeclared emitted event");
+        return;
+      }
+
+      eventBus.route(parsed.data, currentWindow ?? undefined);
+    };
+
+    registerCurrentWindow();
     frame.addEventListener("load", handleLoad);
     frame.addEventListener("error", handleError);
+    window.addEventListener("message", handleMessage);
     return () => {
       frame.removeEventListener("load", handleLoad);
       frame.removeEventListener("error", handleError);
+      window.removeEventListener("message", handleMessage);
+      if (registeredWindow) eventBus.unregister(registeredWindow);
     };
-  }, [resolution.src]);
+  }, [eventBus, manifest, resolution.src]);
 
   if (resolution.error || !resolution.src) {
     return (

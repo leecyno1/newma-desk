@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import type { StoredModule } from "./api/modules";
+import { ShellEventBus } from "./events/ShellEventBus";
 import { server } from "./test/server";
 
 const marketModule = storedModule({
@@ -88,9 +89,23 @@ function deferred() {
   return { promise, resolve };
 }
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe("App", () => {
+  it("closes its shell event bus on unmount", async () => {
+    const close = vi.spyOn(ShellEventBus.prototype, "close");
+    serveRegistry([marketModule]);
+    const view = render(<App />);
+    await screen.findByTitle("每日股票行情");
+
+    view.unmount();
+
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("renders registry modules and opens the selected URL", async () => {
     serveRegistry([marketModule]);
     render(<App />);
