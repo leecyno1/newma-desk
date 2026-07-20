@@ -1,9 +1,16 @@
 import sqlite3
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from vibe_visualization_api.config import Settings, get_settings
 from vibe_visualization_api.control_plane.models import StoredModule
+from vibe_visualization_api.control_plane.packages import (
+    ModulePackageError,
+    export_module_package,
+    prepare_module_package,
+)
 from vibe_visualization_api.control_plane.repository import ModuleRepository
 from vibe_visualization_api.control_plane.schemas import (
     ModuleManifest,
@@ -46,6 +53,39 @@ def create_draft(
     repository: ModuleRepository = Depends(get_repository),
 ) -> StoredModule:
     return repository.create_draft(manifest_repository_dict(manifest))
+
+
+@router.post(
+    "/import",
+    status_code=201,
+    response_model=StoredModuleResponse,
+    response_model_exclude_none=True,
+)
+async def import_module(
+    package: Annotated[UploadFile, File()],
+    settings: Settings = Depends(get_settings),
+    repository: ModuleRepository = Depends(get_repository),
+) -> StoredModule:
+    prepared = None
+    try:
+        prepared = await prepare_module_package(
+            package,
+            settings.runtime_dir / "module-packages",
+        )
+        return await run_in_threadpool(
+            repository.import_draft,
+            prepared.manifest,
+            prepared.install,
+        )
+    except ModulePackageError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.detail,
+        ) from error
+    finally:
+        await package.close()
+        if prepared is not None:
+            prepared.discard()
 
 
 @router.post(
@@ -97,3 +137,35 @@ def get_revision(
     repository: ModuleRepository = Depends(get_repository),
 ) -> StoredModule:
     return repository.get_revision(module_id, revision)
+
+
+@router.get("/{module_id}/revisions/{revision}/export")
+def export_revision(
+    module_id: str,
+    revision: int,
+    settings: Settings = Depends(get_settings),
+    repository: ModuleRepository = Depends(get_repository),
+) -> Response:
+    stored_module = repository.get_revision(module_id, revision)
+    try:
+        package_bytes = export_module_package(
+            settings.runtime_dir / "module-packages",
+            stored_module.module_id,
+            stored_module.revision,
+            stored_module.manifest,
+        )
+    except ModulePackageError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.detail,
+        ) from error
+    repository.record_export(module_id, revision)
+    return Response(
+        content=package_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{module_id}-r{revision}.zip"'
+            )
+        },
+    )

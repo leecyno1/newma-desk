@@ -1,7 +1,7 @@
 import json
 import re
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,6 +86,56 @@ class ModuleRepository:
             connection.close()
 
     def create_draft(self, manifest: dict[str, object]) -> StoredModule:
+        with self._transaction() as connection:
+            stored_row = self._create_draft_row(
+                connection,
+                manifest,
+                event_type="create_draft",
+            )
+        return _stored_module(stored_row)
+
+    def import_draft(
+        self,
+        manifest: dict[str, object],
+        install_package: Callable[[int], Callable[[], None]],
+    ) -> StoredModule:
+        undo_install: Callable[[], None] | None = None
+        try:
+            with self._transaction() as connection:
+                stored_row = self._create_draft_row(
+                    connection,
+                    manifest,
+                    event_type="import",
+                )
+                undo_install = install_package(cast(int, stored_row["revision"]))
+        except BaseException:
+            if undo_install is not None:
+                undo_install()
+            raise
+        return _stored_module(stored_row)
+
+    def record_export(self, module_id: str, revision: int) -> StoredModule:
+        with self._transaction() as connection:
+            stored_row = self._get_revision_row(
+                connection,
+                module_id,
+                revision,
+            )
+            _append_audit(
+                connection,
+                event_type="export",
+                module_id=module_id,
+                revision=revision,
+            )
+        return _stored_module(stored_row)
+
+    def _create_draft_row(
+        self,
+        connection: sqlite3.Connection,
+        manifest: dict[str, object],
+        *,
+        event_type: str,
+    ) -> sqlite3.Row:
         module_id = manifest.get("id")
         if (
             not isinstance(module_id, str)
@@ -95,32 +145,30 @@ class ModuleRepository:
 
         manifest_json = _json_dumps(manifest)
         created_at = _utc_now()
-        with self._transaction() as connection:
-            row = connection.execute(
-                """
-                SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision
-                FROM module_revisions
-                WHERE module_id = ?
-                """,
-                (module_id,),
-            ).fetchone()
-            revision = cast(int, row["next_revision"])
-            connection.execute(
-                """
-                INSERT INTO module_revisions (
-                  module_id, revision, status, manifest_json, created_at
-                ) VALUES (?, ?, 'draft', ?, ?)
-                """,
-                (module_id, revision, manifest_json, created_at),
-            )
-            _append_audit(
-                connection,
-                event_type="create_draft",
-                module_id=module_id,
-                revision=revision,
-            )
-            stored_row = self._get_revision_row(connection, module_id, revision)
-        return _stored_module(stored_row)
+        row = connection.execute(
+            """
+            SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision
+            FROM module_revisions
+            WHERE module_id = ?
+            """,
+            (module_id,),
+        ).fetchone()
+        revision = cast(int, row["next_revision"])
+        connection.execute(
+            """
+            INSERT INTO module_revisions (
+              module_id, revision, status, manifest_json, created_at
+            ) VALUES (?, ?, 'draft', ?, ?)
+            """,
+            (module_id, revision, manifest_json, created_at),
+        )
+        _append_audit(
+            connection,
+            event_type=event_type,
+            module_id=module_id,
+            revision=revision,
+        )
+        return self._get_revision_row(connection, module_id, revision)
 
     def publish(self, module_id: str, revision: int) -> StoredModule:
         with self._transaction() as connection:
