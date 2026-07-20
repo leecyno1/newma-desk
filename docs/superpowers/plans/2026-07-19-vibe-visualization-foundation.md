@@ -929,7 +929,8 @@ git commit -m "feat: add secure module bridge"
 **Files:**
 - Create: `playwright.config.ts`
 - Create: `tests/e2e/fixtures/modules/demo/index.html`
-- Create: `tests/e2e/module-host.spec.ts`
+- Create: `tests/e2e/global-setup.ts`
+- Create: `tests/e2e/module-embedding.spec.ts`
 - Modify: `package.json`
 
 - [ ] **Step 1: Add Playwright and the root test script**
@@ -949,7 +950,7 @@ test("the same module works directly and inside the shell", async ({ page }) => 
   await page.goto("http://127.0.0.1:5891/modules/demo/");
   await expect(page.getByRole("heading", { name: "Demo Module" })).toBeVisible();
 
-  await page.goto("http://127.0.0.1:5888/?module=demo");
+  await page.goto("http://127.0.0.1:15888/?module=demo");
   const frame = page.frameLocator('iframe[title="Demo Module"]');
   await expect(frame.getByRole("heading", { name: "Demo Module" })).toBeVisible();
 });
@@ -960,10 +961,10 @@ test("the same module works directly and inside the shell", async ({ page }) => 
 Configure three commands in `playwright.config.ts`:
 
 - API: `services/api/.venv/bin/uvicorn vibe_visualization_api.main:app --app-dir services/api --port 8901`
-- Shell: `npm run dev -w @vibe-visualization/shell -- --host 127.0.0.1 --port 5888`
+- Shell: `npm run dev -w @vibe-visualization/shell -- --host 127.0.0.1 --port 15888`
 - Demo static host: `python3 -m http.server 5891 --bind 127.0.0.1 --directory tests/e2e/fixtures`
 
-Set `VITE_MODULE_ORIGIN=http://127.0.0.1:5891` for the Shell web server and `VIBE_VIS_ALLOWED_ORIGINS=http://127.0.0.1:5888,http://127.0.0.1:5891` for the API web server.
+Use the isolated E2E Shell port 15888 so tests never stop or reuse a developer's normal 5888 service. Set `VITE_MODULE_ORIGIN=http://127.0.0.1:5891` for the Shell web server and `VIBE_VIS_ALLOWED_ORIGINS=http://127.0.0.1:15888,http://127.0.0.1:5891` for the API web server.
 
 - [ ] **Step 4: Seed the demo module before the test**
 
