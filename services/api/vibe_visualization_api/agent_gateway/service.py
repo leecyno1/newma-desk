@@ -12,10 +12,17 @@ from vibe_visualization_api.agent_gateway.models import (
     AgentTaskCreate,
     TaskEvent,
 )
+from vibe_visualization_api.agent_gateway.prompts.market_explain import (
+    build_market_explain_prompt,
+)
 from vibe_visualization_api.agent_gateway.registry import AgentAdapterRegistry
 from vibe_visualization_api.agent_gateway.store import (
     InvalidTaskStateError,
     TaskStore,
+)
+from vibe_visualization_api.snapshots.store import (
+    SnapshotNotFoundError,
+    SnapshotStore,
 )
 
 
@@ -34,22 +41,50 @@ class AgentTaskService:
         store: TaskStore,
         event_bus: TaskEventBus,
         registry: AgentAdapterRegistry,
+        snapshot_store: SnapshotStore | None = None,
     ):
         self._store = store
         self._event_bus = event_bus
         self._registry = registry
+        self._snapshot_store = snapshot_store
         self._active: dict[str, ActiveTask] = {}
         self._cancel_lock = asyncio.Lock()
 
     async def create(self, request: AgentTaskCreate) -> AgentTask:
         adapter = self._registry.get(request.adapter)
-        task = await run_in_threadpool(self._store.create, request)
+        prepared_request = await self._prepare_request(request)
+        task = await run_in_threadpool(self._store.create, prepared_request)
         handle = asyncio.create_task(
-            self._run_adapter(task.id, request, adapter),
+            self._run_adapter(task.id, prepared_request, adapter),
             name=f"agent-task:{task.id}",
         )
         self._active[task.id] = ActiveTask(adapter=adapter, handle=handle)
         return task
+
+    async def _prepare_request(self, request: AgentTaskCreate) -> AgentTaskCreate:
+        if request.capability != "market.explain":
+            return request
+        if request.module_id is None or self._snapshot_store is None:
+            raise SnapshotNotFoundError("module snapshot was not found")
+        snapshot = await run_in_threadpool(
+            self._snapshot_store.latest_success,
+            request.module_id,
+        )
+        input_prompt = request.input.get("prompt")
+        user_prompt = (
+            request.prompt
+            or (input_prompt if isinstance(input_prompt, str) else "")
+        )
+        return request.model_copy(
+            update={
+                "prompt": build_market_explain_prompt(
+                    snapshot=snapshot.data,
+                    user_prompt=user_prompt,
+                ),
+                "context": {},
+                "input": {},
+            }
+        )
 
     async def get(self, task_id: str) -> AgentTask:
         return await run_in_threadpool(self._store.get, task_id)

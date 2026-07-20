@@ -19,6 +19,7 @@ from vibe_visualization_api.data_services.models import (
     ServiceCapability,
 )
 from vibe_visualization_api.main import create_app
+from vibe_visualization_api.snapshots.store import SnapshotStore
 
 
 MANIFEST = {
@@ -146,11 +147,21 @@ def test_published_module_can_call_declared_agent_capability(
     fake_adapter: FakeAgentAdapter,
 ) -> None:
     _publish(client)
+    SnapshotStore(tmp_path, tmp_path / "actions.db").write_success(
+        "market-daily",
+        {
+            "asOf": "2026-07-20T15:00:00+08:00",
+            "breadth": {"up": 3000, "down": 1800, "flat": 100},
+            "indices": [],
+            "globalIndices": [],
+            "leaders": [],
+        },
+    )
 
     response = client.post(
         "/api/modules/market-daily/actions/market.explain",
         headers={"X-User-Id": "alice"},
-        json={"securityCode": "600519"},
+        json={"prompt": "解释市场异动"},
     )
 
     assert response.status_code == 202
@@ -159,7 +170,9 @@ def test_published_module_can_call_declared_agent_capability(
     deadline = time.monotonic() + 1
     while not fake_adapter.requests and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert fake_adapter.requests[0].input == {"securityCode": "600519"}
+    assert fake_adapter.requests[0].input == {}
+    assert "解释市场异动" in fake_adapter.requests[0].prompt
+    assert "breadth" in fake_adapter.requests[0].prompt
     audit = _audit_details(tmp_path / "actions.db")[-1]
     assert audit["decision"] == "allowed"
     assert audit["user_id"] == "alice"

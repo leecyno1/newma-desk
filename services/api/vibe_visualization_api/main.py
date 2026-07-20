@@ -105,6 +105,10 @@ def create_app(
             TaskStore(app_settings.database_path),
             TaskEventBus(),
             adapter_registry,
+            SnapshotStore(
+                app_settings.runtime_dir,
+                app_settings.database_path,
+            ),
         )
 
     application.state.agent_task_service_factory = create_agent_task_service
