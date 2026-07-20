@@ -90,12 +90,8 @@ class ModuleRepository:
         if (
             not isinstance(module_id, str)
             or MODULE_ID_PATTERN.fullmatch(module_id) is None
-            or module_id.endswith("-")
         ):
-            raise ValueError(
-                "manifest['id'] must match ^[a-z][a-z0-9-]{2,63}$ "
-                "and must not end with a hyphen"
-            )
+            raise ValueError("manifest['id'] must match ^[a-z][a-z0-9-]{2,63}$")
 
         manifest_json = _json_dumps(manifest)
         created_at = _utc_now()
@@ -128,7 +124,12 @@ class ModuleRepository:
 
     def publish(self, module_id: str, revision: int) -> StoredModule:
         with self._transaction() as connection:
-            self._get_revision_row(connection, module_id, revision)
+            target = self._get_revision_row(connection, module_id, revision)
+            if target["status"] != "draft":
+                raise InvalidModuleStateError(
+                    f"module {module_id!r} revision {revision} must be draft "
+                    "before publishing"
+                )
             connection.execute(
                 """
                 UPDATE module_revisions
@@ -196,7 +197,12 @@ class ModuleRepository:
 
     def rollback(self, module_id: str, revision: int) -> StoredModule:
         with self._transaction() as connection:
-            self._get_revision_row(connection, module_id, revision)
+            target = self._get_revision_row(connection, module_id, revision)
+            if target["status"] != "disabled":
+                raise InvalidModuleStateError(
+                    f"module {module_id!r} revision {revision} must be disabled "
+                    "before rollback"
+                )
             current = self._get_published_row(connection, module_id)
             if current is None:
                 raise InvalidModuleStateError(

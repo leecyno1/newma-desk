@@ -80,6 +80,37 @@ def test_publish_missing_revision_does_not_disable_current_published(
     assert repo.list_published() == [published]
 
 
+def test_publish_disabled_revision_preserves_current_published(
+    tmp_path: Path,
+) -> None:
+    repo = ModuleRepository(tmp_path / "registry.db")
+    first = repo.create_draft(MANIFEST)
+    repo.publish("market-daily", first.revision)
+    current = repo.publish(
+        "market-daily",
+        repo.create_draft({**MANIFEST, "version": "0.2.0"}).revision,
+    )
+
+    with pytest.raises(InvalidModuleStateError):
+        repo.publish("market-daily", first.revision)
+
+    assert repo.list_published() == [current]
+
+
+def test_publish_already_published_revision_preserves_current_published(
+    tmp_path: Path,
+) -> None:
+    repo = ModuleRepository(tmp_path / "registry.db")
+    current = repo.publish(
+        "market-daily", repo.create_draft(MANIFEST).revision
+    )
+
+    with pytest.raises(InvalidModuleStateError):
+        repo.publish("market-daily", current.revision)
+
+    assert repo.list_published() == [current]
+
+
 def test_disable_without_published_revision_raises_invalid_state(
     tmp_path: Path,
 ) -> None:
@@ -102,6 +133,21 @@ def test_rollback_to_current_published_revision_raises_invalid_state(
         repo.rollback("market-daily", published.revision)
 
     assert repo.list_published() == [published]
+
+
+def test_rollback_to_draft_revision_preserves_current_published(
+    tmp_path: Path,
+) -> None:
+    repo = ModuleRepository(tmp_path / "registry.db")
+    current = repo.publish(
+        "market-daily", repo.create_draft(MANIFEST).revision
+    )
+    draft = repo.create_draft({**MANIFEST, "version": "0.2.0"})
+
+    with pytest.raises(InvalidModuleStateError):
+        repo.rollback("market-daily", draft.revision)
+
+    assert repo.list_published() == [current]
 
 
 def test_list_published_is_deterministic_with_one_revision_per_module(
@@ -175,7 +221,6 @@ def test_two_repository_instances_allocate_unique_revisions(tmp_path: Path) -> N
         {"id": "ab"},
         {"id": "foo/bar"},
         {"id": "-foo"},
-        {"id": "foo-"},
         {"id": "foo_bar"},
         {"id": "a" * 65},
     ],
@@ -189,7 +234,7 @@ def test_create_draft_rejects_missing_or_invalid_module_id(
         repo.create_draft(manifest)
 
 
-@pytest.mark.parametrize("module_id", ["abc", "a-b", "a" * 64])
+@pytest.mark.parametrize("module_id", ["abc", "a-b", "foo-", "a" * 64])
 def test_create_draft_accepts_valid_module_id_boundaries(
     tmp_path: Path, module_id: str
 ) -> None:
