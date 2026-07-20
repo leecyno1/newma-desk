@@ -61,6 +61,10 @@ RESPONSES: dict[str, object] = {
     },
 }
 
+HERMES_NEW_SESSION_CALLS = 0
+HERMES_CHAT_STARTS: list[dict[str, str]] = []
+HERMES_STREAMS: dict[str, dict[str, str]] = {}
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "VibeE2EUpstream/1.0"
@@ -73,8 +77,62 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def _sse(self, payload: str) -> None:
+        encoded = payload.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
     def do_GET(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
+        if path == "/api/testing/hermes-stats":
+            self._json(
+                200,
+                {
+                    "newSessionCalls": HERMES_NEW_SESSION_CALLS,
+                    "chatStarts": HERMES_CHAT_STARTS,
+                },
+            )
+            return
+        if path == "/api/chat/stream":
+            query = urlsplit(self.path).query
+            stream_id = next(
+                (
+                    pair.split("=", 1)[1]
+                    for pair in query.split("&")
+                    if pair.startswith("stream_id=")
+                ),
+                "",
+            )
+            stream = HERMES_STREAMS.get(stream_id)
+            if stream is None:
+                self._json(404, {"error": "stream not found"})
+                return
+            answer = f"Hermes E2E Agent 回答 #{stream['turn']}"
+            done = {
+                "session": {
+                    "session_id": stream["session_id"],
+                    "messages": [
+                        {"role": "user", "content": stream["message"]},
+                        {"role": "assistant", "content": answer},
+                    ],
+                }
+            }
+            self._sse(
+                "event: token\n"
+                f"data: {json.dumps({'text': answer}, ensure_ascii=False)}\n\n"
+                "event: done\n"
+                f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+                "event: stream_end\n"
+                f"data: {json.dumps({'session_id': stream['session_id']})}\n\n"
+            )
+            return
+        if path == "/api/chat/cancel":
+            self._json(200, {"ok": True, "cancelled": True})
+            return
         payload = RESPONSES.get(path)
         if payload is None:
             self._json(404, {"detail": "not found"})
@@ -82,13 +140,39 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, payload)
 
     def do_POST(self) -> None:  # noqa: N802
+        global HERMES_NEW_SESSION_CALLS
         path = urlsplit(self.path).path
+        length = int(self.headers.get("Content-Length", "0"))
+        raw_body = self.rfile.read(length) if length else b"{}"
+        try:
+            body = json.loads(raw_body)
+        except json.JSONDecodeError:
+            body = {}
+        if path == "/api/session/new":
+            HERMES_NEW_SESSION_CALLS += 1
+            self._json(
+                200,
+                {"session": {"session_id": "hermes-e2e-session"}},
+            )
+            return
+        if path == "/api/chat/start":
+            turn = len(HERMES_CHAT_STARTS) + 1
+            session_id = str(body.get("session_id") or "")
+            message = str(body.get("message") or "")
+            stream_id = f"hermes-e2e-stream-{turn}"
+            HERMES_CHAT_STARTS.append(
+                {"sessionId": session_id, "message": message}
+            )
+            HERMES_STREAMS[stream_id] = {
+                "session_id": session_id,
+                "message": message,
+                "turn": str(turn),
+            }
+            self._json(200, {"stream_id": stream_id, "session_id": session_id})
+            return
         if path != "/v1/chat/completions":
             self._json(404, {"detail": "not found"})
             return
-        length = int(self.headers.get("Content-Length", "0"))
-        if length:
-            self.rfile.read(length)
         self._json(
             200,
             {

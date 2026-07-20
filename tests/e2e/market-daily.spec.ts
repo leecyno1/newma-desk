@@ -25,7 +25,7 @@ const marketManifest = {
   refresh: { mode: "schedule", cron: "0 18 * * 1-5" },
 };
 
-test("daily market module works directly, embedded, and through the Agent Gateway", async ({
+test("daily market module works directly, embedded, and through separate AI gateways", async ({
   page,
   request,
 }) => {
@@ -100,6 +100,30 @@ test("daily market module works directly, embedded, and through the Agent Gatewa
     "security.selected · 600519",
   );
 
+  await restoredFrame.getByRole("button", { name: "解释行情" }).click();
+  await expect(
+    restoredFrame.getByText("Hermes E2E Agent 回答 #1", { exact: false }),
+  ).toBeVisible();
+  await restoredFrame.getByRole("button", { name: "解释行情" }).click();
+  await expect(
+    restoredFrame.getByText("Hermes E2E Agent 回答 #2", { exact: false }),
+  ).toBeVisible();
+
+  const hermesStatsResponse = await request.get(
+    `${fakeOrigin}/api/testing/hermes-stats`,
+  );
+  expect(hermesStatsResponse.status()).toBe(200);
+  const hermesStats = (await hermesStatsResponse.json()) as {
+    newSessionCalls: number;
+    chatStarts: Array<{ sessionId: string }>;
+  };
+  expect(hermesStats.newSessionCalls).toBe(1);
+  expect(hermesStats.chatStarts.map((turn) => turn.sessionId)).toEqual([
+    "hermes-e2e-session",
+    "hermes-e2e-session",
+  ]);
+
+  await restoredFrame.getByRole("button", { name: "模型" }).click();
   await restoredFrame.getByRole("button", { name: "解释行情" }).click();
   await expect(
     restoredFrame.getByText("E2E 行情解释完成", { exact: false }),

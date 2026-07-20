@@ -2,7 +2,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -57,9 +57,17 @@ async def capabilities(
 @router.post("/api/agent/tasks", status_code=202, response_model=AgentTask)
 async def create_task(
     task_request: AgentTaskCreate,
+    user_id: str = Header(
+        default="local-user",
+        alias="X-User-Id",
+        min_length=1,
+        max_length=128,
+    ),
     service: AgentTaskService = Depends(get_agent_task_service),
 ) -> AgentTask:
-    return await service.create(task_request)
+    return await service.create(
+        task_request.model_copy(update={"user_id": user_id})
+    )
 
 
 @router.get("/api/agent/tasks/{task_id}", response_model=AgentTask)

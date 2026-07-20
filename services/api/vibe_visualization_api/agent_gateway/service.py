@@ -12,7 +12,7 @@ from vibe_visualization_api.agent_gateway.models import (
     AgentTaskCreate,
     TaskEvent,
 )
-from vibe_visualization_api.agent_gateway.prompts.market_explain import (
+from vibe_visualization_api.ai_context.market_explain import (
     build_market_explain_prompt,
 )
 from vibe_visualization_api.agent_gateway.registry import AgentAdapterRegistry
@@ -118,11 +118,11 @@ class AgentTaskService:
 
             active = self._active.get(task_id)
             if active is not None:
-                active.handle.cancel()
                 try:
                     await asyncio.wait_for(active.adapter.cancel(task_id), timeout=5.0)
                 except Exception:
                     pass
+                active.handle.cancel()
             return cancelled
 
     async def shutdown(self) -> None:
@@ -147,7 +147,7 @@ class AgentTaskService:
     ) -> None:
         terminal_seen = False
         try:
-            async for adapter_event in adapter.run(request):
+            async for adapter_event in adapter.run(task_id, request):
                 event = await self._persist_event(task_id, adapter_event)
                 await self._event_bus.publish(event)
                 if event.type in TERMINAL_EVENT_TYPES:

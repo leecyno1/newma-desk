@@ -8,8 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from vibe_visualization_api.agent_gateway.adapters.base import AgentAdapter
-from vibe_visualization_api.agent_gateway.adapters.openai_compatible import (
-    OpenAICompatibleAdapter,
+from vibe_visualization_api.agent_gateway.adapters.hermes_webui import (
+    HermesWebUIAdapter,
 )
 from vibe_visualization_api.agent_gateway.event_bus import TaskEventBus
 from vibe_visualization_api.agent_gateway.registry import (
@@ -18,12 +18,29 @@ from vibe_visualization_api.agent_gateway.registry import (
 )
 from vibe_visualization_api.agent_gateway.routes import router as agent_router
 from vibe_visualization_api.agent_gateway.service import AgentTaskService
+from vibe_visualization_api.agent_gateway.session_store import (
+    AgentModuleSessionStore,
+)
 from vibe_visualization_api.agent_gateway.store import (
     InvalidTaskStateError,
     TaskNotFoundError,
     TaskStore,
 )
 from vibe_visualization_api.config import Settings, get_settings
+from vibe_visualization_api.model_gateway.adapters.base import ModelAdapter
+from vibe_visualization_api.model_gateway.adapters.anthropic import (
+    AnthropicModelAdapter,
+)
+from vibe_visualization_api.model_gateway.adapters.openai_compatible import (
+    OpenAICompatibleModelAdapter,
+)
+from vibe_visualization_api.model_gateway.errors import ModelGatewayError
+from vibe_visualization_api.model_gateway.registry import (
+    ModelAdapterRegistry,
+    UnknownModelAdapterError,
+)
+from vibe_visualization_api.model_gateway.routes import router as model_router
+from vibe_visualization_api.model_gateway.service import ModelGatewayService
 from vibe_visualization_api.control_plane.repository import (
     InvalidModuleStateError,
     ModuleRepository,
@@ -59,19 +76,38 @@ def create_app(
     settings: Settings | None = None,
     *,
     agent_adapters: Sequence[AgentAdapter] | None = None,
+    model_adapters: Sequence[ModelAdapter] | None = None,
     data_services: Sequence[DataServiceDescriptor] | None = None,
     data_service_client: DataServiceClient | None = None,
     scheduler_service: SchedulerLifecycle | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
+    agent_session_store = AgentModuleSessionStore(app_settings.database_path)
     configured_adapters = (
         list(agent_adapters)
         if agent_adapters is not None
-        else [OpenAICompatibleAdapter(app_settings)]
+        else [
+            HermesWebUIAdapter(
+                app_settings,
+                agent_session_store,
+            )
+        ]
     )
     adapter_registry = AgentAdapterRegistry(
         configured_adapters,
         default_id=app_settings.agent_default_adapter,
+    )
+    configured_model_adapters = (
+        list(model_adapters)
+        if model_adapters is not None
+        else [
+            OpenAICompatibleModelAdapter(app_settings),
+            AnthropicModelAdapter(app_settings),
+        ]
+    )
+    model_adapter_registry = ModelAdapterRegistry(
+        configured_model_adapters,
+        default_id=app_settings.model_default_adapter,
     )
 
     @asynccontextmanager
@@ -112,6 +148,13 @@ def create_app(
         )
 
     application.state.agent_task_service_factory = create_agent_task_service
+    application.state.model_gateway_service = ModelGatewayService(
+        model_adapter_registry,
+        snapshot_store_factory=lambda: SnapshotStore(
+            app_settings.runtime_dir,
+            app_settings.database_path,
+        ),
+    )
     application.state.scheduler_service = scheduler_service
     application.state.scheduler_service_lock = asyncio.Lock()
 
@@ -149,6 +192,7 @@ def create_app(
     )
     application.include_router(modules_router)
     application.include_router(agent_router)
+    application.include_router(model_router)
     application.include_router(data_services_router)
     application.include_router(snapshots_router)
 
@@ -201,6 +245,29 @@ def create_app(
         return JSONResponse(
             status_code=400,
             content={"detail": "unknown agent adapter"},
+        )
+
+    @application.exception_handler(UnknownModelAdapterError)
+    async def unknown_model_adapter(
+        request: Request, error: UnknownModelAdapterError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "unknown model adapter"},
+        )
+
+    @application.exception_handler(ModelGatewayError)
+    async def model_gateway_error(
+        request: Request, error: ModelGatewayError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "error": {
+                    "code": error.code,
+                    "message": error.message,
+                }
+            },
         )
 
     @application.exception_handler(DataServiceNotFoundError)

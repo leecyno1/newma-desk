@@ -35,6 +35,7 @@ MANIFEST = {
 class SlowAgentAdapter(FakeAgentAdapter):
     async def run(
         self,
+        task_id: str,
         request: AgentTaskCreate,
     ) -> AsyncIterator[AdapterEvent]:
         self.requests.append(request)
@@ -50,6 +51,7 @@ class BlockingAgentAdapter(FakeAgentAdapter):
 
     async def run(
         self,
+        task_id: str,
         request: AgentTaskCreate,
     ) -> AsyncIterator[AdapterEvent]:
         self.requests.append(request)
@@ -61,6 +63,7 @@ class BlockingAgentAdapter(FakeAgentAdapter):
 class FailingAgentAdapter(FakeAgentAdapter):
     async def run(
         self,
+        task_id: str,
         request: AgentTaskCreate,
     ) -> AsyncIterator[AdapterEvent]:
         self.requests.append(request)

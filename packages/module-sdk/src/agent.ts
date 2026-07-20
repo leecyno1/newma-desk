@@ -94,6 +94,14 @@ export async function requestGatewayJson<T>(
       "detail" in body &&
       typeof body.detail === "string"
         ? body.detail
+        : typeof body === "object" &&
+            body !== null &&
+            "error" in body &&
+            typeof body.error === "object" &&
+            body.error !== null &&
+            "message" in body.error &&
+            typeof body.error.message === "string"
+          ? body.error.message
         : "Gateway request failed";
     throw new GatewayError(response.status, detail);
   }
@@ -115,6 +123,23 @@ export interface GatewayClient {
     actionId: string,
     input: Record<string, unknown>,
   ): Promise<T>;
+}
+
+export type AgentGatewayClient = Pick<
+  GatewayClient,
+  "createTask" | "getTask" | "cancelTask" | "eventsUrl"
+>;
+
+export function createAgentClient(
+  config: GatewayClientConfig,
+): AgentGatewayClient {
+  const client = createGatewayClient(config);
+  return {
+    createTask: client.createTask,
+    getTask: client.getTask,
+    cancelTask: client.cancelTask,
+    eventsUrl: client.eventsUrl,
+  };
 }
 
 export function createGatewayClient(config: GatewayClientConfig): GatewayClient {

@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from tests.agent_gateway.fakes import FakeAgentAdapter
-from vibe_visualization_api.agent_gateway.prompts.market_explain import (
+from vibe_visualization_api.ai_context.market_explain import (
     build_market_explain_prompt,
 )
 from vibe_visualization_api.config import Settings

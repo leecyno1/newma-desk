@@ -7,6 +7,7 @@ from pydantic.alias_generators import to_camel
 MODULE_ID_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
 CAPABILITY_PATTERN = r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$"
 ADAPTER_ID_PATTERN = r"^[a-z][a-z0-9-]{1,63}$"
+USER_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$"
 
 
 class GatewayModel(BaseModel):
@@ -20,6 +21,7 @@ class GatewayModel(BaseModel):
 
 
 class AgentTaskCreate(GatewayModel):
+    user_id: str = Field(default="local-user", pattern=USER_ID_PATTERN)
     module_id: str | None = Field(default=None, pattern=MODULE_ID_PATTERN)
     capability: str | None = Field(default=None, pattern=CAPABILITY_PATTERN)
     prompt: str = ""
@@ -59,3 +61,12 @@ class AgentTask(GatewayModel):
     request: AgentTaskCreate
     result: dict[str, Any] | None = None
     error: str | None = None
+
+
+class AgentModuleSession(GatewayModel):
+    user_id: str = Field(pattern=USER_ID_PATTERN)
+    agent_id: str = Field(pattern=ADAPTER_ID_PATTERN)
+    module_id: str = Field(pattern=MODULE_ID_PATTERN)
+    upstream_session_id: str = Field(min_length=1, max_length=256)
+    created_at: str
+    updated_at: str

@@ -18,6 +18,7 @@ class FakeAgentAdapter:
 
     async def run(
         self,
+        task_id: str,
         request: AgentTaskCreate,
     ) -> AsyncIterator[AdapterEvent]:
         self.requests.append(request)

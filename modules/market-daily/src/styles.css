@@ -73,6 +73,64 @@ select:focus-visible {
   text-align: right;
 }
 
+.market-header-controls {
+  display: flex;
+  align-items: flex-end;
+  flex: none;
+  gap: 28px;
+}
+
+.control-label,
+.ai-mode-note {
+  display: block;
+  color: #777f81;
+  font-size: 11px;
+}
+
+.ai-mode-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  gap: 3px;
+  margin-top: 6px;
+  padding: 3px;
+  border: 1px solid #303637;
+  border-radius: 9px;
+  background: #15191a;
+}
+
+.ai-mode-switch button {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  color: #858d8f;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.ai-mode-switch button:hover {
+  color: #d9dfdd;
+}
+
+.ai-mode-switch button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.ai-mode-switch button[aria-pressed="true"] {
+  color: #eafff8;
+  background: #244b40;
+  box-shadow: inset 0 0 0 1px #3a6c5f;
+}
+
+.ai-mode-note {
+  margin-top: 6px;
+  color: #8a9294;
+  white-space: nowrap;
+}
+
 .snapshot-time span,
 .agent-task-state {
   color: #777f81;
@@ -291,6 +349,17 @@ select:focus-visible {
 
   .snapshot-time {
     text-align: left;
+  }
+
+  .market-header-controls {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .ai-mode-switch {
+    grid-template-columns: repeat(2, minmax(64px, 1fr));
   }
 
   .vv-structured-view {

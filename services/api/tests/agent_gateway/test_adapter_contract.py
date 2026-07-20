@@ -6,7 +6,7 @@ from tests.agent_gateway.fakes import FakeAgentAdapter
 
 
 async def _collect(adapter: AgentAdapter, request: AgentTaskCreate):
-    return [event async for event in adapter.run(request)]
+    return [event async for event in adapter.run("task-1", request)]
 
 
 async def _cancel(adapter: AgentAdapter, task_id: str) -> None:

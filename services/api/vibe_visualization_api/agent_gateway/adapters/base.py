@@ -14,7 +14,11 @@ class AgentAdapter(Protocol):
     async def capabilities(self) -> list[str]:
         ...
 
-    def run(self, request: AgentTaskCreate) -> AsyncIterator[AdapterEvent]:
+    def run(
+        self,
+        task_id: str,
+        request: AgentTaskCreate,
+    ) -> AsyncIterator[AdapterEvent]:
         ...
 
     async def cancel(self, task_id: str) -> None:

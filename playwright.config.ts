@@ -63,6 +63,8 @@ export default defineConfig({
         VIBE_VIS_OPENAI_BASE_URL: `${fakeOrigin}/v1`,
         VIBE_VIS_OPENAI_API_KEY: "e2e-api-key",
         VIBE_VIS_OPENAI_MODEL: "e2e-model",
+        VIBE_VIS_MODEL_TIMEOUT_SECONDS: "5",
+        VIBE_VIS_HERMES_WEBUI_BASE_URL: fakeOrigin,
         VIBE_VIS_AGENT_TIMEOUT_SECONDS: "5",
       },
     },

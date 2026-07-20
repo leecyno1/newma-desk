@@ -105,4 +105,78 @@ describe("MarketDailyApp", () => {
       market: "CN",
     });
   });
+
+  it("switches to one-shot Model Gateway mode for explanations", async () => {
+    let actionPayload: unknown;
+    server.use(
+      http.get("/api/modules/market-daily/snapshot", () =>
+        HttpResponse.json(snapshot),
+      ),
+      http.post(
+        "/api/modules/market-daily/actions/market.explain",
+        async ({ request }) => {
+          actionPayload = await request.json();
+          return HttpResponse.json({
+            answer: "模型解释结果",
+            adapter: "openai-compatible",
+            model: "gpt-5.6",
+          });
+        },
+      ),
+    );
+    render(<MarketDailyApp bridge={bridge()} />);
+    await screen.findByText("2026-07-18 15:00");
+
+    expect(screen.getByRole("button", { name: "Agent" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "模型" }));
+    expect(screen.getByText("一次性模型调用")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "解释行情" }));
+
+    expect(await screen.findByText("模型行情解释")).toBeVisible();
+    expect(screen.getByText("模型解释结果")).toBeVisible();
+    expect(screen.getByText("openai-compatible · gpt-5.6")).toBeVisible();
+    expect(actionPayload).toEqual({
+      gatewayMode: "model",
+      prompt: "解释当前市场行情",
+    });
+  });
+
+  it("uses Agent mode by default for long-lived module context", async () => {
+    let actionPayload: unknown;
+    server.use(
+      http.get("/api/modules/market-daily/snapshot", () =>
+        HttpResponse.json(snapshot),
+      ),
+      http.post(
+        "/api/modules/market-daily/actions/market.explain",
+        async ({ request }) => {
+          actionPayload = await request.json();
+          return HttpResponse.json(
+            {
+              id: "task-1",
+              status: "completed",
+              result: { answer: "Agent 解释结果" },
+              error: null,
+            },
+            { status: 202 },
+          );
+        },
+      ),
+    );
+    render(<MarketDailyApp bridge={bridge()} />);
+    await screen.findByText("2026-07-18 15:00");
+
+    expect(screen.getByText("保留本模块长期上下文")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "解释行情" }));
+
+    expect(await screen.findByText("Agent 行情解释")).toBeVisible();
+    expect(screen.getByText("Agent 解释结果")).toBeVisible();
+    expect(actionPayload).toEqual({
+      gatewayMode: "agent",
+      prompt: "解释当前市场行情",
+    });
+  });
 });

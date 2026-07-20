@@ -5,6 +5,7 @@ import {
 
 export * from "./agent";
 export * from "./data";
+export * from "./model";
 
 const EVENT_CHANNEL = "vibe-visualization-events";
 const TRACE_CACHE_LIMIT = 256;

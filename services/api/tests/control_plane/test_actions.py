@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.agent_gateway.fakes import FakeAgentAdapter
+from tests.model_gateway.fakes import FakeModelAdapter
 from vibe_visualization_api.config import Settings
 from vibe_visualization_api.control_plane.actions import (
     TradeConfirmationService,
@@ -75,6 +76,11 @@ def fake_adapter() -> FakeAgentAdapter:
 
 
 @pytest.fixture
+def fake_model_adapter() -> FakeModelAdapter:
+    return FakeModelAdapter()
+
+
+@pytest.fixture
 def fake_data_client() -> FakeDataClient:
     return FakeDataClient()
 
@@ -88,6 +94,7 @@ def fake_refresh_service() -> FakeRefreshService:
 def client(
     tmp_path: Path,
     fake_adapter: FakeAgentAdapter,
+    fake_model_adapter: FakeModelAdapter,
     fake_data_client: FakeDataClient,
     fake_refresh_service: FakeRefreshService,
 ) -> Iterator[TestClient]:
@@ -110,11 +117,13 @@ def client(
         runtime_dir=tmp_path,
         database_path=tmp_path / "actions.db",
         agent_default_adapter="fake",
+        model_default_adapter="fake-model",
         trade_confirmation_secret="test-confirmation-secret",
     )
     application = create_app(
         settings,
         agent_adapters=[fake_adapter],
+        model_adapters=[fake_model_adapter],
         data_services=[service],
         data_service_client=fake_data_client,
         scheduler_service=fake_refresh_service,
@@ -177,6 +186,56 @@ def test_published_module_can_call_declared_agent_capability(
     assert audit["decision"] == "allowed"
     assert audit["user_id"] == "alice"
     assert audit["task_id"].startswith("task-")
+
+
+def test_model_mode_does_not_create_agent_task_or_session(
+    client: TestClient,
+    tmp_path: Path,
+    fake_adapter: FakeAgentAdapter,
+    fake_model_adapter: FakeModelAdapter,
+) -> None:
+    _publish(client)
+    SnapshotStore(tmp_path, tmp_path / "actions.db").write_success(
+        "market-daily",
+        {
+            "asOf": "2026-07-20T15:00:00+08:00",
+            "breadth": {"up": 3000, "down": 1800, "flat": 100},
+            "indices": [],
+            "globalIndices": [],
+            "leaders": [],
+        },
+    )
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.explain",
+        headers={"X-User-Id": "alice"},
+        json={
+            "gatewayMode": "model",
+            "prompt": "解释市场异动",
+            "model": "chosen-model",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["adapter"] == "fake-model"
+    assert response.json()["model"] == "chosen-model"
+    assert fake_adapter.requests == []
+    assert len(fake_model_adapter.requests) == 1
+    with sqlite3.connect(tmp_path / "actions.db") as connection:
+        session_table = connection.execute(
+            """
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE type = 'table' AND name = 'agent_module_sessions'
+            """
+        ).fetchone()[0]
+        agent_task_table = connection.execute(
+            """
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE type = 'table' AND name = 'agent_tasks'
+            """
+        ).fetchone()[0]
+    assert session_table == 0
+    assert agent_task_table == 0
 
 
 def test_published_module_can_call_declared_data_capability(

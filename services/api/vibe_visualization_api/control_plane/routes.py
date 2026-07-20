@@ -28,6 +28,7 @@ from vibe_visualization_api.control_plane.packages import (
 from vibe_visualization_api.control_plane.repository import ModuleRepository
 from vibe_visualization_api.control_plane.permissions import authorize_action
 from vibe_visualization_api.data_services.registry import DataServiceNotFoundError
+from vibe_visualization_api.model_gateway.models import ModelResponseCreate
 from vibe_visualization_api.control_plane.schemas import (
     ModuleManifest,
     StoredModuleResponse,
@@ -292,6 +293,57 @@ async def invoke_module_action(
         return JSONResponse(status_code=200, content=jsonable_encoder(snapshot))
 
     if decision.allowed:
+        raw_mode = input_data.get("gatewayMode", "agent")
+        if raw_mode not in {"agent", "model"}:
+            raise HTTPException(422, "gatewayMode must be 'agent' or 'model'")
+        prompt = input_data.get("prompt")
+        prompt_text = prompt if isinstance(prompt, str) else ""
+        clean_input = {
+            key: value
+            for key, value in input_data.items()
+            if key
+            not in {
+                "gatewayMode",
+                "prompt",
+                "agentAdapter",
+                "modelAdapter",
+                "model",
+            }
+        }
+        if raw_mode == "model":
+            model_adapter = input_data.get("modelAdapter")
+            model = input_data.get("model")
+            service = request.app.state.model_gateway_service
+            response = await service.create_response(
+                ModelResponseCreate(
+                    module_id=module_id,
+                    capability=action_id,
+                    prompt=prompt_text,
+                    input=clean_input,
+                    adapter=(
+                        model_adapter if isinstance(model_adapter, str) else None
+                    ),
+                    model=model if isinstance(model, str) else None,
+                )
+            )
+            await run_in_threadpool(
+                repository.record_action_audit,
+                module_id,
+                module.revision,
+                {
+                    **base_audit,
+                    "decision": "allowed",
+                    "gateway_mode": "model",
+                    "model_adapter": response.adapter,
+                    "model": response.model,
+                },
+            )
+            return JSONResponse(
+                status_code=200,
+                content=response.model_dump(mode="json"),
+            )
+
+        agent_adapter = input_data.get("agentAdapter")
         async with request.app.state.agent_task_service_lock:
             service = request.app.state.agent_task_service
             if service is None:
@@ -301,16 +353,26 @@ async def invoke_module_action(
                 request.app.state.agent_task_service = service
         task = await service.create(
             AgentTaskCreate(
+                user_id=user_id,
                 module_id=module_id,
                 capability=action_id,
-                input=input_data,
+                prompt=prompt_text,
+                input=clean_input,
+                adapter=(
+                    agent_adapter if isinstance(agent_adapter, str) else None
+                ),
             )
         )
         await run_in_threadpool(
             repository.record_action_audit,
             module_id,
             module.revision,
-            {**base_audit, "decision": "allowed", "task_id": task.id},
+            {
+                **base_audit,
+                "decision": "allowed",
+                "gateway_mode": "agent",
+                "task_id": task.id,
+            },
         )
         return JSONResponse(status_code=202, content=task.model_dump(mode="json"))
 

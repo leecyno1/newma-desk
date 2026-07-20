@@ -1,16 +1,16 @@
 import json
-from collections.abc import AsyncIterator
 
 import httpx
 
-from vibe_visualization_api.agent_gateway.models import (
-    AdapterEvent,
-    AgentTaskCreate,
-)
 from vibe_visualization_api.config import Settings
+from vibe_visualization_api.model_gateway.errors import ModelGatewayError
+from vibe_visualization_api.model_gateway.models import (
+    ModelResponse,
+    ModelResponseCreate,
+)
 
 
-class OpenAICompatibleAdapter:
+class OpenAICompatibleModelAdapter:
     id = "openai-compatible"
 
     def __init__(
@@ -21,36 +21,29 @@ class OpenAICompatibleAdapter:
         self._settings = settings
         self._client = client
         self._endpoint = f"{settings.openai_base_url}/chat/completions"
-        self._timeout = httpx.Timeout(settings.agent_timeout_seconds)
+        self._timeout = httpx.Timeout(settings.model_timeout_seconds)
 
     async def capabilities(self) -> list[str]:
         return ["chat", "module.explain", "module.generate-view"]
 
-    async def run(
-        self,
-        request: AgentTaskCreate,
-    ) -> AsyncIterator[AdapterEvent]:
-        yield AdapterEvent(type="progress", data={"message": "calling model"})
-
+    async def complete(self, request: ModelResponseCreate) -> ModelResponse:
         api_key = self._settings.openai_api_key.get_secret_value()
-        if not api_key:
-            yield AdapterEvent(
-                type="failed",
-                data={
-                    "code": "missing_api_key",
-                    "error": "Agent provider is not configured",
-                },
+        if self._settings.openai_api_key_required and not api_key:
+            raise ModelGatewayError(
+                "missing_api_key",
+                "Model provider is not configured",
+                503,
             )
-            return
 
+        model = request.model or self._settings.openai_model
         payload = {
-            "model": self._settings.openai_model,
+            "model": model,
             "messages": [
                 {
                     "role": "system",
                     "content": (
-                        "You are the Agent Gateway for a modular visualization "
-                        "workspace. Answer the requested module task."
+                        "You are a model connected to a modular visualization "
+                        "workspace. Answer only the requested module task."
                     ),
                 },
                 {
@@ -59,6 +52,7 @@ class OpenAICompatibleAdapter:
                 },
             ],
         }
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         client = self._client or httpx.AsyncClient(
             timeout=self._timeout,
             follow_redirects=False,
@@ -67,66 +61,63 @@ class OpenAICompatibleAdapter:
         try:
             response = await client.post(
                 self._endpoint,
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers=headers,
                 json=payload,
                 timeout=self._timeout,
                 follow_redirects=False,
             )
-        except httpx.TimeoutException:
-            yield self._failed(
+        except httpx.TimeoutException as error:
+            raise ModelGatewayError(
                 "upstream_timeout",
-                "Agent provider timed out",
-            )
-            return
-        except httpx.RequestError:
-            yield self._failed(
+                "Model provider timed out",
+                504,
+            ) from error
+        except httpx.RequestError as error:
+            raise ModelGatewayError(
                 "upstream_unavailable",
-                "Agent provider is unavailable",
-            )
-            return
+                "Model provider is unavailable",
+                502,
+            ) from error
         finally:
             if owns_client:
                 await client.aclose()
 
         if response.status_code in {401, 403}:
-            yield self._failed(
+            raise ModelGatewayError(
                 "upstream_authentication_failed",
-                "Agent provider authentication failed",
+                "Model provider authentication failed",
+                502,
             )
-            return
         if response.status_code == 429:
-            yield self._failed(
+            raise ModelGatewayError(
                 "upstream_rate_limited",
-                "Agent provider rate limit exceeded",
+                "Model provider rate limit exceeded",
+                502,
             )
-            return
         if response.status_code >= 500:
-            yield self._failed(
+            raise ModelGatewayError(
                 "upstream_unavailable",
-                "Agent provider is unavailable",
+                "Model provider is unavailable",
+                502,
             )
-            return
         if not 200 <= response.status_code < 300:
-            yield self._failed(
+            raise ModelGatewayError(
                 "upstream_rejected",
-                "Agent provider rejected the request",
+                "Model provider rejected the request",
+                502,
             )
-            return
 
         content = self._response_content(response)
         if content is None:
-            yield self._failed(
+            raise ModelGatewayError(
                 "invalid_upstream_response",
-                "Agent provider returned an invalid response",
+                "Model provider returned an invalid response",
+                502,
             )
-            return
-        yield AdapterEvent(type="completed", data={"answer": content})
-
-    async def cancel(self, task_id: str) -> None:
-        return None
+        return ModelResponse(answer=content, adapter=self.id, model=model)
 
     @staticmethod
-    def _user_message(request: AgentTaskCreate) -> str:
+    def _user_message(request: ModelResponseCreate) -> str:
         return json.dumps(
             {
                 "moduleId": request.module_id,
@@ -138,10 +129,6 @@ class OpenAICompatibleAdapter:
             ensure_ascii=False,
             sort_keys=True,
         )
-
-    @staticmethod
-    def _failed(code: str, error: str) -> AdapterEvent:
-        return AdapterEvent(type="failed", data={"code": code, "error": error})
 
     @staticmethod
     def _response_content(response: httpx.Response) -> str | None:

@@ -36,6 +36,7 @@ def test_agent_task_accepts_and_serializes_camel_case_module_id() -> None:
 
     assert request.module_id == "market-daily"
     assert request.model_dump(mode="json") == {
+        "userId": "local-user",
         "moduleId": "market-daily",
         "capability": None,
         "prompt": "解释异动",
