@@ -3,6 +3,9 @@ import {
   type ModuleEvent,
 } from "@vibe-visualization/contracts";
 
+export * from "./agent";
+export * from "./data";
+
 const EVENT_CHANNEL = "vibe-visualization-events";
 const TRACE_CACHE_LIMIT = 256;
 
