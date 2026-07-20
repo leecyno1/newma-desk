@@ -929,7 +929,9 @@ git commit -m "feat: add secure module bridge"
 **Files:**
 - Create: `playwright.config.ts`
 - Create: `tests/e2e/fixtures/modules/demo/index.html`
+- Create: `tests/e2e/runtime-config.ts`
 - Create: `tests/e2e/global-setup.ts`
+- Create: `tests/e2e/global-teardown.ts`
 - Create: `tests/e2e/module-embedding.spec.ts`
 - Modify: `package.json`
 
@@ -947,10 +949,10 @@ Add root script:
 
 ```ts
 test("the same module works directly and inside the shell", async ({ page }) => {
-  await page.goto("http://127.0.0.1:5891/modules/demo/");
+  await page.goto(`${runtime.moduleOrigin}/modules/demo/`);
   await expect(page.getByRole("heading", { name: "Demo Module" })).toBeVisible();
 
-  await page.goto("http://127.0.0.1:15888/?module=demo");
+  await page.goto(`${runtime.shellOrigin}/?module=demo`);
   const frame = page.frameLocator('iframe[title="Demo Module"]');
   await expect(frame.getByRole("heading", { name: "Demo Module" })).toBeVisible();
 });
@@ -958,13 +960,13 @@ test("the same module works directly and inside the shell", async ({ page }) => 
 
 - [ ] **Step 3: Configure Playwright web servers**
 
-Configure three commands in `playwright.config.ts`:
+Create one shared per-run runtime config that allocates three free loopback ports and a unique database path, stores the resolved values in environment variables for Playwright child processes, and supports explicit CI overrides. Configure three commands in `playwright.config.ts` from that config:
 
-- API: `services/api/.venv/bin/uvicorn vibe_visualization_api.main:app --app-dir services/api --port 8901`
-- Shell: `npm run dev -w @vibe-visualization/shell -- --host 127.0.0.1 --port 15888`
-- Demo static host: `python3 -m http.server 5891 --bind 127.0.0.1 --directory tests/e2e/fixtures`
+- API: uvicorn on the allocated API port with the unique E2E database path.
+- Shell: Vite on the allocated Shell port with proxy target and module origin from the same runtime config.
+- Demo static host: Python HTTP server on the allocated module port.
 
-Use the isolated E2E Shell port 15888 so tests never stop or reuse a developer's normal 5888 service. Set `VITE_MODULE_ORIGIN=http://127.0.0.1:5891` for the Shell web server and `VIBE_VIS_ALLOWED_ORIGINS=http://127.0.0.1:15888,http://127.0.0.1:5891` for the API web server.
+Use `reuseExistingServer: false` and one worker. The ports and database must be unique per run so concurrent E2E commands cannot collide and tests never stop or reuse a developer service. Global teardown removes only that run's database and exact sidecars.
 
 - [ ] **Step 4: Seed the demo module before the test**
 
