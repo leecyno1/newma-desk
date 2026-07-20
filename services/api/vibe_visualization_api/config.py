@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr = SecretStr("")
     openai_model: str = "gpt-5.6"
     agent_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
+    data_service_public_mode: bool = False
 
     @field_validator("openai_base_url")
     @classmethod

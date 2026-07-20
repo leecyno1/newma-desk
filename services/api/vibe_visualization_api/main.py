@@ -28,12 +28,28 @@ from vibe_visualization_api.control_plane.repository import (
     ModuleNotFoundError,
 )
 from vibe_visualization_api.control_plane.routes import router as modules_router
+from vibe_visualization_api.data_services.client import (
+    DataServiceClient,
+    MissingServiceSecret,
+    UnknownServiceCapability,
+    UnsafeServiceUrl,
+    UnsupportedServiceTransport,
+    UpstreamServiceError,
+)
+from vibe_visualization_api.data_services.models import DataServiceDescriptor
+from vibe_visualization_api.data_services.registry import (
+    DataServiceNotFoundError,
+    DataServiceRegistry,
+)
+from vibe_visualization_api.data_services.routes import router as data_services_router
 
 
 def create_app(
     settings: Settings | None = None,
     *,
     agent_adapters: Sequence[AgentAdapter] | None = None,
+    data_services: Sequence[DataServiceDescriptor] | None = None,
+    data_service_client: DataServiceClient | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     configured_adapters = (
@@ -58,6 +74,12 @@ def create_app(
         )
 
     application.state.agent_task_service_factory = create_agent_task_service
+    application.state.data_service_registry = DataServiceRegistry(
+        list(data_services or [])
+    )
+    application.state.data_service_client = data_service_client or DataServiceClient(
+        public_mode=app_settings.data_service_public_mode
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.origin_list(),
@@ -67,6 +89,7 @@ def create_app(
     )
     application.include_router(modules_router)
     application.include_router(agent_router)
+    application.include_router(data_services_router)
 
     @application.exception_handler(ModuleNotFoundError)
     async def module_not_found(
@@ -108,6 +131,59 @@ def create_app(
         return JSONResponse(
             status_code=400,
             content={"detail": "unknown agent adapter"},
+        )
+
+    @application.exception_handler(DataServiceNotFoundError)
+    async def data_service_not_found(
+        request: Request, error: DataServiceNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404, content={"detail": "data service not found"}
+        )
+
+    @application.exception_handler(UnknownServiceCapability)
+    async def data_service_capability_not_found(
+        request: Request, error: UnknownServiceCapability
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "data service capability not found"},
+        )
+
+    @application.exception_handler(UnsafeServiceUrl)
+    async def unsafe_data_service_url(
+        request: Request, error: UnsafeServiceUrl
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "unsafe data service URL"},
+        )
+
+    @application.exception_handler(UnsupportedServiceTransport)
+    async def unsupported_data_service_transport(
+        request: Request, error: UnsupportedServiceTransport
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "unsupported data service transport"},
+        )
+
+    @application.exception_handler(MissingServiceSecret)
+    async def missing_data_service_secret(
+        request: Request, error: MissingServiceSecret
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "data service unavailable"},
+        )
+
+    @application.exception_handler(UpstreamServiceError)
+    async def data_service_upstream_error(
+        request: Request, error: UpstreamServiceError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=502,
+            content={"detail": "data service upstream failed"},
         )
 
     async def shutdown_agent_gateway() -> None:
