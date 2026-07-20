@@ -26,7 +26,7 @@ def scheduled_manifest() -> dict[str, object]:
         "category": "market",
         "entry": {"type": "structured", "url": "/modules/market-daily/"},
         "permissions": ["market.read"],
-        "dataServices": ["vibe-research"],
+        "dataServices": ["market-data"],
         "agentCapabilities": ["market.refresh"],
         "events": {"emits": [], "accepts": []},
         "refresh": {"mode": "schedule", "cron": "0 9 * * *"},

@@ -49,6 +49,25 @@ class FakeDataClient:
         return {"breadth": 0.63}
 
 
+class FakeRefreshService:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def start(self) -> None:
+        pass
+
+    async def stop(self) -> None:
+        pass
+
+    async def refresh_module(self, module_id: str) -> dict[str, object]:
+        self.calls.append(module_id)
+        return {
+            "id": "snapshot-1",
+            "moduleId": module_id,
+            "data": {"asOf": "2026-07-20T15:00:00+08:00"},
+        }
+
+
 @pytest.fixture
 def fake_adapter() -> FakeAgentAdapter:
     return FakeAgentAdapter()
@@ -60,10 +79,16 @@ def fake_data_client() -> FakeDataClient:
 
 
 @pytest.fixture
+def fake_refresh_service() -> FakeRefreshService:
+    return FakeRefreshService()
+
+
+@pytest.fixture
 def client(
     tmp_path: Path,
     fake_adapter: FakeAgentAdapter,
     fake_data_client: FakeDataClient,
+    fake_refresh_service: FakeRefreshService,
 ) -> Iterator[TestClient]:
     service = DataServiceDescriptor(
         id="market-data",
@@ -91,6 +116,7 @@ def client(
         agent_adapters=[fake_adapter],
         data_services=[service],
         data_service_client=fake_data_client,
+        scheduler_service=fake_refresh_service,
     )
     with TestClient(application) as test_client:
         yield test_client
@@ -156,6 +182,35 @@ def test_published_module_can_call_declared_data_capability(
     assert fake_data_client.calls == [
         ("market-data", "market.overview", {"date": "2026-07-20"})
     ]
+
+
+def test_market_refresh_runs_locally_instead_of_creating_an_agent_task(
+    client: TestClient,
+    tmp_path: Path,
+    fake_adapter: FakeAgentAdapter,
+    fake_refresh_service: FakeRefreshService,
+) -> None:
+    _publish(
+        client,
+        {
+            **MANIFEST,
+            "agentCapabilities": ["market.explain", "market.refresh"],
+        },
+    )
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.refresh",
+        headers={"X-User-Id": "alice"},
+        json={},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["asOf"] == "2026-07-20T15:00:00+08:00"
+    assert fake_refresh_service.calls == ["market-daily"]
+    assert fake_adapter.requests == []
+    audit = _audit_details(tmp_path / "actions.db")[-1]
+    assert audit["decision"] == "allowed"
+    assert audit["snapshot_id"] == "snapshot-1"
 
 
 def test_undeclared_capability_returns_forbidden_and_is_audited(

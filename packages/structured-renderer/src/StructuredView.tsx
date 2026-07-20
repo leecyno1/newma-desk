@@ -15,6 +15,7 @@ export interface StructuredViewProps {
   data: unknown;
   onAction?: ActionHandler;
   onFiltersChange?: (filters: FilterValues) => void;
+  onRowSelect?: (blockId: string, row: Record<string, unknown>) => void;
 }
 
 export function StructuredView({
@@ -22,6 +23,7 @@ export function StructuredView({
   data,
   onAction,
   onFiltersChange,
+  onRowSelect,
 }: StructuredViewProps) {
   return (
     <main className="vv-structured-view">
@@ -31,7 +33,14 @@ export function StructuredView({
           case "metrics":
             return <MetricsBlock block={block} data={data} key={block.id} />;
           case "table":
-            return <TableBlock block={block} data={data} key={block.id} />;
+            return (
+              <TableBlock
+                block={block}
+                data={data}
+                key={block.id}
+                onRowSelect={onRowSelect}
+              />
+            );
           case "chart":
             return <ChartBlock block={block} data={data} key={block.id} />;
           case "markdown":

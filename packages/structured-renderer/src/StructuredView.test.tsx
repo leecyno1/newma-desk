@@ -9,7 +9,7 @@ import { StructuredView } from "./StructuredView";
 
 const chartSpy = vi.fn();
 
-vi.mock("echarts-for-react", () => ({
+vi.mock("echarts-for-react/lib/core", () => ({
   default: ({ option, style }: { option: unknown; style: unknown }) => {
     chartSpy(option);
     return <div data-testid="chart" style={style as React.CSSProperties} />;
@@ -117,6 +117,40 @@ describe("StructuredView", () => {
     await userEvent.click(screen.getByRole("button", { name: "按涨幅降序排列" }));
     const descendingRows = screen.getAllByRole("row").slice(1);
     expect(within(descendingRows[0]!).getByText("AAA")).toBeVisible();
+  });
+
+  it("emits a selected table row without changing its data", async () => {
+    const onRowSelect = vi.fn();
+    const row = { symbol: "600519", name: "贵州茅台", market: "CN" };
+    const schema: View = {
+      version: "1.0",
+      title: "成交额榜",
+      blocks: [
+        {
+          id: "leaders",
+          type: "table",
+          rowsPath: "leaders",
+          columns: [
+            { key: "symbol", label: "代码" },
+            { key: "name", label: "名称" },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <StructuredView
+        schema={schema}
+        data={{ leaders: [row] }}
+        onRowSelect={onRowSelect}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("row", { name: "600519 贵州茅台" }),
+    );
+
+    expect(onRowSelect).toHaveBeenCalledWith("leaders", row);
+    expect(row).toEqual({ symbol: "600519", name: "贵州茅台", market: "CN" });
   });
 
   it("emits complete filters and declared actions", async () => {

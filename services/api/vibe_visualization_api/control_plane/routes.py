@@ -12,6 +12,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -246,6 +247,49 @@ async def invoke_module_action(
             {**base_audit, "decision": "blocked_mvp"},
         )
         raise HTTPException(501, "real trading is disabled in the MVP")
+
+    if action_id == "market.refresh":
+        if not decision.allowed:
+            await run_in_threadpool(
+                repository.record_action_audit,
+                module_id,
+                module.revision,
+                {**base_audit, "decision": "denied"},
+            )
+            raise HTTPException(403, "module action is not declared")
+        async with request.app.state.scheduler_service_lock:
+            refresh_service = request.app.state.scheduler_service
+            if refresh_service is None:
+                refresh_service = await run_in_threadpool(
+                    request.app.state.scheduler_service_factory
+                )
+                request.app.state.scheduler_service = refresh_service
+        try:
+            snapshot = await refresh_service.refresh_module(module_id)
+        except Exception as error:
+            await run_in_threadpool(
+                repository.record_action_audit,
+                module_id,
+                module.revision,
+                {**base_audit, "decision": "failed"},
+            )
+            raise HTTPException(502, "market refresh failed") from error
+        snapshot_id = (
+            snapshot.get("id")
+            if isinstance(snapshot, dict)
+            else getattr(snapshot, "id", None)
+        )
+        await run_in_threadpool(
+            repository.record_action_audit,
+            module_id,
+            module.revision,
+            {
+                **base_audit,
+                "decision": "allowed",
+                "snapshot_id": snapshot_id,
+            },
+        )
+        return JSONResponse(status_code=200, content=jsonable_encoder(snapshot))
 
     if decision.allowed:
         async with request.app.state.agent_task_service_lock:

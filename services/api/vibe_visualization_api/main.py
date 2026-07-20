@@ -109,6 +109,7 @@ def create_app(
 
     application.state.agent_task_service_factory = create_agent_task_service
     application.state.scheduler_service = scheduler_service
+    application.state.scheduler_service_lock = asyncio.Lock()
 
     def create_scheduler_service() -> RefreshSchedulerService:
         return RefreshSchedulerService(

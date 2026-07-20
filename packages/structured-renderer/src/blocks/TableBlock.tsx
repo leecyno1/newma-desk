@@ -11,6 +11,7 @@ import { resolvePath } from "../resolvePath";
 interface TableBlockProps {
   block: TableBlockContract;
   data: unknown;
+  onRowSelect?: (blockId: string, row: Record<string, unknown>) => void;
 }
 
 interface SortState {
@@ -44,7 +45,7 @@ function nextDirection(column: TableColumn, sort: SortState | undefined) {
   return sort.direction === "ascending" ? "descending" : "ascending";
 }
 
-export function TableBlock({ block, data }: TableBlockProps) {
+export function TableBlock({ block, data, onRowSelect }: TableBlockProps) {
   const [sort, setSort] = useState<SortState>();
   const rows = asRows(resolvePath(data, block.rowsPath));
   const sortedRows = useMemo(() => {
@@ -92,7 +93,21 @@ export function TableBlock({ block, data }: TableBlockProps) {
           <tbody>
             {sortedRows.length > 0 ? (
               sortedRows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
+                <tr
+                  className={onRowSelect ? "vv-selectable-row" : undefined}
+                  key={rowIndex}
+                  onClick={() => onRowSelect?.(block.id, row)}
+                  onKeyDown={(event) => {
+                    if (
+                      onRowSelect &&
+                      (event.key === "Enter" || event.key === " ")
+                    ) {
+                      event.preventDefault();
+                      onRowSelect(block.id, row);
+                    }
+                  }}
+                  tabIndex={onRowSelect ? 0 : undefined}
+                >
                   {block.columns.map((column) => (
                     <td key={column.key}>{formatValue(row[column.key], column.format)}</td>
                   ))}

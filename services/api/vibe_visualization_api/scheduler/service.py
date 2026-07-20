@@ -91,6 +91,25 @@ class RefreshSchedulerService:
         if due:
             await asyncio.gather(*(self._run_job(job, tick_at) for job in due))
 
+    async def refresh_module(self, module_id: str):
+        if module_id != "market-daily":
+            raise ValueError("no refresh handler is registered for this module")
+        try:
+            snapshot = await self._market_client.fetch_snapshot()
+            return await run_in_threadpool(
+                self._snapshot_store.write_success,
+                module_id,
+                snapshot,
+            )
+        except Exception as error:
+            message = str(error).strip() or error.__class__.__name__
+            await run_in_threadpool(
+                self._snapshot_store.write_failure,
+                module_id,
+                message,
+            )
+            raise
+
     async def _run_job(self, job: RefreshJob, started_at: datetime) -> None:
         acquired = await run_in_threadpool(
             self._store.try_acquire,
@@ -101,27 +120,15 @@ class RefreshSchedulerService:
             return
 
         try:
-            snapshot = await self._market_client.fetch_snapshot()
-            await run_in_threadpool(
-                self._snapshot_store.write_success,
-                job.module_id,
-                snapshot,
-            )
+            await self.refresh_module(job.module_id)
         except Exception as error:
             message = str(error).strip() or error.__class__.__name__
-            try:
-                await run_in_threadpool(
-                    self._snapshot_store.write_failure,
-                    job.module_id,
-                    message,
-                )
-            finally:
-                await run_in_threadpool(
-                    self._store.complete_failure,
-                    job.module_id,
-                    started_at,
-                    message,
-                )
+            await run_in_threadpool(
+                self._store.complete_failure,
+                job.module_id,
+                started_at,
+                message,
+            )
             return
 
         await run_in_threadpool(

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0",
+  "id": "market-daily",
+  "name": "每日股票行情",
+  "version": "0.1.0",
+  "category": "market",
+  "entry": {
+    "type": "structured",
+    "url": "/modules/market-daily/"
+  },
+  "permissions": ["market.read"],
+  "dataServices": ["market-data"],
+  "agentCapabilities": ["market.refresh", "market.explain"],
+  "events": {
+    "emits": ["security.selected"],
+    "accepts": ["date.changed", "security.selected"]
+  },
+  "refresh": {
+    "mode": "schedule",
+    "cron": "0 18 * * 1-5"
+  }
+}
