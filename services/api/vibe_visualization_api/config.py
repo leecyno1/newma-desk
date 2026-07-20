@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     agent_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
     data_service_public_mode: bool = False
     trade_confirmation_secret: SecretStr = SecretStr("")
+    research_base_url: str = "http://127.0.0.1:8900"
+    research_api_key: SecretStr = SecretStr("")
 
     @field_validator("openai_base_url")
     @classmethod
@@ -34,6 +36,21 @@ class Settings(BaseSettings):
             raise ValueError(
                 "OpenAI-compatible base URL must be an HTTP origin or path"
             )
+        return value.rstrip("/")
+
+    @field_validator("research_base_url")
+    @classmethod
+    def validate_research_base_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Research base URL must be an HTTP origin or path")
         return value.rstrip("/")
 
     def origin_list(self) -> list[str]:

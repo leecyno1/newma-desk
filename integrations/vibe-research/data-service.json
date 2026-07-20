@@ -1,0 +1,38 @@
+{
+  "id": "vibe-research",
+  "baseUrl": "http://127.0.0.1:8900",
+  "healthPath": "/api/health",
+  "transport": "rest",
+  "capabilities": {
+    "market.global-indices": {
+      "method": "GET",
+      "path": "/api/global/indices",
+      "inputSchema": "EmptyInput",
+      "outputSchema": "VibeResearchGlobalIndices",
+      "permission": "market.read"
+    },
+    "market.indices": {
+      "method": "GET",
+      "path": "/api/indices",
+      "inputSchema": "EmptyInput",
+      "outputSchema": "VibeResearchIndices",
+      "permission": "market.read"
+    },
+    "market.overview": {
+      "method": "GET",
+      "path": "/api/market/overview",
+      "inputSchema": "EmptyInput",
+      "outputSchema": "VibeResearchMarketOverview",
+      "permission": "market.read"
+    },
+    "market.turnover-top": {
+      "method": "GET",
+      "path": "/api/market/turnover-top",
+      "inputSchema": "EmptyInput",
+      "outputSchema": "VibeResearchTurnoverTop",
+      "permission": "market.read"
+    }
+  },
+  "timeoutSeconds": 15,
+  "allowedHosts": ["127.0.0.1"]
+}
