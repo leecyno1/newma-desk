@@ -117,7 +117,7 @@ export function createModuleBridge(
   validateModuleId(config.moduleId);
   const parentOrigin = validateOrigin(config.parentOrigin);
   const createChannel = runtime.createBroadcastChannel;
-  const outboundChannel = createChannel?.(EVENT_CHANNEL);
+  const channel = createChannel?.(EVENT_CHANNEL);
   const subscriptions = new Set<() => void>();
   let closed = false;
 
@@ -136,7 +136,7 @@ export function createModuleBridge(
     if (runtime.window.parent !== runtime.window) {
       runtime.window.parent.postMessage(envelope, parentOrigin);
     }
-    outboundChannel?.postMessage(envelope);
+    channel?.postMessage(envelope);
     return envelope;
   };
 
@@ -144,7 +144,6 @@ export function createModuleBridge(
     if (closed) throw new Error("module bridge is closed");
 
     const traceCache = new TraceCache();
-    const channel = createChannel?.(EVENT_CHANNEL);
 
     const deliver = (value: unknown) => {
       const parsed = moduleEventSchema.safeParse(value);
@@ -176,7 +175,6 @@ export function createModuleBridge(
       subscribed = false;
       runtime.window.removeEventListener("message", handleParentMessage);
       channel?.removeEventListener("message", handleBroadcastMessage);
-      channel?.close();
       subscriptions.delete(unsubscribe);
     };
     subscriptions.add(unsubscribe);
@@ -190,7 +188,7 @@ export function createModuleBridge(
       if (closed) return;
       closed = true;
       for (const unsubscribe of [...subscriptions]) unsubscribe();
-      outboundChannel?.close();
+      channel?.close();
     },
   };
 }

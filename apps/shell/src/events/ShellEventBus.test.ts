@@ -175,6 +175,21 @@ describe("ShellEventBus", () => {
     expect(target.postMessage).not.toHaveBeenCalledWith(expect.anything(), "*");
   });
 
+  it("drops a targeted event when its target is the source window", () => {
+    const bus = new ShellEventBus(runtime());
+    const source = targetWindow();
+    bus.register({
+      moduleId: "research-news",
+      manifest: manifest("research-news", ["security.selected"]),
+      target: source,
+      origin: "https://research.example",
+    });
+
+    bus.route(event({ target: "research-news" }), source);
+
+    expect(source.postMessage).not.toHaveBeenCalled();
+  });
+
   it("deduplicates trace ids and drops unknown targets", () => {
     const bus = new ShellEventBus(runtime());
     const target = targetWindow();

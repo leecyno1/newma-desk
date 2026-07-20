@@ -145,7 +145,7 @@ export class ShellEventBus {
 
     const event = parsed.data;
     if (event.target) {
-      this.routeTargeted(event);
+      this.routeTargeted(event, sourceWindow);
     } else {
       this.routeBroadcast(event, sourceWindow);
     }
@@ -153,10 +153,11 @@ export class ShellEventBus {
     if (publishToShellTabs) this.channel?.postMessage(event);
   }
 
-  private routeTargeted(event: ModuleEvent) {
+  private routeTargeted(event: ModuleEvent, sourceWindow: Window | undefined) {
     if (!event.target) return;
     const registration = this.registrationsByModule.get(event.target);
     if (!registration) return;
+    if (registration.target === sourceWindow) return;
     if (!registration.manifest.events.accepts.includes(event.event)) return;
     registration.target.postMessage(event, registration.origin);
   }

@@ -267,6 +267,29 @@ describe("createModuleBridge", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it("does not receive its own emit while a separate bridge receives it", () => {
+    const fakeWindow = makeWindow();
+    const emittingHandler = vi.fn();
+    const peerHandler = vi.fn();
+    const emittingBridge = createModuleBridge(
+      { moduleId: "market-daily", parentOrigin: "https://shell.example" },
+      runtime(fakeWindow, "shared-trace"),
+    );
+    const peerBridge = createModuleBridge(
+      { moduleId: "research-news", parentOrigin: "https://shell.example" },
+      runtime(fakeWindow, "peer-trace"),
+    );
+    emittingBridge.subscribe(emittingHandler);
+    peerBridge.subscribe(peerHandler);
+
+    const emitted = emittingBridge.emit("security.selected", {
+      symbol: "AAPL",
+    });
+
+    expect(emittingHandler).not.toHaveBeenCalled();
+    expect(peerHandler).toHaveBeenCalledWith(emitted);
+  });
+
   it("cleans up one subscriber without breaking a separate bridge", () => {
     const fakeWindow = makeWindow();
     const firstHandler = vi.fn();
