@@ -273,6 +273,12 @@ select:focus-visible {
 }
 
 @media (max-width: 720px) {
+  html,
+  body,
+  #root {
+    min-width: 0;
+  }
+
   .market-root {
     padding: 20px 16px 40px;
   }

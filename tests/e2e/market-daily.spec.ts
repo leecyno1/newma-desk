@@ -75,11 +75,33 @@ test("daily market module works directly, embedded, and through the Agent Gatewa
   await expect(frame.getByText("3,120")).toBeVisible();
   await expect(frame.locator(".vv-chart-block canvas")).toBeVisible();
 
-  await frame.getByRole("row", { name: /600519 贵州茅台/ }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  const embeddedMobileFrame = page.frameLocator(
+    'iframe[title="每日股票行情"]',
+  );
+  await expect(embeddedMobileFrame.getByText("3,120")).toBeVisible();
+  const embeddedMobileWidth = await embeddedMobileFrame.locator("html").evaluate(
+    (element) => ({
+      client: element.clientWidth,
+      scroll: element.scrollWidth,
+    }),
+  );
+  expect(embeddedMobileWidth.scroll).toBeLessThanOrEqual(
+    embeddedMobileWidth.client,
+  );
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.reload();
+  const restoredFrame = page.frameLocator('iframe[title="每日股票行情"]');
+
+  await restoredFrame.getByRole("row", { name: /600519 贵州茅台/ }).click();
   await expect(page.getByLabel("模块事件日志")).toContainText(
     "security.selected · 600519",
   );
 
-  await frame.getByRole("button", { name: "解释行情" }).click();
-  await expect(frame.getByText("E2E 行情解释完成", { exact: false })).toBeVisible();
+  await restoredFrame.getByRole("button", { name: "解释行情" }).click();
+  await expect(
+    restoredFrame.getByText("E2E 行情解释完成", { exact: false }),
+  ).toBeVisible();
 });
