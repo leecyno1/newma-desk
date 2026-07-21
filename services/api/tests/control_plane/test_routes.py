@@ -10,10 +10,10 @@ from vibe_visualization_api.main import create_app
 MANIFEST = {
     "schemaVersion": "1.0",
     "id": "market-daily",
-    "name": "每日股票行情",
+    "name": "市场行情",
     "version": "0.1.0",
     "category": "market",
-    "entry": {"type": "structured", "url": "/modules/market-daily/"},
+    "entry": {"type": "structured", "url": "/mods/market-daily/"},
     "permissions": ["market.read"],
     "dataServices": ["market-data"],
     "agentCapabilities": [],
@@ -46,6 +46,18 @@ def test_module_must_be_published_before_sidebar_listing(
     assert client.get("/api/modules").json()[0]["manifest"]["id"] == (
         "market-daily"
     )
+
+
+def test_mod_api_is_canonical_and_legacy_module_routes_remain_compatible(
+    client: TestClient,
+) -> None:
+    draft = client.post("/api/mods/drafts", json=MANIFEST).json()
+    published = client.post(
+        f"/api/mods/market-daily/revisions/{draft['revision']}/publish"
+    )
+
+    assert published.status_code == 200
+    assert client.get("/api/mods").json() == client.get("/api/modules").json()
 
 
 def test_app_factory_settings_drive_repository_dependency(

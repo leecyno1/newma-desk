@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "title": "每日股票行情",
+  "title": "市场行情",
   "blocks": [
     {
       "id": "market-actions",

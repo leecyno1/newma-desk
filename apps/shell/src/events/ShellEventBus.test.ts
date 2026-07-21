@@ -1,4 +1,4 @@
-import type { ModuleEvent, ModuleManifest } from "@vibe-visualization/contracts";
+import type { ModEvent, ModManifest } from "@vibedesk/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -60,7 +60,7 @@ function runtime(): ShellEventBusRuntime {
   };
 }
 
-function manifest(id: string, accepts: string[]): ModuleManifest {
+function manifest(id: string, accepts: string[]): ModManifest {
   return {
     schemaVersion: "1.0",
     id,
@@ -79,7 +79,7 @@ function targetWindow() {
   return { postMessage: vi.fn() } as unknown as Window;
 }
 
-function event(overrides: Partial<ModuleEvent> = {}): ModuleEvent {
+function event(overrides: Partial<ModEvent> = {}): ModEvent {
   return {
     version: "1.0",
     event: "security.selected",

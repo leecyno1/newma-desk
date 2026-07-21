@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ModuleBridge } from "@vibe-visualization/module-sdk";
+import type { ModBridge } from "@vibedesk/mod-sdk";
 
-import { MarketDailyApp } from "./App";
+import { MarketPulseApp } from "./App";
 import { server } from "./test/server";
 
 vi.mock("echarts-for-react/lib/core", () => ({
@@ -44,7 +44,7 @@ const snapshot = {
   },
 };
 
-function bridge(): ModuleBridge {
+function bridge(): ModBridge {
   return {
     emit: vi.fn((event: string, payload: Record<string, unknown>, target?: string) => ({
       version: "1.0" as const,
@@ -59,15 +59,15 @@ function bridge(): ModuleBridge {
   };
 }
 
-describe("MarketDailyApp", () => {
+describe("MarketPulseApp", () => {
   it("shows the last snapshot timestamp and refresh action", async () => {
     server.use(
-      http.get("/api/modules/market-daily/snapshot", () =>
+      http.get("/api/mods/market-daily/snapshot", () =>
         HttpResponse.json(snapshot),
       ),
     );
 
-    render(<MarketDailyApp bridge={bridge()} />);
+    render(<MarketPulseApp bridge={bridge()} />);
 
     expect(await screen.findByText("2026-07-18 15:00")).toBeVisible();
     expect(screen.getByRole("button", { name: "刷新行情" })).toBeVisible();
@@ -83,15 +83,15 @@ describe("MarketDailyApp", () => {
       data: { ...snapshot.data, asOf: "2026-07-20T15:00:00+08:00" },
     };
     server.use(
-      http.get("/api/modules/market-daily/snapshot", () =>
+      http.get("/api/mods/market-daily/snapshot", () =>
         HttpResponse.json(snapshot),
       ),
       http.post(
-        "/api/modules/market-daily/actions/market.refresh",
+        "/api/mods/market-daily/actions/market.refresh",
         () => HttpResponse.json(refreshed),
       ),
     );
-    render(<MarketDailyApp bridge={moduleBridge} />);
+    render(<MarketPulseApp bridge={moduleBridge} />);
     await screen.findByText("2026-07-18 15:00");
 
     await userEvent.click(screen.getByRole("button", { name: "刷新行情" }));
@@ -109,11 +109,11 @@ describe("MarketDailyApp", () => {
   it("switches to one-shot Model Gateway mode for explanations", async () => {
     let actionPayload: unknown;
     server.use(
-      http.get("/api/modules/market-daily/snapshot", () =>
+      http.get("/api/mods/market-daily/snapshot", () =>
         HttpResponse.json(snapshot),
       ),
       http.post(
-        "/api/modules/market-daily/actions/market.explain",
+        "/api/mods/market-daily/actions/market.explain",
         async ({ request }) => {
           actionPayload = await request.json();
           return HttpResponse.json({
@@ -124,7 +124,7 @@ describe("MarketDailyApp", () => {
         },
       ),
     );
-    render(<MarketDailyApp bridge={bridge()} />);
+    render(<MarketPulseApp bridge={bridge()} />);
     await screen.findByText("2026-07-18 15:00");
 
     expect(screen.getByRole("button", { name: "Agent" })).toHaveAttribute(
@@ -144,14 +144,14 @@ describe("MarketDailyApp", () => {
     });
   });
 
-  it("uses Agent mode by default for long-lived module context", async () => {
+  it("uses Agent mode by default for long-lived Mod context", async () => {
     let actionPayload: unknown;
     server.use(
-      http.get("/api/modules/market-daily/snapshot", () =>
+      http.get("/api/mods/market-daily/snapshot", () =>
         HttpResponse.json(snapshot),
       ),
       http.post(
-        "/api/modules/market-daily/actions/market.explain",
+        "/api/mods/market-daily/actions/market.explain",
         async ({ request }) => {
           actionPayload = await request.json();
           return HttpResponse.json(
@@ -166,10 +166,10 @@ describe("MarketDailyApp", () => {
         },
       ),
     );
-    render(<MarketDailyApp bridge={bridge()} />);
+    render(<MarketPulseApp bridge={bridge()} />);
     await screen.findByText("2026-07-18 15:00");
 
-    expect(screen.getByText("保留本模块长期上下文")).toBeVisible();
+    expect(screen.getByText("保留当前 Mod 的长期上下文")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "解释行情" }));
 
     expect(await screen.findByText("Agent 行情解释")).toBeVisible();

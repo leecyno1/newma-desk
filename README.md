@@ -1,34 +1,79 @@
-# Vibe Visualization
+# VibeDesk
 
-Vibe Visualization 是一个同时面向人和 Agent 的开放式网页可视化基座。
+VibeDesk 是一个面向人和 Agent 的可生长工作台。
 
-它提供统一侧边栏、独立 HTML Module、数据服务入口、Vibe HTML 展示规范，以及彼此独立的 Model Gateway 和 Agent Gateway。现有 Vibe Research、Vibe Trading 或其他项目可以在保持后端隔离的情况下接入同一个前端基座。
+它把一次需求固化为长期可用的 `Mod`：每个 Mod 都有独立 HTML 页面、独立地址、数据连接和 AI 入口，既可以嵌入 VibeDesk，也可以单独访问。Vibe Research、Vibe Trading 和其他上游项目继续保持后端隔离，通过适配层接入同一个 Desk。
+
+> Skill 固化“怎么完成工作”，Mod 固化“怎么看、怎么操作、怎么长期使用”。
+
+## 核心概念
+
+| 名称 | 含义 |
+| --- | --- |
+| VibeDesk | 整个产品 |
+| Desk | 默认前端、侧边栏和 Mod 容器 |
+| Mod | 可独立安装、访问、升级的功能单元 |
+| View | Mod 内的具体 HTML 页面 |
+| Skill | Agent 可重复执行的工作方法 |
+| Connector | 数据、Agent 或模型的连接方式 |
+| Mod Library | 管理、安装、启停和更新 Mod |
 
 ## 当前 MVP
 
-- 单前端、多独立 Module，每个 Module 可以嵌入基座或通过 URL 单独访问。
-- Module Manifest 控制侧边栏分组、顺序、名称和图标。
-- 统一的指标、表格、ECharts、Markdown、筛选器和操作按钮样式。
-- Vibe HTML 使用 `data-vibe-*` 语义结构，方便 Agent 高效读取页面。
+- 单 Desk、多独立 Mod；每个 Mod 可嵌入，也可通过 URL 单独访问。
+- Mod Manifest 控制侧边栏分组、顺序、名称、图标和页面入口。
+- Desk UI 提供统一的指标、表格、ECharts、Markdown、筛选器和操作按钮样式。
+- ViewSpec 使用 `data-vibe-*` 语义结构，让 Agent 直接读取 HTML 和结构化数据。
 - Model Gateway：传统一次性模型调用，支持 OpenAI-compatible、本地兼容模型和 Anthropic/Claude。
-- Agent Gateway：接入 Hermes WebUI，按“用户 + Agent + Module”复用长期 Session。
-- 示例 Module：每日股票行情，支持刷新、模型解释和 Agent 长期上下文解释。
+- Agent Gateway：接入 Hermes WebUI，按“用户 + Agent + Mod”复用长期 Session。
+- 示例 Mod：市场行情，支持刷新、模型解释和 Agent 长期上下文解释。
 
 ## 架构
 
 ```text
-Web Base / Sidebar
+VibeDesk / Sidebar
         |
-        +-- Independent HTML Module
+        +-- Independent HTML Mod
         |       |
-        |       +-- Data Service
+        |       +-- Data Connector
         |       +-- Model Gateway -> GPT / Claude / Local Model
         |       +-- Agent Gateway -> Hermes / Future Agent Runtime
         |
-        +-- Vibe HTML / Module SDK / Shared UI Foundation
+        +-- ViewSpec / Mod SDK / Desk UI
 ```
 
-Model Gateway 和 Agent Gateway 是两条并列链路。Agent 自己管理模型、Memory、Skills 和工具，基座不会把 Agent 请求强制转入 Model Gateway。
+Model Gateway 和 Agent Gateway 是两条并列链路，执行时不会互相串联：
+
+```text
+Mod -> Model Gateway -> Model
+Mod -> Agent Gateway -> Agent Runtime -> Memory / Skills / Tools
+```
+
+## 默认 Mod 命名
+
+```text
+今日
+├── Today                 今日总览
+└── Daily Review          每日复盘
+
+市场
+├── Market Pulse          市场行情
+├── Watchlist             自选股
+├── News Radar            资讯雷达
+└── Portfolio Brief       持仓研报
+
+研究
+├── Stock Research        个股研究
+├── Industry Map          产业链研究
+└── Research Library      研究资料库
+
+量化
+├── Alpha Lab             因子实验室 / Alpha Zoo
+└── Backtest Lab          回测实验室 / 回测报告
+
+交易
+└── Trade Desk            交易台
+```
 
 ## 本地启动
 
@@ -49,19 +94,19 @@ cd ../..
 cp .env.example .env
 ```
 
-分别启动 API、Shell 和示例 Module：
+分别启动 API、Desk 和示例 Mod：
 
 ```bash
 services/api/.venv/bin/uvicorn vibe_visualization_api.main:app \
   --app-dir services/api --host 127.0.0.1 --port 8901
 
 VITE_API_PROXY_TARGET=http://127.0.0.1:8901 \
-VITE_MODULE_ORIGIN=http://127.0.0.1:5891 \
+VITE_MOD_ORIGIN=http://127.0.0.1:5891 \
 npm run dev:shell -- --host 127.0.0.1 --port 5888
 
 VITE_GATEWAY_BASE_URL=http://127.0.0.1:8901 \
 VITE_PARENT_ORIGIN=http://127.0.0.1:5888 \
-npm run dev -w @vibe-visualization/market-daily -- \
+npm run dev -w @vibedesk/market-pulse -- \
   --host 127.0.0.1 --port 5891
 ```
 
@@ -72,19 +117,29 @@ npm run dev -w @vibe-visualization/market-daily -- \
 常用环境变量：
 
 ```text
-VIBE_VIS_MODEL_DEFAULT_ADAPTER=openai-compatible
-VIBE_VIS_OPENAI_BASE_URL=https://api.openai.com/v1
-VIBE_VIS_OPENAI_API_KEY=
-VIBE_VIS_OPENAI_MODEL=gpt-5.6
+VIBEDESK_MODEL_DEFAULT_ADAPTER=openai-compatible
+VIBEDESK_OPENAI_BASE_URL=https://api.openai.com/v1
+VIBEDESK_OPENAI_API_KEY=
+VIBEDESK_OPENAI_MODEL=gpt-5.6
 
-VIBE_VIS_ANTHROPIC_API_KEY=
-VIBE_VIS_ANTHROPIC_MODEL=claude-sonnet-4-5
+VIBEDESK_ANTHROPIC_API_KEY=
+VIBEDESK_ANTHROPIC_MODEL=claude-sonnet-4-5
 
-VIBE_VIS_AGENT_DEFAULT_ADAPTER=hermes-webui
-VIBE_VIS_HERMES_WEBUI_BASE_URL=http://127.0.0.1:8787
+VIBEDESK_AGENT_DEFAULT_ADAPTER=hermes-webui
+VIBEDESK_HERMES_WEBUI_BASE_URL=http://127.0.0.1:8787
 ```
 
-API Key 只保存在服务端，不会下发给 Module 前端。
+API Key 只保存在服务端，不会下发给 Mod 前端。
+
+## 兼容策略
+
+为了让 Vibe Research、Vibe Trading 和已经发布的页面可以平滑迁移，MVP 暂时保留以下旧入口：
+
+- `/api/modules/*` 继续可用；新代码使用 `/api/mods/*`。
+- `?module=` 继续可读取；VibeDesk 写入的新地址使用 `?mod=`。
+- `VIBE_VIS_*` 环境变量继续可读取；新配置使用 `VIBEDESK_*`。
+- `ModuleManifest`、`ModuleBridge` 等类型保留为兼容别名；新代码使用 `ModManifest`、`ModBridge`。
+- 现有源码目录和 Python 包路径暂不强制重命名，避免阻断上游同步。
 
 ## 验证
 
@@ -98,6 +153,6 @@ npm run test:e2e
 
 ## 文档
 
-- [简化版基座设计](docs/superpowers/specs/2026-07-20-vibe-base-simplified-design.md)
+- [产品词汇与模块命名](docs/product-language.md)
+- [ViewSpec 页面规范](docs/view-spec.md)
 - [Gateway 分离设计](docs/superpowers/specs/2026-07-20-gateway-separation-design.md)
-- [Vibe HTML 规范](docs/vibe-html.md)

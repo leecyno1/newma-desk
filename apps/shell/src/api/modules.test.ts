@@ -1,22 +1,22 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
-import { getModuleRevision, listModules } from "./modules";
+import { getModRevision, listMods } from "./modules";
 import { server } from "../test/server";
 
-describe("module registry API", () => {
+describe("Mod registry API", () => {
   it("reports a non-success registry status", async () => {
     server.use(
-      http.get("/api/modules", () => new HttpResponse(null, { status: 502 })),
+      http.get("/api/mods", () => new HttpResponse(null, { status: 502 })),
     );
 
-    await expect(listModules()).rejects.toThrow("module registry returned 502");
+    await expect(listMods()).rejects.toThrow("mod registry returned 502");
   });
 
   it("encodes both exact-revision path segments", async () => {
     let requestPath = "";
     server.use(
-      http.get("/api/modules/:moduleId/revisions/:revision", ({ request }) => {
+      http.get("/api/mods/:modId/revisions/:revision", ({ request }) => {
         requestPath = new URL(request.url).pathname;
         return HttpResponse.json({
           moduleId: "market/daily",
@@ -39,10 +39,10 @@ describe("module registry API", () => {
       }),
     );
 
-    await getModuleRevision("market/daily", "7?draft=true");
+    await getModRevision("market/daily", "7?draft=true");
 
     expect(requestPath).toBe(
-      "/api/modules/market%2Fdaily/revisions/7%3Fdraft%3Dtrue",
+      "/api/mods/market%2Fdaily/revisions/7%3Fdraft%3Dtrue",
     );
   });
 });

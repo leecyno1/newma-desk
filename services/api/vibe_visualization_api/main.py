@@ -46,7 +46,7 @@ from vibe_visualization_api.control_plane.repository import (
     ModuleRepository,
     ModuleNotFoundError,
 )
-from vibe_visualization_api.control_plane.routes import router as modules_router
+from vibe_visualization_api.control_plane.routes import router as mods_router
 from vibe_visualization_api.control_plane.actions import TradeConfirmationService
 from vibe_visualization_api.data_services.client import (
     DataServiceClient,
@@ -68,7 +68,7 @@ from vibe_visualization_api.scheduler.service import (
     SchedulerLifecycle,
 )
 from vibe_visualization_api.scheduler.store import SchedulerStore
-from vibe_visualization_api.snapshots.routes import router as snapshots_router
+from vibe_visualization_api.snapshots.routes import router as mod_snapshots_router
 from vibe_visualization_api.snapshots.store import SnapshotNotFoundError, SnapshotStore
 
 
@@ -128,7 +128,10 @@ def create_app(
                 await agent_service.shutdown()
 
     application = FastAPI(
-        title="vibe-visualization API",
+        title="VibeDesk API",
+        description=(
+            "Data, Mod, Model Gateway and Agent Gateway services for VibeDesk."
+        ),
         version="0.1.0",
         lifespan=lifespan,
     )
@@ -190,11 +193,21 @@ def create_app(
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type", "Authorization"],
     )
-    application.include_router(modules_router)
+    application.include_router(mods_router, prefix="/api/mods")
+    application.include_router(
+        mods_router,
+        prefix="/api/modules",
+        include_in_schema=False,
+    )
     application.include_router(agent_router)
     application.include_router(model_router)
     application.include_router(data_services_router)
-    application.include_router(snapshots_router)
+    application.include_router(mod_snapshots_router, prefix="/api/mods")
+    application.include_router(
+        mod_snapshots_router,
+        prefix="/api/modules",
+        include_in_schema=False,
+    )
 
     @application.exception_handler(ModuleNotFoundError)
     async def module_not_found(
@@ -327,7 +340,7 @@ def create_app(
     def health() -> dict[str, bool | str]:
         return {
             "ok": True,
-            "service": "vibe-visualization-api",
+            "service": "vibedesk-api",
             "version": "0.1.0",
         }
 

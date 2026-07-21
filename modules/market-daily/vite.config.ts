@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
   return {
-    base: "/modules/market-daily/",
+    base: "/mods/market-daily/",
     build: {
       chunkSizeWarningLimit: 1100,
     },

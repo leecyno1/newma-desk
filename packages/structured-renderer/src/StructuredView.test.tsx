@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { View } from "@vibe-visualization/contracts";
+import type { View } from "@vibedesk/contracts";
 
 import { resolvePath } from "./resolvePath";
 import { StructuredView } from "./StructuredView";

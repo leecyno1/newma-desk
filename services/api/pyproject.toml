@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "vibe-visualization-api"
+name = "vibedesk-api"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [

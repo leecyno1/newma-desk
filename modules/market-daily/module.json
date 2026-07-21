@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "id": "market-daily",
-  "name": "每日股票行情",
+  "name": "市场行情",
   "version": "0.1.0",
   "category": "market",
   "navigation": {
@@ -12,7 +12,7 @@
   },
   "entry": {
     "type": "structured",
-    "url": "/modules/market-daily/"
+    "url": "/mods/market-daily/"
   },
   "permissions": ["market.read"],
   "dataServices": ["market-data"],

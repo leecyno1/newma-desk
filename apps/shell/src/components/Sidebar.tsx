@@ -6,12 +6,12 @@ import {
   RefreshCw,
 } from "lucide-react";
 
-import type { StoredModule } from "../api/modules";
+import type { StoredMod } from "../api/modules";
 
 interface SidebarProps {
-  modules: StoredModule[];
+  modules: StoredMod[];
   selectedId: string | undefined;
-  onSelect: (module: StoredModule) => void;
+  onSelect: (mod: StoredMod) => void;
   onReload: () => void;
   loading: boolean;
 }
@@ -44,7 +44,7 @@ const legacyNavigation = {
   },
 };
 
-function navigationFor(module: StoredModule) {
+function navigationFor(module: StoredMod) {
   return (
     module.manifest.navigation ?? {
       ...(legacyNavigation[
@@ -59,8 +59,8 @@ function navigationFor(module: StoredModule) {
   );
 }
 
-function groupedModules(modules: StoredModule[]) {
-  const groups = new Map<string, StoredModule[]>();
+function groupedModules(modules: StoredMod[]) {
+  const groups = new Map<string, StoredMod[]>();
 
   for (const module of modules) {
     const group = groups.get(module.manifest.category) ?? [];
@@ -120,11 +120,11 @@ export function Sidebar({
           <Boxes size={20} />
         </span>
         <span>
-          <strong>Vibe Visualization</strong>
-          <small>Web Base</small>
+          <strong>VibeDesk</strong>
+          <small>智能模组工作台</small>
         </span>
       </div>
-      <nav aria-label="研究模块" className="module-nav">
+      <nav aria-label="VibeDesk Mod 导航" className="module-nav">
         {groupedModules(modules).map(
           ({ category, icon, label, modules: group }) => {
           const Icon = categoryIcons[icon] ?? Boxes;
@@ -166,7 +166,7 @@ export function Sidebar({
         disabled={loading}
       >
         <RefreshCw size={15} aria-hidden="true" />
-        {loading ? "正在加载" : "重新加载模块"}
+        {loading ? "正在加载" : "重新加载 Mod"}
       </button>
     </aside>
   );

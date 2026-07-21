@@ -5,7 +5,7 @@ from vibe_visualization_api.snapshots.models import Snapshot, SnapshotSummary
 from vibe_visualization_api.snapshots.store import SnapshotStore
 
 
-router = APIRouter(prefix="/api/modules", tags=["snapshots"])
+router = APIRouter(tags=["mod snapshots"])
 
 
 def get_snapshot_store(settings: Settings = Depends(get_settings)) -> SnapshotStore:
@@ -34,7 +34,7 @@ def list_snapshots(
             id=snapshot.id,
             module_id=snapshot.module_id,
             created_at=snapshot.created_at,
-            url=f"/api/modules/{module_id}/snapshots/{snapshot.id}",
+            url=f"/api/mods/{module_id}/snapshots/{snapshot.id}",
         )
         for snapshot in store.list_success(module_id)
     ]

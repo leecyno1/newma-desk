@@ -11,10 +11,10 @@ import {
 const marketManifest = {
   schemaVersion: "1.0",
   id: "market-daily",
-  name: "每日股票行情",
+  name: "市场行情",
   version: "0.1.0",
   category: "market",
-  entry: { type: "structured", url: "/modules/market-daily/" },
+  entry: { type: "structured", url: "/mods/market-daily/" },
   permissions: ["market.read"],
   dataServices: ["market-data"],
   agentCapabilities: ["market.refresh", "market.explain"],
@@ -25,23 +25,23 @@ const marketManifest = {
   refresh: { mode: "schedule", cron: "0 18 * * 1-5" },
 };
 
-test("daily market module works directly, embedded, and through separate AI gateways", async ({
+test("Market Pulse Mod works directly, embedded, and through separate AI gateways", async ({
   page,
   request,
 }) => {
   expect(fakeOrigin).toMatch(/^http:\/\/127\.0\.0\.1:/);
-  const draftResponse = await request.post(`${apiOrigin}/api/modules/drafts`, {
+  const draftResponse = await request.post(`${apiOrigin}/api/mods/drafts`, {
     data: marketManifest,
   });
   expect(draftResponse.status()).toBe(201);
   const draft = (await draftResponse.json()) as { revision: number };
   const publishResponse = await request.post(
-    `${apiOrigin}/api/modules/market-daily/revisions/${draft.revision}/publish`,
+    `${apiOrigin}/api/mods/market-daily/revisions/${draft.revision}/publish`,
   );
   expect(publishResponse.status()).toBe(200);
 
   const refreshResponse = await request.post(
-    `${apiOrigin}/api/modules/market-daily/actions/market.refresh`,
+    `${apiOrigin}/api/mods/market-daily/actions/market.refresh`,
     { data: {} },
   );
   expect(refreshResponse.status()).toBe(200);
@@ -49,9 +49,9 @@ test("daily market module works directly, embedded, and through separate AI gate
     "2026-07-20T15:00:00+08:00",
   );
 
-  await page.goto(`${moduleOrigin}/modules/market-daily/`);
+  await page.goto(`${moduleOrigin}/mods/market-daily/`);
   await expect(
-    page.getByRole("heading", { name: "每日股票行情" }),
+    page.getByRole("heading", { name: "市场行情" }),
   ).toBeVisible();
   await expect(page.getByText("3,120")).toBeVisible();
   await expect(page.getByRole("row", { name: /600519 贵州茅台/ })).toBeVisible();
@@ -67,18 +67,18 @@ test("daily market module works directly, embedded, and through separate AI gate
   expect(mobileWidth.scroll).toBeLessThanOrEqual(mobileWidth.client);
 
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto(`${shellOrigin}/?module=market-daily`);
+  await page.goto(`${shellOrigin}/?mod=market-daily`);
   await expect(
-    page.getByRole("button", { name: "每日股票行情" }),
+    page.getByRole("button", { name: "市场行情" }),
   ).toBeVisible();
-  const frame = page.frameLocator('iframe[title="每日股票行情"]');
+  const frame = page.frameLocator('iframe[title="市场行情"]');
   await expect(frame.getByText("3,120")).toBeVisible();
   await expect(frame.locator(".vv-chart-block canvas")).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   const embeddedMobileFrame = page.frameLocator(
-    'iframe[title="每日股票行情"]',
+    'iframe[title="市场行情"]',
   );
   await expect(embeddedMobileFrame.getByText("3,120")).toBeVisible();
   const embeddedMobileWidth = await embeddedMobileFrame.locator("html").evaluate(
@@ -93,10 +93,10 @@ test("daily market module works directly, embedded, and through separate AI gate
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.reload();
-  const restoredFrame = page.frameLocator('iframe[title="每日股票行情"]');
+  const restoredFrame = page.frameLocator('iframe[title="市场行情"]');
 
   await restoredFrame.getByRole("row", { name: /600519 贵州茅台/ }).click();
-  await expect(page.getByLabel("模块事件日志")).toContainText(
+  await expect(page.getByLabel("Mod 事件日志")).toContainText(
     "security.selected · 600519",
   );
 

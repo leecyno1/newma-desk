@@ -36,7 +36,7 @@ from vibe_visualization_api.control_plane.schemas import (
 )
 
 
-router = APIRouter(prefix="/api/modules", tags=["modules"])
+router = APIRouter(tags=["mods"])
 
 
 def get_repository(settings: Settings = Depends(get_settings)) -> ModuleRepository:

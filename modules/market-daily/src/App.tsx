@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { viewSchema } from "@vibe-visualization/contracts";
+import { viewSchema } from "@vibedesk/contracts";
 import {
   createGatewayClient,
-  createModuleBridge,
+  createModBridge,
   requestGatewayJson,
   type AgentTask,
   type GatewayClient,
   type GatewayFetch,
   type ModelResponse,
-  type ModuleBridge,
-} from "@vibe-visualization/module-sdk";
-import { StructuredView } from "@vibe-visualization/structured-renderer";
+  type ModBridge,
+} from "@vibedesk/mod-sdk";
+import { StructuredView } from "@vibedesk/view-renderer";
 
 import rawView from "./view.json";
 
-const MODULE_ID = "market-daily";
+const MOD_ID = "market-daily";
 const view = viewSchema.parse(rawView);
 
 interface MarketSnapshot {
@@ -27,8 +27,8 @@ interface MarketSnapshot {
 
 type AiGatewayMode = "model" | "agent";
 
-export interface MarketDailyAppProps {
-  bridge?: ModuleBridge;
+export interface MarketPulseAppProps {
+  bridge?: ModBridge;
   fetch?: GatewayFetch;
   gatewayBaseUrl?: string;
 }
@@ -48,7 +48,7 @@ function parseSnapshot(value: unknown): MarketSnapshot {
   const row = value as Record<string, unknown>;
   if (
     typeof row.id !== "string" ||
-    row.moduleId !== MODULE_ID ||
+    row.moduleId !== MOD_ID ||
     typeof row.createdAt !== "string" ||
     typeof row.data !== "object" ||
     row.data === null ||
@@ -82,7 +82,7 @@ function staleSnapshot(snapshot: MarketSnapshot): boolean {
 }
 
 function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "行情模块操作失败";
+  return reason instanceof Error ? reason.message : "行情 Mod 操作失败";
 }
 
 function taskAnswer(task: AgentTask): string | undefined {
@@ -109,11 +109,11 @@ function parseModelResponse(value: unknown): ModelResponse {
   return row as unknown as ModelResponse;
 }
 
-export function MarketDailyApp({
+export function MarketPulseApp({
   bridge: providedBridge,
   fetch: providedFetch,
   gatewayBaseUrl,
-}: MarketDailyAppProps) {
+}: MarketPulseAppProps) {
   const fetcher = useMemo(
     () => providedFetch ?? globalThis.fetch.bind(globalThis),
     [providedFetch],
@@ -126,8 +126,8 @@ export function MarketDailyApp({
   const [bridge] = useState(
     () =>
       providedBridge ??
-      createModuleBridge({
-        moduleId: MODULE_ID,
+      createModBridge({
+        modId: MOD_ID,
         parentOrigin: configuredOrigin("parent"),
       }),
   );
@@ -148,7 +148,7 @@ export function MarketDailyApp({
     try {
       const value = await requestGatewayJson<unknown>(
         fetcher,
-        `${gatewayOrigin}/api/modules/${MODULE_ID}/snapshot`,
+        `${gatewayOrigin}/api/mods/${MOD_ID}/snapshot`,
       );
       setSnapshot(parseSnapshot(value));
     } catch (reason) {
@@ -204,8 +204,8 @@ export function MarketDailyApp({
       if (capability === "market.refresh") {
         setAction("refresh");
         try {
-          const value = await gateway.invokeModuleAction<unknown>(
-            MODULE_ID,
+          const value = await gateway.invokeModAction<unknown>(
+            MOD_ID,
             capability,
             {},
           );
@@ -222,8 +222,8 @@ export function MarketDailyApp({
         setTask(undefined);
         setModelResponse(undefined);
         try {
-          const next = await gateway.invokeModuleAction<unknown>(
-            MODULE_ID,
+          const next = await gateway.invokeModAction<unknown>(
+            MOD_ID,
             capability,
             {
               gatewayMode: aiMode,
@@ -261,7 +261,7 @@ export function MarketDailyApp({
     <div className="market-root">
       <header className="market-header">
         <div>
-          <h1>每日股票行情</h1>
+          <h1>市场行情</h1>
           <p>市场宽度、主要指数与成交额榜的最后成功快照</p>
         </div>
         <div className="market-header-controls">
@@ -294,7 +294,7 @@ export function MarketDailyApp({
               </button>
             </div>
             <span className="ai-mode-note">
-              {aiMode === "agent" ? "保留本模块长期上下文" : "一次性模型调用"}
+              {aiMode === "agent" ? "保留当前 Mod 的长期上下文" : "一次性模型调用"}
             </span>
           </div>
           <div className="snapshot-time">
@@ -353,3 +353,6 @@ export function MarketDailyApp({
     </div>
   );
 }
+
+export const MarketDailyApp = MarketPulseApp;
+export type MarketDailyAppProps = MarketPulseAppProps;

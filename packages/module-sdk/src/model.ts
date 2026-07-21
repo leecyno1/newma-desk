@@ -6,6 +6,8 @@ import {
 } from "./agent";
 
 export interface ModelResponseCreateInput {
+  modId?: string;
+  /** @deprecated Use modId in new VibeDesk code. */
   moduleId?: string;
   capability?: string;
   prompt?: string;
@@ -41,10 +43,19 @@ export function createModelClient(
 
   return {
     createResponse(input) {
+      const { modId, ...legacyInput } = input;
       return requestGatewayJson<ModelResponse>(
         fetcher,
         `${baseUrl}/api/model/responses`,
-        { method: "POST", body: JSON.stringify(input) },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...legacyInput,
+            ...(legacyInput.moduleId === undefined && modId !== undefined
+              ? { moduleId: modId }
+              : {}),
+          }),
+        },
       );
     },
     async listProviders() {

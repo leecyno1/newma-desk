@@ -1,4 +1,4 @@
-import type { MetricItem, TableColumn } from "@vibe-visualization/contracts";
+import type { MetricItem, TableColumn } from "@vibedesk/contracts";
 
 type ValueFormat = NonNullable<MetricItem["format"] | TableColumn["format"]>;
 

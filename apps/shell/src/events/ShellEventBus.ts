@@ -1,8 +1,8 @@
 import {
-  moduleEventSchema,
-  type ModuleEvent,
-  type ModuleManifest,
-} from "@vibe-visualization/contracts";
+  modEventSchema,
+  type ModEvent,
+  type ModManifest,
+} from "@vibedesk/contracts";
 
 const EVENT_CHANNEL = "vibe-visualization-events";
 const TRACE_CACHE_LIMIT = 256;
@@ -18,7 +18,7 @@ export interface ShellEventBusRuntime {
 
 export interface ShellEventRegistration {
   moduleId: string;
-  manifest: ModuleManifest;
+  manifest: ModManifest;
   target: Window;
   origin: string;
 }
@@ -68,7 +68,7 @@ export class ShellEventBus {
     ShellEventRegistration
   >();
   private readonly traces = new TraceCache();
-  private readonly observers = new Set<(event: ModuleEvent) => void>();
+  private readonly observers = new Set<(event: ModEvent) => void>();
   private readonly channel?: BroadcastChannelPort;
   private closed = false;
 
@@ -113,7 +113,7 @@ export class ShellEventBus {
     this.routeValidated(value, sourceWindow);
   }
 
-  subscribe(handler: (event: ModuleEvent) => void): () => void {
+  subscribe(handler: (event: ModEvent) => void): () => void {
     if (this.closed) return () => undefined;
     this.observers.add(handler);
     return () => this.observers.delete(handler);
@@ -133,7 +133,7 @@ export class ShellEventBus {
     sourceWindow: Window | undefined,
   ) {
     if (this.closed) return;
-    const parsed = moduleEventSchema.safeParse(value);
+    const parsed = modEventSchema.safeParse(value);
     if (!parsed.success || !this.traces.add(parsed.data.traceId)) return;
 
     const event = parsed.data;
@@ -147,7 +147,7 @@ export class ShellEventBus {
     this.channel?.postMessage(event);
   }
 
-  private routeTargeted(event: ModuleEvent, sourceWindow: Window | undefined) {
+  private routeTargeted(event: ModEvent, sourceWindow: Window | undefined) {
     if (!event.target) return;
     const registration = this.registrationsByModule.get(event.target);
     if (!registration) return;
@@ -156,7 +156,7 @@ export class ShellEventBus {
     registration.target.postMessage(event, registration.origin);
   }
 
-  private routeBroadcast(event: ModuleEvent, sourceWindow: Window | undefined) {
+  private routeBroadcast(event: ModEvent, sourceWindow: Window | undefined) {
     for (const registration of this.registrationsByModule.values()) {
       if (registration.target === sourceWindow) continue;
       if (!registration.manifest.events.accepts.includes(event.event)) continue;

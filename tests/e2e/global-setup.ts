@@ -16,7 +16,7 @@ import {
 const demoManifest = {
   schemaVersion: "1.0",
   id: "demo",
-  name: "Demo Module",
+  name: "Demo Mod",
   version: "0.1.0",
   category: "demo",
   entry: { type: "static", url: demoModulePath },
@@ -81,7 +81,7 @@ export default async function globalSetup(): Promise<void> {
     await waitForApi(api);
     await resetE2eDatabase();
 
-    const draftResponse = await api.post("/api/modules/drafts", {
+    const draftResponse = await api.post("/api/mods/drafts", {
       data: demoManifest,
     });
     await expectStatus(draftResponse, 201, "Creating the demo module draft");
@@ -97,7 +97,7 @@ export default async function globalSetup(): Promise<void> {
     }
 
     const publishResponse = await api.post(
-      `/api/modules/demo/revisions/${draft.revision}/publish`,
+      `/api/mods/demo/revisions/${draft.revision}/publish`,
     );
     await expectStatus(publishResponse, 200, "Publishing the demo module draft");
   } finally {

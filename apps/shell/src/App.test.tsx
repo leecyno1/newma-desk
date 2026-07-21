@@ -11,13 +11,13 @@ import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import type { StoredModule } from "./api/modules";
+import type { StoredMod } from "./api/modules";
 import { ShellEventBus } from "./events/ShellEventBus";
 import { server } from "./test/server";
 
 const marketModule = storedModule({
   id: "market-daily",
-  name: "每日股票行情",
+  name: "市场行情",
   category: "market",
   entry: { type: "structured", url: "/modules/market-daily/" },
 });
@@ -51,10 +51,10 @@ function storedModule({
   entry:
     | { type: "structured" | "static"; url: string }
     | { type: "external"; url: string };
-  navigation?: StoredModule["manifest"]["navigation"];
+  navigation?: StoredMod["manifest"]["navigation"];
   revision?: number;
-  status?: StoredModule["status"];
-}): StoredModule {
+  status?: StoredMod["status"];
+}): StoredMod {
   return {
     moduleId: id,
     revision,
@@ -80,8 +80,8 @@ function storedModule({
   };
 }
 
-function serveRegistry(modules: StoredModule[]) {
-  server.use(http.get("/api/modules", () => HttpResponse.json(modules)));
+function serveRegistry(modules: StoredMod[]) {
+  server.use(http.get("/api/mods", () => HttpResponse.json(modules)));
 }
 
 function deferred() {
@@ -98,7 +98,7 @@ afterEach(() => {
 });
 
 describe("App", () => {
-  it("uses module navigation metadata for the Web Base sidebar", async () => {
+  it("uses Mod navigation metadata for the VibeDesk sidebar", async () => {
     const laterResearch = storedModule({
       id: "research-later",
       name: "后置研究",
@@ -137,7 +137,7 @@ describe("App", () => {
     });
     const fallback = storedModule({
       id: "custom-module",
-      name: "自定义模块",
+      name: "自定义 Mod",
       category: "custom",
       entry: { type: "structured", url: "/modules/custom-module/" },
     });
@@ -145,9 +145,11 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Vibe Visualization")).toBeVisible();
-    expect(screen.getByText("Web Base")).toBeVisible();
-    const navigation = screen.getByRole("navigation", { name: "研究模块" });
+    expect(await screen.findByText("VibeDesk")).toBeVisible();
+    expect(screen.getByText("智能模组工作台")).toBeVisible();
+    const navigation = screen.getByRole("navigation", {
+      name: "VibeDesk Mod 导航",
+    });
     expect(
       within(navigation)
         .getAllByRole("heading", { level: 2 })
@@ -164,7 +166,7 @@ describe("App", () => {
     const close = vi.spyOn(ShellEventBus.prototype, "close");
     serveRegistry([marketModule]);
     const view = render(<App />);
-    await screen.findByTitle("每日股票行情");
+    await screen.findByTitle("市场行情");
 
     view.unmount();
 
@@ -176,13 +178,13 @@ describe("App", () => {
     render(<App />);
 
     const moduleButton = await screen.findByRole("button", {
-      name: "每日股票行情",
+      name: "市场行情",
     });
     expect(moduleButton).toBeVisible();
 
     await userEvent.click(moduleButton);
 
-    const frame = screen.getByTitle("每日股票行情");
+    const frame = screen.getByTitle("市场行情");
     expect(frame).toHaveAttribute(
       "src",
       "http://127.0.0.1:5891/modules/market-daily/",
@@ -201,7 +203,7 @@ describe("App", () => {
   it("keeps loaded modules visible when a manual registry reload fails", async () => {
     let attempts = 0;
     server.use(
-      http.get("/api/modules", () => {
+      http.get("/api/mods", () => {
         attempts += 1;
         return attempts === 1
           ? HttpResponse.json([marketModule])
@@ -210,24 +212,24 @@ describe("App", () => {
     );
     render(<App />);
     expect(
-      await screen.findByRole("button", { name: "每日股票行情" }),
+      await screen.findByRole("button", { name: "市场行情" }),
     ).toBeVisible();
 
-    await userEvent.click(screen.getByRole("button", { name: "重新加载模块" }));
+    await userEvent.click(screen.getByRole("button", { name: "重新加载 Mod" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "module registry returned 503",
+      "mod registry returned 503",
     );
     expect(
-      screen.getByRole("button", { name: "每日股票行情" }),
+      screen.getByRole("button", { name: "市场行情" }),
     ).toBeVisible();
-    expect(screen.getByTitle("每日股票行情")).toBeVisible();
+    expect(screen.getByTitle("市场行情")).toBeVisible();
     expect(screen.getByRole("button", { name: "重试" })).toBeVisible();
   });
 
   it("prefers the query selection, persists changes, and handles popstate", async () => {
     window.history.replaceState(null, "", "/?module=quant-lab");
-    window.localStorage.setItem("vibe.shell.activeModule", "market-daily");
+    window.localStorage.setItem("vibedesk.activeMod", "market-daily");
     serveRegistry([marketModule, researchModule, quantModule]);
     render(<App />);
 
@@ -236,13 +238,13 @@ describe("App", () => {
       screen.getByRole("button", { name: "量化实验室" }),
     ).toHaveAttribute("aria-current", "page");
 
-    await userEvent.click(screen.getByRole("button", { name: "每日股票行情" }));
-    expect(window.location.search).toBe("?module=market-daily");
-    expect(window.localStorage.getItem("vibe.shell.activeModule")).toBe(
+    await userEvent.click(screen.getByRole("button", { name: "市场行情" }));
+    expect(window.location.search).toBe("?mod=market-daily");
+    expect(window.localStorage.getItem("vibedesk.activeMod")).toBe(
       "market-daily",
     );
 
-    window.history.replaceState(null, "", "/?module=research-news");
+    window.history.replaceState(null, "", "/?mod=research-news");
     window.dispatchEvent(new PopStateEvent("popstate"));
 
     expect(await screen.findByTitle("研究资讯")).toBeVisible();
@@ -264,7 +266,7 @@ describe("App", () => {
     serveRegistry([]);
     render(<App />);
 
-    expect(await screen.findByText("尚无已发布模块")).toBeVisible();
+    expect(await screen.findByText("尚无已发布 Mod")).toBeVisible();
   });
 
   it("loads an exact draft preview without adding it to the sidebar", async () => {
@@ -277,10 +279,10 @@ describe("App", () => {
       status: "draft",
     });
     window.history.replaceState(null, "", "/?preview=preview-lab@7");
-    window.localStorage.setItem("vibe.shell.activeModule", "market-daily");
+    window.localStorage.setItem("vibedesk.activeMod", "market-daily");
     serveRegistry([marketModule]);
     server.use(
-      http.get("/api/modules/preview-lab/revisions/7", () =>
+      http.get("/api/mods/preview-lab/revisions/7", () =>
         HttpResponse.json(draft),
       ),
     );
@@ -292,9 +294,9 @@ describe("App", () => {
       screen.queryByRole("button", { name: "草稿实验室" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "每日股票行情" }),
+      screen.getByRole("button", { name: "市场行情" }),
     ).toBeVisible();
-    expect(window.localStorage.getItem("vibe.shell.activeModule")).toBe(
+    expect(window.localStorage.getItem("vibedesk.activeMod")).toBe(
       "market-daily",
     );
   });
@@ -310,23 +312,23 @@ describe("App", () => {
   });
 
   it("renders a configuration error instead of a same-origin iframe", async () => {
-    vi.stubEnv("VITE_MODULE_ORIGIN", window.location.origin);
+    vi.stubEnv("VITE_MOD_ORIGIN", window.location.origin);
     serveRegistry([marketModule]);
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "模块服务必须使用与 Web Shell 不同的 origin",
+      "Mod 服务必须使用与 VibeDesk 不同的 origin",
     );
     expect(screen.queryByRole("iframe")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "每日股票行情" }),
+      screen.getByRole("button", { name: "市场行情" }),
     ).toBeVisible();
   });
 
   it("rejects a same-origin external module without removing the sidebar", async () => {
     const sameOriginExternal = storedModule({
       id: "external-local",
-      name: "同源外部模块",
+      name: "同源外部 Mod",
       category: "research",
       entry: {
         type: "external",
@@ -337,11 +339,11 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "模块页面必须使用与 Web Shell 不同的 origin",
+      "Mod 页面必须使用与 VibeDesk 不同的 origin",
     );
     expect(screen.queryByRole("iframe")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "同源外部模块" }),
+      screen.getByRole("button", { name: "同源外部 Mod" }),
     ).toBeVisible();
   });
 
@@ -371,14 +373,14 @@ describe("App", () => {
 
   it("turns a malformed registry row into a visible retryable error", async () => {
     server.use(
-      http.get("/api/modules", () =>
+      http.get("/api/mods", () =>
         HttpResponse.json([{ ...marketModule, manifest: { id: "bad" } }]),
       ),
     );
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "module registry returned malformed data",
+      "mod registry returned malformed data",
     );
     expect(screen.getByRole("button", { name: "重试" })).toBeVisible();
   });
@@ -405,12 +407,12 @@ describe("App", () => {
     window.history.replaceState(null, "", "/?preview=preview-one@1");
     serveRegistry([marketModule]);
     server.use(
-      http.get("/api/modules/preview-one/revisions/1", async () => {
+      http.get("/api/mods/preview-one/revisions/1", async () => {
         firstStarted.resolve();
         await releaseFirst.promise;
         return HttpResponse.json(firstDraft);
       }),
-      http.get("/api/modules/preview-two/revisions/2", () =>
+      http.get("/api/mods/preview-two/revisions/2", () =>
         HttpResponse.json(secondDraft),
       ),
     );
@@ -435,7 +437,7 @@ describe("App", () => {
     window.history.replaceState(null, "", "/?preview=preview-one@1");
     serveRegistry([marketModule]);
     server.use(
-      http.get("/api/modules/preview-one/revisions/1", async () => {
+      http.get("/api/mods/preview-one/revisions/1", async () => {
         previewStarted.resolve();
         await releasePreview.promise;
         return new HttpResponse(null, { status: 503 });
@@ -444,14 +446,14 @@ describe("App", () => {
     render(<App />);
     await previewStarted.promise;
 
-    window.history.replaceState(null, "", "/?module=market-daily");
+    window.history.replaceState(null, "", "/?mod=market-daily");
     window.dispatchEvent(new PopStateEvent("popstate"));
-    expect(await screen.findByTitle("每日股票行情")).toBeVisible();
+    expect(await screen.findByTitle("市场行情")).toBeVisible();
 
     await act(async () => releasePreview.resolve());
 
     await waitFor(() => {
-      expect(screen.getByTitle("每日股票行情")).toBeVisible();
+      expect(screen.getByTitle("市场行情")).toBeVisible();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       expect(screen.queryByText("预览，尚未发布")).not.toBeInTheDocument();
     });
@@ -471,7 +473,7 @@ describe("App", () => {
       window.history.replaceState(null, "", "/?preview=preview-lab@7");
       serveRegistry([marketModule]);
       server.use(
-        http.get("/api/modules/preview-lab/revisions/7", () =>
+        http.get("/api/mods/preview-lab/revisions/7", () =>
           HttpResponse.json(nonDraft),
         ),
       );
@@ -483,7 +485,7 @@ describe("App", () => {
       expect(screen.queryByTitle("非草稿修订")).not.toBeInTheDocument();
       expect(screen.queryByText("预览，尚未发布")).not.toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "每日股票行情" }),
+        screen.getByRole("button", { name: "市场行情" }),
       ).toBeVisible();
     },
   );
@@ -498,7 +500,7 @@ describe("App", () => {
     serveRegistry([quantModule, marketModule, researchModule, secondMarket]);
     render(<App />);
 
-    await screen.findByRole("button", { name: "每日股票行情" });
+    await screen.findByRole("button", { name: "市场行情" });
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
     ).toEqual(["研究", "市场", "量化"]);
@@ -508,22 +510,22 @@ describe("App", () => {
       within(marketGroup)
         .getAllByRole("button")
         .map((button) => button.textContent),
-    ).toEqual(["A 股总览", "每日股票行情"]);
+    ).toEqual(["A 股总览", "市场行情"]);
   });
 
   it("shows frame loading and error states without removing the sidebar", async () => {
     serveRegistry([marketModule]);
     render(<App />);
 
-    const frame = await screen.findByTitle("每日股票行情");
-    expect(screen.getByText("正在加载模块…")).toBeVisible();
+    const frame = await screen.findByTitle("市场行情");
+    expect(screen.getByText("正在加载 Mod…")).toBeVisible();
     fireEvent.error(frame);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "模块页面可能未能加载",
+      "Mod 页面可能未能加载",
     );
     expect(
-      screen.getByRole("button", { name: "每日股票行情" }),
+      screen.getByRole("button", { name: "市场行情" }),
     ).toBeVisible();
   });
 });

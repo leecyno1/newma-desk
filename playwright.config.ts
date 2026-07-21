@@ -56,33 +56,33 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 30_000,
       env: {
-        VIBE_VIS_DATABASE_PATH: databasePath,
-        VIBE_VIS_RUNTIME_DIR: runtimeDir,
-        VIBE_VIS_ALLOWED_ORIGINS: `${shellOrigin},${moduleOrigin}`,
-        VIBE_VIS_RESEARCH_BASE_URL: fakeOrigin,
-        VIBE_VIS_OPENAI_BASE_URL: `${fakeOrigin}/v1`,
-        VIBE_VIS_OPENAI_API_KEY: "e2e-api-key",
-        VIBE_VIS_OPENAI_MODEL: "e2e-model",
-        VIBE_VIS_MODEL_TIMEOUT_SECONDS: "5",
-        VIBE_VIS_HERMES_WEBUI_BASE_URL: fakeOrigin,
-        VIBE_VIS_AGENT_TIMEOUT_SECONDS: "5",
+        VIBEDESK_DATABASE_PATH: databasePath,
+        VIBEDESK_RUNTIME_DIR: runtimeDir,
+        VIBEDESK_ALLOWED_ORIGINS: `${shellOrigin},${moduleOrigin}`,
+        VIBEDESK_RESEARCH_BASE_URL: fakeOrigin,
+        VIBEDESK_OPENAI_BASE_URL: `${fakeOrigin}/v1`,
+        VIBEDESK_OPENAI_API_KEY: "e2e-api-key",
+        VIBEDESK_OPENAI_MODEL: "e2e-model",
+        VIBEDESK_MODEL_TIMEOUT_SECONDS: "5",
+        VIBEDESK_HERMES_WEBUI_BASE_URL: fakeOrigin,
+        VIBEDESK_AGENT_TIMEOUT_SECONDS: "5",
       },
     },
     {
       command:
-        "npm run dev -w @vibe-visualization/shell -- " +
+        "npm run dev -w @vibedesk/desk -- " +
         `--host 127.0.0.1 --port ${shellPort}`,
       url: `${shellOrigin}/`,
       reuseExistingServer: false,
       timeout: 30_000,
       env: {
-        VITE_MODULE_ORIGIN: moduleOrigin,
+        VITE_MOD_ORIGIN: moduleOrigin,
         VITE_API_PROXY_TARGET: apiOrigin,
       },
     },
     {
       command:
-        "npm run build -w @vibe-visualization/market-daily && " +
+        "npm run build -w @vibedesk/market-pulse && " +
         `python3 tests/e2e/module-server.py --port ${modulePort}`,
       url: demoModuleUrl,
       reuseExistingServer: false,

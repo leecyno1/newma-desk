@@ -43,7 +43,7 @@ class CorruptSnapshotError(SnapshotStoreError):
 class SnapshotStore:
     def __init__(self, runtime_dir: Path, database_path: Path | None = None):
         self._snapshot_root = runtime_dir / "snapshots"
-        self._database_path = database_path or runtime_dir / "vibe-visualization.db"
+        self._database_path = database_path or runtime_dir / "vibedesk.db"
         self._snapshot_root.mkdir(parents=True, exist_ok=True)
         self._initialize_audit_store()
 

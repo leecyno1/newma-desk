@@ -1,4 +1,4 @@
-import type { View } from "@vibe-visualization/contracts";
+import type { View } from "@vibedesk/contracts";
 
 import { ActionsBlock, type ActionHandler } from "./blocks/ActionsBlock";
 import { ChartBlock } from "./blocks/ChartBlock";

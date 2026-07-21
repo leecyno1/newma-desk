@@ -25,7 +25,7 @@ describe("createModelClient", () => {
     });
 
     const response = await client.createResponse({
-      moduleId: "market-daily",
+      modId: "market-daily",
       prompt: "解释行情",
       model: "gpt-5.6",
     });

@@ -1,12 +1,14 @@
 import {
-  moduleEventSchema,
-  type ModuleEvent,
-} from "@vibe-visualization/contracts";
+  modEventSchema,
+  type ModEvent,
+} from "@vibedesk/contracts";
 
 export * from "./agent";
 export * from "./data";
 export * from "./model";
 
+// Keep the original channel name so already-built upstream Mods remain able to
+// exchange events during the VibeDesk migration.
 const EVENT_CHANNEL = "vibe-visualization-events";
 const TRACE_CACHE_LIMIT = 256;
 
@@ -23,24 +25,24 @@ interface BroadcastChannelPort {
   close(): void;
 }
 
-export interface ModuleBridgeRuntime {
+export interface ModBridgeRuntime {
   window: Window;
   createBroadcastChannel?: (name: string) => BroadcastChannelPort;
   randomUUID?: () => string;
 }
 
-export interface ModuleBridgeConfig {
-  moduleId: string;
+export interface ModBridgeConfig {
+  modId: string;
   parentOrigin: string;
 }
 
-export interface ModuleBridge {
+export interface ModBridge {
   emit(
     event: string,
     payload: Record<string, unknown>,
     target?: string,
-  ): ModuleEvent;
-  subscribe(handler: (event: ModuleEvent) => void): () => void;
+  ): ModEvent;
+  subscribe(handler: (event: ModEvent) => void): () => void;
   close(): void;
 }
 
@@ -93,7 +95,7 @@ function fallbackUuid(): string {
     .join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }
 
-function defaultRuntime(): ModuleBridgeRuntime {
+function defaultRuntime(): ModBridgeRuntime {
   return {
     window,
     createBroadcastChannel:
@@ -104,21 +106,21 @@ function defaultRuntime(): ModuleBridgeRuntime {
   };
 }
 
-function validateModuleId(moduleId: string) {
-  moduleEventSchema.parse({
+function validateModId(modId: string) {
+  modEventSchema.parse({
     version: "1.0",
     event: "bridge.initialized",
-    source: moduleId,
+    source: modId,
     traceId: "configuration",
     payload: {},
   });
 }
 
-export function createModuleBridge(
-  config: ModuleBridgeConfig,
-  runtime: ModuleBridgeRuntime = defaultRuntime(),
-): ModuleBridge {
-  validateModuleId(config.moduleId);
+export function createModBridge(
+  config: ModBridgeConfig,
+  runtime: ModBridgeRuntime = defaultRuntime(),
+): ModBridge {
+  validateModId(config.modId);
   const parentOrigin = validateOrigin(config.parentOrigin);
   const embedded = runtime.window.parent !== runtime.window;
   const channel = embedded
@@ -127,13 +129,13 @@ export function createModuleBridge(
   const subscriptions = new Set<() => void>();
   let closed = false;
 
-  const emit: ModuleBridge["emit"] = (event, payload, target) => {
-    if (closed) throw new Error("module bridge is closed");
+  const emit: ModBridge["emit"] = (event, payload, target) => {
+    if (closed) throw new Error("mod bridge is closed");
 
-    const envelope = moduleEventSchema.parse({
+    const envelope = modEventSchema.parse({
       version: "1.0",
       event,
-      source: config.moduleId,
+      source: config.modId,
       ...(target === undefined ? {} : { target }),
       traceId: runtime.randomUUID?.() ?? fallbackUuid(),
       payload,
@@ -147,15 +149,15 @@ export function createModuleBridge(
     return envelope;
   };
 
-  const subscribe: ModuleBridge["subscribe"] = (handler) => {
-    if (closed) throw new Error("module bridge is closed");
+  const subscribe: ModBridge["subscribe"] = (handler) => {
+    if (closed) throw new Error("mod bridge is closed");
 
     const traceCache = new TraceCache();
 
     const deliver = (value: unknown) => {
-      const parsed = moduleEventSchema.safeParse(value);
+      const parsed = modEventSchema.safeParse(value);
       if (!parsed.success) return;
-      if (parsed.data.target && parsed.data.target !== config.moduleId) return;
+      if (parsed.data.target && parsed.data.target !== config.modId) return;
       if (!traceCache.add(parsed.data.traceId)) return;
       handler(parsed.data);
     };
@@ -204,4 +206,23 @@ export function createModuleBridge(
       channel?.close();
     },
   };
+}
+
+// Compatibility API for Mods that have not migrated from the former Module
+// terminology yet.
+export interface ModuleBridgeRuntime extends ModBridgeRuntime {}
+export interface ModuleBridgeConfig {
+  moduleId: string;
+  parentOrigin: string;
+}
+export interface ModuleBridge extends ModBridge {}
+
+export function createModuleBridge(
+  config: ModuleBridgeConfig,
+  runtime: ModuleBridgeRuntime = defaultRuntime(),
+): ModuleBridge {
+  return createModBridge(
+    { modId: config.moduleId, parentOrigin: config.parentOrigin },
+    runtime,
+  );
 }

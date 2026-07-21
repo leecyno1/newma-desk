@@ -1,5 +1,5 @@
 {
-  "name": "vibe-visualization",
+  "name": "vibedesk",
   "private": true,
   "version": "0.1.0",
   "workspaces": ["apps/*", "packages/*", "modules/*", "integrations/*"],
@@ -8,7 +8,7 @@
     "test": "npm run test:run --workspaces --if-present",
     "test:e2e": "playwright test",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "dev:shell": "npm run dev -w @vibe-visualization/shell"
+    "dev:shell": "npm run dev -w @vibedesk/desk --"
   },
   "engines": {"node": ">=22", "npm": ">=10"},
   "devDependencies": {

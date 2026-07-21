@@ -247,11 +247,11 @@ export const {
 export const apiHealthPath = "/api/health";
 export const apiHealthUrl = `${apiOrigin}${apiHealthPath}`;
 export const fakeHealthUrl = `${fakeOrigin}/health`;
-export const demoModulePath = "/modules/demo/";
+export const demoModulePath = "/mods/demo/";
 export const demoModuleUrl = `${moduleOrigin}${demoModulePath}`;
-export const marketModulePath = "/modules/market-daily/";
+export const marketModulePath = "/mods/market-daily/";
 export const marketModuleUrl = `${moduleOrigin}${marketModulePath}`;
-export const shellModuleUrl = `${shellOrigin}/?module=demo`;
+export const shellModuleUrl = `${shellOrigin}/?mod=demo`;
 export const databaseFiles = ["", "-journal", "-shm", "-wal"].map(
   (suffix) => `${databasePath}${suffix}`,
 );

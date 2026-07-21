@@ -1,5 +1,5 @@
 {
-  "name": "@vibe-visualization/market-daily",
+  "name": "@vibedesk/market-pulse",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,10 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@vibe-visualization/contracts": "0.1.0",
-    "@vibe-visualization/module-sdk": "0.1.0",
-    "@vibe-visualization/structured-renderer": "0.1.0",
-    "@vibe-visualization/ui-foundation": "0.1.0",
+    "@vibedesk/contracts": "0.1.0",
+    "@vibedesk/mod-sdk": "0.1.0",
+    "@vibedesk/view-renderer": "0.1.0",
+    "@vibedesk/desk-ui": "0.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

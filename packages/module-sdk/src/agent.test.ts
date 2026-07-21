@@ -26,7 +26,7 @@ describe("createGatewayClient", () => {
     });
 
     const task = await client.createTask({
-      moduleId: "market-daily",
+      modId: "market-daily",
       capability: "market.explain",
       prompt: "解释异动",
     });
@@ -40,15 +40,18 @@ describe("createGatewayClient", () => {
     );
     expect(fetch).toHaveBeenCalledWith(
       "http://localhost:8901/api/agent/tasks",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          moduleId: "market-daily",
-          capability: "market.explain",
-          prompt: "解释异动",
-        }),
-      }),
+      expect.objectContaining({ method: "POST" }),
     );
+    const requestCall = fetch.mock.calls[0] as unknown as [
+      RequestInfo | URL,
+      RequestInit,
+    ];
+    const requestBody = requestCall[1].body;
+    expect(JSON.parse(String(requestBody))).toEqual({
+      moduleId: "market-daily",
+      capability: "market.explain",
+      prompt: "解释异动",
+    });
   });
 
   it("gets, cancels, and invokes a module action", async () => {
@@ -64,7 +67,7 @@ describe("createGatewayClient", () => {
 
     await client.getTask("task-1");
     await client.cancelTask("task-1");
-    const result = await client.invokeModuleAction(
+    const result = await client.invokeModAction(
       "market-daily",
       "market.overview",
       { date: "2026-07-20" },
@@ -74,7 +77,7 @@ describe("createGatewayClient", () => {
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
       "http://localhost:8901/api/agent/tasks/task-1",
       "http://localhost:8901/api/agent/tasks/task-1/cancel",
-      "http://localhost:8901/api/modules/market-daily/actions/market.overview",
+      "http://localhost:8901/api/mods/market-daily/actions/market.overview",
     ]);
   });
 

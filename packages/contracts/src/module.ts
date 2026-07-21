@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { moduleEventNameSchema } from "./event";
+import { modEventNameSchema } from "./event";
 
 const LOCAL_URL_ORIGIN = "https://module.local";
 
@@ -64,7 +64,7 @@ const safeExternalUrl = z
     return protocol === "http:" || protocol === "https:";
   });
 
-export const moduleEntrySchema = z.discriminatedUnion("type", [
+export const modEntrySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("structured"), url: safeRelativeUrl }).strict(),
   z.object({ type: z.literal("static"), url: safeRelativeUrl }).strict(),
   z.object({ type: z.literal("external"), url: safeExternalUrl }).strict(),
@@ -77,7 +77,7 @@ const refreshSchema = z.discriminatedUnion("mode", [
     .strict(),
 ]);
 
-export const moduleNavigationSchema = z
+export const modNavigationSchema = z
   .object({
     groupLabel: z.string().min(1).max(40),
     groupOrder: z.number().int().nonnegative().default(100),
@@ -88,26 +88,33 @@ export const moduleNavigationSchema = z
   })
   .strict();
 
-export const moduleManifestSchema = z.object({
+export const modManifestSchema = z.object({
   schemaVersion: z.literal("1.0"),
   id: z.string().regex(/^[a-z][a-z0-9-]{2,63}$/),
   name: z.string().min(1).max(80),
   version: z.string().regex(/^\d+\.\d+\.\d+$/),
   category: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/),
-  navigation: moduleNavigationSchema.optional(),
-  entry: moduleEntrySchema,
+  navigation: modNavigationSchema.optional(),
+  entry: modEntrySchema,
   icon: z.string().optional(),
   permissions: z.array(z.string()).default([]),
   dataServices: z.array(z.string()).default([]),
   agentCapabilities: z.array(z.string()).default([]),
   events: z
     .object({
-      emits: z.array(moduleEventNameSchema).default([]),
-      accepts: z.array(moduleEventNameSchema).default([]),
+      emits: z.array(modEventNameSchema).default([]),
+      accepts: z.array(modEventNameSchema).default([]),
     })
     .strict()
     .default({}),
   refresh: refreshSchema.optional(),
 }).strict();
 
-export type ModuleManifest = z.infer<typeof moduleManifestSchema>;
+export type ModManifest = z.infer<typeof modManifestSchema>;
+
+// Compatibility aliases for existing Vibe Research / Vibe Trading adapters.
+// New VibeDesk code should use the Mod names above.
+export const moduleEntrySchema = modEntrySchema;
+export const moduleNavigationSchema = modNavigationSchema;
+export const moduleManifestSchema = modManifestSchema;
+export type ModuleManifest = ModManifest;

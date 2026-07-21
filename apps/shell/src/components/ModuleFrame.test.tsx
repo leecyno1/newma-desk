@@ -1,14 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { ModuleEvent, ModuleManifest } from "@vibe-visualization/contracts";
+import type { ModEvent, ModManifest } from "@vibedesk/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ShellEventBus } from "../events/ShellEventBus";
-import { ModuleFrame } from "./ModuleFrame";
+import { ModFrame } from "./ModuleFrame";
 
-const manifest: ModuleManifest = {
+const manifest: ModManifest = {
   schemaVersion: "1.0",
   id: "market-daily",
-  name: "每日股票行情",
+  name: "市场行情",
   version: "0.1.0",
   category: "market",
   entry: { type: "structured", url: "/modules/market-daily/" },
@@ -21,7 +21,7 @@ const manifest: ModuleManifest = {
   },
 };
 
-function event(overrides: Partial<ModuleEvent> = {}): ModuleEvent {
+function event(overrides: Partial<ModEvent> = {}): ModEvent {
   return {
     version: "1.0",
     event: "security.selected",
@@ -43,12 +43,12 @@ function dispatchFromFrame(
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("ModuleFrame event boundary", () => {
+describe("ModFrame event boundary", () => {
   it("forwards a declared event from the exact iframe window and origin", () => {
     const eventBus = new ShellEventBus();
     const route = vi.spyOn(eventBus, "route");
-    render(<ModuleFrame manifest={manifest} eventBus={eventBus} />);
-    const frame = screen.getByTitle("每日股票行情") as HTMLIFrameElement;
+    render(<ModFrame manifest={manifest} eventBus={eventBus} />);
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
     const valid = event();
 
     fireEvent.load(frame);
@@ -76,8 +76,8 @@ describe("ModuleFrame event boundary", () => {
   ])("ignores %s messages", (_label, data, origin, explicitSource) => {
     const eventBus = new ShellEventBus();
     const route = vi.spyOn(eventBus, "route");
-    render(<ModuleFrame manifest={manifest} eventBus={eventBus} />);
-    const frame = screen.getByTitle("每日股票行情") as HTMLIFrameElement;
+    render(<ModFrame manifest={manifest} eventBus={eventBus} />);
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
 
     fireEvent.load(frame);
     dispatchFromFrame(
@@ -96,9 +96,9 @@ describe("ModuleFrame event boundary", () => {
     const register = vi.spyOn(eventBus, "register");
     const unregister = vi.spyOn(eventBus, "unregister");
     const view = render(
-      <ModuleFrame manifest={manifest} eventBus={eventBus} />,
+      <ModFrame manifest={manifest} eventBus={eventBus} />,
     );
-    const frame = screen.getByTitle("每日股票行情") as HTMLIFrameElement;
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
     const frameWindow = frame.contentWindow;
     if (!frameWindow) throw new Error("expected iframe window");
     const postMessage = vi
@@ -142,7 +142,7 @@ describe("ModuleFrame event boundary", () => {
   });
 
   it("routes only declared post-load events without echoing to the source frame", () => {
-    const targetManifest: ModuleManifest = {
+    const targetManifest: ModManifest = {
       ...manifest,
       id: "research-news",
       name: "研究资讯",
@@ -156,12 +156,12 @@ describe("ModuleFrame event boundary", () => {
     const eventBus = new ShellEventBus();
     render(
       <>
-        <ModuleFrame manifest={manifest} eventBus={eventBus} />
-        <ModuleFrame manifest={targetManifest} eventBus={eventBus} />
+        <ModFrame manifest={manifest} eventBus={eventBus} />
+        <ModFrame manifest={targetManifest} eventBus={eventBus} />
       </>,
     );
     const sourceFrame = screen.getByTitle(
-      "每日股票行情",
+      "市场行情",
     ) as HTMLIFrameElement;
     const targetFrame = screen.getByTitle("研究资讯") as HTMLIFrameElement;
     if (!sourceFrame.contentWindow || !targetFrame.contentWindow) {

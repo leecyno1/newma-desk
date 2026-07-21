@@ -10,29 +10,29 @@ const requiredSandboxFlags = [
   "allow-same-origin",
 ];
 
-test("demo module runs directly in standalone mode", async ({ page }) => {
+test("demo Mod runs directly in standalone mode", async ({ page }) => {
   await page.goto(demoModuleUrl);
 
   await expect(
-    page.getByRole("heading", { name: "Demo Module" }),
+    page.getByRole("heading", { name: "Demo Mod" }),
   ).toBeVisible();
   await expect(page.getByText("Mode: standalone", { exact: true })).toBeVisible();
 });
 
-test("Shell embeds the demo module with its isolation contract", async ({
+test("VibeDesk embeds the demo Mod with its isolation contract", async ({
   page,
 }) => {
   await page.goto(shellModuleUrl);
 
   await expect(
-    page.getByRole("button", { name: "Demo Module" }),
+    page.getByRole("button", { name: "Demo Mod" }),
   ).toBeVisible();
 
-  const frameElement = page.locator('iframe[title="Demo Module"]');
-  const frame = page.frameLocator('iframe[title="Demo Module"]');
+  const frameElement = page.locator('iframe[title="Demo Mod"]');
+  const frame = page.frameLocator('iframe[title="Demo Mod"]');
 
   await expect(
-    frame.getByRole("heading", { name: "Demo Module" }),
+    frame.getByRole("heading", { name: "Demo Mod" }),
   ).toBeVisible();
   await expect(frame.getByText("Mode: embedded", { exact: true })).toBeVisible();
 

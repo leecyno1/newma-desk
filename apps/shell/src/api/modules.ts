@@ -1,19 +1,19 @@
 import {
-  moduleManifestSchema,
-  type ModuleManifest,
-} from "@vibe-visualization/contracts";
+  modManifestSchema,
+  type ModManifest,
+} from "@vibedesk/contracts";
 
-export interface StoredModule {
+export interface StoredMod {
   moduleId: string;
   revision: number;
   status: "draft" | "published" | "disabled";
-  manifest: ModuleManifest;
+  manifest: ModManifest;
   createdAt: string;
 }
 
-function parseStoredModule(value: unknown): StoredModule {
+function parseStoredMod(value: unknown): StoredMod {
   if (typeof value !== "object" || value === null) {
-    throw new Error("module registry returned malformed data");
+    throw new Error("mod registry returned malformed data");
   }
 
   const row = value as Record<string, unknown>;
@@ -25,12 +25,12 @@ function parseStoredModule(value: unknown): StoredModule {
       row.status !== "disabled") ||
     typeof row.createdAt !== "string"
   ) {
-    throw new Error("module registry returned malformed data");
+    throw new Error("mod registry returned malformed data");
   }
 
-  const manifest = moduleManifestSchema.safeParse(row.manifest);
+  const manifest = modManifestSchema.safeParse(row.manifest);
   if (!manifest.success) {
-    throw new Error("module registry returned malformed data");
+    throw new Error("mod registry returned malformed data");
   }
 
   return {
@@ -42,51 +42,57 @@ function parseStoredModule(value: unknown): StoredModule {
   };
 }
 
-async function readStoredModule(response: Response): Promise<StoredModule> {
+async function readStoredMod(response: Response): Promise<StoredMod> {
   try {
-    return parseStoredModule(await response.json());
+    return parseStoredMod(await response.json());
   } catch (error) {
     if (
       error instanceof Error &&
-      error.message === "module registry returned malformed data"
+      error.message === "mod registry returned malformed data"
     ) {
       throw error;
     }
-    throw new Error("module registry returned malformed data");
+    throw new Error("mod registry returned malformed data");
   }
 }
 
-export async function listModules(): Promise<StoredModule[]> {
-  const response = await fetch("/api/modules");
+export async function listMods(): Promise<StoredMod[]> {
+  const response = await fetch("/api/mods");
   if (!response.ok) {
-    throw new Error(`module registry returned ${response.status}`);
+    throw new Error(`mod registry returned ${response.status}`);
   }
 
   let rows: unknown;
   try {
     rows = await response.json();
   } catch {
-    throw new Error("module registry returned malformed data");
+    throw new Error("mod registry returned malformed data");
   }
   if (!Array.isArray(rows)) {
-    throw new Error("module registry returned malformed data");
+    throw new Error("mod registry returned malformed data");
   }
 
-  return rows.map(parseStoredModule);
+  return rows.map(parseStoredMod);
 }
 
-export async function getModuleRevision(
-  moduleId: string,
+export async function getModRevision(
+  modId: string,
   revision: string,
   signal?: AbortSignal,
-): Promise<StoredModule> {
+): Promise<StoredMod> {
   const response = await fetch(
-    `/api/modules/${encodeURIComponent(moduleId)}/revisions/${encodeURIComponent(revision)}`,
+    `/api/mods/${encodeURIComponent(modId)}/revisions/${encodeURIComponent(revision)}`,
     { signal },
   );
   if (!response.ok) {
-    throw new Error(`module registry returned ${response.status}`);
+    throw new Error(`mod registry returned ${response.status}`);
   }
 
-  return readStoredModule(response);
+  return readStoredMod(response);
 }
+
+// Compatibility exports for older integrations and tests that import the
+// former Module terminology.
+export type StoredModule = StoredMod;
+export const listModules = listMods;
+export const getModuleRevision = getModRevision;

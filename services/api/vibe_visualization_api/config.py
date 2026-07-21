@@ -2,14 +2,28 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
+
+
+def _default_database_path() -> Path:
+    current = Path("runtime/vibedesk.db")
+    legacy = Path("runtime/vibe-visualization.db")
+    if legacy.exists() and not current.exists():
+        return legacy
+    return current
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="VIBE_VIS_", env_file=".env")
+    model_config = SettingsConfigDict(env_prefix="VIBEDESK_", env_file=".env")
 
     runtime_dir: Path = Path("runtime")
-    database_path: Path = Path("runtime/vibe-visualization.db")
+    database_path: Path = Field(default_factory=_default_database_path)
     allowed_origins: str = "http://127.0.0.1:5888,http://127.0.0.1:5891"
     model_default_adapter: str = "openai-compatible"
     openai_base_url: str = "https://api.openai.com/v1"
@@ -34,6 +48,28 @@ class Settings(BaseSettings):
     research_api_key: SecretStr = SecretStr("")
     enable_scheduler: bool = False
     scheduler_poll_seconds: float = Field(default=30.0, gt=0, le=3600)
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            EnvSettingsSource(settings_cls, env_prefix="VIBE_VIS_"),
+            dotenv_settings,
+            DotEnvSettingsSource(
+                settings_cls,
+                env_file=".env",
+                env_prefix="VIBE_VIS_",
+            ),
+            file_secret_settings,
+        )
 
     @field_validator("openai_base_url")
     @classmethod

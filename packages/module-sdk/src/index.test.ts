@@ -1,4 +1,4 @@
-import type { ModuleEvent } from "@vibe-visualization/contracts";
+import type { ModEvent } from "@vibedesk/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -97,7 +97,7 @@ function runtime(fakeWindow: FakeWindow, traceId = "trace-1"): ModuleBridgeRunti
   };
 }
 
-function event(overrides: Partial<ModuleEvent> = {}): ModuleEvent {
+function event(overrides: Partial<ModEvent> = {}): ModEvent {
   return {
     version: "1.0",
     event: "security.selected",

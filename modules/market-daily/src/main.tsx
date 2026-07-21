@@ -1,13 +1,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import "@vibe-visualization/ui-foundation/tokens.css";
+import "@vibedesk/desk-ui/tokens.css";
 
-import { MarketDailyApp } from "./App";
+import { MarketPulseApp } from "./App";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <MarketDailyApp />
+    <MarketPulseApp />
   </StrictMode>,
 );

@@ -8,6 +8,9 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 MOUNTS = {
+    "/mods/demo": ROOT / "tests" / "e2e" / "fixtures" / "modules" / "demo",
+    "/mods/market-daily": ROOT / "modules" / "market-daily" / "dist",
+    # Compatibility mounts for already-published manifests.
     "/modules/demo": ROOT / "tests" / "e2e" / "fixtures" / "modules" / "demo",
     "/modules/market-daily": ROOT / "modules" / "market-daily" / "dist",
 }

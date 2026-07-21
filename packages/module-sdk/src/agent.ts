@@ -9,6 +9,8 @@ export interface GatewayClientConfig {
 }
 
 export interface AgentTaskCreateInput {
+  modId?: string;
+  /** @deprecated Use modId in new VibeDesk code. */
   moduleId?: string;
   capability?: string;
   prompt?: string;
@@ -118,6 +120,12 @@ export interface GatewayClient {
   getTask(taskId: string): Promise<AgentTask>;
   cancelTask(taskId: string): Promise<AgentTask>;
   eventsUrl(taskId: string, after?: number): string;
+  invokeModAction<T = unknown>(
+    modId: string,
+    actionId: string,
+    input: Record<string, unknown>,
+  ): Promise<T>;
+  /** @deprecated Use invokeModAction in new VibeDesk code. */
   invokeModuleAction<T = unknown>(
     moduleId: string,
     actionId: string,
@@ -148,10 +156,19 @@ export function createGatewayClient(config: GatewayClientConfig): GatewayClient 
 
   return {
     createTask(input) {
+      const { modId, ...legacyInput } = input;
       return requestGatewayJson<AgentTask>(
         fetcher,
         `${baseUrl}/api/agent/tasks`,
-        { method: "POST", body: JSON.stringify(input) },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...legacyInput,
+            ...(legacyInput.moduleId === undefined && modId !== undefined
+              ? { moduleId: modId }
+              : {}),
+          }),
+        },
       );
     },
     getTask(taskId) {
@@ -179,6 +196,17 @@ export function createGatewayClient(config: GatewayClientConfig): GatewayClient 
       }
       return url.toString();
     },
+    invokeModAction<T = unknown>(
+      modId: string,
+      actionId: string,
+      input: Record<string, unknown>,
+    ) {
+      return requestGatewayJson<T>(
+        fetcher,
+        `${baseUrl}/api/mods/${pathSegment(modId)}/actions/${pathSegment(actionId)}`,
+        { method: "POST", body: JSON.stringify(input) },
+      );
+    },
     invokeModuleAction<T = unknown>(
       moduleId: string,
       actionId: string,
@@ -186,7 +214,7 @@ export function createGatewayClient(config: GatewayClientConfig): GatewayClient 
     ) {
       return requestGatewayJson<T>(
         fetcher,
-        `${baseUrl}/api/modules/${pathSegment(moduleId)}/actions/${pathSegment(actionId)}`,
+        `${baseUrl}/api/mods/${pathSegment(moduleId)}/actions/${pathSegment(actionId)}`,
         { method: "POST", body: JSON.stringify(input) },
       );
     },

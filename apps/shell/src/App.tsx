@@ -1,59 +1,65 @@
 import { AlertTriangle, Boxes, Eye, LoaderCircle, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { ModuleEvent } from "@vibe-visualization/contracts";
+import type { ModEvent } from "@vibedesk/contracts";
 
 import {
-  getModuleRevision,
-  listModules,
-  type StoredModule,
+  getModRevision,
+  listMods,
+  type StoredMod,
 } from "./api/modules";
-import { ModuleFrame } from "./components/ModuleFrame";
+import { ModFrame } from "./components/ModuleFrame";
 import { Sidebar } from "./components/Sidebar";
 import { ShellEventBus } from "./events/ShellEventBus";
 
-const ACTIVE_MODULE_KEY = "vibe.shell.activeModule";
+const ACTIVE_MOD_KEY = "vibedesk.activeMod";
+const LEGACY_ACTIVE_MODULE_KEY = "vibe.shell.activeModule";
 const PREVIEW_PATTERN = /^([a-z][a-z0-9-]{2,63})@([1-9]\d*)$/;
 
 function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "模块加载失败";
+  return reason instanceof Error ? reason.message : "Mod 加载失败";
 }
 
 function storedSelection(): string | null {
   try {
-    return window.localStorage.getItem(ACTIVE_MODULE_KEY);
+    return (
+      window.localStorage.getItem(ACTIVE_MOD_KEY) ??
+      window.localStorage.getItem(LEGACY_ACTIVE_MODULE_KEY)
+    );
   } catch {
     return null;
   }
 }
 
-function rememberSelection(moduleId: string) {
+function rememberSelection(modId: string) {
   try {
-    window.localStorage.setItem(ACTIVE_MODULE_KEY, moduleId);
+    window.localStorage.setItem(ACTIVE_MOD_KEY, modId);
   } catch {
-    // A blocked storage backend must not prevent module navigation.
+    // A blocked storage backend must not prevent Mod navigation.
   }
 }
 
-function eventSummary(event: ModuleEvent): string {
+function eventSummary(event: ModEvent): string {
   const symbol = event.payload.symbol;
   return `${event.event}${typeof symbol === "string" ? ` · ${symbol}` : ""}`;
 }
 
-function preferredModule(modules: StoredModule[]): StoredModule | undefined {
-  const requested = new URLSearchParams(window.location.search).get("module");
+function preferredMod(mods: StoredMod[]): StoredMod | undefined {
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("mod") ?? params.get("module");
   const stored = storedSelection();
   return (
-    modules.find((module) => module.moduleId === requested) ??
-    modules.find((module) => module.moduleId === stored) ??
-    modules[0]
+    mods.find((mod) => mod.moduleId === requested) ??
+    mods.find((mod) => mod.moduleId === stored) ??
+    mods[0]
   );
 }
 
-function writeModuleLocation(moduleId: string, mode: "push" | "replace") {
+function writeModLocation(modId: string, mode: "push" | "replace") {
   const url = new URL(window.location.href);
   url.searchParams.delete("preview");
-  url.searchParams.set("module", moduleId);
+  url.searchParams.delete("module");
+  url.searchParams.set("mod", modId);
   window.history[mode === "push" ? "pushState" : "replaceState"](
     null,
     "",
@@ -81,15 +87,15 @@ function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
 
 export function App() {
   const [eventBus] = useState(() => new ShellEventBus());
-  const [lastEvent, setLastEvent] = useState<ModuleEvent>();
-  const [modules, setModules] = useState<StoredModule[]>([]);
-  const modulesRef = useRef<StoredModule[]>([]);
+  const [lastEvent, setLastEvent] = useState<ModEvent>();
+  const [modules, setModules] = useState<StoredMod[]>([]);
+  const modulesRef = useRef<StoredMod[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [registryLoading, setRegistryLoading] = useState(true);
   const [registryLoaded, setRegistryLoaded] = useState(false);
   const [registryError, setRegistryError] = useState<string>();
   const [previewMode, setPreviewMode] = useState(false);
-  const [preview, setPreview] = useState<StoredModule>();
+  const [preview, setPreview] = useState<StoredMod>();
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string>();
   const previewRequestRef = useRef<AbortController | undefined>(undefined);
@@ -106,25 +112,24 @@ export function App() {
     setRegistryError(undefined);
 
     try {
-      const rows = await listModules();
+      const rows = await listMods();
       modulesRef.current = rows;
       setModules(rows);
       setRegistryLoaded(true);
       setSelectedId((current) => {
         const selection =
           rows.find((module) => module.moduleId === current) ??
-          preferredModule(rows);
+          preferredMod(rows);
 
         if (
           selection &&
           !new URLSearchParams(window.location.search).has("preview")
         ) {
           rememberSelection(selection.moduleId);
-          const requested = new URLSearchParams(window.location.search).get(
-            "module",
-          );
+          const params = new URLSearchParams(window.location.search);
+          const requested = params.get("mod") ?? params.get("module");
           if (requested !== selection.moduleId) {
-            writeModuleLocation(selection.moduleId, "replace");
+            writeModLocation(selection.moduleId, "replace");
           }
         }
 
@@ -148,7 +153,7 @@ export function App() {
       const match = PREVIEW_PATTERN.exec(rawPreview);
       if (!match) {
         setPreviewLoading(false);
-        setPreviewError("预览地址无效，请使用 module-id@revision。");
+        setPreviewError("预览地址无效，请使用 mod-id@revision。");
         return;
       }
 
@@ -161,7 +166,7 @@ export function App() {
       setPreviewLoading(true);
 
       try {
-        const result = await getModuleRevision(
+        const result = await getModRevision(
           moduleId,
           revision,
           controller.signal,
@@ -210,7 +215,7 @@ export function App() {
     setPreview(undefined);
     setPreviewError(undefined);
     setPreviewLoading(false);
-    const selection = preferredModule(modulesRef.current);
+    const selection = preferredMod(modulesRef.current);
     setSelectedId(selection?.moduleId);
     if (selection) rememberSelection(selection.moduleId);
   }, [cancelPreviewRequest, loadPreviewValue]);
@@ -231,14 +236,14 @@ export function App() {
     };
   }, [cancelPreviewRequest, loadRegistry, syncLocation]);
 
-  const selectModule = (module: StoredModule) => {
+  const selectModule = (module: StoredMod) => {
     cancelPreviewRequest();
     setPreviewMode(false);
     setPreview(undefined);
     setPreviewError(undefined);
     setSelectedId(module.moduleId);
     rememberSelection(module.moduleId);
-    writeModuleLocation(module.moduleId, "push");
+    writeModLocation(module.moduleId, "push");
   };
 
   const retryPreview = () => {
@@ -285,7 +290,7 @@ export function App() {
         {registryLoading && modules.length === 0 ? (
           <div className="content-state" role="status">
             <LoaderCircle className="spin" size={24} aria-hidden="true" />
-            正在读取模块注册表…
+            正在读取 Mod 列表…
           </div>
         ) : null}
         {previewMode && previewLoading ? (
@@ -297,19 +302,19 @@ export function App() {
         {showEmpty ? (
           <div className="content-state empty-state">
             <Boxes size={28} aria-hidden="true" />
-            <strong>尚无已发布模块</strong>
-            <span>发布模块后，它会自动出现在左侧导航中。</span>
+            <strong>尚无已发布 Mod</strong>
+            <span>发布 Mod 后，它会自动出现在左侧导航中。</span>
           </div>
         ) : null}
         {activeModule ? (
-          <ModuleFrame
+          <ModFrame
             key={`${activeModule.moduleId}@${activeModule.revision}`}
             manifest={activeModule.manifest}
             eventBus={eventBus}
           />
         ) : null}
         {lastEvent ? (
-          <div className="shell-event-log" aria-label="模块事件日志">
+          <div className="shell-event-log" aria-label="Mod 事件日志">
             <span>最近事件</span>
             <code>{eventSummary(lastEvent)}</code>
           </div>

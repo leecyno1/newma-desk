@@ -2,32 +2,32 @@ import { ExternalLink, LoaderCircle, TriangleAlert } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
-  moduleEventSchema,
-  type ModuleManifest,
-} from "@vibe-visualization/contracts";
+  modEventSchema,
+  type ModManifest,
+} from "@vibedesk/contracts";
 
 import type { ShellEventBus } from "../events/ShellEventBus";
-import { resolveModuleUrl } from "../lib/moduleUrl";
+import { resolveModUrl } from "../lib/moduleUrl";
 
-interface ModuleFrameProps {
-  manifest: ModuleManifest;
+interface ModFrameProps {
+  manifest: ModManifest;
   eventBus: ShellEventBus;
 }
 
 function warnIgnoredMessage(reason: string) {
   if (import.meta.env.DEV && import.meta.env.MODE !== "test") {
-    console.warn(`[ModuleFrame] ignored module message: ${reason}`);
+    console.warn(`[ModFrame] ignored Mod message: ${reason}`);
   }
 }
 
-export function ModuleFrame({ manifest, eventBus }: ModuleFrameProps) {
+export function ModFrame({ manifest, eventBus }: ModFrameProps) {
   const resolution = useMemo(() => {
     try {
-      return { src: resolveModuleUrl(manifest.entry), error: undefined };
+      return { src: resolveModUrl(manifest.entry), error: undefined };
     } catch (error) {
       return {
         src: undefined,
-        error: error instanceof Error ? error.message : "模块地址配置无效",
+        error: error instanceof Error ? error.message : "Mod 地址配置无效",
       };
     }
   }, [manifest.entry]);
@@ -78,13 +78,13 @@ export function ModuleFrame({ manifest, eventBus }: ModuleFrameProps) {
         return;
       }
 
-      const parsed = moduleEventSchema.safeParse(message.data);
+      const parsed = modEventSchema.safeParse(message.data);
       if (!parsed.success) {
         warnIgnoredMessage("invalid envelope");
         return;
       }
       if (parsed.data.source !== manifest.id) {
-        warnIgnoredMessage("source module mismatch");
+        warnIgnoredMessage("source Mod mismatch");
         return;
       }
       if (!manifest.events.emits.includes(parsed.data.event)) {
@@ -110,7 +110,7 @@ export function ModuleFrame({ manifest, eventBus }: ModuleFrameProps) {
     return (
       <div className="frame-message frame-error" role="alert">
         <TriangleAlert size={20} aria-hidden="true" />
-        <span>{resolution.error ?? "模块地址配置无效"}</span>
+        <span>{resolution.error ?? "Mod 地址配置无效"}</span>
       </div>
     );
   }
@@ -130,13 +130,13 @@ export function ModuleFrame({ manifest, eventBus }: ModuleFrameProps) {
       {frameState === "loading" ? (
         <div className="frame-status" role="status">
           <LoaderCircle className="spin" size={18} aria-hidden="true" />
-          正在加载模块…
+          正在加载 Mod…
         </div>
       ) : null}
       {frameState === "error" ? (
         <div className="frame-message frame-error" role="alert">
           <TriangleAlert size={18} aria-hidden="true" />
-          模块页面可能未能加载，请尝试独立打开。
+          Mod 页面可能未能加载，请尝试独立打开。
         </div>
       ) : null}
       <iframe
@@ -150,3 +150,6 @@ export function ModuleFrame({ manifest, eventBus }: ModuleFrameProps) {
     </section>
   );
 }
+
+// Compatibility export for code that still imports the former component name.
+export const ModuleFrame = ModFrame;
