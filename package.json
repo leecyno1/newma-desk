@@ -5,10 +5,13 @@
   "workspaces": ["apps/*", "packages/*", "modules/*", "integrations/*"],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "test": "npm run test:run --workspaces --if-present",
+    "test": "npm run test:run --workspaces --if-present && npm run test:integrations",
+    "test:integrations": "node --test tests/integrations/*.test.mjs",
     "test:e2e": "playwright test",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "dev:shell": "npm run dev -w @vibedesk/desk --"
+    "dev:shell": "npm run dev -w @vibedesk/desk --",
+    "mods:check": "node scripts/register-first-party-mods.mjs --dry-run",
+    "mods:register": "node scripts/register-first-party-mods.mjs"
   },
   "engines": {"node": ">=22", "npm": ">=10"},
   "devDependencies": {

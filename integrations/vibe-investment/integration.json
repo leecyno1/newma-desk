@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0",
+  "id": "vibe-investment",
+  "name": "Vibe Investment",
+  "upstream": "simonlin1212/Vibe-Research",
+  "baseUrlEnv": "VIBEDESK_INVESTMENT_WEB_URL",
+  "defaultBaseUrl": "http://127.0.0.1:5899",
+  "mods": [
+    {
+      "id": "daily-review",
+      "name": "每日复盘",
+      "category": "today",
+      "navigation": { "groupLabel": "今日", "groupOrder": 0, "itemOrder": 10, "icon": "today" },
+      "route": "/daily-review",
+      "permissions": ["investment.read"],
+      "dataServices": ["vibe-investment-native"]
+    },
+    {
+      "id": "news-radar",
+      "name": "资讯雷达",
+      "category": "market",
+      "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 10, "icon": "market" },
+      "route": "/intel",
+      "permissions": ["investment.read"],
+      "dataServices": ["vibe-investment-native"]
+    },
+    {
+      "id": "watchlist",
+      "name": "自选股",
+      "category": "market",
+      "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 20, "icon": "market" },
+      "route": "/watchlist",
+      "permissions": ["investment.read", "investment.local-write"],
+      "dataServices": ["vibe-investment-native"]
+    },
+    {
+      "id": "portfolio-brief",
+      "name": "我的持仓",
+      "category": "market",
+      "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 30, "icon": "market" },
+      "route": "/portfolio",
+      "permissions": ["investment.read", "investment.local-write"],
+      "dataServices": ["vibe-investment-native"]
+    },
+    {
+      "id": "stock-research",
+      "name": "个股研究",
+      "category": "research",
+      "navigation": { "groupLabel": "研究", "groupOrder": 20, "itemOrder": 10, "icon": "research" },
+      "route": "/stock-data",
+      "permissions": ["investment.read"],
+      "dataServices": ["vibe-investment-native"]
+    },
+    {
+      "id": "industry-map",
+      "name": "产业链研究",
+      "category": "research",
+      "navigation": { "groupLabel": "研究", "groupOrder": 20, "itemOrder": 20, "icon": "research" },
+      "route": "/sectors",
+      "permissions": ["investment.read"],
+      "dataServices": ["vibe-investment-native"]
+    },
+    {
+      "id": "research-library",
+      "name": "我的研报",
+      "category": "research",
+      "navigation": { "groupLabel": "研究", "groupOrder": 20, "itemOrder": 30, "icon": "research" },
+      "route": "/my-reports",
+      "permissions": ["investment.read", "investment.files"],
+      "dataServices": ["vibe-investment-native"]
+    },
+    {
+      "id": "research-notes",
+      "name": "研究记录",
+      "category": "research",
+      "navigation": { "groupLabel": "研究", "groupOrder": 20, "itemOrder": 40, "icon": "research" },
+      "route": "/notes",
+      "permissions": ["investment.local-write"],
+      "dataServices": ["vibe-investment-native"]
+    },
+    {
+      "id": "investment-settings",
+      "name": "投研 AI 设置",
+      "category": "system",
+      "navigation": { "groupLabel": "连接与设置", "groupOrder": 90, "itemOrder": 10, "icon": "settings" },
+      "route": "/settings",
+      "permissions": ["investment.settings"],
+      "dataServices": ["vibe-investment-native"]
+    }
+  ]
+}

@@ -75,6 +75,30 @@ Mod -> Agent Gateway -> Agent Runtime -> Memory / Skills / Tools
 └── Trade Desk            交易台
 ```
 
+## 第一批原生 Mods
+
+VibeDesk 已提供两组原生 URL Adapter：
+
+- `Vibe Investment`：对应 `simonlin1212/Vibe-Research`，包含每日复盘、资讯雷达、自选股、持仓、个股研究、产业链研究、研报、研究记录和投研 AI 设置。
+- `Vibe Trading`：对应 `HKUDS/Vibe-Trading`，包含量化总览、量化 Agent、因子实验室、回测实验室、相关性分析、交易台和量化系统设置。
+
+两个原生前端被嵌入时会自动隐藏自身侧边栏，因此 VibeDesk 中只保留一套左侧导航。注册命令是幂等的，可在上游地址变化或清空 VibeDesk 数据库后重复执行：
+
+```bash
+npm run mods:check
+npm run mods:register
+```
+
+默认地址：
+
+```text
+VIBEDESK_INVESTMENT_WEB_URL=http://127.0.0.1:5899
+VIBEDESK_TRADING_WEB_URL=http://127.0.0.1:5901
+VIBEDESK_CONTROL_PLANE_URL=http://127.0.0.1:8901
+```
+
+完整启动方式见 [第一批原生 Mods 接入说明](docs/first-party-mods.md)。
+
 ## 本地启动
 
 要求：Node.js 22+、npm 10+、Python 3.12+。
@@ -147,12 +171,13 @@ API Key 只保存在服务端，不会下发给 Mod 前端。
 npm test
 npm run typecheck
 npm run build
-services/api/.venv/bin/pytest -q
+services/api/.venv/bin/python -m pytest -q
 npm run test:e2e
 ```
 
 ## 文档
 
 - [产品词汇与模块命名](docs/product-language.md)
+- [第一批原生 Mods 接入说明](docs/first-party-mods.md)
 - [ViewSpec 页面规范](docs/view-spec.md)
 - [Gateway 分离设计](docs/superpowers/specs/2026-07-20-gateway-separation-design.md)

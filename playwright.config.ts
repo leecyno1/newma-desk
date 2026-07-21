@@ -50,7 +50,7 @@ export default defineConfig({
     },
     {
       command:
-        "services/api/.venv/bin/uvicorn vibe_visualization_api.main:app " +
+        "services/api/.venv/bin/python -m uvicorn vibe_visualization_api.main:app " +
         `--app-dir services/api --host 127.0.0.1 --port ${apiPort}`,
       url: apiHealthUrl,
       reuseExistingServer: false,

@@ -116,6 +116,28 @@ def test_navigation_metadata_survives_draft_storage(client: TestClient) -> None:
     assert response.json()["manifest"]["navigation"] == navigation
 
 
+@pytest.mark.parametrize("icon", ["today", "trading", "settings"])
+def test_first_party_navigation_icons_are_accepted(
+    client: TestClient, icon: str
+) -> None:
+    response = client.post(
+        "/api/mods/drafts",
+        json={
+            **MANIFEST,
+            "id": f"{icon}-workspace",
+            "navigation": {
+                "groupLabel": "工作区",
+                "groupOrder": 10,
+                "itemOrder": 10,
+                "icon": icon,
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["manifest"]["navigation"]["icon"] == icon
+
+
 def test_disable_removes_module_from_sidebar_listing(client: TestClient) -> None:
     draft = client.post("/api/modules/drafts", json=MANIFEST).json()
     client.post(

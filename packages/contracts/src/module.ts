@@ -83,7 +83,15 @@ export const modNavigationSchema = z
     groupOrder: z.number().int().nonnegative().default(100),
     itemOrder: z.number().int().nonnegative().default(100),
     icon: z
-      .enum(["research", "market", "quant", "module"])
+      .enum([
+        "today",
+        "research",
+        "market",
+        "quant",
+        "trading",
+        "settings",
+        "module",
+      ])
       .default("module"),
   })
   .strict();

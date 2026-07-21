@@ -34,6 +34,23 @@ describe("moduleManifestSchema", () => {
     });
   });
 
+  it.each(["today", "trading", "settings"] as const)(
+    "accepts the %s first-party navigation icon",
+    (icon) => {
+      expect(
+        moduleManifestSchema.parse({
+          ...valid,
+          navigation: {
+            groupLabel: "工作区",
+            groupOrder: 10,
+            itemOrder: 10,
+            icon,
+          },
+        }).navigation?.icon,
+      ).toBe(icon);
+    },
+  );
+
   it("keeps manifests without navigation metadata valid", () => {
     expect(moduleManifestSchema.parse(valid)).not.toHaveProperty("navigation");
   });

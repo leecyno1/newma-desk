@@ -150,7 +150,15 @@ class ModuleNavigation(ApiModel):
     group_label: str = Field(min_length=1, max_length=40)
     group_order: int = Field(default=100, ge=0)
     item_order: int = Field(default=100, ge=0)
-    icon: Literal["research", "market", "quant", "module"] = "module"
+    icon: Literal[
+        "today",
+        "research",
+        "market",
+        "quant",
+        "trading",
+        "settings",
+        "module",
+    ] = "module"
 
 
 class ModuleManifest(ApiModel):

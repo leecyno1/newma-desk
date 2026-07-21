@@ -3,7 +3,10 @@ import {
   Binary,
   BookOpenText,
   Boxes,
+  CalendarDays,
+  CandlestickChart,
   RefreshCw,
+  Settings,
 } from "lucide-react";
 
 import type { StoredMod } from "../api/modules";
@@ -17,9 +20,12 @@ interface SidebarProps {
 }
 
 const categoryIcons = {
+  today: CalendarDays,
   research: BookOpenText,
   market: BarChart3,
   quant: Binary,
+  trading: CandlestickChart,
+  settings: Settings,
   module: Boxes,
 } as const;
 
