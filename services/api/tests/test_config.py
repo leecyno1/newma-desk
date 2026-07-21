@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from vibe_visualization_api.config import Settings
 
 
@@ -19,3 +22,17 @@ def test_legacy_environment_names_remain_compatible(monkeypatch) -> None:
     settings = Settings(_env_file=None)
 
     assert settings.database_path == Path("runtime/legacy.db")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "ftp://example.com",
+        "https://user:secret@example.com",
+        "https://example.com/path",
+        "https://example.com?token=value",
+    ],
+)
+def test_mod_web_urls_must_be_exact_http_origins(value: str) -> None:
+    with pytest.raises(ValidationError, match="Mod web URL"):
+        Settings(investment_web_url=value, _env_file=None)

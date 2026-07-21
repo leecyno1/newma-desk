@@ -1,5 +1,5 @@
 import { ExternalLink, LoaderCircle, TriangleAlert } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   modEventSchema,
@@ -12,15 +12,16 @@ import { resolveModUrl } from "../lib/moduleUrl";
 interface ModFrameProps {
   manifest: ModManifest;
   eventBus: ShellEventBus;
+  theme: "light" | "dark";
 }
 
-function warnIgnoredMessage(reason: string) {
+function logIgnoredMessage(reason: string) {
   if (import.meta.env.DEV && import.meta.env.MODE !== "test") {
-    console.warn(`[ModFrame] ignored Mod message: ${reason}`);
+    console.debug(`[ModFrame] ignored Mod message: ${reason}`);
   }
 }
 
-export function ModFrame({ manifest, eventBus }: ModFrameProps) {
+export function ModFrame({ manifest, eventBus, theme }: ModFrameProps) {
   const resolution = useMemo(() => {
     try {
       return { src: resolveModUrl(manifest.entry), error: undefined };
@@ -35,6 +36,8 @@ export function ModFrame({ manifest, eventBus }: ModFrameProps) {
     "loading",
   );
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
 
   useLayoutEffect(() => {
     setFrameState("loading");
@@ -43,6 +46,19 @@ export function ModFrame({ manifest, eventBus }: ModFrameProps) {
 
     const expectedOrigin = new URL(resolution.src).origin;
     let registeredWindow: Window | null = null;
+
+    const postConfig = () => {
+      frame.contentWindow?.postMessage(
+        {
+          type: "vibedesk:config",
+          gatewayOrigin: window.location.origin,
+          moduleId: manifest.id,
+          userId: "local-user",
+          theme: themeRef.current,
+        },
+        expectedOrigin,
+      );
+    };
 
     const registerCurrentWindow = () => {
       if (registeredWindow) eventBus.unregister(registeredWindow);
@@ -59,6 +75,7 @@ export function ModFrame({ manifest, eventBus }: ModFrameProps) {
     const handleLoad = () => {
       setFrameState("ready");
       registerCurrentWindow();
+      postConfig();
     };
     // Browser iframe error reporting is incomplete; this remains a
     // best-effort navigation hint rather than a module health protocol.
@@ -66,29 +83,46 @@ export function ModFrame({ manifest, eventBus }: ModFrameProps) {
     const handleMessage = (message: MessageEvent) => {
       const currentWindow = frame.contentWindow;
       if (
-        !registeredWindow ||
-        currentWindow !== registeredWindow ||
-        message.source !== registeredWindow
+        !currentWindow ||
+        message.source !== currentWindow
       ) {
-        warnIgnoredMessage("unexpected source window");
+        logIgnoredMessage("unexpected source window");
         return;
       }
       if (message.origin !== expectedOrigin) {
-        warnIgnoredMessage("unexpected origin");
+        logIgnoredMessage("unexpected origin");
+        return;
+      }
+
+      // A large Mod bundle can install its message listener after the iframe's
+      // load event has already fired. Let the Mod explicitly request the
+      // configuration so the one-shot parent message cannot be lost.
+      if (
+        message.data &&
+        typeof message.data === "object" &&
+        message.data.type === "vibedesk:ready"
+      ) {
+        if (registeredWindow !== currentWindow) registerCurrentWindow();
+        postConfig();
+        return;
+      }
+
+      if (!registeredWindow || currentWindow !== registeredWindow) {
+        logIgnoredMessage("source Mod is not registered");
         return;
       }
 
       const parsed = modEventSchema.safeParse(message.data);
       if (!parsed.success) {
-        warnIgnoredMessage("invalid envelope");
+        logIgnoredMessage("invalid envelope");
         return;
       }
       if (parsed.data.source !== manifest.id) {
-        warnIgnoredMessage("source Mod mismatch");
+        logIgnoredMessage("source Mod mismatch");
         return;
       }
       if (!manifest.events.emits.includes(parsed.data.event)) {
-        warnIgnoredMessage("undeclared emitted event");
+        logIgnoredMessage("undeclared emitted event");
         return;
       }
 
@@ -105,6 +139,20 @@ export function ModFrame({ manifest, eventBus }: ModFrameProps) {
       if (registeredWindow) eventBus.unregister(registeredWindow);
     };
   }, [eventBus, manifest, resolution.src]);
+
+  useEffect(() => {
+    if (!resolution.src) return;
+    frameRef.current?.contentWindow?.postMessage(
+      {
+        type: "vibedesk:config",
+        gatewayOrigin: window.location.origin,
+        moduleId: manifest.id,
+        userId: "local-user",
+        theme,
+      },
+      new URL(resolution.src).origin,
+    );
+  }, [manifest.id, resolution.src, theme]);
 
   if (resolution.error || !resolution.src) {
     return (

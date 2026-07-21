@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "research-library",
+  "name": "我的研报",
+  "description": "保存、整理和复用用户生成或收集的研究报告与结构化结论。",
+  "version": "0.1.0",
+  "publisher": "VibeDesk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": ["研报", "知识库", "文件"],
+  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_INVESTMENT_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5899", "route": "/my-reports" },
+  "manifest": {
+    "category": "research",
+    "navigation": { "groupLabel": "研究", "groupOrder": 20, "itemOrder": 30, "icon": "research" },
+    "permissions": ["investment.read", "investment.files"],
+    "dataServices": ["vibe-investment-native"]
+  }
+}

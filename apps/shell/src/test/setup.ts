@@ -32,5 +32,7 @@ afterEach(() => {
   server.resetHandlers();
   window.localStorage.clear();
   window.history.replaceState(null, "", "/");
+  document.documentElement.removeAttribute("data-theme");
+  document.documentElement.style.colorScheme = "";
 });
 afterAll(() => server.close());

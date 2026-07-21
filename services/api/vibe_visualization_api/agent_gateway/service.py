@@ -16,6 +16,7 @@ from vibe_visualization_api.ai_context.market_explain import (
     build_market_explain_prompt,
 )
 from vibe_visualization_api.agent_gateway.registry import AgentAdapterRegistry
+from vibe_visualization_api.agent_gateway.preferences import AgentPreferenceStore
 from vibe_visualization_api.agent_gateway.store import (
     InvalidTaskStateError,
     TaskStore,
@@ -42,16 +43,27 @@ class AgentTaskService:
         event_bus: TaskEventBus,
         registry: AgentAdapterRegistry,
         snapshot_store: SnapshotStore | None = None,
+        preference_store: AgentPreferenceStore | None = None,
     ):
         self._store = store
         self._event_bus = event_bus
         self._registry = registry
         self._snapshot_store = snapshot_store
+        self._preference_store = preference_store
         self._active: dict[str, ActiveTask] = {}
         self._cancel_lock = asyncio.Lock()
 
     async def create(self, request: AgentTaskCreate) -> AgentTask:
-        adapter = self._registry.get(request.adapter)
+        adapter_id = request.adapter
+        if adapter_id is None and self._preference_store is not None:
+            adapter_id = await run_in_threadpool(
+                self._preference_store.resolve,
+                request.user_id,
+                request.module_id,
+                self._registry.default_id,
+            )
+        adapter = self._registry.get(adapter_id)
+        request = request.model_copy(update={"adapter": adapter.id})
         prepared_request = await self._prepare_request(request)
         task = await run_in_threadpool(self._store.create, prepared_request)
         handle = asyncio.create_task(
@@ -104,6 +116,33 @@ class AgentTaskService:
 
     async def describe_adapters(self) -> list[dict[str, object]]:
         return await self._registry.describe()
+
+    async def get_preferences(self, user_id: str):
+        if self._preference_store is None:
+            raise RuntimeError("Agent preferences are unavailable")
+        return await run_in_threadpool(
+            self._preference_store.get,
+            user_id,
+            self._registry.default_id,
+        )
+
+    async def set_preferences(
+        self,
+        user_id: str,
+        default_adapter: str,
+        module_overrides: dict[str, str],
+    ):
+        self._registry.get(default_adapter)
+        for adapter_id in module_overrides.values():
+            self._registry.get(adapter_id)
+        if self._preference_store is None:
+            raise RuntimeError("Agent preferences are unavailable")
+        return await run_in_threadpool(
+            self._preference_store.set,
+            user_id,
+            default_adapter,
+            module_overrides,
+        )
 
     async def cancel(self, task_id: str) -> AgentTask:
         async with self._cancel_lock:

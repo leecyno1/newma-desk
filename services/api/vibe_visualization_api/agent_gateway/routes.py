@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from vibe_visualization_api.agent_gateway.models import AgentTask, AgentTaskCreate
+from vibe_visualization_api.agent_gateway.models import (
+    AgentPreferences,
+    AgentPreferencesUpdate,
+    AgentTask,
+    AgentTaskCreate,
+)
 from vibe_visualization_api.agent_gateway.service import AgentTaskService
 from vibe_visualization_api.control_plane.repository import ModuleRepository
 from vibe_visualization_api.control_plane.routes import get_repository
@@ -67,6 +72,37 @@ async def create_task(
 ) -> AgentTask:
     return await service.create(
         task_request.model_copy(update={"user_id": user_id})
+    )
+
+
+@router.get("/api/agent/preferences", response_model=AgentPreferences)
+async def agent_preferences(
+    user_id: str = Header(
+        default="local-user",
+        alias="X-User-Id",
+        min_length=1,
+        max_length=128,
+    ),
+    service: AgentTaskService = Depends(get_agent_task_service),
+) -> AgentPreferences:
+    return await service.get_preferences(user_id)
+
+
+@router.put("/api/agent/preferences", response_model=AgentPreferences)
+async def update_agent_preferences(
+    update: AgentPreferencesUpdate,
+    user_id: str = Header(
+        default="local-user",
+        alias="X-User-Id",
+        min_length=1,
+        max_length=128,
+    ),
+    service: AgentTaskService = Depends(get_agent_task_service),
+) -> AgentPreferences:
+    return await service.set_preferences(
+        user_id,
+        update.default_adapter,
+        update.module_overrides,
     )
 
 

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0",
+  "id": "market-daily",
+  "name": "市场行情",
+  "description": "VibeDesk 原生结构化 Mod 示例，展示行情指标、表格、图表与定时刷新。",
+  "version": "0.1.0",
+  "publisher": "VibeDesk",
+  "upstream": "https://github.com/leecyno1/vibedesk",
+  "tags": ["行情", "原生示例", "图表"],
+  "runtime": {
+    "type": "direct",
+    "entry": { "type": "structured", "url": "/mods/market-daily/" }
+  },
+  "manifest": {
+    "category": "market",
+    "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 5, "icon": "market" },
+    "permissions": ["market.read"],
+    "dataServices": ["market-data"],
+    "agentCapabilities": ["market.refresh", "market.explain"],
+    "events": { "emits": ["security.selected"], "accepts": ["date.changed", "security.selected"] },
+    "refresh": { "mode": "schedule", "cron": "0 18 * * 1-5" }
+  }
+}

@@ -169,6 +169,47 @@ def test_create_task_returns_202_and_persists_completion(
     assert fake_adapter.requests[0].prompt == "hello"
 
 
+def test_agent_preferences_can_select_default_and_module_override(
+    client: TestClient,
+) -> None:
+    initial = client.get("/api/agent/preferences")
+
+    assert initial.status_code == 200
+    assert initial.json() == {
+        "userId": "local-user",
+        "defaultAdapter": "fake",
+        "moduleOverrides": {},
+        "updatedAt": None,
+    }
+
+    updated = client.put(
+        "/api/agent/preferences",
+        json={
+            "defaultAdapter": "fake",
+            "moduleOverrides": {"market-daily": "fake"},
+        },
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["moduleOverrides"] == {"market-daily": "fake"}
+    created = client.post(
+        "/api/agent/tasks",
+        json={"moduleId": "market-daily", "prompt": "hello"},
+    )
+    assert created.status_code == 202
+    assert created.json()["request"]["adapter"] == "fake"
+
+
+def test_agent_preferences_reject_unknown_adapter(client: TestClient) -> None:
+    response = client.put(
+        "/api/agent/preferences",
+        json={"defaultAdapter": "missing", "moduleOverrides": {}},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "unknown agent adapter"}
+
+
 def test_sse_replays_persisted_events_with_protocol_fields(
     client: TestClient,
 ) -> None:

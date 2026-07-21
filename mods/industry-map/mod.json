@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "industry-map",
+  "name": "产业链研究",
+  "description": "以统一结构展示产业链环节、重点公司、供需关系和研究内容。",
+  "version": "0.1.0",
+  "publisher": "VibeDesk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": ["产业链", "研究", "公司"],
+  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_INVESTMENT_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5899", "route": "/sectors" },
+  "manifest": {
+    "category": "research",
+    "navigation": { "groupLabel": "研究", "groupOrder": 20, "itemOrder": 20, "icon": "research" },
+    "permissions": ["investment.read"],
+    "dataServices": ["vibe-investment-native"]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0",
+  "id": "vibedesk-official",
+  "name": "VibeDesk 官方 Mod 商店",
+  "git": {
+    "repository": "https://github.com/leecyno1/vibedesk",
+    "ref": "main",
+    "pathPrefix": "mods",
+    "rawBaseUrls": [
+      "https://raw.githubusercontent.com/leecyno1/vibedesk/main/mods",
+      "https://gitee.com/leecyno1/vibedesk/raw/main/mods"
+    ]
+  },
+  "mods": [
+    { "id": "market-daily", "path": "market-daily/mod.json" },
+    { "id": "daily-review", "path": "daily-review/mod.json", "defaultInstall": true },
+    { "id": "alpha-lab", "path": "alpha-lab/mod.json", "defaultInstall": true },
+    { "id": "news-radar", "path": "news-radar/mod.json" },
+    { "id": "watchlist", "path": "watchlist/mod.json", "defaultInstall": true },
+    { "id": "portfolio-brief", "path": "portfolio-brief/mod.json" },
+    { "id": "stock-research", "path": "stock-research/mod.json" },
+    { "id": "industry-map", "path": "industry-map/mod.json" },
+    { "id": "research-library", "path": "research-library/mod.json" },
+    { "id": "research-notes", "path": "research-notes/mod.json" },
+    { "id": "investment-settings", "path": "investment-settings/mod.json" },
+    { "id": "quant-overview", "path": "quant-overview/mod.json" },
+    { "id": "quant-agent", "path": "quant-agent/mod.json" },
+    { "id": "backtest-lab", "path": "backtest-lab/mod.json" },
+    { "id": "factor-correlation", "path": "factor-correlation/mod.json" },
+    { "id": "trade-desk", "path": "trade-desk/mod.json" },
+    { "id": "trading-settings", "path": "trading-settings/mod.json" }
+  ]
+}

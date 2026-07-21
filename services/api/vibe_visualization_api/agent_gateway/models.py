@@ -1,3 +1,4 @@
+import re
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -70,3 +71,24 @@ class AgentModuleSession(GatewayModel):
     upstream_session_id: str = Field(min_length=1, max_length=256)
     created_at: str
     updated_at: str
+
+
+class AgentPreferencesUpdate(GatewayModel):
+    default_adapter: str = Field(pattern=ADAPTER_ID_PATTERN)
+    module_overrides: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_overrides(self) -> Self:
+        for module_id, adapter_id in self.module_overrides.items():
+            if not module_id or not adapter_id:
+                raise ValueError("module override values cannot be empty")
+            if re.fullmatch(MODULE_ID_PATTERN, module_id) is None:
+                raise ValueError("module override contains an invalid module id")
+            if re.fullmatch(ADAPTER_ID_PATTERN, adapter_id) is None:
+                raise ValueError("module override contains an invalid adapter id")
+        return self
+
+
+class AgentPreferences(AgentPreferencesUpdate):
+    user_id: str = Field(pattern=USER_ID_PATTERN)
+    updated_at: str | None = None

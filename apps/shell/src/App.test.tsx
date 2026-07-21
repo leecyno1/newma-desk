@@ -98,6 +98,200 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("opens the project Mod store and installs a selected Mod from Git", async () => {
+    let installed = false;
+    let installRequests = 0;
+    serveRegistry([marketModule]);
+    server.use(
+      http.get("/api/store/mods", () =>
+        HttpResponse.json({
+          id: "vibedesk-official",
+          name: "VibeDesk 官方 Mod 商店",
+          repository: "https://github.com/leecyno1/vibedesk",
+          ref: "main",
+          mods: [
+            {
+              id: "daily-review",
+              name: "每日复盘",
+              description: "汇总每日市场变化和复盘结论。",
+              version: "0.1.0",
+              publisher: "VibeDesk",
+              upstream: "https://github.com/simonlin1212/Vibe-Research",
+              category: "今日",
+              tags: ["投研", "复盘"],
+              defaultInstall: true,
+              installState: installed ? "installed" : "available",
+              ...(installed ? { installedRevision: 2 } : {}),
+              sourceUrl:
+                "https://github.com/leecyno1/vibedesk/blob/main/mods/daily-review/mod.json",
+            },
+          ],
+        }),
+      ),
+      http.post("/api/store/mods/daily-review/install", () => {
+        installRequests += 1;
+        installed = true;
+        return HttpResponse.json(
+          {
+            action: "installed",
+            sourceUrl:
+              "https://github.com/leecyno1/vibedesk/blob/main/mods/daily-review/mod.json",
+            mod: {
+              ...researchModule,
+              moduleId: "daily-review",
+              revision: 2,
+            },
+          },
+          { status: 201 },
+        );
+      }),
+    );
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Mod 商店" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Mod 商店" }),
+    ).toBeVisible();
+    expect(screen.getByText("1 / 1 个 Mod")).toBeVisible();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "从 Git 安装 每日复盘" }),
+    );
+
+    expect(
+      await screen.findByText("每日复盘 已从 Git 安装并加入左侧导航。"),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "已安装 每日复盘" }),
+    ).toBeDisabled();
+    expect(installRequests).toBe(1);
+  });
+
+  it("switches themes and lets the user define sidebar categories", async () => {
+    serveRegistry([marketModule, researchModule]);
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "界面设置" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "界面设置" }),
+    ).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: /深色/ }));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(window.localStorage.getItem("vibedesk.themeMode")).toBe("dark");
+
+    await userEvent.type(
+      screen.getByRole("combobox", { name: "市场行情分类" }),
+      "我的关注",
+    );
+    await userEvent.type(
+      screen.getByRole("combobox", { name: "研究资讯分类" }),
+      "我的关注",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "保存分类" }),
+    );
+
+    const navigation = screen.getByRole("navigation", {
+      name: "VibeDesk Mod 导航",
+    });
+    const customGroup = within(navigation).getByRole("group", {
+      name: "我的关注",
+    });
+    expect(
+      within(customGroup)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["市场行情", "研究资讯"]);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("vibedesk.moduleCategories.v1") || "{}",
+      ),
+    ).toEqual({
+      "market-daily": "我的关注",
+      "research-news": "我的关注",
+    });
+  });
+
+  it("opens Agent settings and persists a local CLI selection", async () => {
+    let savedBody: unknown;
+    serveRegistry([marketModule]);
+    server.use(
+      http.get("/api/capabilities", () =>
+        HttpResponse.json({
+          adapters: [
+            {
+              id: "codex-cli",
+              name: "Codex CLI",
+              description: "本机 Codex",
+              kind: "local-cli",
+              available: true,
+              supportsMemory: true,
+              capabilities: ["chat"],
+              default: true,
+            },
+            {
+              id: "claude-cli",
+              name: "Claude Code",
+              description: "本机 Claude",
+              kind: "local-cli",
+              available: true,
+              supportsMemory: true,
+              capabilities: ["chat"],
+              default: false,
+            },
+          ],
+          moduleActions: [],
+        }),
+      ),
+      http.get("/api/agent/preferences", () =>
+        HttpResponse.json({
+          userId: "local-user",
+          defaultAdapter: "codex-cli",
+          moduleOverrides: {},
+          updatedAt: null,
+        }),
+      ),
+      http.put("/api/agent/preferences", async ({ request }) => {
+        savedBody = await request.json();
+        return HttpResponse.json({
+          userId: "local-user",
+          ...(savedBody as object),
+          updatedAt: "2026-07-21T00:00:00Z",
+        });
+      }),
+    );
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Agent 设置" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Agent 设置" }),
+    ).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Claude Code/ }),
+    );
+    await userEvent.selectOptions(screen.getByRole("combobox"), "claude-cli");
+    await userEvent.click(
+      screen.getByRole("button", { name: "保存设置" }),
+    );
+
+    await waitFor(() =>
+      expect(savedBody).toEqual({
+        defaultAdapter: "claude-cli",
+        moduleOverrides: { "market-daily": "claude-cli" },
+      }),
+    );
+    expect(
+      screen.getByText(/Agent 选择已保存/),
+    ).toBeVisible();
+  });
+
   it("uses Mod navigation metadata for the VibeDesk sidebar", async () => {
     const laterResearch = storedModule({
       id: "research-later",

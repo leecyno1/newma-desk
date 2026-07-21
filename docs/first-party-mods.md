@@ -1,4 +1,4 @@
-# 第一批原生 Mods 接入说明
+# 官方 Mod 商店与原生 Mods 接入说明
 
 日期：2026-07-21
 
@@ -14,7 +14,40 @@ VibeDesk
 
 两个上游前端在 iframe 中运行时自动隐藏自身侧边栏，所以用户只看到 VibeDesk 的统一导航。Mod 内部跳转、表单状态、Agent Session、回测运行记录和文件存储仍由对应上游管理。
 
+需要 AI 的页面统一调用 VibeDesk Agent Gateway。Desk 会把当前 Mod ID、用户 ID 和 Gateway 地址下发给 iframe；Mod 也会主动发送 `vibedesk:ready` 请求配置，避免大型前端包加载较慢时错过一次性的 iframe `load` 消息。
+
+```text
+Investment / Trading Mod
+        -> VibeDesk Agent Gateway
+        -> 用户在“Agent 设置”中选择的本机 CLI 或 Hermes
+```
+
+Model Gateway 仍是另一条独立链路，不会自动串到 Agent 后面。
+
 这里的 `Vibe Investment` 是 Vibe-Research 在 VibeDesk 中的产品名称，上游仓库名称和同步方式不改变。
+
+## 商店结构
+
+所有预制 Mod 已从集中式集成清单拆分到项目根目录：
+
+```text
+mods/
+├── store.json
+├── daily-review/mod.json
+├── alpha-lab/mod.json
+├── backtest-lab/mod.json
+└── ...
+```
+
+`store.json` 负责商店顺序、默认示例和 Git 安装源；每个 `mod.json` 只描述一个 Mod。用户安装时，API 会优先从 GitHub 获取对应文件，失败后尝试 Gitee，再通过控制面创建并发布 Mod 修订。
+
+标准配置只保留三个示例：
+
+| 示例 | 类型 |
+| --- | --- |
+| 每日复盘 | Vibe Research 页面适配 |
+| 因子实验室 | Vibe Trading 页面适配 |
+| 自选股 | Vibe Research 页面适配 |
 
 ## Mod 清单
 
@@ -78,16 +111,31 @@ npm run dev -- --host 127.0.0.1 --port 5901
 
 ### 3. VibeDesk
 
+如果两个上游不在 VibeDesk 的相邻目录，先配置本机 Agent 的工作目录：
+
+```bash
+export VIBEDESK_INVESTMENT_WORKSPACE=/absolute/path/to/Vibe-Research
+export VIBEDESK_TRADING_WORKSPACE=/absolute/path/to/Vibe-Trading
+```
+
 ```bash
 services/api/.venv/bin/python -m uvicorn vibe_visualization_api.main:app \
   --app-dir services/api --host 127.0.0.1 --port 8901
 ```
 
-注册或更新第一批 Mod：
+注册标准示例：
 
 ```bash
 npm run mods:register
 ```
+
+从旧版全量预装配置迁移时执行一次：
+
+```bash
+npm run mods:standardize
+```
+
+其余 Mod 在 VibeDesk 左侧“Mod 商店”中由用户按需安装。
 
 ```bash
 VITE_API_PROXY_TARGET=http://127.0.0.1:8901 \
@@ -110,10 +158,11 @@ npm run mods:register
 
 三个地址都必须是 HTTP(S) origin，不能包含账号、密码、查询参数或路径。云端可以使用三个子域名，也可以由反向代理将它们映射到独立服务。
 
-## 上游同步
+## 商店与上游同步
 
 - VibeDesk 只保存路由与导航 Manifest，不导入上游源码。
-- 上游新增一级页面时，在对应 `integration.json` 中增加一条 Mod 配置。
+- 上游新增一级页面时，在 `mods/<mod-id>/mod.json` 新增一个独立商店条目，并加入 `mods/store.json`。
 - 上游页面内部实现更新时，VibeDesk 无需同步页面代码。
-- 上游路由变化时，修改 `route` 后重新运行 `npm run mods:register`。
+- 上游路由变化时，修改对应 Mod 的 `runtime.route`。已安装用户可在商店点击“从 Git 更新”。
+- 商店内容推送到 GitHub/Gitee 后，用户安装时会直接读取 Git 中的版本。
 - 任一上游服务停止，不会影响另一套上游后端和 VibeDesk 控制面。

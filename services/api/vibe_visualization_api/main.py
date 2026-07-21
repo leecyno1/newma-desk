@@ -11,12 +11,19 @@ from vibe_visualization_api.agent_gateway.adapters.base import AgentAdapter
 from vibe_visualization_api.agent_gateway.adapters.hermes_webui import (
     HermesWebUIAdapter,
 )
+from vibe_visualization_api.agent_gateway.adapters.local_cli import (
+    LocalCliAgentAdapter,
+)
+from vibe_visualization_api.agent_gateway.conversation_store import (
+    AgentConversationStore,
+)
 from vibe_visualization_api.agent_gateway.event_bus import TaskEventBus
 from vibe_visualization_api.agent_gateway.registry import (
     AgentAdapterRegistry,
     UnknownAgentAdapterError,
 )
 from vibe_visualization_api.agent_gateway.routes import router as agent_router
+from vibe_visualization_api.agent_gateway.preferences import AgentPreferenceStore
 from vibe_visualization_api.agent_gateway.service import AgentTaskService
 from vibe_visualization_api.agent_gateway.session_store import (
     AgentModuleSessionStore,
@@ -41,6 +48,11 @@ from vibe_visualization_api.model_gateway.registry import (
 )
 from vibe_visualization_api.model_gateway.routes import router as model_router
 from vibe_visualization_api.model_gateway.service import ModelGatewayService
+from vibe_visualization_api.mod_store.routes import router as mod_store_router
+from vibe_visualization_api.mod_store.service import (
+    DescriptorFetcher,
+    ModStoreService,
+)
 from vibe_visualization_api.control_plane.repository import (
     InvalidModuleStateError,
     ModuleRepository,
@@ -80,13 +92,31 @@ def create_app(
     data_services: Sequence[DataServiceDescriptor] | None = None,
     data_service_client: DataServiceClient | None = None,
     scheduler_service: SchedulerLifecycle | None = None,
+    mod_store_fetcher: DescriptorFetcher | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     agent_session_store = AgentModuleSessionStore(app_settings.database_path)
+    agent_conversation_store = AgentConversationStore(app_settings.database_path)
+    agent_preference_store = AgentPreferenceStore(app_settings.database_path)
     configured_adapters = (
         list(agent_adapters)
         if agent_adapters is not None
         else [
+            LocalCliAgentAdapter(
+                "codex",
+                app_settings,
+                agent_conversation_store,
+            ),
+            LocalCliAgentAdapter(
+                "claude",
+                app_settings,
+                agent_conversation_store,
+            ),
+            LocalCliAgentAdapter(
+                "gemini",
+                app_settings,
+                agent_conversation_store,
+            ),
             HermesWebUIAdapter(
                 app_settings,
                 agent_session_store,
@@ -148,6 +178,7 @@ def create_app(
                 app_settings.runtime_dir,
                 app_settings.database_path,
             ),
+            agent_preference_store,
         )
 
     application.state.agent_task_service_factory = create_agent_task_service
@@ -186,12 +217,16 @@ def create_app(
     application.state.trade_confirmation_service = TradeConfirmationService(
         app_settings.trade_confirmation_secret.get_secret_value()
     )
+    application.state.mod_store_service = ModStoreService(
+        app_settings,
+        descriptor_fetcher=mod_store_fetcher,
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.origin_list(),
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type", "Authorization"],
+        allow_methods=["GET", "POST", "PUT"],
+        allow_headers=["Content-Type", "Authorization", "X-User-Id"],
     )
     application.include_router(mods_router, prefix="/api/mods")
     application.include_router(
@@ -200,6 +235,7 @@ def create_app(
         include_in_schema=False,
     )
     application.include_router(agent_router)
+    application.include_router(mod_store_router)
     application.include_router(model_router)
     application.include_router(data_services_router)
     application.include_router(mod_snapshots_router, prefix="/api/mods")

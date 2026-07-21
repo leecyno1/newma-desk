@@ -210,3 +210,56 @@ async def test_hermes_adapter_cancels_turn_requiring_interactive_approval(
     assert events[-1].type == "failed"
     assert events[-1].data["code"] == "agent_interaction_required"
     assert cancelled_streams == ["stream-1"]
+
+
+@pytest.mark.asyncio
+async def test_hermes_adapter_description_marks_reachable_service_available(
+    tmp_path: Path,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/api/session/new"
+        return httpx.Response(405)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = HermesWebUIAdapter(
+        Settings(
+            runtime_dir=tmp_path,
+            database_path=tmp_path / "gateway.db",
+            hermes_webui_base_url="http://hermes.test",
+        ),
+        AgentModuleSessionStore(tmp_path / "gateway.db"),
+        client=client,
+    )
+    try:
+        description = await adapter.describe()
+    finally:
+        await client.aclose()
+
+    assert description["name"] == "Hermes WebUI"
+    assert description["available"] is True
+
+
+@pytest.mark.asyncio
+async def test_hermes_adapter_description_marks_unreachable_service_unavailable(
+    tmp_path: Path,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = HermesWebUIAdapter(
+        Settings(
+            runtime_dir=tmp_path,
+            database_path=tmp_path / "gateway.db",
+            hermes_webui_base_url="http://hermes.test",
+        ),
+        AgentModuleSessionStore(tmp_path / "gateway.db"),
+        client=client,
+    )
+    try:
+        description = await adapter.describe()
+    finally:
+        await client.aclose()
+
+    assert description["available"] is False

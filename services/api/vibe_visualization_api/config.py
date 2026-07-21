@@ -24,7 +24,10 @@ class Settings(BaseSettings):
 
     runtime_dir: Path = Path("runtime")
     database_path: Path = Field(default_factory=_default_database_path)
-    allowed_origins: str = "http://127.0.0.1:5888,http://127.0.0.1:5891"
+    allowed_origins: str = (
+        "http://127.0.0.1:5888,http://127.0.0.1:5891,"
+        "http://127.0.0.1:5899,http://127.0.0.1:5901"
+    )
     model_default_adapter: str = "openai-compatible"
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: SecretStr = SecretStr("")
@@ -36,8 +39,15 @@ class Settings(BaseSettings):
     anthropic_version: str = "2023-06-01"
     anthropic_max_tokens: int = Field(default=4096, ge=1, le=65536)
     model_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
-    agent_default_adapter: str = "hermes-webui"
-    agent_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
+    agent_default_adapter: str = "codex-cli"
+    agent_timeout_seconds: float = Field(default=300.0, gt=0, le=900)
+    workspace_root: Path = Path(".")
+    investment_workspace: Path = Path("../Vibe-Research")
+    trading_workspace: Path = Path(".")
+    investment_web_url: str = "http://127.0.0.1:5899"
+    trading_web_url: str = "http://127.0.0.1:5901"
+    mod_store_dir: Path = Path("mods")
+    mod_store_git_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     hermes_webui_base_url: str = "http://127.0.0.1:8787"
     hermes_webui_cookie: SecretStr = SecretStr("")
     hermes_webui_csrf_token: SecretStr = SecretStr("")
@@ -132,6 +142,22 @@ class Settings(BaseSettings):
         ):
             raise ValueError("Research base URL must be an HTTP origin or path")
         return value.rstrip("/")
+
+    @field_validator("investment_web_url", "trading_web_url")
+    @classmethod
+    def validate_mod_web_origin(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Mod web URL must be an HTTP(S) origin")
+        return f"{parsed.scheme}://{parsed.netloc}"
 
     def origin_list(self) -> list[str]:
         return [

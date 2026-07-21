@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "alpha-lab",
+  "name": "因子实验室",
+  "description": "浏览和管理 Alpha 因子库，查看公式、来源、标签和因子研究信息。",
+  "version": "0.1.0",
+  "publisher": "VibeDesk",
+  "upstream": "https://github.com/HKUDS/Vibe-Trading",
+  "tags": ["Alpha", "因子", "量化"],
+  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5901", "route": "/alpha-zoo" },
+  "manifest": {
+    "category": "quant",
+    "navigation": { "groupLabel": "量化", "groupOrder": 30, "itemOrder": 30, "icon": "quant" },
+    "permissions": ["trading.read", "trading.compute"],
+    "dataServices": ["vibe-trading-native"]
+  }
+}

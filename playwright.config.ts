@@ -65,6 +65,7 @@ export default defineConfig({
         VIBEDESK_OPENAI_MODEL: "e2e-model",
         VIBEDESK_MODEL_TIMEOUT_SECONDS: "5",
         VIBEDESK_HERMES_WEBUI_BASE_URL: fakeOrigin,
+        VIBEDESK_AGENT_DEFAULT_ADAPTER: "hermes-webui",
         VIBEDESK_AGENT_TIMEOUT_SECONDS: "5",
       },
     },

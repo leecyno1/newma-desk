@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "watchlist",
+  "name": "自选股",
+  "description": "维护个人关注股票列表，并集中查看行情、变化和后续研究入口。",
+  "version": "0.1.0",
+  "publisher": "VibeDesk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": ["自选股", "行情", "列表"],
+  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_INVESTMENT_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5899", "route": "/watchlist" },
+  "manifest": {
+    "category": "market",
+    "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 20, "icon": "market" },
+    "permissions": ["investment.read", "investment.local-write"],
+    "dataServices": ["vibe-investment-native"]
+  }
+}

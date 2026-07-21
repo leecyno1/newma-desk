@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "news-radar",
+  "name": "资讯雷达",
+  "description": "聚合自选资讯与市场动态，帮助用户建立持续更新的信息观察面板。",
+  "version": "0.1.0",
+  "publisher": "VibeDesk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": ["资讯", "市场", "雷达"],
+  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_INVESTMENT_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5899", "route": "/intel" },
+  "manifest": {
+    "category": "market",
+    "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 10, "icon": "market" },
+    "permissions": ["investment.read"],
+    "dataServices": ["vibe-investment-native"]
+  }
+}

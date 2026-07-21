@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "quant-overview",
+  "name": "量化总览",
+  "description": "查看量化研究环境、任务状态、核心指标和最近运行结果。",
+  "version": "0.1.0",
+  "publisher": "VibeDesk",
+  "upstream": "https://github.com/HKUDS/Vibe-Trading",
+  "tags": ["量化", "总览", "运行状态"],
+  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5901", "route": "/" },
+  "manifest": {
+    "category": "quant",
+    "navigation": { "groupLabel": "量化", "groupOrder": 30, "itemOrder": 10, "icon": "quant" },
+    "permissions": ["trading.read"],
+    "dataServices": ["vibe-trading-native"]
+  }
+}

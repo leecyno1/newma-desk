@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "backtest-lab",
+  "name": "回测实验室",
+  "description": "查看回测报告、关键指标、净值曲线和策略运行记录。",
+  "version": "0.1.0",
+  "publisher": "VibeDesk",
+  "upstream": "https://github.com/HKUDS/Vibe-Trading",
+  "tags": ["回测", "策略", "报告"],
+  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5901", "route": "/reports" },
+  "manifest": {
+    "category": "quant",
+    "navigation": { "groupLabel": "量化", "groupOrder": 30, "itemOrder": 40, "icon": "quant" },
+    "permissions": ["trading.read", "trading.compute"],
+    "dataServices": ["vibe-trading-native"]
+  }
+}

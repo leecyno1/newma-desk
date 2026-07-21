@@ -3,11 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#111315" />
+    <meta name="theme-color" content="#ffffff" />
     <meta
       name="description"
       content="VibeDesk：面向人和 Agent 的可生长工作台"
     />
+    <script>
+      try {
+        const mode = localStorage.getItem("vibedesk.themeMode") || "system";
+        const dark =
+          mode === "dark" ||
+          (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      } catch {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
     <title>VibeDesk</title>
   </head>
   <body>

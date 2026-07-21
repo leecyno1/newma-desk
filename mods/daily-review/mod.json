@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "daily-review",
+  "name": "每日复盘",
+  "description": "汇总每日市场变化、重点信息和复盘结论，形成可持续更新的投研页面。",
+  "version": "0.1.0",
+  "publisher": "VibeDesk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": ["投研", "复盘", "每日"],
+  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_INVESTMENT_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5899", "route": "/daily-review" },
+  "manifest": {
+    "category": "today",
+    "navigation": { "groupLabel": "今日", "groupOrder": 0, "itemOrder": 10, "icon": "today" },
+    "permissions": ["investment.read"],
+    "dataServices": ["vibe-investment-native"]
+  }
+}

@@ -44,6 +44,37 @@ class HermesWebUIAdapter:
     async def capabilities(self) -> list[str]:
         return ["chat", "module.explain", "module.generate-view"]
 
+    async def describe(self) -> dict[str, object]:
+        client = self._client or httpx.AsyncClient(
+            timeout=httpx.Timeout(1.0),
+            follow_redirects=False,
+        )
+        owns_client = self._client is None
+        available = False
+        try:
+            # GET may legitimately return 401 or 405; any HTTP response proves
+            # the configured Hermes WebUI service is reachable. Connection and
+            # timeout failures mean the adapter should not be selectable yet.
+            await client.get(
+                f"{self._base_url}/api/session/new",
+                headers=self._headers("application/json"),
+                timeout=1.0,
+                follow_redirects=False,
+            )
+            available = True
+        except httpx.RequestError:
+            available = False
+        finally:
+            if owns_client:
+                await client.aclose()
+        return {
+            "name": "Hermes WebUI",
+            "description": "连接已运行的 Hermes Agent WebUI",
+            "kind": "agent-gateway",
+            "available": available,
+            "supportsMemory": False,
+        }
+
     async def run(
         self,
         task_id: str,

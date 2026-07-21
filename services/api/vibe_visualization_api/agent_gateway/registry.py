@@ -29,14 +29,22 @@ class AgentAdapterRegistry:
                 f"Agent adapter {resolved_id!r} is not registered"
             ) from error
 
+    @property
+    def default_id(self) -> str:
+        return self._default_id
+
     async def describe(self) -> list[dict[str, object]]:
         descriptions: list[dict[str, object]] = []
         for adapter in self._adapters.values():
-            descriptions.append(
-                {
-                    "id": adapter.id,
-                    "capabilities": await adapter.capabilities(),
-                    "default": adapter.id == self._default_id,
-                }
-            )
+            description: dict[str, object] = {
+                "id": adapter.id,
+                "capabilities": await adapter.capabilities(),
+                "default": adapter.id == self._default_id,
+            }
+            describe = getattr(adapter, "describe", None)
+            if callable(describe):
+                extra = await describe()
+                if isinstance(extra, dict):
+                    description.update(extra)
+            descriptions.append(description)
         return descriptions

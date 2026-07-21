@@ -47,7 +47,7 @@ describe("ModFrame event boundary", () => {
   it("forwards a declared event from the exact iframe window and origin", () => {
     const eventBus = new ShellEventBus();
     const route = vi.spyOn(eventBus, "route");
-    render(<ModFrame manifest={manifest} eventBus={eventBus} />);
+    render(<ModFrame manifest={manifest} eventBus={eventBus} theme="light" />);
     const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
     const valid = event();
 
@@ -55,6 +55,64 @@ describe("ModFrame event boundary", () => {
     dispatchFromFrame(frame, valid);
 
     expect(route).toHaveBeenCalledWith(valid, frame.contentWindow);
+    eventBus.close();
+  });
+
+  it("resends config when a Mod reports ready before the iframe load event", () => {
+    const eventBus = new ShellEventBus();
+    const register = vi.spyOn(eventBus, "register");
+    render(<ModFrame manifest={manifest} eventBus={eventBus} theme="light" />);
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error("expected iframe window");
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    dispatchFromFrame(frame, { type: "vibedesk:ready" });
+
+    expect(register).toHaveBeenCalledWith({
+      moduleId: "market-daily",
+      manifest,
+      target: frameWindow,
+      origin: "http://127.0.0.1:5891",
+    });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vibedesk:config",
+        moduleId: "market-daily",
+      }),
+      "http://127.0.0.1:5891",
+    );
+    eventBus.close();
+  });
+
+  it("forwards a changed shell theme without reloading the Mod", () => {
+    const eventBus = new ShellEventBus();
+    const view = render(
+      <ModFrame manifest={manifest} eventBus={eventBus} theme="light" />,
+    );
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error("expected iframe window");
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    fireEvent.load(frame);
+    postMessage.mockClear();
+    view.rerender(
+      <ModFrame manifest={manifest} eventBus={eventBus} theme="dark" />,
+    );
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vibedesk:config",
+        moduleId: "market-daily",
+        theme: "dark",
+      }),
+      "http://127.0.0.1:5891",
+    );
     eventBus.close();
   });
 
@@ -76,7 +134,7 @@ describe("ModFrame event boundary", () => {
   ])("ignores %s messages", (_label, data, origin, explicitSource) => {
     const eventBus = new ShellEventBus();
     const route = vi.spyOn(eventBus, "route");
-    render(<ModFrame manifest={manifest} eventBus={eventBus} />);
+    render(<ModFrame manifest={manifest} eventBus={eventBus} theme="light" />);
     const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
 
     fireEvent.load(frame);
@@ -96,7 +154,7 @@ describe("ModFrame event boundary", () => {
     const register = vi.spyOn(eventBus, "register");
     const unregister = vi.spyOn(eventBus, "unregister");
     const view = render(
-      <ModFrame manifest={manifest} eventBus={eventBus} />,
+      <ModFrame manifest={manifest} eventBus={eventBus} theme="light" />,
     );
     const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
     const frameWindow = frame.contentWindow;
@@ -156,8 +214,8 @@ describe("ModFrame event boundary", () => {
     const eventBus = new ShellEventBus();
     render(
       <>
-        <ModFrame manifest={manifest} eventBus={eventBus} />
-        <ModFrame manifest={targetManifest} eventBus={eventBus} />
+        <ModFrame manifest={manifest} eventBus={eventBus} theme="light" />
+        <ModFrame manifest={targetManifest} eventBus={eventBus} theme="light" />
       </>,
     );
     const sourceFrame = screen.getByTitle(
@@ -175,6 +233,14 @@ describe("ModFrame event boundary", () => {
       .mockImplementation(() => undefined);
 
     fireEvent.load(targetFrame);
+    expect(targetPost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vibedesk:config",
+        moduleId: "research-news",
+      }),
+      "http://127.0.0.1:5891",
+    );
+    targetPost.mockClear();
     dispatchFromFrame(
       sourceFrame,
       event({ target: "research-news", traceId: "before-source-load" }),
@@ -182,6 +248,14 @@ describe("ModFrame event boundary", () => {
     expect(targetPost).not.toHaveBeenCalled();
 
     fireEvent.load(sourceFrame);
+    expect(sourcePost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vibedesk:config",
+        moduleId: "market-daily",
+      }),
+      "http://127.0.0.1:5891",
+    );
+    sourcePost.mockClear();
     dispatchFromFrame(
       sourceFrame,
       event({

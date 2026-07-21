@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "factor-correlation",
+  "name": "相关性分析",
+  "description": "分析因子之间的相关性与重复度，为因子筛选和组合构建提供依据。",
+  "version": "0.1.0",
+  "publisher": "VibeDesk",
+  "upstream": "https://github.com/HKUDS/Vibe-Trading",
+  "tags": ["因子", "相关性", "分析"],
+  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5901", "route": "/correlation" },
+  "manifest": {
+    "category": "quant",
+    "navigation": { "groupLabel": "量化", "groupOrder": 30, "itemOrder": 50, "icon": "quant" },
+    "permissions": ["trading.read", "trading.compute"],
+    "dataServices": ["vibe-trading-native"]
+  }
+}
