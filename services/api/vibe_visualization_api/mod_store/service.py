@@ -1,4 +1,7 @@
+import asyncio
 import json
+import os
+import tempfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -52,7 +55,10 @@ class ModStoreDescriptorError(ModStoreError):
     detail = "Git returned an invalid Mod descriptor"
 
 
-DescriptorFetcher = Callable[[list[str]], Awaitable[dict[str, Any]]]
+DescriptorFetcher = Callable[
+    [StoreCatalog, StoreCatalogEntry],
+    Awaitable[dict[str, Any]],
+]
 
 
 def _stable_json(value: object) -> str:
@@ -214,7 +220,7 @@ class ModStoreService:
         catalog = self._catalog()
         entry = self._entry(catalog, mod_id)
         try:
-            raw = await self._descriptor_fetcher(self._source_urls(catalog, entry))
+            raw = await self._descriptor_fetcher(catalog, entry)
             descriptor = StoreModDescriptor.model_validate(raw)
         except ModStoreError:
             raise
@@ -244,7 +250,119 @@ class ModStoreService:
             mod=published,
         )
 
-    async def _fetch_descriptor(self, urls: list[str]) -> dict[str, Any]:
+    async def _fetch_descriptor(
+        self,
+        catalog: StoreCatalog,
+        entry: StoreCatalogEntry,
+    ) -> dict[str, Any]:
+        git_body = await self._fetch_descriptor_from_git(catalog, entry)
+        if git_body is not None:
+            return git_body
+        return await self._fetch_descriptor_from_http(
+            self._source_urls(catalog, entry)
+        )
+
+    async def _fetch_descriptor_from_git(
+        self,
+        catalog: StoreCatalog,
+        entry: StoreCatalogEntry,
+    ) -> dict[str, Any] | None:
+        repositories = [catalog.git.repository, *catalog.git.mirrors]
+        descriptor_path = f"{catalog.git.path_prefix}/{entry.path}"
+        timeout = self._settings.mod_store_git_timeout_seconds
+        environment = {
+            **os.environ,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GCM_INTERACTIVE": "never",
+        }
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="vibedesk-mod-store-",
+                dir=self._settings.runtime_dir,
+            ) as directory:
+                initialized = await self._run_git(
+                    ["init", "--bare", directory],
+                    timeout=timeout,
+                    environment=environment,
+                )
+                if initialized is None:
+                    return None
+                for repository in repositories:
+                    fetched = await self._run_git(
+                        [
+                            "--git-dir",
+                            directory,
+                            "fetch",
+                            "--depth=1",
+                            "--no-tags",
+                            repository,
+                            catalog.git.ref,
+                        ],
+                        timeout=timeout,
+                        environment=environment,
+                    )
+                    if fetched is None:
+                        continue
+                    content = await self._run_git(
+                        [
+                            "--git-dir",
+                            directory,
+                            "show",
+                            f"FETCH_HEAD:{descriptor_path}",
+                        ],
+                        timeout=timeout,
+                        environment=environment,
+                    )
+                    if content is None:
+                        continue
+                    if len(content) > MAX_DESCRIPTOR_BYTES:
+                        raise ModStoreDescriptorError()
+                    try:
+                        body = json.loads(content)
+                    except json.JSONDecodeError as error:
+                        raise ModStoreDescriptorError() from error
+                    if not isinstance(body, dict):
+                        raise ModStoreDescriptorError()
+                    return body
+        except OSError:
+            return None
+        return None
+
+    async def _run_git(
+        self,
+        arguments: list[str],
+        *,
+        timeout: float,
+        environment: dict[str, str],
+    ) -> bytes | None:
+        process: asyncio.subprocess.Process | None = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "git",
+                *arguments,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                env=environment,
+            )
+            stdout, _ = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout,
+            )
+        except FileNotFoundError:
+            return None
+        except TimeoutError:
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.communicate()
+            return None
+        if process.returncode != 0:
+            return None
+        return stdout
+
+    async def _fetch_descriptor_from_http(
+        self,
+        urls: list[str],
+    ) -> dict[str, Any]:
         timeout = httpx.Timeout(self._settings.mod_store_git_timeout_seconds)
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
             for url in urls:

@@ -39,7 +39,7 @@ mods/
 └── ...
 ```
 
-`store.json` 负责商店顺序、默认示例和 Git 安装源；每个 `mod.json` 只描述一个 Mod。用户安装时，API 会优先从 GitHub 获取对应文件，失败后尝试 Gitee，再通过控制面创建并发布 Mod 修订。
+`store.json` 负责商店顺序、默认示例和 Git 安装源；每个 `mod.json` 只描述一个 Mod。用户安装时，API 会通过标准 Git 拉取优先读取 GitHub，失败后尝试 Gitee；Raw HTTP 仅作为备用，再通过控制面创建并发布 Mod 修订。
 
 标准配置只保留三个示例：
 

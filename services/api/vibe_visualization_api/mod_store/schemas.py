@@ -53,12 +53,30 @@ class StoreGitSource(ApiModel):
     repository: str
     ref: str = Field(min_length=1, max_length=120)
     path_prefix: str = Field(min_length=1, max_length=120)
+    mirrors: list[str] = Field(default_factory=list, max_length=4)
     raw_base_urls: list[str] = Field(min_length=1, max_length=4)
 
     @field_validator("repository")
     @classmethod
     def validate_repository(cls, value: str) -> str:
         return _https_url(value, "repository")
+
+    @field_validator("mirrors")
+    @classmethod
+    def validate_mirrors(cls, values: list[str]) -> list[str]:
+        return [_https_url(value, "mirrors") for value in values]
+
+    @field_validator("ref")
+    @classmethod
+    def validate_ref(cls, value: str) -> str:
+        if (
+            not value[0].isalnum()
+            or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-" for character in value)
+            or ".." in value
+            or "//" in value
+        ):
+            raise ValueError("ref must be a safe Git reference")
+        return value
 
     @field_validator("raw_base_urls")
     @classmethod

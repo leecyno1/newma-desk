@@ -57,6 +57,7 @@ def _write_store(root: Path) -> Path:
                     "repository": "https://github.com/leecyno1/vibedesk",
                     "ref": "main",
                     "pathPrefix": "mods",
+                    "mirrors": ["https://gitee.com/leecyno1/vibedesk"],
                     "rawBaseUrls": [
                         "https://raw.githubusercontent.com/leecyno1/vibedesk/main/mods",
                         "https://gitee.com/leecyno1/vibedesk/raw/main/mods",
@@ -79,10 +80,10 @@ def _write_store(root: Path) -> Path:
 def test_store_lists_local_catalog_and_installs_descriptor_from_git(
     tmp_path: Path,
 ) -> None:
-    fetched_urls: list[str] = []
+    fetched_sources: list[tuple[str, str]] = []
 
-    async def fetch_descriptor(urls: list[str]):
-        fetched_urls.extend(urls)
+    async def fetch_descriptor(catalog, entry):
+        fetched_sources.append((catalog.git.repository, entry.path))
         return DESCRIPTOR
 
     settings = Settings(
@@ -110,12 +111,14 @@ def test_store_lists_local_catalog_and_installs_descriptor_from_git(
     assert unchanged.status_code == 200
     assert unchanged.json()["action"] == "unchanged"
     assert catalog_after.json()["mods"][0]["installState"] == "installed"
-    assert fetched_urls[0].endswith("/daily-review/mod.json")
-    assert len(fetched_urls) == 4
+    assert fetched_sources == [
+        ("https://github.com/leecyno1/vibedesk", "daily-review/mod.json"),
+        ("https://github.com/leecyno1/vibedesk", "daily-review/mod.json"),
+    ]
 
 
 def test_store_rejects_unknown_or_invalid_git_mod(tmp_path: Path) -> None:
-    async def invalid_descriptor(urls: list[str]):
+    async def invalid_descriptor(catalog, entry):
         return {**DESCRIPTOR, "id": "other-mod"}
 
     settings = Settings(
@@ -134,7 +137,7 @@ def test_store_rejects_unknown_or_invalid_git_mod(tmp_path: Path) -> None:
 
 
 def test_store_reports_git_download_failure(tmp_path: Path) -> None:
-    async def failed_fetch(urls: list[str]):
+    async def failed_fetch(catalog, entry):
         raise ModStoreSourceError()
 
     settings = Settings(
