@@ -1,5 +1,5 @@
 {
-  "name": "@vibedesk/view-renderer",
+  "name": "@newma-dock/view-renderer",
   "version": "0.1.0",
   "type": "module",
   "exports": "./src/index.ts",
@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@vibedesk/contracts": "0.1.0",
+    "@newma-dock/contracts": "0.1.0",
     "echarts": "^6.0.0",
     "echarts-for-react": "^3.0.2",
     "react": "^19.0.0",

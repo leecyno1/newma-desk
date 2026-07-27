@@ -1,4 +1,4 @@
-import type { ModEvent } from "@vibedesk/contracts";
+import type { ModEvent } from "@newma-dock/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {

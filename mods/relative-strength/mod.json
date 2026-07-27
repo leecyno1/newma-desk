@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0",
+  "id": "relative-strength",
+  "name": "相对强弱地图",
+  "description": "比较多个 A/H/US 标的的归一化收益曲线和阶段排名，支持跨 Mod 标的联动。",
+  "version": "0.1.0",
+  "publisher": "Newma-Dock",
+  "upstream": "https://github.com/leecyno1/newma-dock",
+  "tags": ["相对强弱", "跨市场", "对比", "排名"],
+  "runtime": { "type": "direct", "entry": { "type": "structured", "url": "/mods/market-daily/?workspace=relative-strength" } },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "market",
+    "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 8, "label": "相对强弱", "directory": { "id": "market-suite", "label": "行情工具", "order": 5 }, "icon": "market" },
+    "compatibility": { "level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0" },
+    "permissions": ["market.read"], "dataServices": ["market-data"],
+    "actions": {
+      "market.refresh": {
+        "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+        "inputSchema": { "type": "object", "additionalProperties": false },
+        "outputSchema": { "type": "object", "required": ["id", "moduleId", "data"], "properties": { "id": { "type": "string" }, "moduleId": { "const": "relative-strength" }, "data": { "type": "object" } } },
+        "confirmation": "none"
+      },
+      "market.set-alert": {
+        "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+        "inputSchema": { "type": "object", "required": ["direction", "price"], "properties": { "direction": { "enum": ["above", "below"] }, "price": { "type": "number", "exclusiveMinimum": 0 }, "label": { "type": "string", "maxLength": 80 } }, "additionalProperties": false },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none"
+      },
+      "workspace.save-layout": {
+        "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+        "inputSchema": { "type": "object", "properties": { "name": { "type": "string", "maxLength": 80 } }, "additionalProperties": false },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none"
+      }
+    },
+    "events": { "emits": ["security.selected"], "accepts": ["security.selected"] }
+  }
+}

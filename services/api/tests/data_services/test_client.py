@@ -11,6 +11,7 @@ from vibe_visualization_api.data_services.client import (
     UpstreamServiceError,
     validate_service_url,
 )
+from vibe_visualization_api.schema_validation import JsonContractError
 from vibe_visualization_api.data_services.models import (
     DataServiceDescriptor,
     ServiceCapability,
@@ -190,6 +191,69 @@ async def test_unknown_capability_never_reaches_network(
         await http_client.aclose()
 
     assert called is False
+
+
+@pytest.mark.asyncio
+async def test_inline_input_schema_rejects_before_network(
+    market_service: DataServiceDescriptor,
+) -> None:
+    called = False
+    market_service.capabilities["market.overview"].input_schema = {
+        "type": "object",
+        "required": ["date"],
+        "properties": {"date": {"type": "string"}},
+        "additionalProperties": False,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(200, json={})
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = DataServiceClient(
+        public_mode=False,
+        secret_resolver=lambda name: "token",
+        client=http_client,
+    )
+
+    try:
+        with pytest.raises(JsonContractError) as captured:
+            await client.invoke(market_service, "market.overview", {})
+    finally:
+        await http_client.aclose()
+
+    assert captured.value.direction == "input"
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_inline_output_schema_rejects_invalid_upstream_response(
+    market_service: DataServiceDescriptor,
+) -> None:
+    market_service.capabilities["market.overview"].output_schema = {
+        "type": "object",
+        "required": ["breadth"],
+        "properties": {"breadth": {"type": "number"}},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"unexpected": True})
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = DataServiceClient(
+        public_mode=False,
+        secret_resolver=lambda name: "token",
+        client=http_client,
+    )
+
+    try:
+        with pytest.raises(JsonContractError) as captured:
+            await client.invoke(market_service, "market.overview", {"date": "x"})
+    finally:
+        await http_client.aclose()
+
+    assert captured.value.direction == "output"
 
 
 @pytest.mark.asyncio

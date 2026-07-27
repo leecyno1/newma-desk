@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { FiltersBlock as FiltersBlockContract } from "@vibedesk/contracts";
+import type { FiltersBlock as FiltersBlockContract } from "@newma-dock/contracts";
 
 export type FilterValues = Record<string, string>;
 

@@ -1,4 +1,4 @@
-import type { ActionsBlock as ActionsBlockContract } from "@vibedesk/contracts";
+import type { ActionsBlock as ActionsBlockContract } from "@newma-dock/contracts";
 
 export type ActionHandler = (
   capability: string,

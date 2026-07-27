@@ -1,32 +1,31 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createDataServiceClient } from "./data";
+import { createUnifiedDataClient } from "./data";
 
-describe("createDataServiceClient", () => {
-  it("invokes a registered service capability without accepting a URL", async () => {
-    const fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ breadth: 0.63 }), {
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    const client = createDataServiceClient({
-      baseUrl: "http://localhost:8901",
-      fetch,
+describe("createUnifiedDataClient", () => {
+  it("routes a capability through the scoped Mod action channel", async () => {
+    const invokeAction = vi.fn().mockResolvedValue({ data: { price: 12.3 } });
+    const client = createUnifiedDataClient({ invokeAction });
+
+    await expect(
+      client.query("market.quote", { symbol: "600519", market: "CN" }),
+    ).resolves.toEqual({ data: { price: 12.3 } });
+    expect(invokeAction).toHaveBeenCalledWith("market.quote", {
+      symbol: "600519",
+      market: "CN",
+    });
+  });
+
+  it("supports a capability-to-action alias without exposing a provider", async () => {
+    const invokeAction = vi.fn().mockResolvedValue({ data: [] });
+    const client = createUnifiedDataClient({
+      invokeAction,
+      actionByCapability: { "market.quotes": "portfolio.refresh-quotes" },
     });
 
-    const result = await client.invoke(
-      "market-data",
-      "market.overview",
-      { date: "2026-07-20" },
-    );
-
-    expect(result).toEqual({ breadth: 0.63 });
-    expect(fetch).toHaveBeenCalledWith(
-      "http://localhost:8901/api/data-services/market-data/invoke/market.overview",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ date: "2026-07-20" }),
-      }),
-    );
+    await client.query("market.quotes", { symbols: "CN:600519" });
+    expect(invokeAction).toHaveBeenCalledWith("portfolio.refresh-quotes", {
+      symbols: "CN:600519",
+    });
   });
 });

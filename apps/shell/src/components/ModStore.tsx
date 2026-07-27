@@ -182,7 +182,7 @@ export function ModStore({ onInstalled }: ModStoreProps) {
                   <h2>{mod.name}</h2>
                   <span>{mod.version} · {mod.category}</span>
                 </div>
-                {mod.defaultInstall ? <small>默认示例</small> : null}
+                {mod.defaultInstall ? <small>内置 Mod</small> : null}
               </div>
               <p>{mod.description}</p>
               <div className="store-tag-list" aria-label={`${mod.name}标签`}>

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0", "id": "orchestra-skills", "name": "Orchestra Skills", "description": "查看投研 Skills 目录、席位分配和真实使用审计。",
+  "version": "0.1.0", "publisher": "Orchestra", "tags": ["Skills", "审计", "Agent"],
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_ORCHESTRA_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:3001", "route": "/?workspace=skills" },
+  "manifest": {
+    "schemaVersion": "1.1", "category": "decision",
+    "navigation": { "groupLabel": "投决", "groupOrder": 50, "itemOrder": 50, "label": "Skills", "directory": { "id": "orchestra-suite", "label": "Orchestra 投委会", "order": 10 }, "icon": "module" },
+    "compatibility": { "level": 1, "bridgeProtocol": "1.0" },
+    "permissions": [], "dataServices": [], "actions": {}, "events": { "emits": [], "accepts": [] }, "refresh": { "mode": "manual" }
+  }
+}

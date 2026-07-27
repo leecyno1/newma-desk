@@ -68,7 +68,7 @@ def _stored_module(row: sqlite3.Row) -> StoredModule:
 class ModuleRepository:
     def __init__(self, database_path: Path):
         self._database_path = database_path
-        connection = connect(self._database_path)
+        connection = connect(self._database_path, initialize=True)
         connection.close()
 
     @contextmanager

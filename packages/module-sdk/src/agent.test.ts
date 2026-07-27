@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createGatewayClient, GatewayError } from "./agent";
+import {
+  createGatewayClient,
+  createModAccessSession,
+  GatewayError,
+} from "./agent";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -79,6 +83,65 @@ describe("createGatewayClient", () => {
       "http://localhost:8901/api/agent/tasks/task-1/cancel",
       "http://localhost:8901/api/mods/market-daily/actions/market.overview",
     ]);
+  });
+
+  it("binds scoped Mod actions to the session iframe instance", async () => {
+    const fetch = vi.fn(async () => jsonResponse({ ok: true }));
+    const client = createGatewayClient({
+      baseUrl: "http://localhost:8901",
+      fetch,
+      accessToken: "scoped-token",
+      instanceId: "instance-1",
+    });
+
+    await client.invokeModAction("market-daily", "market.explain", {
+      prompt: "解释行情",
+    });
+
+    const actionCall = fetch.mock.calls[0] as unknown as [
+      RequestInfo | URL,
+      RequestInit,
+    ];
+    const headers = new Headers(actionCall[1].headers);
+    expect(headers.get("Authorization")).toBe("Bearer scoped-token");
+    expect(headers.get("X-Newma-Dock-Instance-Id")).toBe("instance-1");
+  });
+
+  it("creates a standalone Mod session with its stable instance identity", async () => {
+    const fetch = vi.fn(async () =>
+      jsonResponse(
+        {
+          sessionId: "session-1",
+          instanceId: "standalone-1",
+          accessToken: "scoped-token",
+          tokenType: "Bearer",
+          expiresAt: "2099-01-01T00:00:00Z",
+          userId: "alice",
+          workspaceId: "desk-1",
+          moduleId: "market-daily",
+          revision: 1,
+          grants: { permissions: ["market.read"], actions: ["market.explain"] },
+        },
+        201,
+      ),
+    );
+
+    const session = await createModAccessSession({
+      baseUrl: "http://localhost:8901",
+      modId: "market-daily",
+      instanceId: "standalone-1",
+      userId: "alice",
+      workspaceId: "desk-1",
+      fetch,
+    });
+
+    expect(session.instanceId).toBe("standalone-1");
+    const sessionCall = fetch.mock.calls[0] as unknown as [
+      RequestInfo | URL,
+      RequestInit,
+    ];
+    const body = JSON.parse(String(sessionCall[1].body));
+    expect(body).toEqual({ instanceId: "standalone-1", workspaceId: "desk-1" });
   });
 
   it("throws a safe GatewayError from an HTTP detail", async () => {

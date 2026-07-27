@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,34 @@ def test_app_factory_settings_drive_repository_dependency(
     assert _path_snapshot(default_database_path) == default_database_before
 
 
+def test_parallel_registry_reads_and_writes_do_not_lock_database(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "parallel-registry.db"
+    application = create_app(
+        Settings(runtime_dir=tmp_path, database_path=database_path)
+    )
+
+    def request(client: TestClient, index: int) -> int:
+        if index % 3:
+            return client.get("/api/mods").status_code
+        manifest = {
+            **MANIFEST,
+            "id": f"parallel-mod-{index}",
+            "name": f"Parallel Mod {index}",
+        }
+        return client.post("/api/mods/drafts", json=manifest).status_code
+
+    with TestClient(application) as client:
+        with ThreadPoolExecutor(max_workers=12) as executor:
+            statuses = list(
+                executor.map(lambda index: request(client, index), range(60))
+            )
+
+    assert set(statuses) <= {200, 201}
+    assert database_path.exists()
+
+
 def test_get_exact_revision_preserves_camel_case_manifest(
     client: TestClient,
 ) -> None:
@@ -104,6 +133,12 @@ def test_navigation_metadata_survives_draft_storage(client: TestClient) -> None:
         "groupLabel": "市场",
         "groupOrder": 20,
         "itemOrder": 10,
+        "label": "行情",
+        "directory": {
+            "id": "market-suite",
+            "label": "市场工具",
+            "order": 5,
+        },
         "icon": "market",
     }
 
@@ -374,6 +409,102 @@ def test_manifest_defaults_are_returned_with_camel_case_aliases(
         "events": {"emits": [], "accepts": []},
     }
     assert "refresh" not in response.json()["manifest"]
+
+
+def test_manifest_1_1_accepts_explicit_action_bindings(
+    client: TestClient,
+) -> None:
+    manifest = {
+        "schemaVersion": "1.1",
+        "id": "factor-lab",
+        "name": "因子实验室",
+        "version": "1.0.0",
+        "category": "quant",
+        "entry": {"type": "external", "url": "https://quant.example/mod"},
+        "compatibility": {
+            "level": 2,
+            "bridgeProtocol": "1.0",
+            "sdkVersion": "^0.2.0",
+        },
+        "permissions": ["quant.execute", "research.read"],
+        "dataServices": ["vibe-trading"],
+        "actions": {
+            "factor.backtest": {
+                "binding": {
+                    "type": "data",
+                    "service": "vibe-trading",
+                },
+                "execution": "task",
+                "permission": "quant.execute",
+            },
+            "research.explain": {
+                "binding": {
+                    "type": "agent",
+                    "memoryScope": "user-agent-mod",
+                },
+                "execution": "task",
+                "permission": "research.read",
+            },
+        },
+    }
+
+    response = client.post("/api/modules/drafts", json=manifest)
+
+    assert response.status_code == 201
+    stored = response.json()["manifest"]
+    assert stored["schemaVersion"] == "1.1"
+    assert "agentCapabilities" not in stored
+    assert stored["actions"]["research.explain"]["confirmation"] == "none"
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {
+            "compatibility": {
+                "level": 3,
+                "bridgeProtocol": "1.0",
+            }
+        },
+        {"permissions": []},
+        {"dataServices": []},
+        {"agentCapabilities": ["research.explain"]},
+    ],
+)
+def test_manifest_1_1_rejects_incomplete_or_legacy_declarations(
+    client: TestClient,
+    update: dict[str, object],
+) -> None:
+    manifest = {
+        "schemaVersion": "1.1",
+        "id": "factor-lab",
+        "name": "因子实验室",
+        "version": "1.0.0",
+        "category": "quant",
+        "entry": {"type": "external", "url": "https://quant.example/mod"},
+        "compatibility": {
+            "level": 3,
+            "bridgeProtocol": "1.0",
+            "viewSpecVersion": "1.0",
+        },
+        "permissions": ["quant.execute"],
+        "dataServices": ["vibe-trading"],
+        "actions": {
+            "factor.backtest": {
+                "binding": {
+                    "type": "data",
+                    "service": "vibe-trading",
+                },
+                "execution": "task",
+                "permission": "quant.execute",
+            }
+        },
+        **update,
+    }
+
+    response = client.post("/api/modules/drafts", json=manifest)
+
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "id": "deepsee-email",
+  "name": "Deepsee 邮件",
+  "description": "在 Newma-Dock 中查看 Deepsee 的邮件同步、检索、摘要和回复页面。",
+  "version": "0.1.0",
+  "publisher": "Deepsee",
+  "upstream": "https://github.com/leecyno1/Deepsee",
+  "tags": ["Deepsee", "邮件", "信息流"],
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_DEEPSEE_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:8001", "route": "/embed/email-messages" },
+  "manifest": {
+    "category": "deepsee",
+    "navigation": { "groupLabel": "Deepsee", "groupOrder": 60, "itemOrder": 50, "label": "邮件", "directory": { "id": "deepsee-suite", "label": "Deepsee 功能", "order": 10 }, "icon": "module" },
+    "permissions": ["deepsee.read", "deepsee.write"],
+    "dataServices": [],
+    "agentCapabilities": [],
+    "events": { "emits": [], "accepts": [] },
+    "refresh": { "mode": "manual" }
+  }
+}

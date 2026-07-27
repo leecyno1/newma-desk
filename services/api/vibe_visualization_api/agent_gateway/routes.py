@@ -43,7 +43,21 @@ async def capabilities(
     published = await run_in_threadpool(repository.list_published)
     module_actions: list[dict[str, object]] = []
     for module in published:
-        declared = module.manifest.get("agentCapabilities", [])
+        if module.manifest.get("schemaVersion") == "1.1":
+            actions = module.manifest.get("actions", {})
+            declared = (
+                [
+                    action_id
+                    for action_id, action in actions.items()
+                    if isinstance(action, dict)
+                    and isinstance(action.get("binding"), dict)
+                    and action["binding"].get("type") == "agent"
+                ]
+                if isinstance(actions, dict)
+                else []
+            )
+        else:
+            declared = module.manifest.get("agentCapabilities", [])
         if isinstance(declared, list) and all(
             isinstance(capability, str) for capability in declared
         ):
@@ -68,10 +82,17 @@ async def create_task(
         min_length=1,
         max_length=128,
     ),
+    workspace_id: str = Header(
+        default="local-workspace",
+        alias="X-Workspace-Id",
+        min_length=1,
+        max_length=128,
+    ),
     service: AgentTaskService = Depends(get_agent_task_service),
 ) -> AgentTask:
     return await service.create(
-        task_request.model_copy(update={"user_id": user_id})
+        task_request.model_copy(update={"user_id": user_id}),
+        workspace_id=workspace_id,
     )
 
 

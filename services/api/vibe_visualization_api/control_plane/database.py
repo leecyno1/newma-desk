@@ -23,14 +23,17 @@ CREATE TABLE IF NOT EXISTS audit_events (
 """
 
 
-def connect(path: Path) -> sqlite3.Connection:
+def connect(path: Path, *, initialize: bool = False) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, timeout=5.0)
     try:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
-        connection.executescript(DDL)
+        if initialize:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = NORMAL")
+            connection.executescript(DDL)
     except BaseException:
         connection.close()
         raise

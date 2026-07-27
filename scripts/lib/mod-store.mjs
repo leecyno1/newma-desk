@@ -4,8 +4,14 @@ const REPO_ROOT = new URL("../../", import.meta.url);
 const STORE_ROOT = new URL("mods/", REPO_ROOT);
 const DEFAULT_STORE_URL = new URL("store.json", STORE_ROOT);
 const MOD_ID_PATTERN = /^[a-z][a-z0-9-]{2,63}$/;
+const SUITE_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;
 const CATEGORY_PATTERN = /^[a-z][a-z0-9-]{1,31}$/;
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+const WELL_KNOWN_SUITE_PATH = "/.well-known/newma-dock-suite.json";
+const LEGACY_WELL_KNOWN_SUITE_PATH = "/.well-known/vibedesk-suite.json";
+const SUITE_ENV_PATTERN = /^(?:NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$/;
+const MAX_DESCRIPTOR_BYTES = 256 * 1024;
+const DEFAULT_DISCOVERY_TIMEOUT_MS = 5000;
 const NAVIGATION_ICONS = new Set([
   "today",
   "research",
@@ -58,17 +64,132 @@ function stringArray(value, label) {
   return [...value];
 }
 
-function safeStorePath(value, label) {
+function safeStorePath(value, label, suffix = "/mod.json") {
   const path = assertString(value, label);
   if (
     path.startsWith("/") ||
     path.includes("\\") ||
     path.split("/").some((part) => !part || part === "." || part === "..") ||
-    !path.endsWith("/mod.json")
+    !path.endsWith(suffix)
   ) {
-    throw new Error(`${label} must be a safe */mod.json path`);
+    throw new Error(`${label} must be a safe *${suffix} path`);
   }
   return path;
+}
+
+function configuredEnvValue(env, name) {
+  const suffix = name.startsWith("NEWMA_DOCK_")
+    ? name.slice("NEWMA_DOCK_".length)
+    : name.slice("VIBEDESK_".length);
+  return env[`NEWMA_DOCK_${suffix}`]?.trim() || env[`VIBEDESK_${suffix}`]?.trim();
+}
+
+function suiteDiscoveryValue(raw, label) {
+  const discovery = assertObject(raw, label);
+  if (discovery.type !== "http") {
+    throw new Error(`${label}.type must be http`);
+  }
+  const baseUrlEnv = assertString(discovery.baseUrlEnv, `${label}.baseUrlEnv`);
+  if (!SUITE_ENV_PATTERN.test(baseUrlEnv)) {
+    throw new Error(`${label}.baseUrlEnv is invalid`);
+  }
+  const path = discovery.path === undefined
+    ? WELL_KNOWN_SUITE_PATH
+    : assertString(discovery.path, `${label}.path`);
+  if (![WELL_KNOWN_SUITE_PATH, LEGACY_WELL_KNOWN_SUITE_PATH].includes(path)) {
+    throw new Error(
+      `${label}.path must be ${WELL_KNOWN_SUITE_PATH} or ${LEGACY_WELL_KNOWN_SUITE_PATH}`,
+    );
+  }
+  return {
+    type: "http",
+    baseUrlEnv,
+    defaultBaseUrl: exactHttpOrigin(
+      assertString(discovery.defaultBaseUrl, `${label}.defaultBaseUrl`),
+      `${label}.defaultBaseUrl`,
+    ),
+    path,
+  };
+}
+
+async function fetchSuiteDescriptor({
+  discovery,
+  env,
+  fetchImpl,
+  timeoutMs,
+  label,
+}) {
+  const baseUrl = exactHttpOrigin(
+    configuredEnvValue(env, discovery.baseUrlEnv) || discovery.defaultBaseUrl,
+    discovery.baseUrlEnv,
+  );
+  const paths = discovery.path === WELL_KNOWN_SUITE_PATH
+    ? [WELL_KNOWN_SUITE_PATH, LEGACY_WELL_KNOWN_SUITE_PATH]
+    : [discovery.path];
+  let response;
+  let url;
+  for (const [index, path] of paths.entries()) {
+    url = new URL(path, `${baseUrl}/`).toString();
+    try {
+      response = await fetchImpl(url, {
+        headers: { Accept: "application/json" },
+        redirect: "error",
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      throw new Error(`${label} discovery failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (response.ok) break;
+    if (response.status !== 404 || index === paths.length - 1) {
+      throw new Error(`${label} discovery failed: HTTP ${response.status}`);
+    }
+  }
+  const contentLengthHeader = response.headers.get("content-length");
+  const contentLength = contentLengthHeader === null
+    ? undefined
+    : Number(contentLengthHeader);
+  if (Number.isFinite(contentLength) && contentLength > MAX_DESCRIPTOR_BYTES) {
+    throw new Error(`${label} discovery response is too large`);
+  }
+  const chunks = [];
+  let totalBytes = 0;
+  if (response.body) {
+    const reader = response.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_DESCRIPTOR_BYTES) {
+        await reader.cancel();
+        throw new Error(`${label} discovery response is too large`);
+      }
+      chunks.push(value);
+    }
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  let body;
+  try {
+    body = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new Error(`${label} discovery returned invalid JSON`);
+  }
+  return {
+    descriptor: assertObject(body, `${label} discovery response`),
+    url,
+  };
+}
+
+function nonNegativeInteger(value, label, fallback = 100) {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return value;
 }
 
 function navigationValue(raw, label) {
@@ -77,12 +198,160 @@ function navigationValue(raw, label) {
   if (!NAVIGATION_ICONS.has(icon)) {
     throw new Error(`${label}.icon is invalid`);
   }
+  const role = navigation.role;
+  if (role !== undefined && role !== "page" && role !== "settings") {
+    throw new Error(`${label}.role is invalid`);
+  }
+  let directory;
+  if (navigation.directory !== undefined) {
+    const value = assertObject(navigation.directory, `${label}.directory`);
+    const id = assertString(value.id, `${label}.directory.id`);
+    if (!/^[a-z][a-z0-9-]{1,47}$/.test(id)) {
+      throw new Error(`${label}.directory.id is invalid`);
+    }
+    directory = {
+      id,
+      label: assertString(value.label, `${label}.directory.label`),
+      order: nonNegativeInteger(value.order, `${label}.directory.order`),
+    };
+  }
   return {
     groupLabel: assertString(navigation.groupLabel, `${label}.groupLabel`),
-    groupOrder: navigation.groupOrder,
-    itemOrder: navigation.itemOrder,
+    groupOrder: nonNegativeInteger(navigation.groupOrder, `${label}.groupOrder`),
+    itemOrder: nonNegativeInteger(navigation.itemOrder, `${label}.itemOrder`),
+    ...(navigation.label !== undefined
+      ? { label: assertString(navigation.label, `${label}.label`) }
+      : {}),
+    ...(directory ? { directory } : {}),
     icon,
+    ...(role === undefined ? {} : { role }),
   };
+}
+
+function suitePageDescriptors(descriptor) {
+  if (descriptor.schemaVersion !== "1.0") {
+    throw new Error("unsupported Mod Suite schema");
+  }
+  const suiteId = assertString(descriptor.id, "suite.id");
+  if (!SUITE_ID_PATTERN.test(suiteId)) {
+    throw new Error(`invalid Mod Suite id: ${suiteId}`);
+  }
+  const version = assertString(descriptor.version, `${suiteId}.version`);
+  if (!VERSION_PATTERN.test(version)) {
+    throw new Error(`${suiteId}.version is invalid`);
+  }
+  const runtime = assertObject(descriptor.runtime, `${suiteId}.runtime`);
+  if (runtime.type !== "external") {
+    throw new Error(`${suiteId}.runtime.type must be external`);
+  }
+  const baseUrlEnv = assertString(
+    runtime.baseUrlEnv,
+    `${suiteId}.runtime.baseUrlEnv`,
+  );
+  if (!SUITE_ENV_PATTERN.test(baseUrlEnv)) {
+    throw new Error(`${suiteId}.runtime.baseUrlEnv is invalid`);
+  }
+  const defaultBaseUrl = exactHttpOrigin(
+    assertString(runtime.defaultBaseUrl, `${suiteId}.runtime.defaultBaseUrl`),
+    `${suiteId}.runtime.defaultBaseUrl`,
+  );
+  const template = assertObject(descriptor.manifest, `${suiteId}.manifest`);
+  const sharedNavigation = navigationValue(
+    template.navigation,
+    `${suiteId}.manifest.navigation`,
+  );
+  if (!sharedNavigation.directory || sharedNavigation.directory.id !== suiteId) {
+    throw new Error(`${suiteId}.manifest.navigation.directory.id must equal suite.id`);
+  }
+  const pages = descriptor.pages;
+  if (!Array.isArray(pages) || pages.length === 0) {
+    throw new Error(`${suiteId}.pages must contain at least one page`);
+  }
+  const pageIds = new Set();
+  return pages.map((rawPage, index) => {
+    const page = assertObject(rawPage, `${suiteId}.pages[${index}]`);
+    const id = assertString(page.id, `${suiteId}.pages[${index}].id`);
+    if (!MOD_ID_PATTERN.test(id) || pageIds.has(id)) {
+      throw new Error(`${suiteId}.pages contains an invalid or duplicate Mod id`);
+    }
+    pageIds.add(id);
+    const route = assertString(page.route, `${id}.route`);
+    if (!route.startsWith("/") || route.startsWith("//") || route.includes("..")) {
+      throw new Error(`${id}.route is unsafe`);
+    }
+    const pageNavigation = page.navigation === undefined
+      ? {}
+      : assertObject(page.navigation, `${id}.navigation`);
+    const pageManifest = page.manifest === undefined
+      ? {}
+      : assertObject(page.manifest, `${id}.manifest`);
+    const navigationKeys = new Set(["itemOrder", "label", "icon", "role"]);
+    if (Object.keys(pageNavigation).some((key) => !navigationKeys.has(key))) {
+      throw new Error(`${id}.navigation contains unsupported fields`);
+    }
+    const manifestKeys = new Set([
+      "icon",
+      "permissions",
+      "dataServices",
+      "compatibility",
+      "agentCapabilities",
+      "actions",
+      "events",
+      "refresh",
+    ]);
+    if (Object.keys(pageManifest).some((key) => !manifestKeys.has(key))) {
+      throw new Error(`${id}.manifest contains unsupported fields`);
+    }
+    if (
+      page.defaultInstall !== undefined &&
+      typeof page.defaultInstall !== "boolean"
+    ) {
+      throw new Error(`${id}.defaultInstall must be a boolean`);
+    }
+    const mergedNavigation = navigationValue(
+      {
+        ...sharedNavigation,
+        itemOrder: nonNegativeInteger(
+          pageNavigation.itemOrder,
+          `${id}.navigation.itemOrder`,
+          sharedNavigation.itemOrder,
+        ),
+        label: pageNavigation.label === undefined
+          ? assertString(page.name, `${id}.name`)
+          : assertString(pageNavigation.label, `${id}.navigation.label`),
+        icon: pageNavigation.icon ?? sharedNavigation.icon,
+        role: pageNavigation.role ?? sharedNavigation.role,
+      },
+      `${id}.navigation`,
+    );
+    const mergedManifest = {
+      ...template,
+      ...pageManifest,
+      navigation: mergedNavigation,
+    };
+    return {
+      defaultInstall: page.defaultInstall,
+      descriptor: {
+        schemaVersion: "1.0",
+        id,
+        name: assertString(page.name, `${id}.name`),
+        description: assertString(page.description, `${id}.description`),
+        version,
+        publisher: assertString(descriptor.publisher, `${suiteId}.publisher`),
+        upstream: descriptor.upstream,
+        tags: page.tags === undefined
+          ? stringArray(descriptor.tags, `${suiteId}.tags`)
+          : stringArray(page.tags, `${id}.tags`),
+        runtime: {
+          type: "external",
+          baseUrlEnv,
+          defaultBaseUrl,
+          route,
+        },
+        manifest: mergedManifest,
+      },
+    };
+  });
 }
 
 function manifestFromDescriptor(descriptor, env) {
@@ -91,6 +360,10 @@ function manifestFromDescriptor(descriptor, env) {
   const version = assertString(descriptor.version, `${id}.version`);
   if (!VERSION_PATTERN.test(version)) throw new Error(`${id}.version is invalid`);
   const template = assertObject(descriptor.manifest, `${id}.manifest`);
+  const schemaVersion = template.schemaVersion || "1.0";
+  if (!["1.0", "1.1"].includes(schemaVersion)) {
+    throw new Error(`${id}.manifest.schemaVersion is unsupported`);
+  }
   const category = assertString(template.category, `${id}.manifest.category`);
   if (!CATEGORY_PATTERN.test(category)) throw new Error(`${id}.category is invalid`);
   const runtime = assertObject(descriptor.runtime, `${id}.runtime`);
@@ -98,7 +371,8 @@ function manifestFromDescriptor(descriptor, env) {
   if (runtime.type === "external") {
     const envName = assertString(runtime.baseUrlEnv, `${id}.runtime.baseUrlEnv`);
     const baseUrl = exactHttpOrigin(
-      env[envName] || assertString(runtime.defaultBaseUrl, `${id}.runtime.defaultBaseUrl`),
+      configuredEnvValue(env, envName) ||
+        assertString(runtime.defaultBaseUrl, `${id}.runtime.defaultBaseUrl`),
       envName,
     );
     const route = assertString(runtime.route, `${id}.runtime.route`);
@@ -112,8 +386,8 @@ function manifestFromDescriptor(descriptor, env) {
     throw new Error(`${id}.runtime.type is invalid`);
   }
 
-  return {
-    schemaVersion: "1.0",
+  const common = {
+    schemaVersion,
     id,
     name: assertString(descriptor.name, `${id}.name`),
     version,
@@ -124,31 +398,50 @@ function manifestFromDescriptor(descriptor, env) {
     entry,
     permissions: stringArray(template.permissions, `${id}.manifest.permissions`),
     dataServices: stringArray(template.dataServices, `${id}.manifest.dataServices`),
-    agentCapabilities: stringArray(
-      template.agentCapabilities,
-      `${id}.manifest.agentCapabilities`,
-    ),
     events: template.events || { emits: [], accepts: [] },
     ...(template.refresh ? { refresh: template.refresh } : {}),
+  };
+  if (schemaVersion === "1.0") {
+    return {
+      ...common,
+      agentCapabilities: stringArray(
+        template.agentCapabilities,
+        `${id}.manifest.agentCapabilities`,
+      ),
+    };
+  }
+  return {
+    ...common,
+    compatibility: assertObject(
+      template.compatibility,
+      `${id}.manifest.compatibility`,
+    ),
+    actions: assertObject(template.actions || {}, `${id}.manifest.actions`),
   };
 }
 
 export async function loadModStore({
   env = process.env,
   storeUrl = DEFAULT_STORE_URL,
+  fetchImpl = fetch,
+  discoveryTimeoutMs = DEFAULT_DISCOVERY_TIMEOUT_MS,
 } = {}) {
   const rawStore = JSON.parse(await readFile(storeUrl, "utf8"));
   const store = assertObject(rawStore, storeUrl.pathname);
   if (store.schemaVersion !== "1.0") throw new Error("unsupported Mod store schema");
-  const entries = store.mods;
-  if (!Array.isArray(entries) || entries.length === 0) {
-    throw new Error("Mod store must contain at least one Mod");
+  const entries = store.mods === undefined ? [] : store.mods;
+  const suiteEntries = store.suites === undefined ? [] : store.suites;
+  if (!Array.isArray(entries) || !Array.isArray(suiteEntries)) {
+    throw new Error("Mod store entries must be arrays");
   }
-  const mods = await Promise.all(entries.map(async (rawEntry) => {
+  if (entries.length === 0 && suiteEntries.length === 0) {
+    throw new Error("Mod store must contain at least one Mod or Mod Suite");
+  }
+  const standaloneMods = await Promise.all(entries.map(async (rawEntry) => {
     const entry = assertObject(rawEntry, "store.mods[]");
     const id = assertString(entry.id, "store.mods[].id");
-    const path = safeStorePath(entry.path, `${id}.path`);
-    const descriptorUrl = new URL(path, STORE_ROOT);
+    const path = safeStorePath(entry.path, `${id}.path`, "/mod.json");
+    const descriptorUrl = new URL(path, storeUrl);
     const descriptor = assertObject(
       JSON.parse(await readFile(descriptorUrl, "utf8")),
       descriptorUrl.pathname,
@@ -162,13 +455,81 @@ export async function loadModStore({
       manifest: manifestFromDescriptor(descriptor, env),
     };
   }));
+  const suites = await Promise.all(suiteEntries.map(async (rawEntry) => {
+    const entry = assertObject(rawEntry, "store.suites[]");
+    const id = assertString(entry.id, "store.suites[].id");
+    if (!SUITE_ID_PATTERN.test(id)) throw new Error(`invalid Mod Suite id: ${id}`);
+    const hasPath = entry.path !== undefined;
+    const hasDiscovery = entry.discovery !== undefined;
+    if (hasPath === hasDiscovery) {
+      throw new Error(`${id} must declare exactly one Suite Discovery source`);
+    }
+    let path;
+    let discovery;
+    let descriptor;
+    let discoveryUrl;
+    if (hasPath) {
+      path = safeStorePath(entry.path, `${id}.path`, "/suite.json");
+      const descriptorUrl = new URL(path, storeUrl);
+      descriptor = assertObject(
+        JSON.parse(await readFile(descriptorUrl, "utf8")),
+        descriptorUrl.pathname,
+      );
+    } else {
+      discovery = suiteDiscoveryValue(entry.discovery, `${id}.discovery`);
+      const discovered = await fetchSuiteDescriptor({
+        discovery,
+        env,
+        fetchImpl,
+        timeoutMs: discoveryTimeoutMs,
+        label: id,
+      });
+      descriptor = discovered.descriptor;
+      discoveryUrl = discovered.url;
+    }
+    if (descriptor.id !== id) throw new Error(`${id} descriptor id mismatch`);
+    const pages = suitePageDescriptors(descriptor).map((page) => ({
+      id: page.descriptor.id,
+      ...(path ? { path } : {}),
+      ...(discoveryUrl ? { discoveryUrl } : {}),
+      defaultInstall: page.defaultInstall === undefined
+        ? entry.defaultInstall === true
+        : page.defaultInstall === true,
+      descriptor: page.descriptor,
+      manifest: manifestFromDescriptor(page.descriptor, env),
+      suiteId: id,
+    }));
+    return {
+      id,
+      ...(path ? { path } : {}),
+      ...(discovery ? { discovery, discoveryUrl } : {}),
+      descriptor,
+      pages,
+    };
+  }));
+  const mods = [
+    ...standaloneMods,
+    ...suites.flatMap((suite) => suite.pages),
+  ];
   const ids = mods.map((mod) => mod.id);
   if (new Set(ids).size !== ids.length) throw new Error("Mod store contains duplicate ids");
+  const retiredMods = stringArray(store.retiredMods, "store.retiredMods");
+  if (
+    retiredMods.some((id) => !MOD_ID_PATTERN.test(id)) ||
+    new Set(retiredMods).size !== retiredMods.length
+  ) {
+    throw new Error("store.retiredMods contains invalid or duplicate Mod ids");
+  }
+  if (retiredMods.some((id) => ids.includes(id))) {
+    throw new Error("retired Mods cannot remain in store.mods");
+  }
   return {
     id: assertString(store.id, "store.id"),
     name: assertString(store.name, "store.name"),
     git: assertObject(store.git, "store.git"),
     mods,
+    suites,
+    retiredMods,
   };
 }
 
@@ -211,22 +572,25 @@ async function requestJson(fetchImpl, url, init) {
   return body;
 }
 
-export async function registerDefaultMods({
-  apiUrl = "http://127.0.0.1:8901",
+export async function registerStoreMods({
+  apiUrl = "http://127.0.0.1:8911",
   env = process.env,
   fetchImpl = fetch,
   dryRun = false,
 } = {}) {
-  const controlPlaneOrigin = exactHttpOrigin(apiUrl, "VibeDesk API URL");
+  const controlPlaneOrigin = exactHttpOrigin(apiUrl, "Newma-Dock API URL");
   const store = await loadModStore({ env });
-  const desired = store.mods.filter((mod) => mod.defaultInstall).map((mod) => mod.manifest);
-  if (dryRun) return { created: desired, skipped: [], store };
+  const desired = store.mods.map((mod) => mod.manifest);
+  if (dryRun) {
+    return { created: desired, skipped: [], disabled: [], store };
+  }
 
   const current = await requestJson(fetchImpl, `${controlPlaneOrigin}/api/mods`);
-  if (!Array.isArray(current)) throw new Error("VibeDesk Mod registry returned malformed data");
+  if (!Array.isArray(current)) throw new Error("Newma-Dock Mod registry returned malformed data");
   const publishedById = new Map(current.map((item) => [item.moduleId, item]));
   const created = [];
   const skipped = [];
+  const disabled = [];
   for (const manifest of desired) {
     const existing = publishedById.get(manifest.id);
     if (existing && manifestsEqual(existing.manifest, manifest)) {
@@ -239,7 +603,7 @@ export async function registerDefaultMods({
       { method: "POST", body: JSON.stringify(manifest) },
     );
     if (!draft || !Number.isInteger(draft.revision)) {
-      throw new Error(`VibeDesk returned an invalid draft for ${manifest.id}`);
+      throw new Error(`Newma-Dock returned an invalid draft for ${manifest.id}`);
     }
     await requestJson(
       fetchImpl,
@@ -248,49 +612,34 @@ export async function registerDefaultMods({
     );
     created.push(manifest);
   }
-  return { created, skipped, store };
+  for (const moduleId of store.retiredMods) {
+    const existing = publishedById.get(moduleId);
+    if (!existing) continue;
+    await requestJson(
+      fetchImpl,
+      `${controlPlaneOrigin}/api/mods/${encodeURIComponent(moduleId)}/disable`,
+      { method: "POST" },
+    );
+    disabled.push(existing);
+  }
+  return { created, skipped, disabled, store };
 }
 
-export async function standardizeDefaultMods({
-  apiUrl = "http://127.0.0.1:8901",
+export async function standardizeStoreMods({
+  apiUrl = "http://127.0.0.1:8911",
   env = process.env,
   fetchImpl = fetch,
   dryRun = false,
 } = {}) {
-  const controlPlaneOrigin = exactHttpOrigin(apiUrl, "VibeDesk API URL");
-  const registration = await registerDefaultMods({
+  const registration = await registerStoreMods({
     apiUrl,
     env,
     fetchImpl,
     dryRun,
   });
-  const storeIds = new Set(registration.store.mods.map((mod) => mod.id));
-  const defaultIds = new Set(
-    registration.store.mods
-      .filter((mod) => mod.defaultInstall)
-      .map((mod) => mod.id),
-  );
-  const current = dryRun
-    ? []
-    : await requestJson(fetchImpl, `${controlPlaneOrigin}/api/mods`);
-  if (!Array.isArray(current)) {
-    throw new Error("VibeDesk Mod registry returned malformed data");
-  }
-  const removable = current.filter(
-    (item) =>
-      item &&
-      typeof item.moduleId === "string" &&
-      storeIds.has(item.moduleId) &&
-      !defaultIds.has(item.moduleId),
-  );
-  const disabled = [];
-  for (const item of removable) {
-    await requestJson(
-      fetchImpl,
-      `${controlPlaneOrigin}/api/mods/${encodeURIComponent(item.moduleId)}/disable`,
-      { method: "POST" },
-    );
-    disabled.push(item.moduleId);
-  }
-  return { ...registration, disabled };
+  return registration;
 }
+
+// Compatibility aliases for local scripts created before the full-store sidebar policy.
+export const registerDefaultMods = registerStoreMods;
+export const standardizeDefaultMods = standardizeStoreMods;

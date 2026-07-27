@@ -9,6 +9,7 @@ import httpx
 from starlette.concurrency import run_in_threadpool
 
 from vibe_visualization_api.data_services.models import DataServiceDescriptor
+from vibe_visualization_api.schema_validation import validate_json_contract
 
 
 class DataServiceClientError(Exception):
@@ -117,6 +118,12 @@ class DataServiceClient:
                 f"capability {capability_id!r} is not registered"
             ) from error
 
+        validate_json_contract(
+            capability.input_schema,
+            input_data,
+            direction="input",
+        )
+
         url = f"{str(service.base_url).rstrip('/')}{capability.path}"
         await run_in_threadpool(
             validate_service_url,
@@ -163,8 +170,14 @@ class DataServiceClient:
         if not 200 <= response.status_code < 300:
             raise UpstreamServiceError("data service request failed")
         try:
-            return response.json()
+            result = response.json()
         except ValueError as error:
             raise UpstreamServiceError(
                 "data service returned an invalid response"
             ) from error
+        validate_json_contract(
+            capability.output_schema,
+            result,
+            direction="output",
+        )
+        return result

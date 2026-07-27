@@ -1,4 +1,5 @@
 .worktrees/
+.DS_Store
 node_modules/
 dist/
 coverage/
@@ -16,3 +17,10 @@ __pycache__/
 runtime/
 playwright-report/
 test-results/
+
+# In-tree upstream Mod workspaces keep their own Git history and dependencies.
+mod-projects/*
+!mod-projects/README.md
+
+# Preserved files from the pre-migration parent workspace.
+legacy-workspace/

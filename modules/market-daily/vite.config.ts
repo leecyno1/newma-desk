@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       proxy: {
-        "/api": env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8901",
+        "/api": env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8911",
       },
     },
     test: {

@@ -1,5 +1,5 @@
 {
-  "name": "@vibedesk/desk",
+  "name": "@newma-dock/desk",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@vibedesk/contracts": "0.1.0",
-    "@vibedesk/desk-ui": "0.1.0",
+    "@newma-dock/contracts": "0.1.0",
+    "@newma-dock/desk-ui": "0.1.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

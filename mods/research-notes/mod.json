@@ -4,10 +4,10 @@
   "name": "研究记录",
   "description": "记录研究过程、观点变化和后续任务，沉淀可长期复用的研究上下文。",
   "version": "0.1.0",
-  "publisher": "VibeDesk",
+  "publisher": "Newma-Dock",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": ["笔记", "研究", "上下文"],
-  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_INVESTMENT_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5899", "route": "/notes" },
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_INVESTMENT_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:8911", "route": "/mod-runtime/research/notes" },
   "manifest": {
     "category": "research",
     "navigation": { "groupLabel": "研究", "groupOrder": 20, "itemOrder": 40, "icon": "research" },

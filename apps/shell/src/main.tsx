@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 
-import "@vibedesk/desk-ui/tokens.css";
+import "@newma-dock/desk-ui/tokens.css";
 
 import { App } from "./App";
 import "./styles.css";

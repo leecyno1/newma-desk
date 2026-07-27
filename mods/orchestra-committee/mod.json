@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "id": "orchestra-committee",
+  "name": "Orchestra 投委会",
+  "description": "19 席投研 Agent 的群体推理、分歧收敛与主席决议工作台。",
+  "version": "0.1.0",
+  "publisher": "Orchestra",
+  "tags": ["投委会", "Agent", "投资决策"],
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_ORCHESTRA_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:3001", "route": "/?workspace=committee" },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "decision",
+    "navigation": { "groupLabel": "投决", "groupOrder": 50, "itemOrder": 10, "label": "投委会", "directory": { "id": "orchestra-suite", "label": "Orchestra 投委会", "order": 10 }, "icon": "module" },
+    "compatibility": { "level": 1, "bridgeProtocol": "1.0" },
+    "permissions": [], "dataServices": [], "actions": {},
+    "events": { "emits": [], "accepts": [] },
+    "refresh": { "mode": "manual" }
+  }
+}

@@ -78,6 +78,27 @@ def test_data_service_routes_discover_only_public_metadata(
     assert "baseUrl" not in response.json()[0]
     assert client.get("/api/data-services/capabilities").json() == ["market.overview"]
 
+    catalog = client.get("/api/data-services/catalog")
+    assert catalog.status_code == 200
+    assert catalog.json() == {
+        "version": "1.0",
+        "capabilities": [
+            {
+                "id": "market.overview",
+                "permissions": ["market.read"],
+                "providers": [
+                    {
+                        "id": "market-data",
+                        "name": "market-data",
+                        "description": "",
+                        "priority": 100,
+                        "transport": "rest",
+                    }
+                ],
+            }
+        ],
+    }
+
 
 def test_data_service_route_invokes_registered_capability(
     client: TestClient,
@@ -111,3 +132,49 @@ def test_data_service_route_rejects_unregistered_service_and_capability(
     assert missing_service.status_code == 404
     assert missing_capability.status_code == 404
     assert fake_client.calls == []
+
+
+def test_data_service_preferences_are_scoped_and_persisted(
+    client: TestClient,
+) -> None:
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "desk-1"}
+    empty = client.get(
+        "/api/data-services/preferences/market-suite",
+        headers=headers,
+    )
+    saved = client.put(
+        "/api/data-services/preferences/market-suite",
+        headers=headers,
+        json={"capabilityServices": {"market.overview": "market-data"}},
+    )
+    loaded = client.get(
+        "/api/data-services/preferences/market-suite",
+        headers=headers,
+    )
+    another_workspace = client.get(
+        "/api/data-services/preferences/market-suite",
+        headers={"X-User-Id": "alice", "X-Workspace-Id": "desk-2"},
+    )
+
+    assert empty.status_code == 200
+    assert empty.json()["capabilityServices"] == {}
+    assert saved.status_code == 200
+    assert saved.json()["capabilityServices"] == {
+        "market.overview": "market-data"
+    }
+    assert saved.json()["updatedAt"] is not None
+    assert loaded.json() == saved.json()
+    assert another_workspace.json()["capabilityServices"] == {}
+
+
+def test_data_service_preferences_reject_invalid_suite_and_provider(
+    client: TestClient,
+) -> None:
+    invalid_suite = client.get("/api/data-services/preferences/INVALID")
+    invalid_provider = client.put(
+        "/api/data-services/preferences/market-suite",
+        json={"capabilityServices": {"market.overview": "missing-provider"}},
+    )
+
+    assert invalid_suite.status_code == 422
+    assert invalid_provider.status_code == 422

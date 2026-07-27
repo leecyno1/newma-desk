@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0", "id": "orchestra-settings", "name": "Orchestra 运行设置", "description": "配置执行模式、输出选项、用户、密钥与运行环境。",
+  "version": "0.1.0", "publisher": "Orchestra", "tags": ["设置", "运行", "密钥"],
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_ORCHESTRA_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:3001", "route": "/?workspace=settings" },
+  "manifest": {
+    "schemaVersion": "1.1", "category": "decision",
+    "navigation": { "groupLabel": "投决", "groupOrder": 50, "itemOrder": 80, "label": "运行设置", "directory": { "id": "orchestra-suite", "label": "Orchestra 投委会", "order": 10 }, "icon": "settings", "role": "settings" },
+    "compatibility": { "level": 1, "bridgeProtocol": "1.0" },
+    "permissions": [], "dataServices": [], "actions": {}, "events": { "emits": [], "accepts": [] }, "refresh": { "mode": "manual" }
+  }
+}

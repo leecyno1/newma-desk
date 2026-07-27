@@ -10,7 +10,7 @@ def test_health_reports_service_identity(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "ok": True,
-        "service": "vibedesk-api",
+        "service": "newma-dock-api",
         "version": "0.1.0",
     }
 

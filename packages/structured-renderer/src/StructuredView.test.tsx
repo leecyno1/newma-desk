@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { View } from "@vibedesk/contracts";
+import type { View } from "@newma-dock/contracts";
 
 import { resolvePath } from "./resolvePath";
 import { StructuredView } from "./StructuredView";
@@ -57,6 +57,15 @@ describe("StructuredView", () => {
           ],
         },
         { id: "trend", type: "chart", optionPath: "charts.indexTrend", height: 320 },
+        {
+          id: "industry-graph",
+          type: "artifact",
+          title: "产业链图谱",
+          renderer: "archify",
+          urlPath: "artifacts.industry.viewUrl",
+          specPath: "artifacts.industry.spec",
+          height: 480,
+        },
         { id: "analysis", type: "markdown", contentPath: "analysis" },
       ],
     };
@@ -70,6 +79,12 @@ describe("StructuredView", () => {
           turnover: 1234.5,
           leaders: [{ symbol: "600519", pct: 3.2 }],
           charts: { indexTrend: option },
+          artifacts: {
+            industry: {
+              viewUrl: "http://127.0.0.1:8911/api/artifacts/abc/view",
+              spec: { nodes: [{ id: "upstream", label: "上游" }], edges: [] },
+            },
+          },
           analysis: "**市场走强**<script>alert('x')</script>",
         }}
       />,
@@ -86,6 +101,7 @@ describe("StructuredView", () => {
       ["metrics", "metrics"],
       ["leaders", "table"],
       ["trend", "chart"],
+      ["industry-graph", "artifact"],
       ["analysis", "markdown"],
     ]) {
       expect(
@@ -102,6 +118,17 @@ describe("StructuredView", () => {
     ).toBeNull();
     expect(chartSpy).toHaveBeenCalledWith(option);
     expect(screen.getByTestId("chart")).toHaveStyle({ height: "320px" });
+    expect(screen.getByTitle("产业链图谱")).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:8911/api/artifacts/abc/view",
+    );
+    const embeddedArtifact = container.querySelector(
+      'script[type="application/json"][data-vibe-artifact-spec]',
+    );
+    expect(JSON.parse(embeddedArtifact?.textContent ?? "")).toEqual({
+      nodes: [{ id: "upstream", label: "上游" }],
+      edges: [],
+    });
   });
 
   it("sorts a table without mutating the source rows", async () => {

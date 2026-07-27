@@ -2,11 +2,22 @@ import asyncio
 import sqlite3
 from collections.abc import Sequence
 from contextlib import asynccontextmanager
+from threading import Lock
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from vibe_visualization_api.artifacts.archify import (
+    ArchifyRenderer,
+    ArtifactRenderError,
+)
+from vibe_visualization_api.artifacts.routes import router as artifacts_router
+from vibe_visualization_api.artifacts.store import (
+    ArtifactNotFoundError,
+    ArtifactStore,
+    CorruptArtifactError,
+)
 from vibe_visualization_api.agent_gateway.adapters.base import AgentAdapter
 from vibe_visualization_api.agent_gateway.adapters.hermes_webui import (
     HermesWebUIAdapter,
@@ -60,6 +71,8 @@ from vibe_visualization_api.control_plane.repository import (
 )
 from vibe_visualization_api.control_plane.routes import router as mods_router
 from vibe_visualization_api.control_plane.actions import TradeConfirmationService
+from vibe_visualization_api.control_plane.context_store import ModContextStore
+from vibe_visualization_api.control_plane.sessions import ModSessionService
 from vibe_visualization_api.data_services.client import (
     DataServiceClient,
     MissingServiceSecret,
@@ -68,11 +81,16 @@ from vibe_visualization_api.data_services.client import (
     UnsupportedServiceTransport,
     UpstreamServiceError,
 )
+from vibe_visualization_api.data_services.discovery import discover_data_services
 from vibe_visualization_api.data_services.models import DataServiceDescriptor
 from vibe_visualization_api.data_services.registry import (
+    DataCapabilityNotFoundError,
     DataServiceNotFoundError,
     DataServiceRegistry,
+    PreferredDataServiceUnavailable,
 )
+from vibe_visualization_api.data_services.preferences import DataServicePreferenceStore
+from vibe_visualization_api.domain_suites import mount_domain_suites
 from vibe_visualization_api.data_services.market import VibeResearchMarketClient
 from vibe_visualization_api.data_services.routes import router as data_services_router
 from vibe_visualization_api.scheduler.service import (
@@ -82,6 +100,13 @@ from vibe_visualization_api.scheduler.service import (
 from vibe_visualization_api.scheduler.store import SchedulerStore
 from vibe_visualization_api.snapshots.routes import router as mod_snapshots_router
 from vibe_visualization_api.snapshots.store import SnapshotNotFoundError, SnapshotStore
+from vibe_visualization_api.schema_validation import JsonContractError
+from vibe_visualization_api.watchlists.routes import router as watchlists_router
+from vibe_visualization_api.watchlists.store import (
+    WatchlistConflictError,
+    WatchlistNotFoundError,
+    WatchlistStore,
+)
 
 
 def create_app(
@@ -98,6 +123,7 @@ def create_app(
     agent_session_store = AgentModuleSessionStore(app_settings.database_path)
     agent_conversation_store = AgentConversationStore(app_settings.database_path)
     agent_preference_store = AgentPreferenceStore(app_settings.database_path)
+    mod_context_store = ModContextStore(app_settings.database_path)
     configured_adapters = (
         list(agent_adapters)
         if agent_adapters is not None
@@ -142,6 +168,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
+        domain_suites = application.state.domain_suites
+        await domain_suites.startup()
         active_scheduler = application.state.scheduler_service
         if app_settings.enable_scheduler:
             if active_scheduler is None:
@@ -156,11 +184,12 @@ def create_app(
             agent_service = application.state.agent_task_service
             if agent_service is not None:
                 await agent_service.shutdown()
+            await domain_suites.shutdown()
 
     application = FastAPI(
-        title="VibeDesk API",
+        title="Newma-Dock API",
         description=(
-            "Data, Mod, Model Gateway and Agent Gateway services for VibeDesk."
+            "Data, Mod, Model Gateway and Agent Gateway services for Newma-Dock."
         ),
         version="0.1.0",
         lifespan=lifespan,
@@ -168,6 +197,22 @@ def create_app(
     application.dependency_overrides[get_settings] = lambda: app_settings
     application.state.agent_task_service = None
     application.state.agent_task_service_lock = asyncio.Lock()
+    application.state.domain_suites = None
+    application.state.module_repository = None
+    application.state.module_repository_lock = Lock()
+
+    def resolve_module_repository() -> ModuleRepository:
+        repository = application.state.module_repository
+        if repository is not None:
+            return repository
+        with application.state.module_repository_lock:
+            repository = application.state.module_repository
+            if repository is None:
+                repository = ModuleRepository(app_settings.database_path)
+                application.state.module_repository = repository
+        return repository
+
+    application.state.resolve_module_repository = resolve_module_repository
 
     def create_agent_task_service() -> AgentTaskService:
         return AgentTaskService(
@@ -179,6 +224,7 @@ def create_app(
                 app_settings.database_path,
             ),
             agent_preference_store,
+            mod_context_store,
         )
 
     application.state.agent_task_service_factory = create_agent_task_service
@@ -195,7 +241,7 @@ def create_app(
     def create_scheduler_service() -> RefreshSchedulerService:
         return RefreshSchedulerService(
             store=SchedulerStore(app_settings.database_path),
-            repository=ModuleRepository(app_settings.database_path),
+            repository=resolve_module_repository(),
             snapshot_store=SnapshotStore(
                 app_settings.runtime_dir,
                 app_settings.database_path,
@@ -208,25 +254,58 @@ def create_app(
         )
 
     application.state.scheduler_service_factory = create_scheduler_service
+    configured_data_services = (
+        list(data_services)
+        if data_services is not None
+        else discover_data_services(
+            app_settings.data_service_paths(),
+            base_url_overrides={
+                "market-data": app_settings.research_base_url,
+                "instock-analysis": f"{app_settings.instock_web_url}/api/v1",
+            },
+        )
+    )
     application.state.data_service_registry = DataServiceRegistry(
-        list(data_services or [])
+        configured_data_services
     )
     application.state.data_service_client = data_service_client or DataServiceClient(
         public_mode=app_settings.data_service_public_mode
     )
+    application.state.data_service_preference_store = DataServicePreferenceStore(
+        app_settings.database_path
+    )
     application.state.trade_confirmation_service = TradeConfirmationService(
         app_settings.trade_confirmation_secret.get_secret_value()
     )
+    application.state.mod_session_service = ModSessionService(
+        app_settings.mod_session_secret.get_secret_value(),
+        ttl_seconds=app_settings.mod_session_ttl_seconds,
+    )
+    application.state.mod_context_store = mod_context_store
     application.state.mod_store_service = ModStoreService(
         app_settings,
         descriptor_fetcher=mod_store_fetcher,
+    )
+    application.state.artifact_store = ArtifactStore(app_settings.runtime_dir)
+    application.state.archify_renderer = ArchifyRenderer(
+        app_settings.archify_root,
+        node_binary=app_settings.node_binary,
+    )
+    application.state.watchlist_store = WatchlistStore(
+        app_settings.database_path,
     )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.origin_list(),
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT"],
-        allow_headers=["Content-Type", "Authorization", "X-User-Id"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "X-User-Id",
+            "X-Workspace-Id",
+            "X-Newma-Dock-Instance-Id",
+        ],
     )
     application.include_router(mods_router, prefix="/api/mods")
     application.include_router(
@@ -238,6 +317,8 @@ def create_app(
     application.include_router(mod_store_router)
     application.include_router(model_router)
     application.include_router(data_services_router)
+    application.include_router(artifacts_router)
+    application.include_router(watchlists_router)
     application.include_router(mod_snapshots_router, prefix="/api/mods")
     application.include_router(
         mod_snapshots_router,
@@ -267,6 +348,41 @@ def create_app(
             status_code=404,
             content={"detail": "module snapshot not found"},
         )
+
+    @application.exception_handler(ArtifactNotFoundError)
+    async def artifact_not_found(
+        request: Request, error: ArtifactNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": "artifact not found"})
+
+    @application.exception_handler(CorruptArtifactError)
+    async def corrupt_artifact(
+        request: Request, error: CorruptArtifactError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=500, content={"detail": "artifact is corrupt"})
+
+    @application.exception_handler(ArtifactRenderError)
+    async def artifact_render_failed(
+        request: Request, error: ArtifactRenderError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(error)},
+        )
+
+    @application.exception_handler(WatchlistConflictError)
+    async def watchlist_conflict(
+        request: Request,
+        error: WatchlistConflictError,
+    ) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(error)})
+
+    @application.exception_handler(WatchlistNotFoundError)
+    async def watchlist_not_found(
+        request: Request,
+        error: WatchlistNotFoundError,
+    ) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(error)})
 
     @application.exception_handler(sqlite3.Error)
     async def database_error(request: Request, error: sqlite3.Error) -> JSONResponse:
@@ -327,6 +443,24 @@ def create_app(
             status_code=404, content={"detail": "data service not found"}
         )
 
+    @application.exception_handler(DataCapabilityNotFoundError)
+    async def data_capability_not_found(
+        request: Request, error: DataCapabilityNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "data capability not found"},
+        )
+
+    @application.exception_handler(PreferredDataServiceUnavailable)
+    async def preferred_data_service_unavailable(
+        request: Request, error: PreferredDataServiceUnavailable
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "preferred data provider is unavailable"},
+        )
+
     @application.exception_handler(UnknownServiceCapability)
     async def data_service_capability_not_found(
         request: Request, error: UnknownServiceCapability
@@ -372,13 +506,33 @@ def create_app(
             content={"detail": "data service upstream failed"},
         )
 
+    @application.exception_handler(JsonContractError)
+    async def json_contract_error(
+        request: Request, error: JsonContractError
+    ) -> JSONResponse:
+        status_code = 422 if error.direction == "input" else 502
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "error": {
+                    "code": f"schema_{error.direction}_invalid",
+                    "message": str(error),
+                }
+            },
+        )
+
     @application.get("/api/health")
     def health() -> dict[str, bool | str]:
         return {
             "ok": True,
-            "service": "vibedesk-api",
+            "service": "newma-dock-api",
             "version": "0.1.0",
         }
+
+    application.state.domain_suites = mount_domain_suites(
+        application,
+        app_settings,
+    )
 
     return application
 

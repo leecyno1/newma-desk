@@ -1,4 +1,4 @@
-import type { MetricsBlock as MetricsBlockContract } from "@vibedesk/contracts";
+import type { MetricsBlock as MetricsBlockContract } from "@newma-dock/contracts";
 
 import { formatValue } from "../formatValue";
 import { resolvePath } from "../resolvePath";

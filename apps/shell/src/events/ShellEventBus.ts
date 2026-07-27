@@ -2,7 +2,7 @@ import {
   modEventSchema,
   type ModEvent,
   type ModManifest,
-} from "@vibedesk/contracts";
+} from "@newma-dock/contracts";
 
 const EVENT_CHANNEL = "vibe-visualization-events";
 const TRACE_CACHE_LIMIT = 256;
@@ -68,6 +68,7 @@ export class ShellEventBus {
     ShellEventRegistration
   >();
   private readonly traces = new TraceCache();
+  private readonly latestBroadcasts = new Map<string, ModEvent>();
   private readonly observers = new Set<(event: ModEvent) => void>();
   private readonly channel?: BroadcastChannelPort;
   private closed = false;
@@ -98,6 +99,17 @@ export class ShellEventBus {
 
     this.registrationsByModule.set(registration.moduleId, registration);
     this.registrationsByWindow.set(registration.target, registration);
+    globalThis.setTimeout(() => {
+      if (
+        this.closed ||
+        this.registrationsByModule.get(registration.moduleId) !== registration
+      ) return;
+      for (const eventName of registration.manifest.events.accepts) {
+        const latest = this.latestBroadcasts.get(eventName);
+        if (!latest || latest.source === registration.moduleId) continue;
+        registration.target.postMessage(latest, registration.origin);
+      }
+    }, 0);
   }
 
   unregister(target: Window): void {
@@ -124,6 +136,7 @@ export class ShellEventBus {
     this.closed = true;
     this.channel?.close();
     this.observers.clear();
+    this.latestBroadcasts.clear();
     this.registrationsByModule.clear();
     this.registrationsByWindow.clear();
   }
@@ -137,6 +150,7 @@ export class ShellEventBus {
     if (!parsed.success || !this.traces.add(parsed.data.traceId)) return;
 
     const event = parsed.data;
+    if (!event.target) this.latestBroadcasts.set(event.event, event);
     if (event.target) {
       this.routeTargeted(event, sourceWindow);
     } else {

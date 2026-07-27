@@ -3,15 +3,27 @@
   "id": "watchlist",
   "name": "自选股",
   "description": "维护个人关注股票列表，并集中查看行情、变化和后续研究入口。",
-  "version": "0.1.0",
-  "publisher": "VibeDesk",
+  "version": "0.2.0",
+  "publisher": "Newma-Dock",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": ["自选股", "行情", "列表"],
-  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_INVESTMENT_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5899", "route": "/watchlist" },
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_INVESTMENT_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:8911", "route": "/mod-runtime/research/watchlist" },
   "manifest": {
+    "schemaVersion": "1.1",
     "category": "market",
     "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 20, "icon": "market" },
-    "permissions": ["investment.read", "investment.local-write"],
-    "dataServices": ["vibe-investment-native"]
+    "compatibility": {
+      "level": 3,
+      "bridgeProtocol": "1.0",
+      "sdkVersion": "^0.1.0",
+      "viewSpecVersion": "1.0"
+    },
+    "permissions": ["market.read", "investment.local-write"],
+    "dataServices": ["market-data"],
+    "actions": {},
+    "events": {
+      "emits": ["security.selected"],
+      "accepts": ["security.selected"]
+    }
   }
 }

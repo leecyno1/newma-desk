@@ -6,13 +6,37 @@ export type GatewayFetch = (
 export interface GatewayClientConfig {
   baseUrl: string;
   fetch?: GatewayFetch;
+  accessToken?: string;
+  instanceId?: string;
+}
+
+export interface ModAccessSession {
+  sessionId: string;
+  instanceId: string;
+  accessToken: string;
+  expiresAt: string;
+  userId: string;
+  workspaceId: string;
+  moduleId: string;
+  revision: number;
+  grants: { permissions: string[]; actions: string[] };
+}
+
+export interface ModAccessSessionInput {
+  baseUrl: string;
+  modId: string;
+  instanceId: string;
+  userId: string;
+  workspaceId: string;
+  fetch?: GatewayFetch;
 }
 
 export interface AgentTaskCreateInput {
   modId?: string;
-  /** @deprecated Use modId in new VibeDesk code. */
+  /** @deprecated Use modId in new Newma-Dock code. */
   moduleId?: string;
   capability?: string;
+  memoryScope?: "user-agent-mod" | "task";
   prompt?: string;
   context?: Record<string, unknown>;
   input?: Record<string, unknown>;
@@ -125,7 +149,7 @@ export interface GatewayClient {
     actionId: string,
     input: Record<string, unknown>,
   ): Promise<T>;
-  /** @deprecated Use invokeModAction in new VibeDesk code. */
+  /** @deprecated Use invokeModAction in new Newma-Dock code. */
   invokeModuleAction<T = unknown>(
     moduleId: string,
     actionId: string,
@@ -204,7 +228,18 @@ export function createGatewayClient(config: GatewayClientConfig): GatewayClient 
       return requestGatewayJson<T>(
         fetcher,
         `${baseUrl}/api/mods/${pathSegment(modId)}/actions/${pathSegment(actionId)}`,
-        { method: "POST", body: JSON.stringify(input) },
+        {
+          method: "POST",
+          headers: config.accessToken
+            ? {
+                Authorization: `Bearer ${config.accessToken}`,
+                ...(config.instanceId
+                  ? { "X-Newma-Dock-Instance-Id": config.instanceId }
+                  : {}),
+              }
+            : undefined,
+          body: JSON.stringify(input),
+        },
       );
     },
     invokeModuleAction<T = unknown>(
@@ -215,8 +250,61 @@ export function createGatewayClient(config: GatewayClientConfig): GatewayClient 
       return requestGatewayJson<T>(
         fetcher,
         `${baseUrl}/api/mods/${pathSegment(moduleId)}/actions/${pathSegment(actionId)}`,
-        { method: "POST", body: JSON.stringify(input) },
+        {
+          method: "POST",
+          headers: config.accessToken
+            ? {
+                Authorization: `Bearer ${config.accessToken}`,
+                ...(config.instanceId
+                  ? { "X-Newma-Dock-Instance-Id": config.instanceId }
+                  : {}),
+              }
+            : undefined,
+          body: JSON.stringify(input),
+        },
       );
     },
   };
+}
+
+export async function createModAccessSession(
+  input: ModAccessSessionInput,
+): Promise<ModAccessSession> {
+  const baseUrl = normalizeGatewayBaseUrl(input.baseUrl);
+  const fetcher = input.fetch ?? globalThis.fetch.bind(globalThis);
+  const value = await requestGatewayJson<unknown>(
+    fetcher,
+    `${baseUrl}/api/mods/${pathSegment(input.modId)}/sessions`,
+    {
+      method: "POST",
+      headers: { "X-User-Id": input.userId },
+      body: JSON.stringify({
+        instanceId: input.instanceId,
+        workspaceId: input.workspaceId,
+      }),
+    },
+  );
+  if (typeof value !== "object" || value === null) {
+    throw new Error("Mod session response is malformed");
+  }
+  const row = value as Record<string, unknown>;
+  const grants = row.grants as Record<string, unknown> | undefined;
+  if (
+    typeof row.sessionId !== "string" ||
+    typeof row.instanceId !== "string" ||
+    typeof row.accessToken !== "string" ||
+    typeof row.expiresAt !== "string" ||
+    typeof row.userId !== "string" ||
+    typeof row.workspaceId !== "string" ||
+    typeof row.moduleId !== "string" ||
+    !Number.isInteger(row.revision) ||
+    !grants ||
+    !Array.isArray(grants.permissions) ||
+    !grants.permissions.every((item) => typeof item === "string") ||
+    !Array.isArray(grants.actions) ||
+    !grants.actions.every((item) => typeof item === "string")
+  ) {
+    throw new Error("Mod session response is malformed");
+  }
+  return row as unknown as ModAccessSession;
 }

@@ -1,5 +1,5 @@
 import re
-from typing import Literal, Self
+from typing import Any, Literal, Self
 from urllib.parse import unquote, urlsplit
 
 from pydantic import (
@@ -11,6 +11,8 @@ from pydantic import (
     model_validator,
 )
 from pydantic.alias_generators import to_camel
+
+from vibe_visualization_api.schema_validation import validate_schema_document
 
 
 SERVICE_ID_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
@@ -67,8 +69,8 @@ def validate_service_path(value: str) -> str:
 class ServiceCapability(DataServiceModel):
     method: Literal["GET", "POST"]
     path: str
-    input_schema: str = Field(pattern=SCHEMA_NAME_PATTERN)
-    output_schema: str = Field(pattern=SCHEMA_NAME_PATTERN)
+    input_schema: dict[str, Any] | str
+    output_schema: dict[str, Any] | str
     permission: str = Field(pattern=PERMISSION_PATTERN)
 
     @field_validator("path")
@@ -76,9 +78,24 @@ class ServiceCapability(DataServiceModel):
     def validate_path(cls, value: str) -> str:
         return validate_service_path(value)
 
+    @field_validator("input_schema", "output_schema")
+    @classmethod
+    def validate_schema_contract(
+        cls, value: dict[str, Any] | str
+    ) -> dict[str, Any] | str:
+        if isinstance(value, str):
+            if re.fullmatch(SCHEMA_NAME_PATTERN, value) is None:
+                raise ValueError("invalid schema reference")
+            return value
+        validate_schema_document(value)
+        return value
+
 
 class DataServiceDescriptor(DataServiceModel):
     id: str = Field(pattern=SERVICE_ID_PATTERN)
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, min_length=1, max_length=240)
+    priority: int = Field(default=100, ge=0, le=10_000)
     base_url: AnyHttpUrl
     health_path: str = "/health"
     transport: Literal["rest", "mcp", "sse", "websocket"]
@@ -128,3 +145,23 @@ class DataServiceDescriptor(DataServiceModel):
             if CAPABILITY_ID_PATTERN.fullmatch(capability_id) is None:
                 raise ValueError("invalid data service capability id")
         return self
+
+
+class DataServicePreferencesUpdate(DataServiceModel):
+    capability_services: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_routes(self) -> Self:
+        for capability_id, service_id in self.capability_services.items():
+            if CAPABILITY_ID_PATTERN.fullmatch(capability_id) is None:
+                raise ValueError("invalid data capability id")
+            if re.fullmatch(SERVICE_ID_PATTERN, service_id) is None:
+                raise ValueError("invalid data service id")
+        return self
+
+
+class DataServicePreferences(DataServicePreferencesUpdate):
+    user_id: str = Field(min_length=1, max_length=128)
+    workspace_id: str = Field(min_length=1, max_length=128)
+    suite_id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")
+    updated_at: str | None = None

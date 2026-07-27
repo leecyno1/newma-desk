@@ -1,7 +1,7 @@
 import {
   modManifestSchema,
   type ModManifest,
-} from "@vibedesk/contracts";
+} from "@newma-dock/contracts";
 
 export interface StoredMod {
   moduleId: string;

@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import type {
   TableBlock as TableBlockContract,
   TableColumn,
-} from "@vibedesk/contracts";
+} from "@newma-dock/contracts";
 
 import { formatValue } from "../formatValue";
 import { resolvePath } from "../resolvePath";

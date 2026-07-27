@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { registerDefaultMods } from "./lib/mod-store.mjs";
+import { registerStoreMods } from "./lib/mod-store.mjs";
 
 function option(name) {
   const prefix = `--${name}=`;
@@ -8,17 +8,17 @@ function option(name) {
 }
 
 const dryRun = process.argv.includes("--dry-run");
-const apiUrl = option("api-url") || process.env.VIBEDESK_CONTROL_PLANE_URL || "http://127.0.0.1:8901";
+const apiUrl = option("api-url") || process.env.NEWMA_DOCK_CONTROL_PLANE_URL || "http://127.0.0.1:8911";
 
 try {
-  const result = await registerDefaultMods({ apiUrl, dryRun });
+  const result = await registerStoreMods({ apiUrl, dryRun });
   const defaults = result.store.mods.filter((mod) => mod.defaultInstall);
   if (dryRun) {
-    console.log(`已验证商店 ${result.store.mods.length} 个 Mod，其中 ${defaults.length} 个为默认示例。`);
+    console.log(`已验证并准备注册商店全部 ${result.store.mods.length} 个 Mod，其中 ${defaults.length} 个为内置默认 Mod。`);
   } else {
-    console.log(`默认示例注册完成：发布 ${result.created.length} 个，保持 ${result.skipped.length} 个。`);
+    console.log(`商店 Mod 注册完成：发布 ${result.created.length} 个，保持 ${result.skipped.length} 个，下架 ${result.disabled.length} 个。`);
   }
-  for (const mod of defaults) console.log(`- ${mod.manifest.name} (${mod.id})`);
+  for (const mod of result.store.mods) console.log(`- ${mod.manifest.name} (${mod.id})`);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

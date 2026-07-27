@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-czsc",
+  "name": "CZSC 缠论结构",
+  "description": "基于官方 CZSC 的分型、笔、中枢和当前结构信号可视化，历史启发式标记与官方信号明确分层。",
+  "version": "0.1.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["CZSC", "缠论", "K线", "结构分析"],
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DOCK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988",
+    "route": "/mods/czsc"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "quant",
+    "navigation": {
+      "groupLabel": "量化",
+      "groupOrder": 30,
+      "itemOrder": 60,
+      "label": "CZSC 结构",
+      "directory": {
+        "id": "instock-suite",
+        "label": "InStock 分析",
+        "order": 60
+      },
+      "icon": "quant"
+    },
+    "compatibility": {
+      "level": 2,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": ["analysis.read"],
+    "dataServices": [],
+    "actions": {
+      "analysis.czsc": {
+        "binding": {
+          "type": "data",
+          "capability": "analysis.czsc"
+        },
+        "execution": "request",
+        "permission": "analysis.read",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "code": { "type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$" },
+            "period": { "enum": ["daily", "weekly", "monthly"] },
+            "bars": { "enum": [120, 240, 480, 800] }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "required": ["ok", "data", "meta"],
+          "properties": {
+            "ok": { "const": true },
+            "data": { "type": "object" },
+            "meta": { "type": "object" }
+          }
+        },
+        "confirmation": "none",
+        "timeoutSeconds": 30
+      }
+    },
+    "events": {
+      "emits": [],
+      "accepts": []
+    },
+    "refresh": { "mode": "manual" }
+  }
+}

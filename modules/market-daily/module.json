@@ -1,25 +1,116 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "id": "market-daily",
-  "name": "市场行情",
-  "version": "0.1.0",
+  "name": "市场终端",
+  "version": "0.3.0",
   "category": "market",
   "navigation": {
     "groupLabel": "市场",
-    "groupOrder": 20,
-    "itemOrder": 10,
+    "groupOrder": 10,
+    "itemOrder": 5,
+    "label": "终端",
+    "directory": {
+      "id": "market-suite",
+      "label": "行情工具",
+      "order": 5
+    },
     "icon": "market"
   },
   "entry": {
     "type": "structured",
     "url": "/mods/market-daily/"
   },
+  "compatibility": {
+    "level": 3,
+    "bridgeProtocol": "1.0",
+    "sdkVersion": "^0.1.0",
+    "viewSpecVersion": "1.0"
+  },
   "permissions": ["market.read"],
   "dataServices": ["market-data"],
-  "agentCapabilities": ["market.refresh", "market.explain"],
+  "actions": {
+    "market.refresh": {
+      "binding": { "type": "local" },
+      "execution": "request",
+      "permission": "market.read",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["id", "moduleId", "data"],
+        "properties": {
+          "id": { "type": "string" },
+          "moduleId": { "const": "market-daily" },
+          "data": {
+            "type": "object",
+            "required": ["asOf"],
+            "properties": { "asOf": { "type": "string" } }
+          }
+        }
+      },
+      "confirmation": "none"
+    },
+    "market.set-timeframe": {
+      "binding": { "type": "local" },
+      "execution": "request",
+      "permission": "market.read",
+      "inputSchema": {
+        "type": "object",
+        "required": ["timeframe"],
+        "properties": { "timeframe": { "enum": ["1m", "5m", "15m", "30m", "60m", "1d", "1w", "1M"] } },
+        "additionalProperties": false
+      },
+      "outputSchema": { "type": "object", "additionalProperties": true },
+      "confirmation": "none"
+    },
+    "chart.set-indicator": {
+      "binding": { "type": "local" },
+      "execution": "request",
+      "permission": "market.read",
+      "inputSchema": {
+        "type": "object",
+        "required": ["position", "indicator"],
+        "properties": {
+          "position": { "enum": ["primary", "secondary"] },
+          "indicator": { "enum": ["MA", "EMA", "BOLL", "VOL", "MACD", "RSI", "KDJ"] }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": { "type": "object", "additionalProperties": true },
+      "confirmation": "none"
+    },
+    "market.set-alert": {
+      "binding": { "type": "local" },
+      "execution": "request",
+      "permission": "market.read",
+      "inputSchema": {
+        "type": "object",
+        "required": ["direction", "price"],
+        "properties": {
+          "direction": { "enum": ["above", "below"] },
+          "price": { "type": "number", "exclusiveMinimum": 0 },
+          "label": { "type": "string", "maxLength": 80 }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": { "type": "object", "additionalProperties": true },
+      "confirmation": "none"
+    },
+    "workspace.save-layout": {
+      "binding": { "type": "local" },
+      "execution": "request",
+      "permission": "market.read",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "name": { "type": "string", "maxLength": 80 } },
+        "additionalProperties": false
+      },
+      "outputSchema": { "type": "object", "additionalProperties": true },
+      "confirmation": "none"
+    }
+  },
   "events": {
     "emits": ["security.selected"],
-    "accepts": ["date.changed", "security.selected"]
+    "accepts": ["security.selected"]
   },
   "refresh": {
     "mode": "schedule",

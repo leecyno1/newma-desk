@@ -1,0 +1,92 @@
+{
+  "id": "instock-analysis",
+  "name": "InStock 分析服务",
+  "description": "提供 CZSC 结构分析与行业 ETF 轮动快照。",
+  "priority": 30,
+  "baseUrl": "http://127.0.0.1:9988/api/v1",
+  "healthPath": "/health",
+  "transport": "rest",
+  "capabilities": {
+    "analysis.czsc": {
+      "method": "GET",
+      "path": "/czsc/analyses",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "code": { "type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$" },
+          "period": { "enum": ["daily", "weekly", "monthly"] },
+          "bars": { "enum": [120, 240, 480, 800] }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": { "const": true },
+          "data": {
+            "type": "object",
+            "required": ["symbol", "period", "end_date", "engine", "summary", "structure", "chart", "data_source"],
+            "properties": {
+              "symbol": { "type": "string" },
+              "period": { "type": "string" },
+              "end_date": { "type": "string" },
+              "engine": { "type": "object" },
+              "summary": { "type": "object" },
+              "structure": { "type": "object" },
+              "chart": { "type": "object" },
+              "data_source": { "type": "string" }
+            },
+            "additionalProperties": true
+          },
+          "meta": { "type": "object", "required": ["api_version", "request_id"] }
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.rotation": {
+      "method": "GET",
+      "path": "/rotations/snapshots",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "window": { "enum": [40, 60, 120] },
+          "benchmark": { "type": "string", "pattern": "^[0-9]{6}$" },
+          "refresh": { "enum": ["0", "1"] }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": { "const": true },
+          "data": {
+            "type": "object",
+            "required": ["as_of", "window", "benchmark", "data_source", "data_state", "summary", "etfs"],
+            "properties": {
+              "as_of": { "type": "string" },
+              "window": { "type": "integer" },
+              "benchmark": { "type": "object" },
+              "data_source": { "type": "string" },
+              "data_state": { "enum": ["complete", "partial"] },
+              "summary": { "type": "object" },
+              "etfs": { "type": "array" }
+            },
+            "additionalProperties": true
+          },
+          "meta": { "type": "object", "required": ["api_version", "request_id"] }
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    }
+  },
+  "timeoutSeconds": 30,
+  "allowedHosts": ["127.0.0.1", "localhost"]
+}

@@ -1,14 +1,16 @@
 import {
   modEventSchema,
   type ModEvent,
-} from "@vibedesk/contracts";
+} from "@newma-dock/contracts";
 
 export * from "./agent";
+export * from "./artifact";
 export * from "./data";
+export * from "./host";
 export * from "./model";
 
 // Keep the original channel name so already-built upstream Mods remain able to
-// exchange events during the VibeDesk migration.
+// exchange events during the Newma-Dock migration.
 const EVENT_CHANNEL = "vibe-visualization-events";
 const TRACE_CACHE_LIMIT = 256;
 

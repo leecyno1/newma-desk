@@ -21,13 +21,14 @@ import type { StoredMod } from "../api/modules";
 
 interface AgentSettingsProps {
   modules: StoredMod[];
+  userId: string;
 }
 
 function adapterName(adapter: AgentAdapterDescription): string {
   return adapter.name || adapter.id;
 }
 
-export function AgentSettings({ modules }: AgentSettingsProps) {
+export function AgentSettings({ modules, userId }: AgentSettingsProps) {
   const [adapters, setAdapters] = useState<AgentAdapterDescription[]>([]);
   const [defaultAdapter, setDefaultAdapter] = useState("");
   const [moduleOverrides, setModuleOverrides] = useState<Record<string, string>>(
@@ -41,7 +42,7 @@ export function AgentSettings({ modules }: AgentSettingsProps) {
 
   useEffect(() => {
     let active = true;
-    loadAgentSettings()
+    loadAgentSettings(userId)
       .then(({ adapters: rows, preferences }) => {
         if (!active) return;
         setAdapters(rows);
@@ -59,7 +60,7 @@ export function AgentSettings({ modules }: AgentSettingsProps) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [userId]);
 
   const availableAdapters = useMemo(
     () => adapters.filter((adapter) => adapter.available !== false),
@@ -71,7 +72,7 @@ export function AgentSettings({ modules }: AgentSettingsProps) {
     setError(undefined);
     setMessage(undefined);
     try {
-      const saved = await saveAgentPreferences({
+      const saved = await saveAgentPreferences(userId, {
         defaultAdapter,
         moduleOverrides,
       });
@@ -89,7 +90,7 @@ export function AgentSettings({ modules }: AgentSettingsProps) {
     setError(undefined);
     setMessage(undefined);
     try {
-      const answer = await probeAgent(adapter.id);
+      const answer = await probeAgent(userId, adapter.id);
       setMessage(`${adapterName(adapter)} 已连通：${answer.trim().slice(0, 120)}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Agent 测试失败");

@@ -30,7 +30,7 @@ describe("resolveModUrl", () => {
         "http://localhost:5173/path",
         "http://localhost:5173",
       ),
-    ).toThrow("Mod 服务必须使用与 VibeDesk 不同的 origin");
+    ).toThrow("Mod 服务必须使用与 Newma-Dock 不同的 origin");
   });
 
   it("rejects a same-origin external entry", () => {
@@ -40,6 +40,6 @@ describe("resolveModUrl", () => {
         "http://127.0.0.1:5891",
         "http://localhost:5173",
       ),
-    ).toThrow("Mod 页面必须使用与 VibeDesk 不同的 origin");
+    ).toThrow("Mod 页面必须使用与 Newma-Dock 不同的 origin");
   });
 });

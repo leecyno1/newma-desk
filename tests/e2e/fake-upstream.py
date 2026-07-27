@@ -2,16 +2,105 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
+
+
+def _quote(
+    symbol: str,
+    name: str,
+    market: str,
+    price: float,
+    change_pct: float,
+) -> dict[str, object]:
+    exchange = "SH" if market == "CN" else "NASDAQ"
+    currency = "CNY" if market == "CN" else "USD"
+    return {
+        "symbol": symbol,
+        "name": name,
+        "market": market,
+        "exchange": exchange,
+        "currency": currency,
+        "timezone": "Asia/Shanghai" if market == "CN" else "America/New_York",
+        "price": price,
+        "change": round(price * change_pct / 100, 2),
+        "changePct": change_pct,
+        "prevClose": round(price / (1 + change_pct / 100), 2),
+        "open": round(price * 0.995, 2),
+        "high": round(price * 1.012, 2),
+        "low": round(price * 0.988, 2),
+        "volume": 35_609_000,
+        "amount": 4_622_000_000,
+        "turnoverPct": 0.29,
+        "marketCap": 1_620_000_000_000,
+        "floatMarketCap": 1_620_000_000_000,
+        "pe": 22.3,
+        "pb": 7.1,
+        "amplitudePct": 2.4,
+        "volumeRatio": 1.08,
+        "limitUp": round(price * 1.1, 2) if market == "CN" else None,
+        "limitDown": round(price * 0.9, 2) if market == "CN" else None,
+        "orderBook": {
+            "bids": [{"price": price, "volume": 1500}],
+            "asks": [{"price": round(price + 0.01, 2), "volume": 1200}],
+        },
+        "trades": [],
+        "source": "e2e-market-data",
+        "sources": ["e2e-market-data"],
+        "asOf": "2026-07-24T15:00:00+08:00",
+    }
+
+
+QUOTES = {
+    "CN:600519": _quote("600519", "贵州茅台", "CN", 1488.0, 0.81),
+    "US:NVDA": _quote("NVDA", "NVIDIA", "US", 186.5, -1.06),
+}
+
+
+def _ohlcv(symbol: str, market: str, timeframe: str, adjust: str) -> dict[str, object]:
+    start = datetime(2026, 4, 1, tzinfo=UTC)
+    items = []
+    for index in range(90):
+        base = 1320 + index * 1.4 + ((index % 9) - 4) * 3
+        items.append({
+            "timestamp": int((start + timedelta(days=index)).timestamp() * 1000),
+            "open": round(base - 3, 2),
+            "high": round(base + 9, 2),
+            "low": round(base - 11, 2),
+            "close": round(base + (4 if index % 2 == 0 else -2), 2),
+            "volume": 40_000 + index * 700,
+            "turnover": 55_000_000 + index * 1_000_000,
+        })
+    return {
+        "symbol": symbol,
+        "market": market,
+        "timeframe": timeframe,
+        "adjust": adjust,
+        "items": items,
+        "source": "e2e-market-data",
+        "asOf": "2026-07-24T15:00:00+08:00",
+        "hasMore": False,
+    }
 
 
 RESPONSES: dict[str, object] = {
     "/health": {"ok": True, "service": "vibe-e2e-upstream"},
     "/api/market/overview": {
         "data": {
-            "sentiment": {"up": 3120, "down": 1800, "flat": 120},
+            "sentiment": {
+                "up": 3120,
+                "down": 1800,
+                "flat": 120,
+                "zt": 64,
+                "dt": 7,
+                "breadth": "偏强",
+            },
+            "sectors": [
+                {"name": "半导体", "pct": 2.1, "net": 2_000_000_000},
+                {"name": "光模块", "pct": 1.7, "net": 1_200_000_000},
+            ],
             "updated": "2026-07-20 15:00",
         }
     },
@@ -59,6 +148,37 @@ RESPONSES: dict[str, object] = {
             "updated": "2026-07-20 15:00",
         }
     },
+    "/api/announcements": {
+        "data": [
+            {
+                "title": "贵州茅台2026年半年度业绩预告",
+                "date": "2026-07-22 18:30:00",
+                "type": "业绩预告",
+                "url": "https://example.test/evidence/announcement-600519",
+            }
+        ]
+    },
+    "/api/reports": {
+        "data": [
+            {
+                "reportTitle": "贵州茅台：渠道韧性与中长期现金流观察",
+                "publishDate": "2026-07-21 09:15:00",
+                "orgSName": "E2E证券研究所",
+                "emRatingName": "跟踪",
+                "pdfUrl": "https://example.test/evidence/report-600519.pdf",
+            }
+        ]
+    },
+    "/api/news": {
+        "data": [
+            {
+                "新闻标题": "贵州茅台披露最新渠道运营信息",
+                "发布时间": "2026-07-20 14:00:00",
+                "文章来源": "E2E财经",
+                "新闻链接": "https://example.test/evidence/news-600519",
+            }
+        ]
+    },
 }
 
 HERMES_NEW_SESSION_CALLS = 0
@@ -87,7 +207,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def do_GET(self) -> None:  # noqa: N802
-        path = urlsplit(self.path).path
+        parsed = urlsplit(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
         if path == "/api/testing/hermes-stats":
             self._json(
                 200,
@@ -112,6 +234,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": "stream not found"})
                 return
             answer = f"Hermes E2E Agent 回答 #{stream['turn']}"
+            if "执行界面动作" in stream["message"]:
+                answer += (
+                    "\n<vibedesk_actions>"
+                    '[{"actionId":"market.set-timeframe","input":{"timeframe":"15m"}},'
+                    '{"actionId":"chart.set-indicator","input":{"position":"secondary","indicator":"MACD"}},'
+                    '{"actionId":"market.set-alert","input":{"direction":"above","price":190,"label":"E2E 上穿预警"}},'
+                    '{"actionId":"workspace.save-layout","input":{"name":"E2E Agent 布局"}}]'
+                    "</vibedesk_actions>"
+                )
             done = {
                 "session": {
                     "session_id": stream["session_id"],
@@ -133,7 +264,59 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/chat/cancel":
             self._json(200, {"ok": True, "cancelled": True})
             return
+        if path == "/market-terminal/search":
+            self._json(
+                200,
+                {
+                    "data": {
+                        "items": [
+                            {
+                                "symbol": "NVDA",
+                                "name": "NVIDIA",
+                                "market": "US",
+                                "exchange": "NASDAQ",
+                                "currency": "USD",
+                                "timezone": "America/New_York",
+                                "assetType": "stock",
+                                "source": "e2e-market-data",
+                            }
+                        ],
+                        "asOf": "2026-07-24T15:00:00+08:00",
+                        "source": "e2e-market-data",
+                    }
+                },
+            )
+            return
+        if path == "/market-terminal/quotes":
+            requested = str(query.get("symbols", [""])[0]).split(",")
+            items = [QUOTES[symbol] for symbol in requested if symbol in QUOTES]
+            self._json(
+                200,
+                {
+                    "data": {
+                        "items": items,
+                        "asOf": "2026-07-24T15:00:00+08:00",
+                        "source": "e2e-market-data",
+                    }
+                },
+            )
+            return
+        if path == "/market-terminal/quote":
+            market = str(query.get("market", ["CN"])[0]).upper()
+            symbol = str(query.get("symbol", ["600519"])[0]).upper()
+            quote = QUOTES.get(f"{market}:{symbol}", QUOTES["CN:600519"])
+            self._json(200, {"data": quote})
+            return
+        if path == "/market-terminal/ohlcv":
+            market = str(query.get("market", ["CN"])[0]).upper()
+            symbol = str(query.get("symbol", ["600519"])[0]).upper()
+            timeframe = str(query.get("timeframe", ["1d"])[0])
+            adjust = str(query.get("adjust", ["none"])[0])
+            self._json(200, {"data": _ohlcv(symbol, market, timeframe, adjust)})
+            return
         payload = RESPONSES.get(path)
+        if payload is None and not path.startswith("/api/"):
+            payload = RESPONSES.get(f"/api{path}")
         if payload is None:
             self._json(404, {"detail": "not found"})
             return

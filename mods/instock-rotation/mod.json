@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-rotation",
+  "name": "行业与 ETF 轮动",
+  "description": "以行业 ETF 为独立候选池，综合动量、相对强弱、趋势、成交连续性、行业广度与风险惩罚。",
+  "version": "0.1.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["行业轮动", "ETF", "相对强弱", "量化"],
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DOCK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988",
+    "route": "/mods/rotation"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "quant",
+    "navigation": {
+      "groupLabel": "量化",
+      "groupOrder": 30,
+      "itemOrder": 70,
+      "label": "行业轮动",
+      "directory": {
+        "id": "instock-suite",
+        "label": "InStock 分析",
+        "order": 60
+      },
+      "icon": "quant"
+    },
+    "compatibility": {
+      "level": 2,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": ["analysis.read"],
+    "dataServices": [],
+    "actions": {
+      "analysis.rotation": {
+        "binding": {
+          "type": "data",
+          "capability": "analysis.rotation"
+        },
+        "execution": "request",
+        "permission": "analysis.read",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "window": { "enum": [40, 60, 120] },
+            "benchmark": { "type": "string", "pattern": "^[0-9]{6}$" },
+            "refresh": { "enum": ["0", "1"] }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "required": ["ok", "data", "meta"],
+          "properties": {
+            "ok": { "const": true },
+            "data": { "type": "object" },
+            "meta": { "type": "object" }
+          }
+        },
+        "confirmation": "none",
+        "timeoutSeconds": 30
+      }
+    },
+    "events": {
+      "emits": [],
+      "accepts": []
+    },
+    "refresh": { "mode": "manual" }
+  }
+}

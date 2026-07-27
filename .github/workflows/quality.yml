@@ -1,0 +1,130 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Newma-Dock Python dependencies
+        run: |
+          python -m venv services/api/.venv
+          services/api/.venv/bin/pip install -e 'services/api[test]'
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run static release checks
+        run: npm run test:release:static
+
+      - name: Run isolated foundation E2E
+        run: npm run test:e2e
+
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-browser-diagnostics
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
+  integrated-mod-certification:
+    if: ${{ vars.NEWMA_DOCK_RUN_LIVE_MOD_CERTIFICATION == 'true' || vars.VIBEDESK_RUN_LIVE_MOD_CERTIFICATION == 'true' }}
+    needs: core-quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Newma-Dock dependencies
+        run: |
+          npm ci
+          python -m venv services/api/.venv
+          services/api/.venv/bin/pip install -e 'services/api[test]'
+
+      - name: Check out integrated Mod sources
+        env:
+          RESEARCH_REPOSITORY: ${{ vars.NEWMA_DOCK_RESEARCH_REPOSITORY || vars.VIBEDESK_RESEARCH_REPOSITORY }}
+          RESEARCH_REF: ${{ vars.NEWMA_DOCK_RESEARCH_REF || vars.VIBEDESK_RESEARCH_REF }}
+          TRADING_REPOSITORY: ${{ vars.NEWMA_DOCK_TRADING_REPOSITORY || vars.VIBEDESK_TRADING_REPOSITORY }}
+          TRADING_REF: ${{ vars.NEWMA_DOCK_TRADING_REF || vars.VIBEDESK_TRADING_REF }}
+        run: |
+          research_repository="${RESEARCH_REPOSITORY:-https://github.com/simonlin1212/Vibe-Research.git}"
+          trading_repository="${TRADING_REPOSITORY:-https://github.com/HKUDS/Vibe-Trading.git}"
+          git clone "$research_repository" mod-projects/vibe-research
+          git clone "$trading_repository" mod-projects/vibe-trading
+          if [ -n "$RESEARCH_REF" ]; then git -C mod-projects/vibe-research checkout "$RESEARCH_REF"; fi
+          if [ -n "$TRADING_REF" ]; then git -C mod-projects/vibe-trading checkout "$TRADING_REF"; fi
+
+      - name: Install integrated Mod dependencies
+        run: |
+          npm ci --prefix mod-projects/vibe-research/frontend
+          npm ci --prefix mod-projects/vibe-trading/frontend
+          services/api/.venv/bin/pip install -r mod-projects/vibe-research/backend/requirements.txt
+          services/api/.venv/bin/pip install -e mod-projects/vibe-trading
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run live Mod certification
+        run: npm run test:release:live
+
+      - name: Upload live browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integrated-mod-browser-diagnostics
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
+  external-mod-runtimes:
+    if: ${{ vars.NEWMA_DOCK_RUN_EXTERNAL_MODS == 'true' || vars.VIBEDESK_RUN_EXTERNAL_MODS == 'true' }}
+    needs: core-quality
+    runs-on: [self-hosted, vibedesk-mods]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify provisioned external Mod runtimes
+        run: |
+          npm ci
+          npm run dev:status -- --strict

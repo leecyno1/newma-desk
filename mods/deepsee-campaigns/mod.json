@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "id": "deepsee-campaigns",
+  "name": "Deepsee 消息群发",
+  "description": "在 Newma-Dock 中使用 Deepsee 的联系人选择、内容编辑、敬语和 WeChat API 群发管理页面。",
+  "version": "0.1.0",
+  "publisher": "Deepsee",
+  "upstream": "https://github.com/leecyno1/Deepsee",
+  "tags": ["Deepsee", "群发", "WeChat API"],
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_DEEPSEE_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:8001", "route": "/embed/send-management" },
+  "manifest": {
+    "category": "deepsee",
+    "navigation": { "groupLabel": "Deepsee", "groupOrder": 60, "itemOrder": 90, "label": "触达", "directory": { "id": "deepsee-suite", "label": "Deepsee 功能", "order": 10 }, "icon": "module" },
+    "permissions": ["deepsee.read", "deepsee.send"],
+    "dataServices": [],
+    "agentCapabilities": [],
+    "events": { "emits": [], "accepts": [] },
+    "refresh": { "mode": "manual" }
+  }
+}

@@ -1,6 +1,7 @@
-import type { View } from "@vibedesk/contracts";
+import type { View } from "@newma-dock/contracts";
 
 import { ActionsBlock, type ActionHandler } from "./blocks/ActionsBlock";
+import { ArtifactBlock } from "./blocks/ArtifactBlock";
 import { ChartBlock } from "./blocks/ChartBlock";
 import {
   FiltersBlock,
@@ -47,6 +48,8 @@ export function StructuredView({
             );
           case "chart":
             return <ChartBlock block={block} data={data} key={block.id} />;
+          case "artifact":
+            return <ArtifactBlock block={block} data={data} key={block.id} />;
           case "markdown":
             return <MarkdownBlock block={block} data={data} key={block.id} />;
           case "filters":

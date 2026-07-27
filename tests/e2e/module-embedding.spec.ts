@@ -19,13 +19,13 @@ test("demo Mod runs directly in standalone mode", async ({ page }) => {
   await expect(page.getByText("Mode: standalone", { exact: true })).toBeVisible();
 });
 
-test("VibeDesk embeds the demo Mod with its isolation contract", async ({
+test("Newma-Dock embeds the demo Mod with its isolation contract", async ({
   page,
 }) => {
   await page.goto(shellModuleUrl);
 
   await expect(
-    page.getByRole("button", { name: "Demo Mod" }),
+    page.getByRole("button", { name: "Demo Mod", exact: true }),
   ).toBeVisible();
 
   const frameElement = page.locator('iframe[title="Demo Mod"]');

@@ -1,52 +1,93 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ModBridge } from "@vibedesk/mod-sdk";
+import type { ModBridge } from "@newma-dock/mod-sdk";
 
-import { MarketPulseApp } from "./App";
-import { server } from "./test/server";
+import { buildMarketPageContext, MarketTerminalApp } from "./App";
+import type { MarketDataSource, Quote, SecurityRef } from "./types";
 
-vi.mock("echarts-for-react/lib/core", () => ({
-  default: () => <div data-testid="market-chart" />,
-}));
+vi.mock("./KLineChartPanel", async () => {
+  const React = await import("react");
+  return {
+    KLineChartPanel: React.forwardRef(function MockChart(
+      props: { loadBars: () => Promise<unknown> },
+      ref: React.ForwardedRef<unknown>,
+    ) {
+      React.useImperativeHandle(ref, () => ({
+        draw: vi.fn(),
+        clearDrawings: vi.fn(),
+        visibleRange: vi.fn(),
+      }));
+      React.useEffect(() => { void props.loadBars(); }, [props.loadBars]);
+      return <div data-testid="kline-chart" />;
+    }),
+  };
+});
 
-const snapshot = {
-  id: "a642793dfb534c8cbce93a20df57f72b",
-  moduleId: "market-daily",
-  createdAt: "2026-07-18T15:01:00+08:00",
-  data: {
-    asOf: "2026-07-18T15:00:00+08:00",
-    breadth: { up: 3120, down: 1800, flat: 120 },
-    indices: [
-      { symbol: "000001", name: "上证指数", price: 3520.1, changePct: 0.8 },
-    ],
-    globalIndices: [],
-    leaders: [
-      {
-        symbol: "600519",
-        name: "贵州茅台",
-        price: 1488,
-        changePct: 3.2,
-        amount: 120000000,
-        market: "CN",
-        industry: "白酒",
-      },
-    ],
-    charts: {
-      indexTrend: {
-        xAxis: { type: "category", data: ["上证指数"] },
-        yAxis: { type: "value" },
-        series: [{ type: "bar", data: [0.8] }],
-      },
-    },
-  },
+const cnSecurity: SecurityRef = {
+  symbol: "600519", name: "贵州茅台", market: "CN", exchange: "SH",
 };
+const usSecurity: SecurityRef = {
+  symbol: "NVDA", name: "NVIDIA", market: "US", exchange: "NASDAQ",
+};
+const securities: SecurityRef[] = [cnSecurity, usSecurity];
+
+const quotes: Quote[] = [
+  {
+    ...cnSecurity,
+    price: 1500,
+    change: 12,
+    changePct: 0.81,
+    open: 1490,
+    high: 1510,
+    low: 1485,
+    amount: 12_000_000_000,
+    source: "tencent",
+    asOf: "2026-07-24T10:00:00+08:00",
+    orderBook: { bids: [{ price: 1499, volume: 1000 }], asks: [{ price: 1501, volume: 800 }] },
+  },
+  {
+    ...usSecurity,
+    price: 186.5,
+    change: -2,
+    changePct: -1.06,
+    source: "sina",
+  },
+];
+
+function dataSource(): MarketDataSource {
+  return {
+    search: vi.fn(async () => [
+      { ...usSecurity, source: "eastmoney-search" },
+    ]),
+    quotes: vi.fn(async () => quotes),
+    quote: vi.fn(async (security) => quotes.find((item) => item.symbol === security.symbol) ?? { ...security }),
+    ohlcv: vi.fn(async (security, timeframe, adjustment) => ({
+      symbol: security.symbol,
+      market: security.market,
+      timeframe,
+      adjust: adjustment,
+      source: "tencent",
+      asOf: "2026-07-24T10:00:00+08:00",
+      hasMore: false,
+      items: [{ timestamp: 1, open: 1, high: 2, low: 1, close: 2, volume: 10 }],
+    })),
+    overview: vi.fn(async () => ({
+      sentiment: { up: 3000, down: 1800, flat: 120, breadth: "偏强" },
+      sectors: [{ name: "半导体", pct: 2.1, net: 200000000 }],
+      updated: "2026-07-24 10:00",
+    })),
+    indices: vi.fn(async () => [{ name: "上证指数", price: 3500, change_pct: 0.6 }]),
+    globalIndices: vi.fn(async () => [{ name: "纳斯达克", price: 22000, change_pct: -0.2 }]),
+    turnoverTop: vi.fn(async () => [{ code: "600519", name: "贵州茅台", price: 1500, pct: 0.81, amount: 12_000_000_000 }]),
+    events: vi.fn(async () => ({ items: [], sources: [], asOf: "2026-07-24T10:00:00+08:00" })),
+  };
+}
 
 function bridge(): ModBridge {
   return {
-    emit: vi.fn((event: string, payload: Record<string, unknown>, target?: string) => ({
+    emit: vi.fn((event, payload, target) => ({
       version: "1.0" as const,
       event,
       source: "market-daily",
@@ -59,124 +100,72 @@ function bridge(): ModBridge {
   };
 }
 
-describe("MarketPulseApp", () => {
-  it("shows the last snapshot timestamp and refresh action", async () => {
-    server.use(
-      http.get("/api/mods/market-daily/snapshot", () =>
-        HttpResponse.json(snapshot),
-      ),
-    );
-
-    render(<MarketPulseApp bridge={bridge()} />);
-
-    expect(await screen.findByText("2026-07-18 15:00")).toBeVisible();
-    expect(screen.getByRole("button", { name: "刷新行情" })).toBeVisible();
-    expect(screen.getByText("3,120")).toBeVisible();
-    expect(screen.getByTestId("market-chart")).toBeVisible();
+describe("MarketTerminalApp", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
   });
 
-  it("refreshes the snapshot and emits a selected security", async () => {
-    const moduleBridge = bridge();
-    const refreshed = {
-      ...snapshot,
-      id: "b642793dfb534c8cbce93a20df57f72b",
-      data: { ...snapshot.data, asOf: "2026-07-20T15:00:00+08:00" },
-    };
-    server.use(
-      http.get("/api/mods/market-daily/snapshot", () =>
-        HttpResponse.json(snapshot),
-      ),
-      http.post(
-        "/api/mods/market-daily/actions/market.refresh",
-        () => HttpResponse.json(refreshed),
-      ),
-    );
-    render(<MarketPulseApp bridge={moduleBridge} />);
-    await screen.findByText("2026-07-18 15:00");
+  it("renders a KLineChart terminal with quote, order book and market overview", async () => {
+    render(<MarketTerminalApp bridge={bridge()} dataSource={dataSource()} watchlistClient={null} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "刷新行情" }));
-    expect(await screen.findByText("2026-07-20 15:00")).toBeVisible();
-    await userEvent.click(
-      screen.getByRole("row", { name: /600519 贵州茅台/ }),
-    );
+    expect((await screen.findAllByText("1,500.00"))[0]).toBeVisible();
+    expect(screen.getByTestId("kline-chart")).toBeVisible();
+    expect(screen.getByText("卖1")).toBeVisible();
+    expect(await screen.findByText("3000")).toBeVisible();
+    expect(screen.queryByText("AI 调用方式")).not.toBeInTheDocument();
+  });
+
+  it("searches global securities and emits the shared security event", async () => {
+    const moduleBridge = bridge();
+    render(<MarketTerminalApp bridge={moduleBridge} dataSource={dataSource()} watchlistClient={null} />);
+
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索证券" }), "NVDA");
+    const results = await screen.findByRole("listbox");
+    await userEvent.click(within(results).getByRole("button", { name: /US NVIDIA/ }));
 
     expect(moduleBridge.emit).toHaveBeenCalledWith("security.selected", {
-      symbol: "600519",
-      market: "CN",
+      symbol: "NVDA",
+      name: "NVIDIA",
+      market: "US",
+      exchange: "NASDAQ",
     });
+    expect((await screen.findAllByText("186.50"))[0]).toBeVisible();
   });
 
-  it("switches to one-shot Model Gateway mode for explanations", async () => {
-    let actionPayload: unknown;
-    server.use(
-      http.get("/api/mods/market-daily/snapshot", () =>
-        HttpResponse.json(snapshot),
-      ),
-      http.post(
-        "/api/mods/market-daily/actions/market.explain",
-        async ({ request }) => {
-          actionPayload = await request.json();
-          return HttpResponse.json({
-            answer: "模型解释结果",
-            adapter: "openai-compatible",
-            model: "gpt-5.6",
-          });
-        },
-      ),
-    );
-    render(<MarketPulseApp bridge={bridge()} />);
-    await screen.findByText("2026-07-18 15:00");
+  it("lets users create their own watchlist groups", async () => {
+    render(<MarketTerminalApp bridge={bridge()} dataSource={dataSource()} watchlistClient={null} />);
 
-    expect(screen.getByRole("button", { name: "Agent" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await userEvent.click(screen.getByRole("button", { name: "模型" }));
-    expect(screen.getByText("一次性模型调用")).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "解释行情" }));
-
-    expect(await screen.findByText("模型行情解释")).toBeVisible();
-    expect(screen.getByText("模型解释结果")).toBeVisible();
-    expect(screen.getByText("openai-compatible · gpt-5.6")).toBeVisible();
-    expect(actionPayload).toEqual({
-      gatewayMode: "model",
-      prompt: "解释当前市场行情",
-    });
+    await userEvent.click(screen.getByRole("button", { name: "新建自选分组" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "自选分组名称" }), "我的海外组合");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect((screen.getByRole("combobox", { name: "自选分组" }) as HTMLSelectElement).value).toMatch(/^group-/);
+    expect(screen.getByText("当前分组为空")).toBeVisible();
   });
 
-  it("uses Agent mode by default for long-lived Mod context", async () => {
-    let actionPayload: unknown;
-    server.use(
-      http.get("/api/mods/market-daily/snapshot", () =>
-        HttpResponse.json(snapshot),
-      ),
-      http.post(
-        "/api/mods/market-daily/actions/market.explain",
-        async ({ request }) => {
-          actionPayload = await request.json();
-          return HttpResponse.json(
-            {
-              id: "task-1",
-              status: "completed",
-              result: { answer: "Agent 解释结果" },
-              error: null,
-            },
-            { status: 202 },
-          );
-        },
-      ),
-    );
-    render(<MarketPulseApp bridge={bridge()} />);
-    await screen.findByText("2026-07-18 15:00");
-
-    expect(screen.getByText("保留当前 Mod 的长期上下文")).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "解释行情" }));
-
-    expect(await screen.findByText("Agent 行情解释")).toBeVisible();
-    expect(screen.getByText("Agent 解释结果")).toBeVisible();
-    expect(actionPayload).toEqual({
-      gatewayMode: "agent",
-      prompt: "解释当前市场行情",
+  it("publishes chart state as Desk-level Agent context without duplicate Agent actions", () => {
+    const context = buildMarketPageContext({
+      security: cnSecurity,
+      quote: quotes[0],
+      timeframe: "1d",
+      adjustment: "qfq",
+      primaryIndicator: "MA",
+      secondaryIndicator: "MACD",
+      bottomTab: "overview",
+      railTab: "orderbook",
+      source: "tencent",
+      asOf: "2026-07-24T10:00:00+08:00",
+      visibleRange: { from: 10, to: 90 },
     });
+
+    expect(context.selection).toMatchObject({ symbol: "600519", market: "CN" });
+    expect(context.filters).toMatchObject({ timeframe: "1d", secondaryIndicator: "MACD" });
+    expect(context.actions.map((item) => item.id)).toEqual([
+      "market.refresh",
+      "market.set-timeframe",
+      "chart.set-indicator",
+      "market.set-alert",
+      "workspace.save-layout",
+    ]);
+    expect(context.actions.some((item) => item.id === "market.explain")).toBe(false);
   });
 });

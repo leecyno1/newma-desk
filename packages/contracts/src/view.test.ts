@@ -36,6 +36,15 @@ describe("viewSchema", () => {
           contentPath: "analysis.summary",
         },
         {
+          id: "industry-graph",
+          type: "artifact",
+          title: "产业链图谱",
+          renderer: "archify",
+          urlPath: "artifacts.industry.viewUrl",
+          specPath: "artifacts.industry.spec",
+          height: 620,
+        },
+        {
           id: "market-filters",
           type: "filters",
           fields: [
@@ -67,7 +76,7 @@ describe("viewSchema", () => {
       ],
     });
 
-    expect(view.blocks).toHaveLength(6);
+    expect(view.blocks).toHaveLength(7);
   });
 
   it("rejects arbitrary HTML and unknown blocks", () => {

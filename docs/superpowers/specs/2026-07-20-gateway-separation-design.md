@@ -4,7 +4,7 @@
 
 ## 目标
 
-VibeDesk 提供两条并列的 AI 链路，由 Mod 明确选择，任何一条都不自动转发到另一条：
+Newma-Dock 提供两条并列的 AI 链路，由 Mod 明确选择，任何一条都不自动转发到另一条：
 
 ```text
 Mod -> Model Gateway -> GPT / Claude / OpenAI-compatible / 本地模型
@@ -41,7 +41,7 @@ Model Gateway 不创建 Agent Task，也不创建或更新 Agent Session。
 - `GET /api/agent/tasks/{taskId}/events`
 - `POST /api/agent/tasks/{taskId}/cancel`
 
-第一版真实适配器为 `hermes-webui`。VibeDesk 调用 Hermes WebUI 的现有接口：
+第一版真实适配器为 `hermes-webui`。Newma-Dock 调用 Hermes WebUI 的现有接口：
 
 1. 首次使用 Mod 时调用 `POST /api/session/new`。
 2. 保存 `(userId, agentId, moduleId) -> upstreamSessionId` 映射。

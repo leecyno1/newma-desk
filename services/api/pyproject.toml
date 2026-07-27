@@ -2,14 +2,18 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["vibe_visualization_api"]
+
 [project]
-name = "vibedesk-api"
+name = "newma-dock-api"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
   "croniter>=6,<7",
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
+  "jsonschema>=4.25,<5",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
   "python-multipart>=0.0.20,<1",

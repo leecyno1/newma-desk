@@ -4,10 +4,10 @@
   "name": "交易台",
   "description": "查看策略运行、交易任务和执行状态；真实交易仍由独立确认链路控制。",
   "version": "0.1.0",
-  "publisher": "VibeDesk",
+  "publisher": "Newma-Dock",
   "upstream": "https://github.com/HKUDS/Vibe-Trading",
   "tags": ["交易", "运行", "策略"],
-  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5901", "route": "/runtime" },
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:8911", "route": "/mod-runtime/trading/runtime" },
   "manifest": {
     "category": "trading",
     "navigation": { "groupLabel": "交易", "groupOrder": 40, "itemOrder": 10, "icon": "trading" },

@@ -4,10 +4,10 @@
   "name": "量化总览",
   "description": "查看量化研究环境、任务状态、核心指标和最近运行结果。",
   "version": "0.1.0",
-  "publisher": "VibeDesk",
+  "publisher": "Newma-Dock",
   "upstream": "https://github.com/HKUDS/Vibe-Trading",
   "tags": ["量化", "总览", "运行状态"],
-  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5901", "route": "/" },
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:8911", "route": "/mod-runtime/trading/" },
   "manifest": {
     "category": "quant",
     "navigation": { "groupLabel": "量化", "groupOrder": 30, "itemOrder": 10, "icon": "quant" },

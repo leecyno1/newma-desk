@@ -1,6 +1,6 @@
 import ReactMarkdown from "react-markdown";
 
-import type { MarkdownBlock as MarkdownBlockContract } from "@vibedesk/contracts";
+import type { MarkdownBlock as MarkdownBlockContract } from "@newma-dock/contracts";
 
 import { resolvePath } from "../resolvePath";
 

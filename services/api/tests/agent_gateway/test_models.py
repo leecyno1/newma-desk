@@ -39,6 +39,7 @@ def test_agent_task_accepts_and_serializes_camel_case_module_id() -> None:
         "userId": "local-user",
         "moduleId": "market-daily",
         "capability": None,
+        "memoryScope": "user-agent-mod",
         "prompt": "解释异动",
         "context": {},
         "input": {},

@@ -1,41 +1,58 @@
 import { AlertTriangle, Boxes, Eye, LoaderCircle, RotateCw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { ModEvent } from "@vibedesk/contracts";
+import type { ModEvent } from "@newma-dock/contracts";
 
 import {
   getModRevision,
   listMods,
   type StoredMod,
 } from "./api/modules";
-import { ModFrame } from "./components/ModuleFrame";
+import { ModCopilot } from "./components/ModCopilot";
+import {
+  ModFrame,
+  type ModFrameHandle,
+} from "./components/ModuleFrame";
 import { AgentSettings } from "./components/AgentSettings";
 import { InterfaceSettings } from "./components/InterfaceSettings";
 import { ModStore } from "./components/ModStore";
 import { Sidebar } from "./components/Sidebar";
+import { SuiteSettings } from "./components/SuiteSettings";
 import { ShellEventBus } from "./events/ShellEventBus";
 import {
   loadCategoryOverrides,
+  loadSidebarNavigationPreferences,
   loadThemeMode,
   resolveTheme,
   saveCategoryOverrides,
+  saveSidebarNavigationPreferences,
   saveThemeMode,
   systemPrefersDark,
+  type SidebarNavigationPreferences,
   type ThemeMode,
 } from "./lib/workspacePreferences";
+import { loadWorkspaceIdentity } from "./lib/workspaceIdentity";
+import { compileSidebarNavigation } from "./lib/sidebarNavigation";
 
 const ACTIVE_MOD_KEY = "vibedesk.activeMod";
 const LEGACY_ACTIVE_MODULE_KEY = "vibe.shell.activeModule";
 const PREVIEW_PATTERN = /^([a-z][a-z0-9-]{2,63})@([1-9]\d*)$/;
 
-type ShellView = "mod" | "agent-settings" | "interface-settings" | "store";
+type ShellView = "mod" | "agent-settings" | "interface-settings" | "store" | "suite-settings";
+const DIRECTORY_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
+
+function directoryFromLocation(): string | undefined {
+  const directory = new URLSearchParams(window.location.search).get("directory");
+  return directory && DIRECTORY_PATTERN.test(directory) ? directory : undefined;
+}
 
 function viewFromLocation(): ShellView {
   const view = new URLSearchParams(window.location.search).get("view");
   if (
     view === "agent-settings" ||
     view === "interface-settings" ||
-    view === "store"
+    view === "store" ||
+    (view === "suite-settings" && directoryFromLocation() !== undefined)
   ) return view;
   return "mod";
 }
@@ -84,6 +101,7 @@ function writeModLocation(modId: string, mode: "push" | "replace") {
   url.searchParams.delete("preview");
   url.searchParams.delete("module");
   url.searchParams.delete("view");
+  url.searchParams.delete("directory");
   url.searchParams.set("mod", modId);
   window.history[mode === "push" ? "pushState" : "replaceState"](
     null,
@@ -111,16 +129,23 @@ function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
 }
 
 export function App() {
+  const [identity] = useState(loadWorkspaceIdentity);
   const [eventBus] = useState(() => new ShellEventBus());
   const [lastEvent, setLastEvent] = useState<ModEvent>();
   const [modules, setModules] = useState<StoredMod[]>([]);
   const modulesRef = useRef<StoredMod[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [activeView, setActiveView] = useState<ShellView>(viewFromLocation);
+  const [suiteSettingsDirectoryId, setSuiteSettingsDirectoryId] = useState(
+    directoryFromLocation,
+  );
   const [themeMode, setThemeMode] = useState<ThemeMode>(loadThemeMode);
   const [prefersDark, setPrefersDark] = useState(systemPrefersDark);
   const [categoryOverrides, setCategoryOverrides] = useState(
     loadCategoryOverrides,
+  );
+  const [navigationPreferences, setNavigationPreferences] = useState(
+    loadSidebarNavigationPreferences,
   );
   const [registryLoading, setRegistryLoading] = useState(true);
   const [registryLoaded, setRegistryLoaded] = useState(false);
@@ -129,6 +154,8 @@ export function App() {
   const [preview, setPreview] = useState<StoredMod>();
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string>();
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const moduleFrameRef = useRef<ModFrameHandle>(null);
   const previewRequestRef = useRef<AbortController | undefined>(undefined);
   const previewRequestSequenceRef = useRef(0);
   const resolvedTheme = resolveTheme(themeMode, prefersDark);
@@ -262,9 +289,13 @@ export function App() {
       setPreviewError(undefined);
       setPreviewLoading(false);
       setActiveView(requestedView);
+      setSuiteSettingsDirectoryId(
+        requestedView === "suite-settings" ? directoryFromLocation() : undefined,
+      );
       return;
     }
     setActiveView("mod");
+    setSuiteSettingsDirectoryId(undefined);
     const rawPreview = params.get("preview");
     if (rawPreview !== null) {
       void loadPreviewValue(rawPreview);
@@ -304,6 +335,7 @@ export function App() {
     setPreviewError(undefined);
     setSelectedId(module.moduleId);
     setActiveView("mod");
+    setSuiteSettingsDirectoryId(undefined);
     rememberSelection(module.moduleId);
     writeModLocation(module.moduleId, "push");
   };
@@ -320,16 +352,34 @@ export function App() {
     openSettings("store");
   };
 
+  const openSuiteSettings = (directoryId: string) => {
+    cancelPreviewRequest();
+    setPreviewMode(false);
+    setPreview(undefined);
+    setPreviewError(undefined);
+    setActiveView("suite-settings");
+    setSuiteSettingsDirectoryId(directoryId);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("preview");
+    url.searchParams.delete("module");
+    url.searchParams.delete("mod");
+    url.searchParams.set("view", "suite-settings");
+    url.searchParams.set("directory", directoryId);
+    window.history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  };
+
   const openSettings = (view: Exclude<ShellView, "mod">) => {
     cancelPreviewRequest();
     setPreviewMode(false);
     setPreview(undefined);
     setPreviewError(undefined);
     setActiveView(view);
+    setSuiteSettingsDirectoryId(undefined);
     const url = new URL(window.location.href);
     url.searchParams.delete("preview");
     url.searchParams.delete("module");
     url.searchParams.delete("mod");
+    url.searchParams.delete("directory");
     url.searchParams.set("view", view);
     window.history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
   };
@@ -344,6 +394,13 @@ export function App() {
     saveCategoryOverrides(overrides);
   };
 
+  const changeNavigationPreferences = (
+    preferences: SidebarNavigationPreferences,
+  ) => {
+    setNavigationPreferences(preferences);
+    saveSidebarNavigationPreferences(preferences);
+  };
+
   const retryPreview = () => {
     const rawPreview = new URLSearchParams(window.location.search).get(
       "preview",
@@ -352,6 +409,18 @@ export function App() {
   };
 
   const selected = modules.find((module) => module.moduleId === selectedId);
+  const sidebarNavigation = useMemo(
+    () => compileSidebarNavigation(modules, categoryOverrides, navigationPreferences),
+    [categoryOverrides, modules, navigationPreferences],
+  );
+  useEffect(() => {
+    if (sidebarNavigation.preferences === navigationPreferences) return;
+    setNavigationPreferences(sidebarNavigation.preferences);
+    saveSidebarNavigationPreferences(sidebarNavigation.preferences);
+  }, [navigationPreferences, sidebarNavigation.preferences]);
+  const activeSuite = suiteSettingsDirectoryId
+    ? sidebarNavigation.directoriesById.get(suiteSettingsDirectoryId)
+    : undefined;
   const activeModule = previewMode ? preview : selected;
   const showEmpty =
     registryLoaded &&
@@ -363,7 +432,7 @@ export function App() {
   return (
     <div className="shell-layout">
       <Sidebar
-        modules={modules}
+        navigation={sidebarNavigation}
         selectedId={
           previewMode || activeView !== "mod" ? undefined : selectedId
         }
@@ -376,7 +445,11 @@ export function App() {
         onOpenInterfaceSettings={openInterfaceSettings}
         storeActive={activeView === "store"}
         onOpenStore={openStore}
-        categoryOverrides={categoryOverrides}
+        suiteSettingsDirectoryId={
+          activeView === "suite-settings" ? suiteSettingsDirectoryId : undefined
+        }
+        onOpenSuiteSettings={(directory) => openSuiteSettings(directory.id)}
+        onNavigationPreferencesChange={changeNavigationPreferences}
       />
       <main className="shell-content">
         {previewMode && preview ? (
@@ -414,7 +487,25 @@ export function App() {
           </div>
         ) : null}
         {activeView === "agent-settings" ? (
-          <AgentSettings modules={modules} />
+          <AgentSettings modules={modules} userId={identity.userId} />
+        ) : activeView === "suite-settings" && activeSuite ? (
+          <SuiteSettings
+            suiteId={activeSuite.id}
+            suiteLabel={activeSuite.label}
+            modules={[
+              ...activeSuite.modules,
+              ...(activeSuite.settingsModule ? [activeSuite.settingsModule] : []),
+            ].map((item) => item.module)}
+            userId={identity.userId}
+            workspaceId={identity.workspaceId}
+            onOpenAgentSettings={openAgentSettings}
+          />
+        ) : activeView === "suite-settings" ? (
+          <div className="content-state empty-state">
+            <AlertTriangle size={28} aria-hidden="true" />
+            <strong>项目目录不存在</strong>
+            <span>该目录可能已被移动或删除，请从左侧二级目录重新打开设置。</span>
+          </div>
         ) : activeView === "store" ? (
           <ModStore onInstalled={loadRegistry} />
         ) : activeView === "interface-settings" ? (
@@ -424,14 +515,41 @@ export function App() {
             onThemeModeChange={changeThemeMode}
             categoryOverrides={categoryOverrides}
             onCategoryOverridesChange={changeCategoryOverrides}
+            navigationPreferences={navigationPreferences}
+            onNavigationPreferencesChange={changeNavigationPreferences}
           />
         ) : activeModule ? (
-          <ModFrame
-            key={`${activeModule.moduleId}@${activeModule.revision}`}
-            manifest={activeModule.manifest}
-            eventBus={eventBus}
-            theme={resolvedTheme}
-          />
+          <div className="mod-workspace">
+            <ModFrame
+              key={`${activeModule.moduleId}@${activeModule.revision}`}
+              ref={moduleFrameRef}
+              manifest={activeModule.manifest}
+              eventBus={eventBus}
+              theme={resolvedTheme}
+              userId={identity.userId}
+              workspaceId={identity.workspaceId}
+              copilotOpen={copilotOpen}
+              onToggleCopilot={() => setCopilotOpen((current) => !current)}
+              onRequestCopilotOpen={() => setCopilotOpen(true)}
+            />
+            <ModCopilot
+              module={activeModule}
+              open={copilotOpen}
+              userId={identity.userId}
+              workspaceId={identity.workspaceId}
+              onClose={() => setCopilotOpen(false)}
+              onEditCompleted={() => moduleFrameRef.current?.reload()}
+              onOpenAgentSettings={openAgentSettings}
+              requestContext={() =>
+                moduleFrameRef.current?.requestContext("agent") ??
+                Promise.resolve(undefined)
+              }
+              invokeUiAction={(actionId, input) =>
+                moduleFrameRef.current?.invokeUiAction(actionId, input) ??
+                Promise.reject(new Error("当前 Mod 动作通道不可用"))
+              }
+            />
+          </div>
         ) : null}
         {lastEvent ? (
           <div className="shell-event-log" aria-label="Mod 事件日志">

@@ -22,12 +22,12 @@ def get_mod_store(request: Request) -> ModStoreService:
     response_model=ModStoreResponse,
     response_model_exclude_none=True,
 )
-def list_store_mods(
+async def list_store_mods(
     store: ModStoreService = Depends(get_mod_store),
     repository: ModuleRepository = Depends(get_repository),
 ) -> ModStoreResponse:
     try:
-        return store.list(repository)
+        return await store.list(repository)
     except ModStoreError as error:
         raise HTTPException(error.status_code, error.detail) from error
 

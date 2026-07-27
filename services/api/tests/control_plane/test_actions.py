@@ -36,6 +36,69 @@ MANIFEST = {
     "events": {"emits": [], "accepts": []},
 }
 
+MANIFEST_V1_1 = {
+    "schemaVersion": "1.1",
+    "id": "market-daily",
+    "name": "每日股票行情",
+    "version": "1.0.0",
+    "category": "market",
+    "entry": {"type": "external", "url": "https://example.com/market"},
+    "compatibility": {
+        "level": 2,
+        "bridgeProtocol": "1.0",
+    },
+    "permissions": ["market.read"],
+    "dataServices": ["market-data"],
+    "actions": {
+        "market.explain": {
+            "binding": {
+                "type": "agent",
+                "memoryScope": "user-agent-mod",
+            },
+            "execution": "task",
+            "permission": "market.read",
+        },
+        "market.summarize": {
+            "binding": {"type": "model"},
+            "execution": "request",
+            "permission": "market.read",
+        },
+        "market.overview": {
+            "binding": {
+                "type": "data",
+                "service": "market-data",
+            },
+            "execution": "request",
+            "permission": "market.read",
+        },
+    },
+    "events": {"emits": [], "accepts": []},
+}
+
+MANIFEST_V1_1_UNIFIED = {
+    **MANIFEST_V1_1,
+    "navigation": {
+        "groupLabel": "市场",
+        "groupOrder": 10,
+        "itemOrder": 10,
+        "directory": {
+            "id": "market-suite",
+            "label": "行情工具",
+            "order": 5,
+        },
+        "icon": "market",
+    },
+    "dataServices": [],
+    "actions": {
+        **MANIFEST_V1_1["actions"],
+        "market.overview": {
+            "binding": {"type": "data"},
+            "execution": "request",
+            "permission": "market.read",
+        },
+    },
+}
+
 
 class FakeDataClient:
     def __init__(self) -> None:
@@ -100,7 +163,24 @@ def client(
 ) -> Iterator[TestClient]:
     service = DataServiceDescriptor(
         id="market-data",
+        priority=10,
         base_url="http://127.0.0.1:9000/api",
+        transport="rest",
+        allowed_hosts=["127.0.0.1"],
+        capabilities={
+            "market.overview": ServiceCapability(
+                method="POST",
+                path="/overview",
+                input_schema="MarketOverviewInput",
+                output_schema="MarketOverviewOutput",
+                permission="market.read",
+            )
+        },
+    )
+    alternate_service = DataServiceDescriptor(
+        id="alternate-market-data",
+        priority=20,
+        base_url="http://127.0.0.1:9001/api",
         transport="rest",
         allowed_hosts=["127.0.0.1"],
         capabilities={
@@ -124,7 +204,7 @@ def client(
         settings,
         agent_adapters=[fake_adapter],
         model_adapters=[fake_model_adapter],
-        data_services=[service],
+        data_services=[service, alternate_service],
         data_service_client=fake_data_client,
         scheduler_service=fake_refresh_service,
     )
@@ -139,6 +219,25 @@ def _publish(client: TestClient, manifest: dict[str, object] = MANIFEST) -> int:
     )
     assert response.status_code == 200
     return draft["revision"]
+
+
+def _session_headers(
+    client: TestClient,
+    *,
+    user_id: str = "alice",
+    workspace_id: str = "workspace-1",
+) -> dict[str, str]:
+    response = client.post(
+        "/api/modules/market-daily/sessions",
+        headers={"X-User-Id": user_id},
+        json={"instanceId": "instance-1", "workspaceId": workspace_id},
+    )
+    assert response.status_code == 201
+    assert response.json()["instanceId"] == "instance-1"
+    return {
+        "Authorization": f"Bearer {response.json()['accessToken']}",
+        "X-Newma-Dock-Instance-Id": "instance-1",
+    }
 
 
 def _audit_details(database_path: Path) -> list[dict[str, object]]:
@@ -236,6 +335,296 @@ def test_model_mode_does_not_create_agent_task_or_session(
         ).fetchone()[0]
     assert session_table == 0
     assert agent_task_table == 0
+
+
+def test_manifest_1_1_agent_binding_cannot_be_changed_by_payload(
+    client: TestClient,
+    fake_adapter: FakeAgentAdapter,
+    fake_model_adapter: FakeModelAdapter,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.explain",
+        headers=_session_headers(client),
+        json={"gatewayMode": "model", "prompt": "解释市场"},
+    )
+
+    assert response.status_code == 422
+    assert fake_adapter.requests == []
+    assert fake_model_adapter.requests == []
+
+
+def test_manifest_1_1_requires_a_scoped_session_token(
+    client: TestClient,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.summarize",
+        json={"prompt": "总结市场"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "valid Mod session token is required"}
+
+
+def test_manifest_1_1_rejects_a_session_from_another_mod_instance(
+    client: TestClient,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+    headers = _session_headers(client)
+    headers["X-Newma-Dock-Instance-Id"] = "instance-2"
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.summarize",
+        headers=headers,
+        json={"prompt": "总结市场"},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "Mod session does not grant this instance"
+    }
+
+
+def test_manifest_1_1_validates_inline_action_input_before_dispatch(
+    client: TestClient,
+    fake_model_adapter: FakeModelAdapter,
+) -> None:
+    manifest = json.loads(json.dumps(MANIFEST_V1_1))
+    manifest["actions"]["market.summarize"]["inputSchema"] = {
+        "type": "object",
+        "required": ["prompt"],
+        "properties": {"prompt": {"type": "string", "minLength": 1}},
+        "additionalProperties": False,
+    }
+    _publish(client, manifest)
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.summarize",
+        headers=_session_headers(client),
+        json={"date": "2026-07-23"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "schema_input_invalid"
+    assert fake_model_adapter.requests == []
+
+
+def test_manifest_1_1_validates_inline_action_output(
+    client: TestClient,
+    fake_model_adapter: FakeModelAdapter,
+) -> None:
+    manifest = json.loads(json.dumps(MANIFEST_V1_1))
+    manifest["actions"]["market.summarize"]["outputSchema"] = {
+        "type": "object",
+        "required": ["notReturnedByModel"],
+    }
+    _publish(client, manifest)
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.summarize",
+        headers=_session_headers(client),
+        json={"prompt": "总结市场"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "schema_output_invalid"
+    assert len(fake_model_adapter.requests) == 1
+
+
+def test_manifest_1_1_routes_agent_action_with_declared_memory_scope(
+    client: TestClient,
+    tmp_path: Path,
+    fake_adapter: FakeAgentAdapter,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+    SnapshotStore(tmp_path, tmp_path / "actions.db").write_success(
+        "market-daily",
+        {
+            "asOf": "2026-07-23T09:30:00+08:00",
+            "breadth": {"up": 2600, "down": 2200, "flat": 100},
+            "indices": [],
+            "globalIndices": [],
+            "leaders": [],
+        },
+    )
+
+    headers = _session_headers(client, user_id="alice", workspace_id="desk-1")
+    saved = client.put(
+        "/api/modules/market-daily/context",
+        headers=headers,
+        json={
+            "context": {
+                "view": {"id": "market-daily", "title": "市场行情"},
+                "visibleBlocks": [{"id": "leaders", "type": "table"}],
+                "selection": {"symbol": "600519", "market": "CN"},
+                "filters": {"industry": "半导体"},
+                "data": {
+                    "asOf": "2026-07-23T09:30:00+08:00",
+                    "source": "vibe-research",
+                    "freshness": "fresh",
+                },
+                "actions": [{"id": "market.explain", "available": True}],
+                "tasks": [],
+            }
+        },
+    )
+    assert saved.status_code == 200
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.explain",
+        headers=headers,
+        json={"prompt": "解释市场"},
+    )
+
+    assert response.status_code == 202
+    deadline = time.monotonic() + 1
+    while not fake_adapter.requests and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert fake_adapter.requests[0].memory_scope == "user-agent-mod"
+    structured = fake_adapter.requests[0].context["vibedesk"]
+    assert structured["mod"] == {"id": "market-daily", "revision": 1}
+    assert structured["workspace"] == {"id": "desk-1"}
+    assert structured["page"]["selection"] == {
+        "symbol": "600519",
+        "market": "CN",
+    }
+    assert "breadth" in fake_adapter.requests[0].prompt
+
+
+def test_manifest_1_1_routes_model_action_without_creating_agent_task(
+    client: TestClient,
+    fake_adapter: FakeAgentAdapter,
+    fake_model_adapter: FakeModelAdapter,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.summarize",
+        headers=_session_headers(client),
+        json={"prompt": "总结市场", "date": "2026-07-23"},
+    )
+
+    assert response.status_code == 200
+    assert fake_adapter.requests == []
+    assert len(fake_model_adapter.requests) == 1
+    request = fake_model_adapter.requests[0]
+    assert request.capability == "market.summarize"
+    assert request.input == {"date": "2026-07-23"}
+
+
+def test_manifest_1_1_routes_declared_data_action(
+    client: TestClient,
+    fake_data_client: FakeDataClient,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.overview",
+        headers=_session_headers(client),
+        json={"date": "2026-07-23"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"breadth": 0.63}
+    assert fake_data_client.calls == [
+        ("market-data", "market.overview", {"date": "2026-07-23"})
+    ]
+
+
+def test_manifest_1_1_unified_data_action_selects_highest_priority_provider(
+    client: TestClient,
+    tmp_path: Path,
+    fake_data_client: FakeDataClient,
+) -> None:
+    _publish(client, MANIFEST_V1_1_UNIFIED)
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.overview",
+        headers=_session_headers(
+            client,
+            user_id="alice",
+            workspace_id="desk-1",
+        ),
+        json={"date": "2026-07-23"},
+    )
+
+    assert response.status_code == 200
+    assert fake_data_client.calls == [
+        ("market-data", "market.overview", {"date": "2026-07-23"})
+    ]
+    audit = _audit_details(tmp_path / "actions.db")[-1]
+    assert audit["routing"] == "unified"
+    assert audit["service_id"] == "market-data"
+
+
+def test_manifest_1_1_unified_data_action_honors_suite_provider_preference(
+    client: TestClient,
+    fake_data_client: FakeDataClient,
+) -> None:
+    _publish(client, MANIFEST_V1_1_UNIFIED)
+    saved = client.put(
+        "/api/data-services/preferences/market-suite",
+        headers={"X-User-Id": "alice", "X-Workspace-Id": "desk-1"},
+        json={
+            "capabilityServices": {
+                "market.overview": "alternate-market-data",
+            }
+        },
+    )
+    assert saved.status_code == 200
+
+    response = client.post(
+        "/api/modules/market-daily/actions/market.overview",
+        headers=_session_headers(
+            client,
+            user_id="alice",
+            workspace_id="desk-1",
+        ),
+        json={"date": "2026-07-23"},
+    )
+
+    assert response.status_code == 200
+    assert fake_data_client.calls == [
+        ("alternate-market-data", "market.overview", {"date": "2026-07-23"})
+    ]
+
+
+def test_mod_session_persists_structured_context_for_agent_reading(
+    client: TestClient,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+    headers = _session_headers(client, user_id="alice", workspace_id="desk-1")
+    context = {
+        "view": {"id": "market-daily", "title": "市场行情"},
+        "visibleBlocks": [{"id": "breadth", "type": "metrics"}],
+        "selection": {"symbol": "600519"},
+        "filters": {},
+        "data": {
+            "asOf": "2026-07-23T09:30:00+08:00",
+            "source": "vibe-research",
+            "freshness": "fresh",
+        },
+        "actions": [{"id": "market.explain", "available": True}],
+        "tasks": [],
+    }
+
+    saved = client.put(
+        "/api/modules/market-daily/context",
+        headers=headers,
+        json={"context": context},
+    )
+    loaded = client.get(
+        "/api/modules/market-daily/context",
+        headers={"X-User-Id": "alice", "X-Workspace-Id": "desk-1"},
+    )
+
+    assert saved.status_code == 200
+    assert loaded.status_code == 200
+    assert loaded.json()["context"] == context
+    assert loaded.json()["revision"] == 1
 
 
 def test_published_module_can_call_declared_data_capability(

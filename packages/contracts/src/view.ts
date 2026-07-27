@@ -60,6 +60,18 @@ export const markdownBlockSchema = z
   })
   .strict();
 
+export const artifactBlockSchema = z
+  .object({
+    id: identifierSchema,
+    type: z.literal("artifact"),
+    title: z.string().min(1).optional(),
+    renderer: z.literal("archify"),
+    urlPath: dataPathSchema,
+    specPath: dataPathSchema.optional(),
+    height: z.number().positive().max(1600).optional(),
+  })
+  .strict();
+
 export const filterOptionSchema = z
   .object({
     label: z.string().min(1),
@@ -118,6 +130,7 @@ export const viewBlockSchema = z.discriminatedUnion("type", [
   metricsBlockSchema,
   tableBlockSchema,
   chartBlockSchema,
+  artifactBlockSchema,
   markdownBlockSchema,
   filtersBlockSchema,
   actionsBlockSchema,
@@ -136,6 +149,7 @@ export type MetricsBlock = z.infer<typeof metricsBlockSchema>;
 export type TableColumn = z.infer<typeof tableColumnSchema>;
 export type TableBlock = z.infer<typeof tableBlockSchema>;
 export type ChartBlock = z.infer<typeof chartBlockSchema>;
+export type ArtifactBlock = z.infer<typeof artifactBlockSchema>;
 export type MarkdownBlock = z.infer<typeof markdownBlockSchema>;
 export type FilterOption = z.infer<typeof filterOptionSchema>;
 export type FilterField = z.infer<typeof filterFieldSchema>;

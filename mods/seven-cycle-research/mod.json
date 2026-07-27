@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "1.0",
+  "id": "seven-cycle-research",
+  "name": "七周期研究",
+  "description": "Circle 全球周期、市场曲面、资产统计与数据校准研究系统。",
+  "version": "0.1.0",
+  "publisher": "Newma-Dock",
+  "upstream": "https://github.com/leecyno1/circle",
+  "tags": ["周期", "宏观", "资产", "研究"],
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DOCK_SEVEN_CYCLE_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:4174",
+    "route": "/"
+  },
+  "manifest": {
+    "category": "research",
+    "navigation": {
+      "groupLabel": "研究",
+      "groupOrder": 20,
+      "itemOrder": 25,
+      "icon": "research"
+    },
+    "permissions": [],
+    "dataServices": []
+  }
+}

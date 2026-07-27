@@ -1,5 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
+import { chromiumProject } from "./tests/e2e/browser-project";
 import {
   apiHealthUrl,
   apiOrigin,
@@ -34,12 +35,7 @@ export default defineConfig({
     trace: "retain-on-failure",
     viewport: { width: 1280, height: 720 },
   },
-  projects: [
-    {
-      name: "chromium",
-      use: { browserName: "chromium" },
-    },
-  ],
+  projects: [chromiumProject()],
   webServer: [
     {
       command:
@@ -56,22 +52,23 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 30_000,
       env: {
-        VIBEDESK_DATABASE_PATH: databasePath,
-        VIBEDESK_RUNTIME_DIR: runtimeDir,
-        VIBEDESK_ALLOWED_ORIGINS: `${shellOrigin},${moduleOrigin}`,
-        VIBEDESK_RESEARCH_BASE_URL: fakeOrigin,
-        VIBEDESK_OPENAI_BASE_URL: `${fakeOrigin}/v1`,
-        VIBEDESK_OPENAI_API_KEY: "e2e-api-key",
-        VIBEDESK_OPENAI_MODEL: "e2e-model",
-        VIBEDESK_MODEL_TIMEOUT_SECONDS: "5",
-        VIBEDESK_HERMES_WEBUI_BASE_URL: fakeOrigin,
-        VIBEDESK_AGENT_DEFAULT_ADAPTER: "hermes-webui",
-        VIBEDESK_AGENT_TIMEOUT_SECONDS: "5",
+        NEWMA_DOCK_DATABASE_PATH: databasePath,
+        NEWMA_DOCK_RUNTIME_DIR: runtimeDir,
+        NEWMA_DOCK_ALLOWED_ORIGINS: `${shellOrigin},${moduleOrigin}`,
+        NEWMA_DOCK_RESEARCH_BASE_URL: fakeOrigin,
+        NEWMA_DOCK_OPENAI_BASE_URL: `${fakeOrigin}/v1`,
+        NEWMA_DOCK_OPENAI_API_KEY: "e2e-api-key",
+        NEWMA_DOCK_OPENAI_MODEL: "e2e-model",
+        NEWMA_DOCK_MODEL_TIMEOUT_SECONDS: "5",
+        NEWMA_DOCK_HERMES_WEBUI_BASE_URL: fakeOrigin,
+        NEWMA_DOCK_AGENT_DEFAULT_ADAPTER: "hermes-webui",
+        NEWMA_DOCK_AGENT_TIMEOUT_SECONDS: "5",
+        NEWMA_DOCK_MOD_SESSION_SECRET: "e2e-fixed-mod-session-secret",
       },
     },
     {
       command:
-        "npm run dev -w @vibedesk/desk -- " +
+        "npm run dev -w @newma-dock/desk -- " +
         `--host 127.0.0.1 --port ${shellPort}`,
       url: `${shellOrigin}/`,
       reuseExistingServer: false,
@@ -83,7 +80,7 @@ export default defineConfig({
     },
     {
       command:
-        "npm run build -w @vibedesk/market-pulse && " +
+        "npm run build -w @newma-dock/market-pulse && " +
         `python3 tests/e2e/module-server.py --port ${modulePort}`,
       url: demoModuleUrl,
       reuseExistingServer: false,

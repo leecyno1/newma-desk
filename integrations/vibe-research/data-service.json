@@ -1,35 +1,207 @@
 {
   "id": "market-data",
-  "baseUrl": "http://127.0.0.1:8900",
-  "healthPath": "/api/health",
+  "name": "Newma-Dock 市场数据",
+  "description": "统一提供 A 股、港股、美股行情与研究数据。",
+  "priority": 10,
+  "baseUrl": "http://127.0.0.1:8911/api/research",
+  "healthPath": "/health",
   "transport": "rest",
   "capabilities": {
     "market.global-indices": {
       "method": "GET",
-      "path": "/api/global/indices",
-      "inputSchema": "EmptyInput",
-      "outputSchema": "VibeResearchGlobalIndices",
+      "path": "/global/indices",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "array" } }
+      },
       "permission": "market.read"
     },
     "market.indices": {
       "method": "GET",
-      "path": "/api/indices",
-      "inputSchema": "EmptyInput",
-      "outputSchema": "VibeResearchIndices",
+      "path": "/indices",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "array" } }
+      },
       "permission": "market.read"
     },
     "market.overview": {
       "method": "GET",
-      "path": "/api/market/overview",
-      "inputSchema": "EmptyInput",
-      "outputSchema": "VibeResearchMarketOverview",
+      "path": "/market/overview",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
       "permission": "market.read"
     },
     "market.turnover-top": {
       "method": "GET",
-      "path": "/api/market/turnover-top",
-      "inputSchema": "EmptyInput",
-      "outputSchema": "VibeResearchTurnoverTop",
+      "path": "/market/turnover-top",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "market.symbol-search": {
+      "method": "GET",
+      "path": "/market-terminal/search",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "minLength": 1, "maxLength": 48 },
+          "market": { "enum": ["ALL", "CN", "HK", "US"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 30 }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "market.quotes": {
+      "method": "GET",
+      "path": "/market-terminal/quotes",
+      "inputSchema": {
+        "type": "object",
+        "required": ["symbols"],
+        "properties": { "symbols": { "type": "string", "minLength": 1, "maxLength": 512 } },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "market.quote": {
+      "method": "GET",
+      "path": "/market-terminal/quote",
+      "inputSchema": {
+        "type": "object",
+        "required": ["symbol", "market"],
+        "properties": {
+          "symbol": { "type": "string", "minLength": 1, "maxLength": 24 },
+          "market": { "enum": ["CN", "HK", "US"] }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "market.ohlcv": {
+      "method": "GET",
+      "path": "/market-terminal/ohlcv",
+      "inputSchema": {
+        "type": "object",
+        "required": ["symbol", "market", "timeframe"],
+        "properties": {
+          "symbol": { "type": "string", "minLength": 1, "maxLength": 24 },
+          "market": { "enum": ["CN", "HK", "US"] },
+          "timeframe": { "enum": ["1m", "5m", "15m", "30m", "60m", "1d", "1w", "1M"] },
+          "limit": { "type": "integer", "minimum": 40, "maximum": 800 },
+          "adjust": { "enum": ["none", "qfq", "hfq"] }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "market.intraday": {
+      "method": "GET",
+      "path": "/market-terminal/ohlcv",
+      "inputSchema": {
+        "type": "object",
+        "required": ["symbol", "market", "timeframe"],
+        "properties": {
+          "symbol": { "type": "string", "minLength": 1, "maxLength": 24 },
+          "market": { "enum": ["CN", "HK", "US"] },
+          "timeframe": { "enum": ["1m", "5m", "15m", "30m", "60m"] },
+          "limit": { "type": "integer", "minimum": 40, "maximum": 800 },
+          "adjust": { "enum": ["none", "qfq", "hfq"] }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "market.announcements": {
+      "method": "GET",
+      "path": "/announcements",
+      "inputSchema": {
+        "type": "object",
+        "required": ["code"],
+        "properties": { "code": { "type": "string", "pattern": "^[0-9]{6}$" } },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "array" } }
+      },
+      "permission": "market.read"
+    },
+    "market.reports": {
+      "method": "GET",
+      "path": "/reports",
+      "inputSchema": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[0-9]{6}$" },
+          "pages": { "type": "integer", "minimum": 1, "maximum": 5 }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "array" } }
+      },
+      "permission": "market.read"
+    },
+    "market.news": {
+      "method": "GET",
+      "path": "/news",
+      "inputSchema": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[0-9]{6}$" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 50 }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "array" } }
+      },
       "permission": "market.read"
     }
   },

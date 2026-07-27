@@ -25,6 +25,7 @@ class AgentTaskCreate(GatewayModel):
     user_id: str = Field(default="local-user", pattern=USER_ID_PATTERN)
     module_id: str | None = Field(default=None, pattern=MODULE_ID_PATTERN)
     capability: str | None = Field(default=None, pattern=CAPABILITY_PATTERN)
+    memory_scope: Literal["user-agent-mod", "task"] = "user-agent-mod"
     prompt: str = ""
     context: dict[str, Any] = Field(default_factory=dict)
     input: dict[str, Any] = Field(default_factory=dict)

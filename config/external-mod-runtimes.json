@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "roots": [
+    {
+      "id": "projects",
+      "env": "NEWMA_DOCK_PROJECTS_ROOT",
+      "fallback": { "type": "repo-relative", "path": ".." }
+    },
+    {
+      "id": "desktop-projects",
+      "env": "NEWMA_DOCK_DESKTOP_PROJECTS_ROOT",
+      "fallback": { "type": "home-relative", "path": "Desktop/Projects" }
+    }
+  ],
+  "runtimes": [
+    {
+      "id": "deepsee",
+      "label": "Deepsee",
+      "adapter": "external-only",
+      "workspaces": {
+        "source": {
+          "env": "NEWMA_DOCK_DEEPSEE_WORKSPACE",
+          "candidates": [
+            { "root": "projects", "path": "0913" },
+            { "root": "projects", "path": "deepsee" },
+            { "root": "repo", "path": "mod-projects/deepsee" }
+          ]
+        }
+      },
+      "endpoints": {
+        "web": {
+          "env": "NEWMA_DOCK_DEEPSEE_WEB_URL",
+          "defaultOrigin": "http://127.0.0.1:8001",
+          "healthPath": "/api/health"
+        }
+      }
+    },
+    {
+      "id": "seven-cycle",
+      "label": "Seven Cycle Research",
+      "adapter": "seven-cycle",
+      "workspaces": {
+        "source": {
+          "env": "NEWMA_DOCK_SEVEN_CYCLE_WORKSPACE",
+          "candidates": [
+            { "root": "projects", "path": "1周期模块" },
+            { "root": "projects", "path": "seven-cycle" },
+            { "root": "repo", "path": "mod-projects/seven-cycle" }
+          ]
+        }
+      },
+      "endpoints": {
+        "web": {
+          "env": "NEWMA_DOCK_SEVEN_CYCLE_WEB_URL",
+          "defaultOrigin": "http://127.0.0.1:4174",
+          "healthPath": "/healthz"
+        }
+      }
+    },
+    {
+      "id": "instock",
+      "label": "InStock Analysis",
+      "adapter": "instock",
+      "workspaces": {
+        "source": {
+          "env": "NEWMA_DOCK_INSTOCK_WORKSPACE",
+          "candidates": [
+            { "root": "projects", "path": "stock-czsc-integration" },
+            { "root": "projects", "path": "instock-analysis" },
+            { "root": "repo", "path": "mod-projects/instock-analysis" }
+          ]
+        }
+      },
+      "endpoints": {
+        "web": {
+          "env": "NEWMA_DOCK_INSTOCK_WEB_URL",
+          "defaultOrigin": "http://127.0.0.1:9988",
+          "healthPath": "/api/v1/health"
+        }
+      }
+    },
+    {
+      "id": "orchestra",
+      "label": "Orchestra",
+      "adapter": "orchestra",
+      "workspaces": {
+        "frontend": {
+          "env": "NEWMA_DOCK_ORCHESTRA_FRONTEND_WORKSPACE",
+          "candidates": [
+            { "root": "projects", "path": "orchestra-prisma" },
+            { "root": "projects", "path": "投研日常/orchestra-prisma" },
+            { "root": "desktop-projects", "path": "投研日常/orchestra-prisma" }
+          ]
+        },
+        "backend": {
+          "env": "NEWMA_DOCK_ORCHESTRA_BACKEND_WORKSPACE",
+          "candidates": [
+            { "root": "projects", "path": "orchestra-agentscope" },
+            { "root": "projects", "path": "投研日常/orchestra-agentscope" },
+            { "root": "desktop-projects", "path": "投研日常/orchestra-agentscope" }
+          ]
+        }
+      },
+      "endpoints": {
+        "web": {
+          "env": "NEWMA_DOCK_ORCHESTRA_WEB_URL",
+          "defaultOrigin": "http://127.0.0.1:3001",
+          "healthPath": "/"
+        },
+        "api": {
+          "env": "NEWMA_DOCK_ORCHESTRA_API_URL",
+          "defaultOrigin": "http://127.0.0.1:8011",
+          "healthPath": "/healthz"
+        }
+      }
+    }
+  ]
+}

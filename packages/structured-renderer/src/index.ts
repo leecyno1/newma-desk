@@ -1,4 +1,5 @@
 export * from "./blocks/ActionsBlock";
+export * from "./blocks/ArtifactBlock";
 export * from "./blocks/FiltersBlock";
 export * from "./embeddedJson";
 export * from "./formatValue";

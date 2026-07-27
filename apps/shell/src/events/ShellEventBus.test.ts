@@ -1,4 +1,4 @@
-import type { ModEvent, ModManifest } from "@vibedesk/contracts";
+import type { ModEvent, ModManifest } from "@newma-dock/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -154,6 +154,26 @@ describe("ShellEventBus", () => {
       "https://research.example",
     );
     expect(rejecting.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("replays the latest broadcast selection to a later accepting Mod", async () => {
+    const bus = new ShellEventBus(runtime());
+    const selected = event({ payload: { symbol: "600519", market: "CN" } });
+    bus.route(selected);
+    const later = targetWindow();
+
+    bus.register({
+      moduleId: "stock-research",
+      manifest: manifest("stock-research", ["security.selected"]),
+      target: later,
+      origin: "https://research.example",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(later.postMessage).toHaveBeenCalledWith(
+      selected,
+      "https://research.example",
+    );
   });
 
   it("uses each registered exact origin and never a wildcard", () => {

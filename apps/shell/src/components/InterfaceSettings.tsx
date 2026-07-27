@@ -1,7 +1,9 @@
 import {
   FolderCog,
+  GripVertical,
   Monitor,
   Moon,
+  Pin,
   RotateCcw,
   Save,
   Sun,
@@ -10,7 +12,12 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { StoredMod } from "../api/modules";
 import {
+  customSidebarDirectory,
   defaultCategoryLabel,
+  defaultDirectory,
+  EMPTY_SIDEBAR_NAVIGATION,
+  type SidebarDirectoryRef,
+  type SidebarNavigationPreferences,
   type ThemeMode,
 } from "../lib/workspacePreferences";
 
@@ -20,6 +27,10 @@ interface InterfaceSettingsProps {
   onThemeModeChange: (mode: ThemeMode) => void;
   categoryOverrides: Record<string, string>;
   onCategoryOverridesChange: (overrides: Record<string, string>) => void;
+  navigationPreferences: SidebarNavigationPreferences;
+  onNavigationPreferencesChange: (
+    preferences: SidebarNavigationPreferences,
+  ) => void;
 }
 
 const themeOptions = [
@@ -43,56 +54,181 @@ const themeOptions = [
   },
 ];
 
+function copyNavigationPreferences(
+  preferences: SidebarNavigationPreferences,
+): SidebarNavigationPreferences {
+  return {
+    version: 1,
+    modules: Object.fromEntries(
+      Object.entries(preferences.modules).map(([moduleId, preference]) => [
+        moduleId,
+        {
+          ...preference,
+          ...(preference.directory
+            ? { directory: { ...preference.directory } }
+            : {}),
+        },
+      ]),
+    ),
+    directories: Object.fromEntries(
+      Object.entries(preferences.directories).map(([directoryId, preference]) => [
+        directoryId,
+        { ...preference },
+      ]),
+    ),
+  };
+}
+
+function hasDirectoryOverride(
+  preferences: SidebarNavigationPreferences,
+  moduleId: string,
+) {
+  return Object.hasOwn(preferences.modules[moduleId] ?? {}, "directory");
+}
+
+function effectiveDirectory(
+  module: StoredMod,
+  preferences: SidebarNavigationPreferences,
+): SidebarDirectoryRef | null {
+  const preference = preferences.modules[module.moduleId];
+  if (preference && Object.hasOwn(preference, "directory")) {
+    return preference.directory ?? null;
+  }
+  return defaultDirectory(module);
+}
+
 export function InterfaceSettings({
   modules,
   themeMode,
   onThemeModeChange,
   categoryOverrides,
   onCategoryOverridesChange,
+  navigationPreferences,
+  onNavigationPreferencesChange,
 }: InterfaceSettingsProps) {
-  const [draft, setDraft] = useState(categoryOverrides);
+  const [categoryDraft, setCategoryDraft] = useState(categoryOverrides);
+  const [navigationDraft, setNavigationDraft] = useState(
+    navigationPreferences,
+  );
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => setDraft(categoryOverrides), [categoryOverrides]);
+  useEffect(() => setCategoryDraft(categoryOverrides), [categoryOverrides]);
+  useEffect(
+    () => setNavigationDraft(navigationPreferences),
+    [navigationPreferences],
+  );
 
   const categorySuggestions = useMemo(
     () =>
       [...new Set([
         ...modules.map(defaultCategoryLabel),
-        ...Object.values(draft).map((label) => label.trim()).filter(Boolean),
+        ...Object.values(categoryDraft)
+          .map((label) => label.trim())
+          .filter(Boolean),
       ])].sort((left, right) => left.localeCompare(right, "zh-CN")),
-    [draft, modules],
+    [categoryDraft, modules],
+  );
+
+  const directoryCandidates = useMemo(() => {
+    const candidates = new Map<string, SidebarDirectoryRef>();
+    for (const module of modules) {
+      const groupLabel =
+        categoryDraft[module.moduleId]?.trim() || defaultCategoryLabel(module);
+      const directory = effectiveDirectory(module, navigationDraft);
+      if (directory) {
+        candidates.set(`${groupLabel}\u0000${directory.label}`, directory);
+      }
+    }
+    return candidates;
+  }, [categoryDraft, modules, navigationDraft]);
+
+  const directorySuggestions = useMemo(
+    () =>
+      [...new Set(
+        [...directoryCandidates.keys()].map((key) => key.split("\u0000")[1]),
+      )]
+        .filter((label): label is string => Boolean(label))
+        .sort((left, right) => left.localeCompare(right, "zh-CN")),
+    [directoryCandidates],
   );
 
   const updateCategory = (moduleId: string, value: string) => {
     setSaved(false);
-    setDraft((current) => ({ ...current, [moduleId]: value }));
+    setCategoryDraft((current) => ({ ...current, [moduleId]: value }));
   };
 
-  const useDefault = (moduleId: string) => {
+  const useDefaultCategory = (moduleId: string) => {
     setSaved(false);
-    setDraft((current) => {
+    setCategoryDraft((current) => {
       const next = { ...current };
       delete next[moduleId];
       return next;
     });
   };
 
+  const updateDirectory = (module: StoredMod, value: string) => {
+    setSaved(false);
+    const label = value.trim();
+    const groupLabel =
+      categoryDraft[module.moduleId]?.trim() || defaultCategoryLabel(module);
+    const directory = label
+      ? directoryCandidates.get(`${groupLabel}\u0000${label}`) ??
+        customSidebarDirectory(groupLabel, label)
+      : null;
+    setNavigationDraft((current) => {
+      const next = copyNavigationPreferences(current);
+      next.modules[module.moduleId] = {
+        ...next.modules[module.moduleId],
+        directory,
+      };
+      return next;
+    });
+  };
+
+  const useDefaultDirectory = (moduleId: string) => {
+    setSaved(false);
+    setNavigationDraft((current) => {
+      const next = copyNavigationPreferences(current);
+      const preference = next.modules[moduleId];
+      if (!preference) return next;
+      delete preference.directory;
+      if (Object.keys(preference).length === 0) delete next.modules[moduleId];
+      return next;
+    });
+  };
+
+  const showAtPrimaryLevel = (moduleId: string) => {
+    setSaved(false);
+    setNavigationDraft((current) => {
+      const next = copyNavigationPreferences(current);
+      next.modules[moduleId] = {
+        ...next.modules[moduleId],
+        directory: null,
+      };
+      return next;
+    });
+  };
+
   const save = () => {
-    const normalized = Object.fromEntries(
-      Object.entries(draft).flatMap(([moduleId, label]) => {
+    const normalizedCategories = Object.fromEntries(
+      Object.entries(categoryDraft).flatMap(([moduleId, label]) => {
         const trimmed = label.trim();
         return trimmed ? ([[moduleId, trimmed]] as const) : [];
       }),
     );
-    setDraft(normalized);
-    onCategoryOverridesChange(normalized);
+    const normalizedNavigation = copyNavigationPreferences(navigationDraft);
+    setCategoryDraft(normalizedCategories);
+    setNavigationDraft(normalizedNavigation);
+    onCategoryOverridesChange(normalizedCategories);
+    onNavigationPreferencesChange(normalizedNavigation);
     setSaved(true);
   };
 
   const reset = () => {
-    setDraft({});
+    setCategoryDraft({});
+    setNavigationDraft(EMPTY_SIDEBAR_NAVIGATION);
     onCategoryOverridesChange({});
+    onNavigationPreferencesChange(EMPTY_SIDEBAR_NAVIGATION);
     setSaved(true);
   };
 
@@ -135,24 +271,32 @@ export function InterfaceSettings({
       <section className="settings-section" aria-labelledby="category-heading">
         <div className="settings-section-heading category-heading">
           <div>
-            <h2 id="category-heading">侧边栏分类</h2>
-            <p>输入任意分类名称。相同名称的 Mod 会归入同一组，不再受预设分类限制。</p>
+            <h2 id="category-heading">侧边栏与二级目录</h2>
+            <p>
+              一级分类和二级目录均可自定义。排序、跨目录拖放和冻结可直接在左侧导航完成。
+            </p>
           </div>
           <div className="settings-actions">
             <button type="button" className="secondary-action" onClick={reset}>
               <RotateCcw size={14} aria-hidden="true" />
-              恢复默认
+              恢复全部默认
             </button>
             <button type="button" className="primary-action" onClick={save}>
               <Save size={14} aria-hidden="true" />
-              保存分类
+              保存导航
             </button>
           </div>
         </div>
 
+        <div className="sidebar-customization-help">
+          <span><GripVertical size={13} aria-hidden="true" />拖拽页面或目录调整顺序</span>
+          <span><Pin size={13} aria-hidden="true" />冻结后保持位置并禁止拖动</span>
+          <span><FolderCog size={13} aria-hidden="true" />同名目录会自动合并</span>
+        </div>
+
         {saved ? (
           <div className="settings-notice settings-success" role="status">
-            分类已保存，左侧导航已立即更新。
+            导航设置已保存，左侧边栏已立即更新。
           </div>
         ) : null}
 
@@ -161,39 +305,78 @@ export function InterfaceSettings({
             <option value={category} key={category} />
           ))}
         </datalist>
+        <datalist id="directory-suggestions">
+          {directorySuggestions.map((directory) => (
+            <option value={directory} key={directory} />
+          ))}
+        </datalist>
 
         <div className="category-editor-list">
           {modules.map((module) => {
             const defaultLabel = defaultCategoryLabel(module);
+            const manifestDirectory = defaultDirectory(module);
+            const directory = effectiveDirectory(module, navigationDraft);
+            const directoryOverridden = hasDirectoryOverride(
+              navigationDraft,
+              module.moduleId,
+            );
             return (
               <div className="category-editor-row" key={module.moduleId}>
                 <span className="category-module-name">
                   <FolderCog size={16} aria-hidden="true" />
                   <span>
                     <strong>{module.manifest.name}</strong>
-                    <small>{module.moduleId} · 默认：{defaultLabel}</small>
+                    <small>
+                      {module.moduleId} · 默认：{defaultLabel}
+                      {manifestDirectory ? ` / ${manifestDirectory.label}` : " / 一级"}
+                    </small>
                   </span>
                 </span>
-                <label>
-                  <span className="sr-only">{module.manifest.name}分类</span>
+                <label className="navigation-field">
+                  <span>一级分类</span>
                   <input
                     aria-label={`${module.manifest.name}分类`}
                     list="category-suggestions"
-                    value={draft[module.moduleId] ?? ""}
+                    value={categoryDraft[module.moduleId] ?? ""}
                     placeholder={defaultLabel}
                     onChange={(event) =>
                       updateCategory(module.moduleId, event.target.value)
                     }
                   />
                 </label>
-                <button
-                  type="button"
-                  className="row-reset-action"
-                  onClick={() => useDefault(module.moduleId)}
-                  disabled={!draft[module.moduleId]}
-                >
-                  使用默认
-                </button>
+                <label className="navigation-field">
+                  <span>二级目录</span>
+                  <input
+                    aria-label={`${module.manifest.name}二级目录`}
+                    list="directory-suggestions"
+                    value={directory?.label ?? ""}
+                    placeholder="一级直接显示"
+                    onChange={(event) => updateDirectory(module, event.target.value)}
+                  />
+                </label>
+                <span className="row-navigation-actions">
+                  <button
+                    type="button"
+                    className="row-reset-action"
+                    onClick={() => showAtPrimaryLevel(module.moduleId)}
+                    disabled={directoryOverridden && directory === null}
+                  >
+                    一级显示
+                  </button>
+                  <button
+                    type="button"
+                    className="row-reset-action"
+                    onClick={() => {
+                      useDefaultCategory(module.moduleId);
+                      useDefaultDirectory(module.moduleId);
+                    }}
+                    disabled={
+                      !categoryDraft[module.moduleId] && !directoryOverridden
+                    }
+                  >
+                    使用默认
+                  </button>
+                </span>
               </div>
             );
           })}

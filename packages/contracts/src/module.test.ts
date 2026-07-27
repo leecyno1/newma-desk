@@ -15,6 +15,45 @@ const valid = {
   events: { emits: ["security.selected"], accepts: ["date.changed"] },
 };
 
+const connected = {
+  schemaVersion: "1.1",
+  id: "factor-lab",
+  name: "因子实验室",
+  version: "1.0.0",
+  category: "quant",
+  entry: { type: "external", url: "https://quant.example/mod" },
+  compatibility: {
+    level: 2,
+    bridgeProtocol: "1.0",
+    sdkVersion: "^0.2.0",
+  },
+  permissions: ["quant.execute", "research.read"],
+  dataServices: ["vibe-trading"],
+  actions: {
+    "factor.backtest": {
+      binding: {
+        type: "data",
+        service: "vibe-trading",
+        capability: "factor.backtest",
+      },
+      execution: "task",
+      permission: "quant.execute",
+      inputSchema: "./schemas/factor-backtest.input.json",
+      outputSchema: "./schemas/factor-backtest.output.json",
+      confirmation: "user",
+    },
+    "research.explain": {
+      binding: {
+        type: "agent",
+        memoryScope: "user-agent-mod",
+      },
+      execution: "task",
+      permission: "research.read",
+    },
+  },
+  events: { emits: [], accepts: [] },
+} as const;
+
 describe("moduleManifestSchema", () => {
   it("parses a valid module manifest", () => {
     expect(moduleManifestSchema.parse(valid)).toEqual(valid);
@@ -25,6 +64,12 @@ describe("moduleManifestSchema", () => {
       groupLabel: "市场",
       groupOrder: 20,
       itemOrder: 10,
+      label: "行情",
+      directory: {
+        id: "market-suite",
+        label: "市场工具",
+        order: 5,
+      },
       icon: "market",
     };
 
@@ -152,5 +197,76 @@ describe("moduleManifestSchema", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("parses a Level 2 Manifest 1.1 with explicit action bindings", () => {
+    expect(moduleManifestSchema.parse(connected)).toEqual({
+      ...connected,
+      actions: {
+        ...connected.actions,
+        "research.explain": {
+          ...connected.actions["research.explain"],
+          confirmation: "none",
+        },
+      },
+    });
+  });
+
+  it("requires Level 3 Mods to declare the ViewSpec version", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...connected,
+        compatibility: {
+          level: 3,
+          bridgeProtocol: "1.0",
+        },
+      }),
+    ).toThrow(/ViewSpec/);
+  });
+
+  it("prevents a Level 1 Mod from declaring connected actions", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...connected,
+        compatibility: {
+          level: 1,
+          bridgeProtocol: "1.0",
+        },
+      }),
+    ).toThrow(/Level 1/);
+  });
+
+  it("requires every action permission and data service to be declared", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...connected,
+        permissions: ["research.read"],
+        dataServices: [],
+      }),
+    ).toThrow();
+  });
+
+  it("accepts a data action without a fixed service for Desk unified routing", () => {
+    const unified = {
+      ...connected,
+      dataServices: [],
+      actions: {
+        "market.quote": {
+          binding: {
+            type: "data",
+            capability: "market.quote",
+          },
+          execution: "request",
+          permission: "research.read",
+        },
+      },
+    } as const;
+
+    const parsed = moduleManifestSchema.parse(unified);
+    if (parsed.schemaVersion !== "1.1") throw new Error("expected Manifest 1.1");
+    expect(parsed.actions["market.quote"]).toEqual({
+      ...unified.actions["market.quote"],
+      confirmation: "none",
+    });
   });
 });

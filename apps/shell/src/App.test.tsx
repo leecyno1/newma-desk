@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { StoredMod } from "./api/modules";
 import { ShellEventBus } from "./events/ShellEventBus";
+import { sidebarGroupTone } from "./lib/sidebarGroupTheme";
 import { server } from "./test/server";
 
 const marketModule = storedModule({
@@ -105,9 +106,9 @@ describe("App", () => {
     server.use(
       http.get("/api/store/mods", () =>
         HttpResponse.json({
-          id: "vibedesk-official",
-          name: "VibeDesk 官方 Mod 商店",
-          repository: "https://github.com/leecyno1/vibedesk",
+          id: "newma-dock-official",
+          name: "Newma-Dock 官方 Mod 商店",
+          repository: "https://github.com/leecyno1/newma-dock",
           ref: "main",
           mods: [
             {
@@ -115,7 +116,7 @@ describe("App", () => {
               name: "每日复盘",
               description: "汇总每日市场变化和复盘结论。",
               version: "0.1.0",
-              publisher: "VibeDesk",
+              publisher: "Newma-Dock",
               upstream: "https://github.com/simonlin1212/Vibe-Research",
               category: "今日",
               tags: ["投研", "复盘"],
@@ -123,7 +124,7 @@ describe("App", () => {
               installState: installed ? "installed" : "available",
               ...(installed ? { installedRevision: 2 } : {}),
               sourceUrl:
-                "https://github.com/leecyno1/vibedesk/blob/main/mods/daily-review/mod.json",
+                "https://github.com/leecyno1/newma-dock/blob/main/mods/daily-review/mod.json",
             },
           ],
         }),
@@ -135,7 +136,7 @@ describe("App", () => {
           {
             action: "installed",
             sourceUrl:
-              "https://github.com/leecyno1/vibedesk/blob/main/mods/daily-review/mod.json",
+              "https://github.com/leecyno1/newma-dock/blob/main/mods/daily-review/mod.json",
             mod: {
               ...researchModule,
               moduleId: "daily-review",
@@ -192,19 +193,38 @@ describe("App", () => {
       screen.getByRole("combobox", { name: "研究资讯分类" }),
       "我的关注",
     );
+    await userEvent.type(
+      screen.getByRole("combobox", { name: "市场行情二级目录" }),
+      "核心工具",
+    );
+    await userEvent.type(
+      screen.getByRole("combobox", { name: "研究资讯二级目录" }),
+      "核心工具",
+    );
     await userEvent.click(
-      screen.getByRole("button", { name: "保存分类" }),
+      screen.getByRole("button", { name: "保存导航" }),
     );
 
     const navigation = screen.getByRole("navigation", {
-      name: "VibeDesk Mod 导航",
+      name: "Newma-Dock Mod 导航",
     });
     const customGroup = within(navigation).getByRole("group", {
       name: "我的关注",
     });
+    expect(customGroup).toHaveAttribute(
+      "data-group-tone",
+      sidebarGroupTone("我的关注"),
+    );
+    await userEvent.click(
+      within(customGroup).getByRole("button", { name: /^核心工具/ }),
+    );
+    const secondary = screen.getByRole("complementary", {
+      name: "核心工具 二级导航",
+    });
     expect(
-      within(customGroup)
+      within(secondary)
         .getAllByRole("button")
+        .filter((button) => button.classList.contains("module-button"))
         .map((button) => button.textContent),
     ).toEqual(["市场行情", "研究资讯"]);
     expect(
@@ -215,6 +235,15 @@ describe("App", () => {
       "market-daily": "我的关注",
       "research-news": "我的关注",
     });
+    const navigationPreferences = JSON.parse(
+      window.localStorage.getItem("vibedesk.sidebarNavigation.v1") || "{}",
+    );
+    expect(navigationPreferences.modules["market-daily"].directory).toEqual(
+      navigationPreferences.modules["research-news"].directory,
+    );
+    expect(navigationPreferences.modules["market-daily"].directory.label).toBe(
+      "核心工具",
+    );
   });
 
   it("opens Agent settings and persists a local CLI selection", async () => {
@@ -292,7 +321,7 @@ describe("App", () => {
     ).toBeVisible();
   });
 
-  it("uses Mod navigation metadata for the VibeDesk sidebar", async () => {
+  it("uses Mod navigation metadata for the Newma-Dock sidebar", async () => {
     const laterResearch = storedModule({
       id: "research-later",
       name: "后置研究",
@@ -339,10 +368,10 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("VibeDesk")).toBeVisible();
+    expect(await screen.findByText("Newma-Dock")).toBeVisible();
     expect(screen.getByText("智能模组工作台")).toBeVisible();
     const navigation = screen.getByRole("navigation", {
-      name: "VibeDesk Mod 导航",
+      name: "Newma-Dock Mod 导航",
     });
     expect(
       within(navigation)
@@ -352,8 +381,342 @@ describe("App", () => {
     expect(
       within(
         screen.getByRole("group", { name: "研究工作" }),
-      ).getAllByRole("button").map((button) => button.textContent),
+      ).getAllByRole("button")
+        .filter((button) => button.classList.contains("module-button"))
+        .map((button) => button.textContent),
     ).toEqual(["前置研究", "后置研究"]);
+  });
+
+  it("opens secondary navigation and persists pinning and drag placement", async () => {
+    const watchlist = storedModule({
+      id: "watchlist",
+      name: "自选股",
+      category: "market",
+      navigation: {
+        groupLabel: "市场",
+        groupOrder: 10,
+        itemOrder: 30,
+        label: "自选股",
+        icon: "market",
+      },
+      entry: { type: "static", url: "/modules/watchlist/" },
+    });
+    const terminal = storedModule({
+      id: "market-terminal",
+      name: "市场终端",
+      category: "market",
+      navigation: {
+        groupLabel: "市场",
+        groupOrder: 10,
+        itemOrder: 10,
+        label: "终端",
+        directory: { id: "market-suite", label: "行情工具", order: 5 },
+        icon: "market",
+      },
+      entry: { type: "static", url: "/modules/market-terminal/" },
+    });
+    const scanner = storedModule({
+      id: "market-scanner",
+      name: "市场扫描器",
+      category: "market",
+      navigation: {
+        groupLabel: "市场",
+        groupOrder: 10,
+        itemOrder: 20,
+        label: "扫描器",
+        directory: { id: "market-suite", label: "行情工具", order: 5 },
+        icon: "market",
+      },
+      entry: { type: "static", url: "/modules/market-scanner/" },
+    });
+    serveRegistry([watchlist, terminal, scanner]);
+    render(<App />);
+
+    const directoryButton = await screen.findByRole("button", {
+      name: /^行情工具/,
+    });
+    expect(screen.getByRole("button", { name: "自选股" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "终端" })).not.toBeInTheDocument();
+
+    await userEvent.click(directoryButton);
+    const secondary = screen.getByRole("complementary", {
+      name: "行情工具 二级导航",
+    });
+    expect(within(secondary).getByRole("button", { name: "终端" })).toBeVisible();
+    expect(within(secondary).getByRole("button", { name: "扫描器" })).toBeVisible();
+
+    await userEvent.click(
+      within(secondary).getByRole("button", { name: "冻结 扫描器" }),
+    );
+    expect(
+      within(secondary)
+        .getByRole("button", { name: "扫描器" })
+        .closest(".module-nav-row"),
+    ).toHaveAttribute("draggable", "false");
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("vibedesk.sidebarNavigation.v1") || "{}",
+      ).modules["market-scanner"].pinned,
+    ).toBe(true);
+
+    const dataTransfer = {
+      effectAllowed: "",
+      setData: vi.fn(),
+      getData: vi.fn(),
+    };
+    fireEvent.dragStart(
+      screen.getByRole("button", { name: "自选股" }).closest(".module-nav-row")!,
+      { dataTransfer },
+    );
+    fireEvent.drop(directoryButton.closest(".directory-nav-row")!, {
+      dataTransfer,
+    });
+
+    await waitFor(() =>
+      expect(
+        JSON.parse(
+          window.localStorage.getItem("vibedesk.sidebarNavigation.v1") || "{}",
+        ).modules.watchlist.directory,
+      ).toEqual({ id: "market-suite", label: "行情工具" }),
+    );
+  });
+
+  it("switches directory tabs to their first Mod and lets the active directory close", async () => {
+    const deepsee = storedModule({
+      id: "deepsee-overview",
+      name: "Deepsee 数据看板",
+      category: "deepsee",
+      navigation: {
+        groupLabel: "Deepsee",
+        groupOrder: 60,
+        itemOrder: 10,
+        label: "总览",
+        directory: { id: "deepsee-suite", label: "Deepsee 功能", order: 5 },
+        icon: "module",
+      },
+      entry: { type: "external", url: "http://127.0.0.1:8001/embed/dashboard" },
+    });
+    const terminal = storedModule({
+      id: "market-terminal",
+      name: "市场终端",
+      category: "market",
+      navigation: {
+        groupLabel: "市场",
+        groupOrder: 10,
+        itemOrder: 10,
+        label: "终端",
+        directory: { id: "market-suite", label: "行情工具", order: 5 },
+        icon: "market",
+      },
+      entry: { type: "static", url: "/modules/market-terminal/" },
+    });
+    window.history.replaceState(null, "", "/?mod=deepsee-overview");
+    serveRegistry([deepsee, terminal]);
+    render(<App />);
+
+    const deepseeDirectory = await screen.findByRole("button", {
+      name: /^Deepsee 功能/,
+    });
+    const marketDirectory = screen.getByRole("button", {
+      name: /^行情工具/,
+    });
+    await waitFor(() =>
+      expect(deepseeDirectory).toHaveAttribute("aria-expanded", "true"),
+    );
+    expect(screen.getByTitle("Deepsee 数据看板")).toBeVisible();
+
+    await userEvent.click(deepseeDirectory);
+
+    expect(deepseeDirectory).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("complementary", { name: "Deepsee 功能 二级导航" }),
+    ).not.toBeInTheDocument();
+    expect(deepseeDirectory.closest(".sidebar-shell")).toHaveAttribute(
+      "data-navigation-collapsed",
+      "false",
+    );
+
+    await userEvent.click(marketDirectory);
+
+    expect(await screen.findByTitle("市场终端")).toBeVisible();
+    expect(window.location.search).toBe("?mod=market-terminal");
+    expect(marketDirectory).toHaveAttribute("aria-expanded", "true");
+    expect(deepseeDirectory).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("adds project settings to every secondary directory and saves unified data routing", async () => {
+    let savedBody: unknown;
+    const terminal: StoredMod = {
+      moduleId: "market-terminal",
+      revision: 1,
+      status: "published",
+      manifest: {
+        schemaVersion: "1.1",
+        id: "market-terminal",
+        name: "市场终端",
+        version: "1.0.0",
+        category: "market",
+        navigation: {
+          groupLabel: "市场",
+          groupOrder: 10,
+          itemOrder: 10,
+          label: "终端",
+          directory: { id: "market-suite", label: "行情工具", order: 5 },
+          icon: "market",
+        },
+        entry: { type: "static", url: "/modules/market-terminal/" },
+        compatibility: { level: 2, bridgeProtocol: "1.0" },
+        permissions: ["market.read"],
+        dataServices: [],
+        actions: {
+          "market.quote": {
+            binding: { type: "data" },
+            execution: "request",
+            permission: "market.read",
+            confirmation: "none",
+          },
+        },
+        events: { emits: [], accepts: [] },
+      },
+      createdAt: "2026-07-20T00:00:00Z",
+    };
+    const scanner = storedModule({
+      id: "market-scanner",
+      name: "市场扫描器",
+      category: "market",
+      navigation: {
+        groupLabel: "市场",
+        groupOrder: 10,
+        itemOrder: 20,
+        label: "扫描器",
+        directory: { id: "market-suite", label: "行情工具", order: 5 },
+        icon: "market",
+      },
+      entry: { type: "static", url: "/modules/market-scanner/" },
+    });
+    serveRegistry([terminal, scanner]);
+    server.use(
+      http.get("/api/data-services/catalog", () => HttpResponse.json({
+        version: "1.0",
+        capabilities: [
+          {
+            id: "market.quote",
+            permissions: ["market.read"],
+            providers: [
+              {
+                id: "market-data",
+                name: "Newma-Dock 市场数据",
+                description: "统一市场数据",
+                priority: 10,
+                transport: "rest",
+              },
+              {
+                id: "backup-market",
+                name: "备用行情",
+                description: "备用市场数据",
+                priority: 20,
+                transport: "rest",
+              },
+            ],
+          },
+        ],
+      })),
+      http.get("/api/data-services/preferences/market-suite", () =>
+        HttpResponse.json({
+          userId: "local-user",
+          workspaceId: "local-workspace",
+          suiteId: "market-suite",
+          capabilityServices: {},
+          updatedAt: null,
+        }),
+      ),
+      http.put(
+        "/api/data-services/preferences/market-suite",
+        async ({ request }) => {
+          savedBody = await request.json();
+          return HttpResponse.json({
+            userId: "local-user",
+            workspaceId: "local-workspace",
+            suiteId: "market-suite",
+            ...(savedBody as object),
+            updatedAt: "2026-07-24T00:00:00Z",
+          });
+        },
+      ),
+    );
+    render(<App />);
+
+    const directoryButton = await screen.findByRole("button", {
+      name: /^行情工具/,
+    });
+    await waitFor(() => expect(directoryButton).toHaveAttribute("aria-expanded", "true"));
+    const secondary = screen.getByRole("complementary", {
+      name: "行情工具 二级导航",
+    });
+    await userEvent.click(
+      within(secondary).getByRole("button", { name: "项目设置" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "行情工具 · 项目设置" }),
+    ).toBeVisible();
+    expect(window.location.search).toContain("view=suite-settings");
+    expect(window.location.search).toContain("directory=market-suite");
+    expect(
+      screen.getByRole("complementary", { name: "行情工具 二级导航" }),
+    ).toBeVisible();
+    expect(screen.getByText("market.quote")).toBeVisible();
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "market.quote Provider" }),
+      "backup-market",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "保存数据路由" }),
+    );
+
+    await waitFor(() => expect(savedBody).toEqual({
+      capabilityServices: { "market.quote": "backup-market" },
+    }));
+    expect(screen.getByText(/项目数据路由已保存/)).toBeVisible();
+  });
+
+  it("collapses and restores primary and secondary navigation together", async () => {
+    const terminal = storedModule({
+      id: "market-terminal",
+      name: "市场终端",
+      category: "market",
+      navigation: {
+        groupLabel: "市场",
+        groupOrder: 10,
+        itemOrder: 10,
+        label: "终端",
+        directory: { id: "market-suite", label: "行情工具", order: 5 },
+        icon: "market",
+      },
+      entry: { type: "static", url: "/modules/market-terminal/" },
+    });
+    serveRegistry([terminal]);
+    render(<App />);
+
+    const secondary = await screen.findByRole("complementary", {
+      name: "行情工具 二级导航",
+    });
+    const shell = secondary.closest(".sidebar-shell");
+    expect(shell).toHaveAttribute("data-navigation-collapsed", "false");
+
+    await userEvent.click(
+      within(secondary).getByRole("button", { name: "收起一级与二级导航" }),
+    );
+    expect(shell).toHaveAttribute("data-navigation-collapsed", "true");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "展开一级与二级导航" }),
+    );
+    expect(shell).toHaveAttribute("data-navigation-collapsed", "false");
+    expect(
+      screen.getByRole("complementary", { name: "行情工具 二级导航" }),
+    ).toBeInTheDocument();
   });
 
   it("closes its shell event bus on unmount", async () => {
@@ -511,7 +874,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Mod 服务必须使用与 VibeDesk 不同的 origin",
+      "Mod 服务必须使用与 Newma-Dock 不同的 origin",
     );
     expect(screen.queryByRole("iframe")).not.toBeInTheDocument();
     expect(
@@ -533,7 +896,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Mod 页面必须使用与 VibeDesk 不同的 origin",
+      "Mod 页面必须使用与 Newma-Dock 不同的 origin",
     );
     expect(screen.queryByRole("iframe")).not.toBeInTheDocument();
     expect(
@@ -703,6 +1066,7 @@ describe("App", () => {
     expect(
       within(marketGroup)
         .getAllByRole("button")
+        .filter((button) => button.classList.contains("module-button"))
         .map((button) => button.textContent),
     ).toEqual(["A 股总览", "市场行情"]);
   });

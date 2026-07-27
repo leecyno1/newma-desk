@@ -23,11 +23,31 @@ interface CapabilityResponse {
   moduleActions: Array<{ moduleId: string; capabilities: string[] }>;
 }
 
-interface AgentTask {
+export interface AgentTask {
   id: string;
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
-  result?: { answer?: string } | null;
+  result?: {
+    answer?: string;
+    message?: string;
+    actions?: Array<{ actionId: string; input?: Record<string, unknown> }>;
+    [key: string]: unknown;
+  } | null;
   error?: string | null;
+}
+
+export interface AgentTaskCreateInput {
+  moduleId: string;
+  capability?: string;
+  memoryScope?: "user-agent-mod" | "task";
+  prompt: string;
+  context?: Record<string, unknown>;
+  input?: Record<string, unknown>;
+  adapter?: string;
+}
+
+export interface AgentRequestIdentity {
+  userId: string;
+  workspaceId?: string;
 }
 
 async function responseJson<T>(response: Response): Promise<T> {
@@ -50,44 +70,75 @@ async function responseJson<T>(response: Response): Promise<T> {
   return body as T;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  identity?: AgentRequestIdentity,
+): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("Accept", "application/json");
   if (init?.body !== undefined) headers.set("Content-Type", "application/json");
+  if (identity?.userId) headers.set("X-User-Id", identity.userId);
+  if (identity?.workspaceId) {
+    headers.set("X-Workspace-Id", identity.workspaceId);
+  }
   return responseJson<T>(
     await fetch(path, { ...init, credentials: "omit", headers }),
   );
 }
 
-export async function loadAgentSettings(): Promise<{
+export async function loadAgentSettings(userId: string): Promise<{
   adapters: AgentAdapterDescription[];
   preferences: AgentPreferences;
 }> {
   const [capabilities, preferences] = await Promise.all([
     request<CapabilityResponse>("/api/capabilities"),
-    request<AgentPreferences>("/api/agent/preferences"),
+    request<AgentPreferences>("/api/agent/preferences", undefined, { userId }),
   ]);
   return { adapters: capabilities.adapters, preferences };
 }
 
 export function saveAgentPreferences(
+  userId: string,
   preferences: Pick<AgentPreferences, "defaultAdapter" | "moduleOverrides">,
 ): Promise<AgentPreferences> {
   return request<AgentPreferences>("/api/agent/preferences", {
     method: "PUT",
     body: JSON.stringify(preferences),
-  });
+  }, { userId });
 }
 
-export async function probeAgent(adapter: string): Promise<string> {
+export function createAgentTask(
+  identity: AgentRequestIdentity,
+  input: AgentTaskCreateInput,
+): Promise<AgentTask> {
+  return request<AgentTask>(
+    "/api/agent/tasks",
+    { method: "POST", body: JSON.stringify(input) },
+    identity,
+  );
+}
+
+export function getAgentTask(taskId: string): Promise<AgentTask> {
+  return request<AgentTask>(`/api/agent/tasks/${encodeURIComponent(taskId)}`);
+}
+
+export function cancelAgentTask(taskId: string): Promise<AgentTask> {
+  return request<AgentTask>(
+    `/api/agent/tasks/${encodeURIComponent(taskId)}/cancel`,
+    { method: "POST" },
+  );
+}
+
+export async function probeAgent(userId: string, adapter: string): Promise<string> {
   const created = await request<AgentTask>("/api/agent/tasks", {
     method: "POST",
     body: JSON.stringify({
       moduleId: "agent-settings",
       adapter,
-      prompt: "只回复 VIBEDESK_AGENT_OK，不要调用工具，不要修改文件。",
+      prompt: "只回复 NEWMA_DOCK_AGENT_OK，不要调用工具，不要修改文件。",
     }),
-  });
+  }, { userId });
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     const task = await request<AgentTask>(`/api/agent/tasks/${created.id}`);

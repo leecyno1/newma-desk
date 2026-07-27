@@ -1,5 +1,5 @@
 import re
-from typing import Annotated, Literal
+from typing import Any, Annotated, Literal
 from urllib.parse import unquote_to_bytes, urljoin, urlsplit
 
 from pydantic import (
@@ -11,8 +11,11 @@ from pydantic import (
     TypeAdapter,
     ValidationError,
     field_validator,
+    model_validator,
 )
 from pydantic.alias_generators import to_camel
+
+from vibe_visualization_api.schema_validation import validate_schema_document
 
 
 LOCAL_URL_ORIGIN = "https://module.local"
@@ -20,6 +23,8 @@ MODULE_ID_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
 MODULE_VERSION_PATTERN = r"^\d+\.\d+\.\d+$"
 MODULE_CATEGORY_PATTERN = r"^[a-z][a-z0-9-]{1,31}$"
 MODULE_EVENT_PATTERN = r"^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$"
+MODULE_CAPABILITY_PATTERN = r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$"
+MODULE_SERVICE_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
 INVALID_PERCENT_ENCODING = re.compile(r"%(?![0-9a-fA-F]{2})")
 URL_ADAPTER = TypeAdapter(AnyUrl)
 
@@ -146,10 +151,18 @@ class ModuleEvents(ApiModel):
     accepts: list[ModuleEventName] = Field(default_factory=list)
 
 
+class ModuleNavigationDirectory(ApiModel):
+    id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,47}$")
+    label: str = Field(min_length=1, max_length=40)
+    order: int = Field(default=100, ge=0)
+
+
 class ModuleNavigation(ApiModel):
     group_label: str = Field(min_length=1, max_length=40)
     group_order: int = Field(default=100, ge=0)
     item_order: int = Field(default=100, ge=0)
+    label: str | None = Field(default=None, min_length=1, max_length=40)
+    directory: ModuleNavigationDirectory | None = None
     icon: Literal[
         "today",
         "research",
@@ -159,10 +172,111 @@ class ModuleNavigation(ApiModel):
         "settings",
         "module",
     ] = "module"
+    role: Literal["page", "settings"] | None = None
+
+
+class ModuleCompatibility(ApiModel):
+    level: Literal[1, 2, 3]
+    bridge_protocol: Literal["1.0"]
+    sdk_version: str | None = Field(default=None, min_length=1, max_length=80)
+    view_spec_version: Literal["1.0"] | None = None
+
+
+class AgentActionBinding(ApiModel):
+    type: Literal["agent"]
+    capability: str | None = Field(default=None, pattern=MODULE_CAPABILITY_PATTERN)
+    memory_scope: Literal[
+        "user-agent-mod",
+        "task",
+    ]
+
+
+class ModelActionBinding(ApiModel):
+    type: Literal["model"]
+    capability: str | None = Field(default=None, pattern=MODULE_CAPABILITY_PATTERN)
+
+
+class DataActionBinding(ApiModel):
+    type: Literal["data"]
+    service: str | None = Field(default=None, pattern=MODULE_SERVICE_PATTERN)
+    capability: str | None = Field(default=None, pattern=MODULE_CAPABILITY_PATTERN)
+
+
+class LocalActionBinding(ApiModel):
+    type: Literal["local"]
+    capability: str | None = Field(default=None, pattern=MODULE_CAPABILITY_PATTERN)
+
+
+ModuleActionBinding = Annotated[
+    AgentActionBinding
+    | ModelActionBinding
+    | DataActionBinding
+    | LocalActionBinding,
+    Field(discriminator="type"),
+]
+
+
+class ModuleAction(ApiModel):
+    binding: ModuleActionBinding
+    execution: Literal["request", "task", "stream"]
+    permission: str = Field(pattern=MODULE_CAPABILITY_PATTERN)
+    input_schema: dict[str, Any] | str | None = None
+    output_schema: dict[str, Any] | str | None = None
+    confirmation: Literal["none", "user", "strong"] = "none"
+    timeout_seconds: float | None = Field(default=None, gt=0, le=300)
+
+    @field_validator("input_schema", "output_schema")
+    @classmethod
+    def validate_schema_contract(
+        cls, value: dict[str, Any] | str | None
+    ) -> dict[str, Any] | str | None:
+        if isinstance(value, str):
+            if not 1 <= len(value) <= 512:
+                raise ValueError("schema reference must be between 1 and 512 chars")
+            return value
+        if isinstance(value, dict):
+            validate_schema_document(value)
+        return value
+
+
+class ModSessionCreate(ApiModel):
+    instance_id: str = Field(min_length=1, max_length=128)
+    workspace_id: str = Field(min_length=1, max_length=128)
+
+
+class ModSessionGrants(ApiModel):
+    permissions: list[str]
+    actions: list[str]
+
+
+class ModSessionResponse(ApiModel):
+    session_id: str
+    instance_id: str
+    access_token: str
+    token_type: Literal["Bearer"] = "Bearer"
+    expires_at: str
+    user_id: str
+    workspace_id: str
+    module_id: str
+    revision: int
+    grants: ModSessionGrants
+
+
+class ModContextUpdate(ApiModel):
+    context: dict[str, Any]
+
+
+class ModContextResponse(ApiModel):
+    module_id: str
+    revision: int
+    user_id: str
+    workspace_id: str
+    context: dict[str, Any]
+    updated_at: str
 
 
 class ModuleManifest(ApiModel):
-    schema_version: Literal["1.0"]
+    schema_version: Literal["1.0", "1.1"]
     id: str = Field(pattern=MODULE_ID_PATTERN)
     name: str = Field(min_length=1, max_length=80)
     version: str = Field(pattern=MODULE_VERSION_PATTERN)
@@ -170,18 +284,87 @@ class ModuleManifest(ApiModel):
     navigation: ModuleNavigation | None = None
     entry: ModuleEntry
     icon: str | None = None
+    compatibility: ModuleCompatibility | None = None
     permissions: list[str] = Field(default_factory=list)
     data_services: list[str] = Field(default_factory=list)
-    agent_capabilities: list[str] = Field(default_factory=list)
+    agent_capabilities: list[str] | None = None
+    actions: dict[str, ModuleAction] | None = None
     events: ModuleEvents = Field(default_factory=ModuleEvents)
     refresh: ModuleRefresh | None = None
 
-    @field_validator("icon", "navigation", "refresh", mode="before")
+    @model_validator(mode="before")
+    @classmethod
+    def apply_versioned_defaults(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        schema_version = normalized.get("schemaVersion")
+        if schema_version == "1.0":
+            normalized.setdefault("agentCapabilities", [])
+        elif schema_version == "1.1":
+            normalized.setdefault("actions", {})
+        return normalized
+
+    @field_validator(
+        "icon",
+        "navigation",
+        "compatibility",
+        "agent_capabilities",
+        "actions",
+        "refresh",
+        mode="before",
+    )
     @classmethod
     def reject_explicit_null(cls, value: object) -> object:
         if value is None:
             raise ValueError("optional manifest fields cannot be null")
         return value
+
+    @model_validator(mode="after")
+    def validate_versioned_contract(self) -> "ModuleManifest":
+        if self.schema_version == "1.0":
+            if self.compatibility is not None or self.actions is not None:
+                raise ValueError("Manifest 1.0 cannot declare 1.1 fields")
+            return self
+
+        if self.compatibility is None or self.actions is None:
+            raise ValueError("Manifest 1.1 requires compatibility and actions")
+        if self.agent_capabilities is not None:
+            raise ValueError("Manifest 1.1 must use explicit action bindings")
+        if (
+            self.compatibility.level == 3
+            and self.compatibility.view_spec_version is None
+        ):
+            raise ValueError("Level 3 Mods must declare a ViewSpec version")
+        if self.compatibility.level == 1 and self.actions:
+            raise ValueError("Level 1 Mods cannot declare connected actions")
+
+        permissions = set(self.permissions)
+        services = set(self.data_services)
+        for action_id, action in self.actions.items():
+            if re.fullmatch(MODULE_CAPABILITY_PATTERN, action_id) is None:
+                raise ValueError("invalid Mod action id")
+            if action.permission not in permissions:
+                raise ValueError("Action permission must be declared by the Mod")
+            if (
+                isinstance(action.binding, DataActionBinding)
+                and action.binding.service is not None
+                and action.binding.service not in services
+            ):
+                raise ValueError("Data action service must be declared by the Mod")
+            if (
+                isinstance(action.binding, AgentActionBinding)
+                and action.execution != "task"
+            ):
+                raise ValueError("Agent actions must use task execution")
+            if (
+                isinstance(action.binding, ModelActionBinding)
+                and action.execution != "request"
+            ):
+                raise ValueError("Model actions must use request execution")
+            if action_id == "trade.execute" and action.confirmation != "strong":
+                raise ValueError("Trading actions require strong confirmation")
+        return self
 
 
 class StoredModuleResponse(ApiModel):

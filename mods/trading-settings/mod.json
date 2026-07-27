@@ -4,10 +4,10 @@
   "name": "量化系统设置",
   "description": "配置量化数据源、运行环境和 Vibe Trading 系统连接。",
   "version": "0.1.0",
-  "publisher": "VibeDesk",
+  "publisher": "Newma-Dock",
   "upstream": "https://github.com/HKUDS/Vibe-Trading",
   "tags": ["设置", "量化", "连接"],
-  "runtime": { "type": "external", "baseUrlEnv": "VIBEDESK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:5901", "route": "/settings" },
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:8911", "route": "/mod-runtime/trading/settings" },
   "manifest": {
     "category": "system",
     "navigation": { "groupLabel": "连接与设置", "groupOrder": 90, "itemOrder": 20, "icon": "settings" },
