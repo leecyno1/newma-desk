@@ -3,14 +3,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from vibe_visualization_api.config import Settings
+from vibe_visualization_api.control_plane.repository import ModuleRepository
+from vibe_visualization_api.external_mod_runtimes import resolve_runtime_workspace
 from vibe_visualization_api.main import create_app
 from vibe_visualization_api.mod_store.service import (
+    ModStoreCatalogError,
     ModStoreDiscoveryError,
+    ModStoreService,
     ModStoreSourceError,
 )
+from vibe_visualization_api.mod_store.schemas import StoreModDescriptor
 
 
 DESCRIPTOR = {
@@ -19,12 +26,12 @@ DESCRIPTOR = {
     "name": "每日复盘",
     "description": "把每天的市场变化整理成可持续复用的复盘页面。",
     "version": "0.1.0",
-    "publisher": "Newma-Dock",
+    "publisher": "Newma-Desk",
     "upstream": "https://github.com/simonlin1212/Vibe-Research",
     "tags": ["投研", "复盘"],
     "runtime": {
         "type": "external",
-        "baseUrlEnv": "NEWMA_DOCK_INVESTMENT_WEB_URL",
+        "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
         "defaultBaseUrl": "http://127.0.0.1:5899",
         "route": "/daily-review",
     },
@@ -83,12 +90,12 @@ SUITE_DESCRIPTOR = {
     "name": "示例项目",
     "description": "由一份 Suite 描述自动生成多个 Mod 页面。",
     "version": "0.1.0",
-    "publisher": "Newma-Dock",
+    "publisher": "Newma-Desk",
     "upstream": "https://github.com/leecyno1/newma-dock",
     "tags": ["Suite"],
     "runtime": {
         "type": "external",
-        "baseUrlEnv": "NEWMA_DOCK_INVESTMENT_WEB_URL",
+        "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
         "defaultBaseUrl": "http://127.0.0.1:5899",
     },
     "manifest": {
@@ -152,8 +159,8 @@ def _write_store(
         json.dumps(
             {
                 "schemaVersion": "1.0",
-                "id": "newma-dock-official",
-                "name": "Newma-Dock 官方 Mod 商店",
+                "id": "newma-desk-official",
+                "name": "Newma-Desk 官方 Mod 商店",
                 "git": {
                     "repository": "https://github.com/leecyno1/newma-dock",
                     "ref": "main",
@@ -178,20 +185,23 @@ def _write_store(
     return store_dir
 
 
-def _write_suite_store(root: Path) -> Path:
+def _write_suite_store(
+    root: Path,
+    descriptor: dict[str, object] = SUITE_DESCRIPTOR,
+) -> Path:
     store_dir = root / "mods"
     descriptor_path = store_dir / "example-suite" / "suite.json"
     descriptor_path.parent.mkdir(parents=True)
     descriptor_path.write_text(
-        json.dumps(SUITE_DESCRIPTOR, ensure_ascii=False),
+        json.dumps(descriptor, ensure_ascii=False),
         encoding="utf-8",
     )
     (store_dir / "store.json").write_text(
         json.dumps(
             {
                 "schemaVersion": "1.0",
-                "id": "newma-dock-official",
-                "name": "Newma-Dock 官方 Mod 商店",
+                "id": "newma-desk-official",
+                "name": "Newma-Desk 官方 Mod 商店",
                 "git": {
                     "repository": "https://github.com/leecyno1/newma-dock",
                     "ref": "main",
@@ -226,8 +236,8 @@ def _write_http_suite_store(
         json.dumps(
             {
                 "schemaVersion": "1.0",
-                "id": "newma-dock-http-discovery",
-                "name": "Newma-Dock HTTP Discovery Store",
+                "id": "newma-desk-http-discovery",
+                "name": "Newma-Desk HTTP Discovery Store",
                 "git": {
                     "repository": "https://github.com/leecyno1/newma-dock",
                     "ref": "main",
@@ -243,7 +253,7 @@ def _write_http_suite_store(
                         "id": "example-suite",
                         "discovery": {
                             "type": "http",
-                            "baseUrlEnv": "NEWMA_DOCK_INVESTMENT_WEB_URL",
+                            "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
                             "defaultBaseUrl": base_url,
                         },
                     }
@@ -253,6 +263,169 @@ def _write_http_suite_store(
         encoding="utf-8",
     )
     return store_dir
+
+
+@pytest.mark.asyncio
+async def test_agent_workspace_resolves_restricted_runtime_reference(
+    tmp_path: Path,
+) -> None:
+    investment = tmp_path / "vibe-research"
+    investment.mkdir()
+    descriptor = {
+        **DESCRIPTOR,
+        "agentWorkspace": {
+            "type": "runtime",
+            "runtimeId": "vibe-research",
+            "workspaceName": "source",
+        },
+    }
+    settings = Settings(
+        workspace_root=tmp_path,
+        investment_workspace=investment,
+        mod_store_dir=_write_store(tmp_path, descriptor),
+        _env_file=None,
+    )
+    service = ModStoreService(settings)
+
+    assert await service.resolve_agent_workspace("daily-review") == investment
+
+
+@pytest.mark.asyncio
+async def test_agent_workspace_is_inherited_by_suite_pages(tmp_path: Path) -> None:
+    desk = tmp_path / "newma-desk"
+    desk.mkdir()
+    descriptor = {
+        **SUITE_DESCRIPTOR,
+        "agentWorkspace": {"type": "desk"},
+    }
+    settings = Settings(
+        workspace_root=desk,
+        mod_store_dir=_write_suite_store(tmp_path, descriptor),
+        _env_file=None,
+    )
+    service = ModStoreService(settings)
+
+    assert await service.resolve_agent_workspace("example-overview") == desk
+    assert await service.resolve_agent_workspace("example-settings") == desk
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "agent_workspace",
+    [
+        {"type": "desk"},
+        {
+            "type": "runtime",
+            "runtimeId": "vibe-research",
+            "workspaceName": "source",
+        },
+    ],
+)
+async def test_http_discovered_suite_cannot_grant_agent_workspace(
+    tmp_path: Path,
+    agent_workspace: dict[str, str],
+) -> None:
+    descriptor = {
+        **SUITE_DESCRIPTOR,
+        "agentWorkspace": agent_workspace,
+    }
+
+    async def fetch_descriptor(catalog, entry):
+        return descriptor
+
+    def reject_runtime_resolution(runtime_id: str, workspace_name: str) -> Path:
+        raise AssertionError(
+            f"remote Suite attempted to resolve {runtime_id}/{workspace_name}"
+        )
+
+    settings = Settings(
+        runtime_dir=tmp_path,
+        database_path=tmp_path / "store.db",
+        workspace_root=tmp_path / "desk",
+        mod_store_dir=_write_http_suite_store(tmp_path),
+        _env_file=None,
+    )
+    service = ModStoreService(
+        settings,
+        descriptor_fetcher=fetch_descriptor,
+        runtime_workspace_resolver=reject_runtime_resolution,
+    )
+
+    store = await service.list(ModuleRepository(settings.database_path))
+
+    assert [item.id for item in store.mods] == [
+        "example-overview",
+        "example-settings",
+    ]
+    assert await service.resolve_agent_workspace("example-overview") is None
+
+
+@pytest.mark.asyncio
+async def test_relative_runtime_agent_workspace_matches_runtime_resolver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    relative_workspace = "relative-vibe-research-workspace"
+    monkeypatch.setenv(
+        "NEWMA_DESK_INVESTMENT_WORKSPACE",
+        relative_workspace,
+    )
+    descriptor = {
+        **DESCRIPTOR,
+        "agentWorkspace": {
+            "type": "runtime",
+            "runtimeId": "vibe-research",
+            "workspaceName": "source",
+        },
+    }
+    settings = Settings(
+        workspace_root=tmp_path / "unrelated-desk-root",
+        mod_store_dir=_write_store(tmp_path, descriptor),
+        _env_file=None,
+    )
+    service = ModStoreService(settings)
+
+    expected = resolve_runtime_workspace("vibe-research", "source")
+
+    assert await service.resolve_agent_workspace("daily-review") == expected
+    assert expected != (settings.workspace_root / relative_workspace).resolve()
+
+
+def test_agent_workspace_rejects_arbitrary_paths() -> None:
+    descriptor = {
+        **DESCRIPTOR,
+        "agentWorkspace": {
+            "type": "runtime",
+            "runtimeId": "../private",
+            "workspaceName": "source",
+        },
+    }
+
+    with pytest.raises(ValidationError):
+        StoreModDescriptor.model_validate(descriptor)
+
+
+@pytest.mark.asyncio
+async def test_agent_workspace_rejects_unknown_runtime_workspace(
+    tmp_path: Path,
+) -> None:
+    descriptor = {
+        **DESCRIPTOR,
+        "agentWorkspace": {
+            "type": "runtime",
+            "runtimeId": "vibe-research",
+            "workspaceName": "missing",
+        },
+    }
+    settings = Settings(
+        workspace_root=tmp_path,
+        mod_store_dir=_write_store(tmp_path, descriptor),
+        _env_file=None,
+    )
+    service = ModStoreService(settings)
+
+    with pytest.raises(ModStoreCatalogError):
+        await service.resolve_agent_workspace("daily-review")
 
 
 def test_store_lists_local_catalog_and_installs_descriptor_from_git(
@@ -270,9 +443,7 @@ def test_store_lists_local_catalog_and_installs_descriptor_from_git(
         mod_store_dir=_write_store(tmp_path),
         investment_web_url="https://research.example",
     )
-    with TestClient(
-        create_app(settings, mod_store_fetcher=fetch_descriptor)
-    ) as client:
+    with TestClient(create_app(settings, mod_store_fetcher=fetch_descriptor)) as client:
         available = client.get("/api/store/mods")
         installed = client.post("/api/store/mods/daily-review/install")
         unchanged = client.post("/api/store/mods/daily-review/install")
@@ -323,9 +494,7 @@ def test_store_installs_manifest_1_1_with_explicit_actions(tmp_path: Path) -> No
         database_path=tmp_path / "store.db",
         mod_store_dir=_write_store(tmp_path, V1_1_DESCRIPTOR),
     )
-    with TestClient(
-        create_app(settings, mod_store_fetcher=fetch_descriptor)
-    ) as client:
+    with TestClient(create_app(settings, mod_store_fetcher=fetch_descriptor)) as client:
         installed = client.post("/api/store/mods/market-daily/install")
 
     assert installed.status_code == 201
@@ -335,7 +504,7 @@ def test_store_installs_manifest_1_1_with_explicit_actions(tmp_path: Path) -> No
     assert manifest["actions"]["market.explain"]["binding"]["type"] == "agent"
 
 
-def test_store_reports_git_download_failure(tmp_path: Path) -> None:
+def test_store_uses_local_descriptor_when_git_download_fails(tmp_path: Path) -> None:
     async def failed_fetch(catalog, entry):
         raise ModStoreSourceError()
 
@@ -344,13 +513,54 @@ def test_store_reports_git_download_failure(tmp_path: Path) -> None:
         database_path=tmp_path / "store.db",
         mod_store_dir=_write_store(tmp_path),
     )
-    with TestClient(
-        create_app(settings, mod_store_fetcher=failed_fetch)
-    ) as client:
+    with TestClient(create_app(settings, mod_store_fetcher=failed_fetch)) as client:
+        response = client.post("/api/store/mods/daily-review/install")
+
+    assert response.status_code == 201
+    assert response.json()["action"] == "installed"
+    assert response.json()["descriptorSource"] == "bundled"
+    assert response.json()["mod"]["manifest"]["id"] == "daily-review"
+
+
+def test_store_reports_git_failure_when_local_descriptor_is_missing(
+    tmp_path: Path,
+) -> None:
+    async def failed_fetch(catalog, entry):
+        raise ModStoreSourceError()
+
+    store_dir = _write_store(tmp_path)
+    (store_dir / "daily-review" / "mod.json").unlink()
+    settings = Settings(
+        runtime_dir=tmp_path,
+        database_path=tmp_path / "store.db",
+        mod_store_dir=store_dir,
+    )
+    with TestClient(create_app(settings, mod_store_fetcher=failed_fetch)) as client:
         response = client.post("/api/store/mods/daily-review/install")
 
     assert response.status_code == 502
     assert response.json() == {"detail": "Unable to download Mod from Git"}
+
+
+def test_store_uses_local_suite_page_when_git_download_fails(tmp_path: Path) -> None:
+    async def failed_fetch(catalog, entry):
+        raise ModStoreSourceError()
+
+    settings = Settings(
+        runtime_dir=tmp_path,
+        database_path=tmp_path / "store.db",
+        mod_store_dir=_write_suite_store(tmp_path),
+        investment_web_url="https://research.example",
+    )
+    with TestClient(create_app(settings, mod_store_fetcher=failed_fetch)) as client:
+        response = client.post("/api/store/mods/example-settings/install")
+
+    assert response.status_code == 201
+    assert response.json()["action"] == "installed"
+    assert response.json()["descriptorSource"] == "bundled"
+    assert response.json()["mod"]["manifest"]["entry"]["url"] == (
+        "https://research.example/settings"
+    )
 
 
 def test_store_discovers_suite_pages_and_installs_one_page(tmp_path: Path) -> None:
@@ -366,9 +576,7 @@ def test_store_discovers_suite_pages_and_installs_one_page(tmp_path: Path) -> No
         mod_store_dir=_write_suite_store(tmp_path),
         investment_web_url="https://research.example",
     )
-    with TestClient(
-        create_app(settings, mod_store_fetcher=fetch_descriptor)
-    ) as client:
+    with TestClient(create_app(settings, mod_store_fetcher=fetch_descriptor)) as client:
         available = client.get("/api/store/mods")
         installed = client.post("/api/store/mods/example-settings/install")
 
@@ -402,9 +610,7 @@ def test_store_discovers_suite_from_http_well_known_endpoint(
         mod_store_dir=_write_http_suite_store(tmp_path),
         investment_web_url="https://research.example",
     )
-    with TestClient(
-        create_app(settings, mod_store_fetcher=fetch_descriptor)
-    ) as client:
+    with TestClient(create_app(settings, mod_store_fetcher=fetch_descriptor)) as client:
         available = client.get("/api/store/mods")
         installed = client.post("/api/store/mods/example-overview/install")
 
@@ -414,15 +620,15 @@ def test_store_discovers_suite_from_http_well_known_endpoint(
         "example-settings",
     ]
     assert available.json()["mods"][0]["sourceUrl"] == (
-        "https://research.example/.well-known/newma-dock-suite.json"
+        "https://research.example/.well-known/newma-desk-suite.json"
     )
     assert installed.status_code == 201
     assert installed.json()["mod"]["manifest"]["entry"]["url"] == (
         "https://research.example/overview"
     )
     assert fetched_sources == [
-        (None, "/.well-known/newma-dock-suite.json"),
-        (None, "/.well-known/newma-dock-suite.json"),
+        (None, "/.well-known/newma-desk-suite.json"),
+        (None, "/.well-known/newma-desk-suite.json"),
     ]
 
 
@@ -435,9 +641,7 @@ def test_store_reports_http_suite_discovery_failure(tmp_path: Path) -> None:
         database_path=tmp_path / "store.db",
         mod_store_dir=_write_http_suite_store(tmp_path),
     )
-    with TestClient(
-        create_app(settings, mod_store_fetcher=failed_fetch)
-    ) as client:
+    with TestClient(create_app(settings, mod_store_fetcher=failed_fetch)) as client:
         response = client.get("/api/store/mods")
 
     assert response.status_code == 502
@@ -482,15 +686,16 @@ def test_default_http_adapter_fetches_well_known_descriptor(tmp_path: Path) -> N
         server.server_close()
         thread.join(timeout=2)
 
-    assert response.status_code == 200
+    assert response.status_code == 200, requested_paths
     assert [item["id"] for item in response.json()["mods"]] == [
         "example-overview",
         "example-settings",
     ]
     assert response.json()["mods"][0]["sourceUrl"] == (
-        f"{base_url}/.well-known/newma-dock-suite.json"
+        f"{base_url}/.well-known/newma-desk-suite.json"
     )
     assert requested_paths == [
+        "/.well-known/newma-desk-suite.json",
         "/.well-known/newma-dock-suite.json",
         "/.well-known/vibedesk-suite.json",
     ]

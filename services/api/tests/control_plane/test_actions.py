@@ -236,7 +236,7 @@ def _session_headers(
     assert response.json()["instanceId"] == "instance-1"
     return {
         "Authorization": f"Bearer {response.json()['accessToken']}",
-        "X-Newma-Dock-Instance-Id": "instance-1",
+        "X-Newma-Desk-Instance-Id": "instance-1",
     }
 
 
@@ -369,12 +369,47 @@ def test_manifest_1_1_requires_a_scoped_session_token(
     assert response.json() == {"detail": "valid Mod session token is required"}
 
 
-def test_manifest_1_1_rejects_a_session_from_another_mod_instance(
+def test_legacy_newma_dock_instance_header_remains_compatible(
+    client: TestClient,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+    headers = _session_headers(client)
+    headers["X-Newma-Dock-Instance-Id"] = headers.pop(
+        "X-Newma-Desk-Instance-Id"
+    )
+
+    response = client.put(
+        "/api/modules/market-daily/context",
+        headers=headers,
+        json={"context": {"view": {"id": "market-daily"}}},
+    )
+
+    assert response.status_code == 200
+
+
+def test_conflicting_new_and_legacy_instance_headers_are_rejected(
     client: TestClient,
 ) -> None:
     _publish(client, MANIFEST_V1_1)
     headers = _session_headers(client)
     headers["X-Newma-Dock-Instance-Id"] = "instance-2"
+
+    response = client.put(
+        "/api/modules/market-daily/context",
+        headers=headers,
+        json={"context": {"view": {"id": "market-daily"}}},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "conflicting Mod instance headers"}
+
+
+def test_manifest_1_1_rejects_a_session_from_another_mod_instance(
+    client: TestClient,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+    headers = _session_headers(client)
+    headers["X-Newma-Desk-Instance-Id"] = "instance-2"
 
     response = client.post(
         "/api/modules/market-daily/actions/market.summarize",

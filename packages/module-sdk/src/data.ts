@@ -55,7 +55,7 @@ export function createDataServiceClient(
 
 /**
  * Creates the provider-agnostic data client used by embedded Mods. The Mod
- * declares a Data Action, while Newma-Dock selects the concrete provider and
+ * declares a Data Action, while Newma-Desk selects the concrete provider and
  * keeps service URLs and credentials in the Desk backend.
  */
 export function createUnifiedDataClient(

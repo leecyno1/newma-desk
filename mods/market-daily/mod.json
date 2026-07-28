@@ -2,11 +2,12 @@
   "schemaVersion": "1.0",
   "id": "market-daily",
   "name": "市场终端",
-  "description": "KLineChart 图表内核、统一 A/H/US 行情协议、自选分组、盘口与市场概览。模块上下文直接接入 Newma-Dock 通用 Agent 侧栏。",
+  "description": "KLineChart 图表内核、统一 A/H/US 行情协议、自选分组、盘口与市场概览。模块上下文直接接入 Newma-Desk 通用 Agent 侧栏。",
   "version": "0.3.0",
-  "publisher": "Newma-Dock",
+  "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-dock",
-  "tags": ["行情终端", "K线", "盘口", "A股", "港股", "美股"],
+ "tags": ["行情终端", "K线", "盘口", "A股", "港股", "美股"],
+  "agentWorkspace": { "type": "desk" },
   "runtime": {
     "type": "direct",
     "entry": { "type": "structured", "url": "/mods/market-daily/" }

@@ -66,6 +66,10 @@ export function AgentSettings({ modules, userId }: AgentSettingsProps) {
     () => adapters.filter((adapter) => adapter.available !== false),
     [adapters],
   );
+  const probeModuleId = useMemo(
+    () => modules.find((module) => module.status === "published")?.moduleId,
+    [modules],
+  );
 
   const save = async () => {
     setSaving(true);
@@ -86,11 +90,15 @@ export function AgentSettings({ modules, userId }: AgentSettingsProps) {
   };
 
   const test = async (adapter: AgentAdapterDescription) => {
+    if (!probeModuleId) {
+      setError("当前没有可用于 Agent 连通测试的已发布 Mod。");
+      return;
+    }
     setTesting(adapter.id);
     setError(undefined);
     setMessage(undefined);
     try {
-      const answer = await probeAgent(userId, adapter.id);
+      const answer = await probeAgent(userId, adapter.id, probeModuleId);
       setMessage(`${adapterName(adapter)} 已连通：${answer.trim().slice(0, 120)}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Agent 测试失败");
@@ -194,7 +202,7 @@ export function AgentSettings({ modules, userId }: AgentSettingsProps) {
                   <button
                     type="button"
                     onClick={() => void test(adapter)}
-                    disabled={!available || testing !== undefined}
+                    disabled={!available || testing !== undefined || !probeModuleId}
                   >
                     {testing === adapter.id ? (
                       <LoaderCircle className="spin" size={13} aria-hidden="true" />

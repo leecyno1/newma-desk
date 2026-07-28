@@ -28,7 +28,7 @@ test("secondary sidebar supports opening, freezing, dragging, persistence, and n
   });
 
   const navigation = page.getByRole("navigation", {
-    name: "Newma-Dock Mod 导航",
+    name: "Newma-Desk Mod 导航",
   });
   const marketDirectory = navigation.locator(".directory-nav-row", {
     hasText: "行情工具",

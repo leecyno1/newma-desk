@@ -27,7 +27,7 @@ import {
   type DeskInit,
   type ModManifest,
   type ModPageContext,
-} from "@newma-dock/contracts";
+} from "@newma-desk/contracts";
 
 import type { ShellEventBus } from "../events/ShellEventBus";
 import {

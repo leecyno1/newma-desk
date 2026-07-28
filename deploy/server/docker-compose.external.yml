@@ -1,0 +1,135 @@
+name: newma-mod-runtimes
+
+# Run from the repository root so Compose can interpolate required values:
+# docker compose --env-file deploy/server/.env.external -f deploy/server/docker-compose.external.yml up -d
+
+services:
+  deepsee:
+    build:
+      context: /opt/newma-projects/deepsee
+      dockerfile: /opt/newma-desk/deploy/server/Dockerfile.deepsee
+    image: newma-deepsee:server
+    restart: unless-stopped
+    env_file:
+      - /opt/newma-projects/deepsee/.env
+    environment:
+      PORT: "8001"
+    ports:
+      - "8001:8001"
+    volumes:
+      - /opt/newma-projects/deepsee/data:/app/data
+
+  seven-cycle:
+    build:
+      context: /opt/newma-projects/seven-cycle
+      dockerfile: /opt/newma-desk/deploy/server/Dockerfile.seven-cycle
+    image: newma-seven-cycle:server
+    restart: unless-stopped
+    command: ["/bin/sh", "/newma-deploy/seven-cycle-entrypoint.sh"]
+    ports:
+      - "4174:4174"
+    volumes:
+      # Published DuckDB catalogs are cryptographically bound to their
+      # original absolute run path. Preserve that path inside the container.
+      - /opt/newma-projects/seven-cycle:/Volumes/PSSD/Projects/1周期模块:ro
+      - /opt/newma-projects/seven-cycle/output:/app/output
+      - /opt/newma-projects/seven-cycle/data:/app/data:ro
+      - /opt/newma-desk/deploy/server/seven-cycle-entrypoint.sh:/newma-deploy/seven-cycle-entrypoint.sh:ro
+      - /opt/newma-desk/deploy/server/seven-cycle-catalog-init.py:/newma-deploy/seven-cycle-catalog-init.py:ro
+
+  instock:
+    build:
+      context: /opt/newma-projects/instock-analysis
+      dockerfile: /opt/newma-desk/deploy/server/Dockerfile.instock
+    image: newma-instock:server
+    restart: unless-stopped
+    environment:
+      INSTOCK_SKIP_DB: "1"
+      INSTOCK_MARKET_DATA_PROVIDER: vibedesk
+      NEWMA_DESK_DATA_URL: "${PUBLIC_API_ORIGIN:?Set PUBLIC_API_ORIGIN in deploy/server/.env.external and pass --env-file deploy/server/.env.external}/api/research"
+      NEWMA_DOCK_DATA_URL: "${PUBLIC_API_ORIGIN:?Set PUBLIC_API_ORIGIN in deploy/server/.env.external and pass --env-file deploy/server/.env.external}/api/research"
+      VIBEDESK_DATA_URL: "${PUBLIC_API_ORIGIN:?Set PUBLIC_API_ORIGIN in deploy/server/.env.external and pass --env-file deploy/server/.env.external}/api/research"
+      INSTOCK_WEB_HOST: 0.0.0.0
+      INSTOCK_WEB_PORT: "9988"
+      INSTOCK_EMBED_ORIGINS: "${PUBLIC_DESK_ORIGIN:?Set PUBLIC_DESK_ORIGIN in deploy/server/.env.external and pass --env-file deploy/server/.env.external}"
+      INSTOCK_CORS_ORIGINS: "${PUBLIC_DESK_ORIGIN:?Set PUBLIC_DESK_ORIGIN in deploy/server/.env.external and pass --env-file deploy/server/.env.external}"
+    ports:
+      - "9988:9988"
+
+  orchestra-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env.external
+    environment:
+      POSTGRES_DB: orchestra
+      POSTGRES_USER: orchestra
+      POSTGRES_PASSWORD: "${ORCHESTRA_POSTGRES_PASSWORD:?Set ORCHESTRA_POSTGRES_PASSWORD in deploy/server/.env.external and pass --env-file deploy/server/.env.external}"
+    volumes:
+      - orchestra-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchestra -d orchestra"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  orchestra-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - orchestra-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  orchestra-api:
+    build:
+      context: /opt/newma-projects/orchestra-agentscope
+      dockerfile: /opt/newma-desk/deploy/server/Dockerfile.orchestra-api
+    image: newma-orchestra-api:server
+    restart: unless-stopped
+    depends_on:
+      orchestra-postgres:
+        condition: service_healthy
+      orchestra-redis:
+        condition: service_healthy
+    env_file: .env.external
+    environment:
+      ORCHESTRA_PROJECT_ROOT: /app
+      ORCHESTRA_DATA_DIR: /data
+      ORCHESTRA_API_HOST: 0.0.0.0
+      ORCHESTRA_API_PORT: "8011"
+      ORCHESTRA_DATABASE_URL: "postgresql://orchestra:${ORCHESTRA_POSTGRES_PASSWORD:?Set ORCHESTRA_POSTGRES_PASSWORD in deploy/server/.env.external and pass --env-file deploy/server/.env.external}@orchestra-postgres:5432/orchestra"
+      ORCHESTRA_REDIS_URL: redis://orchestra-redis:6379/0
+    ports:
+      - "127.0.0.1:8011:8011"
+    volumes:
+      - /opt/newma-desk/deploy/server/orchestra-agent_profiles.json:/app/agent_profiles.json
+      - orchestra-data:/data
+      - /opt/newma-desk/runtime/codex-home:/root/.codex:ro
+
+  orchestra-web:
+    build:
+      context: /opt/newma-projects/orchestra-prisma
+      dockerfile: /opt/newma-desk/deploy/server/Dockerfile.orchestra-web
+      args:
+        VITE_API_PROXY_MODE: local
+        VITE_VIBEDESK_PARENT_ORIGIN: "${PUBLIC_DESK_ORIGIN:?Set PUBLIC_DESK_ORIGIN in deploy/server/.env.external and pass --env-file deploy/server/.env.external}"
+    image: newma-orchestra-web:server
+    restart: unless-stopped
+    depends_on:
+      orchestra-api:
+        condition: service_started
+    environment:
+      ORCHESTRA_API_TARGET: http://orchestra-api:8011
+    ports:
+      - "3001:80"
+    volumes:
+      - /opt/newma-desk/deploy/server/orchestra-server.mjs:/app/server.mjs:ro
+
+volumes:
+  orchestra-postgres:
+  orchestra-redis:
+  orchestra-data:

@@ -1,9 +1,9 @@
 """In-process hosting for the first-party Research and Trading suites.
 
 The upstream projects remain source packages under ``mod-projects`` but no
-longer need their own API or frontend processes.  Newma-Dock loads their ASGI
+longer need their own API or frontend processes.  Newma-Desk loads their ASGI
 applications into its API process and serves their compiled frontend bundles
-from the Newma-Dock API origin.
+from the Newma-Desk API origin.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import logging
+import os
 import site
 import sys
 from dataclasses import dataclass, field
@@ -63,6 +64,47 @@ class ResearchApiAdapter:
         await self.application(scope, receive, send)
 
 
+class TradingApiAdapter:
+    """Authenticate the explicitly exposed Trading research surface.
+
+    Vibe-Trading intentionally rejects non-loopback clients unless an API key
+    is supplied. In an integrated deployment the browser talks to Desk, not to
+    Vibe-Trading directly, so Desk adds the server-held credential only for the
+    Alpha research endpoints used by first-party Factor Lab Mods. Session,
+    settings, live-trading, and shell-capable endpoints keep Vibe-Trading's own
+    authentication boundary. The key is never exposed to the Mod iframe.
+    """
+
+    _TRUSTED_PREFIXES = ("/alpha",)
+
+    def __init__(self, application: Any, api_key: str):
+        self.application = application
+        self._authorization = f"Bearer {api_key}".encode("utf-8")
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in {"http", "websocket"} and self._is_trusted_path(scope):
+            scope = dict(scope)
+            headers = [
+                (name, value)
+                for name, value in scope.get("headers", [])
+                if name.lower() != b"authorization"
+            ]
+            headers.append((b"authorization", self._authorization))
+            scope["headers"] = headers
+        await self.application(scope, receive, send)
+
+    @classmethod
+    def _is_trusted_path(cls, scope: dict[str, Any]) -> bool:
+        path = scope.get("path", "/")
+        root_path = scope.get("root_path", "")
+        if root_path and path.startswith(root_path):
+            path = path[len(root_path):] or "/"
+        return any(
+            path == prefix or path.startswith(f"{prefix}/")
+            for prefix in cls._TRUSTED_PREFIXES
+        )
+
+
 def _venv_site_packages(root: Path) -> list[Path]:
     lib = root / ".venv" / "lib"
     if not lib.is_dir():
@@ -79,6 +121,13 @@ def _add_import_path(path: Path) -> None:
 def _add_site_packages(root: Path) -> None:
     for path in _venv_site_packages(root):
         site.addsitedir(str(path.resolve()))
+
+
+def _set_trading_api_key(api_key: str) -> None:
+    if api_key:
+        os.environ["API_AUTH_KEY"] = api_key
+    else:
+        os.environ.pop("API_AUTH_KEY", None)
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -164,14 +213,24 @@ def mount_domain_suites(
 
     trading_app_path = trading_root / "agent" / "api_server.py"
     if trading_app_path.is_file():
+        trading_api_key = settings.trading_api_key.get_secret_value()
+        _set_trading_api_key(trading_api_key)
         _add_site_packages(trading_root)
         _add_import_path(trading_root / "agent")
+        from src.config.accessor import reset_env_config
+
+        reset_env_config()
         trading_module = _load_module(
             "api_server",
             trading_app_path,
         )
         trading_app = trading_module.app
-        application.mount("/api/trading", trading_app)
+        mounted_trading_app = (
+            TradingApiAdapter(trading_app, trading_api_key)
+            if trading_api_key
+            else trading_app
+        )
+        application.mount("/api/trading", mounted_trading_app)
         runtime.applications.append(trading_app)
         runtime.mounted["trading"] = True
         trading_dist = trading_root / "frontend" / "dist"

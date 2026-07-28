@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
-  "id": "newma-dock-official",
-  "name": "Newma-Dock 官方 Mod 商店",
+  "id": "newma-desk-official",
+  "name": "Newma-Desk 官方 Mod 商店",
   "git": {
     "repository": "https://github.com/leecyno1/newma-dock",
     "ref": "main",
@@ -24,7 +24,6 @@
     { "id": "alpha-lab", "path": "alpha-lab/mod.json", "defaultInstall": true },
     { "id": "news-radar", "path": "news-radar/mod.json", "defaultInstall": true },
     { "id": "watchlist", "path": "watchlist/mod.json", "defaultInstall": true },
-    { "id": "portfolio-brief", "path": "portfolio-brief/mod.json", "defaultInstall": true },
     { "id": "stock-research", "path": "stock-research/mod.json", "defaultInstall": true },
     { "id": "industry-map", "path": "industry-map/mod.json", "defaultInstall": true },
     { "id": "seven-cycle-research", "path": "seven-cycle-research/mod.json" },
@@ -39,6 +38,7 @@
     { "id": "trading-settings", "path": "trading-settings/mod.json", "defaultInstall": true }
   ],
   "suites": [
+    { "id": "portfolio-suite", "path": "portfolio-suite/suite.json", "defaultInstall": true },
     { "id": "deepsee-suite", "path": "deepsee-suite/suite.json" },
     { "id": "orchestra-suite", "path": "orchestra-suite/suite.json", "defaultInstall": true }
   ]

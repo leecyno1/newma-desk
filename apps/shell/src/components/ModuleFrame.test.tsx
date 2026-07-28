@@ -1,6 +1,6 @@
 import { createRef } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ModEvent, ModManifest } from "@newma-dock/contracts";
+import type { ModEvent, ModManifest } from "@newma-desk/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ShellEventBus } from "../events/ShellEventBus";

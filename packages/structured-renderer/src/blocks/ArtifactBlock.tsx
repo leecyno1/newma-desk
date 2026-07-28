@@ -1,4 +1,4 @@
-import type { ArtifactBlock as ArtifactBlockContract } from "@newma-dock/contracts";
+import type { ArtifactBlock as ArtifactBlockContract } from "@newma-desk/contracts";
 
 import { serializeEmbeddedJson } from "../embeddedJson";
 import { resolvePath } from "../resolvePath";

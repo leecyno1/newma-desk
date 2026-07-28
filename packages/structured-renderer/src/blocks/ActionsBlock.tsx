@@ -1,4 +1,4 @@
-import type { ActionsBlock as ActionsBlockContract } from "@newma-dock/contracts";
+import type { ActionsBlock as ActionsBlockContract } from "@newma-desk/contracts";
 
 export type ActionHandler = (
   capability: string,

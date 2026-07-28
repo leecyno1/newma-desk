@@ -1,10 +1,10 @@
-# Newma-Dock 产品词汇与命名
+# Newma-Desk 产品词汇与命名
 
 日期：2026-07-21
 
 ## 产品定义
 
-Newma-Dock 是一个面向人和 Agent 的可生长工作台。用户可以把临时需求固化成长期可使用、可更新、可继续迭代的 Mod。
+Newma-Desk 是一个面向人和 Agent 的可生长工作台。用户可以把临时需求固化成长期可使用、可更新、可继续迭代的 Mod。
 
 推荐对外表述：
 
@@ -14,14 +14,14 @@ Newma-Dock 是一个面向人和 Agent 的可生长工作台。用户可以把�
 
 | 产品词汇 | 定义 | 代码名称 |
 | --- | --- | --- |
-| Newma-Dock | 产品整体 | `newma-dock` |
-| Desk | 默认前端、侧边栏和运行容器 | `@newma-dock/desk` |
+| Newma-Desk | 产品整体 | `newma-desk` |
+| Desk | 默认前端、侧边栏和运行容器 | `@newma-desk/desk` |
 | Mod | 可安装、发布和升级的功能单元 | `ModManifest` |
 | View | Mod 中可独立访问的 HTML 页面 | `View` |
 | Skill | Agent 可重复执行的工作流和技巧 | `Skill` |
-| Desk UI | 统一视觉变量和基础组件 | `@newma-dock/desk-ui` |
+| Desk UI | 统一视觉变量和基础组件 | `@newma-desk/desk-ui` |
 | ViewSpec | 面向人和 Agent 的 HTML 语义规范 | `ViewSchema` |
-| Mod SDK | 数据、AI、导航和跨 Mod 通信入口 | `@newma-dock/mod-sdk` |
+| Mod SDK | 数据、AI、导航和跨 Mod 通信入口 | `@newma-desk/mod-sdk` |
 | Mod Bridge | Desk、Mod 和其他页面之间的事件桥 | `ModBridge` |
 | Mod Library | Mod 安装、启停和更新入口 | 后续 MVP |
 
@@ -64,7 +64,7 @@ integrations
 └── vibe-trading
 ```
 
-它们通过适配层向 Newma-Dock 提供数据或页面，业务后端继续独立部署和独立升级。
+它们通过适配层向 Newma-Desk 提供数据或页面，业务后端继续独立部署和独立升级。
 
 ## 迁移规则
 

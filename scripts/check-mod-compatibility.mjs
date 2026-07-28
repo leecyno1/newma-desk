@@ -150,6 +150,10 @@ export function checkModManifest(manifest) {
       if (!declaredPermissions.has(action.permission)) {
         errors.push(`${actionId}: permission is not declared by the Mod`);
       }
+      const confirmation = action.confirmation ?? "none";
+      if (!["none", "user", "strong"].includes(confirmation)) {
+        errors.push(`${actionId}: confirmation must be none, user, or strong`);
+      }
       if (binding.type === "agent") {
         badges.add("Agent");
         if (!["user-agent-mod", "task"].includes(binding.memoryScope)) {
@@ -179,7 +183,7 @@ export function checkModManifest(manifest) {
       } else if (binding.type !== "local") {
         errors.push(`${actionId}: unsupported binding type`);
       }
-      if (actionId === "trade.execute" && action.confirmation !== "strong") {
+      if (actionId === "trade.execute" && confirmation !== "strong") {
         errors.push("trade.execute: strong confirmation is required");
       }
     }

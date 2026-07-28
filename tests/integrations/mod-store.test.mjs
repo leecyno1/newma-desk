@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import {
   loadModStore,
   manifestsEqual,
+  registerDefaultMods,
   registerStoreMods,
   standardizeStoreMods,
 } from "../../scripts/lib/mod-store.mjs";
@@ -30,7 +31,7 @@ const HTTP_SUITE_DESCRIPTOR = {
   tags: ["Suite"],
   runtime: {
     type: "external",
-    baseUrlEnv: "NEWMA_DOCK_EXAMPLE_WEB_URL",
+    baseUrlEnv: "NEWMA_DESK_EXAMPLE_WEB_URL",
     defaultBaseUrl: "http://127.0.0.1:4312",
   },
   manifest: {
@@ -58,7 +59,7 @@ const HTTP_SUITE_DESCRIPTOR = {
 };
 
 async function temporaryStore(catalog, callback) {
-  const directory = await mkdtemp(join(tmpdir(), "newma-dock-store-"));
+  const directory = await mkdtemp(join(tmpdir(), "newma-desk-store-"));
   const storePath = join(directory, "store.json");
   try {
     await writeFile(storePath, JSON.stringify(catalog), "utf8");
@@ -71,28 +72,34 @@ async function temporaryStore(catalog, callback) {
 test("validates the project Mod store and includes Research and Trading by default", async () => {
   const store = await loadModStore({
     env: {
-      NEWMA_DOCK_INVESTMENT_WEB_URL: "https://investment.example",
-      NEWMA_DOCK_TRADING_WEB_URL: "https://trading.example",
-      NEWMA_DOCK_DEEPSEE_WEB_URL: "https://deepsee.example",
-      NEWMA_DOCK_SEVEN_CYCLE_WEB_URL: "https://cycle.example",
-      NEWMA_DOCK_INSTOCK_WEB_URL: "https://instock.example",
-      NEWMA_DOCK_ORCHESTRA_WEB_URL: "https://orchestra.example",
+      NEWMA_DESK_INVESTMENT_WEB_URL: "https://investment.example",
+      NEWMA_DESK_TRADING_WEB_URL: "https://trading.example",
+      NEWMA_DESK_DEEPSEE_WEB_URL: "https://deepsee.example",
+      NEWMA_DESK_SEVEN_CYCLE_WEB_URL: "https://cycle.example",
+      NEWMA_DESK_INSTOCK_WEB_URL: "https://instock.example",
+      NEWMA_DESK_ORCHESTRA_WEB_URL: "https://orchestra.example",
     },
   });
   const defaults = store.mods.filter((mod) => mod.defaultInstall);
 
-  assert.equal(store.mods.length, 42);
+  assert.equal(store.mods.length, new Set(store.mods.map((mod) => mod.id)).size);
+  assert.ok(store.mods.length >= 42);
   assert.deepEqual(store.suites.map((suite) => suite.id), [
+    "portfolio-suite",
     "deepsee-suite",
     "orchestra-suite",
   ]);
   assert.deepEqual(store.retiredMods, ["investment-settings", "quant-agent"]);
-  assert.deepEqual(defaults.map((mod) => mod.id), [
+  assert.deepEqual(defaults.map((mod) => mod.id).sort(), [
     "daily-review",
     "alpha-lab",
     "news-radar",
     "watchlist",
     "portfolio-brief",
+    "portfolio-activities",
+    "portfolio-risk",
+    "portfolio-performance",
+    "portfolio-settings",
     "stock-research",
     "industry-map",
     "research-library",
@@ -112,7 +119,7 @@ test("validates the project Mod store and includes Research and Trading by defau
     "orchestra-data",
     "orchestra-workspace",
     "orchestra-settings",
-  ]);
+  ].sort());
   assert.equal(
     store.mods.find((mod) => mod.id === "daily-review").manifest.entry.url,
     "https://investment.example/mod-runtime/research/daily-review",
@@ -189,7 +196,7 @@ test("validates the project Mod store and includes Research and Trading by defau
 test("rejects unsafe configured external Mod origins", async () => {
   await assert.rejects(
     loadModStore({
-      env: { NEWMA_DOCK_INVESTMENT_WEB_URL: "https://user:pass@example.com" },
+      env: { NEWMA_DESK_INVESTMENT_WEB_URL: "https://user:pass@example.com" },
     }),
     /must be an HTTP\(S\) origin/,
   );
@@ -207,7 +214,7 @@ test("discovers a Mod Suite from the standard HTTP well-known endpoint", async (
       defaultInstall: false,
       discovery: {
         type: "http",
-        baseUrlEnv: "NEWMA_DOCK_EXAMPLE_WEB_URL",
+        baseUrlEnv: "NEWMA_DESK_EXAMPLE_WEB_URL",
         defaultBaseUrl: "http://127.0.0.1:4312",
       },
     }],
@@ -217,14 +224,14 @@ test("discovers a Mod Suite from the standard HTTP well-known endpoint", async (
   await temporaryStore(catalog, async (storeUrl) => {
     const store = await loadModStore({
       storeUrl,
-      env: { NEWMA_DOCK_EXAMPLE_WEB_URL: "https://suite.example" },
+      env: { NEWMA_DESK_EXAMPLE_WEB_URL: "https://suite.example" },
       fetchImpl: async (url, init) => {
         calls.push({ url: String(url), init });
         return response(HTTP_SUITE_DESCRIPTOR);
       },
     });
 
-    assert.equal(store.suites[0].discoveryUrl, "https://suite.example/.well-known/newma-dock-suite.json");
+    assert.equal(store.suites[0].discoveryUrl, "https://suite.example/.well-known/newma-desk-suite.json");
     assert.equal(store.mods[0].id, "example-overview");
     assert.equal(store.mods[0].suiteId, "example-suite");
     assert.equal(store.mods[0].defaultInstall, true);
@@ -257,12 +264,12 @@ test("falls back to the legacy Suite endpoint and environment prefix", async () 
   await temporaryStore(catalog, async (storeUrl) => {
     const store = await loadModStore({
       storeUrl,
-      env: { NEWMA_DOCK_EXAMPLE_WEB_URL: "https://suite.example" },
+      env: { NEWMA_DESK_EXAMPLE_WEB_URL: "https://suite.example" },
       fetchImpl: async (url) => {
         calls.push(String(url));
-        return String(url).endsWith("/newma-dock-suite.json")
-          ? response({}, 404)
-          : response(HTTP_SUITE_DESCRIPTOR);
+        return String(url).endsWith("/vibedesk-suite.json")
+          ? response(HTTP_SUITE_DESCRIPTOR)
+          : response({}, 404);
       },
     });
 
@@ -271,6 +278,7 @@ test("falls back to the legacy Suite endpoint and environment prefix", async () 
   });
 
   assert.deepEqual(calls, [
+    "https://suite.example/.well-known/newma-desk-suite.json",
     "https://suite.example/.well-known/newma-dock-suite.json",
     "https://suite.example/.well-known/vibedesk-suite.json",
   ]);
@@ -287,7 +295,7 @@ test("rejects non-standard HTTP Suite Discovery paths", async () => {
       id: "example-suite",
       discovery: {
         type: "http",
-        baseUrlEnv: "NEWMA_DOCK_EXAMPLE_WEB_URL",
+        baseUrlEnv: "NEWMA_DESK_EXAMPLE_WEB_URL",
         defaultBaseUrl: "http://127.0.0.1:4312",
         path: "/suite.json",
       },
@@ -295,7 +303,7 @@ test("rejects non-standard HTTP Suite Discovery paths", async () => {
   }, async (storeUrl) => {
     await assert.rejects(
       loadModStore({ storeUrl, fetchImpl: async () => response({}) }),
-      /path must be \/\.well-known\/newma-dock-suite\.json or \/\.well-known\/vibedesk-suite\.json/,
+      /path must be \/\.well-known\/newma-desk-suite\.json, \/\.well-known\/newma-dock-suite\.json or \/\.well-known\/vibedesk-suite\.json/,
     );
   });
 });
@@ -322,10 +330,43 @@ test("registers every store Mod and skips identical published Mods", async () =>
   const result = await registerStoreMods({ fetchImpl });
 
   assert.equal(result.skipped.length, 1);
-  assert.equal(result.created.length, 41);
+  assert.equal(result.created.length, desired.length - 1);
   assert.equal(result.disabled.length, 0);
-  assert.equal(calls.filter((call) => call.init.method === "POST").length, 82);
+  assert.equal(
+    calls.filter((call) => call.init.method === "POST").length,
+    (desired.length - 1) * 2,
+  );
+  assert.ok(result.created.some((manifest) => manifest.id === "deepsee-overview"));
+  assert.ok(result.created.some((manifest) => manifest.id === "seven-cycle-research"));
   assert.equal(manifestsEqual(existing.manifest, desired[0]), true);
+});
+
+test("registers only Mods marked for default installation", async () => {
+  const store = await loadModStore();
+  const defaults = store.mods.filter((mod) => mod.defaultInstall);
+  const calls = [];
+  let revision = 0;
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (!init.method) return response([]);
+    if (String(url).endsWith("/drafts")) return response({ revision: ++revision }, 201);
+    return response({ status: "published" });
+  };
+
+  const result = await registerDefaultMods({ fetchImpl });
+  const createdIds = result.created.map((manifest) => manifest.id);
+  const submittedIds = calls
+    .filter((call) => String(call.url).endsWith("/drafts"))
+    .map((call) => JSON.parse(call.init.body).id);
+
+  assert.deepEqual(createdIds, defaults.map((mod) => mod.id));
+  assert.deepEqual(submittedIds, createdIds);
+  assert.equal(createdIds.some((id) => id.startsWith("deepsee-")), false);
+  assert.equal(createdIds.includes("seven-cycle-research"), false);
+  assert.equal(
+    calls.filter((call) => call.init.method === "POST").length,
+    defaults.length * 2,
+  );
 });
 
 test("standardizes the full store without disabling official or third-party Mods", async () => {
@@ -363,7 +404,7 @@ test("standardizes the full store without disabling official or third-party Mods
   const result = await standardizeStoreMods({ fetchImpl });
 
   assert.equal(result.created.length, 0);
-  assert.equal(result.skipped.length, 42);
+  assert.equal(result.skipped.length, store.mods.length);
   assert.deepEqual(
     result.disabled.map((mod) => mod.moduleId),
     ["investment-settings", "quant-agent"],

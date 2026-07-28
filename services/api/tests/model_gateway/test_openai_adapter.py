@@ -112,24 +112,116 @@ async def test_openai_adapter_supports_local_endpoint_without_api_key() -> None:
 
 @pytest.mark.asyncio
 async def test_openai_adapter_maps_timeout() -> None:
+    attempted_models: list[str] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
+        attempted_models.append(json.loads(request.content)["model"])
         raise httpx.ReadTimeout("slow upstream", request=request)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    adapter = OpenAICompatibleModelAdapter(_settings(), client=client)
+    adapter = OpenAICompatibleModelAdapter(
+        _settings(openai_fallback_models="gpt-5.6-sol"),
+        client=client,
+    )
     try:
         with pytest.raises(ModelGatewayError) as captured:
             await adapter.complete(ModelResponseCreate(prompt="hello"))
     finally:
         await client.aclose()
 
+    assert attempted_models == ["gpt-5.6"]
     assert captured.value.code == "upstream_timeout"
+
+
+@pytest.mark.asyncio
+async def test_openai_adapter_does_not_fallback_on_connection_failure() -> None:
+    attempted_models: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempted_models.append(json.loads(request.content)["model"])
+        raise httpx.ConnectError("connection failed", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = OpenAICompatibleModelAdapter(
+        _settings(openai_fallback_models="gpt-5.6-sol"),
+        client=client,
+    )
+    try:
+        with pytest.raises(ModelGatewayError) as captured:
+            await adapter.complete(ModelResponseCreate(prompt="hello"))
+    finally:
+        await client.aclose()
+
+    assert attempted_models == ["gpt-5.6"]
+    assert captured.value.code == "upstream_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_openai_adapter_falls_back_when_default_model_is_cooling_down() -> None:
+    attempted_models: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        attempted_models.append(payload["model"])
+        if payload["model"] == "gpt-5.6-luna":
+            return httpx.Response(
+                429,
+                json={"error": {"code": "model_cooldown"}},
+            )
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "fallback ok"}}]},
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = OpenAICompatibleModelAdapter(
+        _settings(
+            openai_model="gpt-5.6-luna",
+            openai_fallback_models="gpt-5.6-sol,gpt-5.5",
+        ),
+        client=client,
+    )
+    try:
+        response = await adapter.complete(ModelResponseCreate(prompt="hello"))
+    finally:
+        await client.aclose()
+
+    assert attempted_models == ["gpt-5.6-luna", "gpt-5.6-sol"]
+    assert response.answer == "fallback ok"
+    assert response.model == "gpt-5.6-sol"
+
+
+@pytest.mark.asyncio
+async def test_openai_adapter_does_not_fallback_for_explicit_model() -> None:
+    attempted_models: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        attempted_models.append(payload["model"])
+        return httpx.Response(429, json={"error": {"code": "model_cooldown"}})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = OpenAICompatibleModelAdapter(
+        _settings(openai_fallback_models="gpt-5.6-sol"),
+        client=client,
+    )
+    try:
+        with pytest.raises(ModelGatewayError) as captured:
+            await adapter.complete(
+                ModelResponseCreate(prompt="hello", model="gpt-5.6-luna")
+            )
+    finally:
+        await client.aclose()
+
+    assert attempted_models == ["gpt-5.6-luna"]
+    assert captured.value.code == "upstream_rate_limited"
 
 
 def test_settings_hide_model_and_agent_secrets() -> None:
     settings = _settings(
         hermes_webui_cookie="session=secret-cookie",
         hermes_webui_csrf_token="secret-csrf",
+        trading_api_key="secret-trading-key",
     )
 
     serialized = settings.model_dump_json()
@@ -137,3 +229,4 @@ def test_settings_hide_model_and_agent_secrets() -> None:
     assert "server-secret-key" not in serialized
     assert "secret-cookie" not in serialized
     assert "secret-csrf" not in serialized
+    assert "secret-trading-key" not in serialized

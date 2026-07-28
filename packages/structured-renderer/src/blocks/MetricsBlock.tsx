@@ -1,4 +1,4 @@
-import type { MetricsBlock as MetricsBlockContract } from "@newma-dock/contracts";
+import type { MetricsBlock as MetricsBlockContract } from "@newma-desk/contracts";
 
 import { formatValue } from "../formatValue";
 import { resolvePath } from "../resolvePath";

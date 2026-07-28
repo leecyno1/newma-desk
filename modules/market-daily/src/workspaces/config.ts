@@ -1,4 +1,4 @@
-import type { ModPageContext } from "@newma-dock/contracts";
+import type { ModPageContext } from "@newma-desk/contracts";
 
 export type MarketWorkspaceKind =
   | "scanner"

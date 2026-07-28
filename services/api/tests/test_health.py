@@ -10,7 +10,7 @@ def test_health_reports_service_identity(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "ok": True,
-        "service": "newma-dock-api",
+        "service": "newma-desk-api",
         "version": "0.1.0",
     }
 
@@ -41,7 +41,10 @@ def test_cors_preflight_allows_post_with_required_headers(
         headers={
             "Origin": origin,
             "Access-Control-Request-Method": "POST",
-            "Access-Control-Request-Headers": "Content-Type,Authorization",
+            "Access-Control-Request-Headers": (
+                "Content-Type,Authorization,"
+                "X-Newma-Desk-Instance-Id,X-Newma-Dock-Instance-Id"
+            ),
         },
     )
 
@@ -52,7 +55,12 @@ def test_cors_preflight_allows_post_with_required_headers(
         header.strip().lower()
         for header in response.headers["access-control-allow-headers"].split(",")
     }
-    assert {"content-type", "authorization"} <= allowed_headers
+    assert {
+        "content-type",
+        "authorization",
+        "x-newma-desk-instance-id",
+        "x-newma-dock-instance-id",
+    } <= allowed_headers
 
 
 def test_app_factory_honors_settings_origin_override() -> None:

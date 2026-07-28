@@ -1,4 +1,4 @@
-import type { ModPageContext } from "@newma-dock/contracts";
+import type { ModPageContext } from "@newma-desk/contracts";
 import {
   Bot,
   CircleAlert,
@@ -482,7 +482,7 @@ export function ModCopilot({
       {!agentState.loading && !agentState.available ? (
         <div className="mod-copilot-warning">
           <CircleAlert size={14} aria-hidden="true" />
-          当前 Agent 不可用，请先在 Newma-Dock 的 Agent 设置中完成安装或登录。
+          当前 Agent 不可用，请先在 Newma-Desk 的 Agent 设置中完成安装或登录。
         </div>
       ) : null}
 

@@ -6,10 +6,11 @@
   "version": "0.1.0",
   "publisher": "InStock Integration",
   "upstream": "https://github.com/myhhub/stock",
-  "tags": ["CZSC", "缠论", "K线", "结构分析"],
+ "tags": ["CZSC", "缠论", "K线", "结构分析"],
+  "agentWorkspace": { "type": "runtime", "runtimeId": "instock", "workspaceName": "source" },
   "runtime": {
     "type": "external",
-    "baseUrlEnv": "NEWMA_DOCK_INSTOCK_WEB_URL",
+    "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL",
     "defaultBaseUrl": "http://127.0.0.1:9988",
     "route": "/mods/czsc"
   },

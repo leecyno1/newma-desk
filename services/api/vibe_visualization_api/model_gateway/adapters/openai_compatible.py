@@ -22,6 +22,11 @@ class OpenAICompatibleModelAdapter:
         self._client = client
         self._endpoint = f"{settings.openai_base_url}/chat/completions"
         self._timeout = httpx.Timeout(settings.model_timeout_seconds)
+        self._fallback_models = tuple(
+            model.strip()
+            for model in settings.openai_fallback_models.split(",")
+            if model.strip()
+        )
 
     async def capabilities(self) -> list[str]:
         return ["chat", "module.explain", "module.generate-view"]
@@ -35,23 +40,6 @@ class OpenAICompatibleModelAdapter:
                 503,
             )
 
-        model = request.model or self._settings.openai_model
-        payload = {
-            "model": model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a model connected to a modular visualization "
-                        "workspace. Answer only the requested module task."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": self._user_message(request),
-                },
-            ],
-        }
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         client = self._client or httpx.AsyncClient(
             timeout=self._timeout,
@@ -59,29 +47,72 @@ class OpenAICompatibleModelAdapter:
         )
         owns_client = self._client is None
         try:
-            response = await client.post(
-                self._endpoint,
-                headers=headers,
-                json=payload,
-                timeout=self._timeout,
-                follow_redirects=False,
-            )
-        except httpx.TimeoutException as error:
-            raise ModelGatewayError(
-                "upstream_timeout",
-                "Model provider timed out",
-                504,
-            ) from error
-        except httpx.RequestError as error:
-            raise ModelGatewayError(
-                "upstream_unavailable",
-                "Model provider is unavailable",
-                502,
-            ) from error
+            models = self._candidate_models(request)
+            for index, model in enumerate(models):
+                has_fallback = index + 1 < len(models)
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a model connected to a modular "
+                                "visualization workspace. Answer only the "
+                                "requested module task."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": self._user_message(request),
+                        },
+                    ],
+                }
+                try:
+                    response = await client.post(
+                        self._endpoint,
+                        headers=headers,
+                        json=payload,
+                        timeout=self._timeout,
+                        follow_redirects=False,
+                    )
+                except httpx.TimeoutException as error:
+                    raise ModelGatewayError(
+                        "upstream_timeout",
+                        "Model provider timed out",
+                        504,
+                    ) from error
+                except httpx.RequestError as error:
+                    raise ModelGatewayError(
+                        "upstream_unavailable",
+                        "Model provider is unavailable",
+                        502,
+                    ) from error
+
+                if response.status_code in {429} or response.status_code >= 500:
+                    if has_fallback:
+                        continue
+                return self._model_response(response, model)
         finally:
             if owns_client:
                 await client.aclose()
 
+        raise ModelGatewayError(
+            "upstream_unavailable",
+            "Model provider is unavailable",
+            502,
+        )
+
+    def _candidate_models(self, request: ModelResponseCreate) -> tuple[str, ...]:
+        primary = request.model or self._settings.openai_model
+        if request.model is not None:
+            return (primary,)
+        return tuple(dict.fromkeys((primary, *self._fallback_models)))
+
+    def _model_response(
+        self,
+        response: httpx.Response,
+        model: str,
+    ) -> ModelResponse:
         if response.status_code in {401, 403}:
             raise ModelGatewayError(
                 "upstream_authentication_failed",

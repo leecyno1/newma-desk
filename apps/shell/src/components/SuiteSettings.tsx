@@ -168,7 +168,7 @@ export function SuiteSettings({
         <div>
           <h1>{suiteLabel} · 项目设置</h1>
           <p>
-            该二级目录包含 {modules.length} 个 Mod。数据服务由 Newma-Dock 统一托管，
+            该二级目录包含 {modules.length} 个 Mod。数据服务由 Newma-Desk 统一托管，
             Mod 无需保存 API 地址、Token 或密钥。
           </p>
         </div>

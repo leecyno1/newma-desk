@@ -52,23 +52,23 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 30_000,
       env: {
-        NEWMA_DOCK_DATABASE_PATH: databasePath,
-        NEWMA_DOCK_RUNTIME_DIR: runtimeDir,
-        NEWMA_DOCK_ALLOWED_ORIGINS: `${shellOrigin},${moduleOrigin}`,
-        NEWMA_DOCK_RESEARCH_BASE_URL: fakeOrigin,
-        NEWMA_DOCK_OPENAI_BASE_URL: `${fakeOrigin}/v1`,
-        NEWMA_DOCK_OPENAI_API_KEY: "e2e-api-key",
-        NEWMA_DOCK_OPENAI_MODEL: "e2e-model",
-        NEWMA_DOCK_MODEL_TIMEOUT_SECONDS: "5",
-        NEWMA_DOCK_HERMES_WEBUI_BASE_URL: fakeOrigin,
-        NEWMA_DOCK_AGENT_DEFAULT_ADAPTER: "hermes-webui",
-        NEWMA_DOCK_AGENT_TIMEOUT_SECONDS: "5",
-        NEWMA_DOCK_MOD_SESSION_SECRET: "e2e-fixed-mod-session-secret",
+        NEWMA_DESK_DATABASE_PATH: databasePath,
+        NEWMA_DESK_RUNTIME_DIR: runtimeDir,
+        NEWMA_DESK_ALLOWED_ORIGINS: `${shellOrigin},${moduleOrigin}`,
+        NEWMA_DESK_RESEARCH_BASE_URL: fakeOrigin,
+        NEWMA_DESK_OPENAI_BASE_URL: `${fakeOrigin}/v1`,
+        NEWMA_DESK_OPENAI_API_KEY: "e2e-api-key",
+        NEWMA_DESK_OPENAI_MODEL: "e2e-model",
+        NEWMA_DESK_MODEL_TIMEOUT_SECONDS: "5",
+        NEWMA_DESK_HERMES_WEBUI_BASE_URL: fakeOrigin,
+        NEWMA_DESK_AGENT_DEFAULT_ADAPTER: "hermes-webui",
+        NEWMA_DESK_AGENT_TIMEOUT_SECONDS: "5",
+        NEWMA_DESK_MOD_SESSION_SECRET: "e2e-fixed-mod-session-secret",
       },
     },
     {
       command:
-        "npm run dev -w @newma-dock/desk -- " +
+        "npm run dev -w @newma-desk/desk -- " +
         `--host 127.0.0.1 --port ${shellPort}`,
       url: `${shellOrigin}/`,
       reuseExistingServer: false,
@@ -80,7 +80,7 @@ export default defineConfig({
     },
     {
       command:
-        "npm run build -w @newma-dock/market-pulse && " +
+        "npm run build -w @newma-desk/market-pulse && " +
         `python3 tests/e2e/module-server.py --port ${modulePort}`,
       url: demoModuleUrl,
       reuseExistingServer: false,

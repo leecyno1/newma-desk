@@ -108,6 +108,7 @@ function ModuleRow({
   return (
     <div
       className="module-nav-row"
+      data-module-id={item.module.moduleId}
       data-pinned={item.pinned || undefined}
       draggable={!item.pinned}
       onDragStart={onDragStart}
@@ -264,7 +265,7 @@ export function Sidebar({
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><Boxes size={20} /></span>
-          <span><strong>Newma-Dock</strong><small>智能模组工作台</small></span>
+          <span><strong>Newma-Desk</strong><small>智能模组工作台</small></span>
           <button
             type="button"
             className="sidebar-collapse-button"
@@ -275,7 +276,7 @@ export function Sidebar({
             <PanelLeftClose size={15} aria-hidden="true" />
           </button>
         </div>
-        <nav aria-label="Newma-Dock Mod 导航" className="module-nav">
+        <nav aria-label="Newma-Desk Mod 导航" className="module-nav">
           {groups.map((group) => {
             const Icon = categoryIcons[group.icon] ?? Boxes;
             const headingId = `category-${group.id}`;

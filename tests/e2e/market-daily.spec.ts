@@ -159,7 +159,7 @@ test("Market Terminal works directly, embedded, responsive, and with Desk Copilo
     {
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
-        "X-Newma-Dock-Instance-Id": refreshInstanceId,
+        "X-Newma-Desk-Instance-Id": refreshInstanceId,
       },
       data: {},
     },

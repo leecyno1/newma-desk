@@ -1,5 +1,5 @@
 {
-  "name": "@newma-dock/market-pulse",
+  "name": "@newma-desk/market-pulse",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,10 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@newma-dock/contracts": "0.1.0",
-    "@newma-dock/chart-kit": "0.1.0",
-    "@newma-dock/desk-ui": "0.1.0",
-    "@newma-dock/mod-sdk": "0.1.0",
+    "@newma-desk/contracts": "0.1.0",
+    "@newma-desk/chart-kit": "0.1.0",
+    "@newma-desk/desk-ui": "0.1.0",
+    "@newma-desk/mod-sdk": "0.1.0",
     "klinecharts": "^10.0.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",

@@ -14,6 +14,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!deploy/server/.env.external.example
+!deploy/server/.env.server.example
+deploy/server/systemd/mod-runtimes.env
 runtime/
 playwright-report/
 test-results/

@@ -7,7 +7,7 @@ import {
 
 export interface ModelResponseCreateInput {
   modId?: string;
-  /** @deprecated Use modId in new Newma-Dock code. */
+  /** @deprecated Use modId in new Newma-Desk code. */
   moduleId?: string;
   capability?: string;
   prompt?: string;

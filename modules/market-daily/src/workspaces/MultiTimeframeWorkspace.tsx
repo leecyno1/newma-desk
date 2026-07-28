@@ -1,7 +1,7 @@
 import { CandlestickChart, Check, Columns2, LayoutGrid } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import { KLineChartPanel } from "@newma-dock/chart-kit";
+import { KLineChartPanel } from "@newma-desk/chart-kit";
 
 import type {
   Adjustment,

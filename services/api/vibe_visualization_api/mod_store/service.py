@@ -18,9 +18,15 @@ from vibe_visualization_api.control_plane.schemas import (
     ModuleManifest,
     manifest_repository_dict,
 )
+from vibe_visualization_api.external_mod_runtimes import (
+    load_runtime_descriptor,
+    resolve_runtime_workspace,
+)
 from vibe_visualization_api.mod_store.schemas import (
+    AgentWorkspace,
     ExternalRuntime,
-    LEGACY_WELL_KNOWN_SUITE_PATH,
+    LEGACY_NEWMA_DOCK_SUITE_PATH,
+    LEGACY_VIBEDESK_SUITE_PATH,
     ModStoreResponse,
     StoreCatalog,
     StoreCatalogEntry,
@@ -29,6 +35,7 @@ from vibe_visualization_api.mod_store.schemas import (
     StoreModSuiteDescriptor,
     StoreModResponse,
     StoreSuiteCatalogEntry,
+    RuntimeAgentWorkspace,
     WELL_KNOWN_SUITE_PATH,
     expand_mod_suite,
 )
@@ -71,6 +78,7 @@ DescriptorFetcher = Callable[
     [StoreCatalog, StoreCatalogEntry | StoreSuiteCatalogEntry],
     Awaitable[dict[str, Any]],
 ]
+RuntimeWorkspaceResolver = Callable[[str, str], Path]
 
 
 def _stable_json(value: object) -> str:
@@ -87,10 +95,14 @@ class ModStoreService:
         settings: Settings,
         *,
         descriptor_fetcher: DescriptorFetcher | None = None,
+        runtime_workspace_resolver: RuntimeWorkspaceResolver | None = None,
     ) -> None:
         self._settings = settings
         self._store_dir = settings.mod_store_dir
         self._descriptor_fetcher = descriptor_fetcher or self._fetch_descriptor
+        self._runtime_workspace_resolver = (
+            runtime_workspace_resolver or resolve_runtime_workspace
+        )
 
     def _catalog(self) -> StoreCatalog:
         try:
@@ -201,18 +213,95 @@ class ModStoreService:
                     (
                         entry,
                         descriptor,
-                        entry.default_install
-                        if page_default is None
-                        else page_default,
+                        entry.default_install if page_default is None else page_default,
                     )
                 )
         ids = [descriptor.id for _, descriptor, _ in rows]
-        if (
-            len(ids) != len(set(ids))
-            or set(ids).intersection(catalog.retired_mods)
-        ):
+        if len(ids) != len(set(ids)) or set(ids).intersection(catalog.retired_mods):
             raise ModStoreCatalogError()
         return rows
+
+    async def resolve_agent_workspace(self, mod_id: str) -> Path | None:
+        """Resolve a Mod's editable source tree from trusted Store metadata.
+
+        Descriptors may select the Desk source tree or a named workspace from
+        the Runtime Descriptor. They cannot provide arbitrary filesystem paths.
+        """
+
+        catalog = self._catalog()
+        standalone = next((item for item in catalog.mods if item.id == mod_id), None)
+        agent_workspace: AgentWorkspace | None = None
+        if standalone is not None:
+            agent_workspace = self._local_descriptor(standalone).agent_workspace
+        else:
+            for suite_entry in catalog.suites:
+                suite = await self._suite_descriptor(catalog, suite_entry)
+                if any(page.id == mod_id for page in suite.pages):
+                    # HTTP discovery is an untrusted content source. Its pages
+                    # remain readable/installable, but it cannot grant a local
+                    # Agent permission to edit the Desk or Runtime workspaces.
+                    agent_workspace = (
+                        suite.agent_workspace if suite_entry.path is not None else None
+                    )
+                    break
+            else:
+                raise ModStoreNotFoundError()
+        if agent_workspace is None:
+            return None
+        if agent_workspace.type == "desk":
+            return self._settings.workspace_root.expanduser().resolve()
+        return self._resolve_runtime_agent_workspace(agent_workspace)
+
+    def _resolve_runtime_agent_workspace(
+        self,
+        agent_workspace: RuntimeAgentWorkspace,
+    ) -> Path:
+        try:
+            descriptor = load_runtime_descriptor()
+            runtime = next(
+                item
+                for item in descriptor["runtimes"]
+                if isinstance(item, dict)
+                and item.get("id") == agent_workspace.runtime_id
+            )
+            workspaces = runtime.get("workspaces")
+            if not isinstance(workspaces, dict):
+                raise KeyError(agent_workspace.workspace_name)
+            workspace = workspaces[agent_workspace.workspace_name]
+            if not isinstance(workspace, dict) or not isinstance(
+                workspace.get("env"), str
+            ):
+                raise KeyError(agent_workspace.workspace_name)
+            configured = self._setting_for_env(str(workspace["env"]), "")
+        except (KeyError, StopIteration, TypeError, ValueError) as error:
+            raise ModStoreCatalogError() from error
+        if configured:
+            path = Path(configured).expanduser()
+            if path.is_absolute():
+                return path.resolve()
+            try:
+                return (
+                    resolve_runtime_workspace(
+                        agent_workspace.runtime_id,
+                        agent_workspace.workspace_name,
+                        env={str(workspace["env"]): configured},
+                    )
+                    .expanduser()
+                    .resolve()
+                )
+            except (KeyError, OSError, TypeError, ValueError) as error:
+                raise ModStoreCatalogError() from error
+        try:
+            return (
+                self._runtime_workspace_resolver(
+                    agent_workspace.runtime_id,
+                    agent_workspace.workspace_name,
+                )
+                .expanduser()
+                .resolve()
+            )
+        except (KeyError, OSError, TypeError, ValueError) as error:
+            raise ModStoreCatalogError() from error
 
     def _source_urls(
         self,
@@ -223,8 +312,7 @@ class ModStoreService:
             raise ModStoreCatalogError()
         encoded_path = "/".join(quote(part, safe="") for part in entry.path.split("/"))
         return [
-            f"{base.rstrip('/')}/{encoded_path}"
-            for base in catalog.git.raw_base_urls
+            f"{base.rstrip('/')}/{encoded_path}" for base in catalog.git.raw_base_urls
         ]
 
     def _source_page_url(
@@ -246,7 +334,9 @@ class ModStoreService:
         )
 
     def _setting_for_env(self, env_name: str, fallback: str) -> str:
-        if env_name.startswith("NEWMA_DOCK_"):
+        if env_name.startswith("NEWMA_DESK_"):
+            suffix = env_name.removeprefix("NEWMA_DESK_")
+        elif env_name.startswith("NEWMA_DOCK_"):
             suffix = env_name.removeprefix("NEWMA_DOCK_")
         elif env_name.startswith("VIBEDESK_"):
             suffix = env_name.removeprefix("VIBEDESK_")
@@ -254,9 +344,13 @@ class ModStoreService:
             raise ModStoreCatalogError()
         field_name = suffix.lower()
         value = getattr(self._settings, field_name, None)
-        if isinstance(value, str) and value:
-            return value
-        for candidate in (f"NEWMA_DOCK_{suffix}", f"VIBEDESK_{suffix}"):
+        if isinstance(value, (str, Path)) and str(value):
+            return str(value)
+        for candidate in (
+            f"NEWMA_DESK_{suffix}",
+            f"NEWMA_DOCK_{suffix}",
+            f"VIBEDESK_{suffix}",
+        ):
             environment_value = os.environ.get(candidate)
             if environment_value:
                 return environment_value
@@ -268,8 +362,12 @@ class ModStoreService:
         if discovery is None or discovery.path != WELL_KNOWN_SUITE_PATH:
             return [preferred]
         parsed = urlsplit(preferred)
-        legacy = f"{parsed.scheme}://{parsed.netloc}{LEGACY_WELL_KNOWN_SUITE_PATH}"
-        return [preferred, legacy]
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        return [
+            preferred,
+            f"{origin}{LEGACY_NEWMA_DOCK_SUITE_PATH}",
+            f"{origin}{LEGACY_VIBEDESK_SUITE_PATH}",
+        ]
 
     def _discovery_url(self, entry: StoreSuiteCatalogEntry) -> str:
         discovery = entry.discovery
@@ -325,6 +423,33 @@ class ModStoreService:
             raise ModStoreDescriptorError() from error
         return manifest_repository_dict(manifest)
 
+    def _local_install_descriptor(
+        self,
+        entry: StoreCatalogEntry | StoreSuiteCatalogEntry,
+        suite_page_id: str | None,
+    ) -> StoreModDescriptor:
+        """Resolve the bundled descriptor used when the Git source is unavailable."""
+
+        if suite_page_id is None:
+            if not isinstance(entry, StoreCatalogEntry):
+                raise ModStoreCatalogError()
+            return self._local_descriptor(entry)
+
+        if not isinstance(entry, StoreSuiteCatalogEntry):
+            raise ModStoreCatalogError()
+        suite = self._local_suite_descriptor(entry)
+        descriptor = next(
+            (
+                item
+                for item, _ in expand_mod_suite(suite)
+                if item.id == suite_page_id
+            ),
+            None,
+        )
+        if descriptor is None:
+            raise ModStoreCatalogError()
+        return descriptor
+
     async def list(self, repository: ModuleRepository) -> ModStoreResponse:
         catalog = self._catalog()
         installed = {item.module_id: item for item in repository.list_published()}
@@ -377,38 +502,46 @@ class ModStoreService:
                 if discovered_suite is not None
                 else await self._descriptor_fetcher(catalog, entry)
             )
-            if suite_page_id is None:
-                descriptor = StoreModDescriptor.model_validate(raw)
-            else:
-                suite = StoreModSuiteDescriptor.model_validate(raw)
-                if suite.id != entry.id:
-                    raise ModStoreDescriptorError()
-                descriptor = next(
-                    (
-                        item
-                        for item, _ in expand_mod_suite(suite)
-                        if item.id == suite_page_id
-                    ),
-                    None,
-                )
-                if descriptor is None:
-                    raise ModStoreDescriptorError()
-        except ModStoreError:
-            raise
-        except (ValidationError, TypeError, ValueError) as error:
-            raise ModStoreDescriptorError() from error
+        except ModStoreSourceError as source_error:
+            try:
+                descriptor = self._local_install_descriptor(entry, suite_page_id)
+            except ModStoreError:
+                raise source_error
+            descriptor_source = "bundled"
+        else:
+            descriptor_source = "remote"
+            try:
+                if suite_page_id is None:
+                    descriptor = StoreModDescriptor.model_validate(raw)
+                else:
+                    suite = StoreModSuiteDescriptor.model_validate(raw)
+                    if suite.id != entry.id:
+                        raise ModStoreDescriptorError()
+                    descriptor = next(
+                        (
+                            item
+                            for item, _ in expand_mod_suite(suite)
+                            if item.id == suite_page_id
+                        ),
+                        None,
+                    )
+                    if descriptor is None:
+                        raise ModStoreDescriptorError()
+            except ModStoreError:
+                raise
+            except (ValidationError, TypeError, ValueError) as error:
+                raise ModStoreDescriptorError() from error
         if descriptor.id != mod_id:
             raise ModStoreDescriptorError()
 
         manifest = self._manifest(descriptor)
-        current_by_id = {
-            item.module_id: item for item in repository.list_published()
-        }
+        current_by_id = {item.module_id: item for item in repository.list_published()}
         current = current_by_id.get(mod_id)
         source_url = self._source_page_url(catalog, entry)
         if current is not None and _manifest_equal(current.manifest, manifest):
             return StoreInstallResponse(
                 action="unchanged",
+                descriptor_source=descriptor_source,
                 source_url=source_url,
                 mod=current,
             )
@@ -417,6 +550,7 @@ class ModStoreService:
         published = repository.publish(mod_id, draft.revision)
         return StoreInstallResponse(
             action="updated" if current is not None else "installed",
+            descriptor_source=descriptor_source,
             source_url=source_url,
             mod=published,
         )
@@ -435,9 +569,7 @@ class ModStoreService:
         git_body = await self._fetch_descriptor_from_git(catalog, entry)
         if git_body is not None:
             return git_body
-        return await self._fetch_descriptor_from_http(
-            self._source_urls(catalog, entry)
-        )
+        return await self._fetch_descriptor_from_http(self._source_urls(catalog, entry))
 
     async def _fetch_descriptor_from_git(
         self,
@@ -456,7 +588,7 @@ class ModStoreService:
         }
         try:
             with tempfile.TemporaryDirectory(
-                prefix="newma-dock-mod-store-",
+                prefix="newma-desk-mod-store-",
                 dir=self._settings.runtime_dir,
             ) as directory:
                 initialized = await self._run_git(
@@ -546,7 +678,11 @@ class ModStoreService:
         fallback_statuses: set[int] | None = None,
     ) -> dict[str, Any]:
         timeout = httpx.Timeout(self._settings.mod_store_git_timeout_seconds)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
             for url in urls:
                 try:
                     async with client.stream(

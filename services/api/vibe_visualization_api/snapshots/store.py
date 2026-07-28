@@ -43,8 +43,15 @@ class CorruptSnapshotError(SnapshotStoreError):
 class SnapshotStore:
     def __init__(self, runtime_dir: Path, database_path: Path | None = None):
         self._snapshot_root = runtime_dir / "snapshots"
-        default_database = runtime_dir / "newma-dock.db"
-        legacy_database = runtime_dir / "vibedesk.db"
+        default_database = runtime_dir / "newma-desk.db"
+        legacy_databases = (
+            runtime_dir / "newma-dock.db",
+            runtime_dir / "vibedesk.db",
+        )
+        legacy_database = next(
+            (path for path in legacy_databases if path.exists()),
+            legacy_databases[0],
+        )
         self._database_path = database_path or (
             legacy_database
             if legacy_database.exists() and not default_database.exists()

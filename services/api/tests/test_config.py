@@ -1,14 +1,15 @@
+import sqlite3
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from vibe_visualization_api.config import Settings
+from vibe_visualization_api.config import Settings, resolve_database_path
 from vibe_visualization_api.external_mod_runtimes import resolve_runtime_workspace
 
 
-def test_newma_dock_environment_names_take_priority(monkeypatch) -> None:
-    monkeypatch.setenv("NEWMA_DOCK_DATABASE_PATH", "runtime/current.db")
+def test_newma_desk_environment_names_take_priority(monkeypatch) -> None:
+    monkeypatch.setenv("NEWMA_DESK_DATABASE_PATH", "runtime/current.db")
     monkeypatch.setenv("VIBEDESK_DATABASE_PATH", "runtime/previous-brand.db")
     monkeypatch.setenv("VIBE_VIS_DATABASE_PATH", "runtime/legacy.db")
 
@@ -17,7 +18,18 @@ def test_newma_dock_environment_names_take_priority(monkeypatch) -> None:
     assert settings.database_path == Path("runtime/current.db")
 
 
+def test_newma_dock_environment_names_remain_compatible(monkeypatch) -> None:
+    monkeypatch.delenv("NEWMA_DESK_DATABASE_PATH", raising=False)
+    monkeypatch.setenv("NEWMA_DOCK_DATABASE_PATH", "runtime/dock-brand.db")
+    monkeypatch.setenv("VIBEDESK_DATABASE_PATH", "runtime/previous-brand.db")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_path == Path("runtime/dock-brand.db")
+
+
 def test_vibedesk_environment_names_remain_compatible(monkeypatch) -> None:
+    monkeypatch.delenv("NEWMA_DESK_DATABASE_PATH", raising=False)
     monkeypatch.delenv("NEWMA_DOCK_DATABASE_PATH", raising=False)
     monkeypatch.setenv("VIBEDESK_DATABASE_PATH", "runtime/previous-brand.db")
     monkeypatch.setenv("VIBE_VIS_DATABASE_PATH", "runtime/legacy.db")
@@ -28,6 +40,7 @@ def test_vibedesk_environment_names_remain_compatible(monkeypatch) -> None:
 
 
 def test_original_legacy_environment_names_remain_compatible(monkeypatch) -> None:
+    monkeypatch.delenv("NEWMA_DESK_DATABASE_PATH", raising=False)
     monkeypatch.delenv("NEWMA_DOCK_DATABASE_PATH", raising=False)
     monkeypatch.delenv("VIBEDESK_DATABASE_PATH", raising=False)
     monkeypatch.setenv("VIBE_VIS_DATABASE_PATH", "runtime/legacy.db")
@@ -35,6 +48,86 @@ def test_original_legacy_environment_names_remain_compatible(monkeypatch) -> Non
     settings = Settings(_env_file=None)
 
     assert settings.database_path == Path("runtime/legacy.db")
+
+
+def _write_registry_database(
+    database_path: Path,
+    *,
+    status: str = "published",
+) -> None:
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE module_revisions (
+              module_id TEXT NOT NULL,
+              revision INTEGER NOT NULL,
+              status TEXT NOT NULL,
+              manifest_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY (module_id, revision)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO module_revisions
+            VALUES ('market-daily', 1, ?, '{}', '2026-07-28T00:00:00Z')
+            """,
+            (status,),
+        )
+
+
+def test_empty_newma_desk_database_is_migrated_from_published_legacy_registry(
+    tmp_path: Path,
+) -> None:
+    current = tmp_path / "newma-desk.db"
+    current.touch()
+    _write_registry_database(tmp_path / "vibedesk.db")
+
+    resolved = resolve_database_path(current)
+
+    assert resolved == current
+    with sqlite3.connect(current) as connection:
+        row = connection.execute(
+            "SELECT module_id, status FROM module_revisions"
+        ).fetchone()
+    assert row == ("market-daily", "published")
+
+
+def test_existing_new_registry_is_never_replaced_by_legacy_registry(
+    tmp_path: Path,
+) -> None:
+    current = tmp_path / "newma-desk.db"
+    _write_registry_database(current, status="draft")
+    _write_registry_database(tmp_path / "vibedesk.db")
+
+    resolved = resolve_database_path(current)
+
+    assert resolved == current
+    with sqlite3.connect(current) as connection:
+        status = connection.execute(
+            "SELECT status FROM module_revisions"
+        ).fetchone()[0]
+    assert status == "draft"
+
+
+def test_non_pristine_new_database_falls_back_without_being_overwritten(
+    tmp_path: Path,
+) -> None:
+    current = tmp_path / "newma-desk.db"
+    with sqlite3.connect(current) as connection:
+        connection.execute("CREATE TABLE local_state (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO local_state VALUES ('keep-me')")
+    legacy = tmp_path / "vibedesk.db"
+    _write_registry_database(legacy)
+
+    resolved = resolve_database_path(current)
+
+    assert resolved == legacy
+    with sqlite3.connect(current) as connection:
+        value = connection.execute("SELECT value FROM local_state").fetchone()[0]
+    assert value == "keep-me"
 
 
 @pytest.mark.parametrize(
@@ -92,7 +185,7 @@ def test_research_and_trading_default_to_in_tree_mod_projects() -> None:
 def test_empty_external_workspace_environment_uses_descriptor_discovery(
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("NEWMA_DOCK_DEEPSEE_WORKSPACE", "")
+    monkeypatch.setenv("NEWMA_DESK_DEEPSEE_WORKSPACE", "")
 
     settings = Settings(_env_file=None)
 

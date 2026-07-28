@@ -2,7 +2,7 @@ import {
   createDataServiceClient,
   createUnifiedDataClient,
   type GatewayFetch,
-} from "@newma-dock/mod-sdk";
+} from "@newma-desk/mod-sdk";
 
 import type {
   Adjustment,

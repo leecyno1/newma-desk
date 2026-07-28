@@ -2,14 +2,14 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ArtifactClient, ModBridge } from "@newma-dock/mod-sdk";
+import type { ArtifactClient, ModBridge } from "@newma-desk/mod-sdk";
 
 import type { MarketDataSource, Quote, SecurityRef } from "../types";
 import { buildWorkspacePageContext, MarketWorkspaceApp } from "./WorkspaceApp";
 import { MARKET_WORKSPACES, marketWorkspaceFromSearch } from "./config";
 
-vi.mock("@newma-dock/chart-kit", async () => {
-  const actual = await vi.importActual<typeof import("@newma-dock/chart-kit")>("@newma-dock/chart-kit");
+vi.mock("@newma-desk/chart-kit", async () => {
+  const actual = await vi.importActual<typeof import("@newma-desk/chart-kit")>("@newma-desk/chart-kit");
   return {
     ...actual,
     KLineChartPanel: (props: { ariaLabel?: string; loadBars: () => Promise<unknown> }) => {

@@ -106,8 +106,8 @@ describe("App", () => {
     server.use(
       http.get("/api/store/mods", () =>
         HttpResponse.json({
-          id: "newma-dock-official",
-          name: "Newma-Dock 官方 Mod 商店",
+          id: "newma-desk-official",
+          name: "Newma-Desk 官方 Mod 商店",
           repository: "https://github.com/leecyno1/newma-dock",
           ref: "main",
           mods: [
@@ -116,7 +116,7 @@ describe("App", () => {
               name: "每日复盘",
               description: "汇总每日市场变化和复盘结论。",
               version: "0.1.0",
-              publisher: "Newma-Dock",
+              publisher: "Newma-Desk",
               upstream: "https://github.com/simonlin1212/Vibe-Research",
               category: "今日",
               tags: ["投研", "复盘"],
@@ -206,7 +206,7 @@ describe("App", () => {
     );
 
     const navigation = screen.getByRole("navigation", {
-      name: "Newma-Dock Mod 导航",
+      name: "Newma-Desk Mod 导航",
     });
     const customGroup = within(navigation).getByRole("group", {
       name: "我的关注",
@@ -321,7 +321,7 @@ describe("App", () => {
     ).toBeVisible();
   });
 
-  it("uses Mod navigation metadata for the Newma-Dock sidebar", async () => {
+  it("uses Mod navigation metadata for the Newma-Desk sidebar", async () => {
     const laterResearch = storedModule({
       id: "research-later",
       name: "后置研究",
@@ -368,10 +368,10 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Newma-Dock")).toBeVisible();
+    expect(await screen.findByText("Newma-Desk")).toBeVisible();
     expect(screen.getByText("智能模组工作台")).toBeVisible();
     const navigation = screen.getByRole("navigation", {
-      name: "Newma-Dock Mod 导航",
+      name: "Newma-Desk Mod 导航",
     });
     expect(
       within(navigation)
@@ -605,7 +605,7 @@ describe("App", () => {
             providers: [
               {
                 id: "market-data",
-                name: "Newma-Dock 市场数据",
+                name: "Newma-Desk 市场数据",
                 description: "统一市场数据",
                 priority: 10,
                 transport: "rest",
@@ -874,7 +874,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Mod 服务必须使用与 Newma-Dock 不同的 origin",
+      "Mod 服务必须使用与 Newma-Desk 不同的 origin",
     );
     expect(screen.queryByRole("iframe")).not.toBeInTheDocument();
     expect(
@@ -896,7 +896,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Mod 页面必须使用与 Newma-Dock 不同的 origin",
+      "Mod 页面必须使用与 Newma-Desk 不同的 origin",
     );
     expect(screen.queryByRole("iframe")).not.toBeInTheDocument();
     expect(

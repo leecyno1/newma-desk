@@ -4,10 +4,10 @@
   "name": "量化 Agent",
   "description": "通过统一 Agent Gateway 进行量化研究、策略讨论和任务执行。",
   "version": "0.1.0",
-  "publisher": "Newma-Dock",
+  "publisher": "Newma-Desk",
   "upstream": "https://github.com/HKUDS/Vibe-Trading",
   "tags": ["量化", "Agent", "研究"],
-  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:8911", "route": "/mod-runtime/trading/agent" },
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DESK_TRADING_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:8911", "route": "/mod-runtime/trading/agent" },
   "manifest": {
     "category": "quant",
     "navigation": { "groupLabel": "量化", "groupOrder": 30, "itemOrder": 20, "icon": "quant" },

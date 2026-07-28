@@ -1,5 +1,5 @@
 {
-  "name": "@newma-dock/mod-sdk",
+  "name": "@newma-desk/mod-sdk",
   "version": "0.1.0",
   "type": "module",
   "exports": "./src/index.ts",
@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@newma-dock/contracts": "0.1.0"
+    "@newma-desk/contracts": "0.1.0"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

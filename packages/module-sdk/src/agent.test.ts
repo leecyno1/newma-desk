@@ -104,7 +104,7 @@ describe("createGatewayClient", () => {
     ];
     const headers = new Headers(actionCall[1].headers);
     expect(headers.get("Authorization")).toBe("Bearer scoped-token");
-    expect(headers.get("X-Newma-Dock-Instance-Id")).toBe("instance-1");
+    expect(headers.get("X-Newma-Desk-Instance-Id")).toBe("instance-1");
   });
 
   it("creates a standalone Mod session with its stable instance identity", async () => {

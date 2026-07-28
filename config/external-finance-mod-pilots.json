@@ -1,0 +1,220 @@
+{
+  "schemaVersion": "1.0",
+  "reservedPorts": [5888, 5891, 8001, 8011, 8911, 8912, 9988],
+  "pilots": [
+    {
+      "id": "daily-stock-analysis",
+      "label": "Daily Stock Analysis",
+      "upstream": "https://github.com/ZhuLinsen/daily_stock_analysis",
+      "license": "MIT",
+      "mode": "analysis-only",
+      "audit": {
+        "revision": "905c339d80ad2daa6fd2bab3bb10267b23c7ac1c",
+        "tag": "v3.28.0",
+        "reviewedAt": "2026-07-27",
+        "dependencyAudit": "blocked-unpinned-requirements"
+      },
+      "activation": {
+        "defaultEnabled": false,
+        "env": "NEWMA_DESK_DAILY_STOCK_ANALYSIS_PILOT_ENABLED"
+      },
+      "workspace": {
+        "env": "NEWMA_DESK_DAILY_STOCK_ANALYSIS_WORKSPACE",
+        "candidates": [
+          "daily_stock_analysis",
+          "finance-pilots/daily_stock_analysis"
+        ]
+      },
+      "runtime": {
+        "origin": "http://127.0.0.1:8921",
+        "healthPath": "/api/v1/health",
+        "upstreamDefaultPorts": [8000]
+      },
+      "isolation": {
+        "deskDataOnly": true,
+        "directInternet": false,
+        "dockOrigins": ["http://127.0.0.1:8911"],
+        "dataDir": ".runtime/pilots/daily-stock-analysis",
+        "environmentAllowlist": [
+          "TZ",
+          "LOG_LEVEL",
+          "WEBUI_HOST",
+          "WEBUI_PORT",
+          "DATABASE_URL",
+          "REPORT_LANGUAGE"
+        ],
+        "environmentDenyPatterns": [
+          "*_API_KEY",
+          "*_TOKEN",
+          "*_SECRET",
+          "*_PASSWORD",
+          "FUTU_*",
+          "LONGBRIDGE_*",
+          "AGENT_*",
+          "GENERATION_*",
+          "*WEBHOOK*",
+          "*SMTP*"
+        ]
+      },
+      "capabilities": {
+        "allow": [
+          "research.analysis.run",
+          "research.analysis-context.read",
+          "research.report-history.read",
+          "research.task-progress.read",
+          "research.data-quality.read",
+          "research.schedule.plan"
+        ],
+        "deny": [
+          "trade.execute",
+          "trade.order.submit",
+          "portfolio.import-broker",
+          "backtest.execute",
+          "agent.invoke",
+          "model.invoke",
+          "notification.send",
+          "credentials.read"
+        ]
+      },
+      "extract": {
+        "include": [
+          "analysis-context",
+          "report-history",
+          "task-progress",
+          "data-source-fallback",
+          "data-quality-diagnostics",
+          "schedule-planning"
+        ],
+        "exclude": [
+          "buy-sell-signals",
+          "investment-scoring",
+          "built-in-agent",
+          "portfolio-accounting",
+          "notifications",
+          "backtest-ui",
+          "futu-import"
+        ]
+      },
+      "acceptanceGates": [
+        "dependency-audit",
+        "static-secret-scan",
+        "capability-contract",
+        "no-port-conflict",
+        "no-broker-import",
+        "desk-agent-context",
+        "responsive-embed"
+      ]
+    },
+    {
+      "id": "quantdinger",
+      "label": "QuantDinger",
+      "upstream": "https://github.com/OpenByteInc/QuantDinger",
+      "license": "Apache-2.0",
+      "mode": "paper-only",
+      "audit": {
+        "revision": "23b1aad65c87ef9c5e5424830e99794075a0e632",
+        "tag": "v5.0.8",
+        "reviewedAt": "2026-07-27",
+        "dependencyAudit": "direct-lock-clean-transitive-timeout"
+      },
+      "activation": {
+        "defaultEnabled": false,
+        "env": "NEWMA_DESK_QUANTDINGER_PILOT_ENABLED"
+      },
+      "workspace": {
+        "env": "NEWMA_DESK_QUANTDINGER_WORKSPACE",
+        "candidates": [
+          "QuantDinger",
+          "finance-pilots/QuantDinger"
+        ]
+      },
+      "runtime": {
+        "origin": "http://127.0.0.1:8922",
+        "healthPath": "/api/health",
+        "upstreamDefaultPorts": [5000, 8888, 8889]
+      },
+      "isolation": {
+        "deskDataOnly": true,
+        "directInternet": false,
+        "dockOrigins": ["http://127.0.0.1:8911"],
+        "dataDir": ".runtime/pilots/quantdinger",
+        "environmentAllowlist": [
+          "TZ",
+          "LOG_LEVEL",
+          "PYTHON_API_HOST",
+          "PYTHON_API_PORT",
+          "DATABASE_URL"
+        ],
+        "environmentDenyPatterns": [
+          "*_API_KEY",
+          "*_TOKEN",
+          "*_SECRET",
+          "*_PASSWORD",
+          "*_CREDENTIAL*",
+          "*_BROKER_*",
+          "AGENT_*",
+          "MCP_*",
+          "ALPACA_*",
+          "IBKR_*",
+          "BINANCE_*",
+          "OKX_*",
+          "BITGET_*",
+          "GATE_*"
+        ]
+      },
+      "capabilities": {
+        "allow": [
+          "market.read",
+          "quant.backtest.run",
+          "quant.backtest-result.read",
+          "quant.strategy-ledger.read",
+          "quant.strategy-ledger.write",
+          "quant.experiment-attribution.read"
+        ],
+        "deny": [
+          "trade.execute",
+          "trade.order.submit",
+          "trade.live.enable",
+          "broker.connect",
+          "portfolio.import-broker",
+          "agent.invoke",
+          "model.invoke",
+          "mcp.invoke",
+          "notification.send",
+          "credentials.read",
+          "strategy.code.execute"
+        ]
+      },
+      "extract": {
+        "include": [
+          "backtest-engine",
+          "strategy-ledger",
+          "indicator-catalog",
+          "experiment-results",
+          "performance-attribution"
+        ],
+        "exclude": [
+          "live-execution",
+          "broker-connectors",
+          "exchange-credentials",
+          "quick-trade",
+          "built-in-agent",
+          "mcp-server",
+          "payments",
+          "community",
+          "multi-user-accounts"
+        ]
+      },
+      "acceptanceGates": [
+        "dependency-audit",
+        "static-secret-scan",
+        "capability-contract",
+        "no-port-conflict",
+        "paper-only-proof",
+        "credential-isolation",
+        "desk-agent-context",
+        "responsive-embed"
+      ]
+    }
+  ]
+}

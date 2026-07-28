@@ -1,4 +1,4 @@
-import type { MetricItem, TableColumn } from "@newma-dock/contracts";
+import type { MetricItem, TableColumn } from "@newma-desk/contracts";
 
 type ValueFormat = NonNullable<MetricItem["format"] | TableColumn["format"]>;
 

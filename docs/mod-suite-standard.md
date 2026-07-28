@@ -1,4 +1,4 @@
-# Newma-Dock Mod Suite 接入标准
+# Newma-Desk Mod Suite 接入标准
 
 Mod Suite 用一份 `suite.json` 描述同一导入项目中的多个页面。Suite Discovery 会把每个页面编译成独立 Mod Manifest，因此页面仍然拥有独立权限、Agent Context、数据路由与运行状态。
 
@@ -15,7 +15,7 @@ Mod Suite 用一份 `suite.json` 描述同一导入项目中的多个页面。Su
   "upstream": "https://github.com/example/project",
   "runtime": {
     "type": "external",
-    "baseUrlEnv": "NEWMA_DOCK_EXAMPLE_WEB_URL",
+    "baseUrlEnv": "NEWMA_DESK_EXAMPLE_WEB_URL",
     "defaultBaseUrl": "http://127.0.0.1:3000"
   },
   "manifest": {
@@ -94,7 +94,7 @@ Mod Suite 用一份 `suite.json` 描述同一导入项目中的多个页面。Su
 目标项目在自己的 Web 服务中提供：
 
 ```text
-GET /.well-known/newma-dock-suite.json
+GET /.well-known/newma-desk-suite.json
 Content-Type: application/json
 ```
 
@@ -105,9 +105,9 @@ Content-Type: application/json
   "id": "example-suite",
   "discovery": {
     "type": "http",
-    "baseUrlEnv": "NEWMA_DOCK_EXAMPLE_WEB_URL",
+    "baseUrlEnv": "NEWMA_DESK_EXAMPLE_WEB_URL",
     "defaultBaseUrl": "http://127.0.0.1:3000",
-    "path": "/.well-known/newma-dock-suite.json"
+    "path": "/.well-known/newma-desk-suite.json"
   },
   "defaultInstall": true
 }
@@ -115,12 +115,12 @@ Content-Type: application/json
 
 - `baseUrlEnv` 允许部署环境覆盖服务地址，未配置时使用 `defaultBaseUrl`。
 - 发现地址只接受无账号密码的 HTTP(S) Origin；本地开发可使用 `http://127.0.0.1`。
-- 新标准路径固定为 `/.well-known/newma-dock-suite.json`，不跟随重定向。1.x 兼容期内，新路径返回 404 时会自动回退 `/.well-known/vibedesk-suite.json`。
-- `baseUrlEnv` 新配置使用 `NEWMA_DOCK_*`；已有 `VIBEDESK_*` 描述与部署变量继续兼容，并由新前缀优先覆盖。
+- 新标准路径固定为 `/.well-known/newma-desk-suite.json`，不跟随重定向。兼容期内，新路径返回 404 时会依次回退 `/.well-known/newma-dock-suite.json` 与 `/.well-known/vibedesk-suite.json`。
+- `baseUrlEnv` 新配置使用 `NEWMA_DESK_*`；已有 `NEWMA_DOCK_*`、`VIBEDESK_*` 描述与部署变量继续兼容，并由新前缀优先覆盖。
 - Desk 对响应设置超时和 256 KiB 上限，并再次校验 Suite ID、页面 ID、路由、权限与 Navigation Descriptor。
 - HTTP Adapter 不产生新的侧边栏逻辑；它和 Git / 本地文件 Adapter 都进入同一个 Suite Discovery 与 Navigation Compiler。
 
 ## 接入选择
 
-- 随 Newma-Dock 一起发布、需要代码审计与版本固定的默认 Mod Suite，使用 Git / 本地文件 Adapter。
+- 随 Newma-Desk 一起发布、需要代码审计与版本固定的默认 Mod Suite，使用 Git / 本地文件 Adapter。
 - 独立部署、页面会自行增减的导入项目，优先使用 HTTP well-known Adapter。项目更新声明后，Desk 下次读取商店即可自动继承页面与二级目录。

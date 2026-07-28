@@ -44,7 +44,11 @@ from vibe_visualization_api.agent_gateway.store import (
     TaskNotFoundError,
     TaskStore,
 )
-from vibe_visualization_api.config import Settings, get_settings
+from vibe_visualization_api.config import (
+    Settings,
+    get_settings,
+    resolve_database_path,
+)
 from vibe_visualization_api.model_gateway.adapters.base import ModelAdapter
 from vibe_visualization_api.model_gateway.adapters.anthropic import (
     AnthropicModelAdapter,
@@ -63,6 +67,19 @@ from vibe_visualization_api.mod_store.routes import router as mod_store_router
 from vibe_visualization_api.mod_store.service import (
     DescriptorFetcher,
     ModStoreService,
+)
+from vibe_visualization_api.portfolio_center.quotes import (
+    PortfolioQuoteProvider,
+    ResearchPortfolioQuoteProvider,
+)
+from vibe_visualization_api.portfolio_center.routes import (
+    router as portfolio_center_router,
+)
+from vibe_visualization_api.portfolio_center.service import PortfolioCenterService
+from vibe_visualization_api.portfolio_center.store import (
+    PortfolioConflictError,
+    PortfolioNotFoundError,
+    PortfolioStore,
 )
 from vibe_visualization_api.control_plane.repository import (
     InvalidModuleStateError,
@@ -90,9 +107,21 @@ from vibe_visualization_api.data_services.registry import (
     PreferredDataServiceUnavailable,
 )
 from vibe_visualization_api.data_services.preferences import DataServicePreferenceStore
-from vibe_visualization_api.domain_suites import mount_domain_suites
+from vibe_visualization_api.domain_suites import SpaStaticFiles, mount_domain_suites
 from vibe_visualization_api.data_services.market import VibeResearchMarketClient
 from vibe_visualization_api.data_services.routes import router as data_services_router
+from vibe_visualization_api.finance_pilots.adapters import (
+    DailyStockAnalysisAdapter,
+    PilotPayloadError,
+    QuantDingerAdapter,
+)
+from vibe_visualization_api.finance_pilots.policy import FinancePilotPolicy
+from vibe_visualization_api.finance_pilots.routes import router as finance_pilots_router
+from vibe_visualization_api.finance_pilots.service import (
+    FinancePilotActivationError,
+    FinancePilotNotFoundError,
+    FinancePilotService,
+)
 from vibe_visualization_api.scheduler.service import (
     RefreshSchedulerService,
     SchedulerLifecycle,
@@ -118,12 +147,22 @@ def create_app(
     data_service_client: DataServiceClient | None = None,
     scheduler_service: SchedulerLifecycle | None = None,
     mod_store_fetcher: DescriptorFetcher | None = None,
+    portfolio_quote_provider: PortfolioQuoteProvider | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
+    resolved_database_path = resolve_database_path(app_settings.database_path)
+    if resolved_database_path != app_settings.database_path:
+        app_settings = app_settings.model_copy(
+            update={"database_path": resolved_database_path}
+        )
     agent_session_store = AgentModuleSessionStore(app_settings.database_path)
     agent_conversation_store = AgentConversationStore(app_settings.database_path)
     agent_preference_store = AgentPreferenceStore(app_settings.database_path)
     mod_context_store = ModContextStore(app_settings.database_path)
+    mod_store_service = ModStoreService(
+        app_settings,
+        descriptor_fetcher=mod_store_fetcher,
+    )
     configured_adapters = (
         list(agent_adapters)
         if agent_adapters is not None
@@ -132,16 +171,19 @@ def create_app(
                 "codex",
                 app_settings,
                 agent_conversation_store,
+                workspace_resolver=mod_store_service.resolve_agent_workspace,
             ),
             LocalCliAgentAdapter(
                 "claude",
                 app_settings,
                 agent_conversation_store,
+                workspace_resolver=mod_store_service.resolve_agent_workspace,
             ),
             LocalCliAgentAdapter(
                 "gemini",
                 app_settings,
                 agent_conversation_store,
+                workspace_resolver=mod_store_service.resolve_agent_workspace,
             ),
             HermesWebUIAdapter(
                 app_settings,
@@ -187,9 +229,9 @@ def create_app(
             await domain_suites.shutdown()
 
     application = FastAPI(
-        title="Newma-Dock API",
+        title="Newma-Desk API",
         description=(
-            "Data, Mod, Model Gateway and Agent Gateway services for Newma-Dock."
+            "Data, Mod, Model Gateway and Agent Gateway services for Newma-Desk."
         ),
         version="0.1.0",
         lifespan=lifespan,
@@ -282,10 +324,7 @@ def create_app(
         ttl_seconds=app_settings.mod_session_ttl_seconds,
     )
     application.state.mod_context_store = mod_context_store
-    application.state.mod_store_service = ModStoreService(
-        app_settings,
-        descriptor_fetcher=mod_store_fetcher,
-    )
+    application.state.mod_store_service = mod_store_service
     application.state.artifact_store = ArtifactStore(app_settings.runtime_dir)
     application.state.archify_renderer = ArchifyRenderer(
         app_settings.archify_root,
@@ -293,6 +332,25 @@ def create_app(
     )
     application.state.watchlist_store = WatchlistStore(
         app_settings.database_path,
+    )
+    application.state.finance_pilot_service = FinancePilotService(
+        FinancePilotPolicy(
+            app_settings.external_finance_pilot_descriptor,
+            project_root=app_settings.workspace_root,
+        ),
+        [DailyStockAnalysisAdapter(), QuantDingerAdapter()],
+    )
+    application.state.portfolio_center_service = PortfolioCenterService(
+        PortfolioStore(app_settings.database_path),
+        quote_provider=(
+            portfolio_quote_provider
+            or ResearchPortfolioQuoteProvider(
+                app_settings.research_base_url,
+                api_key=app_settings.research_api_key.get_secret_value(),
+                timeout_seconds=app_settings.portfolio_quote_timeout_seconds,
+            )
+        ),
+        legacy_portfolio_path=app_settings.legacy_portfolio_path,
     )
     application.add_middleware(
         CORSMiddleware,
@@ -304,6 +362,7 @@ def create_app(
             "Authorization",
             "X-User-Id",
             "X-Workspace-Id",
+            "X-Newma-Desk-Instance-Id",
             "X-Newma-Dock-Instance-Id",
         ],
     )
@@ -319,6 +378,8 @@ def create_app(
     application.include_router(data_services_router)
     application.include_router(artifacts_router)
     application.include_router(watchlists_router)
+    application.include_router(portfolio_center_router)
+    application.include_router(finance_pilots_router)
     application.include_router(mod_snapshots_router, prefix="/api/mods")
     application.include_router(
         mod_snapshots_router,
@@ -383,6 +444,57 @@ def create_app(
         error: WatchlistNotFoundError,
     ) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(error)})
+
+    @application.exception_handler(PortfolioConflictError)
+    async def portfolio_conflict(
+        request: Request,
+        error: PortfolioConflictError,
+    ) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(error)})
+
+    @application.exception_handler(PortfolioNotFoundError)
+    async def portfolio_not_found(
+        request: Request,
+        error: PortfolioNotFoundError,
+    ) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(error)})
+
+    @application.exception_handler(FinancePilotNotFoundError)
+    async def finance_pilot_not_found(
+        request: Request,
+        error: FinancePilotNotFoundError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "finance pilot not found"},
+        )
+
+    @application.exception_handler(FinancePilotActivationError)
+    async def finance_pilot_activation_blocked(
+        request: Request,
+        error: FinancePilotActivationError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "finance_pilot_activation_blocked",
+                    "message": "finance pilot activation is blocked",
+                    "pilotId": error.pilot_id,
+                    "reasons": error.reasons,
+                }
+            },
+        )
+
+    @application.exception_handler(PilotPayloadError)
+    async def invalid_finance_pilot_payload(
+        request: Request,
+        error: PilotPayloadError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(error)},
+        )
 
     @application.exception_handler(sqlite3.Error)
     async def database_error(request: Request, error: sqlite3.Error) -> JSONResponse:
@@ -525,9 +637,17 @@ def create_app(
     def health() -> dict[str, bool | str]:
         return {
             "ok": True,
-            "service": "newma-dock-api",
+            "service": "newma-desk-api",
             "version": "0.1.0",
         }
+
+    portfolio_center_dist = app_settings.portfolio_center_dist.expanduser().resolve()
+    if portfolio_center_dist.is_dir():
+        application.mount(
+            "/mod-runtime/portfolio-center",
+            SpaStaticFiles(directory=str(portfolio_center_dist), html=True),
+            name="portfolio-center-mod-runtime",
+        )
 
     application.state.domain_suites = mount_domain_suites(
         application,

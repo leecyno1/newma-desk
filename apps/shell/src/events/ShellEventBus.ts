@@ -2,7 +2,7 @@ import {
   modEventSchema,
   type ModEvent,
   type ModManifest,
-} from "@newma-dock/contracts";
+} from "@newma-desk/contracts";
 
 const EVENT_CHANNEL = "vibe-visualization-events";
 const TRACE_CACHE_LIMIT = 256;

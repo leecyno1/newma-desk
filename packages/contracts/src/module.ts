@@ -303,7 +303,7 @@ export type ModActionBinding = z.infer<typeof modActionBindingSchema>;
 export type ModAction = z.infer<typeof modActionSchema>;
 
 // Compatibility aliases for existing Vibe Research / Vibe Trading adapters.
-// New Newma-Dock code should use the Mod names above.
+// New Newma-Desk code should use the Mod names above.
 export const moduleEntrySchema = modEntrySchema;
 export const moduleNavigationSchema = modNavigationSchema;
 export const moduleManifestSchema = modManifestSchema;

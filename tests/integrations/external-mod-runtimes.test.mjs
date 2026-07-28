@@ -11,7 +11,7 @@ const descriptor = {
   roots: [
     {
       id: "projects",
-      env: "NEWMA_DOCK_PROJECTS_ROOT",
+      env: "NEWMA_DESK_PROJECTS_ROOT",
       fallback: { type: "repo-relative", path: ".." },
     },
   ],
@@ -22,13 +22,13 @@ const descriptor = {
       adapter: "example",
       workspaces: {
         source: {
-          env: "NEWMA_DOCK_EXAMPLE_WORKSPACE",
+          env: "NEWMA_DESK_EXAMPLE_WORKSPACE",
           candidates: [{ root: "projects", path: "example" }],
         },
       },
       endpoints: {
         web: {
-          env: "NEWMA_DOCK_EXAMPLE_WEB_URL",
+          env: "NEWMA_DESK_EXAMPLE_WEB_URL",
           defaultOrigin: "http://127.0.0.1:4321",
           healthPath: "/health",
         },
@@ -40,7 +40,7 @@ const descriptor = {
 test("discovers a sibling workspace and derives endpoint lifecycle data", () => {
   const existing = new Set(["/workspace/example"]);
   const catalog = resolveExternalModRuntimes(descriptor, {
-    repoRoot: "/workspace/newma-dock",
+    repoRoot: "/workspace/newma-desk",
     homeDir: "/home/user",
     env: {},
     exists: (candidate) => existing.has(candidate),
@@ -50,7 +50,7 @@ test("discovers a sibling workspace and derives endpoint lifecycle data", () => 
   assert.equal(runtime.workspaces.source.path, "/workspace/example");
   assert.equal(runtime.workspaces.source.source, "discovered");
   assert.deepEqual(runtime.endpoints.web, {
-    env: "NEWMA_DOCK_EXAMPLE_WEB_URL",
+    env: "NEWMA_DESK_EXAMPLE_WEB_URL",
     origin: "http://127.0.0.1:4321",
     port: 4321,
     local: true,
@@ -61,9 +61,9 @@ test("discovers a sibling workspace and derives endpoint lifecycle data", () => 
 
 test("treats an explicitly missing workspace as configuration evidence", () => {
   const catalog = resolveExternalModRuntimes(descriptor, {
-    repoRoot: "/workspace/newma-dock",
+    repoRoot: "/workspace/newma-desk",
     homeDir: "/home/user",
-    env: { NEWMA_DOCK_EXAMPLE_WORKSPACE: "/missing/example" },
+    env: { NEWMA_DESK_EXAMPLE_WORKSPACE: "/missing/example" },
     exists: () => false,
   });
 
@@ -80,25 +80,25 @@ test("treats an explicitly missing workspace as configuration evidence", () => {
 
 test("exports resolved workspace and endpoint values for child processes", () => {
   const catalog = resolveExternalModRuntimes(descriptor, {
-    repoRoot: "/workspace/newma-dock",
+    repoRoot: "/workspace/newma-desk",
     homeDir: "/home/user",
     env: {
-      NEWMA_DOCK_PROJECTS_ROOT: "/projects",
-      NEWMA_DOCK_EXAMPLE_WEB_URL: "https://example.test",
+      NEWMA_DESK_PROJECTS_ROOT: "/projects",
+      NEWMA_DESK_EXAMPLE_WEB_URL: "https://example.test",
     },
     exists: (candidate) => candidate === "/projects/example",
   });
 
   assert.deepEqual(runtimeEnvironment(catalog), {
-    NEWMA_DOCK_EXAMPLE_WORKSPACE: "/projects/example",
-    NEWMA_DOCK_EXAMPLE_WEB_URL: "https://example.test",
+    NEWMA_DESK_EXAMPLE_WORKSPACE: "/projects/example",
+    NEWMA_DESK_EXAMPLE_WEB_URL: "https://example.test",
   });
   assert.equal(catalog.byId["example-runtime"].endpoints.web.local, false);
 });
 
 test("accepts previous VIBEDESK environment names for compatibility", () => {
   const catalog = resolveExternalModRuntimes(descriptor, {
-    repoRoot: "/workspace/newma-dock",
+    repoRoot: "/workspace/newma-desk",
     homeDir: "/home/user",
     env: { VIBEDESK_EXAMPLE_WEB_URL: "https://legacy.example" },
     exists: () => false,
@@ -107,5 +107,19 @@ test("accepts previous VIBEDESK environment names for compatibility", () => {
   assert.equal(
     catalog.byId["example-runtime"].endpoints.web.origin,
     "https://legacy.example",
+  );
+});
+
+test("accepts previous NEWMA_DOCK environment names for compatibility", () => {
+  const catalog = resolveExternalModRuntimes(descriptor, {
+    repoRoot: "/workspace/newma-desk",
+    homeDir: "/home/user",
+    env: { NEWMA_DOCK_EXAMPLE_WEB_URL: "https://dock-brand.example" },
+    exists: () => false,
+  });
+
+  assert.equal(
+    catalog.byId["example-runtime"].endpoints.web.origin,
+    "https://dock-brand.example",
   );
 });

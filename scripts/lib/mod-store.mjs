@@ -7,9 +7,10 @@ const MOD_ID_PATTERN = /^[a-z][a-z0-9-]{2,63}$/;
 const SUITE_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;
 const CATEGORY_PATTERN = /^[a-z][a-z0-9-]{1,31}$/;
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
-const WELL_KNOWN_SUITE_PATH = "/.well-known/newma-dock-suite.json";
-const LEGACY_WELL_KNOWN_SUITE_PATH = "/.well-known/vibedesk-suite.json";
-const SUITE_ENV_PATTERN = /^(?:NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$/;
+const WELL_KNOWN_SUITE_PATH = "/.well-known/newma-desk-suite.json";
+const LEGACY_NEWMA_DOCK_SUITE_PATH = "/.well-known/newma-dock-suite.json";
+const LEGACY_VIBEDESK_SUITE_PATH = "/.well-known/vibedesk-suite.json";
+const SUITE_ENV_PATTERN = /^(?:NEWMA_DESK|NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$/;
 const MAX_DESCRIPTOR_BYTES = 256 * 1024;
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 5000;
 const NAVIGATION_ICONS = new Set([
@@ -78,10 +79,15 @@ function safeStorePath(value, label, suffix = "/mod.json") {
 }
 
 function configuredEnvValue(env, name) {
-  const suffix = name.startsWith("NEWMA_DOCK_")
-    ? name.slice("NEWMA_DOCK_".length)
-    : name.slice("VIBEDESK_".length);
-  return env[`NEWMA_DOCK_${suffix}`]?.trim() || env[`VIBEDESK_${suffix}`]?.trim();
+  const prefixes = ["NEWMA_DESK_", "NEWMA_DOCK_", "VIBEDESK_"];
+  const prefix = prefixes.find((candidate) => name.startsWith(candidate));
+  if (!prefix) return env[name]?.trim();
+  const suffix = name.slice(prefix.length);
+  for (const candidate of prefixes) {
+    const configured = env[`${candidate}${suffix}`]?.trim();
+    if (configured) return configured;
+  }
+  return undefined;
 }
 
 function suiteDiscoveryValue(raw, label) {
@@ -96,9 +102,15 @@ function suiteDiscoveryValue(raw, label) {
   const path = discovery.path === undefined
     ? WELL_KNOWN_SUITE_PATH
     : assertString(discovery.path, `${label}.path`);
-  if (![WELL_KNOWN_SUITE_PATH, LEGACY_WELL_KNOWN_SUITE_PATH].includes(path)) {
+  if (
+    ![
+      WELL_KNOWN_SUITE_PATH,
+      LEGACY_NEWMA_DOCK_SUITE_PATH,
+      LEGACY_VIBEDESK_SUITE_PATH,
+    ].includes(path)
+  ) {
     throw new Error(
-      `${label}.path must be ${WELL_KNOWN_SUITE_PATH} or ${LEGACY_WELL_KNOWN_SUITE_PATH}`,
+      `${label}.path must be ${WELL_KNOWN_SUITE_PATH}, ${LEGACY_NEWMA_DOCK_SUITE_PATH} or ${LEGACY_VIBEDESK_SUITE_PATH}`,
     );
   }
   return {
@@ -124,7 +136,11 @@ async function fetchSuiteDescriptor({
     discovery.baseUrlEnv,
   );
   const paths = discovery.path === WELL_KNOWN_SUITE_PATH
-    ? [WELL_KNOWN_SUITE_PATH, LEGACY_WELL_KNOWN_SUITE_PATH]
+    ? [
+        WELL_KNOWN_SUITE_PATH,
+        LEGACY_NEWMA_DOCK_SUITE_PATH,
+        LEGACY_VIBEDESK_SUITE_PATH,
+      ]
     : [discovery.path];
   let response;
   let url;
@@ -572,21 +588,23 @@ async function requestJson(fetchImpl, url, init) {
   return body;
 }
 
-export async function registerStoreMods({
+async function registerSelectedStoreMods({
   apiUrl = "http://127.0.0.1:8911",
   env = process.env,
   fetchImpl = fetch,
   dryRun = false,
-} = {}) {
-  const controlPlaneOrigin = exactHttpOrigin(apiUrl, "Newma-Dock API URL");
+} = {}, shouldRegister) {
+  const controlPlaneOrigin = exactHttpOrigin(apiUrl, "Newma-Desk API URL");
   const store = await loadModStore({ env });
-  const desired = store.mods.map((mod) => mod.manifest);
+  const desired = store.mods
+    .filter(shouldRegister)
+    .map((mod) => mod.manifest);
   if (dryRun) {
     return { created: desired, skipped: [], disabled: [], store };
   }
 
   const current = await requestJson(fetchImpl, `${controlPlaneOrigin}/api/mods`);
-  if (!Array.isArray(current)) throw new Error("Newma-Dock Mod registry returned malformed data");
+  if (!Array.isArray(current)) throw new Error("Newma-Desk Mod registry returned malformed data");
   const publishedById = new Map(current.map((item) => [item.moduleId, item]));
   const created = [];
   const skipped = [];
@@ -603,7 +621,7 @@ export async function registerStoreMods({
       { method: "POST", body: JSON.stringify(manifest) },
     );
     if (!draft || !Number.isInteger(draft.revision)) {
-      throw new Error(`Newma-Dock returned an invalid draft for ${manifest.id}`);
+      throw new Error(`Newma-Desk returned an invalid draft for ${manifest.id}`);
     }
     await requestJson(
       fetchImpl,
@@ -625,6 +643,17 @@ export async function registerStoreMods({
   return { created, skipped, disabled, store };
 }
 
+export async function registerStoreMods(options = {}) {
+  return registerSelectedStoreMods(options, () => true);
+}
+
+export async function registerDefaultMods(options = {}) {
+  return registerSelectedStoreMods(
+    options,
+    (mod) => mod.defaultInstall === true,
+  );
+}
+
 export async function standardizeStoreMods({
   apiUrl = "http://127.0.0.1:8911",
   env = process.env,
@@ -640,6 +669,5 @@ export async function standardizeStoreMods({
   return registration;
 }
 
-// Compatibility aliases for local scripts created before the full-store sidebar policy.
-export const registerDefaultMods = registerStoreMods;
+// Compatibility alias for local scripts created before the full-store sidebar policy.
 export const standardizeDefaultMods = standardizeStoreMods;

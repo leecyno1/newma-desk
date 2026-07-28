@@ -22,9 +22,12 @@ MODULE_VERSION_PATTERN = r"^\d+\.\d+\.\d+$"
 MODULE_CATEGORY_PATTERN = r"^[a-z][a-z0-9-]{1,31}$"
 STORE_ID_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
 SUITE_ID_PATTERN = r"^[a-z][a-z0-9-]{1,47}$"
-WELL_KNOWN_SUITE_PATH = "/.well-known/newma-dock-suite.json"
-LEGACY_WELL_KNOWN_SUITE_PATH = "/.well-known/vibedesk-suite.json"
-SUITE_ENV_PATTERN = r"^(?:NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$"
+WELL_KNOWN_SUITE_PATH = "/.well-known/newma-desk-suite.json"
+LEGACY_NEWMA_DOCK_SUITE_PATH = "/.well-known/newma-dock-suite.json"
+LEGACY_VIBEDESK_SUITE_PATH = "/.well-known/vibedesk-suite.json"
+SUITE_ENV_PATTERN = r"^(?:NEWMA_DESK|NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$"
+RUNTIME_ID_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
+RUNTIME_WORKSPACE_PATTERN = r"^[a-z][a-z0-9-]{1,31}$"
 
 
 def _https_url(value: str, label: str) -> str:
@@ -145,10 +148,15 @@ class StoreHttpSuiteDiscovery(ApiModel):
     @field_validator("path")
     @classmethod
     def validate_path(cls, value: str) -> str:
-        if value not in {WELL_KNOWN_SUITE_PATH, LEGACY_WELL_KNOWN_SUITE_PATH}:
+        if value not in {
+            WELL_KNOWN_SUITE_PATH,
+            LEGACY_NEWMA_DOCK_SUITE_PATH,
+            LEGACY_VIBEDESK_SUITE_PATH,
+        }:
             raise ValueError(
                 "HTTP Suite Discovery path must be "
-                f"{WELL_KNOWN_SUITE_PATH} or {LEGACY_WELL_KNOWN_SUITE_PATH}"
+                f"{WELL_KNOWN_SUITE_PATH}, {LEGACY_NEWMA_DOCK_SUITE_PATH} "
+                f"or {LEGACY_VIBEDESK_SUITE_PATH}"
             )
         return value
 
@@ -252,6 +260,26 @@ StoreRuntime = Annotated[
 ]
 
 
+class DeskAgentWorkspace(ApiModel):
+    """Allow the Agent to operate in the trusted Newma-Desk source tree."""
+
+    type: Literal["desk"]
+
+
+class RuntimeAgentWorkspace(ApiModel):
+    """Resolve an Agent workspace through the restricted Runtime Descriptor."""
+
+    type: Literal["runtime"]
+    runtime_id: str = Field(pattern=RUNTIME_ID_PATTERN)
+    workspace_name: str = Field(pattern=RUNTIME_WORKSPACE_PATTERN)
+
+
+AgentWorkspace = Annotated[
+    DeskAgentWorkspace | RuntimeAgentWorkspace,
+    Field(discriminator="type"),
+]
+
+
 class StoreManifestTemplate(ApiModel):
     schema_version: Literal["1.0", "1.1"] = "1.0"
     category: str = Field(pattern=MODULE_CATEGORY_PATTERN)
@@ -301,6 +329,7 @@ class StoreModDescriptor(ApiModel):
     upstream: str | None = None
     tags: list[str] = Field(default_factory=list, max_length=8)
     runtime: StoreRuntime
+    agent_workspace: AgentWorkspace | None = None
     manifest: StoreManifestTemplate
 
     @field_validator("upstream")
@@ -374,6 +403,7 @@ class StoreModSuiteDescriptor(ApiModel):
     upstream: str | None = None
     tags: list[str] = Field(default_factory=list, max_length=8)
     runtime: SuiteExternalRuntime
+    agent_workspace: AgentWorkspace | None = None
     manifest: StoreManifestTemplate
     pages: list[StoreSuitePage] = Field(min_length=1)
 
@@ -447,6 +477,16 @@ def expand_mod_suite(
                     "defaultBaseUrl": suite.runtime.default_base_url,
                     "route": page.route,
                 },
+                **(
+                    {
+                        "agentWorkspace": suite.agent_workspace.model_dump(
+                            by_alias=True,
+                            mode="json",
+                        )
+                    }
+                    if suite.agent_workspace is not None
+                    else {}
+                ),
                 "manifest": {
                     **shared_manifest,
                     **page_manifest,
@@ -494,5 +534,6 @@ class ModStoreResponse(StoreResponseModel):
 
 class StoreInstallResponse(StoreResponseModel):
     action: Literal["installed", "updated", "unchanged"]
+    descriptor_source: Literal["remote", "bundled"]
     source_url: str
     mod: StoredModuleResponse

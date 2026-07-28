@@ -1,5 +1,5 @@
 {
-  "name": "newma-dock",
+  "name": "newma-desk",
   "private": true,
   "version": "0.1.0",
   "workspaces": ["apps/*", "packages/*", "modules/*", "integrations/*"],
@@ -16,14 +16,15 @@
     "test:release:live": "node scripts/run-live-release-checks.mjs",
     "test:release": "npm run test:release:static && npm run test:release:live",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "dev:shell": "npm run dev -w @newma-dock/desk --",
+    "dev:shell": "npm run dev -w @newma-desk/desk --",
     "dev:stack": "node scripts/dev-stack.mjs",
     "dev:status": "node scripts/dev-stack.mjs --check",
     "mods:check": "node scripts/register-store-defaults.mjs --dry-run",
     "mods:compat": "node scripts/check-mod-compatibility.mjs",
     "mods:certify": "node scripts/certify-mod-runtime.mjs",
     "mods:register": "node scripts/register-store-defaults.mjs",
-    "mods:standardize": "node scripts/standardize-store-mods.mjs"
+    "mods:standardize": "node scripts/standardize-store-mods.mjs",
+    "pilots:check": "node scripts/check-external-finance-pilots.mjs"
   },
   "engines": {"node": ">=22", "npm": ">=10"},
   "devDependencies": {

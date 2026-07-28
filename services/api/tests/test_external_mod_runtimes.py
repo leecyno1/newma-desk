@@ -15,7 +15,7 @@ def descriptor_file(tmp_path: Path) -> Path:
         "roots": [
             {
                 "id": "projects",
-                "env": "NEWMA_DOCK_PROJECTS_ROOT",
+                "env": "NEWMA_DESK_PROJECTS_ROOT",
                 "fallback": {"type": "repo-relative", "path": ".."},
             }
         ],
@@ -26,7 +26,7 @@ def descriptor_file(tmp_path: Path) -> Path:
                 "adapter": "example",
                 "workspaces": {
                     "source": {
-                        "env": "NEWMA_DOCK_EXAMPLE_WORKSPACE",
+                        "env": "NEWMA_DESK_EXAMPLE_WORKSPACE",
                         "candidates": [
                             {"root": "projects", "path": "example"}
                         ],
@@ -34,7 +34,7 @@ def descriptor_file(tmp_path: Path) -> Path:
                 },
                 "endpoints": {
                     "web": {
-                        "env": "NEWMA_DOCK_EXAMPLE_WEB_URL",
+                        "env": "NEWMA_DESK_EXAMPLE_WEB_URL",
                         "defaultOrigin": "http://127.0.0.1:4321",
                         "healthPath": "/health",
                     }
@@ -49,7 +49,7 @@ def descriptor_file(tmp_path: Path) -> Path:
 
 
 def test_discovers_workspace_from_shared_runtime_descriptor(tmp_path: Path) -> None:
-    project_root = tmp_path / "newma-dock"
+    project_root = tmp_path / "newma-desk"
     workspace = tmp_path / "example"
     project_root.mkdir()
     workspace.mkdir()

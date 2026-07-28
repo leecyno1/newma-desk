@@ -1,5 +1,8 @@
+import os
+import sqlite3
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import (
@@ -17,15 +20,143 @@ from vibe_visualization_api.external_mod_runtimes import (
 )
 
 
+CURRENT_DATABASE_NAME = "newma-desk.db"
+LEGACY_DATABASE_NAMES = (
+    "newma-dock.db",
+    "vibedesk.db",
+    "vibe-visualization.db",
+)
+
+
 def _default_database_path() -> Path:
-    current = Path("runtime/newma-dock.db")
-    for legacy in (
-        Path("runtime/vibedesk.db"),
-        Path("runtime/vibe-visualization.db"),
-    ):
+    current = Path("runtime") / CURRENT_DATABASE_NAME
+    for legacy_name in LEGACY_DATABASE_NAMES:
+        legacy = current.with_name(legacy_name)
         if legacy.exists() and not current.exists():
             return legacy
     return current
+
+
+def _module_revision_count(
+    database_path: Path,
+    *,
+    published_only: bool = False,
+) -> int | None:
+    try:
+        if not database_path.is_file() or database_path.stat().st_size == 0:
+            return 0
+        with sqlite3.connect(
+            f"{database_path.resolve().as_uri()}?mode=ro",
+            uri=True,
+        ) as connection:
+            table_exists = connection.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'module_revisions'
+                """
+            ).fetchone()
+            if table_exists is None:
+                return 0
+            where_clause = " WHERE status = 'published'" if published_only else ""
+            row = connection.execute(
+                f"SELECT COUNT(*) FROM module_revisions{where_clause}"
+            ).fetchone()
+    except (OSError, sqlite3.Error):
+        return None
+    return int(row[0]) if row is not None else 0
+
+
+def _database_has_application_rows(database_path: Path) -> bool | None:
+    try:
+        if not database_path.is_file() or database_path.stat().st_size == 0:
+            return False
+        with sqlite3.connect(
+            f"{database_path.resolve().as_uri()}?mode=ro",
+            uri=True,
+        ) as connection:
+            table_names = connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                """
+            ).fetchall()
+            for (table_name,) in table_names:
+                quoted_name = str(table_name).replace('"', '""')
+                if connection.execute(
+                    f'SELECT 1 FROM "{quoted_name}" LIMIT 1'
+                ).fetchone() is not None:
+                    return True
+    except (OSError, sqlite3.Error):
+        return None
+    return False
+
+
+def _migrate_database(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(
+        f".{target.name}.migrating-{os.getpid()}-{uuid4().hex}"
+    )
+    expected_published = _module_revision_count(source, published_only=True)
+    if not expected_published:
+        raise sqlite3.DatabaseError("legacy database has no published Mods")
+    try:
+        with sqlite3.connect(
+            f"{source.resolve().as_uri()}?mode=ro",
+            uri=True,
+        ) as source_connection:
+            with sqlite3.connect(temporary) as target_connection:
+                source_connection.backup(target_connection)
+        migrated_published = _module_revision_count(
+            temporary,
+            published_only=True,
+        )
+        if migrated_published != expected_published:
+            raise sqlite3.DatabaseError("database migration verification failed")
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def resolve_database_path(configured_path: Path) -> Path:
+    """Resolve the renamed database without overwriting existing user data.
+
+    A pristine ``newma-desk.db`` is migrated from the first legacy database
+    containing published Mods. If the new database already contains any data,
+    it is never overwritten; when its registry is empty, the populated legacy
+    database remains the non-destructive fallback.
+    """
+
+    configured_path = configured_path.expanduser()
+    if configured_path.name != CURRENT_DATABASE_NAME:
+        return configured_path
+
+    current_revision_count = _module_revision_count(configured_path)
+    if current_revision_count:
+        return configured_path
+
+    legacy_path = next(
+        (
+            configured_path.with_name(name)
+            for name in LEGACY_DATABASE_NAMES
+            if (_module_revision_count(
+                configured_path.with_name(name),
+                published_only=True,
+            ) or 0)
+            > 0
+        ),
+        None,
+    )
+    if legacy_path is None:
+        return configured_path
+
+    if _database_has_application_rows(configured_path) is False:
+        try:
+            _migrate_database(legacy_path, configured_path)
+        except (OSError, sqlite3.Error):
+            return legacy_path
+        return configured_path
+
+    return legacy_path
 
 
 def _default_archify_root() -> Path:
@@ -44,6 +175,14 @@ def _default_trading_workspace() -> Path:
     return _default_project_root() / "mod-projects" / "vibe-trading"
 
 
+def _default_portfolio_center_dist() -> Path:
+    return _default_project_root() / "modules" / "portfolio-center" / "dist"
+
+
+def _default_external_finance_pilot_descriptor() -> Path:
+    return _default_project_root() / "config" / "external-finance-mod-pilots.json"
+
+
 def _default_allowed_origins() -> str:
     origins = [
         "http://127.0.0.1:5888",
@@ -56,7 +195,7 @@ def _default_allowed_origins() -> str:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="NEWMA_DOCK_",
+        env_prefix="NEWMA_DESK_",
         env_file=".env",
         env_ignore_empty=True,
     )
@@ -68,6 +207,7 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: SecretStr = SecretStr("")
     openai_model: str = "gpt-5.6"
+    openai_fallback_models: str = ""
     openai_api_key_required: bool = True
     anthropic_base_url: str = "https://api.anthropic.com/v1"
     anthropic_api_key: SecretStr = SecretStr("")
@@ -81,6 +221,10 @@ class Settings(BaseSettings):
     workspace_root: Path = Path(".")
     investment_workspace: Path = Field(default_factory=_default_investment_workspace)
     trading_workspace: Path = Field(default_factory=_default_trading_workspace)
+    portfolio_center_dist: Path = Field(default_factory=_default_portfolio_center_dist)
+    external_finance_pilot_descriptor: Path = Field(
+        default_factory=_default_external_finance_pilot_descriptor
+    )
     deepsee_workspace: Path = Field(
         default_factory=lambda: resolve_runtime_workspace("deepsee", "source")
     )
@@ -127,6 +271,9 @@ class Settings(BaseSettings):
     trade_confirmation_secret: SecretStr = SecretStr("")
     research_base_url: str = "http://127.0.0.1:8911/api/research"
     research_api_key: SecretStr = SecretStr("")
+    trading_api_key: SecretStr = SecretStr("")
+    portfolio_quote_timeout_seconds: float = Field(default=2.5, gt=0, le=30)
+    legacy_portfolio_path: Path = Path("~/.vibe-research/portfolio.json")
     enable_scheduler: bool = False
     scheduler_poll_seconds: float = Field(default=30.0, gt=0, le=3600)
     archify_root: Path = Field(default_factory=_default_archify_root)
@@ -144,9 +291,15 @@ class Settings(BaseSettings):
         return (
             init_settings,
             env_settings,
+            EnvSettingsSource(settings_cls, env_prefix="NEWMA_DOCK_"),
             EnvSettingsSource(settings_cls, env_prefix="VIBEDESK_"),
             EnvSettingsSource(settings_cls, env_prefix="VIBE_VIS_"),
             dotenv_settings,
+            DotEnvSettingsSource(
+                settings_cls,
+                env_file=".env",
+                env_prefix="NEWMA_DOCK_",
+            ),
             DotEnvSettingsSource(
                 settings_cls,
                 env_file=".env",

@@ -4,9 +4,10 @@
   "name": "市场扫描器",
   "description": "基于共享行情与自选标的筛选趋势、量能和估值候选，并将结果交给 Desk Agent 继续分析。",
   "version": "0.1.0",
-  "publisher": "Newma-Dock",
+  "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-dock",
-  "tags": ["行情", "选股", "扫描", "量价"],
+ "tags": ["行情", "选股", "扫描", "量价"],
+  "agentWorkspace": { "type": "desk" },
   "runtime": { "type": "direct", "entry": { "type": "structured", "url": "/mods/market-daily/?workspace=scanner" } },
   "manifest": {
     "schemaVersion": "1.1",
@@ -14,7 +15,7 @@
     "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 6, "label": "扫描器", "directory": { "id": "market-suite", "label": "行情工具", "order": 5 }, "icon": "market" },
     "compatibility": { "level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0" },
     "permissions": ["market.read"],
-    "dataServices": ["market-data"],
+    "dataServices": [],
     "actions": {
       "market.refresh": {
         "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
@@ -32,6 +33,30 @@
         "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
         "inputSchema": { "type": "object", "properties": { "name": { "type": "string", "maxLength": 80 } }, "additionalProperties": false },
         "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none"
+      },
+      "market.symbol-search": {
+        "binding": { "type": "data" }, "execution": "request", "permission": "market.read",
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+        "confirmation": "none"
+      },
+      "market.quote": {
+        "binding": { "type": "data" }, "execution": "request", "permission": "market.read",
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+        "confirmation": "none"
+      },
+      "market.quotes": {
+        "binding": { "type": "data" }, "execution": "request", "permission": "market.read",
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+        "confirmation": "none"
+      },
+      "market.turnover-top": {
+        "binding": { "type": "data" }, "execution": "request", "permission": "market.read",
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
         "confirmation": "none"
       }
     },

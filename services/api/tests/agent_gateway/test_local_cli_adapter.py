@@ -5,6 +5,7 @@ import pytest
 
 from vibe_visualization_api.agent_gateway.adapters.local_cli import (
     LocalCliAgentAdapter,
+    ModWorkspaceUnavailableError,
 )
 from vibe_visualization_api.agent_gateway.conversation_store import (
     AgentConversationStore,
@@ -151,15 +152,16 @@ async def test_missing_cli_returns_safe_failed_event(tmp_path: Path) -> None:
     assert events[-1].data["code"] == "cli_unavailable"
 
 
-def test_workspace_resolver_covers_external_mod_families(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_workspace_resolver_uses_store_metadata_and_keeps_override_priority(
+    tmp_path: Path,
+) -> None:
     desk = tmp_path / "desk"
     investment = tmp_path / "investment"
     deepsee = tmp_path / "deepsee"
     cycle = tmp_path / "cycle"
     instock = tmp_path / "instock"
-    orchestra_root = tmp_path / "orchestra"
-    orchestra_frontend = orchestra_root / "frontend"
-    orchestra_backend = orchestra_root / "backend"
+    orchestra_frontend = tmp_path / "orchestra" / "frontend"
     override = tmp_path / "override"
     for path in (
         desk,
@@ -168,19 +170,28 @@ def test_workspace_resolver_covers_external_mod_families(tmp_path: Path) -> None
         cycle,
         instock,
         orchestra_frontend,
-        orchestra_backend,
         override,
     ):
         path.mkdir(parents=True)
+    resolved = {
+        "industry-map": investment,
+        "watchlist": investment,
+        "deepsee-news": deepsee,
+        "seven-cycle-research": cycle,
+        "instock-czsc": instock,
+        "orchestra-history": orchestra_frontend,
+        "market-daily": desk,
+    }
+    calls: list[str] = []
+
+    async def resolve_workspace(module_id: str) -> Path | None:
+        calls.append(module_id)
+        return resolved.get(module_id)
+
     settings = Settings(
         workspace_root=desk,
         investment_workspace=investment,
         trading_workspace=desk,
-        deepsee_workspace=deepsee,
-        seven_cycle_workspace=cycle,
-        instock_workspace=instock,
-        orchestra_frontend_workspace=orchestra_frontend,
-        orchestra_backend_workspace=orchestra_backend,
         mod_workspace_overrides=f'{{"industry-map": "{override}"}}',
         _env_file=None,
     )
@@ -188,15 +199,47 @@ def test_workspace_resolver_covers_external_mod_families(tmp_path: Path) -> None
         "codex",
         settings,
         AgentConversationStore(tmp_path / "gateway.db"),
+        workspace_resolver=resolve_workspace,
     )
 
-    assert adapter._workspace_for("industry-map") == override.resolve()
-    assert adapter._workspace_for("watchlist") == investment.resolve()
-    assert adapter._workspace_for("deepsee-news") == deepsee.resolve()
-    assert adapter._workspace_for("seven-cycle-research") == cycle.resolve()
-    assert adapter._workspace_for("instock-czsc") == instock.resolve()
-    assert adapter._workspace_for("orchestra-history") == orchestra_root.resolve()
-    assert adapter._workspace_for("market-daily") == desk.resolve()
+    assert await adapter._workspace_for("industry-map") == override.resolve()
+    assert "industry-map" not in calls
+    assert await adapter._workspace_for("watchlist") == investment.resolve()
+    assert await adapter._workspace_for("deepsee-news") == deepsee.resolve()
+    assert await adapter._workspace_for("seven-cycle-research") == cycle.resolve()
+    assert await adapter._workspace_for("instock-czsc") == instock.resolve()
+    assert await adapter._workspace_for("orchestra-history") == orchestra_frontend.resolve()
+    assert await adapter._workspace_for("market-daily") == desk.resolve()
+
+
+@pytest.mark.asyncio
+async def test_workspace_resolver_does_not_fall_back_to_entire_desk(
+    tmp_path: Path,
+) -> None:
+    async def unresolved(_module_id: str) -> Path | None:
+        return None
+
+    settings = Settings(
+        workspace_root=tmp_path,
+        _env_file=None,
+    )
+    adapter = LocalCliAgentAdapter(
+        "codex",
+        settings,
+        AgentConversationStore(tmp_path / "gateway.db"),
+        workspace_resolver=unresolved,
+    )
+
+    with pytest.raises(ModWorkspaceUnavailableError):
+        await adapter._workspace_for("unregistered-mod")
+
+    adapter._executable = lambda: "/usr/bin/true"  # type: ignore[method-assign]
+    events = await _collect(
+        adapter,
+        AgentTaskCreate(module_id="unregistered-mod", prompt="修改页面"),
+    )
+    assert events[-1].type == "failed"
+    assert events[-1].data["code"] == "workspace_unavailable"
 
 
 def test_write_access_requires_explicit_edit_mode(tmp_path: Path) -> None:
@@ -258,6 +301,39 @@ def test_finance_mod_prompt_requires_global_stock_data_skill(tmp_path: Path) -> 
     assert "美股行情 Sina → Tencent → Eastmoney" in prompt
     assert "港股行情 Tencent → Sina → Eastmoney" in prompt
     assert "不得用 yfinance 作为美股/港股默认行情源" in prompt
+    assert "关键结论应引用 evidence id、source 与 asOf" in prompt
+    assert "不得用模型常识静默补齐缺失数据" in prompt
+
+
+def test_integrated_build_policy_is_selected_by_resolved_workspace(
+    tmp_path: Path,
+) -> None:
+    investment = tmp_path / "vibe-research"
+    trading = tmp_path / "vibe-trading"
+    investment.mkdir()
+    trading.mkdir()
+    settings = Settings(
+        workspace_root=tmp_path,
+        investment_workspace=investment,
+        trading_workspace=trading,
+        _env_file=None,
+    )
+    adapter = LocalCliAgentAdapter(
+        "codex",
+        settings,
+        AgentConversationStore(tmp_path / "gateway.db"),
+    )
+    request = AgentTaskCreate(
+        module_id="future-imported-mod",
+        capability="module.edit",
+        prompt="修改当前量化页面",
+        context={"vibedesk": {"mode": "edit"}},
+    )
+
+    prompt = adapter._build_prompt(request, [], trading, allow_write=True)
+
+    assert "Vibe Trading 已内置到 Newma-Desk" in prompt
+    assert "VITE_BASE_PATH=/mod-runtime/trading/" in prompt
 
 
 def test_non_finance_mod_prompt_does_not_inject_market_data_policy(tmp_path: Path) -> None:

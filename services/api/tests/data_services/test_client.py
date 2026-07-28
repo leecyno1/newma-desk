@@ -4,6 +4,7 @@ import socket
 import httpx
 import pytest
 
+from vibe_visualization_api.data_services import client as client_module
 from vibe_visualization_api.data_services.client import (
     DataServiceClient,
     UnknownServiceCapability,
@@ -94,6 +95,40 @@ def test_local_mode_requires_descriptor_host_allowlist() -> None:
         public_mode=False,
         allowed_hosts=["127.0.0.1"],
     )
+
+
+@pytest.mark.asyncio
+async def test_owned_http_client_bypasses_environment_proxies(
+    monkeypatch: pytest.MonkeyPatch,
+    market_service: DataServiceDescriptor,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        async def request(
+            self,
+            method: str,
+            url: str,
+            **kwargs: object,
+        ) -> httpx.Response:
+            return httpx.Response(200, json={"items": []})
+
+        async def aclose(self) -> None:
+            captured["closed"] = True
+
+    monkeypatch.setattr(client_module.httpx, "AsyncClient", FakeAsyncClient)
+    client = DataServiceClient(
+        public_mode=False,
+        secret_resolver=lambda name: "token",
+    )
+
+    await client.invoke(market_service, "market.indices", {})
+
+    assert captured["trust_env"] is False
+    assert captured["closed"] is True
 
 
 @pytest.mark.asyncio

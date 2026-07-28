@@ -1,7 +1,7 @@
 import { Bookmark, BookmarkCheck, CalendarRange, ExternalLink, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { KLineChartPanel, type ChartAnnotation } from "@newma-dock/chart-kit";
+import { KLineChartPanel, type ChartAnnotation } from "@newma-desk/chart-kit";
 
 import type {
   Bar,

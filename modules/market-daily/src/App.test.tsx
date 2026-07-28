@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ModBridge } from "@newma-dock/mod-sdk";
+import type { ModBridge } from "@newma-desk/mod-sdk";
 
 import { buildMarketPageContext, MarketTerminalApp } from "./App";
 import type { MarketDataSource, Quote, SecurityRef } from "./types";

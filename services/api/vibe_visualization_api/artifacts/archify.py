@@ -111,7 +111,7 @@ def to_archify_ir(spec: GraphArtifactCreate) -> dict[str, Any]:
             "title": "图谱说明",
             "items": [
                 f"{len(spec.nodes)} 个节点 · {len(spec.edges)} 条关系",
-                "由 Newma-Dock Artifact Adapter 转换并使用 Archify 渲染",
+                "由 Newma-Desk Artifact Adapter 转换并使用 Archify 渲染",
             ],
         }
     )
@@ -163,7 +163,7 @@ class ArchifyRenderer:
     def render(self, ir: dict[str, Any]) -> str:
         if not self._renderer.is_file():
             raise ArtifactRenderError("Archify renderer is not installed")
-        with tempfile.TemporaryDirectory(prefix="newma-dock-archify-") as directory:
+        with tempfile.TemporaryDirectory(prefix="newma-desk-archify-") as directory:
             root = Path(directory)
             source_path = root / "artifact.architecture.json"
             output_path = root / "artifact.html"

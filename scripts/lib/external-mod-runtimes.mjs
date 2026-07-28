@@ -10,7 +10,7 @@ const DEFAULT_DESCRIPTOR_URL = new URL(
   import.meta.url,
 );
 const ID_PATTERN = /^[a-z][a-z0-9-]{2,63}$/;
-const ENV_PATTERN = /^(?:NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$/;
+const ENV_PATTERN = /^(?:NEWMA_DESK|NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$/;
 
 function objectValue(value, label) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -29,15 +29,21 @@ function stringValue(value, label) {
 function envName(value, label) {
   const name = stringValue(value, label);
   if (!ENV_PATTERN.test(name)) {
-    throw new Error(`${label} must be a NEWMA_DOCK_* or VIBEDESK_* name`);
+    throw new Error(`${label} must be a NEWMA_DESK_*, NEWMA_DOCK_* or VIBEDESK_* name`);
   }
   return name;
 }
 
 function configuredEnvValue(env, name) {
-  const configured = env[name]?.trim();
-  if (configured || !name.startsWith("NEWMA_DOCK_")) return configured;
-  return env[`VIBEDESK_${name.slice("NEWMA_DOCK_".length)}`]?.trim();
+  const prefixes = ["NEWMA_DESK_", "NEWMA_DOCK_", "VIBEDESK_"];
+  const prefix = prefixes.find((candidate) => name.startsWith(candidate));
+  if (!prefix) return env[name]?.trim();
+  const suffix = name.slice(prefix.length);
+  for (const candidate of prefixes) {
+    const configured = env[`${candidate}${suffix}`]?.trim();
+    if (configured) return configured;
+  }
+  return undefined;
 }
 
 function safeRelativePath(value, label) {

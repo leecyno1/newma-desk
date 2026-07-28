@@ -23,14 +23,14 @@ import {
   useState,
 } from "react";
 
-import type { ModPageContext } from "@newma-dock/contracts";
+import type { ModPageContext } from "@newma-desk/contracts";
 import {
   connectModHost,
   createModBridge,
   type GatewayFetch,
   type ModBridge,
   type ModHostConnection,
-} from "@newma-dock/mod-sdk";
+} from "@newma-desk/mod-sdk";
 
 import { createMarketDataSource, securityKey } from "./data";
 import { resolveParentOrigin } from "./lib/runtimeOrigin";
@@ -792,7 +792,7 @@ export function MarketTerminalApp({
           <span className="terminal-brand-mark"><Activity size={15} /></span>
           <div>
             <strong>市场终端</strong>
-            <span>KLineChart · Newma-Dock Data</span>
+            <span>KLineChart · Newma-Desk Data</span>
           </div>
         </div>
 

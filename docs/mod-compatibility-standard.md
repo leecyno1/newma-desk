@@ -1,11 +1,11 @@
-# Newma-Dock Mod Compatibility Standard 1.0（工作草案）
+# Newma-Desk Mod Compatibility Standard 1.0（工作草案）
 
 状态：Draft 0.3  
 Manifest：1.1  
 Bridge Protocol：1.0  
 ViewSpec：1.0
 
-本文定义 Mod 如何独立运行、嵌入 Newma-Dock、调用数据与 AI 能力，以及如何被人和 Agent 共同理解。文中的“必须”“应该”“可以”分别对应 MUST、SHOULD、MAY。
+本文定义 Mod 如何独立运行、嵌入 Newma-Desk、调用数据与 AI 能力，以及如何被人和 Agent 共同理解。文中的“必须”“应该”“可以”分别对应 MUST、SHOULD、MAY。
 
 ## 1. 核心边界
 
@@ -13,12 +13,12 @@ ViewSpec：1.0
 
 > 独立网页入口 + 运行 Manifest + 明确 Action + 可选数据服务 + 可选 Agent 语义。
 
-Newma-Dock 负责导航、隔离、身份、权限、Gateway、跨 Mod 上下文和统一展示范式。Mod 负责自己的业务页面和业务后端。Newma-Dock 不复制上游项目源码，也不要求上游项目迁入同一个后端。
+Newma-Desk 负责导航、隔离、身份、权限、Gateway、跨 Mod 上下文和统一展示范式。Mod 负责自己的业务页面和业务后端。Newma-Desk 不复制上游项目源码，也不要求上游项目迁入同一个后端。
 
 同一个 Mod 必须同时支持：
 
 - 通过稳定 URL 独立访问。
-- 在 Newma-Dock iframe 中运行。
+- 在 Newma-Desk iframe 中运行。
 - 保持自己的发布、路由和后端生命周期。
 
 ## 2. 三级兼容等级
@@ -30,7 +30,7 @@ Newma-Dock 负责导航、隔离、身份、权限、Gateway、跨 Mod 上下文
 Mod 必须：
 
 - 有可独立访问的 HTTP(S) 页面。
-- 允许被配置的 Newma-Dock Origin 嵌入。
+- 允许被配置的 Newma-Desk Origin 嵌入。
 - 在 320px 至桌面宽度下保持可用。
 - 完成 `hello → init → ack` Bridge 握手。
 - 接收主题、语言和时区。
@@ -46,7 +46,7 @@ Mod 必须额外：
 - 使用 Manifest 1.1 显式声明所有 Action Binding。
 - 区分 Agent、Model、Data 和 Local Action。
 - 声明每个 Action 的权限、执行模式和确认级别。
-- 使用 Newma-Dock Gateway，而不是把密钥下发到浏览器。
+- 使用 Newma-Desk Gateway，而不是把密钥下发到浏览器。
 - 使用标准事件协议交换确定性事件。
 - 提供结构化输入输出 Schema。
 - 长任务必须返回可查询、可取消的任务状态。
@@ -64,7 +64,7 @@ Mod 必须额外：
 
 ### 2.1 声明等级与认证等级
 
-Manifest 中的 `compatibility.level` 是 Mod 声明等级，不等于 Newma-Dock 已认证等级。静态合同检查只能确认字段、权限、Action Binding 和 Schema 关系有效，不能证明页面当前可运行。
+Manifest 中的 `compatibility.level` 是 Mod 声明等级，不等于 Newma-Desk 已认证等级。静态合同检查只能确认字段、权限、Action Binding 和 Schema 关系有效，不能证明页面当前可运行。
 
 运行认证必须在真实 Desk 与 Mod 运行时上验证：
 
@@ -93,7 +93,7 @@ npm run mods:certify -- --mod market-daily,multi-timeframe
 - Bridge `bridgeProtocol`
 - Mod SDK `sdkVersion`
 - ViewSpec `viewSpecVersion`
-- Newma-Dock HTTP API 版本
+- Newma-Desk HTTP API 版本
 
 新增可选字段属于兼容变更；删除字段、重命名、类型变化、认证方式变化必须发布新主版本。公开版本至少保留当前版本和前一版本的兼容期。
 
@@ -102,7 +102,7 @@ Manifest 1.0 是兼容模式。Manifest 1.1 是新 Mod 的标准入口。1.0 Mod
 ## 4. 标准文件
 
 - `mod.json`：商店描述、作者、上游仓库、截图和安装信息。
-- `module.json`：运行 Manifest；Newma-Dock 1.x 为兼容现有包继续使用此文件名。
+- `module.json`：运行 Manifest；Newma-Desk 1.x 为兼容现有包继续使用此文件名。
 - `data-service.json`：数据服务与能力描述。
 - `schemas/*.json`：Action 和数据服务的 JSON Schema。
 - `view.json`：可选的 ViewSpec 页面定义。
@@ -177,14 +177,14 @@ Git 商店 MVP 推荐在 Manifest 和 `data-service.json` 中使用内联 Draft 
 - Level 3 必须声明 `viewSpecVersion`。
 - Action 使用的权限必须存在于 `permissions`。
 - Data Action 指定 `service` 时，该 Service 必须存在于 `dataServices`；省略
-  `service` 时由 Newma-Dock 统一数据路由选择 Provider。
+  `service` 时由 Newma-Desk 统一数据路由选择 Provider。
 - Agent Action 必须使用 `task` 执行方式。
 - Model Action 必须使用 `request` 执行方式。
 - `trade.execute` 必须使用 `strong` 确认。
 
 ### 5.1 导航与二级目录合同
 
-导入多页面项目时，每个可独立授权、独立运行、独立提供 Agent Context 的页面仍然必须是一个独立 Mod。属于同一项目套件的兄弟 Mod 通过 `navigation.directory` 聚合到 Newma-Dock 的二级侧边栏，而不是把上游页面全部塞进一个 Mod 或在母侧边栏平铺。
+导入多页面项目时，每个可独立授权、独立运行、独立提供 Agent Context 的页面仍然必须是一个独立 Mod。属于同一项目套件的兄弟 Mod 通过 `navigation.directory` 聚合到 Newma-Desk 的二级侧边栏，而不是把上游页面全部塞进一个 Mod 或在母侧边栏平铺。
 
 ```json
 {
@@ -218,7 +218,7 @@ Desk 中的用户配置优先于 Manifest 默认值，并只保存在本地 Work
 
 每个实际存在的二级目录由 Desk 自动追加“项目设置”入口，上游项目不需要再开发一套设置页面。该页面的作用域是 `用户 + Workspace + directory.id`，至少包含：套件页面清单、统一数据 Provider 路由和 Agent 设置入口。用户自定义移动页面后，设置页应按当前目录成员实时更新。
 
-推荐的项目接入流程是：上游路由清单 → 每个路由生成一个 Mod Manifest → 为同套件路由写入相同 `directory.id` → 运行 Manifest Schema 与兼容性检查 → 注册到商店。这样上游不需要实现 Newma-Dock 侧边栏组件。
+推荐的项目接入流程是：上游路由清单 → 每个路由生成一个 Mod Manifest → 为同套件路由写入相同 `directory.id` → 运行 Manifest Schema 与兼容性检查 → 注册到商店。这样上游不需要实现 Newma-Desk 侧边栏组件。
 
 ## 6. Action Binding
 
@@ -238,7 +238,7 @@ Action ID 是对人、Agent 和服务都稳定的公开能力名称。页面不�
 
 ### Data
 
-用于确定性业务接口。必须声明 Capability、输入输出 Schema 和权限。密钥只保存在 Newma-Dock 或对应数据服务端。
+用于确定性业务接口。必须声明 Capability、输入输出 Schema 和权限。密钥只保存在 Newma-Desk 或对应数据服务端。
 
 推荐使用统一路由，不写具体 Provider：
 
@@ -298,7 +298,7 @@ PUT /api/data-services/preferences/{suite-id}
 
 ### Local
 
-用于 Newma-Dock 自身提供的受控能力，例如本地刷新。未注册的 Local Handler 必须返回不可用，不得回退到 Agent 猜测执行。
+用于 Newma-Desk 自身提供的受控能力，例如本地刷新。未注册的 Local Handler 必须返回不可用，不得回退到 Agent 猜测执行。
 
 ## 7. Bridge Protocol 1.0
 
@@ -323,7 +323,7 @@ PUT /api/data-services/preferences/{suite-id}
 - `user` 与 `workspace`。
 - 主题、语言和时区。
 - Actions、Agent、Model、Data Gateway 地址。
-- Newma-Dock 实际批准的权限与 Action。
+- Newma-Desk 实际批准的权限与 Action。
 
 ### Mod → Desk
 
@@ -346,10 +346,13 @@ Action 和 Context HTTP 请求必须同时携带：
 
 ```http
 Authorization: Bearer <mod-session-token>
-X-Newma-Dock-Instance-Id: <instance-id>
+X-Newma-Desk-Instance-Id: <instance-id>
 ```
 
-Token 与 `instanceId`、Mod、Revision 或 Action 任一不匹配时必须拒绝。生产环境和多进程部署必须配置固定的 `NEWMA_DOCK_MOD_SESSION_SECRET`；不得依赖进程启动时生成的临时密钥。
+Token 与 `instanceId`、Mod、Revision 或 Action 任一不匹配时必须拒绝。生产环境和多进程部署必须配置固定的 `NEWMA_DESK_MOD_SESSION_SECRET`；不得依赖进程启动时生成的临时密钥。
+
+兼容期内，宿主仍接受旧的 `X-Newma-Desk-Instance-Id` 请求头与
+`NEWMA_DOCK_*` 环境变量；新接入统一使用 `Newma-Desk` 命名。
 
 ### 7.2 Agent Context 消息
 
@@ -410,7 +413,7 @@ Desk 校验来源、实例、Manifest、Session、权限和 Schema 后代理调�
 
 ### 7.4 Desk Mod Copilot
 
-Newma-Dock 在宿主层提供统一的右侧 Mod Copilot。该能力属于 Desk，不属于单个 Mod：
+Newma-Desk 在宿主层提供统一的右侧 Mod Copilot。该能力属于 Desk，不属于单个 Mod：
 
 - 抽屉、会话显示、停止任务、Agent 选择、问答/修改模式由 Desk 统一实现。
 - 每次发送前，Desk 必须使用 `reason: agent` 请求当前页面 Context。
@@ -420,7 +423,7 @@ Newma-Dock 在宿主层提供统一的右侧 Mod Copilot。该能力属于 Desk�
 - “修改”模式必须由用户在界面显式选择，并以 `capability: module.edit` 和 `context.vibedesk.mode: edit` 双重声明；Agent 只能写入当前 Mod 映射的 Workspace。
 - 修改完成后必须返回改动文件、行为变化和验证结果，不得读取或输出 `.env`、密钥和登录凭据。
 
-Mod 可以在独立运行时保留自己的问答入口；嵌入 Newma-Dock 时，通用“针对本页问答”入口应该隐藏，避免出现两套会话、两套 Agent 设置和重复的右侧抽屉。业务专属的 AI 复盘、摘要、自动回复、研究沉淀和 Action 不属于重复能力，不应因此移除。
+Mod 可以在独立运行时保留自己的问答入口；嵌入 Newma-Desk 时，通用“针对本页问答”入口应该隐藏，避免出现两套会话、两套 Agent 设置和重复的右侧抽屉。业务专属的 AI 复盘、摘要、自动回复、研究沉淀和 Action 不属于重复能力，不应因此移除。
 
 ## 8. 数据合同
 
@@ -435,7 +438,7 @@ Mod 可以在独立运行时保留自己的问答入口；嵌入 Newma-Dock 时�
 - `freshness` 或过期状态。
 - 标准错误码。
 
-Newma-Dock 必须在调用前验证输入，在返回 Mod 前验证输出。未安装、未授权或 Schema 不匹配的 Service 不得被调用。
+Newma-Desk 必须在调用前验证输入，在返回 Mod 前验证输出。未安装、未授权或 Schema 不匹配的 Service 不得被调用。
 
 ## 9. 事件与 Workspace Context
 
@@ -449,12 +452,12 @@ Newma-Dock 必须在调用前验证输入，在返回 Mod 前验证输出。未�
 - 当前研究主题。
 - 当前数据集和回测任务。
 
-跨 Origin、独立打开和切换页面的 Context 必须由 Newma-Dock 后端持久化；不能只依赖 iframe 或 BroadcastChannel。
+跨 Origin、独立打开和切换页面的 Context 必须由 Newma-Desk 后端持久化；不能只依赖 iframe 或 BroadcastChannel。
 
 ## 10. 安全要求
 
 - 浏览器不得收到上游 API Key、模型 Key 或 Agent 凭据。
-- Newma-Dock 必须按照 Manifest 权限生成最小权限运行环境。
+- Newma-Desk 必须按照 Manifest 权限生成最小权限运行环境。
 - iframe `sandbox` 和 Permissions Policy 必须由声明权限推导。
 - Mod Origin 与 Desk Origin 应隔离。
 - 所有写入、交易和外发动作必须可审计。
@@ -463,7 +466,7 @@ Newma-Dock 必须在调用前验证输入，在返回 Mod 前验证输出。未�
 
 ## 11. 展示与 Agent 语义
 
-所有级别应该使用 Newma-Dock Design Tokens：字体、字号、间距、颜色、边框、加载、空状态和错误状态。
+所有级别应该使用 Newma-Desk Design Tokens：字体、字号、间距、颜色、边框、加载、空状态和错误状态。
 
 Level 3 的 Agent Context 至少应返回：
 

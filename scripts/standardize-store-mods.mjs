@@ -7,7 +7,12 @@ function option(name) {
   return process.argv.slice(2).find((argument) => argument.startsWith(prefix))?.slice(prefix.length);
 }
 
-const apiUrl = option("api-url") || process.env.NEWMA_DOCK_CONTROL_PLANE_URL || "http://127.0.0.1:8911";
+const apiUrl =
+  option("api-url") ||
+  process.env.NEWMA_DESK_CONTROL_PLANE_URL ||
+  process.env.NEWMA_DOCK_CONTROL_PLANE_URL ||
+  process.env.VIBEDESK_CONTROL_PLANE_URL ||
+  "http://127.0.0.1:8911";
 
 try {
   const result = await standardizeStoreMods({ apiUrl });

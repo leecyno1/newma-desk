@@ -19,7 +19,7 @@ test("demo Mod runs directly in standalone mode", async ({ page }) => {
   await expect(page.getByText("Mode: standalone", { exact: true })).toBeVisible();
 });
 
-test("Newma-Dock embeds the demo Mod with its isolation contract", async ({
+test("Newma-Desk embeds the demo Mod with its isolation contract", async ({
   page,
 }) => {
   await page.goto(shellModuleUrl);

@@ -6,10 +6,11 @@
   "version": "0.1.0",
   "publisher": "Orchestra",
   "upstream": null,
-  "tags": ["Orchestra", "投委会", "Agent"],
+ "tags": ["Orchestra", "投委会", "Agent"],
+  "agentWorkspace": { "type": "runtime", "runtimeId": "orchestra", "workspaceName": "frontend" },
   "runtime": {
     "type": "external",
-    "baseUrlEnv": "NEWMA_DOCK_ORCHESTRA_WEB_URL",
+    "baseUrlEnv": "NEWMA_DESK_ORCHESTRA_WEB_URL",
     "defaultBaseUrl": "http://127.0.0.1:3001"
   },
   "manifest": {

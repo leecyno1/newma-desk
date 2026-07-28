@@ -13,7 +13,28 @@ function collectConsoleErrors(page: Page) {
   return errors;
 }
 
-test.describe("Newma-Dock chart workspace Mods", () => {
+test.describe("Newma-Desk chart workspace Mods", () => {
+  test("grants every embedded workspace the market data actions it uses", async ({ page }) => {
+    const errors = collectConsoleErrors(page);
+    const workspaces = [
+      ["market-scanner", "市场扫描器"],
+      ["multi-timeframe", "多周期看盘"],
+      ["relative-strength", "相对强弱地图"],
+      ["event-timeline", "事件时间轴"],
+      ["trading-replay", "交易回放室"],
+    ] as const;
+
+    for (const [modId, title] of workspaces) {
+      await page.goto(`${shellOrigin}/?mod=${modId}`);
+      const frame = page.frameLocator(`iframe[title="${title}"]`);
+      await expect(frame.getByText(title, { exact: true })).toBeVisible();
+      await expect(frame.locator(".workspace-current-price strong")).toHaveText(/\d/);
+      await expect(frame.getByText("Action is not granted", { exact: false })).toHaveCount(0);
+    }
+
+    expect(errors).toEqual([]);
+  });
+
   test("renders all five shared-runtime workspaces with working primary interactions", async ({ page }) => {
     const errors = collectConsoleErrors(page);
 
@@ -56,7 +77,9 @@ test.describe("Newma-Dock chart workspace Mods", () => {
     await expect(scanner.getByText("市场扫描器", { exact: true })).toBeVisible();
     await scanner.locator("button.scanner-row").filter({ hasText: "中芯国际" }).first().click();
 
-    await page.getByRole("button", { name: "多周期看盘" }).click();
+    await page
+      .locator('[data-module-id="multi-timeframe"] .module-button')
+      .click();
     const multi = page.frameLocator('iframe[title="多周期看盘"]');
     await expect(multi.getByText("中芯国际", { exact: true }).first()).toBeVisible();
     await page.getByRole("button", { name: "问当前 Mod" }).click();

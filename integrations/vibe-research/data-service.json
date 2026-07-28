@@ -1,6 +1,6 @@
 {
   "id": "market-data",
-  "name": "Newma-Dock 市场数据",
+  "name": "Newma-Desk 市场数据",
   "description": "统一提供 A 股、港股、美股行情与研究数据。",
   "priority": 10,
   "baseUrl": "http://127.0.0.1:8911/api/research",
@@ -53,7 +53,7 @@
     },
     "market.symbol-search": {
       "method": "GET",
-      "path": "/market-terminal/search",
+      "path": "/api/market-terminal/search",
       "inputSchema": {
         "type": "object",
         "required": ["query"],
@@ -73,7 +73,7 @@
     },
     "market.quotes": {
       "method": "GET",
-      "path": "/market-terminal/quotes",
+      "path": "/api/market-terminal/quotes",
       "inputSchema": {
         "type": "object",
         "required": ["symbols"],
@@ -89,7 +89,7 @@
     },
     "market.quote": {
       "method": "GET",
-      "path": "/market-terminal/quote",
+      "path": "/api/market-terminal/quote",
       "inputSchema": {
         "type": "object",
         "required": ["symbol", "market"],
@@ -108,7 +108,7 @@
     },
     "market.ohlcv": {
       "method": "GET",
-      "path": "/market-terminal/ohlcv",
+      "path": "/api/market-terminal/ohlcv",
       "inputSchema": {
         "type": "object",
         "required": ["symbol", "market", "timeframe"],
@@ -130,7 +130,7 @@
     },
     "market.intraday": {
       "method": "GET",
-      "path": "/market-terminal/ohlcv",
+      "path": "/api/market-terminal/ohlcv",
       "inputSchema": {
         "type": "object",
         "required": ["symbol", "market", "timeframe"],

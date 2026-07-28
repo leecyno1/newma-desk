@@ -1,7 +1,7 @@
 import { AlertTriangle, Boxes, Eye, LoaderCircle, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { ModEvent } from "@newma-dock/contracts";
+import type { ModEvent } from "@newma-desk/contracts";
 
 import {
   getModRevision,

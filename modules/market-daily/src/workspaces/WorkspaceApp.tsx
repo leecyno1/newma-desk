@@ -8,7 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 
-import type { ModPageContext } from "@newma-dock/contracts";
+import type { ModPageContext } from "@newma-desk/contracts";
 import {
   connectModHost,
   createArtifactClient,
@@ -17,7 +17,7 @@ import {
   type GatewayFetch,
   type ModBridge,
   type ModHostConnection,
-} from "@newma-dock/mod-sdk";
+} from "@newma-desk/mod-sdk";
 
 import { createMarketDataSource, securityKey } from "../data";
 import { resolveParentOrigin } from "../lib/runtimeOrigin";
@@ -133,9 +133,14 @@ export function MarketWorkspaceApp({
   const initialSecurity = useStoredSecurity(config.modId);
   const fetcher = useMemo(() => providedFetch ?? globalThis.fetch.bind(globalThis), [providedFetch]);
   const [gatewayOrigin, setGatewayOrigin] = useState(gatewayBaseUrl || configuredOrigin("gateway"));
+  const [hostConnection, setHostConnection] = useState<EmbeddedHost>();
   const dataSource = useMemo(
-    () => providedDataSource ?? createMarketDataSource({ baseUrl: gatewayOrigin, fetch: fetcher }),
-    [fetcher, gatewayOrigin, providedDataSource],
+    () => providedDataSource ?? createMarketDataSource({
+      baseUrl: gatewayOrigin,
+      fetch: fetcher,
+      ...(hostConnection ? { invokeAction: hostConnection.invokeAction } : {}),
+    }),
+    [fetcher, gatewayOrigin, hostConnection, providedDataSource],
   );
   const artifactClient = useMemo<ArtifactClient>(
     () => providedArtifactClient ?? createArtifactClient({ baseUrl: gatewayOrigin, fetch: fetcher }),
@@ -144,7 +149,6 @@ export function MarketWorkspaceApp({
   const [bridge] = useState(() => providedBridge ?? createModBridge({ modId: config.modId, parentOrigin: configuredOrigin("parent") }));
   const ownsBridge = !providedBridge;
   const closeTimer = useRef<number | undefined>(undefined);
-  const [hostConnection, setHostConnection] = useState<EmbeddedHost>();
   const [security, setSecurity] = useState<SecurityRef>(initialSecurity);
   const [quote, setQuote] = useState<Quote>();
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -178,7 +182,7 @@ export function MarketWorkspaceApp({
   contextRef.current = buildWorkspacePageContext({ config, security, quote, workspaceState: contextualWorkspaceState });
 
   useEffect(() => {
-    document.title = `${config.title} · Newma-Dock`;
+    document.title = `${config.title} · Newma-Desk`;
   }, [config.title]);
 
   useEffect(() => {

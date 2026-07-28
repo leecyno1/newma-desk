@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0", "id": "orchestra-agents", "name": "Orchestra 19 席位", "description": "查看和编辑 19 个投研 Agent 的 Profile、专长、提示词与 Skills。",
   "version": "0.1.0", "publisher": "Orchestra", "tags": ["Agent", "Profile", "Skills"],
-  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DOCK_ORCHESTRA_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:3001", "route": "/?workspace=agents" },
+  "runtime": { "type": "external", "baseUrlEnv": "NEWMA_DESK_ORCHESTRA_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:3001", "route": "/?workspace=agents" },
   "manifest": {
     "schemaVersion": "1.1", "category": "decision",
     "navigation": { "groupLabel": "投决", "groupOrder": 50, "itemOrder": 40, "label": "19 席位", "directory": { "id": "orchestra-suite", "label": "Orchestra 投委会", "order": 10 }, "icon": "module" },

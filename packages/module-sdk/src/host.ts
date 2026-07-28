@@ -11,7 +11,7 @@ import {
   type DeskContextRequest,
   type DeskInit,
   type ModPageContext,
-} from "@newma-dock/contracts";
+} from "@newma-desk/contracts";
 
 export interface ModHostConfig {
   modId: string;
@@ -163,7 +163,7 @@ export function connectModHost(
       uiActionHandler = undefined;
       for (const pending of pendingActions.values()) {
         runtime.clearTimeout(pending.timer);
-        pending.reject(new Error("Newma-Dock host connection is closed"));
+        pending.reject(new Error("Newma-Desk host connection is closed"));
       }
       pendingActions.clear();
     };
@@ -171,11 +171,11 @@ export function connectModHost(
       cleanup();
       if (!settled) {
         settled = true;
-        reject(new Error("Newma-Dock host handshake was aborted"));
+        reject(new Error("Newma-Desk host handshake was aborted"));
       }
     };
     const publishContext = (context: ModPageContext, linkedRequestId?: string) => {
-      if (!activeConfig) throw new Error("Newma-Dock host is not initialized");
+      if (!activeConfig) throw new Error("Newma-Desk host is not initialized");
       post(
         modContextSchema.parse({
           type: "vibedesk:context",
@@ -198,18 +198,18 @@ export function connectModHost(
       }
     };
     const connection = () => {
-      if (!activeConfig) throw new Error("Newma-Dock host is not initialized");
+      if (!activeConfig) throw new Error("Newma-Desk host is not initialized");
       const initialConfig = activeConfig;
       return {
         embedded: true as const,
         config: initialConfig,
         subscribe(handler: (next: DeskInit) => void) {
-          if (closed) throw new Error("Newma-Dock host connection is closed");
+          if (closed) throw new Error("Newma-Desk host connection is closed");
           subscriptions.add(handler);
           return () => subscriptions.delete(handler);
         },
         setContextProvider(provider: ModContextProvider) {
-          if (closed) throw new Error("Newma-Dock host connection is closed");
+          if (closed) throw new Error("Newma-Desk host connection is closed");
           contextProvider = provider;
           const queued = queuedContextRequests.splice(0);
           for (const request of queued) void respondWithContext(request);
@@ -218,14 +218,14 @@ export function connectModHost(
           };
         },
         setUiActionHandler(handler: ModUiActionHandler) {
-          if (closed) throw new Error("Newma-Dock host connection is closed");
+          if (closed) throw new Error("Newma-Desk host connection is closed");
           uiActionHandler = handler;
           return () => {
             if (uiActionHandler === handler) uiActionHandler = undefined;
           };
         },
         publishContext(context: ModPageContext) {
-          if (closed) throw new Error("Newma-Dock host connection is closed");
+          if (closed) throw new Error("Newma-Desk host connection is closed");
           publishContext(context);
         },
         invokeAction<T = unknown>(
@@ -233,7 +233,7 @@ export function connectModHost(
           input: Record<string, unknown> = {},
         ): Promise<T> {
           if (closed) {
-            return Promise.reject(new Error("Newma-Dock host connection is closed"));
+            return Promise.reject(new Error("Newma-Desk host connection is closed"));
           }
           if (!activeConfig?.grants.actions.includes(actionId)) {
             return Promise.reject(
@@ -245,7 +245,7 @@ export function connectModHost(
           return new Promise<T>((resolveAction, rejectAction) => {
             const timer = runtime.setTimeout(() => {
               pendingActions.delete(id);
-              rejectAction(new Error("Newma-Dock action request timed out"));
+              rejectAction(new Error("Newma-Desk action request timed out"));
             }, requestTimeoutMs);
             pendingActions.set(id, {
               resolve: (value) => resolveAction(value as T),
@@ -392,7 +392,7 @@ export function connectModHost(
       cleanup();
       if (!settled) {
         settled = true;
-        reject(new Error("Newma-Dock host handshake timed out"));
+        reject(new Error("Newma-Desk host handshake timed out"));
       }
     }, timeoutMs);
     runtime.window.addEventListener("message", handleMessage);

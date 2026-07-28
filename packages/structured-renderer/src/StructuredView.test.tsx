@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { View } from "@newma-dock/contracts";
+import type { View } from "@newma-desk/contracts";
 
 import { resolvePath } from "./resolvePath";
 import { StructuredView } from "./StructuredView";

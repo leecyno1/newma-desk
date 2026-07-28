@@ -218,7 +218,11 @@ async function launchCertificationBrowser({ headed, browserChannel }) {
 async function main() {
   const args = process.argv.slice(2);
   const shellOrigin = exactHttpOrigin(
-    optionValue(args, "shell-origin") || process.env.NEWMA_DOCK_SHELL_ORIGIN || DEFAULT_SHELL_ORIGIN,
+    optionValue(args, "shell-origin") ||
+      process.env.NEWMA_DESK_SHELL_ORIGIN ||
+      process.env.NEWMA_DOCK_SHELL_ORIGIN ||
+      process.env.VIBEDESK_SHELL_ORIGIN ||
+      DEFAULT_SHELL_ORIGIN,
     "shell origin",
   );
   const timeoutMs = Number(optionValue(args, "timeout") || DEFAULT_TIMEOUT_MS);
@@ -273,7 +277,7 @@ async function main() {
   };
   const output = optionValue(args, "output") || path.join(
     os.tmpdir(),
-    `newma-dock-mod-certification-${generatedAt.replaceAll(":", "-")}.json`,
+    `newma-desk-mod-certification-${generatedAt.replaceAll(":", "-")}.json`,
   );
   await writeFile(output, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   process.stdout.write(`REPORT ${output}\n`);

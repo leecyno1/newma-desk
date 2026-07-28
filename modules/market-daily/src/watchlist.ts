@@ -1,4 +1,4 @@
-import type { GatewayFetch } from "@newma-dock/mod-sdk";
+import type { GatewayFetch } from "@newma-desk/mod-sdk";
 
 import type { SecurityRef, WatchGroup } from "./types";
 

@@ -1,4 +1,4 @@
-import type { ModPageContext } from "@newma-dock/contracts";
+import type { ModPageContext } from "@newma-desk/contracts";
 
 export interface ModSession {
   sessionId: string;
@@ -118,7 +118,7 @@ export async function invokeModSessionAction(
         Accept: "application/json",
         Authorization: `Bearer ${session.accessToken}`,
         "Content-Type": "application/json",
-        "X-Newma-Dock-Instance-Id": session.instanceId,
+        "X-Newma-Desk-Instance-Id": session.instanceId,
       },
       body: JSON.stringify(input),
     },
@@ -146,7 +146,7 @@ export async function saveModContext(
         Accept: "application/json",
         Authorization: `Bearer ${session.accessToken}`,
         "Content-Type": "application/json",
-        "X-Newma-Dock-Instance-Id": session.instanceId,
+        "X-Newma-Desk-Instance-Id": session.instanceId,
       },
       body: JSON.stringify({ context }),
     },

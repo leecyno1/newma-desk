@@ -1,0 +1,34 @@
+[Unit]
+Description=Newma-Desk Orchestra API (10375 deployment)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/newma-projects/orchestra-agentscope
+EnvironmentFile=-/etc/newma-desk-10375/newma-desk.env
+EnvironmentFile=-/etc/newma-desk-10375/mod-runtimes.env
+Environment=HOME=/root
+Environment=PYTHONUNBUFFERED=1
+Environment=ORCHESTRA_PROJECT_ROOT=/var/lib/newma-desk-10375/orchestra
+Environment=ORCHESTRA_DATA_DIR=/var/lib/newma-desk-10375/orchestra
+Environment=ORCHESTRA_DATABASE_PATH=/var/lib/newma-desk-10375/orchestra/orchestra.db
+Environment=ORCHESTRA_SECRET_KEY_PATH=/var/lib/newma-desk-10375/orchestra/secret.key
+Environment=ORCHESTRA_API_HOST=127.0.0.1
+Environment=ORCHESTRA_API_PORT=8011
+Environment=ORCHESTRA_API_RELOAD=false
+Environment=ORCHESTRA_EXECUTION_MODE=demo
+Environment=ORCHESTRA_RUN_WORKERS=1
+Environment=ORCHESTRA_MAX_CONCURRENCY=1
+Environment=ORCHESTRA_SESSION_COOKIE_SECURE=false
+ExecStart=/opt/newma-projects/orchestra-agentscope/.venv/bin/python -m orchestra_app.main
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=45
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

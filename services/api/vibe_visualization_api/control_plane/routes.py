@@ -88,6 +88,19 @@ def _validate_session(
     return claims
 
 
+def _instance_id_header(
+    instance_id: str | None,
+    legacy_instance_id: str | None,
+) -> str | None:
+    if (
+        instance_id is not None
+        and legacy_instance_id is not None
+        and instance_id != legacy_instance_id
+    ):
+        raise HTTPException(400, "conflicting Mod instance headers")
+    return instance_id or legacy_instance_id
+
+
 @router.get(
     "",
     response_model=list[StoredModuleResponse],
@@ -287,12 +300,22 @@ async def update_mod_context(
     authorization: str | None = Header(default=None, alias="Authorization"),
     instance_id: str | None = Header(
         default=None,
+        alias="X-Newma-Desk-Instance-Id",
+        min_length=1,
+        max_length=128,
+    ),
+    legacy_instance_id: str | None = Header(
+        default=None,
         alias="X-Newma-Dock-Instance-Id",
         min_length=1,
         max_length=128,
     ),
 ) -> dict[str, object]:
-    claims = _validate_session(request, authorization, instance_id)
+    claims = _validate_session(
+        request,
+        authorization,
+        _instance_id_header(instance_id, legacy_instance_id),
+    )
     if claims.module_id != module_id:
         raise HTTPException(403, "Mod session does not grant this context")
     encoded = json.dumps(
@@ -362,6 +385,12 @@ async def invoke_module_action(
     authorization: str | None = Header(default=None, alias="Authorization"),
     instance_id: str | None = Header(
         default=None,
+        alias="X-Newma-Desk-Instance-Id",
+        min_length=1,
+        max_length=128,
+    ),
+    legacy_instance_id: str | None = Header(
+        default=None,
         alias="X-Newma-Dock-Instance-Id",
         min_length=1,
         max_length=128,
@@ -379,7 +408,11 @@ async def invoke_module_action(
     schema_version = module.manifest.get("schemaVersion")
     explicit_binding = schema_version == "1.1"
     if explicit_binding:
-        claims = _validate_session(request, authorization, instance_id)
+        claims = _validate_session(
+            request,
+            authorization,
+            _instance_id_header(instance_id, legacy_instance_id),
+        )
         if (
             claims.module_id != module_id
             or claims.revision != module.revision

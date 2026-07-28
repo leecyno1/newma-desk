@@ -60,10 +60,26 @@ test("rejects undeclared permissions and data services", () => {
   assert.ok(result.errors.some((error) => error.includes("data service")));
 });
 
+test("rejects confirmation values that the runtime contract cannot parse", () => {
+  const result = checkModManifest({
+    ...connected,
+    actions: {
+      ...connected.actions,
+      "factor.backtest": {
+        ...connected.actions["factor.backtest"],
+        confirmation: "required",
+      },
+    },
+  });
+
+  assert.ok(result.errors.some((error) => error.includes("confirmation must be")));
+});
+
 test("the current store keeps legacy Mods compatible and validates declared levels", async () => {
   const results = await runCompatibilityCheck();
 
-  assert.equal(results.length, 42);
+  assert.equal(results.length, new Set(results.map((result) => result.id)).size);
+  assert.ok(results.length >= 42);
   assert.ok(results.every((result) => result.errors.length === 0));
   assert.ok(
     results
@@ -77,6 +93,14 @@ test("the current store keeps legacy Mods compatible and validates declared leve
   );
   assert.equal(results.find((result) => result.id === "market-daily").level, 3);
   assert.equal(results.find((result) => result.id === "watchlist").level, 3);
+  const portfolioIds = [
+    "portfolio-brief",
+    "portfolio-activities",
+    "portfolio-risk",
+    "portfolio-performance",
+    "portfolio-settings",
+  ];
+  assert.ok(portfolioIds.every((id) => results.find((result) => result.id === id)?.level === 3));
   const chartWorkspaceIds = [
     "market-scanner",
     "multi-timeframe",
@@ -103,6 +127,7 @@ test("the current store keeps legacy Mods compatible and validates declared leve
       .filter((result) => ![
         "market-daily",
         "watchlist",
+        ...portfolioIds,
         ...chartWorkspaceIds,
         "instock-czsc",
         "instock-rotation",

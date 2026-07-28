@@ -1,6 +1,6 @@
 # ViewSpec 页面规范
 
-ViewSpec 是 Newma-Dock 默认的页面生成规范。它让不同 Agent 生成的研究、量化和数据页面保持一致，也让 Agent 无需截图或鼠标自动化即可理解页面。
+ViewSpec 是 Newma-Desk 默认的页面生成规范。它让不同 Agent 生成的研究、量化和数据页面保持一致，也让 Agent 无需截图或鼠标自动化即可理解页面。
 
 ## 页面类型
 
@@ -17,11 +17,11 @@ ViewSpec 是 Newma-Dock 默认的页面生成规范。它让不同 Agent 生成�
 - 页面：React + Vite。
 - 普通图表、K 线和金融图表：ECharts。
 - Markdown：react-markdown，并保持原始 HTML 禁用。
-- Agent 生成、需要固化和版本化的关系网络：Newma-Dock Graph Artifact + Archify。
+- Agent 生成、需要固化和版本化的关系网络：Newma-Desk Graph Artifact + Archify。
 - 高频实时变化的关系网络：Cytoscape.js；简单关系图继续使用 ECharts Graph。
 - 3D：Three.js / React Three Fiber。
 - 地图：MapLibre。
-- 视觉变量：`@newma-dock/desk-ui/tokens.css`。
+- 视觉变量：`@newma-desk/desk-ui/tokens.css`。
 
 后四项属于扩展能力，没有明确需要时不提前加入 Mod 依赖。
 
@@ -91,7 +91,7 @@ View Renderer 输出机器可读的 HTML：
 ## Artifact 区块
 
 `artifact` 用于把 Agent 生成的复杂成果作为可版本化对象嵌入 View。当前标准
-渲染器为 `archify`。Mod 提交的是 Newma-Dock Graph Artifact，API 负责转换、校验、
+渲染器为 `archify`。Mod 提交的是 Newma-Desk Graph Artifact，API 负责转换、校验、
 渲染和持久化；Mod 不依赖 Archify 的内部 JSON 格式。
 
 ```json

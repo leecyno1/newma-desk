@@ -1,5 +1,5 @@
 {
-  "name": "@newma-dock/chart-kit",
+  "name": "@newma-desk/chart-kit",
   "version": "0.1.0",
   "type": "module",
   "exports": "./src/index.ts",

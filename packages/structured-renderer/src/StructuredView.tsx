@@ -1,4 +1,4 @@
-import type { View } from "@newma-dock/contracts";
+import type { View } from "@newma-desk/contracts";
 
 import { ActionsBlock, type ActionHandler } from "./blocks/ActionsBlock";
 import { ArtifactBlock } from "./blocks/ArtifactBlock";

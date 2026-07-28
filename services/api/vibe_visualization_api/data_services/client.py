@@ -142,6 +142,7 @@ class DataServiceClient:
         client = self._client or httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=False,
+            trust_env=False,
         )
         owns_client = self._client is None
         request_arguments: dict[str, object] = {

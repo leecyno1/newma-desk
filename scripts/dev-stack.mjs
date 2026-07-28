@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,26 +11,84 @@ import {
   runtimeEnvironment,
 } from "./lib/external-mod-runtimes.mjs";
 import {
+  createCompositeProbe,
   createHttpProbe,
   probeService,
   RuntimeSupervisor,
   SERVICE_CRITICALITY,
   SERVICE_STATE,
 } from "./lib/runtime-supervisor.mjs";
+import {
+  claimProcessLock,
+  releaseProcessLock,
+} from "./lib/process-lock.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has("--check");
 const strictStatus = args.has("--strict");
-const startupTimeoutMs = Number(process.env.NEWMA_DOCK_STARTUP_TIMEOUT_MS || 120_000);
+
+function configuredEnv(name) {
+  const suffix = name.startsWith("NEWMA_DESK_")
+    ? name.slice("NEWMA_DESK_".length)
+    : name;
+  return (
+    process.env[`NEWMA_DESK_${suffix}`]?.trim() ||
+    process.env[`NEWMA_DOCK_${suffix}`]?.trim() ||
+    process.env[`VIBEDESK_${suffix}`]?.trim()
+  );
+}
+
+function configuredBoolean(name, defaultValue = false) {
+  const value = configuredEnv(name);
+  if (!value) return defaultValue;
+  return !["0", "false", "no", "off"].includes(value.toLowerCase());
+}
+
+const startupTimeoutMs = Number(configuredEnv("STARTUP_TIMEOUT_MS") || 120_000);
 const optionalStartupTimeoutMs = Number(
-  process.env.NEWMA_DOCK_OPTIONAL_STARTUP_TIMEOUT_MS || 30_000,
+  configuredEnv("OPTIONAL_STARTUP_TIMEOUT_MS") || 30_000,
 );
-const pidFile = process.env.NEWMA_DOCK_STACK_PID_FILE?.trim();
+const runtimeHealthIntervalMs = Number(
+  configuredEnv("RUNTIME_HEALTH_INTERVAL_MS") || 5_000,
+);
+const runtimeHealthFailureThreshold = Number(
+  configuredEnv("RUNTIME_HEALTH_FAILURE_THRESHOLD") || 3,
+);
+const runtimeRestartGraceMs = Number(
+  configuredEnv("RUNTIME_RESTART_GRACE_MS") || 1_000,
+);
+const runtimePortReleaseTimeoutMs = Number(
+  configuredEnv("RUNTIME_PORT_RELEASE_TIMEOUT_MS") || 5_000,
+);
+const sevenCycleHealthTimeoutMs = Number(
+  configuredEnv("SEVEN_CYCLE_HEALTH_TIMEOUT_MS") || 5_000,
+);
+const repairSevenCycleCatalogOnStart = configuredBoolean(
+  "SEVEN_CYCLE_REPAIR_CATALOG_ON_START",
+  true,
+);
+const pidFile = configuredEnv("STACK_PID_FILE")
+  || path.join(repoRoot, "runtime", "newma-desk-stack.pid");
 let shuttingDown = false;
 
+function withLocalProxyBypass(...values) {
+  const entries = values
+    .flatMap((value) => String(value || "").split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return [...new Set([...entries, "127.0.0.1", "localhost", "::1"])].join(",");
+}
+
+const localNoProxy = withLocalProxyBypass(
+  process.env.NO_PROXY,
+  process.env.no_proxy,
+);
+process.env.NO_PROXY = localNoProxy;
+process.env.no_proxy = localNoProxy;
+
 function workspaceFrom(name, candidates) {
-  const configured = process.env[name]?.trim();
+  const configured = configuredEnv(name);
   const paths = configured ? [configured] : candidates;
   for (const candidate of paths) {
     const resolved = path.resolve(repoRoot, candidate);
@@ -44,12 +102,59 @@ function pythonAt(workspace) {
   return existsSync(local) ? local : "python3";
 }
 
+const apiHealthUrl = "http://127.0.0.1:8911/api/health";
+const domainSuitesUrl = "http://127.0.0.1:8911/api/domain-suites";
+
+function createDomainSuitesProbe() {
+  return async () => {
+    try {
+      const response = await fetch(domainSuitesUrl, {
+        signal: AbortSignal.timeout(1_500),
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        return { state: SERVICE_STATE.UNAVAILABLE, reason: `HTTP ${response.status}` };
+      }
+      const body = await response.json();
+      const ready = body?.ok === true
+        && body?.suites?.research === true
+        && body?.suites?.trading === true;
+      return ready
+        ? { state: SERVICE_STATE.READY }
+        : {
+            state: SERVICE_STATE.UNAVAILABLE,
+            reason: "Research / Trading domain suites are incomplete",
+          };
+    } catch (error) {
+      return {
+        state: SERVICE_STATE.UNAVAILABLE,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  };
+}
+
+function createApiReadinessProbe() {
+  return createCompositeProbe([
+    {
+      label: "API health",
+      probe: createHttpProbe(apiHealthUrl, {
+        expectedService: "newma-desk-api",
+      }),
+    },
+    {
+      label: "Research / Trading domain suites",
+      probe: createDomainSuitesProbe(),
+    },
+  ]);
+}
+
 function coreServices(externalRuntimeEnv = {}) {
   const apiPython = pythonAt(path.join(repoRoot, "services", "api"));
   return [
     {
-      id: "newma-dock-api",
-      label: "Newma-Dock API",
+      id: "newma-desk-api",
+      label: "Newma-Desk API",
       cwd: repoRoot,
       command: apiPython,
       commandArgs: [
@@ -58,20 +163,18 @@ function coreServices(externalRuntimeEnv = {}) {
       ],
       env: {
         ...externalRuntimeEnv,
-        NEWMA_DOCK_ENABLE_DOMAIN_SUITES: "true",
-        NEWMA_DOCK_INTEGRATED_DOMAIN_RUNTIME: "1",
+        NEWMA_DESK_ENABLE_DOMAIN_SUITES: "true",
+        NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME: "1",
         VIBEDESK_INTEGRATED_DOMAIN_RUNTIME: "1",
-        NEWMA_DOCK_INVESTMENT_WORKSPACE: path.join(repoRoot, "mod-projects", "vibe-research"),
-        NEWMA_DOCK_TRADING_WORKSPACE: path.join(repoRoot, "mod-projects", "vibe-trading"),
-        NEWMA_DOCK_INVESTMENT_WEB_URL: "http://127.0.0.1:8911",
-        NEWMA_DOCK_TRADING_WEB_URL: "http://127.0.0.1:8911",
-        NEWMA_DOCK_RESEARCH_BASE_URL: "http://127.0.0.1:8911/api/research",
+        NEWMA_DESK_INVESTMENT_WORKSPACE: path.join(repoRoot, "mod-projects", "vibe-research"),
+        NEWMA_DESK_TRADING_WORKSPACE: path.join(repoRoot, "mod-projects", "vibe-trading"),
+        NEWMA_DESK_INVESTMENT_WEB_URL: "http://127.0.0.1:8911",
+        NEWMA_DESK_TRADING_WEB_URL: "http://127.0.0.1:8911",
+        NEWMA_DESK_RESEARCH_BASE_URL: "http://127.0.0.1:8911/api/research",
       },
       criticality: SERVICE_CRITICALITY.CORE,
-      url: "http://127.0.0.1:8911/api/health",
-      probe: createHttpProbe("http://127.0.0.1:8911/api/health", {
-        expectedService: "newma-dock-api",
-      }),
+      url: apiHealthUrl,
+      probe: createApiReadinessProbe(),
     },
     {
       id: "market-pulse",
@@ -79,7 +182,7 @@ function coreServices(externalRuntimeEnv = {}) {
       cwd: repoRoot,
       command: "npm",
       commandArgs: [
-        "run", "dev", "-w", "@newma-dock/market-pulse", "--",
+        "run", "dev", "-w", "@newma-desk/market-pulse", "--",
         "--host", "127.0.0.1", "--port", "5891", "--strictPort",
       ],
       env: {
@@ -92,8 +195,8 @@ function coreServices(externalRuntimeEnv = {}) {
       probe: createHttpProbe("http://127.0.0.1:5891/"),
     },
     {
-      id: "newma-dock-web",
-      label: "Newma-Dock",
+      id: "newma-desk-web",
+      label: "Newma-Desk",
       cwd: repoRoot,
       command: "npm",
       commandArgs: [
@@ -121,6 +224,7 @@ async function buildIntegratedFrontend(label, workspace, basePath, apiBase) {
     cwd: frontend,
     env: {
       ...process.env,
+      NEWMA_DESK_INTEGRATED: "1",
       NEWMA_DOCK_INTEGRATED: "1",
       VITE_BASE_PATH: basePath,
       VITE_API_BASE: apiBase,
@@ -132,6 +236,22 @@ async function buildIntegratedFrontend(label, workspace, basePath, apiBase) {
     child.once("exit", (code, signal) => {
       if (code === 0) resolve();
       else reject(new Error(`${label} 前端构建失败：code=${code ?? "-"} signal=${signal ?? "-"}`));
+    });
+  });
+}
+
+async function buildFirstPartyModule(label, workspaceName) {
+  console.log(`构建内置 ${label} Mod`);
+  const child = spawn("npm", ["run", "build", "-w", workspaceName], {
+    cwd: repoRoot,
+    env: process.env,
+    stdio: "inherit",
+  });
+  await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${label} 构建失败：code=${code ?? "-"} signal=${signal ?? "-"}`));
     });
   });
 }
@@ -155,6 +275,9 @@ function sevenCycleServices(runtime) {
             commandArgs: [
               ...(usesLocalCommand ? [] : ["run", "seven-cycle"]),
               "serve", "--host", "127.0.0.1", "--port", String(endpoint.port),
+              ...(repairSevenCycleCatalogOnStart
+                ? ["--repair-catalog-on-start"]
+                : []),
             ],
           }
         : {}),
@@ -165,6 +288,7 @@ function sevenCycleServices(runtime) {
       probe: createHttpProbe(endpoint.healthUrl, {
         expectedService: "seven-cycle-platform",
         degradedStatuses: [409],
+        timeoutMs: sevenCycleHealthTimeoutMs,
       }),
     },
   ];
@@ -189,8 +313,12 @@ function instockServices(runtime) {
         PYTHONUNBUFFERED: "1",
         INSTOCK_SKIP_DB: "1",
         INSTOCK_MARKET_DATA_PROVIDER: "vibedesk",
+        NEWMA_DESK_DATA_URL: "http://127.0.0.1:8911/api/research",
+        NEWMA_DESK_PARENT_ORIGIN: "http://127.0.0.1:5888",
         NEWMA_DOCK_DATA_URL: "http://127.0.0.1:8911/api/research",
         NEWMA_DOCK_PARENT_ORIGIN: "http://127.0.0.1:5888",
+        VIBEDESK_DATA_URL: "http://127.0.0.1:8911/api/research",
+        VIBEDESK_PARENT_ORIGIN: "http://127.0.0.1:5888",
         INSTOCK_EMBED_ORIGINS: "http://127.0.0.1:5888",
         INSTOCK_CORS_ORIGINS: "http://127.0.0.1:5888",
         INSTOCK_WEB_HOST: "127.0.0.1",
@@ -255,6 +383,7 @@ function orchestraServices(runtime) {
         : {}),
       env: {
         ORCHESTRA_API_TARGET: apiEndpoint.origin,
+        VITE_NEWMA_DESK_PARENT_ORIGIN: "http://127.0.0.1:5888",
         VITE_NEWMA_DOCK_PARENT_ORIGIN: "http://127.0.0.1:5888",
       },
       criticality: webEndpoint.local
@@ -279,40 +408,23 @@ async function statusLine(service) {
 }
 
 function claimPidFile() {
-  if (!pidFile) return;
-  if (existsSync(pidFile)) {
-    const existingPid = Number(readFileSync(pidFile, "utf8").trim());
-    let alive = false;
-    if (Number.isInteger(existingPid) && existingPid > 0) {
-      try {
-        process.kill(existingPid, 0);
-        alive = true;
-      } catch {
-        alive = false;
-      }
-    }
-    if (alive && existingPid !== process.pid) {
-      throw new Error(`Newma-Dock 统一启动器已运行（PID ${existingPid}）。`);
-    }
-    unlinkSync(pidFile);
-  }
-  writeFileSync(pidFile, `${process.pid}\n`, "utf8");
+  claimProcessLock(pidFile, { label: "Newma-Desk 统一启动器" });
 }
 
 async function shutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   await supervisor.stopAll();
-  if (pidFile && existsSync(pidFile)) unlinkSync(pidFile);
+  releaseProcessLock(pidFile);
   process.exit(exitCode);
 }
 
 const researchWorkspace = workspaceFrom(
-  "NEWMA_DOCK_INVESTMENT_WORKSPACE",
+  "NEWMA_DESK_INVESTMENT_WORKSPACE",
   ["mod-projects/vibe-research"],
 );
 const tradingWorkspace = workspaceFrom(
-  "NEWMA_DOCK_TRADING_WORKSPACE",
+  "NEWMA_DESK_TRADING_WORKSPACE",
   ["mod-projects/vibe-trading"],
 );
 const externalRuntimes = await loadExternalModRuntimes({ repoRoot });
@@ -325,38 +437,6 @@ const deepseeRuntime = externalRuntimes.byId.deepsee;
 const sevenCycle = sevenCycleServices(sevenCycleRuntime);
 const instock = instockServices(instockRuntime);
 const orchestra = orchestraServices(orchestraRuntime);
-const domainSuites = {
-  id: "domain-suites",
-  label: "Research / Trading 内置领域运行时",
-  criticality: SERVICE_CRITICALITY.CORE,
-  url: "http://127.0.0.1:8911/api/domain-suites",
-  probe: async () => {
-    try {
-      const response = await fetch("http://127.0.0.1:8911/api/domain-suites", {
-        signal: AbortSignal.timeout(1_500),
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) {
-        return { state: SERVICE_STATE.UNAVAILABLE, reason: `HTTP ${response.status}` };
-      }
-      const body = await response.json();
-      const ready = body?.ok === true
-        && body?.suites?.research === true
-        && body?.suites?.trading === true;
-      return ready
-        ? { state: SERVICE_STATE.READY }
-        : {
-            state: SERVICE_STATE.UNAVAILABLE,
-            reason: "Research / Trading domain suites are incomplete",
-          };
-    } catch (error) {
-      return {
-        state: SERVICE_STATE.UNAVAILABLE,
-        reason: error instanceof Error ? error.message : String(error),
-      };
-    }
-  },
-};
 const deepsee = {
   id: "deepsee",
   label: "Deepsee（独立服务）",
@@ -369,14 +449,18 @@ const deepsee = {
 const supervisor = new RuntimeSupervisor({
   coreTimeoutMs: startupTimeoutMs,
   optionalTimeoutMs: optionalStartupTimeoutMs,
+  monitorIntervalMs: runtimeHealthIntervalMs,
+  monitorFailureThreshold: runtimeHealthFailureThreshold,
+  restartGraceMs: runtimeRestartGraceMs,
+  portReleaseTimeoutMs: runtimePortReleaseTimeoutMs,
   onCoreFailure: () => void shutdown(1),
 });
 
 if (!researchWorkspace) {
-  console.warn("未找到 Vibe Research；请设置 NEWMA_DOCK_INVESTMENT_WORKSPACE。相关 Mods 将不可用。");
+  console.warn("未找到 Vibe Research；请设置 NEWMA_DESK_INVESTMENT_WORKSPACE。相关 Mods 将不可用。");
 }
 if (!tradingWorkspace) {
-  console.warn("未找到 Vibe Trading；请设置 NEWMA_DOCK_TRADING_WORKSPACE。量化 Mods 将不可用。");
+  console.warn("未找到 Vibe Trading；请设置 NEWMA_DESK_TRADING_WORKSPACE。量化 Mods 将不可用。");
 }
 for (const runtime of externalRuntimes.runtimes) {
   for (const [name, workspace] of Object.entries(runtime.workspaces)) {
@@ -390,7 +474,7 @@ for (const runtime of externalRuntimes.runtimes) {
 
 if (checkOnly) {
   const results = [];
-  for (const service of [...core, domainSuites, ...instock, ...orchestra, ...sevenCycle, deepsee]) {
+  for (const service of [...core, ...instock, ...orchestra, ...sevenCycle, deepsee]) {
     results.push(await statusLine(service));
   }
   const coreReady = results
@@ -399,7 +483,7 @@ if (checkOnly) {
   const allReady = results.every(({ state }) => state === SERVICE_STATE.READY);
   process.exitCode = (strictStatus ? allReady : coreReady) ? 0 : 1;
   if (coreReady && !allReady) {
-    console.log("\nNewma-Dock 核心可用；部分可选或外部 Mod 当前处于降级状态。");
+    console.log("\nNewma-Desk 核心可用；部分可选或外部 Mod 当前处于降级状态。");
     console.log("如需把所有可选 Mod 也作为失败条件，请运行 npm run dev:status -- --strict。");
   }
 } else {
@@ -410,7 +494,7 @@ if (checkOnly) {
   try {
     claimPidFile();
     if (!researchWorkspace || !tradingWorkspace) {
-      throw new Error("Newma-Dock 内置领域运行时缺少 Research 或 Trading 源码目录。");
+      throw new Error("Newma-Desk 内置领域运行时缺少 Research 或 Trading 源码目录。");
     }
     await buildIntegratedFrontend(
       "Research",
@@ -424,39 +508,34 @@ if (checkOnly) {
       "/mod-runtime/trading/",
       "/api/trading",
     );
+    await buildFirstPartyModule(
+      "Portfolio Center",
+      "@newma-desk/portfolio-center",
+    );
     await supervisor.start(core[0]);
-    const domainStatus = await statusLine(domainSuites);
-    if (domainStatus.state !== SERVICE_STATE.READY) {
-      throw new Error(
-        `Research / Trading 内置领域运行时未就绪：${domainStatus.reason || domainSuites.url}`,
-      );
-    }
     await registerStoreMods({
       apiUrl: "http://127.0.0.1:8911",
       env: {
         ...process.env,
         ...externalRuntimeEnv,
-        NEWMA_DOCK_INVESTMENT_WEB_URL: "http://127.0.0.1:8911",
-        NEWMA_DOCK_TRADING_WEB_URL: "http://127.0.0.1:8911",
-        NEWMA_DOCK_CONTROL_PLANE_URL: "http://127.0.0.1:8911",
+        NEWMA_DESK_INVESTMENT_WEB_URL: "http://127.0.0.1:8911",
+        NEWMA_DESK_TRADING_WEB_URL: "http://127.0.0.1:8911",
+        NEWMA_DESK_CONTROL_PLANE_URL: "http://127.0.0.1:8911",
       },
     });
     await supervisor.start(core[1]);
     await supervisor.start(core[2]);
-    console.log("\nNewma-Dock 核心已就绪：http://127.0.0.1:5888/?mod=daily-review");
-    console.log("Research / Trading 已作为 Newma-Dock 内置领域运行时加载，不再占用独立端口。");
+    console.log("\nNewma-Desk 核心已就绪：http://127.0.0.1:5888/?mod=daily-review");
+    console.log("Research / Trading 已作为 Newma-Desk 内置领域运行时加载，不再占用独立端口。");
     const optionalServices = [
       ...instock,
       ...orchestra,
       ...sevenCycle,
     ];
     const optionalResults = await supervisor.startOptional(
-      optionalServices.filter((service) => service.command),
+      optionalServices,
     );
-    for (const service of optionalServices.filter((item) => !item.command)) {
-      optionalResults.push(await statusLine(service));
-    }
-    const externalResult = await statusLine(deepsee);
+    const externalResult = await supervisor.start(deepsee);
     const degradedCount = [...optionalResults, externalResult]
       .filter(({ state }) => state !== SERVICE_STATE.READY)
       .length;

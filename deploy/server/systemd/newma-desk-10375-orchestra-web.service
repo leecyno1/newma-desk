@@ -1,0 +1,23 @@
+[Unit]
+Description=Newma-Desk Orchestra Web (10375 deployment)
+After=network-online.target newma-desk-10375-orchestra-api.service
+Wants=network-online.target newma-desk-10375-orchestra-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/newma-desk-10375/deploy/server
+EnvironmentFile=-/etc/newma-desk-10375/mod-runtimes.env
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=PRISMA_STATIC_DIR=/opt/newma-projects/orchestra-prisma/dist
+ExecStart=/usr/bin/node /opt/newma-desk-10375/deploy/server/orchestra-server.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -37,11 +37,18 @@ def _runtime_by_id(descriptor: Mapping[str, Any], runtime_id: str) -> Mapping[st
 
 
 def _configured_env(env: Mapping[str, str], name: str) -> str:
-    configured = env.get(name, "").strip()
-    if configured or not name.startswith("NEWMA_DOCK_"):
-        return configured
-    legacy_name = f"VIBEDESK_{name.removeprefix('NEWMA_DOCK_')}"
-    return env.get(legacy_name, "").strip()
+    prefixes = ("NEWMA_DESK_", "NEWMA_DOCK_", "VIBEDESK_")
+    suffix = next(
+        (name.removeprefix(prefix) for prefix in prefixes if name.startswith(prefix)),
+        None,
+    )
+    if suffix is None:
+        return env.get(name, "").strip()
+    for prefix in prefixes:
+        configured = env.get(f"{prefix}{suffix}", "").strip()
+        if configured:
+            return configured
+    return ""
 
 
 def _resolve_roots(

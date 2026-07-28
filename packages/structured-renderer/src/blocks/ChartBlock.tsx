@@ -13,7 +13,7 @@ import { LabelLayout, UniversalTransition } from "echarts/features";
 import { CanvasRenderer } from "echarts/renderers";
 import ReactEChartsCore from "echarts-for-react/lib/core";
 
-import type { ChartBlock as ChartBlockContract } from "@newma-dock/contracts";
+import type { ChartBlock as ChartBlockContract } from "@newma-desk/contracts";
 
 import { serializeEmbeddedJson } from "../embeddedJson";
 import { resolvePath } from "../resolvePath";

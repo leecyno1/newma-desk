@@ -1,8 +1,8 @@
 import { Archive, ExternalLink, Pause, Play, RefreshCcw, SkipForward, TrendingDown, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { KLineChartPanel, type ChartAnnotation } from "@newma-dock/chart-kit";
-import type { ArtifactClient, ReplayArtifactRecord } from "@newma-dock/mod-sdk";
+import { KLineChartPanel, type ChartAnnotation } from "@newma-desk/chart-kit";
+import type { ArtifactClient, ReplayArtifactRecord } from "@newma-desk/mod-sdk";
 
 import type { Bar, MarketDataSource, SecurityRef, Timeframe } from "../types";
 import { formatPrice, movement, signed } from "./shared";

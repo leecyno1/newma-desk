@@ -5,7 +5,7 @@ import {
   RelativeStrengthChart,
   normalizedStrengthSeries,
   type RelativeStrengthSeries,
-} from "@newma-dock/chart-kit";
+} from "@newma-desk/chart-kit";
 
 import { securityKey } from "../data";
 import type { Bar, MarketDataSource, SecurityRef } from "../types";

@@ -33,7 +33,7 @@ export interface ModAccessSessionInput {
 
 export interface AgentTaskCreateInput {
   modId?: string;
-  /** @deprecated Use modId in new Newma-Dock code. */
+  /** @deprecated Use modId in new Newma-Desk code. */
   moduleId?: string;
   capability?: string;
   memoryScope?: "user-agent-mod" | "task";
@@ -149,7 +149,7 @@ export interface GatewayClient {
     actionId: string,
     input: Record<string, unknown>,
   ): Promise<T>;
-  /** @deprecated Use invokeModAction in new Newma-Dock code. */
+  /** @deprecated Use invokeModAction in new Newma-Desk code. */
   invokeModuleAction<T = unknown>(
     moduleId: string,
     actionId: string,
@@ -234,7 +234,7 @@ export function createGatewayClient(config: GatewayClientConfig): GatewayClient 
             ? {
                 Authorization: `Bearer ${config.accessToken}`,
                 ...(config.instanceId
-                  ? { "X-Newma-Dock-Instance-Id": config.instanceId }
+                  ? { "X-Newma-Desk-Instance-Id": config.instanceId }
                   : {}),
               }
             : undefined,
@@ -256,7 +256,7 @@ export function createGatewayClient(config: GatewayClientConfig): GatewayClient 
             ? {
                 Authorization: `Bearer ${config.accessToken}`,
                 ...(config.instanceId
-                  ? { "X-Newma-Dock-Instance-Id": config.instanceId }
+                  ? { "X-Newma-Desk-Instance-Id": config.instanceId }
                   : {}),
               }
             : undefined,

@@ -130,13 +130,17 @@ export function cancelAgentTask(taskId: string): Promise<AgentTask> {
   );
 }
 
-export async function probeAgent(userId: string, adapter: string): Promise<string> {
+export async function probeAgent(
+  userId: string,
+  adapter: string,
+  moduleId: string,
+): Promise<string> {
   const created = await request<AgentTask>("/api/agent/tasks", {
     method: "POST",
     body: JSON.stringify({
-      moduleId: "agent-settings",
+      moduleId,
       adapter,
-      prompt: "只回复 NEWMA_DOCK_AGENT_OK，不要调用工具，不要修改文件。",
+      prompt: "只回复 NEWMA_DESK_AGENT_OK，不要调用工具，不要修改文件。",
     }),
   }, { userId });
   const deadline = Date.now() + 90_000;

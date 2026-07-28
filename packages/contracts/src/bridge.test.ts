@@ -12,7 +12,7 @@ import {
   modUiActionResultSchema,
 } from "./bridge";
 
-describe("Newma-Dock bridge protocol", () => {
+describe("Newma-Desk bridge protocol", () => {
   it("validates the hello, init, and acknowledgement lifecycle", () => {
     const hello = modHelloSchema.parse({
       type: "vibedesk:hello",

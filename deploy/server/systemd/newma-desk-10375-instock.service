@@ -1,0 +1,25 @@
+[Unit]
+Description=Newma-Desk InStock Mods (10375 deployment)
+After=network-online.target newma-desk-10375.service
+Wants=network-online.target newma-desk-10375.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/newma-projects/instock-analysis
+EnvironmentFile=-/etc/newma-desk-10375/mod-runtimes.env
+Environment=PYTHONUNBUFFERED=1
+Environment=INSTOCK_SKIP_DB=1
+Environment=INSTOCK_MARKET_DATA_PROVIDER=vibedesk
+Environment=INSTOCK_WEB_HOST=0.0.0.0
+Environment=INSTOCK_WEB_PORT=9988
+ExecStart=/opt/newma-projects/instock-analysis/.venv/bin/python /opt/newma-projects/instock-analysis/instock/web/web_service.py
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
