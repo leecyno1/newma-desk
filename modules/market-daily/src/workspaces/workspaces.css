@@ -1,5 +1,8 @@
 .market-workspace-root {
-  --workspace-accent: #2563eb;
+  --workspace-accent: var(--vibe-accent);
+  --workspace-verdigris: #2f7664;
+  --workspace-olive: #766b35;
+  --workspace-copper: #955f40;
   --workspace-panel: var(--vibe-surface);
   --workspace-muted: var(--vibe-surface-muted);
   width: 100%;
@@ -12,6 +15,12 @@
   color: var(--vibe-text);
   font-family: var(--vibe-font-ui);
   font-size: var(--vibe-font-md);
+}
+
+:root[data-theme="dark"] .market-workspace-root {
+  --workspace-verdigris: #70b4a1;
+  --workspace-olive: #b6aa63;
+  --workspace-copper: #d08a67;
 }
 
 .market-workspace-root.has-error {
@@ -126,7 +135,7 @@
   border: 1px solid var(--vibe-border-strong);
   border-radius: var(--vibe-radius-sm);
   background: var(--vibe-surface);
-  box-shadow: 0 12px 30px rgb(15 23 42 / 14%);
+  box-shadow: 0 12px 30px rgb(16 32 25 / 15%);
 }
 
 .workspace-search-results p {
@@ -371,7 +380,7 @@
 .workspace-segment button[aria-pressed="true"] {
   background: var(--vibe-surface);
   color: var(--workspace-accent);
-  box-shadow: 0 1px 3px rgb(15 23 42 / 10%);
+  box-shadow: 0 1px 3px rgb(16 32 25 / 12%);
 }
 
 .workspace-empty,
@@ -1050,19 +1059,19 @@
 }
 
 .event-price i,
-.event-dot.event-price { background: #dc2626; }
+.event-dot.event-price { background: var(--vibe-positive); }
 .event-volume i,
-.event-dot.event-volume { background: #2563eb; }
+.event-dot.event-volume { background: var(--workspace-verdigris); }
 .event-breakout i,
-.event-dot.event-breakout { background: #d97706; }
+.event-dot.event-breakout { background: var(--vibe-accent); }
 .event-announcement i,
-.event-dot.event-announcement { background: #7c3aed; }
+.event-dot.event-announcement { background: var(--workspace-olive); }
 .event-earnings i,
-.event-dot.event-earnings { background: #d97706; }
+.event-dot.event-earnings { background: var(--vibe-warning); }
 .event-news i,
-.event-dot.event-news { background: #0891b2; }
+.event-dot.event-news { background: var(--workspace-copper); }
 .event-research i,
-.event-dot.event-research { background: #2563eb; }
+.event-dot.event-research { background: var(--vibe-text-soft); }
 
 .event-list-panel {
   min-height: 0;
@@ -1184,7 +1193,7 @@
 }
 
 .event-source-statuses i[data-status="unavailable"] {
-  color: var(--vibe-danger-text);
+  color: var(--vibe-error-text);
 }
 
 /* Replay */
@@ -1219,7 +1228,7 @@
 .replay-toolbar .replay-play {
   border-color: var(--workspace-accent);
   background: var(--workspace-accent);
-  color: white;
+  color: var(--vibe-accent-contrast);
 }
 
 .replay-speed {

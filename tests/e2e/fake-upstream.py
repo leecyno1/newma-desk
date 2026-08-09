@@ -55,6 +55,7 @@ def _quote(
 
 QUOTES = {
     "CN:600519": _quote("600519", "贵州茅台", "CN", 1488.0, 0.81),
+    "HK:00700": _quote("00700", "腾讯控股", "HK", 628.0, 1.24),
     "US:NVDA": _quote("NVDA", "NVIDIA", "US", 186.5, -1.06),
 }
 
@@ -264,6 +265,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/chat/cancel":
             self._json(200, {"ok": True, "cancelled": True})
             return
+        if path.startswith("/api/market-terminal/"):
+            path = path[4:]
         if path == "/market-terminal/search":
             self._json(
                 200,
@@ -306,6 +309,26 @@ class Handler(BaseHTTPRequestHandler):
             symbol = str(query.get("symbol", ["600519"])[0]).upper()
             quote = QUOTES.get(f"{market}:{symbol}", QUOTES["CN:600519"])
             self._json(200, {"data": quote})
+            return
+        if path == "/market-terminal/scan":
+            market = str(query.get("market", ["CN"])[0]).upper()
+            sort = str(query.get("sort", ["amount"])[0])
+            order = str(query.get("order", ["desc"])[0])
+            items = [
+                quote for quote in QUOTES.values()
+                if quote.get("market") == market
+            ]
+            self._json(200, {
+                "data": {
+                    "items": items,
+                    "market": market,
+                    "sort": sort,
+                    "order": order,
+                    "source": "e2e-market-data",
+                    "asOf": "2026-07-24T15:00:00+08:00",
+                    "coverage": {"requested": len(items), "returned": len(items)},
+                }
+            })
             return
         if path == "/market-terminal/ohlcv":
             market = str(query.get("market", ["CN"])[0]).upper()

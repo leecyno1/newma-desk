@@ -38,6 +38,7 @@ from vibe_visualization_api.mod_store.schemas import (
     RuntimeAgentWorkspace,
     WELL_KNOWN_SUITE_PATH,
     expand_mod_suite,
+    validate_complete_project_groups,
 )
 
 
@@ -219,6 +220,10 @@ class ModStoreService:
         ids = [descriptor.id for _, descriptor, _ in rows]
         if len(ids) != len(set(ids)) or set(ids).intersection(catalog.retired_mods):
             raise ModStoreCatalogError()
+        try:
+            validate_complete_project_groups([descriptor for _, descriptor, _ in rows])
+        except ValueError as error:
+            raise ModStoreCatalogError() from error
         return rows
 
     async def resolve_agent_workspace(self, mod_id: str) -> Path | None:

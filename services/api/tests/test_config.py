@@ -50,6 +50,18 @@ def test_original_legacy_environment_names_remain_compatible(monkeypatch) -> Non
     assert settings.database_path == Path("runtime/legacy.db")
 
 
+def test_default_allowed_origins_include_external_runtime_overrides(monkeypatch) -> None:
+    monkeypatch.delenv("NEWMA_DESK_ALLOWED_ORIGINS", raising=False)
+    monkeypatch.setenv(
+        "NEWMA_DESK_ORCHESTRA_WEB_URL",
+        "https://orchestra.example.com",
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert "https://orchestra.example.com" in settings.origin_list()
+
+
 def _write_registry_database(
     database_path: Path,
     *,
@@ -171,6 +183,7 @@ def test_research_and_trading_default_to_in_tree_mod_projects() -> None:
     settings = Settings(_env_file=None)
     project_root = Path(__file__).resolve().parents[3]
 
+    assert settings.domain_suite_workspace_venvs is False
     assert settings.investment_workspace == (
         project_root / "mod-projects" / "vibe-research"
     )
@@ -180,6 +193,12 @@ def test_research_and_trading_default_to_in_tree_mod_projects() -> None:
     assert settings.investment_web_url == "http://127.0.0.1:8911"
     assert settings.trading_web_url == "http://127.0.0.1:8911"
     assert settings.research_base_url == "http://127.0.0.1:8911/api/research"
+
+
+def test_hermes_webui_defaults_to_the_standard_managed_node_port() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.hermes_webui_base_url == "http://127.0.0.1:8788"
 
 
 def test_empty_external_workspace_environment_uses_descriptor_discovery(

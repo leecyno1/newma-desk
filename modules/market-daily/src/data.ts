@@ -11,6 +11,9 @@ import type {
   MarketEvidenceEvent,
   MarketFilter,
   MarketOverview,
+  MarketScanOrder,
+  MarketScanResult,
+  MarketScanSort,
   OhlcvResult,
   Quote,
   SearchResult,
@@ -150,6 +153,21 @@ export function createMarketDataSource(input: {
         await queryData<DataEnvelope<Quote>>("market.quote", {
           symbol: security.symbol,
           market: security.market,
+        }),
+      );
+    },
+    async scan(
+      market: MarketScanResult["market"],
+      sort: MarketScanSort,
+      order: MarketScanOrder = "desc",
+      limit = 100,
+    ) {
+      return dataOf(
+        await queryData<DataEnvelope<MarketScanResult>>("market.scan", {
+          market,
+          sort,
+          order,
+          limit,
         }),
       );
     },

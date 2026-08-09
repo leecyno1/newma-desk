@@ -4,6 +4,15 @@ export type Timeframe = "1m" | "5m" | "15m" | "30m" | "60m" | "1d" | "1w" | "1M"
 export type Adjustment = "none" | "qfq" | "hfq";
 export type PrimaryIndicator = "MA" | "EMA" | "BOLL";
 export type SecondaryIndicator = "VOL" | "MACD" | "RSI" | "KDJ";
+export type MarketScanSort =
+  | "changePct"
+  | "amount"
+  | "turnoverPct"
+  | "volumeRatio"
+  | "marketCap"
+  | "pe"
+  | "pb";
+export type MarketScanOrder = "asc" | "desc";
 
 export interface SecurityRef {
   symbol: string;
@@ -49,6 +58,20 @@ export interface Quote extends SecurityRef {
   source?: string;
   sources?: string[];
   asOf?: string;
+  industry?: string;
+}
+
+export interface MarketScanResult {
+  items: Quote[];
+  market: MarketId;
+  sort: MarketScanSort;
+  order: MarketScanOrder;
+  source: string;
+  asOf: string;
+  coverage: {
+    requested: number;
+    returned: number;
+  };
 }
 
 export interface Bar {
@@ -141,6 +164,12 @@ export interface MarketDataSource {
   search(query: string, market: MarketFilter): Promise<SearchResult[]>;
   quotes(symbols: SecurityRef[]): Promise<Quote[]>;
   quote(security: SecurityRef): Promise<Quote>;
+  scan(
+    market: MarketId,
+    sort: MarketScanSort,
+    order?: MarketScanOrder,
+    limit?: number,
+  ): Promise<MarketScanResult>;
   ohlcv(
     security: SecurityRef,
     timeframe: Timeframe,

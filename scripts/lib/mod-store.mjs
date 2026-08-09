@@ -13,6 +13,7 @@ const LEGACY_VIBEDESK_SUITE_PATH = "/.well-known/vibedesk-suite.json";
 const SUITE_ENV_PATTERN = /^(?:NEWMA_DESK|NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$/;
 const MAX_DESCRIPTOR_BYTES = 256 * 1024;
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 5000;
+const LOCAL_URL_ORIGIN = "https://module.local";
 const NAVIGATION_ICONS = new Set([
   "today",
   "research",
@@ -22,6 +23,29 @@ const NAVIGATION_ICONS = new Set([
   "settings",
   "module",
 ]);
+const INVESTMENT_DOMAIN_IDS = new Set([
+  "market-surface",
+  "fundamentals",
+  "global-intelligence",
+  "capital-flow",
+  "policy-intelligence",
+  "cycle-research",
+  "asset-allocation",
+  "tactical-timing",
+  "equity-research",
+  "fund-research",
+  "bond-research",
+  "quant-research",
+  "investment-committee",
+  "trading-risk-portfolio",
+  "other",
+]);
+const OTHER_DOMAIN_PROJECT = {
+  id: "other",
+  name: "其他",
+  order: 150,
+  description: "尚未归入核心投研流程的管理工具与扩展能力。",
+};
 
 function assertObject(value, label) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -35,6 +59,81 @@ function assertString(value, label) {
     throw new Error(`${label} must be a non-empty string`);
   }
   return value;
+}
+
+function assertOnlyKeys(value, allowed, label) {
+  const unknown = Object.keys(value).find((key) => !allowed.has(key));
+  if (unknown !== undefined) {
+    throw new Error(`${label}.${unknown} is unsupported`);
+  }
+}
+
+function boundedString(value, label, maxLength) {
+  const result = assertString(value, label);
+  if ([...result].length > maxLength) {
+    throw new Error(`${label} must contain at most ${maxLength} characters`);
+  }
+  return result;
+}
+
+function fullyDecode(value) {
+  let decoded = value;
+  for (let pass = 0; pass < 10; pass += 1) {
+    let next;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      return undefined;
+    }
+    if (next === decoded) return decoded;
+    decoded = next;
+  }
+  return undefined;
+}
+
+function safeProjectImageSource(value, label) {
+  const source = assertString(value, label);
+  if (source.startsWith("/")) {
+    if (
+      source.startsWith("//") ||
+      source.includes("\\") ||
+      source.includes("..")
+    ) {
+      throw new Error(`${label} must be a safe relative or HTTP(S) URL`);
+    }
+    const pathEnd = source.search(/[?#]/);
+    const encodedPath = pathEnd === -1 ? source : source.slice(0, pathEnd);
+    const decodedPath = fullyDecode(encodedPath);
+    if (
+      decodedPath === undefined ||
+      !decodedPath.startsWith("/") ||
+      decodedPath.startsWith("//") ||
+      decodedPath.includes("\\") ||
+      decodedPath.includes("..") ||
+      decodedPath.split("/").includes(".")
+    ) {
+      throw new Error(`${label} must be a safe relative or HTTP(S) URL`);
+    }
+    try {
+      if (new URL(source, LOCAL_URL_ORIGIN).origin !== LOCAL_URL_ORIGIN) {
+        throw new Error();
+      }
+    } catch {
+      throw new Error(`${label} must be a safe relative or HTTP(S) URL`);
+    }
+    return source;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(source);
+  } catch {
+    throw new Error(`${label} must be a safe relative or HTTP(S) URL`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`${label} must be a safe relative or HTTP(S) URL`);
+  }
+  return source;
 }
 
 function exactHttpOrigin(value, label) {
@@ -208,6 +307,72 @@ function nonNegativeInteger(value, label, fallback = 100) {
   return value;
 }
 
+function projectLogoValue(raw, label) {
+  const logo = assertObject(raw, label);
+  const type = assertString(logo.type, `${label}.type`);
+  if (type === "icon") {
+    assertOnlyKeys(logo, new Set(["type", "name"]), label);
+    const name = assertString(logo.name, `${label}.name`);
+    if (!NAVIGATION_ICONS.has(name)) {
+      throw new Error(`${label}.name is invalid`);
+    }
+    return { type, name };
+  }
+  if (type === "letter") {
+    assertOnlyKeys(logo, new Set(["type", "text"]), label);
+    if (
+      typeof logo.text !== "string" ||
+      logo.text.trim() !== logo.text ||
+      [...logo.text].length < 1 ||
+      [...logo.text].length > 2
+    ) {
+      throw new Error(`${label}.text must contain 1-2 visible characters`);
+    }
+    return { type, text: logo.text };
+  }
+  if (type === "image") {
+    assertOnlyKeys(logo, new Set(["type", "src", "alt"]), label);
+    return {
+      type,
+      src: safeProjectImageSource(logo.src, `${label}.src`),
+      ...(logo.alt === undefined
+        ? {}
+        : { alt: boundedString(logo.alt, `${label}.alt`, 80) }),
+    };
+  }
+  throw new Error(`${label}.type is invalid`);
+}
+
+function projectValue(raw, label) {
+  const project = assertObject(raw, label);
+  assertOnlyKeys(
+    project,
+    new Set(["id", "name", "order", "description", "logo"]),
+    label,
+  );
+  const id = assertString(project.id, `${label}.id`);
+  if (!/^[a-z][a-z0-9-]{1,47}$/.test(id)) {
+    throw new Error(`${label}.id is invalid`);
+  }
+  return {
+    id,
+    name: boundedString(project.name, `${label}.name`, 80),
+    order: nonNegativeInteger(project.order, `${label}.order`),
+    ...(project.description === undefined
+      ? {}
+      : {
+          description: boundedString(
+            project.description,
+            `${label}.description`,
+            240,
+          ),
+        }),
+    ...(project.logo === undefined
+      ? {}
+      : { logo: projectLogoValue(project.logo, `${label}.logo`) }),
+  };
+}
+
 function navigationValue(raw, label) {
   const navigation = assertObject(raw, label);
   const icon = assertString(navigation.icon, `${label}.icon`);
@@ -239,6 +404,9 @@ function navigationValue(raw, label) {
       ? { label: assertString(navigation.label, `${label}.label`) }
       : {}),
     ...(directory ? { directory } : {}),
+    ...(navigation.project === undefined
+      ? {}
+      : { project: projectValue(navigation.project, `${label}.project`) }),
     icon,
     ...(role === undefined ? {} : { role }),
   };
@@ -256,6 +424,12 @@ function suitePageDescriptors(descriptor) {
   if (!VERSION_PATTERN.test(version)) {
     throw new Error(`${suiteId}.version is invalid`);
   }
+  const suiteName = boundedString(descriptor.name, `${suiteId}.name`, 80);
+  const suiteDescription = boundedString(
+    descriptor.description,
+    `${suiteId}.description`,
+    240,
+  );
   const runtime = assertObject(descriptor.runtime, `${suiteId}.runtime`);
   if (runtime.type !== "external") {
     throw new Error(`${suiteId}.runtime.type must be external`);
@@ -272,13 +446,26 @@ function suitePageDescriptors(descriptor) {
     `${suiteId}.runtime.defaultBaseUrl`,
   );
   const template = assertObject(descriptor.manifest, `${suiteId}.manifest`);
-  const sharedNavigation = navigationValue(
+  const parsedSharedNavigation = navigationValue(
     template.navigation,
     `${suiteId}.manifest.navigation`,
   );
-  if (!sharedNavigation.directory || sharedNavigation.directory.id !== suiteId) {
-    throw new Error(`${suiteId}.manifest.navigation.directory.id must equal suite.id`);
+  const suiteDirectory = parsedSharedNavigation.directory;
+  if (!suiteDirectory || suiteDirectory.id !== suiteId) {
+    throw new Error(
+      `${suiteId} must use navigation.directory.id=${suiteId} to remain one complete project`,
+    );
   }
+  const suiteProject = parsedSharedNavigation.project || OTHER_DOMAIN_PROJECT;
+  if (!INVESTMENT_DOMAIN_IDS.has(suiteProject.id)) {
+    throw new Error(
+      `${suiteId} must be placed in one of the 14 investment domains or other`,
+    );
+  }
+  const sharedNavigation = {
+    ...parsedSharedNavigation,
+    project: suiteProject,
+  };
   const pages = descriptor.pages;
   if (!Array.isArray(pages) || pages.length === 0) {
     throw new Error(`${suiteId}.pages must contain at least one page`);
@@ -301,14 +488,58 @@ function suitePageDescriptors(descriptor) {
     const pageManifest = page.manifest === undefined
       ? {}
       : assertObject(page.manifest, `${id}.manifest`);
-    const navigationKeys = new Set(["itemOrder", "label", "icon", "role"]);
+    const navigationKeys = new Set([
+      "groupLabel",
+      "groupOrder",
+      "itemOrder",
+      "label",
+      "directory",
+      "project",
+      "icon",
+      "role",
+    ]);
     if (Object.keys(pageNavigation).some((key) => !navigationKeys.has(key))) {
       throw new Error(`${id}.navigation contains unsupported fields`);
     }
+    if (pageNavigation.project !== undefined) {
+      const pageProject = projectValue(
+        pageNavigation.project,
+        `${id}.navigation.project`,
+      );
+      if (pageProject.id !== suiteProject.id) {
+        throw new Error(
+          `${suiteId} cannot split pages across investment domains`,
+        );
+      }
+    }
+    if (pageNavigation.directory !== undefined) {
+      const pageDirectory = assertObject(
+        pageNavigation.directory,
+        `${id}.navigation.directory`,
+      );
+      if (pageDirectory.id !== suiteDirectory.id) {
+        throw new Error(`${suiteId} cannot split pages into another project group`);
+      }
+    }
+    if (
+      pageNavigation.groupLabel !== undefined &&
+      pageNavigation.groupLabel !== sharedNavigation.groupLabel
+    ) {
+      throw new Error(`${suiteId} cannot split pages across navigation groups`);
+    }
+    if (
+      pageNavigation.groupOrder !== undefined &&
+      pageNavigation.groupOrder !== sharedNavigation.groupOrder
+    ) {
+      throw new Error(`${suiteId} cannot split pages across navigation groups`);
+    }
     const manifestKeys = new Set([
+      "schemaVersion",
+      "category",
       "icon",
       "permissions",
       "dataServices",
+      "storage",
       "compatibility",
       "agentCapabilities",
       "actions",
@@ -327,6 +558,11 @@ function suitePageDescriptors(descriptor) {
     const mergedNavigation = navigationValue(
       {
         ...sharedNavigation,
+        groupLabel: sharedNavigation.groupLabel,
+        groupOrder: nonNegativeInteger(
+          sharedNavigation.groupOrder,
+          `${id}.navigation.groupOrder`,
+        ),
         itemOrder: nonNegativeInteger(
           pageNavigation.itemOrder,
           `${id}.navigation.itemOrder`,
@@ -335,6 +571,8 @@ function suitePageDescriptors(descriptor) {
         label: pageNavigation.label === undefined
           ? assertString(page.name, `${id}.name`)
           : assertString(pageNavigation.label, `${id}.navigation.label`),
+        directory: sharedNavigation.directory,
+        project: sharedNavigation.project,
         icon: pageNavigation.icon ?? sharedNavigation.icon,
         role: pageNavigation.role ?? sharedNavigation.role,
       },
@@ -345,6 +583,13 @@ function suitePageDescriptors(descriptor) {
       ...pageManifest,
       navigation: mergedNavigation,
     };
+    const mergedSchemaVersion = mergedManifest.schemaVersion || "1.0";
+    if (mergedSchemaVersion === "1.1") {
+      delete mergedManifest.agentCapabilities;
+    } else {
+      delete mergedManifest.compatibility;
+      delete mergedManifest.actions;
+    }
     return {
       defaultInstall: page.defaultInstall,
       descriptor: {
@@ -352,7 +597,9 @@ function suitePageDescriptors(descriptor) {
         id,
         name: assertString(page.name, `${id}.name`),
         description: assertString(page.description, `${id}.description`),
-        version,
+        version: page.version === undefined
+          ? version
+          : assertString(page.version, `${id}.version`),
         publisher: assertString(descriptor.publisher, `${suiteId}.publisher`),
         upstream: descriptor.upstream,
         tags: page.tags === undefined
@@ -433,7 +680,40 @@ function manifestFromDescriptor(descriptor, env) {
       `${id}.manifest.compatibility`,
     ),
     actions: assertObject(template.actions || {}, `${id}.manifest.actions`),
+    ...(template.storage
+      ? { storage: assertObject(template.storage, `${id}.manifest.storage`) }
+      : {}),
   };
+}
+
+function validateCompleteProjectGroups(mods) {
+  const groups = new Map();
+  for (const mod of mods) {
+    const navigation = mod.manifest.navigation;
+    if (!navigation?.directory) continue;
+    const members = groups.get(navigation.directory.id) ?? [];
+    members.push({ id: mod.id, navigation });
+    groups.set(navigation.directory.id, members);
+  }
+  for (const [directoryId, members] of groups) {
+    const projectIds = new Set(members.map(({ navigation }) => navigation.project?.id));
+    const groupLabels = new Set(members.map(({ navigation }) => navigation.groupLabel));
+    const groupOrders = new Set(members.map(({ navigation }) => navigation.groupOrder));
+    const directoryLabels = new Set(
+      members.map(({ navigation }) => navigation.directory.label),
+    );
+    if (
+      projectIds.size !== 1 ||
+      projectIds.has(undefined) ||
+      groupLabels.size !== 1 ||
+      groupOrders.size !== 1 ||
+      directoryLabels.size !== 1
+    ) {
+      throw new Error(
+        `${directoryId} is one complete project and cannot be split across Desk columns`,
+      );
+    }
+  }
 }
 
 export async function loadModStore({
@@ -527,6 +807,7 @@ export async function loadModStore({
     ...standaloneMods,
     ...suites.flatMap((suite) => suite.pages),
   ];
+  validateCompleteProjectGroups(mods);
   const ids = mods.map((mod) => mod.id);
   if (new Set(ids).size !== ids.length) throw new Error("Mod store contains duplicate ids");
   const retiredMods = stringArray(store.retiredMods, "store.retiredMods");

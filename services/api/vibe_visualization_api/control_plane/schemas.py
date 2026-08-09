@@ -157,6 +157,51 @@ class ModuleNavigationDirectory(ApiModel):
     order: int = Field(default=100, ge=0)
 
 
+class ProjectIconLogo(ApiModel):
+    type: Literal["icon"]
+    name: Literal[
+        "today",
+        "research",
+        "market",
+        "quant",
+        "trading",
+        "settings",
+        "module",
+    ]
+
+
+class ProjectLetterLogo(ApiModel):
+    type: Literal["letter"]
+    text: str = Field(min_length=1, max_length=2)
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        if value.strip() != value or not 1 <= len(value) <= 2:
+            raise ValueError("project letter logo must contain 1-2 visible characters")
+        return value
+
+
+class ProjectImageLogo(ApiModel):
+    type: Literal["image"]
+    src: LocalUrl | ExternalUrl
+    alt: str | None = Field(default=None, min_length=1, max_length=80)
+
+
+ProjectLogo = Annotated[
+    ProjectIconLogo | ProjectLetterLogo | ProjectImageLogo,
+    Field(discriminator="type"),
+]
+
+
+class ModuleNavigationProject(ApiModel):
+    id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,47}$")
+    name: str = Field(min_length=1, max_length=80)
+    order: int = Field(default=100, ge=0)
+    description: str | None = Field(default=None, min_length=1, max_length=240)
+    logo: ProjectLogo | None = None
+
+
 class ModuleNavigation(ApiModel):
     group_label: str = Field(min_length=1, max_length=40)
     group_order: int = Field(default=100, ge=0)
@@ -173,6 +218,7 @@ class ModuleNavigation(ApiModel):
         "module",
     ] = "module"
     role: Literal["page", "settings"] | None = None
+    project: ModuleNavigationProject | None = None
 
 
 class ModuleCompatibility(ApiModel):
@@ -180,6 +226,52 @@ class ModuleCompatibility(ApiModel):
     bridge_protocol: Literal["1.0"]
     sdk_version: str | None = Field(default=None, min_length=1, max_length=80)
     view_spec_version: Literal["1.0"] | None = None
+
+
+class ModuleStorageNamespace(ApiModel):
+    id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,47}$")
+    scope: Literal["user-workspace"] = "user-workspace"
+    schema_version: int = Field(ge=1, le=10_000)
+    quota_mb: int = Field(ge=1, le=100)
+    max_item_kb: int = Field(default=256, ge=1, le=1024)
+
+
+class StatelessModuleStorage(ApiModel):
+    mode: Literal["stateless"]
+
+
+class DeskManagedModuleStorage(ApiModel):
+    mode: Literal["desk-managed"]
+    namespaces: list[ModuleStorageNamespace] = Field(min_length=1, max_length=32)
+
+    @field_validator("namespaces")
+    @classmethod
+    def validate_unique_namespaces(
+        cls,
+        value: list[ModuleStorageNamespace],
+    ) -> list[ModuleStorageNamespace]:
+        ids = [namespace.id for namespace in value]
+        if len(ids) != len(set(ids)):
+            raise ValueError("storage namespace IDs must be unique")
+        return value
+
+
+class DedicatedModuleStorage(ApiModel):
+    mode: Literal["dedicated"]
+    adapter: str = Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")
+
+
+class ArtifactModuleStorage(ApiModel):
+    mode: Literal["artifact"]
+
+
+ModuleStorage = Annotated[
+    StatelessModuleStorage
+    | DeskManagedModuleStorage
+    | DedicatedModuleStorage
+    | ArtifactModuleStorage,
+    Field(discriminator="mode"),
+]
 
 
 class AgentActionBinding(ApiModel):
@@ -287,6 +379,7 @@ class ModuleManifest(ApiModel):
     compatibility: ModuleCompatibility | None = None
     permissions: list[str] = Field(default_factory=list)
     data_services: list[str] = Field(default_factory=list)
+    storage: ModuleStorage | None = None
     agent_capabilities: list[str] | None = None
     actions: dict[str, ModuleAction] | None = None
     events: ModuleEvents = Field(default_factory=ModuleEvents)
@@ -309,6 +402,7 @@ class ModuleManifest(ApiModel):
         "icon",
         "navigation",
         "compatibility",
+        "storage",
         "agent_capabilities",
         "actions",
         "refresh",
@@ -323,7 +417,11 @@ class ModuleManifest(ApiModel):
     @model_validator(mode="after")
     def validate_versioned_contract(self) -> "ModuleManifest":
         if self.schema_version == "1.0":
-            if self.compatibility is not None or self.actions is not None:
+            if (
+                self.compatibility is not None
+                or self.storage is not None
+                or self.actions is not None
+            ):
                 raise ValueError("Manifest 1.0 cannot declare 1.1 fields")
             return self
 
@@ -341,6 +439,15 @@ class ModuleManifest(ApiModel):
 
         permissions = set(self.permissions)
         services = set(self.data_services)
+        if isinstance(self.storage, DeskManagedModuleStorage):
+            if "storage.read" not in permissions:
+                raise ValueError(
+                    "Desk-managed storage requires storage.read permission"
+                )
+            if "storage.write" not in permissions:
+                raise ValueError(
+                    "Desk-managed storage requires storage.write permission"
+                )
         for action_id, action in self.actions.items():
             if re.fullmatch(MODULE_CAPABILITY_PATTERN, action_id) is None:
                 raise ValueError("invalid Mod action id")
@@ -382,6 +489,7 @@ class StoredModuleResponse(ApiModel):
     status: Literal["draft", "published", "disabled"]
     manifest: ModuleManifest
     created_at: str
+    copilot_prompts: dict[str, list[dict[str, Any]]] | None = None
 
 
 def manifest_repository_dict(manifest: ModuleManifest) -> dict[str, object]:

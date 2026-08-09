@@ -8,6 +8,7 @@ export * from "./artifact";
 export * from "./data";
 export * from "./host";
 export * from "./model";
+export * from "./storage";
 
 // Keep the original channel name so already-built upstream Mods remain able to
 // exchange events during the Newma-Desk migration.

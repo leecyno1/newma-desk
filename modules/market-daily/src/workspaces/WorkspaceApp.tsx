@@ -1,4 +1,4 @@
-import { BellRing, CircleCheck, Database, RefreshCw } from "lucide-react";
+import { CircleCheck, Database, RefreshCw } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -20,7 +20,13 @@ import {
 } from "@newma-desk/mod-sdk";
 
 import { createMarketDataSource, securityKey } from "../data";
+import {
+  createMarketAlertClient,
+  useMarketAlerts,
+  type MarketAlertClient,
+} from "../alerts";
 import { resolveParentOrigin } from "../lib/runtimeOrigin";
+import { MarketAlertCenter } from "../MarketAlertCenter";
 import type { MarketDataSource, Quote, SecurityRef } from "../types";
 import { EventTimelineWorkspace } from "./EventTimelineWorkspace";
 import { MultiTimeframeWorkspace } from "./MultiTimeframeWorkspace";
@@ -48,22 +54,22 @@ export interface MarketWorkspaceAppProps {
   fetch?: GatewayFetch;
   gatewayBaseUrl?: string;
   artifactClient?: ArtifactClient;
+  alertClient?: MarketAlertClient | null;
+  hostConnection?: EmbeddedHost;
+  embedded?: boolean;
+}
+
+export type MarketWorkspaceAppHostMode = "standalone" | "embedded";
+
+export interface MarketWorkspaceAppBootstrap {
+  hostMode?: MarketWorkspaceAppHostMode;
+  hostConnection?: EmbeddedHost;
 }
 
 export interface WorkspaceUiAction {
   sequence: number;
   actionId: string;
   input: Record<string, unknown>;
-}
-
-interface PriceAlert {
-  id: string;
-  symbol: string;
-  market: SecurityRef["market"];
-  direction: "above" | "below";
-  price: number;
-  label: string;
-  createdAt: string;
 }
 
 function configuredOrigin(name: "gateway" | "parent") {
@@ -128,12 +134,16 @@ export function MarketWorkspaceApp({
   fetch: providedFetch,
   gatewayBaseUrl,
   artifactClient: providedArtifactClient,
+  alertClient: providedAlertClient,
+  hostConnection: providedHostConnection,
+  embedded = false,
 }: MarketWorkspaceAppProps) {
   const theme = useDeskTheme();
   const initialSecurity = useStoredSecurity(config.modId);
   const fetcher = useMemo(() => providedFetch ?? globalThis.fetch.bind(globalThis), [providedFetch]);
   const [gatewayOrigin, setGatewayOrigin] = useState(gatewayBaseUrl || configuredOrigin("gateway"));
-  const [hostConnection, setHostConnection] = useState<EmbeddedHost>();
+  const [hostConnection, setHostConnection] = useState<EmbeddedHost | undefined>(providedHostConnection);
+  const [hostIdentity, setHostIdentity] = useState<{ userId: string; workspaceId: string }>();
   const dataSource = useMemo(
     () => providedDataSource ?? createMarketDataSource({
       baseUrl: gatewayOrigin,
@@ -154,14 +164,34 @@ export function MarketWorkspaceApp({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [workspaceState, setWorkspaceState] = useState<Record<string, unknown>>({});
   const [workspaceAction, setWorkspaceAction] = useState<WorkspaceUiAction>();
-  const [alerts, setAlerts] = useState<PriceAlert[]>(() => {
-    try {
-      const value = JSON.parse(window.localStorage.getItem(`vibedesk.${config.modId}.alerts.v1`) || "[]");
-      return Array.isArray(value) ? value : [];
-    } catch {
-      return [];
-    }
-  });
+  const alertIdentity = hostIdentity ?? (
+    window.self === window.top
+      ? { userId: "local-user", workspaceId: "local-workspace" }
+      : undefined
+  );
+  const sharedAlertClient = useMemo(() => {
+    if (providedAlertClient === null) return undefined;
+    if (providedAlertClient) return providedAlertClient;
+    if (!alertIdentity) return undefined;
+    return createMarketAlertClient({
+      baseUrl: gatewayOrigin,
+      fetch: fetcher,
+      ...alertIdentity,
+    });
+  }, [
+    alertIdentity?.userId,
+    alertIdentity?.workspaceId,
+    fetcher,
+    gatewayOrigin,
+    providedAlertClient,
+  ]);
+  const {
+    alerts,
+    status: alertStatus,
+    createAlert,
+    updateAlert,
+    deleteAlert,
+  } = useMarketAlerts(sharedAlertClient);
   const [lastSavedLayout, setLastSavedLayout] = useState<{ name: string; savedAt: string }>();
   const [error, setError] = useState("");
   const layoutStateRef = useRef<Record<string, unknown>>({ security, ...workspaceState });
@@ -186,6 +216,8 @@ export function MarketWorkspaceApp({
   }, [config.title]);
 
   useEffect(() => {
+    if (providedHostConnection) return;
+    if (embedded) return;
     if (providedBridge) return;
     const controller = new AbortController();
     let close: () => void = () => undefined;
@@ -193,6 +225,10 @@ export function MarketWorkspaceApp({
     let removeContextProvider: () => void = () => undefined;
     const applyHostConfig = (hostConfig: EmbeddedHost["config"]) => {
       setGatewayOrigin(new URL(hostConfig.gateways.data).origin);
+      setHostIdentity({
+        userId: hostConfig.user.id,
+        workspaceId: hostConfig.workspace.id,
+      });
       document.documentElement.dataset.theme = hostConfig.environment.theme;
       document.documentElement.lang = hostConfig.environment.locale;
     };
@@ -218,13 +254,18 @@ export function MarketWorkspaceApp({
       removeContextProvider();
       close();
     };
-  }, [config.modId, providedBridge]);
+  }, [embedded, config.modId, providedBridge]);
 
   useEffect(() => {
     hostConnection?.publishContext(contextRef.current);
   }, [alerts, hostConnection, lastSavedLayout, quote, security, workspaceState]);
 
-  const handleUiAction = useCallback((actionId: string, input: Record<string, unknown>) => {
+  useEffect(
+    () => hostConnection?.setContextProvider(() => contextRef.current),
+    [hostConnection],
+  );
+
+  const handleUiAction = useCallback(async (actionId: string, input: Record<string, unknown>) => {
     if (actionId === "market.refresh") {
       setRefreshNonce((value) => value + 1);
       return { refreshed: true };
@@ -234,19 +275,11 @@ export function MarketWorkspaceApp({
       const direction = input.direction;
       if (typeof price !== "number" || !Number.isFinite(price) || price <= 0) throw new Error("预警价格必须大于 0");
       if (direction !== "above" && direction !== "below") throw new Error("预警方向必须是 above 或 below");
-      const alert: PriceAlert = {
-        id: globalThis.crypto?.randomUUID?.() ?? `alert-${Date.now()}`,
-        symbol: security.symbol,
-        market: security.market,
+      const alert = await createAlert({
+        security,
         direction,
         price,
         label: typeof input.label === "string" && input.label.trim() ? input.label.trim().slice(0, 80) : `${security.name} ${direction === "above" ? "上穿" : "下穿"} ${price}`,
-        createdAt: new Date().toISOString(),
-      };
-      setAlerts((current) => {
-        const next = [alert, ...current].slice(0, 50);
-        window.localStorage.setItem(`vibedesk.${config.modId}.alerts.v1`, JSON.stringify(next));
-        return next;
       });
       return { alert };
     }
@@ -286,7 +319,7 @@ export function MarketWorkspaceApp({
     const action = { sequence: Date.now(), actionId, input };
     setWorkspaceAction(action);
     return { accepted: true, action };
-  }, [config.modId, config.title, security, workspaceState]);
+  }, [config.modId, config.title, createAlert, security]);
 
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
 
@@ -371,7 +404,19 @@ export function MarketWorkspaceApp({
             <button type="button" key={securityKey(item)} aria-pressed={securityKey(item) === securityKey(security)} onClick={() => selectSecurity(item)}>{item.name}</button>
           ))}
         </div>
-        <div className="workspace-data-status"><CircleCheck size={13} /><span>Agent 上下文已同步</span><Database size={13} /><span>market-data</span><BellRing size={13} /><span>{alerts.length} 个预警</span></div>
+        <div className="workspace-data-status">
+          <CircleCheck size={13} /><span>Agent 上下文已同步</span>
+          <Database size={13} /><span>market-data</span>
+          <MarketAlertCenter
+            alerts={alerts}
+            security={security}
+            quote={quote}
+            available={alertStatus !== "unavailable"}
+            onCreate={(input) => createAlert({ security, ...input })}
+            onToggle={(alert) => updateAlert(alert.id, { enabled: !alert.enabled })}
+            onDelete={(alert) => deleteAlert(alert.id)}
+          />
+        </div>
       </section>
       {error ? <div className="workspace-error-banner" role="alert">{error}</div> : null}
       <div className="workspace-content">{content}</div>

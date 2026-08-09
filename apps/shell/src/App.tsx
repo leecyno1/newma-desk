@@ -41,6 +41,21 @@ const PREVIEW_PATTERN = /^([a-z][a-z0-9-]{2,63})@([1-9]\d*)$/;
 type ShellView = "mod" | "agent-settings" | "interface-settings" | "store" | "suite-settings";
 const DIRECTORY_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
 
+interface AppProps {
+  embedded?: boolean;
+}
+
+export function isEmbeddedShellContext(
+  target: { self: unknown; top: unknown } = window,
+): boolean {
+  try {
+    return target.self !== target.top;
+  } catch {
+    // Cross-origin frame access should fail closed into the embedded shell.
+    return true;
+  }
+}
+
 function directoryFromLocation(): string | undefined {
   const directory = new URLSearchParams(window.location.search).get("directory");
   return directory && DIRECTORY_PATTERN.test(directory) ? directory : undefined;
@@ -55,6 +70,11 @@ function viewFromLocation(): ShellView {
     (view === "suite-settings" && directoryFromLocation() !== undefined)
   ) return view;
   return "mod";
+}
+
+function copilotFromLocation(): boolean {
+  const value = new URLSearchParams(window.location.search).get("copilot");
+  return value === "1" || value === "true" || value === "open";
 }
 
 function errorMessage(reason: unknown): string {
@@ -110,6 +130,17 @@ function writeModLocation(modId: string, mode: "push" | "replace") {
   );
 }
 
+function writeCopilotLocation(open: boolean) {
+  const url = new URL(window.location.href);
+  if (open) url.searchParams.set("copilot", "1");
+  else url.searchParams.delete("copilot");
+  window.history.replaceState(
+    null,
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+}
+
 interface ErrorBannerProps {
   message: string;
   onRetry: () => void;
@@ -128,16 +159,18 @@ function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
   );
 }
 
-export function App() {
+export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
   const [identity] = useState(loadWorkspaceIdentity);
   const [eventBus] = useState(() => new ShellEventBus());
   const [lastEvent, setLastEvent] = useState<ModEvent>();
   const [modules, setModules] = useState<StoredMod[]>([]);
   const modulesRef = useRef<StoredMod[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
-  const [activeView, setActiveView] = useState<ShellView>(viewFromLocation);
+  const [activeView, setActiveView] = useState<ShellView>(() =>
+    embedded ? "mod" : viewFromLocation(),
+  );
   const [suiteSettingsDirectoryId, setSuiteSettingsDirectoryId] = useState(
-    directoryFromLocation,
+    () => (embedded ? undefined : directoryFromLocation()),
   );
   const [themeMode, setThemeMode] = useState<ThemeMode>(loadThemeMode);
   const [prefersDark, setPrefersDark] = useState(systemPrefersDark);
@@ -154,7 +187,9 @@ export function App() {
   const [preview, setPreview] = useState<StoredMod>();
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string>();
-  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [copilotOpen, setCopilotOpen] = useState(() =>
+    embedded ? false : copilotFromLocation(),
+  );
   const moduleFrameRef = useRef<ModFrameHandle>(null);
   const previewRequestRef = useRef<AbortController | undefined>(undefined);
   const previewRequestSequenceRef = useRef(0);
@@ -174,7 +209,7 @@ export function App() {
     document.documentElement.style.colorScheme = resolvedTheme;
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", resolvedTheme === "dark" ? "#0b1220" : "#ffffff");
+      ?.setAttribute("content", resolvedTheme === "dark" ? "#0f1714" : "#f4efe3");
   }, [resolvedTheme]);
 
   const cancelPreviewRequest = useCallback(() => {
@@ -200,7 +235,7 @@ export function App() {
         if (
           selection &&
           !new URLSearchParams(window.location.search).has("preview") &&
-          viewFromLocation() === "mod"
+          (embedded || viewFromLocation() === "mod")
         ) {
           rememberSelection(selection.moduleId);
           const params = new URLSearchParams(window.location.search);
@@ -217,7 +252,7 @@ export function App() {
     } finally {
       setRegistryLoading(false);
     }
-  }, []);
+  }, [embedded]);
 
   const loadPreviewValue = useCallback(
     async (rawPreview: string) => {
@@ -281,7 +316,8 @@ export function App() {
 
   const syncLocation = useCallback(() => {
     const params = new URLSearchParams(window.location.search);
-    const requestedView = viewFromLocation();
+    const requestedView = embedded ? "mod" : viewFromLocation();
+    setCopilotOpen(!embedded && requestedView === "mod" && copilotFromLocation());
     if (requestedView !== "mod") {
       cancelPreviewRequest();
       setPreviewMode(false);
@@ -310,7 +346,7 @@ export function App() {
     const selection = preferredMod(modulesRef.current);
     setSelectedId(selection?.moduleId);
     if (selection) rememberSelection(selection.moduleId);
-  }, [cancelPreviewRequest, loadPreviewValue]);
+  }, [cancelPreviewRequest, embedded, loadPreviewValue]);
 
   useEffect(() => {
     return () => eventBus.close();
@@ -358,11 +394,13 @@ export function App() {
     setPreview(undefined);
     setPreviewError(undefined);
     setActiveView("suite-settings");
+    setCopilotOpen(false);
     setSuiteSettingsDirectoryId(directoryId);
     const url = new URL(window.location.href);
     url.searchParams.delete("preview");
     url.searchParams.delete("module");
     url.searchParams.delete("mod");
+    url.searchParams.delete("copilot");
     url.searchParams.set("view", "suite-settings");
     url.searchParams.set("directory", directoryId);
     window.history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
@@ -374,12 +412,14 @@ export function App() {
     setPreview(undefined);
     setPreviewError(undefined);
     setActiveView(view);
+    setCopilotOpen(false);
     setSuiteSettingsDirectoryId(undefined);
     const url = new URL(window.location.href);
     url.searchParams.delete("preview");
     url.searchParams.delete("module");
     url.searchParams.delete("mod");
     url.searchParams.delete("directory");
+    url.searchParams.delete("copilot");
     url.searchParams.set("view", view);
     window.history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
   };
@@ -408,6 +448,12 @@ export function App() {
     if (rawPreview !== null) void loadPreviewValue(rawPreview);
   };
 
+  const changeCopilotOpen = (open: boolean) => {
+    if (embedded) return;
+    setCopilotOpen(open);
+    if (activeView === "mod" && !previewMode) writeCopilotLocation(open);
+  };
+
   const selected = modules.find((module) => module.moduleId === selectedId);
   const sidebarNavigation = useMemo(
     () => compileSidebarNavigation(modules, categoryOverrides, navigationPreferences),
@@ -430,27 +476,29 @@ export function App() {
     !registryError;
 
   return (
-    <div className="shell-layout">
-      <Sidebar
-        navigation={sidebarNavigation}
-        selectedId={
-          previewMode || activeView !== "mod" ? undefined : selectedId
-        }
-        onSelect={selectModule}
-        onReload={() => void loadRegistry()}
-        loading={registryLoading}
-        agentSettingsActive={activeView === "agent-settings"}
-        onOpenAgentSettings={openAgentSettings}
-        interfaceSettingsActive={activeView === "interface-settings"}
-        onOpenInterfaceSettings={openInterfaceSettings}
-        storeActive={activeView === "store"}
-        onOpenStore={openStore}
-        suiteSettingsDirectoryId={
-          activeView === "suite-settings" ? suiteSettingsDirectoryId : undefined
-        }
-        onOpenSuiteSettings={(directory) => openSuiteSettings(directory.id)}
-        onNavigationPreferencesChange={changeNavigationPreferences}
-      />
+    <div className="shell-layout" data-embedded={embedded || undefined}>
+      {!embedded ? (
+        <Sidebar
+          navigation={sidebarNavigation}
+          selectedId={
+            previewMode || activeView !== "mod" ? undefined : selectedId
+          }
+          onSelect={selectModule}
+          onReload={() => void loadRegistry()}
+          loading={registryLoading}
+          agentSettingsActive={activeView === "agent-settings"}
+          onOpenAgentSettings={openAgentSettings}
+          interfaceSettingsActive={activeView === "interface-settings"}
+          onOpenInterfaceSettings={openInterfaceSettings}
+          storeActive={activeView === "store"}
+          onOpenStore={openStore}
+          suiteSettingsDirectoryId={
+            activeView === "suite-settings" ? suiteSettingsDirectoryId : undefined
+          }
+          onOpenSuiteSettings={(directory) => openSuiteSettings(directory.id)}
+          onNavigationPreferencesChange={changeNavigationPreferences}
+        />
+      ) : null}
       <main className="shell-content">
         {previewMode && preview ? (
           <div className="preview-banner">
@@ -503,8 +551,8 @@ export function App() {
         ) : activeView === "suite-settings" ? (
           <div className="content-state empty-state">
             <AlertTriangle size={28} aria-hidden="true" />
-            <strong>项目目录不存在</strong>
-            <span>该目录可能已被移动或删除，请从左侧二级目录重新打开设置。</span>
+            <strong>项目不存在</strong>
+            <span>该项目可能已被卸载或更名，请从左侧项目导航重新打开设置。</span>
           </div>
         ) : activeView === "store" ? (
           <ModStore onInstalled={loadRegistry} />
@@ -528,30 +576,37 @@ export function App() {
               theme={resolvedTheme}
               userId={identity.userId}
               workspaceId={identity.workspaceId}
-              copilotOpen={copilotOpen}
-              onToggleCopilot={() => setCopilotOpen((current) => !current)}
-              onRequestCopilotOpen={() => setCopilotOpen(true)}
-            />
-            <ModCopilot
-              module={activeModule}
-              open={copilotOpen}
-              userId={identity.userId}
-              workspaceId={identity.workspaceId}
-              onClose={() => setCopilotOpen(false)}
-              onEditCompleted={() => moduleFrameRef.current?.reload()}
-              onOpenAgentSettings={openAgentSettings}
-              requestContext={() =>
-                moduleFrameRef.current?.requestContext("agent") ??
-                Promise.resolve(undefined)
+              embedded={embedded}
+              copilotOpen={embedded ? false : copilotOpen}
+              onToggleCopilot={
+                embedded ? undefined : () => changeCopilotOpen(!copilotOpen)
               }
-              invokeUiAction={(actionId, input) =>
-                moduleFrameRef.current?.invokeUiAction(actionId, input) ??
-                Promise.reject(new Error("当前 Mod 动作通道不可用"))
+              onRequestCopilotOpen={
+                embedded ? undefined : () => changeCopilotOpen(true)
               }
             />
+            {!embedded ? (
+              <ModCopilot
+                module={activeModule}
+                open={copilotOpen}
+                userId={identity.userId}
+                workspaceId={identity.workspaceId}
+                onClose={() => changeCopilotOpen(false)}
+                onEditCompleted={() => moduleFrameRef.current?.reload()}
+                onOpenAgentSettings={openAgentSettings}
+                requestContext={() =>
+                  moduleFrameRef.current?.requestContext("agent") ??
+                  Promise.resolve(undefined)
+                }
+                invokeUiAction={(actionId, input) =>
+                  moduleFrameRef.current?.invokeUiAction(actionId, input) ??
+                  Promise.reject(new Error("当前 Mod 动作通道不可用"))
+                }
+              />
+            ) : null}
           </div>
         ) : null}
-        {lastEvent ? (
+        {!embedded && lastEvent ? (
           <div className="shell-event-log" aria-label="Mod 事件日志">
             <span>最近事件</span>
             <code>{eventSummary(lastEvent)}</code>

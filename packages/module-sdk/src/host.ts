@@ -18,11 +18,85 @@ export interface ModHostConfig {
   parentOrigin: string;
   sdkVersion?: string;
   capabilities?: Array<
-    "events" | "actions" | "agent" | "model" | "data" | "context" | "theme"
+    | "events"
+    | "actions"
+    | "agent"
+    | "model"
+    | "data"
+    | "context"
+    | "storage"
+    | "theme"
   >;
   timeoutMs?: number;
   requestTimeoutMs?: number;
+  /** Applies the Desk theme contract to document.documentElement. Defaults to true. */
+  applyAppearance?: boolean;
   signal?: AbortSignal;
+}
+
+export interface DeskAppearanceInput {
+  environment: { theme: "light" | "dark" };
+  appearance?: DeskInit["appearance"];
+}
+
+export interface DeskThemeChangeDetail {
+  mode: "light" | "dark";
+  appearance?: DeskInit["appearance"];
+}
+
+const appliedAppearanceVariables = new WeakMap<HTMLElement, Set<string>>();
+
+/**
+ * Applies the standard Newma theme contract to a Mod document.
+ *
+ * This helper intentionally operates only on the Mod's own document. It never
+ * reaches across iframe origins. connectModHost calls it automatically for
+ * the first init and every live theme update unless applyAppearance is false.
+ */
+export function applyDeskAppearance(
+  config: DeskAppearanceInput,
+  root: HTMLElement | undefined = globalThis.document?.documentElement,
+): void {
+  if (!root) return;
+  const mode = config.environment.theme;
+  const appearance = config.appearance?.mode === mode
+    ? config.appearance
+    : undefined;
+  root.dataset.theme = mode;
+  root.dataset.vibedeskTheme = mode;
+  root.dataset.bsTheme = mode;
+  root.classList.toggle("light", mode === "light");
+  root.classList.toggle("dark", mode === "dark");
+  root.style.colorScheme = mode;
+  const themeColor = root.ownerDocument?.querySelector?.(
+    'meta[name="theme-color"]',
+  ) as HTMLMetaElement | null | undefined;
+  themeColor?.setAttribute(
+    "content",
+    appearance?.semantic.bg ?? (mode === "dark" ? "#0f1714" : "#f4efe3"),
+  );
+
+  const variables = appearance?.cssVars ?? {};
+  const previousVariables = appliedAppearanceVariables.get(root) ?? new Set();
+  const nextVariables = new Set(Object.keys(variables));
+  for (const name of previousVariables) {
+    if (!nextVariables.has(name)) root.style.removeProperty(name);
+  }
+  for (const [name, value] of Object.entries(variables)) {
+    root.style.setProperty(name, value);
+  }
+  appliedAppearanceVariables.set(root, nextVariables);
+
+  const view = root.ownerDocument?.defaultView;
+  if (!view) return;
+  const detail: DeskThemeChangeDetail = {
+    mode,
+    ...(appearance ? { appearance } : {}),
+  };
+  view.dispatchEvent(new view.CustomEvent<DeskThemeChangeDetail>(
+    "newma:themechange",
+    { detail },
+  ));
 }
 
 export class ModHostActionError extends Error {
@@ -101,6 +175,23 @@ function exactHttpOrigin(value: string): string {
   return value;
 }
 
+function standaloneThemeMode(root: HTMLElement): "light" | "dark" {
+  if (root.dataset.theme === "light" || root.dataset.theme === "dark") {
+    return root.dataset.theme;
+  }
+  if (
+    root.dataset.vibedeskTheme === "light" ||
+    root.dataset.vibedeskTheme === "dark"
+  ) {
+    return root.dataset.vibedeskTheme;
+  }
+  if (root.dataset.bsTheme === "light" || root.dataset.bsTheme === "dark") {
+    return root.dataset.bsTheme;
+  }
+  if (root.classList.contains("dark")) return "dark";
+  return "light";
+}
+
 export function connectModHost(
   config: ModHostConfig,
   runtime: ModHostRuntime = defaultRuntime(),
@@ -108,6 +199,7 @@ export function connectModHost(
   const parentOrigin = exactHttpOrigin(config.parentOrigin);
   const timeoutMs = config.timeoutMs ?? 5_000;
   const requestTimeoutMs = config.requestTimeoutMs ?? 30_000;
+  const shouldApplyAppearance = config.applyAppearance ?? true;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 60_000) {
     throw new Error("timeoutMs must be between 1 and 60000");
   }
@@ -129,7 +221,17 @@ export function connectModHost(
   });
 
   if (runtime.window.parent === runtime.window) {
-    return Promise.resolve({ embedded: false, close() {} });
+    const root = runtime.window.document?.documentElement;
+    if (shouldApplyAppearance && root) {
+      applyDeskAppearance(
+        { environment: { theme: standaloneThemeMode(root) } },
+        root,
+      );
+    }
+    return Promise.resolve({
+      embedded: false,
+      close() {},
+    });
   }
 
   return new Promise((resolve, reject) => {
@@ -278,6 +380,12 @@ export function connectModHost(
       const init = deskInitSchema.safeParse(message.data);
       if (init.success && init.data.modId === config.modId) {
         activeConfig = init.data;
+        if (shouldApplyAppearance) {
+          applyDeskAppearance(
+            init.data,
+            runtime.window.document?.documentElement,
+          );
+        }
         post({
           type: "vibedesk:ack",
           protocolVersion: init.data.protocolVersion,

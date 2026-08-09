@@ -4,7 +4,12 @@ import type {
   PortfolioAccount,
   PortfolioActivity,
   PortfolioDashboard,
+  PortfolioOptimizationInput,
+  PortfolioOptimizationResult,
+  PortfolioPerformanceInput,
+  PortfolioPerformanceResult,
 } from "./types";
+import type { PortfolioResearchCoverage } from "@newma-desk/contracts";
 
 export interface PortfolioIdentity {
   userId: string;
@@ -49,6 +54,14 @@ export function portfolioClient(identity: PortfolioIdentity) {
         signal: options.signal,
       }));
     },
+    researchCoverage: async (options: { signal?: AbortSignal } = {}) =>
+      payload<PortfolioResearchCoverage>(await fetch(
+        "/api/portfolio-center/research-coverage",
+        {
+          headers: headers(identity),
+          signal: options.signal,
+        },
+      )),
     createAccount: async (input: { id: string; name: string; currency: string; platform?: string }) =>
       payload<PortfolioAccount>(await fetch("/api/portfolio-center/accounts", {
         method: "POST",
@@ -68,6 +81,24 @@ export function portfolioClient(identity: PortfolioIdentity) {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
     },
+    optimizeAllocation: async (input: PortfolioOptimizationInput) =>
+      payload<PortfolioOptimizationResult>(await fetch(
+        "/api/portfolio-center/allocations/optimize",
+        {
+          method: "POST",
+          headers: headers(identity, true),
+          body: JSON.stringify(input),
+        },
+      )),
+    analyzePerformance: async (input: PortfolioPerformanceInput) =>
+      payload<PortfolioPerformanceResult>(await fetch(
+        "/api/portfolio-center/performance/analyze",
+        {
+          method: "POST",
+          headers: headers(identity, true),
+          body: JSON.stringify(input),
+        },
+      )),
     importLegacy: async () => payload<{ imported: boolean; activitiesCreated: number; reason: string }>(
       await fetch("/api/portfolio-center/import/legacy", {
         method: "POST",

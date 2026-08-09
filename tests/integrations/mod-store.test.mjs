@@ -41,6 +41,17 @@ const HTTP_SUITE_DESCRIPTOR = {
       groupOrder: 10,
       itemOrder: 100,
       directory: { id: "example-suite", label: "示例项目", order: 10 },
+      project: {
+        id: "fundamentals",
+        name: "宏观面",
+        order: 20,
+        description: "经济数据、宏观指标、行业、产业链与宏观事件。",
+        logo: {
+          type: "image",
+          src: "https://assets.example/example-project.png",
+          alt: "Example Research",
+        },
+      },
       icon: "research",
     },
     permissions: [],
@@ -85,23 +96,36 @@ test("validates the project Mod store and includes Research and Trading by defau
   assert.equal(store.mods.length, new Set(store.mods.map((mod) => mod.id)).size);
   assert.ok(store.mods.length >= 42);
   assert.deepEqual(store.suites.map((suite) => suite.id), [
+    "research-suite",
+    "trading-suite",
     "portfolio-suite",
     "deepsee-suite",
     "orchestra-suite",
+    "calendar-effect-suite",
   ]);
   assert.deepEqual(store.retiredMods, ["investment-settings", "quant-agent"]);
   assert.deepEqual(defaults.map((mod) => mod.id).sort(), [
     "daily-review",
+    "macro-monitor",
     "alpha-lab",
     "news-radar",
     "watchlist",
+    "idea-funnel",
     "portfolio-brief",
     "portfolio-activities",
     "portfolio-risk",
+    "portfolio-allocation",
     "portfolio-performance",
     "portfolio-settings",
     "stock-research",
     "industry-map",
+    "etf-research",
+    "catalyst-calendar",
+    "earnings-workbench",
+    "peer-comparison",
+    "valuation-workbench",
+    "research-memo",
+    "thesis-tracker",
     "research-library",
     "research-notes",
     "quant-overview",
@@ -119,6 +143,8 @@ test("validates the project Mod store and includes Research and Trading by defau
     "orchestra-data",
     "orchestra-workspace",
     "orchestra-settings",
+    "calendar-effect-overview",
+    "calendar-effect-history",
   ].sort());
   assert.equal(
     store.mods.find((mod) => mod.id === "daily-review").manifest.entry.url,
@@ -173,6 +199,7 @@ test("validates the project Mod store and includes Research and Trading by defau
       `https://orchestra.example/?workspace=${workspace}`,
     );
     assert.equal(mod.manifest.navigation.directory.id, "orchestra-suite");
+    assert.equal(mod.manifest.navigation.project.id, "investment-committee");
     assert.equal(mod.suiteId, "orchestra-suite");
   }
   assert.equal(
@@ -183,6 +210,15 @@ test("validates the project Mod store and includes Research and Trading by defau
     store.mods.find((mod) => mod.id === "deepsee-overview").suiteId,
     "deepsee-suite",
   );
+  assert.equal(
+    store.mods.find((mod) => mod.id === "deepsee-overview").manifest.navigation.project.id,
+    "other",
+  );
+  for (const mod of store.mods.filter((item) => item.id.startsWith("deepsee-"))) {
+    assert.equal(mod.manifest.navigation.project.id, "other");
+    assert.equal(mod.manifest.navigation.directory.id, "deepsee-suite");
+    assert.equal(mod.manifest.navigation.directory.label, "DeepSee");
+  }
   assert.deepEqual(
     store.mods.find((mod) => mod.id === "deepsee-ai-insights").manifest.permissions,
     ["deepsee.read", "deepsee.ai"],
@@ -190,6 +226,85 @@ test("validates the project Mod store and includes Research and Trading by defau
   assert.equal(
     store.mods.find((mod) => mod.id === "deepsee-settings").manifest.navigation.icon,
     "settings",
+  );
+  for (const modId of [
+    "portfolio-brief",
+    "portfolio-activities",
+    "portfolio-risk",
+    "portfolio-allocation",
+    "portfolio-performance",
+    "portfolio-settings",
+  ]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.manifest.navigation.project.id, "trading-risk-portfolio");
+    assert.equal(mod.manifest.navigation.directory.id, "portfolio-suite");
+  }
+  for (const modId of [
+    "daily-review", "macro-monitor", "news-radar", "watchlist", "idea-funnel",
+    "stock-research", "industry-map", "etf-research", "catalyst-calendar",
+    "earnings-workbench", "peer-comparison", "valuation-workbench",
+    "research-memo", "thesis-tracker", "research-library", "research-notes",
+  ]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.suiteId, "research-suite");
+    assert.equal(mod.manifest.navigation.project.id, "fundamentals");
+    assert.equal(mod.manifest.navigation.directory.id, "research-suite");
+  }
+  for (const modId of ["calendar-effect-overview", "calendar-effect-history"]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.suiteId, "calendar-effect-suite");
+    assert.equal(mod.manifest.navigation.project.id, "tactical-timing");
+  }
+  for (const modId of [
+    "quant-overview", "alpha-lab", "backtest-lab", "factor-correlation",
+    "trade-desk", "trading-settings",
+  ]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.suiteId, "trading-suite");
+    assert.equal(mod.manifest.navigation.project.id, "quant-research");
+    assert.equal(mod.manifest.navigation.directory.id, "trading-suite");
+  }
+  assert.equal(
+    store.mods.find((mod) => mod.id === "watchlist").manifest.schemaVersion,
+    "1.1",
+  );
+  const stockResearch = store.mods.find((mod) => mod.id === "stock-research");
+  assert.deepEqual(stockResearch.manifest.permissions, [
+    "investment.read",
+    "storage.read",
+    "storage.write",
+  ]);
+  assert.deepEqual(stockResearch.manifest.storage, {
+    mode: "desk-managed",
+    namespaces: [{
+      id: "research-history",
+      scope: "user-workspace",
+      schemaVersion: 1,
+      quotaMb: 2,
+      maxItemKb: 64,
+    }],
+  });
+  for (const modId of [
+    "quant-overview",
+    "alpha-lab",
+    "backtest-lab",
+    "factor-correlation",
+    "trade-desk",
+    "trading-settings",
+  ]) {
+    assert.equal(store.mods.find((mod) => mod.id === modId).manifest.schemaVersion, "1.1");
+  }
+  assert.equal(
+    store.mods.find((mod) => mod.id === "watchlist").manifest.navigation.groupLabel,
+    "宏观面",
+  );
+  assert.equal(
+    store.mods.find((mod) => mod.id === "trade-desk").manifest.navigation.groupLabel,
+    "量化研究",
+  );
+  assert.equal(
+    store.mods.find((mod) => mod.id === "trading-settings").manifest.category,
+    "system",
   );
 });
 
@@ -236,11 +351,168 @@ test("discovers a Mod Suite from the standard HTTP well-known endpoint", async (
     assert.equal(store.mods[0].suiteId, "example-suite");
     assert.equal(store.mods[0].defaultInstall, true);
     assert.equal(store.mods[0].manifest.entry.url, "https://suite.example/overview");
+    assert.deepEqual(store.mods[0].manifest.navigation.project, {
+      id: "fundamentals",
+      name: "宏观面",
+      order: 20,
+      description: "经济数据、宏观指标、行业、产业链与宏观事件。",
+      logo: {
+        type: "image",
+        src: "https://assets.example/example-project.png",
+        alt: "Example Research",
+      },
+    });
   });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].init.redirect, "error");
   assert.equal(calls[0].init.headers.Accept, "application/json");
+});
+
+test("places a legacy HTTP Mod Suite intact under other", async () => {
+  const descriptor = structuredClone(HTTP_SUITE_DESCRIPTOR);
+  delete descriptor.manifest.navigation.project;
+  const catalog = {
+    schemaVersion: "1.0",
+    id: "legacy-project-store",
+    name: "Legacy Project Store",
+    git: {},
+    mods: [],
+    suites: [{
+      id: "example-suite",
+      discovery: {
+        type: "http",
+        baseUrlEnv: "NEWMA_DESK_EXAMPLE_WEB_URL",
+        defaultBaseUrl: "http://127.0.0.1:4312",
+      },
+    }],
+  };
+
+  await temporaryStore(catalog, async (storeUrl) => {
+    const store = await loadModStore({
+      storeUrl,
+      fetchImpl: async () => response(descriptor),
+    });
+
+    assert.deepEqual(store.mods[0].manifest.navigation.project, {
+      id: "other",
+      name: "其他",
+      order: 150,
+      description: "尚未归入核心投研流程的管理工具与扩展能力。",
+    });
+  });
+});
+
+test("rejects a Suite that splits one project across domains", async () => {
+  const descriptor = structuredClone(HTTP_SUITE_DESCRIPTOR);
+  descriptor.pages.push({
+    id: "example-policy",
+    name: "政策页面",
+    description: "不允许跨栏目拆分的页面。",
+    route: "/policy",
+    navigation: {
+      itemOrder: 20,
+      project: { id: "policy-intelligence", name: "政策面", order: 50 },
+    },
+  });
+  const catalog = {
+    schemaVersion: "1.0",
+    id: "split-suite-store",
+    name: "Split Suite Store",
+    git: {},
+    mods: [],
+    suites: [{
+      id: "example-suite",
+      discovery: {
+        type: "http",
+        baseUrlEnv: "NEWMA_DESK_EXAMPLE_WEB_URL",
+        defaultBaseUrl: "http://127.0.0.1:4312",
+      },
+    }],
+  };
+  await temporaryStore(catalog, async (storeUrl) => {
+    await assert.rejects(
+      loadModStore({ storeUrl, fetchImpl: async () => response(descriptor) }),
+      /cannot split pages across investment domains/,
+    );
+  });
+});
+
+test("rejects a Suite page that moves into another complete project", async () => {
+  const descriptor = structuredClone(HTTP_SUITE_DESCRIPTOR);
+  descriptor.pages.push({
+    id: "example-detached",
+    name: "拆分页面",
+    description: "不允许脱离来源项目的页面。",
+    route: "/detached",
+    navigation: {
+      itemOrder: 20,
+      directory: { id: "detached-suite", label: "另一个项目", order: 20 },
+    },
+  });
+  const catalog = {
+    schemaVersion: "1.0",
+    id: "detached-suite-store",
+    name: "Detached Suite Store",
+    git: {},
+    mods: [],
+    suites: [{
+      id: "example-suite",
+      discovery: {
+        type: "http",
+        baseUrlEnv: "NEWMA_DESK_EXAMPLE_WEB_URL",
+        defaultBaseUrl: "http://127.0.0.1:4312",
+      },
+    }],
+  };
+  await temporaryStore(catalog, async (storeUrl) => {
+    await assert.rejects(
+      loadModStore({ storeUrl, fetchImpl: async () => response(descriptor) }),
+      /cannot split pages into another project group/,
+    );
+  });
+});
+
+test("rejects unsafe project logo declarations from HTTP Mod Suites", async (t) => {
+  const catalog = {
+    schemaVersion: "1.0",
+    id: "unsafe-project-logo-store",
+    name: "Unsafe Project Logo Store",
+    git: {},
+    mods: [],
+    suites: [{
+      id: "example-suite",
+      discovery: {
+        type: "http",
+        baseUrlEnv: "NEWMA_DESK_EXAMPLE_WEB_URL",
+        defaultBaseUrl: "http://127.0.0.1:4312",
+      },
+    }],
+  };
+  const cases = [
+    ["blank letter", { type: "letter", text: " " }],
+    ["long letter", { type: "letter", text: "LONG" }],
+    ["script URL", { type: "image", src: "javascript:alert(1)" }],
+    ["encoded traversal", { type: "image", src: "/%2e%2e/secret.png" }],
+    ["unknown icon", { type: "icon", name: "unregistered" }],
+    ["unknown field", { type: "letter", text: "ER", html: "<script>" }],
+  ];
+
+  for (const [name, logo] of cases) {
+    await t.test(name, async () => {
+      const descriptor = structuredClone(HTTP_SUITE_DESCRIPTOR);
+      descriptor.manifest.navigation.project.logo = logo;
+      await temporaryStore(catalog, async (storeUrl) => {
+        await assert.rejects(
+          loadModStore({
+            storeUrl,
+            fetchImpl: async () => response(descriptor),
+          }),
+          /project|logo|relative or HTTP\(S\) URL/,
+        );
+      });
+    });
+  }
 });
 
 test("falls back to the legacy Suite endpoint and environment prefix", async () => {

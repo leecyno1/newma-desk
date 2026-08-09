@@ -166,6 +166,9 @@ function coreServices(externalRuntimeEnv = {}) {
         NEWMA_DESK_ENABLE_DOMAIN_SUITES: "true",
         NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME: "1",
         VIBEDESK_INTEGRATED_DOMAIN_RUNTIME: "1",
+        // Local compatibility only. Production installs one pinned dependency
+        // set into the API image and never mixes nested virtual environments.
+        NEWMA_DESK_DOMAIN_SUITE_WORKSPACE_VENVS: "true",
         NEWMA_DESK_INVESTMENT_WORKSPACE: path.join(repoRoot, "mod-projects", "vibe-research"),
         NEWMA_DESK_TRADING_WORKSPACE: path.join(repoRoot, "mod-projects", "vibe-trading"),
         NEWMA_DESK_INVESTMENT_WEB_URL: "http://127.0.0.1:8911",
@@ -175,24 +178,6 @@ function coreServices(externalRuntimeEnv = {}) {
       criticality: SERVICE_CRITICALITY.CORE,
       url: apiHealthUrl,
       probe: createApiReadinessProbe(),
-    },
-    {
-      id: "market-pulse",
-      label: "Market Pulse",
-      cwd: repoRoot,
-      command: "npm",
-      commandArgs: [
-        "run", "dev", "-w", "@newma-desk/market-pulse", "--",
-        "--host", "127.0.0.1", "--port", "5891", "--strictPort",
-      ],
-      env: {
-        VITE_API_PROXY_TARGET: "http://127.0.0.1:8911",
-        VITE_GATEWAY_BASE_URL: "http://127.0.0.1:8911",
-        VITE_PARENT_ORIGIN: "http://127.0.0.1:5888",
-      },
-      criticality: SERVICE_CRITICALITY.CORE,
-      url: "http://127.0.0.1:5891/",
-      probe: createHttpProbe("http://127.0.0.1:5891/"),
     },
     {
       id: "newma-desk-web",
@@ -205,7 +190,6 @@ function coreServices(externalRuntimeEnv = {}) {
       ],
       env: {
         VITE_API_PROXY_TARGET: "http://127.0.0.1:8911",
-        VITE_MOD_ORIGIN: "http://127.0.0.1:5891",
       },
       criticality: SERVICE_CRITICALITY.CORE,
       url: "http://127.0.0.1:5888/",
@@ -226,6 +210,7 @@ async function buildIntegratedFrontend(label, workspace, basePath, apiBase) {
       ...process.env,
       NEWMA_DESK_INTEGRATED: "1",
       NEWMA_DOCK_INTEGRATED: "1",
+      VITE_NEWMA_DESK_INTEGRATED: "1",
       VITE_BASE_PATH: basePath,
       VITE_API_BASE: apiBase,
     },
@@ -523,8 +508,9 @@ if (checkOnly) {
         NEWMA_DESK_CONTROL_PLANE_URL: "http://127.0.0.1:8911",
       },
     });
-    await supervisor.start(core[1]);
-    await supervisor.start(core[2]);
+    for (const service of core.slice(1)) {
+      await supervisor.start(service);
+    }
     console.log("\nNewma-Desk 核心已就绪：http://127.0.0.1:5888/?mod=daily-review");
     console.log("Research / Trading 已作为 Newma-Desk 内置领域运行时加载，不再占用独立端口。");
     const optionalServices = [

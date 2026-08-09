@@ -80,7 +80,7 @@ export default defineConfig({
     },
     {
       command:
-        "npm run build -w @newma-desk/market-pulse && " +
+        "npm run build -w @newma-desk/market-daily && " +
         `python3 tests/e2e/module-server.py --port ${modulePort}`,
       url: demoModuleUrl,
       reuseExistingServer: false,

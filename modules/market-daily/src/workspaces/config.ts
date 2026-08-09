@@ -22,7 +22,7 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
     modId: "market-scanner",
     title: "市场扫描器",
     description: "从共享自选与成交额榜中筛选量价、趋势和估值候选。",
-    accent: "#2563eb",
+    accent: "var(--vibe-accent)",
     blocks: [
       { id: "scanner-filters", type: "market-filter", title: "扫描条件" },
       { id: "scanner-results", type: "security-table", title: "候选标的" },
@@ -33,7 +33,7 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
     modId: "multi-timeframe",
     title: "多周期看盘",
     description: "日线、60 分钟、15 分钟与 5 分钟图表联动。",
-    accent: "#4f46e5",
+    accent: "var(--vibe-accent)",
     blocks: [
       { id: "multi-chart-grid", type: "klinechart-grid", title: "多周期 K 线" },
       { id: "multi-inspector", type: "market-inspector", title: "行情检查器" },
@@ -44,7 +44,7 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
     modId: "relative-strength",
     title: "相对强弱地图",
     description: "比较自选标的的归一化收益、趋势和阶段排名。",
-    accent: "#7c3aed",
+    accent: "var(--vibe-accent)",
     blocks: [
       { id: "relative-chart", type: "relative-strength-chart", title: "归一化走势" },
       { id: "relative-ranking", type: "security-ranking", title: "阶段排名" },
@@ -55,7 +55,7 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
     modId: "event-timeline",
     title: "事件时间轴",
     description: "将价格异动、成交量变化和阶段突破叠加到行情时间线上。",
-    accent: "#d97706",
+    accent: "var(--vibe-accent)",
     blocks: [
       { id: "event-chart", type: "klinechart", title: "事件行情" },
       { id: "event-list", type: "event-timeline", title: "市场事件" },
@@ -66,7 +66,7 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
     modId: "trading-replay",
     title: "交易回放室",
     description: "隐藏未来行情，逐根播放 K 线并记录模拟决策。",
-    accent: "#0f766e",
+    accent: "var(--vibe-accent)",
     blocks: [
       { id: "replay-chart", type: "klinechart-replay", title: "历史回放" },
       { id: "replay-ledger", type: "trade-ledger", title: "模拟交易记录" },

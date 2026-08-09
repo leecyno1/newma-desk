@@ -11,8 +11,10 @@
     "test:e2e": "playwright test",
     "test:e2e:sidebar": "playwright test --config playwright.sidebar-navigation.config.ts",
     "test:e2e:market": "playwright test --config playwright.market-workspaces.config.ts",
+    "test:e2e:research": "playwright test --config playwright.equity-research.config.ts",
+    "test:e2e:backtest": "playwright test --config playwright.backtest-ledger.config.ts",
     "test:e2e:domain-suites": "playwright test --config playwright.domain-suites.config.ts",
-    "test:release:static": "npm test && npm run typecheck && npm run build && npm run test:api",
+    "test:release:static": "npm test && npm run typecheck && npm run build && npm run mods:theme:check && npm run footprint:check && npm run test:api",
     "test:release:live": "node scripts/run-live-release-checks.mjs",
     "test:release": "npm run test:release:static && npm run test:release:live",
     "typecheck": "npm run typecheck --workspaces --if-present",
@@ -24,7 +26,13 @@
     "mods:certify": "node scripts/certify-mod-runtime.mjs",
     "mods:register": "node scripts/register-store-defaults.mjs",
     "mods:standardize": "node scripts/standardize-store-mods.mjs",
-    "pilots:check": "node scripts/check-external-finance-pilots.mjs"
+    "mods:theme:check": "node scripts/check-mod-theme.mjs",
+    "mods:theme:audit": "node scripts/audit-mod-theme-runtime.mjs",
+    "mods:sources:check": "node scripts/check-mod-project-sources.mjs",
+    "footprint:check": "node scripts/check-production-footprint.mjs",
+    "deploy:check": "python3 deploy/server/check-compose.py",
+    "pilots:check": "node scripts/check-external-finance-pilots.mjs",
+    "finance:intake:check": "node scripts/check-finance-project-intake.mjs"
   },
   "engines": {"node": ">=22", "npm": ">=10"},
   "devDependencies": {

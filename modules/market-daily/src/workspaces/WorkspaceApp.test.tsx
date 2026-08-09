@@ -40,6 +40,15 @@ function dataSource(): MarketDataSource {
     search: vi.fn(async () => [{ symbol: "NVDA", name: "NVIDIA", market: "US" as const, exchange: "NASDAQ" }]),
     quotes: vi.fn(async (items: SecurityRef[]) => items.map((item) => quotes.find((quote) => quote.symbol === item.symbol) ?? { ...item, price: 100, changePct: 0.5 })),
     quote: vi.fn(async (item) => quotes.find((quote) => quote.symbol === item.symbol) ?? { ...item, price: 100, changePct: 0.5 }),
+    scan: vi.fn(async (market, sort, order = "desc") => ({
+      items: quotes.filter((item) => item.market === market),
+      market,
+      sort,
+      order,
+      source: "test-scan",
+      asOf: "2026-07-24T10:00:00+08:00",
+      coverage: { requested: 100, returned: quotes.filter((item) => item.market === market).length },
+    })),
     ohlcv: vi.fn(async (item, timeframe, adjustment) => ({
       symbol: item.symbol,
       market: item.market,
@@ -98,7 +107,7 @@ describe("market chart workspaces", () => {
 
   it("renders a functional scanner and emits the shared security event", async () => {
     const moduleBridge = bridge("market-scanner");
-    render(<MarketWorkspaceApp config={MARKET_WORKSPACES.scanner} bridge={moduleBridge} dataSource={dataSource()} />);
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES.scanner} bridge={moduleBridge} dataSource={dataSource()} alertClient={null} />);
 
     expect(await screen.findByText("放量走强")).toBeVisible();
     const results = screen.getByRole("table");
@@ -112,7 +121,7 @@ describe("market chart workspaces", () => {
   });
 
   it("renders four linked charts for the multi-timeframe workspace", async () => {
-    render(<MarketWorkspaceApp config={MARKET_WORKSPACES["multi-timeframe"]} bridge={bridge("multi-timeframe")} dataSource={dataSource()} />);
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES["multi-timeframe"]} bridge={bridge("multi-timeframe")} dataSource={dataSource()} alertClient={null} />);
 
     expect(await screen.findAllByTestId("workspace-kline")).toHaveLength(4);
     await userEvent.click(screen.getByRole("button", { name: "MACD" }));
@@ -120,7 +129,7 @@ describe("market chart workspaces", () => {
   });
 
   it("supports replay decisions while future bars remain hidden", async () => {
-    render(<MarketWorkspaceApp config={MARKET_WORKSPACES["trading-replay"]} bridge={bridge("trading-replay")} dataSource={dataSource()} artifactClient={artifactClient()} />);
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES["trading-replay"]} bridge={bridge("trading-replay")} dataSource={dataSource()} artifactClient={artifactClient()} alertClient={null} />);
 
     expect(await screen.findByText(/未来数据已隐藏/)).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "模拟买入" }));

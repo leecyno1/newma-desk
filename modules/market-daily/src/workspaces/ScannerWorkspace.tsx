@@ -1,10 +1,16 @@
 import { Filter, Plus, RefreshCw, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import type { MarketDataSource, MarketId, Quote, SecurityRef } from "../types";
+import type {
+  MarketDataSource,
+  MarketId,
+  MarketScanOrder,
+  MarketScanSort,
+  Quote,
+  SecurityRef,
+} from "../types";
 import { securityKey } from "../data";
 import {
-  WORKSPACE_SECURITIES,
   formatCompact,
   formatPrice,
   movement,
@@ -23,6 +29,22 @@ import {
 
 type ScannerPreset = "all" | "momentum" | "volume" | "value" | "custom";
 const SAVED_EXPRESSIONS_KEY = "vibedesk.market-scanner.expressions.v1";
+const SCAN_MARKETS: MarketId[] = ["CN", "HK", "US"];
+
+const SORT_OPTIONS: Array<{
+  sort: MarketScanSort;
+  order: MarketScanOrder;
+  label: string;
+}> = [
+  { sort: "amount", order: "desc", label: "成交额从高到低" },
+  { sort: "changePct", order: "desc", label: "涨幅从高到低" },
+  { sort: "changePct", order: "asc", label: "跌幅从高到低" },
+  { sort: "turnoverPct", order: "desc", label: "换手率从高到低" },
+  { sort: "volumeRatio", order: "desc", label: "量比从高到低" },
+  { sort: "marketCap", order: "desc", label: "市值从高到低" },
+  { sort: "pe", order: "asc", label: "PE 从低到高" },
+  { sort: "pb", order: "asc", label: "PB 从低到高" },
+];
 
 const FIELD_LABELS: Record<ScannerField, string> = {
   changePct: "涨跌幅 %",
@@ -57,6 +79,11 @@ function scannerSignal(quote: Quote) {
   return "持续跟踪";
 }
 
+function scanValue(quote: Quote, sort: MarketScanSort) {
+  const value = quote[sort];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 export function ScannerWorkspace({
   dataSource,
   security,
@@ -77,7 +104,16 @@ export function ScannerWorkspace({
   const [savedExpressions, setSavedExpressions] = useState<SavedScannerExpression[]>(loadSavedExpressions);
   const [activeSavedId, setActiveSavedId] = useState("");
   const [market, setMarket] = useState<MarketId | "ALL">("ALL");
+  const [sort, setSort] = useState<MarketScanSort>("amount");
+  const [order, setOrder] = useState<MarketScanOrder>("desc");
   const [minimumChange, setMinimumChange] = useState(-10);
+  const [scanMeta, setScanMeta] = useState<{
+    requested: number;
+    returned: number;
+    sources: string[];
+    asOf?: string;
+    markets: MarketId[];
+  }>({ requested: 0, returned: 0, sources: [], markets: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -85,40 +121,54 @@ export function ScannerWorkspace({
     let active = true;
     setLoading(true);
     setError("");
-    void Promise.allSettled([
-      dataSource.quotes(WORKSPACE_SECURITIES),
-      dataSource.turnoverTop(),
-    ]).then(async ([quoteResult, turnoverResult]) => {
+    const markets = market === "ALL" ? SCAN_MARKETS : [market];
+    void Promise.allSettled(markets.map((marketId) =>
+      dataSource.scan(marketId, sort, order, 100),
+    )).then((results) => {
       if (!active) return;
-      const seedQuotes = quoteResult.status === "fulfilled" ? quoteResult.value : [];
-      const known = new Set(seedQuotes.map(securityKey));
-      const extraRefs: SecurityRef[] = turnoverResult.status === "fulfilled"
-        ? turnoverResult.value.slice(0, 20).flatMap((item) => {
-            const symbol = String(item.code || item.symbol || "").trim();
-            if (!symbol || known.has(`CN:${symbol}`)) return [];
-            return [{ symbol, name: item.name || symbol, market: "CN" as const }];
-          })
-        : [];
-      const extras = extraRefs.length ? await dataSource.quotes(extraRefs).catch(() => []) : [];
-      if (!active) return;
-      setQuotes([...seedQuotes, ...extras]);
-      if (quoteResult.status === "rejected" && !extras.length) setError("扫描行情暂时不可用");
+      const fulfilled = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      const uniqueQuotes = new Map<string, Quote>();
+      for (const result of fulfilled) {
+        for (const quote of result.items) uniqueQuotes.set(securityKey(quote), quote);
+      }
+      setQuotes([...uniqueQuotes.values()]);
+      setScanMeta({
+        requested: fulfilled.reduce((sum, result) => sum + result.coverage.requested, 0),
+        returned: uniqueQuotes.size,
+        sources: [...new Set(fulfilled.map((result) => result.source))],
+        asOf: fulfilled.map((result) => result.asOf).filter(Boolean).sort().at(-1),
+        markets: fulfilled.map((result) => result.market),
+      });
+      if (!fulfilled.length) setError("A/H/US 扫描行情暂时不可用");
+      else if (fulfilled.length < markets.length) setError("部分市场扫描源暂时不可用，已展示可用市场");
     }).finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, [dataSource, refreshNonce]);
+  }, [dataSource, market, order, refreshNonce, sort]);
 
   const filtered = useMemo(() => [...quotes]
     .filter((quote) => market === "ALL" || quote.market === market)
     .filter((quote) => (quote.changePct ?? -Infinity) >= minimumChange)
     .filter((quote) => evaluateScannerExpression(quote, expression))
-    .sort((left, right) => (right.changePct ?? -Infinity) - (left.changePct ?? -Infinity)), [expression, market, minimumChange, quotes]);
+    .sort((left, right) => {
+      const leftValue = scanValue(left, sort);
+      const rightValue = scanValue(right, sort);
+      if (leftValue === undefined && rightValue === undefined) return 0;
+      if (leftValue === undefined) return 1;
+      if (rightValue === undefined) return -1;
+      return order === "desc" ? rightValue - leftValue : leftValue - rightValue;
+    }), [expression, market, minimumChange, order, quotes, sort]);
 
   useEffect(() => {
     onContextChange({
       preset,
       market,
+      scanSort: sort,
+      scanOrder: order,
+      coverage: scanMeta,
       minimumChange,
       expression,
       activeSavedExpression: savedExpressions.find((item) => item.id === activeSavedId)?.name ?? null,
@@ -132,7 +182,7 @@ export function ScannerWorkspace({
         signal: scannerSignal(quote),
       })),
     });
-  }, [activeSavedId, expression, filtered, market, minimumChange, onContextChange, preset, savedExpressions]);
+  }, [activeSavedId, expression, filtered, market, minimumChange, onContextChange, order, preset, savedExpressions, scanMeta, sort]);
 
   const applyPreset = (next: Exclude<ScannerPreset, "custom">) => {
     setPreset(next);
@@ -243,16 +293,33 @@ export function ScannerWorkspace({
           </select>
         </label>
         <label className="workspace-field">
+          <span>扫描排序</span>
+          <select
+            value={`${sort}:${order}`}
+            onChange={(event) => {
+              const [nextSort, nextOrder] = event.target.value.split(":") as [MarketScanSort, MarketScanOrder];
+              setSort(nextSort);
+              setOrder(nextOrder);
+            }}
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={`${option.sort}:${option.order}`} value={`${option.sort}:${option.order}`}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="workspace-field">
           <span>最低涨跌幅 <em>{minimumChange.toFixed(1)}%</em></span>
           <input type="range" min="-10" max="10" step="0.5" value={minimumChange} onChange={(event) => setMinimumChange(Number(event.target.value))} />
         </label>
-        <p className="workspace-help">扫描结果来自共享行情服务与当前工作区标的，不产生自动买卖建议。</p>
+        <p className="workspace-help">扫描结果来自 Desk 共享行情服务，一次读取市场排行池，不逐标的扇出请求，也不产生自动买卖建议。</p>
       </section>
 
       <section className="scanner-results" aria-label="扫描结果">
         <div className="workspace-section-title">
           <span>候选标的</span>
-          <small>按涨跌幅排序</small>
+          <small>
+            覆盖 {scanMeta.returned}/{scanMeta.requested || "—"} 条 · {scanMeta.markets.join("/") || "等待数据"}
+          </small>
         </div>
         <div className="scanner-table" role="table">
           <div className="scanner-row scanner-head" role="row">
@@ -276,7 +343,7 @@ export function ScannerWorkspace({
             </button>
           ))}
           {loading ? <div className="workspace-empty"><RefreshCw className="spin" size={16} />正在扫描行情…</div> : null}
-          {!loading && error ? <div className="workspace-empty workspace-error">{error}</div> : null}
+          {!loading && error && quotes.length === 0 ? <div className="workspace-empty workspace-error">{error}</div> : null}
           {!loading && !error && filtered.length === 0 ? <div className="workspace-empty">当前条件没有匹配标的</div> : null}
         </div>
       </section>

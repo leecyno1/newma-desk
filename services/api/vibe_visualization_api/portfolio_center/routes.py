@@ -10,6 +10,14 @@ from vibe_visualization_api.portfolio_center.models import (
     PortfolioActivity,
     PortfolioActivityCreate,
     PortfolioDashboard,
+    PortfolioOptimizationRequest,
+    PortfolioOptimizationResult,
+    PortfolioPerformanceRequest,
+    PortfolioPerformanceResult,
+    PortfolioResearchCoverage,
+)
+from vibe_visualization_api.portfolio_center.research import (
+    compile_portfolio_research_coverage,
 )
 
 
@@ -40,6 +48,64 @@ async def get_portfolio_dashboard(
         user_id=user_id,
         workspace_id=workspace_id,
         include_quotes=include_quotes,
+    )
+
+
+@router.get("/research-coverage", response_model=PortfolioResearchCoverage)
+async def get_portfolio_research_coverage(
+    request: Request,
+    user_id: UserId = "local-user",
+    workspace_id: WorkspaceId = "local-workspace",
+):
+    dashboard = await request.app.state.portfolio_center_service.dashboard(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        include_quotes=False,
+    )
+    archive = await run_in_threadpool(
+        request.app.state.research_archive_service.list,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
+    return compile_portfolio_research_coverage(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        positions=dashboard.positions,
+        archive=archive,
+    )
+
+
+@router.post(
+    "/allocations/optimize",
+    response_model=PortfolioOptimizationResult,
+)
+async def optimize_portfolio_allocation(
+    optimization: PortfolioOptimizationRequest,
+    request: Request,
+    user_id: UserId = "local-user",
+    workspace_id: WorkspaceId = "local-workspace",
+):
+    return await request.app.state.portfolio_center_service.optimize_allocation(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        request=optimization,
+    )
+
+
+@router.post(
+    "/performance/analyze",
+    response_model=PortfolioPerformanceResult,
+)
+async def analyze_portfolio_performance(
+    analysis: PortfolioPerformanceRequest,
+    request: Request,
+    user_id: UserId = "local-user",
+    workspace_id: WorkspaceId = "local-workspace",
+):
+    return await request.app.state.portfolio_center_service.analyze_historical_performance(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        request=analysis,
     )
 
 

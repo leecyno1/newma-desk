@@ -39,6 +39,12 @@ from vibe_visualization_api.agent_gateway.service import AgentTaskService
 from vibe_visualization_api.agent_gateway.session_store import (
     AgentModuleSessionStore,
 )
+from vibe_visualization_api.ai_context.finance_capabilities import (
+    FinanceCapabilityContextEnricher,
+)
+from vibe_visualization_api.ai_context.light_research import (
+    LightResearchContextEnricher,
+)
 from vibe_visualization_api.agent_gateway.store import (
     InvalidTaskStateError,
     TaskNotFoundError,
@@ -63,19 +69,40 @@ from vibe_visualization_api.model_gateway.registry import (
 )
 from vibe_visualization_api.model_gateway.routes import router as model_router
 from vibe_visualization_api.model_gateway.service import ModelGatewayService
+from vibe_visualization_api.market_alerts.routes import router as market_alerts_router
+from vibe_visualization_api.market_alerts.store import (
+    MarketAlertLimitError,
+    MarketAlertNotFoundError,
+    MarketAlertStore,
+)
 from vibe_visualization_api.mod_store.routes import router as mod_store_router
 from vibe_visualization_api.mod_store.service import (
     DescriptorFetcher,
     ModStoreService,
 )
+from vibe_visualization_api.mod_storage.routes import router as mod_storage_router
+from vibe_visualization_api.mod_storage.store import (
+    ModStorageConflictError,
+    ModStorageCorruptError,
+    ModStorageNotFoundError,
+    ModStorageQuotaError,
+    ModStorageStore,
+)
 from vibe_visualization_api.portfolio_center.quotes import (
     PortfolioQuoteProvider,
     ResearchPortfolioQuoteProvider,
+)
+from vibe_visualization_api.portfolio_center.history import (
+    DataServicePortfolioHistoryProvider,
 )
 from vibe_visualization_api.portfolio_center.routes import (
     router as portfolio_center_router,
 )
 from vibe_visualization_api.portfolio_center.service import PortfolioCenterService
+from vibe_visualization_api.research_archive.routes import (
+    router as research_archive_router,
+)
+from vibe_visualization_api.research_archive.service import ResearchArchiveService
 from vibe_visualization_api.portfolio_center.store import (
     PortfolioConflictError,
     PortfolioNotFoundError,
@@ -159,6 +186,7 @@ def create_app(
     agent_conversation_store = AgentConversationStore(app_settings.database_path)
     agent_preference_store = AgentPreferenceStore(app_settings.database_path)
     mod_context_store = ModContextStore(app_settings.database_path)
+    mod_storage_store = ModStorageStore(app_settings.database_path)
     mod_store_service = ModStoreService(
         app_settings,
         descriptor_fetcher=mod_store_fetcher,
@@ -267,6 +295,14 @@ def create_app(
             ),
             agent_preference_store,
             mod_context_store,
+            research_enricher=LightResearchContextEnricher(
+                application.state.data_service_registry,
+                application.state.data_service_client,
+            ),
+            finance_capability_enricher=FinanceCapabilityContextEnricher(
+                app_settings.finance_project_intake_descriptor,
+                resolve_module_repository,
+            ),
         )
 
     application.state.agent_task_service_factory = create_agent_task_service
@@ -307,12 +343,12 @@ def create_app(
             },
         )
     )
-    application.state.data_service_registry = DataServiceRegistry(
-        configured_data_services
-    )
-    application.state.data_service_client = data_service_client or DataServiceClient(
+    data_service_registry = DataServiceRegistry(configured_data_services)
+    resolved_data_service_client = data_service_client or DataServiceClient(
         public_mode=app_settings.data_service_public_mode
     )
+    application.state.data_service_registry = data_service_registry
+    application.state.data_service_client = resolved_data_service_client
     application.state.data_service_preference_store = DataServicePreferenceStore(
         app_settings.database_path
     )
@@ -324,6 +360,7 @@ def create_app(
         ttl_seconds=app_settings.mod_session_ttl_seconds,
     )
     application.state.mod_context_store = mod_context_store
+    application.state.mod_storage_store = mod_storage_store
     application.state.mod_store_service = mod_store_service
     application.state.artifact_store = ArtifactStore(app_settings.runtime_dir)
     application.state.archify_renderer = ArchifyRenderer(
@@ -332,6 +369,12 @@ def create_app(
     )
     application.state.watchlist_store = WatchlistStore(
         app_settings.database_path,
+    )
+    application.state.market_alert_store = MarketAlertStore(
+        app_settings.database_path,
+    )
+    application.state.research_archive_service = ResearchArchiveService(
+        mod_storage_store,
     )
     application.state.finance_pilot_service = FinancePilotService(
         FinancePilotPolicy(
@@ -350,6 +393,10 @@ def create_app(
                 timeout_seconds=app_settings.portfolio_quote_timeout_seconds,
             )
         ),
+        history_provider=DataServicePortfolioHistoryProvider(
+            data_service_registry,
+            resolved_data_service_client,
+        ),
         legacy_portfolio_path=app_settings.legacy_portfolio_path,
     )
     application.add_middleware(
@@ -363,6 +410,7 @@ def create_app(
             "X-User-Id",
             "X-Workspace-Id",
             "X-Newma-Desk-Instance-Id",
+            "X-Newma-Desk-Mod-Session",
             "X-Newma-Dock-Instance-Id",
         ],
     )
@@ -372,12 +420,20 @@ def create_app(
         prefix="/api/modules",
         include_in_schema=False,
     )
+    application.include_router(mod_storage_router, prefix="/api/mods")
+    application.include_router(
+        mod_storage_router,
+        prefix="/api/modules",
+        include_in_schema=False,
+    )
     application.include_router(agent_router)
     application.include_router(mod_store_router)
     application.include_router(model_router)
     application.include_router(data_services_router)
     application.include_router(artifacts_router)
     application.include_router(watchlists_router)
+    application.include_router(market_alerts_router)
+    application.include_router(research_archive_router)
     application.include_router(portfolio_center_router)
     application.include_router(finance_pilots_router)
     application.include_router(mod_snapshots_router, prefix="/api/mods")
@@ -400,6 +456,46 @@ def create_app(
         request: Request, error: InvalidModuleStateError
     ) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": "invalid module state"})
+
+    @application.exception_handler(ModStorageNotFoundError)
+    async def mod_storage_not_found(
+        request: Request,
+        error: ModStorageNotFoundError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Mod storage document not found"},
+        )
+
+    @application.exception_handler(ModStorageConflictError)
+    async def mod_storage_conflict(
+        request: Request,
+        error: ModStorageConflictError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "Mod storage revision conflict"},
+        )
+
+    @application.exception_handler(ModStorageQuotaError)
+    async def mod_storage_quota(
+        request: Request,
+        error: ModStorageQuotaError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=413,
+            content={"detail": "Mod storage quota exceeded"},
+        )
+
+    @application.exception_handler(ModStorageCorruptError)
+    async def mod_storage_corrupt(
+        request: Request,
+        error: ModStorageCorruptError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Mod storage document is corrupt"},
+        )
 
     @application.exception_handler(SnapshotNotFoundError)
     async def snapshot_not_found(
@@ -444,6 +540,20 @@ def create_app(
         error: WatchlistNotFoundError,
     ) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(error)})
+
+    @application.exception_handler(MarketAlertNotFoundError)
+    async def market_alert_not_found(
+        request: Request,
+        error: MarketAlertNotFoundError,
+    ) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(error)})
+
+    @application.exception_handler(MarketAlertLimitError)
+    async def market_alert_limit(
+        request: Request,
+        error: MarketAlertLimitError,
+    ) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(error)})
 
     @application.exception_handler(PortfolioConflictError)
     async def portfolio_conflict(

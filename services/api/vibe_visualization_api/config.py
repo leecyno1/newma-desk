@@ -183,6 +183,10 @@ def _default_external_finance_pilot_descriptor() -> Path:
     return _default_project_root() / "config" / "external-finance-mod-pilots.json"
 
 
+def _default_finance_project_intake_descriptor() -> Path:
+    return _default_project_root() / "config" / "finance-project-intake.json"
+
+
 def _default_allowed_origins() -> str:
     origins = [
         "http://127.0.0.1:5888",
@@ -218,12 +222,16 @@ class Settings(BaseSettings):
     agent_default_adapter: str = "codex-cli"
     agent_timeout_seconds: float = Field(default=300.0, gt=0, le=900)
     enable_domain_suites: bool = False
+    domain_suite_workspace_venvs: bool = False
     workspace_root: Path = Path(".")
     investment_workspace: Path = Field(default_factory=_default_investment_workspace)
     trading_workspace: Path = Field(default_factory=_default_trading_workspace)
     portfolio_center_dist: Path = Field(default_factory=_default_portfolio_center_dist)
     external_finance_pilot_descriptor: Path = Field(
         default_factory=_default_external_finance_pilot_descriptor
+    )
+    finance_project_intake_descriptor: Path = Field(
+        default_factory=_default_finance_project_intake_descriptor
     )
     deepsee_workspace: Path = Field(
         default_factory=lambda: resolve_runtime_workspace("deepsee", "source")
@@ -260,7 +268,9 @@ class Settings(BaseSettings):
     )
     mod_store_dir: Path = Path("mods")
     mod_store_git_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
-    hermes_webui_base_url: str = "http://127.0.0.1:8787"
+    # Standard managed nodes use 8788. c10375 is the explicit 8787 exception
+    # and must override this through NEWMA_DESK_HERMES_WEBUI_BASE_URL.
+    hermes_webui_base_url: str = "http://127.0.0.1:8788"
     hermes_webui_cookie: SecretStr = SecretStr("")
     hermes_webui_csrf_token: SecretStr = SecretStr("")
     hermes_webui_workspace: str = ""

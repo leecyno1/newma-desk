@@ -9,11 +9,11 @@ import {
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { INVESTMENT_DOMAINS } from "@newma-desk/contracts";
 
-import { App } from "./App";
+import { App, isEmbeddedShellContext } from "./App";
 import type { StoredMod } from "./api/modules";
 import { ShellEventBus } from "./events/ShellEventBus";
-import { sidebarGroupTone } from "./lib/sidebarGroupTheme";
 import { server } from "./test/server";
 
 const marketModule = storedModule({
@@ -36,6 +36,17 @@ const quantModule = storedModule({
   category: "quant",
   entry: { type: "structured", url: "/modules/quant-lab/" },
 });
+
+const investmentDomainLabels = INVESTMENT_DOMAINS.map(
+  (domain) => `${domain.name} 项目`,
+);
+
+function projectRailLabels(navigation: HTMLElement) {
+  return within(navigation)
+    .getAllByRole("button")
+    .filter((button) => button.classList.contains("project-rail-button"))
+    .map((button) => button.getAttribute("aria-label"));
+}
 
 function storedModule({
   id,
@@ -99,6 +110,16 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("detects framed Desk shells without inspecting the parent document", () => {
+    const topLevel = {};
+    expect(
+      isEmbeddedShellContext({ self: topLevel, top: topLevel }),
+    ).toBe(false);
+    expect(
+      isEmbeddedShellContext({ self: {}, top: {} }),
+    ).toBe(true);
+  });
+
   it("opens the project Mod store and installs a selected Mod from Git", async () => {
     let installed = false;
     let installRequests = 0;
@@ -124,7 +145,7 @@ describe("App", () => {
               installState: installed ? "installed" : "available",
               ...(installed ? { installedRevision: 2 } : {}),
               sourceUrl:
-                "https://github.com/leecyno1/newma-dock/blob/main/mods/daily-review/mod.json",
+                "https://github.com/leecyno1/newma-dock/blob/main/mods/research-suite/suite.json",
             },
           ],
         }),
@@ -136,7 +157,7 @@ describe("App", () => {
           {
             action: "installed",
             sourceUrl:
-              "https://github.com/leecyno1/newma-dock/blob/main/mods/daily-review/mod.json",
+              "https://github.com/leecyno1/newma-dock/blob/main/mods/research-suite/suite.json",
             mod: {
               ...researchModule,
               moduleId: "daily-review",
@@ -170,7 +191,7 @@ describe("App", () => {
     expect(installRequests).toBe(1);
   });
 
-  it("switches themes and lets the user define sidebar categories", async () => {
+  it("switches themes and shows immutable complete-project ownership", async () => {
     serveRegistry([marketModule, researchModule]);
     render(<App />);
 
@@ -184,23 +205,9 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: /深色/ }));
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(window.localStorage.getItem("vibedesk.themeMode")).toBe("dark");
+    expect(screen.getAllByText("所属栏目").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("完整项目").length).toBeGreaterThanOrEqual(2);
 
-    await userEvent.type(
-      screen.getByRole("combobox", { name: "市场行情分类" }),
-      "我的关注",
-    );
-    await userEvent.type(
-      screen.getByRole("combobox", { name: "研究资讯分类" }),
-      "我的关注",
-    );
-    await userEvent.type(
-      screen.getByRole("combobox", { name: "市场行情二级目录" }),
-      "核心工具",
-    );
-    await userEvent.type(
-      screen.getByRole("combobox", { name: "研究资讯二级目录" }),
-      "核心工具",
-    );
     await userEvent.click(
       screen.getByRole("button", { name: "保存导航" }),
     );
@@ -208,42 +215,80 @@ describe("App", () => {
     const navigation = screen.getByRole("navigation", {
       name: "Newma-Desk Mod 导航",
     });
-    const customGroup = within(navigation).getByRole("group", {
-      name: "我的关注",
-    });
-    expect(customGroup).toHaveAttribute(
-      "data-group-tone",
-      sidebarGroupTone("我的关注"),
-    );
+    expect(projectRailLabels(navigation)).toEqual([
+      ...investmentDomainLabels.slice(0, 10),
+      "研究资讯 项目",
+      ...investmentDomainLabels.slice(10),
+      "市场行情 项目",
+    ]);
     await userEvent.click(
-      within(customGroup).getByRole("button", { name: /^核心工具/ }),
+      within(navigation).getByRole("button", { name: "市场行情 项目" }),
     );
-    const secondary = screen.getByRole("complementary", {
-      name: "核心工具 二级导航",
+    let projectPanel = screen.getByRole("complementary", {
+      name: "市场行情 二级导航",
     });
-    expect(
-      within(secondary)
-        .getAllByRole("button")
-        .filter((button) => button.classList.contains("module-button"))
-        .map((button) => button.textContent),
-    ).toEqual(["市场行情", "研究资讯"]);
-    expect(
-      JSON.parse(
-        window.localStorage.getItem("vibedesk.moduleCategories.v1") || "{}",
-      ),
-    ).toEqual({
-      "market-daily": "我的关注",
-      "research-news": "我的关注",
+    expect(within(projectPanel).getByRole("button", { name: "市场行情" })).toBeVisible();
+    await userEvent.click(
+      within(navigation).getByRole("button", { name: "研究资讯 项目" }),
+    );
+    projectPanel = screen.getByRole("complementary", {
+      name: "研究资讯 二级导航",
     });
+    expect(within(projectPanel).getByRole("button", { name: "研究资讯" })).toBeVisible();
     const navigationPreferences = JSON.parse(
       window.localStorage.getItem("vibedesk.sidebarNavigation.v1") || "{}",
     );
-    expect(navigationPreferences.modules["market-daily"].directory).toEqual(
-      navigationPreferences.modules["research-news"].directory,
+    expect(navigationPreferences.modules["market-daily"]?.directory).toBeUndefined();
+    expect(navigationPreferences.modules["research-news"]?.directory).toBeUndefined();
+  });
+
+  it("customizes and restores a first-level project title", async () => {
+    serveRegistry([marketModule]);
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "界面设置" }),
     );
-    expect(navigationPreferences.modules["market-daily"].directory.label).toBe(
-      "核心工具",
+    const titleInput = screen.getByRole("textbox", {
+      name: "市场行情 一级标题",
+    });
+    await userEvent.clear(titleInput);
+    await userEvent.type(titleInput, "Market Pulse");
+    await userEvent.click(screen.getByRole("button", { name: "保存导航" }));
+
+    const navigation = screen.getByRole("navigation", {
+      name: "Newma-Desk Mod 导航",
+    });
+    expect(
+      within(navigation).getByRole("button", { name: "Market Pulse 项目" }),
+    ).toBeVisible();
+    expect(within(navigation).getByText("行情")).toBeVisible();
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("vibedesk.sidebarNavigation.v1") || "{}",
+      ).projects["market-daily"].label,
+    ).toBe("Market Pulse");
+
+    await userEvent.click(
+      within(navigation).getByRole("button", { name: "Market Pulse 项目" }),
     );
+    expect(
+      screen.getByRole("complementary", { name: "Market Pulse 二级导航" }),
+    ).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "界面设置" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "恢复 市场行情 默认标题" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "保存导航" }));
+
+    expect(
+      within(navigation).getByRole("button", { name: "市场行情 项目" }),
+    ).toBeVisible();
+    const restoredPreferences = JSON.parse(
+      window.localStorage.getItem("vibedesk.sidebarNavigation.v1") || "{}",
+    );
+    expect(restoredPreferences.projects?.["market-daily"]?.label).toBeUndefined();
   });
 
   it("opens Agent settings and persists a local CLI selection", async () => {
@@ -330,6 +375,12 @@ describe("App", () => {
         groupLabel: "研究工作",
         groupOrder: 30,
         itemOrder: 20,
+        project: {
+          id: "research-work",
+          name: "研究工作",
+          order: 30,
+          logo: { type: "letter", text: "研" },
+        },
         icon: "research",
       },
       entry: { type: "static", url: "/modules/research-later/" },
@@ -342,6 +393,12 @@ describe("App", () => {
         groupLabel: "研究工作",
         groupOrder: 30,
         itemOrder: 10,
+        project: {
+          id: "research-work",
+          name: "研究工作",
+          order: 30,
+          logo: { type: "letter", text: "研" },
+        },
         icon: "research",
       },
       entry: { type: "static", url: "/modules/research-first/" },
@@ -354,6 +411,12 @@ describe("App", () => {
         groupLabel: "量化工作",
         groupOrder: 10,
         itemOrder: 10,
+        project: {
+          id: "quant-work",
+          name: "量化工作",
+          order: 10,
+          logo: { type: "icon", name: "quant" },
+        },
         icon: "quant",
       },
       entry: { type: "structured", url: "/modules/quant-first/" },
@@ -368,20 +431,37 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Newma-Desk")).toBeVisible();
-    expect(screen.getByText("智能模组工作台")).toBeVisible();
+    expect(await screen.findByRole("img", { name: "Newma-Desk" })).toBeVisible();
     const navigation = screen.getByRole("navigation", {
       name: "Newma-Desk Mod 导航",
     });
+    expect(projectRailLabels(navigation)).toEqual([
+      investmentDomainLabels[0],
+      "量化工作 项目",
+      ...investmentDomainLabels.slice(1, 3),
+      "研究工作 项目",
+      ...investmentDomainLabels.slice(3),
+      "自定义 Mod 项目",
+    ]);
     expect(
-      within(navigation)
-        .getAllByRole("heading", { level: 2 })
-        .map((heading) => heading.textContent),
-    ).toEqual(["量化工作", "研究工作", "custom"]);
+      within(navigation).getByRole("button", { name: "量化工作 项目" }),
+    ).toHaveTextContent("量化");
     expect(
-      within(
-        screen.getByRole("group", { name: "研究工作" }),
-      ).getAllByRole("button")
+      within(navigation).getByRole("button", { name: "研究工作 项目" }),
+    ).toHaveTextContent("研究");
+    expect(
+      within(navigation).getByRole("button", { name: "自定义 Mod 项目" }),
+    ).toHaveTextContent("自定");
+    expect(within(navigation).queryByText("研")).not.toBeInTheDocument();
+    await userEvent.click(
+      within(navigation).getByRole("button", { name: "研究工作 项目" }),
+    );
+    const projectPanel = screen.getByRole("complementary", {
+      name: "研究工作 二级导航",
+    });
+    expect(
+      within(projectPanel)
+        .getAllByRole("button")
         .filter((button) => button.classList.contains("module-button"))
         .map((button) => button.textContent),
     ).toEqual(["前置研究", "后置研究"]);
@@ -397,6 +477,7 @@ describe("App", () => {
         groupOrder: 10,
         itemOrder: 30,
         label: "自选股",
+        project: { id: "market-suite", name: "行情工具", order: 10 },
         icon: "market",
       },
       entry: { type: "static", url: "/modules/watchlist/" },
@@ -411,6 +492,7 @@ describe("App", () => {
         itemOrder: 10,
         label: "终端",
         directory: { id: "market-suite", label: "行情工具", order: 5 },
+        project: { id: "market-suite", name: "行情工具", order: 10 },
         icon: "market",
       },
       entry: { type: "static", url: "/modules/market-terminal/" },
@@ -425,6 +507,7 @@ describe("App", () => {
         itemOrder: 20,
         label: "扫描器",
         directory: { id: "market-suite", label: "行情工具", order: 5 },
+        project: { id: "market-suite", name: "行情工具", order: 10 },
         icon: "market",
       },
       entry: { type: "static", url: "/modules/market-scanner/" },
@@ -432,18 +515,31 @@ describe("App", () => {
     serveRegistry([watchlist, terminal, scanner]);
     render(<App />);
 
-    const directoryButton = await screen.findByRole("button", {
-      name: /^行情工具/,
+    const projectButton = await screen.findByRole("button", {
+      name: "行情工具 项目",
     });
-    expect(screen.getByRole("button", { name: "自选股" })).toBeVisible();
-    expect(screen.queryByRole("button", { name: "终端" })).not.toBeInTheDocument();
-
-    await userEvent.click(directoryButton);
+    await userEvent.click(projectButton);
     const secondary = screen.getByRole("complementary", {
       name: "行情工具 二级导航",
     });
+    expect(projectButton).toHaveAttribute("aria-expanded", "true");
+    expect(within(secondary).getByRole("button", { name: "自选股" })).toBeVisible();
+    expect(within(secondary).getByRole("button", { name: "终端" })).toBeVisible();
     expect(within(secondary).getByRole("button", { name: "终端" })).toBeVisible();
     expect(within(secondary).getByRole("button", { name: "扫描器" })).toBeVisible();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "冻结 行情工具 项目" }),
+    );
+    expect(projectButton.closest(".project-rail-item")).toHaveAttribute(
+      "draggable",
+      "false",
+    );
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("vibedesk.sidebarNavigation.v1") || "{}",
+      ).projects["market-suite"].pinned,
+    ).toBe(true);
 
     await userEvent.click(
       within(secondary).getByRole("button", { name: "冻结 扫描器" }),
@@ -465,23 +561,24 @@ describe("App", () => {
       getData: vi.fn(),
     };
     fireEvent.dragStart(
-      screen.getByRole("button", { name: "自选股" }).closest(".module-nav-row")!,
+      within(secondary).getByRole("button", { name: "自选股" }).closest(".module-nav-row")!,
       { dataTransfer },
     );
-    fireEvent.drop(directoryButton.closest(".directory-nav-row")!, {
+    fireEvent.drop(
+      within(secondary).getByRole("button", { name: "扫描器" }).closest(".module-nav-row")!,
+      {
       dataTransfer,
-    });
-
-    await waitFor(() =>
-      expect(
-        JSON.parse(
-          window.localStorage.getItem("vibedesk.sidebarNavigation.v1") || "{}",
-        ).modules.watchlist.directory,
-      ).toEqual({ id: "market-suite", label: "行情工具" }),
+      },
     );
+
+    await waitFor(() => expect(
+      JSON.parse(
+        window.localStorage.getItem("vibedesk.sidebarNavigation.v1") || "{}",
+      ).modules.watchlist?.directory,
+    ).toBeUndefined());
   });
 
-  it("switches directory tabs to their first Mod and lets the active directory close", async () => {
+  it("switches project logos to their first Mod without leaving the previous project active", async () => {
     const deepsee = storedModule({
       id: "deepsee-overview",
       name: "Deepsee 数据看板",
@@ -514,34 +611,34 @@ describe("App", () => {
     serveRegistry([deepsee, terminal]);
     render(<App />);
 
-    const deepseeDirectory = await screen.findByRole("button", {
-      name: /^Deepsee 功能/,
+    const deepseeProject = await screen.findByRole("button", {
+      name: "Deepsee 功能 项目",
     });
-    const marketDirectory = screen.getByRole("button", {
-      name: /^行情工具/,
+    const marketProject = screen.getByRole("button", {
+      name: "行情工具 项目",
     });
     await waitFor(() =>
-      expect(deepseeDirectory).toHaveAttribute("aria-expanded", "true"),
+      expect(deepseeProject).toHaveAttribute("aria-expanded", "true"),
     );
     expect(screen.getByTitle("Deepsee 数据看板")).toBeVisible();
 
-    await userEvent.click(deepseeDirectory);
+    await userEvent.click(deepseeProject);
 
-    expect(deepseeDirectory).toHaveAttribute("aria-expanded", "false");
+    expect(deepseeProject).toHaveAttribute("aria-expanded", "true");
     expect(
-      screen.queryByRole("complementary", { name: "Deepsee 功能 二级导航" }),
-    ).not.toBeInTheDocument();
-    expect(deepseeDirectory.closest(".sidebar-shell")).toHaveAttribute(
+      screen.getByRole("complementary", { name: "Deepsee 功能 二级导航" }),
+    ).toBeVisible();
+    expect(deepseeProject.closest(".sidebar-shell")).toHaveAttribute(
       "data-navigation-collapsed",
       "false",
     );
 
-    await userEvent.click(marketDirectory);
+    await userEvent.click(marketProject);
 
     expect(await screen.findByTitle("市场终端")).toBeVisible();
     expect(window.location.search).toBe("?mod=market-terminal");
-    expect(marketDirectory).toHaveAttribute("aria-expanded", "true");
-    expect(deepseeDirectory).toHaveAttribute("aria-expanded", "false");
+    expect(marketProject).toHaveAttribute("aria-expanded", "true");
+    expect(deepseeProject).toHaveAttribute("aria-expanded", "false");
   });
 
   it("adds project settings to every secondary directory and saves unified data routing", async () => {
@@ -562,6 +659,12 @@ describe("App", () => {
           itemOrder: 10,
           label: "终端",
           directory: { id: "market-suite", label: "行情工具", order: 5 },
+          project: {
+            id: "market-surface",
+            name: "市场面",
+            order: 10,
+            logo: { type: "letter", text: "市" },
+          },
           icon: "market",
         },
         entry: { type: "static", url: "/modules/market-terminal/" },
@@ -590,6 +693,12 @@ describe("App", () => {
         itemOrder: 20,
         label: "扫描器",
         directory: { id: "market-suite", label: "行情工具", order: 5 },
+        project: {
+          id: "market-surface",
+          name: "市场面",
+          order: 10,
+          logo: { type: "letter", text: "市" },
+        },
         icon: "market",
       },
       entry: { type: "static", url: "/modules/market-scanner/" },
@@ -646,13 +755,10 @@ describe("App", () => {
     );
     render(<App />);
 
-    const directoryButton = await screen.findByRole("button", {
-      name: /^行情工具/,
+    const secondary = await screen.findByRole("complementary", {
+      name: "市场面 二级导航",
     });
-    await waitFor(() => expect(directoryButton).toHaveAttribute("aria-expanded", "true"));
-    const secondary = screen.getByRole("complementary", {
-      name: "行情工具 二级导航",
-    });
+    expect(within(secondary).getByRole("heading", { name: /行情工具/ })).toBeVisible();
     await userEvent.click(
       within(secondary).getByRole("button", { name: "项目设置" }),
     );
@@ -663,7 +769,7 @@ describe("App", () => {
     expect(window.location.search).toContain("view=suite-settings");
     expect(window.location.search).toContain("directory=market-suite");
     expect(
-      screen.getByRole("complementary", { name: "行情工具 二级导航" }),
+      screen.getByRole("complementary", { name: "市场面 二级导航" }),
     ).toBeVisible();
     expect(screen.getByText("market.quote")).toBeVisible();
 
@@ -790,12 +896,17 @@ describe("App", () => {
     serveRegistry([marketModule, researchModule, quantModule]);
     render(<App />);
 
-    expect(await screen.findByTitle("量化实验室")).toBeVisible();
+    const quantProject = await screen.findByRole("button", {
+      name: "量化实验室 项目",
+    });
+    await waitFor(() =>
+      expect(quantProject).toHaveAttribute("aria-current", "page"),
+    );
     expect(
-      screen.getByRole("button", { name: "量化实验室" }),
+      await screen.findByRole("button", { name: "量化实验室" }),
     ).toHaveAttribute("aria-current", "page");
 
-    await userEvent.click(screen.getByRole("button", { name: "市场行情" }));
+    await userEvent.click(screen.getByRole("button", { name: "市场行情 项目" }));
     expect(window.location.search).toBe("?mod=market-daily");
     expect(window.localStorage.getItem("vibedesk.activeMod")).toBe(
       "market-daily",
@@ -806,8 +917,65 @@ describe("App", () => {
 
     expect(await screen.findByTitle("研究资讯")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "研究资讯" }),
+      await screen.findByRole("button", { name: "研究资讯" }),
     ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("opens the Agent sidebar from a deep link and removes the URL flag on close", async () => {
+    window.history.replaceState(null, "", "/?mod=market-daily&copilot=1");
+    serveRegistry([marketModule]);
+    server.use(
+      http.get("/api/capabilities", () => HttpResponse.json({
+        adapters: [
+          {
+            id: "codex-cli",
+            name: "Codex CLI",
+            kind: "local-cli",
+            available: true,
+            supportsMemory: true,
+            capabilities: ["chat"],
+            default: true,
+          },
+        ],
+        moduleActions: [],
+      })),
+      http.get("/api/agent/preferences", () => HttpResponse.json({
+        userId: "local-user",
+        defaultAdapter: "codex-cli",
+        moduleOverrides: {},
+        updatedAt: null,
+      })),
+    );
+    render(<App />);
+
+    const toggle = await screen.findByRole("button", { name: "问当前 Mod" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "关闭 Agent 侧栏" }),
+    );
+
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(window.location.search).toBe("?mod=market-daily");
+  });
+
+  it("reuses the host shell when embedded and renders only the selected Mod", async () => {
+    window.history.replaceState(null, "", "/?mod=market-daily&copilot=1");
+    serveRegistry([marketModule]);
+
+    render(<App embedded />);
+
+    expect(await screen.findByTitle("市场行情")).toBeVisible();
+    expect(document.querySelector(".shell-layout")).toHaveAttribute(
+      "data-embedded",
+      "true",
+    );
+    expect(
+      screen.queryByRole("navigation", { name: "Newma-Desk Mod 导航" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "问当前 Mod" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "关闭 Agent 侧栏" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "独立打开" })).not.toBeInTheDocument();
+    expect(window.location.search).toBe("?mod=market-daily&copilot=1");
   });
 
   it("falls back to localStorage when the query module is invalid", async () => {
@@ -848,10 +1016,10 @@ describe("App", () => {
     expect(await screen.findByText("预览，尚未发布")).toBeVisible();
     expect(screen.getByTitle("草稿实验室")).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: "草稿实验室" }),
+      screen.queryByRole("button", { name: "草稿实验室 项目" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "市场行情" }),
+      await screen.findByRole("button", { name: "市场行情 项目" }),
     ).toBeVisible();
     expect(window.localStorage.getItem("vibedesk.activeMod")).toBe(
       "market-daily",
@@ -878,7 +1046,7 @@ describe("App", () => {
     );
     expect(screen.queryByRole("iframe")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "市场行情" }),
+      screen.getByRole("button", { name: "市场行情 项目" }),
     ).toBeVisible();
   });
 
@@ -900,7 +1068,7 @@ describe("App", () => {
     );
     expect(screen.queryByRole("iframe")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "同源外部 Mod" }),
+      screen.getByRole("button", { name: "同源外部 Mod 项目" }),
     ).toBeVisible();
   });
 
@@ -1042,12 +1210,12 @@ describe("App", () => {
       expect(screen.queryByTitle("非草稿修订")).not.toBeInTheDocument();
       expect(screen.queryByText("预览，尚未发布")).not.toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "市场行情" }),
+        screen.getByRole("button", { name: "市场行情 项目" }),
       ).toBeVisible();
     },
   );
 
-  it("orders category groups and module buttons deterministically", async () => {
+  it("orders project logos deterministically and opens each project page", async () => {
     const secondMarket = storedModule({
       id: "market-alpha",
       name: "A 股总览",
@@ -1057,18 +1225,24 @@ describe("App", () => {
     serveRegistry([quantModule, marketModule, researchModule, secondMarket]);
     render(<App />);
 
-    await screen.findByRole("button", { name: "市场行情" });
-    expect(
-      screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
-    ).toEqual(["研究", "市场", "量化"]);
-
-    const marketGroup = screen.getByRole("group", { name: "市场" });
-    expect(
-      within(marketGroup)
-        .getAllByRole("button")
-        .filter((button) => button.classList.contains("module-button"))
-        .map((button) => button.textContent),
-    ).toEqual(["A 股总览", "市场行情"]);
+    const navigation = await screen.findByRole("navigation", {
+      name: "Newma-Desk Mod 导航",
+    });
+    expect(projectRailLabels(navigation)).toEqual([
+      ...investmentDomainLabels.slice(0, 10),
+      "研究资讯 项目",
+      ...investmentDomainLabels.slice(10),
+      "A 股总览 项目",
+      "市场行情 项目",
+      "量化实验室 项目",
+    ]);
+    await userEvent.click(
+      within(navigation).getByRole("button", { name: "A 股总览 项目" }),
+    );
+    const projectPanel = screen.getByRole("complementary", {
+      name: "A 股总览 二级导航",
+    });
+    expect(within(projectPanel).getByRole("button", { name: "A 股总览" })).toBeVisible();
   });
 
   it("shows frame loading and error states without removing the sidebar", async () => {

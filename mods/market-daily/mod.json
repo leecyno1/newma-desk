@@ -15,7 +15,7 @@
   "manifest": {
     "schemaVersion": "1.1",
     "category": "market",
-    "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 5, "label": "终端", "directory": { "id": "market-suite", "label": "行情工具", "order": 5 }, "icon": "market" },
+    "navigation": { "groupLabel": "市场面", "groupOrder": 10, "itemOrder": 5, "label": "终端", "directory": { "id": "market-suite", "label": "行情工具", "order": 5 }, "project": { "id": "market-surface", "name": "市场面", "order": 10, "description": "行情监控、看盘、市场扫描与每日复盘。" }, "icon": "market" },
     "compatibility": {
       "level": 3,
       "bridgeProtocol": "1.0",

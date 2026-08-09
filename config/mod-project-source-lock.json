@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-08-09",
+  "workspacePolicy": {
+    "gitIgnoreRules": [
+      "mod-projects/*",
+      "!mod-projects/README.md"
+    ],
+    "overlayPolicy": {
+      "status": "blocked",
+      "reason": "Both nested repositories now have clean local snapshot commits. Overlay publication remains blocked until those snapshot branches are pushed to an authorized remote or exported as reviewed recovery bundles."
+    }
+  },
+  "projects": [
+    {
+      "id": "vibe-research",
+      "path": "mod-projects/vibe-research",
+      "remote": {
+        "name": "origin",
+        "url": "https://github.com/simonlin1212/Vibe-Research.git"
+      },
+      "branch": {
+        "current": "codex/newma-desk-release-baseline-20260809",
+        "upstream": "origin/main"
+      },
+      "commit": "87aece9a0263113b1d6c6d8f780d667b9d0dbeaf",
+      "workingTree": {
+        "status": "clean",
+        "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "indexSha256": "f3ebab8e33083626dfffadaee38a7c821d277880a585bf42998a7936bdb215f4",
+        "worktreeSha256": "0dc465b16a0d5b4baf02d068e8e7b6e667f4f9113ee517537bb3bc4f32ec41c7",
+        "counts": {
+          "entries": 0,
+          "staged": 0,
+          "unstaged": 0,
+          "untracked": 0
+        }
+      }
+    },
+    {
+      "id": "vibe-trading",
+      "path": "mod-projects/vibe-trading",
+      "remote": {
+        "name": "origin",
+        "url": "https://github.com/HKUDS/Vibe-Trading.git"
+      },
+      "branch": {
+        "current": "codex/newma-desk-release-baseline-20260809",
+        "upstream": "origin/main"
+      },
+      "commit": "f159a41033bdb8d3b2c60260bdab9bea045c814f",
+      "workingTree": {
+        "status": "clean",
+        "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "indexSha256": "71cda1329f68d633789cc3e0e7922b112843690d6a7ad2e142abfa0b9df5c319",
+        "worktreeSha256": "7ac2fe1bf1f3c7b490e8b1093e5e7798a98b70be6fd5413f8bfeccf2f9326ab5",
+        "counts": {
+          "entries": 0,
+          "staged": 0,
+          "unstaged": 0,
+          "untracked": 0
+        }
+      }
+    }
+  ]
+}

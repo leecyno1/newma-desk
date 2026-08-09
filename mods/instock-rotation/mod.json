@@ -18,14 +18,20 @@
     "schemaVersion": "1.1",
     "category": "quant",
     "navigation": {
-      "groupLabel": "量化",
-      "groupOrder": 30,
+      "groupLabel": "量化研究",
+      "groupOrder": 120,
       "itemOrder": 70,
       "label": "行业轮动",
       "directory": {
         "id": "instock-suite",
         "label": "InStock 分析",
         "order": 60
+      },
+      "project": {
+        "id": "quant-research",
+        "name": "量化研究",
+        "order": 120,
+        "description": "因子、策略、回测、相关性与量化实验。"
       },
       "icon": "quant"
     },

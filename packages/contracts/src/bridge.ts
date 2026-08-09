@@ -16,6 +16,76 @@ const httpUrlSchema = z
 
 export const bridgeProtocolVersionSchema = z.literal("1.0");
 
+const cssVariableMapSchema = z
+  .record(z.string().min(1).max(200))
+  .superRefine((value, context) => {
+    const entries = Object.entries(value);
+    if (entries.length > 128) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "appearance.cssVars cannot contain more than 128 variables",
+      });
+    }
+    for (const [name] of entries) {
+      if (!/^--[a-z0-9-]{2,80}$/.test(name)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `invalid CSS custom property name: ${name}`,
+        });
+      }
+    }
+  });
+
+export const deskAppearanceSchema = z
+  .object({
+    contractVersion: z.literal("1.0"),
+    mode: z.enum(["light", "dark"]),
+    cssVars: cssVariableMapSchema,
+    semantic: z
+      .object({
+        bg: z.string().min(1).max(80),
+        surface: z.string().min(1).max(80),
+        surfaceMuted: z.string().min(1).max(80),
+        surfaceRaised: z.string().min(1).max(80),
+        border: z.string().min(1).max(80),
+        borderStrong: z.string().min(1).max(80),
+        text: z.string().min(1).max(80),
+        textSoft: z.string().min(1).max(80),
+        textMuted: z.string().min(1).max(80),
+        textFaint: z.string().min(1).max(80),
+        accent: z.string().min(1).max(80),
+        accentHover: z.string().min(1).max(80),
+        accentSoft: z.string().min(1).max(80),
+        accentSurface: z.string().min(1).max(80),
+        accentContrast: z.string().min(1).max(80),
+        positive: z.string().min(1).max(80),
+        negative: z.string().min(1).max(80),
+        warning: z.string().min(1).max(80),
+        error: z.string().min(1).max(80),
+        successText: z.string().min(1).max(80),
+        successBg: z.string().min(1).max(80),
+        successBorder: z.string().min(1).max(80),
+        errorText: z.string().min(1).max(80),
+        errorBg: z.string().min(1).max(80),
+        errorBorder: z.string().min(1).max(80),
+      })
+      .strict(),
+    charts: z
+      .object({
+        gridColor: z.string().min(1).max(80),
+        textColor: z.string().min(1).max(80),
+        axisColor: z.string().min(1).max(80),
+        upColor: z.string().min(1).max(80),
+        downColor: z.string().min(1).max(80),
+        tooltipBg: z.string().min(1).max(80),
+        tooltipBorder: z.string().min(1).max(80),
+        tooltipText: z.string().min(1).max(80),
+        series: z.array(z.string().min(1).max(80)).min(1).max(12),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const modHelloSchema = z
   .object({
     type: z.literal("vibedesk:hello"),
@@ -31,6 +101,7 @@ export const modHelloSchema = z
           "model",
           "data",
           "context",
+          "storage",
           "theme",
         ]),
       )
@@ -54,12 +125,14 @@ export const deskInitSchema = z
         timezone: z.string().min(1).max(80),
       })
       .strict(),
+    appearance: deskAppearanceSchema.optional(),
     gateways: z
       .object({
         actions: httpUrlSchema,
         agent: httpUrlSchema,
         model: httpUrlSchema,
         data: httpUrlSchema,
+        storage: httpUrlSchema.optional(),
       })
       .strict(),
     grants: z
@@ -71,12 +144,22 @@ export const deskInitSchema = z
     session: z
       .object({
         id: z.string().min(1).max(160),
+        accessToken: z.string().min(1).max(16_384),
         expiresAt: z.string().datetime({ offset: true }),
       })
       .strict()
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.appearance && value.appearance.mode !== value.environment.theme) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["appearance", "mode"],
+        message: "appearance.mode must match environment.theme",
+      });
+    }
+  });
 
 export const modAckSchema = z
   .object({
@@ -240,6 +323,7 @@ export const modUiActionResultSchema = z.discriminatedUnion("ok", [
 ]);
 
 export type ModHello = z.infer<typeof modHelloSchema>;
+export type DeskAppearance = z.infer<typeof deskAppearanceSchema>;
 export type DeskInit = z.infer<typeof deskInitSchema>;
 export type ModAck = z.infer<typeof modAckSchema>;
 export type ModPageContext = z.infer<typeof modPageContextSchema>;

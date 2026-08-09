@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { expect, test } from "@playwright/test";
 
 import {
@@ -7,115 +10,21 @@ import {
   shellOrigin,
 } from "./runtime-config";
 
-
+const marketPackage = JSON.parse(
+  readFileSync(resolve("mods/market-daily/mod.json"), "utf8"),
+) as {
+  id: string;
+  name: string;
+  version: string;
+  runtime: { entry: Record<string, unknown> };
+  manifest: Record<string, unknown>;
+};
 const marketManifest = {
-  schemaVersion: "1.1",
-  id: "market-daily",
-  name: "市场终端",
-  version: "0.3.0",
-  category: "market",
-  navigation: {
-    groupLabel: "市场",
-    groupOrder: 20,
-    itemOrder: 10,
-    icon: "market",
-  },
-  entry: { type: "structured", url: "/mods/market-daily/" },
-  compatibility: {
-    level: 3,
-    bridgeProtocol: "1.0",
-    sdkVersion: "^0.1.0",
-    viewSpecVersion: "1.0",
-  },
-  permissions: ["market.read"],
-  dataServices: ["market-data"],
-  actions: {
-    "market.refresh": {
-      binding: { type: "local" },
-      execution: "request",
-      permission: "market.read",
-      inputSchema: { type: "object", additionalProperties: false },
-      outputSchema: {
-        type: "object",
-        required: ["id", "moduleId", "data"],
-        properties: {
-          id: { type: "string" },
-          moduleId: { const: "market-daily" },
-          data: {
-            type: "object",
-            required: ["asOf"],
-            properties: { asOf: { type: "string" } },
-          },
-        },
-      },
-      confirmation: "none",
-    },
-    "market.set-timeframe": {
-      binding: { type: "local" },
-      execution: "request",
-      permission: "market.read",
-      inputSchema: {
-        type: "object",
-        required: ["timeframe"],
-        properties: {
-          timeframe: { enum: ["1m", "5m", "15m", "30m", "60m", "1d", "1w", "1M"] },
-        },
-        additionalProperties: false,
-      },
-      outputSchema: { type: "object", additionalProperties: true },
-      confirmation: "none",
-    },
-    "chart.set-indicator": {
-      binding: { type: "local" },
-      execution: "request",
-      permission: "market.read",
-      inputSchema: {
-        type: "object",
-        required: ["position", "indicator"],
-        properties: {
-          position: { enum: ["primary", "secondary"] },
-          indicator: { enum: ["MA", "EMA", "BOLL", "VOL", "MACD", "RSI", "KDJ"] },
-        },
-        additionalProperties: false,
-      },
-      outputSchema: { type: "object", additionalProperties: true },
-      confirmation: "none",
-    },
-    "market.set-alert": {
-      binding: { type: "local" },
-      execution: "request",
-      permission: "market.read",
-      inputSchema: {
-        type: "object",
-        required: ["direction", "price"],
-        properties: {
-          direction: { enum: ["above", "below"] },
-          price: { type: "number", exclusiveMinimum: 0 },
-          label: { type: "string", maxLength: 80 },
-        },
-        additionalProperties: false,
-      },
-      outputSchema: { type: "object", additionalProperties: true },
-      confirmation: "none",
-    },
-    "workspace.save-layout": {
-      binding: { type: "local" },
-      execution: "request",
-      permission: "market.read",
-      inputSchema: {
-        type: "object",
-        properties: { name: { type: "string", maxLength: 80 } },
-        additionalProperties: false,
-      },
-      outputSchema: { type: "object", additionalProperties: true },
-      confirmation: "none",
-    },
-  },
-  events: {
-    emits: ["security.selected"],
-    accepts: ["security.selected"],
-  },
-  refresh: { mode: "schedule", cron: "0 18 * * 1-5" },
+  ...marketPackage.manifest,
+  id: marketPackage.id,
+  name: marketPackage.name,
+  version: marketPackage.version,
+  entry: marketPackage.runtime.entry,
 };
 
 test("Market Terminal works directly, embedded, responsive, and with Desk Copilot context", async ({
@@ -198,15 +107,16 @@ test("Market Terminal works directly, embedded, responsive, and with Desk Copilo
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${shellOrigin}/?mod=market-daily`);
   await expect(
-    page.getByRole("button", { name: "市场终端", exact: true }),
+    page.getByRole("button", { name: "终端", exact: true }),
   ).toBeVisible();
-  const frame = page.frameLocator('iframe[title="市场终端"]');
-  await expect(frame.getByText("1,488.00", { exact: true }).first()).toBeVisible();
-  await expect(frame.locator(".kline-chart canvas").first()).toBeVisible();
+  const market = page.locator('[data-vibedesk-mod-id="market-daily"]');
+  await expect(market).toHaveAttribute("data-vibedesk-frame-state", "ready");
+  await expect(market.getByText("1,488.00", { exact: true }).first()).toBeVisible();
+  await expect(market.locator(".kline-chart canvas").first()).toBeVisible();
 
-  await frame.getByRole("textbox", { name: "搜索证券" }).fill("NVDA");
-  await frame.getByRole("button", { name: /NVIDIA/ }).click();
-  await expect(frame.getByText("186.50", { exact: true }).first()).toBeVisible();
+  await market.getByRole("textbox", { name: "搜索证券" }).fill("NVDA");
+  await market.getByRole("button", { name: /NVIDIA/ }).click();
+  await expect(market.getByText("186.50", { exact: true }).first()).toBeVisible();
   await expect(page.getByLabel("Mod 事件日志")).toContainText(
     "security.selected · NVDA",
   );
@@ -229,19 +139,37 @@ test("Market Terminal works directly, embedded, responsive, and with Desk Copilo
   await expect(copilot.getByText(/已执行 chart.set-indicator/)).toBeVisible();
   await expect(copilot.getByText(/已执行 market.set-alert/)).toBeVisible();
   await expect(copilot.getByText(/已执行 workspace.save-layout/)).toBeVisible();
-  await expect(frame.getByRole("button", { name: "15分", exact: true })).toHaveAttribute(
+  await expect(market.getByRole("button", { name: "15分", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(frame.getByRole("combobox", { name: "副图" })).toHaveValue("MACD");
-  const storedAgentActions = await frame.locator("body").evaluate(() => ({
-    alerts: JSON.parse(localStorage.getItem("vibedesk.market-daily.alerts.v1") || "[]"),
-    layouts: JSON.parse(localStorage.getItem("vibedesk.market-daily.layouts.v1") || "[]"),
+  await expect(market.getByRole("combobox", { name: "副图" })).toHaveValue("MACD");
+  const identity = await page.evaluate(() => ({
+    userId: localStorage.getItem("vibedesk.userId.v1") || "",
+    workspaceId: localStorage.getItem("vibedesk.workspaceId.v1") || "",
   }));
-  expect(storedAgentActions.alerts).toEqual([
-    expect.objectContaining({ direction: "above", price: 190, label: "E2E 上穿预警" }),
+  expect(identity.userId).not.toBe("");
+  expect(identity.workspaceId).not.toBe("");
+  const alertsResponse = await request.get(`${apiOrigin}/api/market-alerts`, {
+    headers: {
+      "X-User-Id": identity.userId,
+      "X-Workspace-Id": identity.workspaceId,
+    },
+  });
+  expect(alertsResponse.status()).toBe(200);
+  const persistedAlerts = (await alertsResponse.json()) as { items: unknown[] };
+  expect(persistedAlerts.items).toEqual([
+    expect.objectContaining({
+      security: expect.objectContaining({ symbol: "NVDA", market: "US" }),
+      direction: "above",
+      price: 190,
+      label: "E2E 上穿预警",
+    }),
   ]);
-  expect(storedAgentActions.layouts).toEqual([
+  const storedLayouts = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("vibedesk.market-daily.layouts.v1") || "[]"),
+  );
+  expect(storedLayouts).toEqual([
     expect.objectContaining({ name: "E2E Agent 布局", timeframe: "15m", secondaryIndicator: "MACD" }),
   ]);
 

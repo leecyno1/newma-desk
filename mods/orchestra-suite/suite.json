@@ -6,8 +6,16 @@
   "version": "0.1.0",
   "publisher": "Orchestra",
   "upstream": null,
- "tags": ["Orchestra", "投委会", "Agent"],
-  "agentWorkspace": { "type": "runtime", "runtimeId": "orchestra", "workspaceName": "frontend" },
+  "tags": [
+    "Orchestra",
+    "投委会",
+    "Agent"
+  ],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "orchestra",
+    "workspaceName": "frontend"
+  },
   "runtime": {
     "type": "external",
     "baseUrlEnv": "NEWMA_DESK_ORCHESTRA_WEB_URL",
@@ -17,13 +25,19 @@
     "schemaVersion": "1.1",
     "category": "decision",
     "navigation": {
-      "groupLabel": "投决",
-      "groupOrder": 50,
+      "groupLabel": "投决会",
+      "groupOrder": 130,
       "itemOrder": 100,
       "directory": {
         "id": "orchestra-suite",
-        "label": "Orchestra 投委会",
+        "label": "Orchestra",
         "order": 10
+      },
+      "project": {
+        "id": "investment-committee",
+        "name": "投决会",
+        "order": 130,
+        "description": "研究结论收敛、投委讨论、决策记录与复核。"
       },
       "icon": "module"
     },
@@ -47,7 +61,11 @@
       "id": "orchestra-committee",
       "name": "Orchestra 投委会",
       "description": "19 席投研 Agent 的群体推理、分歧收敛与主席决议工作台。",
-      "tags": ["投委会", "Agent", "投资决策"],
+      "tags": [
+        "投委会",
+        "Agent",
+        "投资决策"
+      ],
       "route": "/?workspace=committee",
       "navigation": {
         "itemOrder": 10,
@@ -58,7 +76,11 @@
       "id": "orchestra-history",
       "name": "Orchestra 历史讨论",
       "description": "按运行轮次回看完整的投委会讨论链路与事件档案。",
-      "tags": ["历史", "讨论", "审计"],
+      "tags": [
+        "历史",
+        "讨论",
+        "审计"
+      ],
       "route": "/?workspace=history",
       "navigation": {
         "itemOrder": 20,
@@ -69,7 +91,11 @@
       "id": "orchestra-reports",
       "name": "Orchestra 研究成果",
       "description": "集中阅读投委会 Markdown 报告、阶段成果与证据链。",
-      "tags": ["报告", "Markdown", "证据"],
+      "tags": [
+        "报告",
+        "Markdown",
+        "证据"
+      ],
       "route": "/?workspace=reports",
       "navigation": {
         "itemOrder": 30,
@@ -81,7 +107,11 @@
       "id": "orchestra-agents",
       "name": "Orchestra 19 席位",
       "description": "查看和编辑 19 个投研 Agent 的 Profile、专长、提示词与 Skills。",
-      "tags": ["Agent", "Profile", "Skills"],
+      "tags": [
+        "Agent",
+        "Profile",
+        "Skills"
+      ],
       "route": "/?workspace=agents",
       "navigation": {
         "itemOrder": 40,
@@ -92,7 +122,11 @@
       "id": "orchestra-skills",
       "name": "Orchestra Skills",
       "description": "查看投研 Skills 目录、席位分配和真实使用审计。",
-      "tags": ["Skills", "审计", "Agent"],
+      "tags": [
+        "Skills",
+        "审计",
+        "Agent"
+      ],
       "route": "/?workspace=skills",
       "navigation": {
         "itemOrder": 50,
@@ -103,7 +137,11 @@
       "id": "orchestra-data",
       "name": "Orchestra 数据工具",
       "description": "查看金融数据工具、证据源、队列和服务可用状态。",
-      "tags": ["数据工具", "证据", "运行状态"],
+      "tags": [
+        "数据工具",
+        "证据",
+        "运行状态"
+      ],
       "route": "/?workspace=data",
       "navigation": {
         "itemOrder": 60,
@@ -114,7 +152,11 @@
       "id": "orchestra-workspace",
       "name": "Orchestra 账户与组合",
       "description": "管理研究账户、基金组合、交易流水与估值快照。",
-      "tags": ["账户", "组合", "估值"],
+      "tags": [
+        "账户",
+        "组合",
+        "估值"
+      ],
       "route": "/?workspace=workspace",
       "navigation": {
         "itemOrder": 70,
@@ -125,7 +167,11 @@
       "id": "orchestra-settings",
       "name": "Orchestra 运行设置",
       "description": "配置执行模式、输出选项、用户、密钥与运行环境。",
-      "tags": ["设置", "运行", "密钥"],
+      "tags": [
+        "设置",
+        "运行",
+        "密钥"
+      ],
       "route": "/?workspace=settings",
       "navigation": {
         "itemOrder": 80,

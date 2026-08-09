@@ -1,0 +1,49 @@
+name: newma-mod-runtimes
+
+services:
+  deepsee:
+    extends:
+      file: docker-compose.external.yml
+      service: deepsee
+    profiles: ["optional-integrations", "deepsee"]
+
+  seven-cycle:
+    extends:
+      file: docker-compose.external.yml
+      service: seven-cycle
+    profiles: ["optional-integrations", "seven-cycle"]
+
+  instock:
+    extends:
+      file: docker-compose.external.yml
+      service: instock
+    profiles: ["optional-integrations", "instock"]
+
+  orchestra-postgres:
+    extends:
+      file: docker-compose.external.yml
+      service: orchestra-postgres
+    profiles: ["optional-integrations", "orchestra"]
+
+  orchestra-redis:
+    extends:
+      file: docker-compose.external.yml
+      service: orchestra-redis
+    profiles: ["optional-integrations", "orchestra"]
+
+  orchestra-api:
+    extends:
+      file: docker-compose.external.yml
+      service: orchestra-api
+    profiles: ["optional-integrations", "orchestra"]
+
+  orchestra-web:
+    extends:
+      file: docker-compose.external.yml
+      service: orchestra-web
+    profiles: ["optional-integrations", "orchestra"]
+
+volumes:
+  orchestra-postgres:
+  orchestra-redis:
+  orchestra-data:

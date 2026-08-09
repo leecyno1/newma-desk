@@ -107,6 +107,65 @@ async def test_hermes_adapter_reuses_module_session_across_turns(
 
 
 @pytest.mark.asyncio
+async def test_hermes_adapter_returns_validated_artifacts(
+    tmp_path: Path,
+) -> None:
+    artifact_id = "0123456789abcdef0123456789abcdef"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/session/new":
+            return httpx.Response(
+                200,
+                json={"session": {"session_id": "hermes-session-1"}},
+            )
+        if request.url.path == "/api/chat/start":
+            return httpx.Response(200, json={"stream_id": "stream-1"})
+        if request.url.path == "/api/chat/stream":
+            answer = (
+                "图谱已生成。\n"
+                "<vibedesk_artifacts>"
+                f'[{{"kind":"graph","title":"产业链图谱",'
+                f'"viewUrl":"/api/artifacts/{artifact_id}/view"}}]'
+                "</vibedesk_artifacts>"
+            )
+            return httpx.Response(
+                200,
+                text=_sse(answer, "hermes-session-1"),
+                headers={"Content-Type": "text/event-stream"},
+            )
+        raise AssertionError("unexpected request")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = HermesWebUIAdapter(
+        Settings(
+            runtime_dir=tmp_path,
+            database_path=tmp_path / "gateway.db",
+            hermes_webui_base_url="http://hermes.test",
+        ),
+        AgentModuleSessionStore(tmp_path / "gateway.db"),
+        client=client,
+    )
+    try:
+        events = await _events(
+            adapter,
+            "task-artifact",
+            AgentTaskCreate(module_id="industry-map", prompt="生成图谱"),
+        )
+    finally:
+        await client.aclose()
+
+    assert events[-1].data["answer"] == "图谱已生成。"
+    assert events[-1].data["artifacts"] == [
+        {
+            "id": artifact_id,
+            "kind": "graph",
+            "title": "产业链图谱",
+            "viewUrl": f"/api/artifacts/{artifact_id}/view",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_hermes_adapter_does_not_pass_model_gateway_configuration(
     tmp_path: Path,
 ) -> None:
@@ -272,13 +331,24 @@ async def test_hermes_adapter_cancels_turn_requiring_interactive_approval(
 @pytest.mark.asyncio
 async def test_hermes_adapter_description_marks_reachable_service_available(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    client_options: list[dict[str, object]] = []
+    async_client = httpx.AsyncClient
+
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path == "/api/session/new"
         return httpx.Response(405)
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    def create_client(**options: object) -> httpx.AsyncClient:
+        client_options.append(options)
+        return async_client(
+            transport=httpx.MockTransport(handler),
+            **options,
+        )
+
+    monkeypatch.setattr(httpx, "AsyncClient", create_client)
     adapter = HermesWebUIAdapter(
         Settings(
             runtime_dir=tmp_path,
@@ -286,15 +356,18 @@ async def test_hermes_adapter_description_marks_reachable_service_available(
             hermes_webui_base_url="http://hermes.test",
         ),
         AgentModuleSessionStore(tmp_path / "gateway.db"),
-        client=client,
     )
-    try:
-        description = await adapter.describe()
-    finally:
-        await client.aclose()
+    description = await adapter.describe()
 
     assert description["name"] == "Hermes WebUI"
     assert description["available"] is True
+    assert client_options == [
+        {
+            "timeout": httpx.Timeout(1.0),
+            "follow_redirects": False,
+            "trust_env": False,
+        }
+    ]
 
 
 @pytest.mark.asyncio

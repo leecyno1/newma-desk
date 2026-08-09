@@ -6,8 +6,15 @@
   "version": "0.1.0",
   "publisher": "Deepsee",
   "upstream": "https://github.com/leecyno1/Deepsee",
- "tags": ["Deepsee", "信息流"],
-  "agentWorkspace": { "type": "runtime", "runtimeId": "deepsee", "workspaceName": "source" },
+  "tags": [
+    "Deepsee",
+    "信息流"
+  ],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "deepsee",
+    "workspaceName": "source"
+  },
   "runtime": {
     "type": "external",
     "baseUrlEnv": "NEWMA_DESK_DEEPSEE_WEB_URL",
@@ -16,13 +23,19 @@
   "manifest": {
     "category": "deepsee",
     "navigation": {
-      "groupLabel": "Deepsee",
-      "groupOrder": 60,
+      "groupLabel": "其他",
+      "groupOrder": 150,
       "itemOrder": 100,
       "directory": {
         "id": "deepsee-suite",
-        "label": "Deepsee 功能",
+        "label": "DeepSee",
         "order": 10
+      },
+      "project": {
+        "id": "other",
+        "name": "其他",
+        "order": 150,
+        "description": "尚未归入核心投研流程的管理工具与扩展能力。"
       },
       "icon": "module"
     },
@@ -42,147 +55,216 @@
       "id": "deepsee-overview",
       "name": "Deepsee 数据看板",
       "description": "在 Newma-Desk 中查看 Deepsee 的信息流趋势、主题热度、联系人和风险机会概览。",
-      "tags": ["Deepsee", "信息流", "看板"],
+      "tags": [
+        "Deepsee",
+        "信息流",
+        "看板"
+      ],
       "route": "/embed/dashboard",
       "navigation": {
         "itemOrder": 10,
         "label": "总览"
       },
       "manifest": {
-        "permissions": ["deepsee.read"]
+        "permissions": [
+          "deepsee.read"
+        ]
       }
     },
     {
       "id": "deepsee-ai-insights",
       "name": "Deepsee AI 分析",
       "description": "在 Newma-Desk 中使用 Deepsee 的摘要、观点、趋势和风险机会分析页面。",
-      "tags": ["Deepsee", "AI", "分析"],
+      "tags": [
+        "Deepsee",
+        "AI",
+        "分析"
+      ],
       "route": "/embed/ai-summary",
       "navigation": {
         "itemOrder": 20,
         "label": "AI 洞察"
       },
       "manifest": {
-        "permissions": ["deepsee.read", "deepsee.ai"]
+        "permissions": [
+          "deepsee.read",
+          "deepsee.ai"
+        ]
       }
     },
     {
       "id": "deepsee-news",
       "name": "Deepsee 新闻",
       "description": "在 Newma-Desk 中查看 Deepsee 的新闻聚合、搜索、热点排序和摘要结果。",
-      "tags": ["Deepsee", "新闻", "资讯"],
+      "tags": [
+        "Deepsee",
+        "新闻",
+        "资讯"
+      ],
       "route": "/embed/news-agg",
       "navigation": {
         "itemOrder": 30,
         "label": "新闻"
       },
       "manifest": {
-        "permissions": ["deepsee.read"]
+        "permissions": [
+          "deepsee.read"
+        ]
       }
     },
     {
       "id": "deepsee-wechat",
       "name": "Deepsee 微信",
       "description": "在 Newma-Desk 中查看、搜索和管理由 Deepsee 汇聚的微信消息。",
-      "tags": ["Deepsee", "微信", "消息"],
+      "tags": [
+        "Deepsee",
+        "微信",
+        "消息"
+      ],
       "route": "/embed/message-list",
       "navigation": {
         "itemOrder": 40,
         "label": "微信"
       },
       "manifest": {
-        "permissions": ["deepsee.read"]
+        "permissions": [
+          "deepsee.read"
+        ]
       }
     },
     {
       "id": "deepsee-email",
       "name": "Deepsee 邮件",
       "description": "在 Newma-Desk 中查看 Deepsee 的邮件同步、检索、摘要和回复页面。",
-      "tags": ["Deepsee", "邮件", "信息流"],
+      "tags": [
+        "Deepsee",
+        "邮件",
+        "信息流"
+      ],
       "route": "/embed/email-messages",
       "navigation": {
         "itemOrder": 50,
         "label": "邮件"
       },
       "manifest": {
-        "permissions": ["deepsee.read", "deepsee.write"]
+        "permissions": [
+          "deepsee.read",
+          "deepsee.write"
+        ]
       }
     },
     {
       "id": "deepsee-minutes",
       "name": "Deepsee 会议",
       "description": "在 Newma-Desk 中查看 Deepsee 的会议记录、纪要提炼、上传和录音管理页面。",
-      "tags": ["Deepsee", "会议", "纪要"],
+      "tags": [
+        "Deepsee",
+        "会议",
+        "纪要"
+      ],
       "route": "/embed/minutes-agg",
       "navigation": {
         "itemOrder": 60,
         "label": "会议"
       },
       "manifest": {
-        "permissions": ["deepsee.read", "deepsee.write"]
+        "permissions": [
+          "deepsee.read",
+          "deepsee.write"
+        ]
       }
     },
     {
       "id": "deepsee-media",
       "name": "Deepsee 自媒体",
       "description": "在 Newma-Desk 中查看 Deepsee 汇聚的小红书、抖音、微博和 B 站等自媒体内容。",
-      "tags": ["Deepsee", "自媒体", "热点"],
+      "tags": [
+        "Deepsee",
+        "自媒体",
+        "热点"
+      ],
       "route": "/embed/folo-agg",
       "navigation": {
         "itemOrder": 70,
         "label": "自媒体"
       },
       "manifest": {
-        "permissions": ["deepsee.read"]
+        "permissions": [
+          "deepsee.read"
+        ]
       }
     },
     {
       "id": "deepsee-official-accounts",
       "name": "Deepsee 公众号",
       "description": "在 Newma-Desk 中查看 Deepsee 的公众号文章检索、摘要和主题沉淀页面。",
-      "tags": ["Deepsee", "公众号", "文章"],
+      "tags": [
+        "Deepsee",
+        "公众号",
+        "文章"
+      ],
       "route": "/embed/mp-agg",
       "navigation": {
         "itemOrder": 80,
         "label": "公众号"
       },
       "manifest": {
-        "permissions": ["deepsee.read"]
+        "permissions": [
+          "deepsee.read"
+        ]
       }
     },
     {
       "id": "deepsee-campaigns",
       "name": "Deepsee 消息群发",
       "description": "在 Newma-Desk 中使用 Deepsee 的联系人选择、内容编辑、敬语和 WeChat API 群发管理页面。",
-      "tags": ["Deepsee", "群发", "WeChat API"],
+      "tags": [
+        "Deepsee",
+        "群发",
+        "WeChat API"
+      ],
       "route": "/embed/send-management",
       "navigation": {
         "itemOrder": 90,
         "label": "触达"
       },
       "manifest": {
-        "permissions": ["deepsee.read", "deepsee.send"]
+        "permissions": [
+          "deepsee.read",
+          "deepsee.send"
+        ]
       }
     },
     {
       "id": "deepsee-contacts",
       "name": "Deepsee 联系人评分",
       "description": "在 Newma-Desk 中查看 Deepsee 的联系人画像、观点命中、价值评分和跟踪建议。",
-      "tags": ["Deepsee", "联系人", "评分"],
+      "tags": [
+        "Deepsee",
+        "联系人",
+        "评分"
+      ],
       "route": "/embed/contact-management",
       "navigation": {
         "itemOrder": 100,
         "label": "联系人"
       },
       "manifest": {
-        "permissions": ["deepsee.read", "deepsee.write"]
+        "permissions": [
+          "deepsee.read",
+          "deepsee.write"
+        ]
       }
     },
     {
       "id": "deepsee-settings",
       "name": "Deepsee 设置",
       "description": "在 Newma-Desk 中管理 Deepsee 的数据源、同步策略、模型、微信网关和运行状态。",
-      "tags": ["Deepsee", "设置", "连接"],
+      "tags": [
+        "Deepsee",
+        "设置",
+        "连接"
+      ],
       "route": "/embed/function-settings",
       "navigation": {
         "itemOrder": 110,
@@ -191,7 +273,9 @@
         "role": "settings"
       },
       "manifest": {
-        "permissions": ["deepsee.settings"]
+        "permissions": [
+          "deepsee.settings"
+        ]
       }
     }
   ]

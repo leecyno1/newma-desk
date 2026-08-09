@@ -1,0 +1,18 @@
+# Direct production dependency lock for the Python 3.12 Integrated Domain Runtime.
+# Update deliberately after running the complete API, Research and Trading suite.
+akshare==1.18.80
+croniter==6.2.4
+fastapi==0.140.7
+httpx==0.28.1
+jsonschema==4.26.0
+numpy==2.5.1
+pandas==2.3.3
+pydantic==2.13.4
+pydantic-settings==2.14.2
+python-dotenv==1.2.2
+python-multipart==0.0.32
+PyYAML==6.0.3
+requests==2.34.2
+rich==15.0.0
+tushare==1.4.29
+uvicorn==0.51.0

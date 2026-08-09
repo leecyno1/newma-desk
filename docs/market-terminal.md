@@ -44,7 +44,7 @@ Newma-Desk Data Service + Bridge + Mod Context + Desk Copilot
 | 事件时间轴 | `?workspace=event-timeline` | 合并公告/财报/新闻/研报证据与 OHLCV 事件，保留来源、链接和证据 ID。 |
 | 交易回放室 | `?workspace=trading-replay` | 隐藏未来数据、逐根播放、模拟买卖、交易点图层与 Replay Artifact。 |
 
-每个工作区拥有独立 Mod ID、商店条目、侧边栏名称、本地状态和 Agent Context；部署时仍只需要一个 `5891` 前端进程。
+每个工作区拥有独立 Mod ID、商店条目、侧边栏名称、本地状态和 Agent Context；生产部署由 Desk 的 `5888` 前端按需加载这些工作区，不再需要 `5891` 进程。`5891` 仅保留给市场包的独立开发模式。
 
 ## 与其他 Mods 的边界
 

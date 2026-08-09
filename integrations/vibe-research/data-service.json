@@ -106,6 +106,27 @@
       },
       "permission": "market.read"
     },
+    "market.scan": {
+      "method": "GET",
+      "path": "/api/market-terminal/scan",
+      "inputSchema": {
+        "type": "object",
+        "required": ["market"],
+        "properties": {
+          "market": { "enum": ["CN", "HK", "US"] },
+          "sort": { "enum": ["changePct", "amount", "turnoverPct", "volumeRatio", "marketCap", "pe", "pb"] },
+          "order": { "enum": ["asc", "desc"] },
+          "limit": { "type": "integer", "minimum": 20, "maximum": 200 }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
     "market.ohlcv": {
       "method": "GET",
       "path": "/api/market-terminal/ohlcv",
@@ -140,6 +161,78 @@
           "timeframe": { "enum": ["1m", "5m", "15m", "30m", "60m"] },
           "limit": { "type": "integer", "minimum": 40, "maximum": 800 },
           "adjust": { "enum": ["none", "qfq", "hfq"] }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "research.equity-snapshot": {
+      "method": "GET",
+      "path": "/equity-research/snapshot",
+      "inputSchema": {
+        "type": "object",
+        "required": ["symbol"],
+        "properties": {
+          "symbol": { "type": "string", "minLength": 1, "maxLength": 16 }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "research.equity-comparison": {
+      "method": "GET",
+      "path": "/equity-research/comparison",
+      "inputSchema": {
+        "type": "object",
+        "required": ["symbols"],
+        "properties": {
+          "symbols": { "type": "string", "minLength": 3, "maxLength": 160 }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "research.catalysts": {
+      "method": "GET",
+      "path": "/catalysts",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "symbols": { "type": "string", "maxLength": 512 },
+          "days": { "type": "integer", "minimum": 14, "maximum": 1095 },
+          "include_cycles": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "research.macro-monitor": {
+      "method": "GET",
+      "path": "/macro-monitor",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "days": { "type": "integer", "minimum": 1, "maximum": 30 }
         },
         "additionalProperties": false
       },

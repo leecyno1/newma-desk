@@ -6,6 +6,8 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
+from vibe_visualization_api.research_archive.models import ResearchArchiveEntry
+
 
 ACCOUNT_ID_PATTERN = r"^[a-z][a-z0-9-]{0,63}$"
 SYMBOL_PATTERN = r"^[A-Z0-9][A-Z0-9.\-]{0,23}$"
@@ -179,7 +181,198 @@ class PortfolioDashboard(PortfolioModel):
     updated_at: datetime
 
 
+class PortfolioResearchPosition(PortfolioModel):
+    market: Literal["CN", "HK", "US"]
+    symbol: str
+    name: str
+    account_ids: list[str]
+    status: Literal["complete", "partial", "missing"]
+    reference_count: int = Field(ge=0)
+    active_reference_count: int = Field(ge=0)
+    core_kinds: list[Literal["thesis", "research-memo"]]
+    supporting_kinds: list[
+        Literal["earnings", "peer-comparison", "valuation"]
+    ]
+    missing_groups: list[
+        Literal["core-thesis-or-memo", "supporting-analysis"]
+    ]
+    attention_reasons: list[
+        Literal["review-overdue", "stale-core-research", "invalidated-thesis"]
+    ]
+    latest_updated_at: datetime | None = None
+    references: list[ResearchArchiveEntry]
+
+
+class PortfolioResearchSummary(PortfolioModel):
+    position_count: int = Field(ge=0)
+    complete_count: int = Field(ge=0)
+    partial_count: int = Field(ge=0)
+    missing_count: int = Field(ge=0)
+    attention_count: int = Field(ge=0)
+    active_reference_count: int = Field(ge=0)
+
+
+class PortfolioResearchCoverage(PortfolioModel):
+    schema_version: Literal["newma-desk.portfolio-research-coverage.v1"] = (
+        "newma-desk.portfolio-research-coverage.v1"
+    )
+    user_id: str
+    workspace_id: str
+    generated_at: datetime
+    summary: PortfolioResearchSummary
+    positions: list[PortfolioResearchPosition]
+
+
 class LegacyImportResult(PortfolioModel):
     imported: bool
     activities_created: int
     reason: str
+
+
+class PortfolioOptimizationAsset(PortfolioModel):
+    market: Literal["CN", "HK", "US"]
+    symbol: str = Field(pattern=SYMBOL_PATTERN)
+    name: str | None = Field(default=None, max_length=160)
+    currency: str = Field(pattern=CURRENCY_PATTERN)
+
+    @field_validator("symbol", "currency")
+    @classmethod
+    def normalize_identifier(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
+class PortfolioOptimizationRequest(PortfolioModel):
+    objective: Literal[
+        "minimum-volatility",
+        "risk-balanced",
+        "return-seeking",
+    ] = "risk-balanced"
+    currency: str = Field(default="CNY", pattern=CURRENCY_PATTERN)
+    lookback_weeks: int = Field(default=104, ge=40, le=260)
+    max_weight: float = Field(default=0.35, ge=0.05, le=1)
+    allow_cash: bool = False
+    cash_weight: float = Field(default=0, ge=0, le=0.5)
+    risk_free_rate_pct: float = Field(default=2, ge=-10, le=30)
+    assets: list[PortfolioOptimizationAsset] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @model_validator(mode="after")
+    def validate_constraints(self) -> Self:
+        if not self.allow_cash and self.cash_weight > 0:
+            raise ValueError("cashWeight requires allowCash")
+        identities = [(asset.market, asset.symbol) for asset in self.assets]
+        if len(identities) != len(set(identities)):
+            raise ValueError("optimization assets must be unique")
+        if any(asset.currency != self.currency for asset in self.assets):
+            raise ValueError("optimization assets must use the selected currency")
+        return self
+
+
+class PortfolioOptimizationAllocation(PortfolioModel):
+    market: Literal["CN", "HK", "US", "CASH"]
+    symbol: str
+    name: str
+    currency: str
+    current_weight: float
+    target_weight: float
+    change_weight: float
+    expected_return_pct: float | None = None
+    volatility_pct: float | None = None
+    risk_contribution_pct: float | None = None
+    history_points: int = 0
+    frozen: bool = False
+
+
+class PortfolioOptimizationGap(PortfolioModel):
+    market: Literal["CN", "HK", "US"]
+    symbol: str
+    reason: str
+
+
+class PortfolioOptimizationResult(PortfolioModel):
+    status: Literal["ready", "partial", "insufficient-data"]
+    objective: Literal[
+        "minimum-volatility",
+        "risk-balanced",
+        "return-seeking",
+    ]
+    method: str
+    currency: str
+    timeframe: Literal["1w"] = "1w"
+    lookback_weeks: int
+    observations: int
+    data_sources: list[str]
+    as_of: str | None = None
+    annualized_expected_return_pct: float | None = None
+    annualized_volatility_pct: float | None = None
+    current_concentration: float
+    target_concentration: float
+    allocations: list[PortfolioOptimizationAllocation]
+    missing_assets: list[PortfolioOptimizationGap]
+    warnings: list[str]
+    generated_at: datetime
+
+
+class PortfolioPerformanceRequest(PortfolioModel):
+    currency: str = Field(default="CNY", pattern=CURRENCY_PATTERN)
+    lookback_weeks: int = Field(default=156, ge=40, le=260)
+    risk_free_rate_pct: float = Field(default=2, ge=-10, le=30)
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        return value.strip().upper()
+
+
+class PortfolioPerformanceMetrics(PortfolioModel):
+    total_return_pct: float
+    annualized_return_pct: float
+    annualized_volatility_pct: float
+    sharpe: float | None = None
+    sortino: float | None = None
+    calmar: float | None = None
+    max_drawdown_pct: float
+    max_drawdown_duration_weeks: int
+    win_rate_pct: float
+    profit_factor: float | None = None
+    best_week_pct: float
+    worst_week_pct: float
+    value_at_risk_95_pct: float
+    conditional_value_at_risk_95_pct: float
+
+
+class PortfolioPerformancePoint(PortfolioModel):
+    label: str
+    equity: float
+    drawdown_pct: float
+
+
+class PortfolioPerformanceResult(PortfolioModel):
+    status: Literal["ready", "partial", "insufficient-data"]
+    method: str
+    currency: str
+    timeframe: Literal["1w"] = "1w"
+    lookback_weeks: int
+    observations: int
+    coverage_weight_pct: float
+    metrics: PortfolioPerformanceMetrics | None = None
+    series: list[PortfolioPerformancePoint]
+    data_sources: list[str]
+    as_of: str | None = None
+    missing_assets: list[PortfolioOptimizationGap]
+    warnings: list[str]
+    generated_at: datetime

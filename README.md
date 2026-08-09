@@ -35,7 +35,7 @@ Newma-Desk 可以把一次需求固化为长期可用的 `Mod`：每个 Mod 都�
 - ViewSpec 使用 `data-vibe-*` 语义结构，让 Agent 直接读取 HTML 和结构化数据。
 - Model Gateway：传统一次性模型调用，支持 OpenAI-compatible、本地兼容模型和 Anthropic/Claude。
 - Agent Gateway：可直接调用本机 Codex CLI、Claude Code、Gemini CLI，也可接入 Hermes WebUI；按“用户 + Agent + Mod”保留长期上下文。
-- 项目内 `mods/` 是官方商店目录；`mod-projects/` 内置 Vibe Research 和 Vibe Trading。两套业务工程对应的 14 个 Mods 默认启用并注册到侧边栏。
+- 项目内 `mods/` 是官方商店目录；`mod-projects/` 内置 Vibe Research 和 Vibe Trading。两套业务工程对应的 17 个 Mods 默认启用并注册到侧边栏。
 - 侧边栏按 Mod 分类显示固定语义色；用户自定义分类会根据分类名称自动获得稳定颜色。
 - Deepsee 作为独立服务运行；Newma-Desk 商店中的 11 个 Deepsee Mods 直接加载其 `/embed/*` 页面，不复制后端、SQLite 或业务源码。
 
@@ -74,8 +74,11 @@ Mod -> Agent Gateway -> Agent Runtime -> Memory / Skills / Tools
 └── Portfolio Brief       持仓研报
 
 研究
+├── Macro Monitor         宏观观察
 ├── Stock Research        个股研究
 ├── Industry Map          产业链研究
+├── Catalyst Calendar     催化剂日历
+├── Thesis Tracker        投资逻辑
 └── Research Library      研究资料库
 
 量化
@@ -144,13 +147,13 @@ cd ../..
 cp .env.example .env
 ```
 
-推荐用统一开发启动器启动 Newma-Desk、Market Pulse，以及内置的 Research / Trading 领域运行时：
+推荐用统一开发启动器启动 Newma-Desk，以及内置的 Research / Trading 领域运行时：
 
 ```bash
 npm run dev:stack
 ```
 
-Research 与 Trading 不再分别启动 `5899 / 5901 / 8900 / 8899`。它们的领域 API 被挂载到 Newma-Desk API 的 `/api/research`、`/api/trading`，前端构建产物由 `/mod-runtime/research`、`/mod-runtime/trading` 统一托管。标准运行端口为 `5888 / 5891 / 8911`，七周期和 Deepsee 仍按各自服务边界运行。
+Research 与 Trading 不再分别启动 `5899 / 5901 / 8900 / 8899`。它们的领域 API 被挂载到 Newma-Desk API 的 `/api/research`、`/api/trading`，前端构建产物由 `/mod-runtime/research`、`/mod-runtime/trading` 统一托管。标准运行端口为 `5888 / 8911`；`5891` 仅保留给市场模组的独立开发模式。七周期和 Deepsee 仍按各自服务边界运行。
 
 查看整套服务状态：
 
@@ -158,7 +161,7 @@ Research 与 Trading 不再分别启动 `5899 / 5901 / 8900 / 8899`。它们的�
 npm run dev:status
 ```
 
-统一启动器把 Newma-Desk API、Market Pulse、Desk 和内置 Research / Trading 视为核心运行时；InStock、Orchestra、Seven Cycle 与 Deepsee 属于可选或外部 Mod。可选 Mod 不可用时会显示 `WARN/MISS`，但不会关闭已经就绪的 Desk。需要把所有可选 Mod 也纳入严格检查时使用：
+统一启动器把 Newma-Desk API、Desk 和内置 Research / Trading 视为核心运行时；市场工作区由 Desk 在 `5888` 内按需加载，不再是独立核心进程。InStock、Orchestra、Seven Cycle 与 Deepsee 属于可选或外部 Mod。可选 Mod 不可用时会显示 `WARN/MISS`，但不会关闭已经就绪的 Desk。需要把所有可选 Mod 也纳入严格检查时使用：
 
 ```bash
 npm run dev:status -- --strict
@@ -196,12 +199,12 @@ services/api/.venv/bin/python -m uvicorn vibe_visualization_api.main:app \
   --app-dir services/api --host 127.0.0.1 --port 8911
 
 VITE_API_PROXY_TARGET=http://127.0.0.1:8911 \
-VITE_MOD_ORIGIN=http://127.0.0.1:5891 \
+VITE_MOD_ORIGIN=http://127.0.0.1:5888 \
 npm run dev:shell -- --host 127.0.0.1 --port 5888
 
 VITE_GATEWAY_BASE_URL=http://127.0.0.1:8911 \
 VITE_PARENT_ORIGIN=http://127.0.0.1:5888 \
-npm run dev -w @newma-desk/market-pulse -- \
+npm run dev -w @newma-desk/market-daily -- \
   --host 127.0.0.1 --port 5891
 ```
 

@@ -4,6 +4,11 @@ import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
 import type { StoredMod } from "../api/modules";
+import {
+  buildDeskReturnUrl,
+  modCopilotSessionStorageKey,
+  readNumaHandoffPayload,
+} from "../lib/numaHandoff";
 import { server } from "../test/server";
 import { ModCopilot } from "./ModCopilot";
 
@@ -46,6 +51,17 @@ const module: StoredMod = {
     name: "产业链研究",
     version: "0.1.0",
     category: "研究",
+    navigation: {
+      groupLabel: "研究",
+      groupOrder: 20,
+      itemOrder: 20,
+      icon: "research",
+      project: {
+        id: "vibe-research",
+        name: "Vibe Research",
+        order: 20,
+      },
+    },
     entry: { type: "external", url: "http://127.0.0.1:5899/sectors" },
     permissions: [],
     dataServices: [],
@@ -54,6 +70,60 @@ const module: StoredMod = {
     refresh: { mode: "manual" },
   },
   createdAt: "2026-07-23T00:00:00Z",
+  copilotPrompts: {
+    ask: [
+      {
+        id: "understand",
+        label: "提炼与核验",
+        suggestions: [
+          {
+            id: "summary",
+            intent: "summary",
+            label: "总结 · 提炼核心结论与依据",
+            prompt: "请基于当前「产业链研究」Mod，总结核心结论。",
+          },
+        ],
+      },
+      {
+        id: "judge",
+        label: "风险与推演",
+        suggestions: [
+          {
+            id: "risk",
+            intent: "risk",
+            label: "风险 · 寻找反例与失效条件",
+            prompt: "请基于当前「产业链研究」Mod，寻找风险。",
+          },
+        ],
+      },
+      {
+        id: "advance",
+        label: "延伸与行动",
+        suggestions: [
+          {
+            id: "next-step",
+            intent: "next-step",
+            label: "下一步 · 形成可执行研究清单",
+            prompt: "请基于当前「产业链研究」Mod，形成行动清单。",
+          },
+        ],
+      },
+    ],
+    edit: [
+      {
+        id: "modify",
+        label: "修改与优化",
+        suggestions: [
+          {
+            id: "modify-function",
+            intent: "modification",
+            label: "修改 · 修复数据或交互问题",
+            prompt: "请基于当前「产业链研究」Mod，复现并定位当前问题的根因。",
+          },
+        ],
+      },
+    ],
+  },
 };
 
 describe("ModCopilot", () => {
@@ -128,6 +198,8 @@ describe("ModCopilot", () => {
         },
       },
     });
+    expect(JSON.stringify(createBody)).not.toContain("agentOnlyCapabilities");
+    expect(JSON.stringify(createBody)).not.toContain("optionalSecrets");
   });
 
   it("uses explicit edit mode and cancels the active task", async () => {
@@ -196,7 +268,10 @@ describe("ModCopilot", () => {
     const invokeUiAction = vi.fn(async () => ({ timeframe: "15m" }));
     server.use(
       http.post("/api/agent/tasks", () =>
-        HttpResponse.json({ id: "task-action", status: "queued", result: null, error: null }, { status: 202 }),
+        HttpResponse.json(
+          { id: "task-action", status: "queued", result: null, error: null },
+          { status: 202 },
+        ),
       ),
       http.get("/api/agent/tasks/task-action", () =>
         HttpResponse.json({
@@ -204,7 +279,9 @@ describe("ModCopilot", () => {
           status: "completed",
           result: {
             answer: "已切换到 15 分钟。",
-            actions: [{ actionId: "market.set-timeframe", input: { timeframe: "15m" } }],
+            actions: [
+              { actionId: "market.set-timeframe", input: { timeframe: "15m" } },
+            ],
           },
           error: null,
         }),
@@ -223,11 +300,18 @@ describe("ModCopilot", () => {
     );
 
     expect(await screen.findByText(/Codex CLI/)).toBeVisible();
-    await userEvent.type(screen.getByPlaceholderText("就当前页面提问…"), "切换到15分钟");
+    await userEvent.type(
+      screen.getByPlaceholderText("就当前页面提问…"),
+      "切换到15分钟",
+    );
     await userEvent.click(screen.getByRole("button", { name: "发送" }));
 
-    expect(await screen.findByText(/已执行 market.set-timeframe/)).toBeVisible();
-    expect(invokeUiAction).toHaveBeenCalledWith("market.set-timeframe", { timeframe: "15m" });
+    expect(
+      await screen.findByText(/已执行 market.set-timeframe/),
+    ).toBeVisible();
+    expect(invokeUiAction).toHaveBeenCalledWith("market.set-timeframe", {
+      timeframe: "15m",
+    });
   });
 
   it("reloads the current Mod after an edit task completes", async () => {
@@ -300,6 +384,43 @@ describe("ModCopilot", () => {
     );
 
     expect(await screen.findByText("已保存的产业链结论")).toBeVisible();
+    expect(
+      window.localStorage.getItem(
+        "newma-desk.mod-copilot.messages.v1.workspace-1.industry-map",
+      ),
+    ).toContain("已保存的产业链结论");
+    expect(
+      window.localStorage.getItem("vibedesk.mod-copilot.messages.industry-map"),
+    ).toBeNull();
+  });
+
+  it("isolates saved conversations by workspace and Mod", async () => {
+    useAvailableAgent();
+    window.localStorage.setItem(
+      "newma-desk.mod-copilot.messages.v1.workspace-1.industry-map",
+      JSON.stringify([
+        {
+          id: "workspace-1-message",
+          role: "assistant",
+          content: "只属于 workspace-1 的结论",
+        },
+      ]),
+    );
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-2"
+        onClose={() => undefined}
+        requestContext={async () => undefined}
+      />,
+    );
+
+    expect(await screen.findByText(/Codex CLI/)).toBeVisible();
+    expect(
+      screen.queryByText("只属于 workspace-1 的结论"),
+    ).not.toBeInTheDocument();
   });
 
   it("offers mode-specific shortcuts", async () => {
@@ -316,17 +437,367 @@ describe("ModCopilot", () => {
     );
 
     expect(
-      await screen.findByRole("button", { name: "总结当前页面的关键信息" }),
+      await screen.findByRole("button", { name: "总结 · 提炼核心结论与依据" }),
     ).toBeVisible();
+    expect(screen.getByRole("group", { name: "风险与推演" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "延伸与行动" })).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "修改" }));
     expect(
-      screen.getByRole("button", { name: "修复当前页面的异常状态" }),
+      screen.getByRole("button", { name: "修改 · 修复数据或交互问题" }),
     ).toBeVisible();
     await userEvent.click(
-      screen.getByRole("button", { name: "修复当前页面的异常状态" }),
+      screen.getByRole("button", { name: "修改 · 修复数据或交互问题" }),
     );
     expect(
-      screen.getByPlaceholderText("描述要修改的功能或问题…"),
-    ).toHaveValue("修复当前页面的异常状态");
+      (
+        screen.getByPlaceholderText(
+          "描述要修改的功能或问题…",
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toContain("复现并定位当前问题的根因");
+  });
+
+  it("persists upstream session metadata and exposes a configured Numa handoff", async () => {
+    useAvailableAgent();
+    server.use(
+      http.post("/api/agent/tasks", () =>
+        HttpResponse.json(
+          { id: "task-handoff", status: "queued", result: null, error: null },
+          { status: 202 },
+        ),
+      ),
+      http.get("/api/agent/tasks/task-handoff", () =>
+        HttpResponse.json({
+          id: "task-handoff",
+          status: "completed",
+          result: {
+            answer: "可以在 Numa 中继续。",
+            agentId: "hermes-webui",
+            upstreamSessionId: "hermes-session-1",
+          },
+          error: null,
+        }),
+      ),
+    );
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-1"
+        numaAgentUrl="https://numa.example/chat"
+        numaAllowedOrigins={["https://numa.example"]}
+        onClose={() => undefined}
+        requestContext={async () => undefined}
+      />,
+    );
+
+    expect(await screen.findByText(/Codex CLI/)).toBeVisible();
+    await userEvent.type(
+      screen.getByPlaceholderText("就当前页面提问…"),
+      "继续分析",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("可以在 Numa 中继续。")).toBeVisible();
+    const link = await screen.findByRole("link", {
+      name: "转到 Numa Agent 继续当前对话",
+    });
+    const payload = readNumaHandoffPayload(link.getAttribute("href") || "");
+    expect(payload).toMatchObject({
+      moduleId: "industry-map",
+      projectId: "vibe-research",
+      workspaceId: "workspace-1",
+      upstreamSessionId: "hermes-session-1",
+    });
+    expect(new URL(payload!.returnTo).searchParams.get("copilot")).toBe("1");
+    expect(new URL(payload!.returnTo).searchParams.has("session")).toBe(false);
+
+    const saved = JSON.parse(
+      window.localStorage.getItem(
+        modCopilotSessionStorageKey("industry-map", "workspace-1"),
+      ) || "null",
+    ) as Record<string, unknown>;
+    expect(saved).toMatchObject({
+      moduleId: "industry-map",
+      projectId: "vibe-research",
+      workspaceId: "workspace-1",
+      taskId: "task-handoff",
+      adapterId: "hermes-webui",
+      upstreamSessionId: "hermes-session-1",
+      status: "completed",
+      lastPrompt: "继续分析",
+    });
+  });
+
+  it("does not render a dead Numa handoff when no safe URL is configured", async () => {
+    useAvailableAgent();
+    window.localStorage.setItem(
+      modCopilotSessionStorageKey("industry-map", "workspace-1"),
+      JSON.stringify({
+        schemaVersion: 1,
+        moduleId: "industry-map",
+        moduleName: "产业链研究",
+        workspaceId: "workspace-1",
+        projectId: "vibe-research",
+        mode: "ask",
+        status: "completed",
+        upstreamSessionId: "hermes-session-1",
+        updatedAt: "2026-07-29T00:00:00.000Z",
+      }),
+    );
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-1"
+        onClose={() => undefined}
+        requestContext={async () => undefined}
+      />,
+    );
+
+    expect(await screen.findByText(/Codex CLI/)).toBeVisible();
+    expect(
+      screen.queryByRole("link", { name: "转到 Numa Agent 继续当前对话" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("restores a session when the user returns from Numa to this Mod", async () => {
+    useAvailableAgent();
+    window.history.replaceState(
+      null,
+      "",
+      "/?mod=industry-map#/desk?tab=research&keep=1",
+    );
+    const returnTo = buildDeskReturnUrl({
+      deskUrl: window.location.href,
+      moduleId: "industry-map",
+      projectId: "vibe-research",
+      workspaceId: "workspace-1",
+      upstreamSessionId: "hermes-session-returned",
+    });
+    const returned = new URL(returnTo!);
+    window.history.replaceState(
+      null,
+      "",
+      `${returned.pathname}${returned.search}${returned.hash}`,
+    );
+
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-1"
+        numaAgentUrl="https://numa.example/chat"
+        numaAllowedOrigins={["https://numa.example"]}
+        onClose={() => undefined}
+        requestContext={async () => undefined}
+      />,
+    );
+
+    expect(await screen.findByText(/Codex CLI/)).toBeVisible();
+    expect(window.location.hash).toBe("#/desk?tab=research&keep=1");
+    expect(window.location.href).not.toContain("newma-handoff=");
+    expect(
+      await screen.findByRole("link", {
+        name: "转到 Numa Agent 继续当前对话",
+      }),
+    ).toBeVisible();
+    const saved = JSON.parse(
+      window.localStorage.getItem(
+        modCopilotSessionStorageKey("industry-map", "workspace-1"),
+      ) || "null",
+    ) as Record<string, unknown>;
+    expect(saved).toMatchObject({
+      status: "handed-off",
+      projectId: "vibe-research",
+      upstreamSessionId: "hermes-session-returned",
+    });
+  });
+
+  it("keeps long Agent answers collapsed until requested", async () => {
+    useAvailableAgent();
+    const longAnswer = Array.from(
+      { length: 20 },
+      (_, index) => "研究结论第 " + (index + 1) + " 行",
+    ).join("\n");
+    server.use(
+      http.post("/api/agent/tasks", () =>
+        HttpResponse.json(
+          { id: "task-long", status: "queued", result: null, error: null },
+          { status: 202 },
+        ),
+      ),
+      http.get("/api/agent/tasks/task-long", () =>
+        HttpResponse.json({
+          id: "task-long",
+          status: "completed",
+          result: { answer: longAnswer },
+          error: null,
+        }),
+      ),
+    );
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-1"
+        onClose={() => undefined}
+        requestContext={async () => undefined}
+      />,
+    );
+
+    expect(await screen.findByText(/Codex CLI/)).toBeVisible();
+    await userEvent.type(
+      screen.getByPlaceholderText("就当前页面提问…"),
+      "生成完整研究",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    const toggle = await screen.findByRole("button", {
+      name: "展开完整回答",
+    });
+    expect(screen.queryByText("研究结论第 20 行")).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    expect(screen.getByText(/研究结论第 20 行/)).toBeVisible();
+  });
+
+  it("renders report and safe graph artifacts with lazy expansion", async () => {
+    useAvailableAgent();
+    const artifactId = "0123456789abcdef0123456789abcdef";
+    server.use(
+      http.post("/api/agent/tasks", () =>
+        HttpResponse.json(
+          {
+            id: "task-artifacts",
+            status: "queued",
+            result: null,
+            error: null,
+          },
+          { status: 202 },
+        ),
+      ),
+      http.get("/api/agent/tasks/task-artifacts", () =>
+        HttpResponse.json({
+          id: "task-artifacts",
+          status: "completed",
+          result: {
+            answer: "核心结论保持简洁。",
+            artifacts: [
+              {
+                id: "abcdef0123456789abcdef0123456789",
+                kind: "report",
+                title: "完整研究",
+                summary: "财务、新闻与风险证据",
+                content: "完整报告正文",
+              },
+              {
+                id: artifactId,
+                kind: "graph",
+                title: "产业链图谱",
+                viewUrl: "/api/artifacts/" + artifactId + "/view",
+              },
+              {
+                id: "fedcba9876543210fedcba9876543210",
+                kind: "graph",
+                title: "不安全外链",
+                viewUrl: "javascript:alert(1)",
+              },
+            ],
+          },
+          error: null,
+        }),
+      ),
+    );
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-1"
+        onClose={() => undefined}
+        requestContext={async () => undefined}
+      />,
+    );
+
+    expect(await screen.findByText(/Codex CLI/)).toBeVisible();
+    await userEvent.type(
+      screen.getByPlaceholderText("就当前页面提问…"),
+      "输出 Artifact",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("核心结论保持简洁。")).toBeVisible();
+    expect(screen.queryByText("完整报告正文")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("产业链图谱")).not.toBeInTheDocument();
+    expect(screen.queryByText("不安全外链")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /完整研究/ }),
+    );
+    expect(screen.getByText("完整报告正文")).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("button", { name: /产业链图谱/ }),
+    );
+    const frame = screen.getByTitle("产业链图谱");
+    expect(frame).toHaveAttribute(
+      "src",
+      expect.stringContaining("/api/artifacts/" + artifactId + "/view"),
+    );
+    expect(
+      screen.getByRole("link", { name: "独立打开" }),
+    ).toHaveAttribute(
+      "href",
+      "/api/artifacts/" + artifactId + "/view",
+    );
+  });
+
+  it("restores only validated artifacts from local storage", async () => {
+    useAvailableAgent();
+    window.localStorage.setItem(
+      "newma-desk.mod-copilot.messages.v1.workspace-1.industry-map",
+      JSON.stringify([
+        {
+          id: "saved-artifact-message",
+          role: "assistant",
+          content: "已保存报告",
+          artifacts: [
+            {
+              id: "abcdef0123456789abcdef0123456789",
+              kind: "report",
+              title: "历史研究",
+              content: "历史报告正文",
+            },
+            {
+              id: "0123456789abcdef0123456789abcdef",
+              kind: "graph",
+              title: "恶意图谱",
+              viewUrl: "https://evil.test/view",
+            },
+          ],
+        },
+      ]),
+    );
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-1"
+        onClose={() => undefined}
+        requestContext={async () => undefined}
+      />,
+    );
+
+    expect(await screen.findByText("已保存报告")).toBeVisible();
+    expect(screen.getByText("历史研究")).toBeVisible();
+    expect(screen.queryByText("恶意图谱")).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "历史研究" }),
+    );
+    expect(screen.getByText("历史报告正文")).toBeVisible();
   });
 });

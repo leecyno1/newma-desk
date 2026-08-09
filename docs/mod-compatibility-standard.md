@@ -1,6 +1,8 @@
 # Newma-Desk Mod Compatibility Standard 1.0（工作草案）
 
-状态：Draft 0.3  
+涉及持久化的 Mod 还必须遵循 [MOD Storage Standard](./mod-storage-standard.md)，不得直接连接 Desk 主数据库或依赖其物理表结构。
+
+状态：Draft 0.4
 Manifest：1.1  
 Bridge Protocol：1.0  
 ViewSpec：1.0
@@ -121,13 +123,19 @@ Git 商店 MVP 推荐在 Manifest 和 `data-service.json` 中使用内联 Draft 
   "version": "1.0.0",
   "category": "quant",
   "navigation": {
-    "groupLabel": "量化",
-    "groupOrder": 20,
+    "groupLabel": "Vibe Trading",
+    "groupOrder": 30,
     "itemOrder": 10,
     "label": "因子实验室",
+    "project": {
+      "id": "vibe-trading",
+      "name": "Vibe Trading",
+      "order": 30,
+      "description": "量化研究、因子实验、回测分析与交易运行。"
+    },
     "directory": {
-      "id": "vibe-trading-quant",
-      "label": "量化工具",
+      "id": "factor-research",
+      "label": "因子研究",
       "order": 10
     },
     "icon": "quant"
@@ -182,20 +190,26 @@ Git 商店 MVP 推荐在 Manifest 和 `data-service.json` 中使用内联 Draft 
 - Model Action 必须使用 `request` 执行方式。
 - `trade.execute` 必须使用 `strong` 确认。
 
-### 5.1 导航与二级目录合同
+### 5.1 项目与页面导航合同
 
-导入多页面项目时，每个可独立授权、独立运行、独立提供 Agent Context 的页面仍然必须是一个独立 Mod。属于同一项目套件的兄弟 Mod 通过 `navigation.directory` 聚合到 Newma-Desk 的二级侧边栏，而不是把上游页面全部塞进一个 Mod 或在母侧边栏平铺。
+导入多页面项目时，每个可独立授权、独立运行、独立提供 Agent Context 的页面仍然编译为一个独立 Mod，但完整来源项目必须作为一个 Suite 整体进入 Desk。`navigation.project` 选择十四个核心栏目之一或“其他”，`navigation.directory` 标识栏目内的完整项目；所有兄弟页面继承相同值。不能丢失上游页面，也不能按页面业务分类把同一项目拆散到多个栏目。
 
 ```json
 {
   "navigation": {
-    "groupLabel": "市场",
-    "groupOrder": 10,
+    "groupLabel": "宏观面",
+    "groupOrder": 20,
     "itemOrder": 20,
     "label": "扫描器",
+    "project": {
+      "id": "fundamentals",
+      "name": "宏观面",
+      "order": 20,
+      "description": "经济数据、宏观指标、行业、产业链与宏观事件。"
+    },
     "directory": {
-      "id": "market-suite",
-      "label": "行情工具",
+      "id": "example-research-suite",
+      "label": "Example Research",
       "order": 5
     },
     "icon": "market"
@@ -205,20 +219,25 @@ Git 商店 MVP 推荐在 Manifest 和 `data-service.json` 中使用内联 Draft 
 
 字段约束：
 
-- `groupLabel`：母侧边栏一级分类名称。
-- `groupOrder`：一级分类默认顺序。
-- `itemOrder`：页面在一级分类或二级目录内的默认顺序。
+- `project.id`：稳定栏目 ID，必须属于十四个核心栏目或 `other`。
+- `project.name`、`project.description`：一级栏目身份。
+- `project.order`：栏目的固定默认顺序。
+- `project.logo`：仅用于旧版 Manifest 兼容读取；当前 Desk 的一级标志不会使用或展示它，新项目应该省略。
+- `itemOrder`：页面在项目或项目内 section 中的默认顺序。
 - `label`：导航中的紧凑页面名称；省略时使用 Mod `name`。
-- `directory.id`：稳定目录 ID。同一 `groupLabel` 下使用相同 ID 的 Mods 会进入同一个二级侧边栏。
-- `directory.label`：目录显示名称。
-- `directory.order`：目录在一级分类中的默认顺序。
-- 未声明 `directory` 的 Mod 直接显示在一级分类中，保持旧 Manifest 兼容。
+- `directory`：完整项目在栏目内的固定分组，Suite 不得省略。
+- `directory.id`：必须等于 Suite ID；`label` 是项目名，`order` 是栏目内项目顺序。
+- `groupLabel`、`groupOrder`：仅供旧客户端和业务分类兼容；新导航不得用它们覆盖 `project` 归属。
 
-Desk 中的用户配置优先于 Manifest 默认值，并只保存在本地 Workspace：用户可以把页面移入其他二级目录、拖拽排序或改为一级显示；这些操作不得修改上游 Manifest。页面或目录被冻结后进入稳定区域并禁止拖拽，取消冻结后才可再次移动。导入器必须保持 `id` 稳定，不能使用随机值或随显示文案变化的值。
+一级标志统一由宿主根据栏目名称生成 1–2 个汉字，例如 `市场面 → 市场`、`宏观面 → 宏观`。英文自定义栏目标题通过受控词典转换；无法识别时回退默认栏目名、稳定 `project.id` 和业务图标语义，最终结果不得包含拉丁字母。一级栏和设置预览必须共享同一算法，导入项目不得通过图片、图标或自定义字符覆盖它。
 
-每个实际存在的二级目录由 Desk 自动追加“项目设置”入口，上游项目不需要再开发一套设置页面。该页面的作用域是 `用户 + Workspace + directory.id`，至少包含：套件页面清单、统一数据 Provider 路由和 Agent 设置入口。用户自定义移动页面后，设置页应按当前目录成员实时更新。
+`navigation.project` 对旧的普通单页 Mod 保持可选，Desk 可暂时以 Mod 自身身份兼容显示；所有新 Mod 必须选择正式栏目。旧 Suite 未声明栏目时，Suite Compiler 将整套项目放入 `other`，不会按页面猜测归属。`navigation.directory` 对完整 Suite 是必填项目身份，不是可选页面分类。
 
-推荐的项目接入流程是：上游路由清单 → 每个路由生成一个 Mod Manifest → 为同套件路由写入相同 `directory.id` → 运行 Manifest Schema 与兼容性检查 → 注册到商店。这样上游不需要实现 Newma-Desk 侧边栏组件。
+Desk 中的用户配置优先于 Manifest 默认值，并只保存在本地 Workspace：用户可以重排栏目、完整项目和项目内页面，也可以冻结、隐藏或修改栏目标题；这些操作不得修改上游 Manifest。标题覆盖会同步用于栏目标志的无障碍名称、二级面板标题和自动中文短标，但不会改变 `project.id`。页面或项目冻结后进入稳定区域并禁止拖拽，取消冻结后才可再次移动；页面不能被拖出所属完整项目。导入器必须保持 Suite ID 和页面 ID 稳定，不能使用随机值或随显示文案变化的值。
+
+每个完整项目由 Desk 提供项目设置入口，或由 Suite 中 `navigation.role = "settings"` 的真实设置页承载。其作用域是 `用户 + Workspace + directory.id`，至少包含：项目页面清单、统一数据 Provider 路由和 Agent 设置入口。栏目 `project.id` 不能作为此作用域，否则同一栏目下的多个完整项目会错误共享配置。
+
+推荐的项目接入流程是：完整盘点上游路由 → 选择一个主要投资栏目 → 以原项目为单位定义 Suite 和同 ID directory → 每个原有路由生成一个页面 Manifest → 运行完整性与兼容性检查 → 整套注册到商店。这样上游不需要实现 Newma-Desk 侧边栏组件，也不会在接入过程中被拆散。
 
 ## 6. Action Binding
 
@@ -257,7 +276,7 @@ Action ID 是对人、Agent 和服务都稳定的公开能力名称。页面不�
 }
 ```
 
-此时 Action ID 默认就是 Capability ID；也可以通过 `binding.capability` 显式映射。Desk 使用 `navigation.directory.id` 作为套件路由作用域；未加入二级目录时回退到 Mod ID。Provider 默认按 `priority` 从小到大选择，用户可以在项目设置中按 Capability 覆盖。
+此时 Action ID 默认就是 Capability ID；也可以通过 `binding.capability` 显式映射。Desk 使用完整项目的 `navigation.directory.id`（即 Suite ID）作为数据路由作用域；单页 Mod 回退到 Mod ID。Provider 默认按 `priority` 从小到大选择，用户可以在项目设置中按 Capability 覆盖。
 
 旧的固定服务方式继续兼容：
 
@@ -293,6 +312,8 @@ GET /api/data-services/catalog
 GET /api/data-services/preferences/{suite-id}
 PUT /api/data-services/preferences/{suite-id}
 ```
+
+客户端应向 `{suite-id}` 传入完整项目的 `navigation.directory.id`；单页 Mod 使用自身 Mod ID。不得传栏目 `project.id`。
 
 偏好接口使用 `X-User-Id` 与 `X-Workspace-Id` 隔离。保存时必须验证 Provider 确实提供对应 Capability；失效偏好不得静默切换到另一个 Provider。
 
@@ -331,7 +352,35 @@ Mod 收到并验证配置后必须发送 `vibedesk:ack`。所有消息必须验�
 
 Manifest 1.0 的 `vibedesk:ready/config` 在 1.x 兼容期继续可用。
 
-### 7.1 最小权限 Mod Session
+### 7.1 主题同步
+
+- `vibedesk:init.environment.theme` 是主题的唯一正式来源，取值只允许 `light` 或 `dark`。主题变化时 Desk 重发同一 `instanceId` 的 `vibedesk:init`，不得通过刷新 iframe 切换主题。
+- `vibedesk:init.appearance` 是可选的 Newma Theme Contract 1.0，携带与当前模式一致的语义色、图表色和安全 CSS Custom Properties。它用于继承具体 Newma 色板，不替代 `environment.theme`，旧 SDK 可以直接忽略。
+- 使用 `@newma-desk/mod-sdk` 的 Mod 默认由 `connectModHost()` 自动应用主题：同步 `html[data-theme]`、`.light/.dark`、`html.style.colorScheme`、`data-vibedesk-theme` 和 `appearance.cssVars`，并派发 `newma:themechange`。只有确需自行管理文档根节点的运行时才可显式设置 `applyAppearance: false`。
+- SDK 同时同步 Bootstrap 5 使用的 `data-bs-theme`；统一模板提供 Tailwind / shadcn、Bootstrap 5，以及 Bootstrap 3 / Ace 公开 primary 语义类的适配。框架适配只转换品牌与表面主题，不改写组件 DOM，也不覆盖金融涨跌、成功、警告和错误语义。
+- Mod 前端入口 SHOULD 导入 `@newma-desk/desk-ui/mod-theme.css`。该模板同时提供 `--vibe-*` / `--newma-*`、Tailwind / shadcn 语义变量、页面基础背景与可复用控件表面。旧页面只导入 `tokens.css` 仍然兼容。
+- Mod 应使用语义化颜色变量映射 Newma-Desk Design Tokens，包括页面背景、表面层、边框、正文、弱化文本、强调色、正负值、警告和错误状态。页面主体、表格、输入控件、弹层和图表不得各自维护互相冲突的浅色或深色色板。
+- Canvas、SVG、ECharts 等不能自动继承 CSS 的可视化必须在主题变化后重新读取语义变量并重绘，且不得丢失当前数据、选择项或筛选条件。
+- 独立打开且尚未收到宿主主题时，Mod 应跟随 `prefers-color-scheme`；一旦收到 Desk 配置，宿主主题立即取得优先权。
+
+最小接入模板：
+
+```ts
+import "@newma-desk/desk-ui/mod-theme.css";
+import { connectModHost } from "@newma-desk/mod-sdk";
+
+const host = await connectModHost({
+  modId: "example-mod",
+  parentOrigin: new URL(document.referrer).origin,
+  capabilities: ["theme", "context"],
+});
+```
+
+主题自动适配只作用于 Mod 自己的文档。Desk 不得尝试直接改写跨域 iframe DOM，也不得用 CSS filter 强制染色。导入的第三方页面如果不消费桥接消息，必须通过 Newma 控制的 Wrapper 接入，并在 `css-vars`、`class-toggle` 或 `postMessage` 三种转发方式中选择一种；完全不协作的外部页面只能统一 Wrapper 外壳，不能承诺其内部颜色自动替换。
+
+发布前 SHOULD 运行 `npm run mods:theme:check`；外部项目可以把前端绝对路径作为参数传入。服务启动后 SHOULD 再运行 `npm run mods:theme:audit`，在与系统主题相反的 Desk 浅色 / 深色环境中逐页检查主题握手、语义变量、大面积蓝白主体和控件颜色。运行态中确属数据系列的例外只能在最小 DOM 子树使用 `data-newma-theme-allow` 或 `.newma-theme-allow` 标记。两类检查都不能代替对金融涨跌色、告警色和图表系列色的人工语义审查。
+
+### 7.2 最小权限 Mod Session
 
 Manifest 1.1 Mod 在调用 Action 前必须获得短期 Session。Session 绑定：
 
@@ -354,7 +403,7 @@ Token 与 `instanceId`、Mod、Revision 或 Action 任一不匹配时必须拒�
 兼容期内，宿主仍接受旧的 `X-Newma-Desk-Instance-Id` 请求头与
 `NEWMA_DOCK_*` 环境变量；新接入统一使用 `Newma-Desk` 命名。
 
-### 7.2 Agent Context 消息
+### 7.3 Agent Context 消息
 
 Desk 请求当前页面语义状态：
 
@@ -394,7 +443,7 @@ Mod 使用相同 `requestId` 返回 Context：
 
 Agent Action 执行前，Desk 应使用 `reason: agent` 主动刷新一次 Context；持久化成功或短超时后再创建任务。Agent Gateway 按“用户 + Workspace + Mod”读取 Context，并放入统一的 `context.vibedesk.page`，不得把页面 Context 清空。
 
-### 7.3 宿主代理 Action
+### 7.4 宿主代理 Action
 
 嵌入 Mod 不直接持有 Gateway Token，而是向 Desk 发出：
 
@@ -411,7 +460,7 @@ Agent Action 执行前，Desk 应使用 `reason: agent` 主动刷新一次 Conte
 
 Desk 校验来源、实例、Manifest、Session、权限和 Schema 后代理调用，并通过 `vibedesk:action-result` 返回成功结果或标准错误。Mod 不得通过输入参数改变 Manifest 声明的 Agent、Model、Data 或 Local 路由。
 
-### 7.4 Desk Mod Copilot
+### 7.5 Desk Mod Copilot
 
 Newma-Desk 在宿主层提供统一的右侧 Mod Copilot。该能力属于 Desk，不属于单个 Mod：
 
@@ -424,6 +473,23 @@ Newma-Desk 在宿主层提供统一的右侧 Mod Copilot。该能力属于 Desk�
 - 修改完成后必须返回改动文件、行为变化和验证结果，不得读取或输出 `.env`、密钥和登录凭据。
 
 Mod 可以在独立运行时保留自己的问答入口；嵌入 Newma-Desk 时，通用“针对本页问答”入口应该隐藏，避免出现两套会话、两套 Agent 设置和重复的右侧抽屉。业务专属的 AI 复盘、摘要、自动回复、研究沉淀和 Action 不属于重复能力，不应因此移除。
+
+### 7.6 报告型 Skill 的 Agent-only 规则
+
+主要产物是分析文字、研究报告、备忘录、摘要或一次性图表的 Skill，默认只作为 Desk / Numa Agent 能力，不创建 Mod 页面，不进入一级或二级导航，也不启动独立服务。用户从当前 Mod 右侧 Agent 或 Numa 对话触发，Skill 可以读取当前 Mod Context，并通过统一数据接口补充更长区间行情、财务、公告、新闻和研究档案。
+
+结果遵循渐进展示：短结果直接作为对话消息；较长结果在消息中折叠；带图表、HTML 或完整文档的结果生成可展开 Artifact；需要长期沉淀时由用户执行“保存到研究档案”。Artifact 仍属于当前会话和来源 Mod，不因此获得独立导航身份。
+
+只有同时满足下列条件的能力才应进入现有或新 Mod 页面：
+
+- 用户需要持续筛选、排序、比较、拖拽或联动操作；
+- 页面存在可恢复的工作状态，而不只是一次报告结果；
+- 可视化本身是主要工作界面，例如 K 线、产业链图谱、回测实验或组合管理；
+- 多次 Agent 对话不能替代该交互工作台。
+
+Agent-only Skill 必须复用用户统一 Agent 设置和 Secret Interface；不得声明页面路由、`navigation`、独立端口、自带对话抽屉或第二套模型配置。报告需要确定性计算或数据时，Agent 通过声明的 Data Action 调用，不把 API Key 放入提示词或浏览器。
+
+运行时由 Desk 后端根据当前已发布 Mod 的 `navigation.project.id`，从 `config/finance-project-intake.json` 筛出该栏目允许使用的 `agent-capability`，并在进入已选 Agent 前注入 `vibedesk.agentOnlyCapabilities`。该目录只包含来源 ID、名称、能力 ID 和输出策略，不包含仓库地址、依赖、Secret 名称或任何凭据；浏览器和 Mod 不能自行声明或扩充此目录。它是能力白名单而非安装状态，Agent 必须先核验实际可用性，不可用时说明缺口并降级到 Desk 数据。`module.edit` 不注入此目录，避免把投研能力误当成源码修改权限。
 
 ## 8. 数据合同
 

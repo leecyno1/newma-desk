@@ -70,6 +70,13 @@ describe("moduleManifestSchema", () => {
         label: "市场工具",
         order: 5,
       },
+      project: {
+        id: "vibe-research",
+        name: "Vibe Research",
+        order: 20,
+        description: "统一承载投研页面。",
+        logo: { type: "letter", text: "VR" },
+      },
       icon: "market",
     };
 
@@ -98,6 +105,58 @@ describe("moduleManifestSchema", () => {
 
   it("keeps manifests without navigation metadata valid", () => {
     expect(moduleManifestSchema.parse(valid)).not.toHaveProperty("navigation");
+  });
+
+  it.each([
+    { type: "icon", name: "trading" },
+    { type: "letter", text: "VT" },
+    { type: "image", src: "/assets/vibe-trading.png", alt: "Vibe Trading" },
+    { type: "image", src: "https://assets.example/vibe-trading.png" },
+  ] as const)("accepts a safe project logo declaration", (logo) => {
+    const parsed = moduleManifestSchema.parse({
+      ...valid,
+      navigation: {
+        groupLabel: "研究",
+        groupOrder: 20,
+        itemOrder: 10,
+        project: {
+          id: "vibe-trading",
+          name: "Vibe Trading",
+          logo,
+        },
+      },
+    });
+
+    expect(parsed.navigation?.project).toMatchObject({
+      id: "vibe-trading",
+      name: "Vibe Trading",
+      order: 100,
+      logo,
+    });
+  });
+
+  it.each([
+    { type: "letter", text: "LONG" },
+    { type: "letter", text: " " },
+    { type: "image", src: "javascript:alert(1)" },
+    { type: "image", src: "/%2e%2e/secret.png" },
+    { type: "icon", name: "unregistered" },
+  ])("rejects an unsafe project logo declaration", (logo) => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...valid,
+        navigation: {
+          groupLabel: "研究",
+          groupOrder: 20,
+          itemOrder: 10,
+          project: {
+            id: "vibe-research",
+            name: "Vibe Research",
+            logo,
+          },
+        },
+      }),
+    ).toThrow();
   });
 
   it("rejects negative navigation order values", () => {
@@ -268,5 +327,64 @@ describe("moduleManifestSchema", () => {
       ...unified.actions["market.quote"],
       confirmation: "none",
     });
+  });
+
+  it("accepts a bounded Desk-managed storage declaration", () => {
+    const parsed = moduleManifestSchema.parse({
+      ...connected,
+      permissions: [
+        ...connected.permissions,
+        "storage.read",
+        "storage.write",
+      ],
+      storage: {
+        mode: "desk-managed",
+        namespaces: [
+          {
+            id: "settings",
+            schemaVersion: 1,
+            quotaMb: 2,
+          },
+        ],
+      },
+    });
+
+    if (parsed.schemaVersion !== "1.1") throw new Error("expected Manifest 1.1");
+    expect(parsed.storage).toEqual({
+      mode: "desk-managed",
+      namespaces: [
+        {
+          id: "settings",
+          scope: "user-workspace",
+          schemaVersion: 1,
+          quotaMb: 2,
+          maxItemKb: 256,
+        },
+      ],
+    });
+  });
+
+  it("rejects duplicate namespaces and missing storage permissions", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...connected,
+        storage: {
+          mode: "desk-managed",
+          namespaces: [
+            { id: "settings", schemaVersion: 1, quotaMb: 2 },
+            { id: "settings", schemaVersion: 2, quotaMb: 2 },
+          ],
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("keeps storage declarations out of legacy Manifest 1.0", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...valid,
+        storage: { mode: "stateless" },
+      }),
+    ).toThrow();
   });
 });

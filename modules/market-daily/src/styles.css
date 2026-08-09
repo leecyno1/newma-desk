@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   color: var(--vibe-text);
   background: var(--vibe-bg);
   font-family: var(--vibe-font-ui);
@@ -7,46 +8,20 @@
   --terminal-panel: var(--vibe-surface);
   --terminal-muted: var(--vibe-surface-muted);
   --terminal-raised: var(--vibe-surface-raised);
-  --terminal-grid: #eef2f6;
-  --terminal-blue: #2563eb;
-  --terminal-up: #dc2626;
-  --terminal-down: #16a34a;
-  --terminal-shadow: 0 12px 35px rgb(15 23 42 / 9%);
+  --terminal-grid: var(--vibe-border);
+  --terminal-accent: var(--vibe-accent);
+  --terminal-up: var(--vibe-positive);
+  --terminal-down: var(--vibe-negative);
+  --terminal-shadow: 0 12px 35px rgb(16 32 25 / 10%);
 }
 
 :root[data-theme="dark"] {
-  --terminal-grid: #202c3d;
-  --terminal-blue: #60a5fa;
-  --terminal-up: #f87171;
-  --terminal-down: #4ade80;
+  color-scheme: dark;
+  --terminal-grid: var(--vibe-border);
+  --terminal-accent: var(--vibe-accent);
+  --terminal-up: var(--vibe-positive);
+  --terminal-down: var(--vibe-negative);
   --terminal-shadow: 0 18px 48px rgb(0 0 0 / 28%);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    --vibe-bg: #0b1220;
-    --vibe-sidebar: #0f172a;
-    --vibe-surface: #111827;
-    --vibe-surface-muted: #0f172a;
-    --vibe-surface-raised: #1e293b;
-    --vibe-surface-hover: #1e293b;
-    --vibe-surface-selected: #172f55;
-    --vibe-border: #263244;
-    --vibe-border-strong: #3b4a61;
-    --vibe-text: #f8fafc;
-    --vibe-text-soft: #e2e8f0;
-    --vibe-text-muted: #94a3b8;
-    --vibe-text-faint: #64748b;
-    --vibe-accent: #60a5fa;
-    --vibe-accent-hover: #93c5fd;
-    --vibe-accent-soft: #172f55;
-    --vibe-accent-surface: #14213a;
-    --terminal-grid: #202c3d;
-    --terminal-blue: #60a5fa;
-    --terminal-up: #f87171;
-    --terminal-down: #4ade80;
-    --terminal-shadow: 0 18px 48px rgb(0 0 0 / 28%);
-  }
 }
 
 * {
@@ -143,7 +118,7 @@ select:focus-visible {
   place-items: center;
   border: 1px solid var(--vibe-border-strong);
   border-radius: 8px;
-  color: var(--terminal-blue);
+  color: var(--terminal-accent);
   background: var(--vibe-accent-surface);
 }
 
@@ -332,6 +307,187 @@ select:focus-visible {
   border-color: var(--vibe-border);
   color: var(--vibe-text);
   background: var(--vibe-surface-hover);
+}
+
+.market-alert-center {
+  position: relative;
+}
+
+.market-alert-center > summary {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--vibe-text-muted);
+  background: transparent;
+  cursor: pointer;
+  list-style: none;
+  font-size: 10px;
+}
+
+.market-alert-center > summary::-webkit-details-marker {
+  display: none;
+}
+
+.market-alert-center[open] > summary,
+.market-alert-center > summary:hover {
+  border-color: var(--vibe-border);
+  color: var(--vibe-text);
+  background: var(--vibe-surface-hover);
+}
+
+.market-alert-popover {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 7px);
+  right: 0;
+  width: min(360px, calc(100vw - 28px));
+  overflow: hidden;
+  border: 1px solid var(--vibe-border-strong);
+  border-radius: 10px;
+  background: var(--vibe-surface);
+  box-shadow: var(--terminal-shadow);
+}
+
+.market-alert-popover header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 11px;
+  border-bottom: 1px solid var(--vibe-border);
+  background: var(--vibe-surface-muted);
+}
+
+.market-alert-popover header > span {
+  display: grid;
+  gap: 2px;
+}
+
+.market-alert-popover header strong {
+  font-size: 11px;
+}
+
+.market-alert-popover header small,
+.market-alert-popover header > i {
+  color: var(--vibe-text-muted);
+  font-size: 9px;
+  font-style: normal;
+}
+
+.market-alert-popover header > i {
+  font-family: var(--vibe-font-mono);
+}
+
+.market-alert-form {
+  display: grid;
+  grid-template-columns: 86px 86px 1fr 48px;
+  gap: 5px;
+  padding: 9px;
+  border-bottom: 1px solid var(--vibe-border);
+}
+
+.market-alert-form select,
+.market-alert-form input,
+.market-alert-form button {
+  min-width: 0;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--vibe-border);
+  border-radius: 5px;
+  background: var(--vibe-surface);
+  font-size: 9px;
+}
+
+.market-alert-form button {
+  color: var(--vibe-accent-contrast);
+  background: var(--vibe-accent);
+  cursor: pointer;
+}
+
+.market-alert-form button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.market-alert-error {
+  margin: 0;
+  padding: 7px 10px;
+  color: var(--vibe-error-text);
+  background: var(--vibe-error-bg);
+  font-size: 9px;
+}
+
+.market-alert-list {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.market-alert-list > p {
+  margin: 0;
+  padding: 18px 10px;
+  color: var(--vibe-text-muted);
+  text-align: center;
+  font-size: 10px;
+}
+
+.market-alert-row {
+  display: grid;
+  grid-template-columns: 24px 1fr 28px;
+  align-items: center;
+  min-height: 42px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--vibe-border);
+}
+
+.market-alert-row[data-enabled="false"] {
+  opacity: .55;
+}
+
+.market-alert-row > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.market-alert-row strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.market-alert-row small {
+  color: var(--vibe-text-muted);
+  font-size: 9px;
+}
+
+.market-alert-toggle,
+.market-alert-delete {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: var(--vibe-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.market-alert-toggle > i {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--vibe-border-strong);
+  border-radius: 50%;
+  background: var(--vibe-surface-raised);
+}
+
+.market-alert-row[data-enabled="true"] .market-alert-toggle > i {
+  border-color: var(--vibe-positive);
+  background: var(--vibe-positive);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vibe-positive) 12%, transparent);
 }
 
 .quote-strip {
@@ -527,8 +683,8 @@ select:focus-visible {
 }
 
 .group-toolbar button.delete-armed {
-  color: var(--vibe-down);
-  background: color-mix(in srgb, var(--vibe-down) 12%, transparent);
+  color: var(--vibe-negative);
+  background: color-mix(in srgb, var(--vibe-negative) 12%, transparent);
 }
 
 .group-editor {
@@ -767,7 +923,7 @@ select:focus-visible {
   border: 1px solid var(--vibe-border);
   border-radius: 7px;
   background: color-mix(in srgb, var(--vibe-surface) 91%, transparent);
-  box-shadow: 0 5px 16px rgb(15 23 42 / 7%);
+  box-shadow: 0 5px 16px rgb(16 32 25 / 9%);
 }
 
 .drawing-tools button {
@@ -790,7 +946,7 @@ select:focus-visible {
   border-radius: 7px;
   color: var(--vibe-text-muted);
   background: color-mix(in srgb, var(--vibe-surface) 92%, transparent);
-  box-shadow: 0 5px 18px rgb(15 23 42 / 7%);
+  box-shadow: 0 5px 18px rgb(16 32 25 / 9%);
   font-size: 10px;
 }
 

@@ -1,0 +1,742 @@
+{
+  "schemaVersion": "1.0",
+  "id": "research-suite",
+  "name": "Vibe Research",
+  "description": "Vibe Research 的内置投研页面集合，由 Newma-Desk 统一挂载并按页面展开为独立 Mod。",
+  "version": "0.1.0",
+  "publisher": "Newma-Desk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": [
+    "投研",
+    "Research"
+  ],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "vibe-research",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "宏观面",
+      "groupOrder": 20,
+      "itemOrder": 100,
+      "directory": {
+        "id": "research-suite",
+        "label": "Vibe Research",
+        "order": 10
+      },
+      "project": {
+        "id": "fundamentals",
+        "name": "宏观面",
+        "order": 20,
+        "description": "经济数据、宏观指标、行业、产业链与宏观事件。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {
+      "level": 1,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": [],
+    "dataServices": [],
+    "actions": {},
+    "events": {
+      "emits": [],
+      "accepts": []
+    }
+  },
+  "pages": [
+    {
+      "id": "daily-review",
+      "name": "每日复盘",
+      "description": "汇总每日市场变化、重点信息和复盘结论，形成可持续更新的投研页面。",
+      "tags": [
+        "投研",
+        "复盘",
+        "每日"
+      ],
+      "route": "/mod-runtime/research/daily-review",
+      "navigation": {
+        "itemOrder": 10,
+        "icon": "today"
+      },
+      "manifest": {
+        "category": "today",
+        "permissions": [
+          "investment.read"
+        ],
+        "dataServices": [
+          "vibe-investment-native"
+        ]
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "macro-monitor",
+      "name": "宏观观察",
+      "description": "统一查看增长、价格、流动性核心指标和未来经济事件，显式记录来源、新鲜度、置信度与数据缺口。",
+      "version": "0.1.0",
+      "tags": [
+        "宏观",
+        "经济日历",
+        "PMI",
+        "通胀",
+        "流动性"
+      ],
+      "route": "/mod-runtime/research/macro-monitor",
+      "navigation": {
+        "itemOrder": 15
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "market.read"
+        ],
+        "dataServices": [
+          "market-data"
+        ]
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "news-radar",
+      "name": "资讯雷达",
+      "description": "聚合自选资讯与市场动态，帮助用户建立持续更新的信息观察面板。",
+      "tags": [
+        "资讯",
+        "市场",
+        "雷达"
+      ],
+      "route": "/mod-runtime/research/intel",
+      "navigation": {
+        "itemOrder": 20,
+        "icon": "market"
+      },
+      "manifest": {
+        "category": "market",
+        "permissions": [
+          "investment.read"
+        ],
+        "dataServices": [
+          "vibe-investment-native"
+        ]
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "watchlist",
+      "name": "自选股",
+      "description": "维护个人关注股票列表，并集中查看行情、变化和后续研究入口。",
+      "version": "0.2.0",
+      "tags": [
+        "自选股",
+        "行情",
+        "列表"
+      ],
+      "route": "/mod-runtime/research/watchlist",
+      "navigation": {
+        "itemOrder": 30,
+        "icon": "market"
+      },
+      "manifest": {
+        "category": "market",
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "market.read",
+          "investment.local-write"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "actions": {},
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "idea-funnel",
+      "name": "研究机会池",
+      "description": "把市场扫描、主题、新闻、催化剂、产业链和自选线索转成双向假设、研究任务与深度研究交接，并汇总复核到期、陈旧来源和档案缺口。",
+      "version": "0.1.0",
+      "tags": [
+        "Idea Generation",
+        "研究机会",
+        "筛选",
+        "研究队列",
+        "研究流程",
+        "反方证据"
+      ],
+      "route": "/mod-runtime/research/idea-funnel",
+      "navigation": {
+        "itemOrder": 35
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "market.read",
+          "storage.read",
+          "storage.write"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [
+            {
+              "id": "idea-funnel",
+              "scope": "user-workspace",
+              "schemaVersion": 1,
+              "quotaMb": 4,
+              "maxItemKb": 256
+            }
+          ]
+        },
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "stock-research",
+      "name": "个股研究",
+      "description": "按股票查看行情、估值、研报和新闻，并连接统一 Agent 继续分析。",
+      "version": "0.2.0",
+      "tags": [
+        "个股",
+        "研报",
+        "估值"
+      ],
+      "route": "/mod-runtime/research/stock-data",
+      "navigation": {
+        "itemOrder": 40
+      },
+      "manifest": {
+        "permissions": [
+          "investment.read",
+          "storage.read",
+          "storage.write"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [
+            {
+              "id": "research-history",
+              "scope": "user-workspace",
+              "schemaVersion": 1,
+              "quotaMb": 2,
+              "maxItemKb": 64
+            }
+          ]
+        },
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "industry-map",
+      "name": "产业链研究",
+      "description": "将 Agent 产业链研究转换为可固化的结构化节点、关系和 Archify 交互图谱。",
+      "version": "0.2.0",
+      "tags": [
+        "产业链",
+        "研究",
+        "公司",
+        "Archify",
+        "Artifact"
+      ],
+      "route": "/mod-runtime/research/sectors",
+      "navigation": {
+        "itemOrder": 50
+      },
+      "manifest": {
+        "permissions": [
+          "investment.read"
+        ],
+        "dataServices": [
+          "vibe-investment-native"
+        ]
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "etf-research",
+      "name": "基金与 ETF 研究",
+      "description": "比较 ETF 与场内基金的历史收益、波动、回撤和相关性，并为费率、跟踪误差、持仓穿透与组合适配建立统一证据入口。",
+      "version": "0.1.0",
+      "tags": [
+        "基金",
+        "ETF",
+        "风险收益",
+        "资产配置"
+      ],
+      "route": "/mod-runtime/research/etf-research",
+      "navigation": {
+        "itemOrder": 60
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "market.read"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "catalyst-calendar",
+      "name": "催化剂日历",
+      "description": "聚合财报预约、解禁、宏观周期观察窗和用户自定义事件，记录来源、新鲜度、确认条件、失效条件与实际结果。",
+      "version": "0.1.0",
+      "tags": [
+        "催化剂",
+        "事件日历",
+        "财报",
+        "宏观周期"
+      ],
+      "route": "/mod-runtime/research/catalyst-calendar",
+      "navigation": {
+        "itemOrder": 65
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "market.read",
+          "storage.read",
+          "storage.write"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [
+            {
+              "id": "catalyst-calendar",
+              "scope": "user-workspace",
+              "schemaVersion": 1,
+              "quotaMb": 2,
+              "maxItemKb": 128
+            }
+          ]
+        },
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "earnings-workbench",
+      "name": "财报研究",
+      "description": "统一完成财报前预期、财报后实际、预期差、指引变化、预测修订与投资逻辑影响分析，并保留来源和截至日期。",
+      "version": "0.1.0",
+      "tags": [
+        "财报",
+        "业绩预期",
+        "Beat Miss",
+        "指引",
+        "预测修订"
+      ],
+      "route": "/mod-runtime/research/earnings-workbench",
+      "navigation": {
+        "itemOrder": 66
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "market.read",
+          "storage.read",
+          "storage.write"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [
+            {
+              "id": "earnings-workbench",
+              "scope": "user-workspace",
+              "schemaVersion": 1,
+              "quotaMb": 4,
+              "maxItemKb": 256
+            }
+          ]
+        },
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "thesis-tracker",
+      "name": "投资逻辑",
+      "description": "将个股核心论点、支柱、证伪条件、催化剂、证据与阶段复盘固化为可持续更新的结构化研究档案。",
+      "version": "0.1.0",
+      "tags": [
+        "投资逻辑",
+        "证据",
+        "证伪",
+        "复盘"
+      ],
+      "route": "/mod-runtime/research/thesis-tracker",
+      "navigation": {
+        "itemOrder": 67
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "market.read",
+          "storage.read",
+          "storage.write"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [
+            {
+              "id": "thesis-tracker",
+              "scope": "user-workspace",
+              "schemaVersion": 1,
+              "quotaMb": 4,
+              "maxItemKb": 256
+            }
+          ]
+        },
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "peer-comparison",
+      "name": "同业比较",
+      "description": "先审计业务模式、报告期、币种和指标口径的可比性，再比较同业增长、盈利质量、资本效率、估值倍数与竞争优势。",
+      "version": "0.1.0",
+      "tags": [
+        "同业比较",
+        "可比公司",
+        "估值",
+        "竞争分析",
+        "分位统计"
+      ],
+      "route": "/mod-runtime/research/peer-comparison",
+      "navigation": {
+        "itemOrder": 68
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "market.read",
+          "storage.read",
+          "storage.write"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [
+            {
+              "id": "peer-comparison",
+              "scope": "user-workspace",
+              "schemaVersion": 1,
+              "quotaMb": 4,
+              "maxItemKb": 256
+            }
+          ]
+        },
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "valuation-workbench",
+      "name": "预测与估值",
+      "description": "用可追溯历史基期、三种经营情景、WACC、自由现金流、企业价值桥接和完整敏感性矩阵形成轻量驱动式 DCF。",
+      "version": "0.1.0",
+      "tags": [
+        "财务预测",
+        "DCF",
+        "WACC",
+        "估值",
+        "敏感性分析"
+      ],
+      "route": "/mod-runtime/research/valuation-workbench",
+      "navigation": {
+        "itemOrder": 69
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "market.read",
+          "storage.read",
+          "storage.write"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [
+            {
+              "id": "valuation-workbench",
+              "scope": "user-workspace",
+              "schemaVersion": 1,
+              "quotaMb": 4,
+              "maxItemKb": 256
+            }
+          ]
+        },
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "research-memo",
+      "name": "研究备忘录",
+      "description": "通过引用而非复制，将投资逻辑、财报、同业、估值、催化剂、产业链和反方证据收敛为可版本化、可证伪的研究备忘录。",
+      "version": "0.1.0",
+      "tags": [
+        "研究备忘录",
+        "研究收敛",
+        "版本管理",
+        "证据",
+        "投委会"
+      ],
+      "route": "/mod-runtime/research/research-memo",
+      "navigation": {
+        "itemOrder": 70
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "market.read",
+          "storage.read",
+          "storage.write"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [
+            {
+              "id": "research-memo",
+              "scope": "user-workspace",
+              "schemaVersion": 1,
+              "quotaMb": 6,
+              "maxItemKb": 384
+            }
+          ]
+        },
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "research-library",
+      "name": "研究档案",
+      "description": "以只存引用的统一索引汇总上传研报、研究记录、投资逻辑、财报、同业、估值与研究备忘录。",
+      "tags": [
+        "研报",
+        "知识库",
+        "研究档案",
+        "统一索引",
+        "引用"
+      ],
+      "route": "/mod-runtime/research/my-reports",
+      "navigation": {
+        "itemOrder": 75
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "investment.read",
+          "investment.files"
+        ],
+        "dataServices": [
+          "vibe-investment-native"
+        ]
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "research-notes",
+      "name": "研究记录",
+      "description": "将复盘、要点和问答沉淀到 Desk 工作区，支持旧本地记录迁移、离线回退和统一 Agent Context。",
+      "tags": [
+        "笔记",
+        "研究",
+        "上下文",
+        "Desk Storage",
+        "沉淀"
+      ],
+      "route": "/mod-runtime/research/notes",
+      "navigation": {
+        "itemOrder": 80
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": [
+          "storage.read",
+          "storage.write"
+        ],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [
+            {
+              "id": "research-notes",
+              "scope": "user-workspace",
+              "schemaVersion": 1,
+              "quotaMb": 6,
+              "maxItemKb": 512
+            }
+          ]
+        }
+      },
+      "defaultInstall": true
+    }
+  ]
+}

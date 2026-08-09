@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { KLineChartPanel, type ChartAnnotation } from "@newma-desk/chart-kit";
 
+import { marketEvidenceToCatalyst } from "../catalysts";
 import type {
   Bar,
   MarketDataSource,
@@ -247,9 +248,14 @@ export function EventTimelineWorkspace({
         evidenceId: event.evidenceId,
         ...(event.origin === "evidence" && event.url ? { url: event.url } : {}),
       })),
+      catalystContract: "newma-desk.catalyst-calendar.v1",
+      catalysts: visibleEvents
+        .filter((event): event is TimelineEvent & { origin: "evidence" } => event.origin === "evidence")
+        .slice(0, 12)
+        .map((event) => marketEvidenceToCatalyst(event, security)),
       sources: feed.sources,
     });
-  }, [feed.sources, filter, onContextChange, primaryIndicator, saved.size, secondaryIndicator, selectedEvent, visibleEvents]);
+  }, [feed.sources, filter, onContextChange, primaryIndicator, saved.size, secondaryIndicator, security, selectedEvent, visibleEvents]);
 
   const toggleSaved = (event: TimelineEvent) => {
     setSaved((current) => {

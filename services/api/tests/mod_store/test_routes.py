@@ -6,19 +6,21 @@ from threading import Thread
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-
 from vibe_visualization_api.config import Settings
 from vibe_visualization_api.control_plane.repository import ModuleRepository
 from vibe_visualization_api.external_mod_runtimes import resolve_runtime_workspace
 from vibe_visualization_api.main import create_app
+from vibe_visualization_api.mod_store.schemas import (
+    StoreModDescriptor,
+    StoreModSuiteDescriptor,
+    expand_mod_suite,
+)
 from vibe_visualization_api.mod_store.service import (
     ModStoreCatalogError,
     ModStoreDiscoveryError,
     ModStoreService,
     ModStoreSourceError,
 )
-from vibe_visualization_api.mod_store.schemas import StoreModDescriptor
-
 
 DESCRIPTOR = {
     "schemaVersion": "1.0",
@@ -109,6 +111,13 @@ SUITE_DESCRIPTOR = {
                 "label": "示例项目",
                 "order": 10,
             },
+            "project": {
+                "id": "fundamentals",
+                "name": "宏观面",
+                "order": 20,
+                "description": "经济数据、宏观指标、行业、产业链与宏观事件。",
+                "logo": {"type": "letter", "text": "ER"},
+            },
             "icon": "research",
         },
         "permissions": [],
@@ -121,9 +130,25 @@ SUITE_DESCRIPTOR = {
             "id": "example-overview",
             "name": "项目总览",
             "description": "示例项目的总览页面。",
+            "version": "0.2.0",
             "route": "/overview",
-            "navigation": {"itemOrder": 10, "label": "总览"},
-            "manifest": {"permissions": ["research.read"]},
+            "navigation": {
+                "itemOrder": 10,
+                "label": "总览",
+            },
+            "manifest": {
+                "schemaVersion": "1.1",
+                "category": "market",
+                "compatibility": {
+                    "level": 3,
+                    "bridgeProtocol": "1.0",
+                    "viewSpecVersion": "1.0",
+                },
+                "permissions": ["research.read"],
+                "dataServices": ["market-data"],
+                "actions": {},
+                "events": {"emits": ["security.selected"], "accepts": []},
+            },
             "defaultInstall": True,
         },
         {
@@ -137,7 +162,10 @@ SUITE_DESCRIPTOR = {
                 "icon": "settings",
                 "role": "settings",
             },
-            "manifest": {"permissions": ["research.settings"]},
+            "manifest": {
+                "category": "system",
+                "permissions": ["research.settings"],
+            },
         },
     ],
 }
@@ -263,6 +291,127 @@ def _write_http_suite_store(
         encoding="utf-8",
     )
     return store_dir
+
+
+def test_suite_expansion_preserves_project_identity_on_every_page() -> None:
+    suite = StoreModSuiteDescriptor.model_validate(SUITE_DESCRIPTOR)
+
+    expanded = expand_mod_suite(suite)
+
+    assert len(expanded) == 2
+    for descriptor, _ in expanded:
+        navigation = descriptor.manifest.navigation
+        assert navigation is not None
+        assert navigation.project is not None
+        assert navigation.project.model_dump(
+            by_alias=True, exclude_none=True, mode="json"
+        ) == {
+            "id": "fundamentals",
+            "name": "宏观面",
+            "order": 20,
+            "description": "经济数据、宏观指标、行业、产业链与宏观事件。",
+            "logo": {"type": "letter", "text": "ER"},
+        }
+
+
+def test_suite_expansion_places_legacy_suite_intact_under_other() -> None:
+    legacy_descriptor = json.loads(json.dumps(SUITE_DESCRIPTOR))
+    del legacy_descriptor["manifest"]["navigation"]["project"]
+    suite = StoreModSuiteDescriptor.model_validate(legacy_descriptor)
+
+    expanded = expand_mod_suite(suite)
+
+    for descriptor, _ in expanded:
+        navigation = descriptor.manifest.navigation
+        assert navigation is not None
+        assert navigation.project is not None
+        assert navigation.project.model_dump(
+            by_alias=True, exclude_none=True, mode="json"
+        ) == {
+            "id": "other",
+            "name": "其他",
+            "order": 150,
+            "description": "尚未归入核心投研流程的管理工具与扩展能力。",
+        }
+
+
+def test_suite_rejects_pages_split_across_domains() -> None:
+    descriptor = json.loads(json.dumps(SUITE_DESCRIPTOR))
+    descriptor["pages"][1]["navigation"]["project"] = {
+        "id": "policy-intelligence",
+        "name": "政策面",
+        "order": 50,
+    }
+
+    with pytest.raises(ValidationError, match="cannot split pages across investment domains"):
+        StoreModSuiteDescriptor.model_validate(descriptor)
+
+
+def test_suite_rejects_page_moved_into_another_complete_project() -> None:
+    descriptor = json.loads(json.dumps(SUITE_DESCRIPTOR))
+    descriptor["pages"][1]["navigation"]["directory"] = {
+        "id": "detached-suite",
+        "label": "另一个项目",
+        "order": 20,
+    }
+
+    with pytest.raises(ValidationError, match="cannot split pages into another project group"):
+        StoreModSuiteDescriptor.model_validate(descriptor)
+
+
+@pytest.mark.parametrize(
+    "logo",
+    [
+        {"type": "letter", "text": " "},
+        {"type": "letter", "text": "LONG"},
+        {"type": "image", "src": "javascript:alert(1)"},
+        {"type": "image", "src": "/%2e%2e/secret.png"},
+        {"type": "icon", "name": "unregistered"},
+    ],
+)
+def test_suite_rejects_unsafe_project_logo(logo: dict[str, str]) -> None:
+    descriptor = json.loads(json.dumps(SUITE_DESCRIPTOR))
+    descriptor["manifest"]["navigation"]["project"]["logo"] = logo
+
+    with pytest.raises(ValidationError):
+        StoreModSuiteDescriptor.model_validate(descriptor)
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "expected_domain"),
+    [
+        ("mods/research-suite/suite.json", "fundamentals"),
+        ("mods/trading-suite/suite.json", "quant-research"),
+        ("mods/portfolio-suite/suite.json", "trading-risk-portfolio"),
+        ("mods/orchestra-suite/suite.json", "investment-committee"),
+        ("mods/calendar-effect-suite/suite.json", "tactical-timing"),
+        ("mods/deepsee-suite/suite.json", "other"),
+    ],
+)
+def test_first_party_suite_remains_intact_in_one_investment_domain(
+    relative_path: str,
+    expected_domain: str,
+) -> None:
+    repository_root = Path(__file__).resolve().parents[4]
+    suite = StoreModSuiteDescriptor.model_validate_json(
+        (repository_root / relative_path).read_text(encoding="utf-8")
+    )
+
+    expanded = expand_mod_suite(suite)
+
+    assert expanded
+    assert {
+        descriptor.manifest.navigation.project.id
+        for descriptor, _ in expanded
+        if descriptor.manifest.navigation is not None
+        and descriptor.manifest.navigation.project is not None
+    } == {expected_domain}
+    assert all(
+        descriptor.manifest.navigation is not None
+        and descriptor.manifest.navigation.group_label
+        == descriptor.manifest.navigation.project.name
+        for descriptor, _ in expanded
+    )
 
 
 @pytest.mark.asyncio
@@ -502,6 +651,51 @@ def test_store_installs_manifest_1_1_with_explicit_actions(tmp_path: Path) -> No
     assert manifest["schemaVersion"] == "1.1"
     assert "agentCapabilities" not in manifest
     assert manifest["actions"]["market.explain"]["binding"]["type"] == "agent"
+
+
+def test_store_preserves_desk_managed_storage_declaration(tmp_path: Path) -> None:
+    descriptor = {
+        **V1_1_DESCRIPTOR,
+        "id": "storage-notes",
+        "name": "存储笔记",
+        "manifest": {
+            **V1_1_DESCRIPTOR["manifest"],
+            "permissions": ["storage.read", "storage.write"],
+            "actions": {},
+            "storage": {
+                "mode": "desk-managed",
+                "namespaces": [
+                    {
+                        "id": "notes",
+                        "schemaVersion": 1,
+                        "quotaMb": 5,
+                    }
+                ],
+            },
+        },
+    }
+
+    async def fetch_descriptor(catalog, entry):
+        return descriptor
+
+    settings = Settings(
+        runtime_dir=tmp_path,
+        database_path=tmp_path / "store.db",
+        mod_store_dir=_write_store(tmp_path, descriptor),
+    )
+    with TestClient(create_app(settings, mod_store_fetcher=fetch_descriptor)) as client:
+        installed = client.post("/api/store/mods/storage-notes/install")
+
+    assert installed.status_code == 201
+    storage = installed.json()["mod"]["manifest"]["storage"]
+    assert storage["mode"] == "desk-managed"
+    assert storage["namespaces"][0] == {
+        "id": "notes",
+        "scope": "user-workspace",
+        "schemaVersion": 1,
+        "quotaMb": 5,
+        "maxItemKb": 256,
+    }
 
 
 def test_store_uses_local_descriptor_when_git_download_fails(tmp_path: Path) -> None:
