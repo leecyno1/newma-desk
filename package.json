@@ -29,6 +29,8 @@
     "mods:theme:check": "node scripts/check-mod-theme.mjs",
     "mods:theme:audit": "node scripts/audit-mod-theme-runtime.mjs",
     "mods:sources:check": "node scripts/check-mod-project-sources.mjs",
+    "release:recovery:create": "node scripts/create-mod-source-recovery.mjs",
+    "release:recovery:verify": "node scripts/verify-mod-source-recovery.mjs",
     "footprint:check": "node scripts/check-production-footprint.mjs",
     "deploy:check": "python3 deploy/server/check-compose.py",
     "pilots:check": "node scripts/check-external-finance-pilots.mjs",

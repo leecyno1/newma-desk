@@ -23,7 +23,7 @@
 - `vibe-research`
   - `origin`: `https://github.com/simonlin1212/Vibe-Research.git`
   - `branch`: `codex/newma-desk-release-baseline-20260809`
-  - `commit`: `87aece9a0263113b1d6c6d8f780d667b9d0dbeaf`
+  - `commit`: `e4dc07617e9ba16067b38b860e402b4af705a6c3`
   - `working tree`: clean
 - `vibe-trading`
   - `origin`: `https://github.com/HKUDS/Vibe-Trading.git`
@@ -31,7 +31,25 @@
   - `commit`: `f159a41033bdb8d3b2c60260bdab9bea045c814f`
   - `working tree`: clean
 
-这些提交当前只存在于迁移后的本地仓库中。由于尚未获得向两个外部上游推送集成分支的授权，overlay publication 仍标记为 `blocked`；不得把“本地已锁定”表述成“外部远端已备份”。
+这些提交当前只存在于迁移后的本地仓库和已校验的本地恢复介质中。overlay 状态为 `local-recovery-ready`：可以从完整 Git bundle 恢复，但尚未获得向两个外部上游推送集成分支的授权；不得把“本地可恢复”表述成“外部远端已备份”。
+
+## 创建本地恢复介质
+
+不向第三方远端推送时，可以为两个快照提交创建完整 Git bundle：
+
+```bash
+npm run release:recovery:create
+npm run release:recovery:verify -- release-artifacts/newma-desk-release-ready-2026-08-09
+```
+
+生成目录包含：
+
+- 两个具备完整历史、无需上游 prerequisite 的 Git bundle
+- 创建时 source lock 的独立副本及其 SHA-256
+- 记录主仓提交、锁定提交、文件大小和 SHA-256 的 `manifest.json`
+- 一份最小恢复说明
+
+验证器不会只运行 `git bundle verify`；它还会校验内附 source lock，逐项比对分支、提交与远端元数据，并把每个 bundle 克隆到一次性目录，确认恢复后的 `HEAD` 与 source lock 一致且工作树干净。生成物默认位于被 Git 忽略的 `release-artifacts/`，应随正式发布介质复制到独立存储。
 
 ## 如何校验
 
@@ -85,12 +103,12 @@ node scripts/check-mod-project-sources.mjs --fail-on-dirty
 - 未经授权的 clean clone 能自动取得这些本地提交
 - 这些集成提交适合直接合并回第三方上游的默认分支
 
-## 何时可以升级到 overlay
+## 何时可以升级到远端恢复
 
-只有在以下条件同时满足时，才应把 lock 升级为远端或 bundle 可回放方案：
+本地 bundle 回放条件已经满足。只有在以下条件同时满足时，才应进一步声明为远端可恢复：
 
-1. 用户明确授权推送目标远端，或批准把审阅后的 recovery bundle 纳入发布介质
-2. recovery 来源能从 clean clone 稳定恢复两个锁定提交
-3. 发布介质不包含运行产物、临时文件、会话文件或用户私有内容
+1. 用户明确授权推送目标远端
+2. 远端能从 clean clone 稳定恢复两个锁定提交
+3. 推送目标与分支经过明确审阅，不覆盖第三方默认分支
 
-在那之前，`config/mod-project-source-lock.json` 是本机可验证的 pinned baseline，不是远端发布证明。
+在那之前，`config/mod-project-source-lock.json` 与 recovery bundle 是本地可验证的恢复基线，不是远端发布证明。

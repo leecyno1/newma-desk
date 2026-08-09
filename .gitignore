@@ -22,6 +22,7 @@ playwright-report/
 test-results/
 .playwright-cli/
 output/
+release-artifacts/
 mods/*.bak-*
 
 # In-tree upstream Mod workspaces keep their own Git history and dependencies.

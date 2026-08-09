@@ -7,8 +7,8 @@
       "!mod-projects/README.md"
     ],
     "overlayPolicy": {
-      "status": "blocked",
-      "reason": "Both nested repositories now have clean local snapshot commits. Overlay publication remains blocked until those snapshot branches are pushed to an authorized remote or exported as reviewed recovery bundles."
+      "status": "local-recovery-ready",
+      "reason": "Both nested repositories have clean local snapshot commits and reviewed, clone-tested recovery bundles. The snapshots have not been pushed to an external remote and must not be represented as remotely backed up."
     }
   },
   "projects": [
@@ -23,12 +23,12 @@
         "current": "codex/newma-desk-release-baseline-20260809",
         "upstream": "origin/main"
       },
-      "commit": "87aece9a0263113b1d6c6d8f780d667b9d0dbeaf",
+      "commit": "e4dc07617e9ba16067b38b860e402b4af705a6c3",
       "workingTree": {
         "status": "clean",
         "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "indexSha256": "f3ebab8e33083626dfffadaee38a7c821d277880a585bf42998a7936bdb215f4",
-        "worktreeSha256": "0dc465b16a0d5b4baf02d068e8e7b6e667f4f9113ee517537bb3bc4f32ec41c7",
+        "indexSha256": "4f514ba0cdafe33631f9f956033f6d2d2a42ed882c56891098bb28e03091666d",
+        "worktreeSha256": "1dd7bf7e01480a899c1a58daba0a44e4ee883ae149ba56404f4feafdea5b7a9a",
         "counts": {
           "entries": 0,
           "staged": 0,
