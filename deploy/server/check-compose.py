@@ -43,6 +43,12 @@ def render(compose_file: str, env_file: str) -> dict:
         "--format",
         "json",
     ]
+    source_text = compose_path.read_text(encoding="utf-8")
+    deepsee_env = Path("/opt/newma-projects/deepsee/.env")
+    if str(deepsee_env) in source_text and not deepsee_env.exists():
+        deepsee_env.parent.mkdir(parents=True, exist_ok=True)
+        deepsee_env.write_text("# compose validation placeholder\n", encoding="utf-8")
+        temporary_env_files.append(deepsee_env)
     try:
         result = subprocess.run(
             command,
