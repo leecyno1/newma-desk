@@ -18,6 +18,16 @@ SERVER = ROOT / "deploy" / "server"
 def render(compose_file: str, env_file: str) -> dict:
     compose_path = SERVER / compose_file
     env_path = SERVER / env_file
+    env_contents = {
+        ".env.server": (SERVER / ".env.server.example").read_text(encoding="utf-8"),
+        ".env.external": (SERVER / ".env.external.example").read_text(encoding="utf-8"),
+    }
+    temporary_env_files: list[Path] = []
+    for name, contents in env_contents.items():
+        target = SERVER / name
+        if not target.exists():
+            target.write_text(contents, encoding="utf-8")
+            temporary_env_files.append(target)
     command = [
         "docker",
         "compose",
@@ -33,15 +43,19 @@ def render(compose_file: str, env_file: str) -> dict:
         "--format",
         "json",
     ]
-    result = subprocess.run(
-        command,
-        cwd=SERVER,
-        check=True,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "COMPOSE_ENV_FILES": str(env_path)},
-    )
-    return json.loads(result.stdout)
+    try:
+        result = subprocess.run(
+            command,
+            cwd=SERVER,
+            check=True,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "COMPOSE_ENV_FILES": str(env_path)},
+        )
+        return json.loads(result.stdout)
+    finally:
+        for target in temporary_env_files:
+            target.unlink(missing_ok=True)
 
 
 def validate_guardrails(label: str, config: dict, issues: list[str]) -> None:
