@@ -111,31 +111,6 @@
       "defaultInstall": true
     },
     {
-      "id": "news-radar",
-      "name": "资讯雷达",
-      "description": "聚合自选资讯与市场动态，帮助用户建立持续更新的信息观察面板。",
-      "tags": [
-        "资讯",
-        "市场",
-        "雷达"
-      ],
-      "route": "/mod-runtime/research/intel",
-      "navigation": {
-        "itemOrder": 20,
-        "icon": "market"
-      },
-      "manifest": {
-        "category": "market",
-        "permissions": [
-          "investment.read"
-        ],
-        "dataServices": [
-          "vibe-investment-native"
-        ]
-      },
-      "defaultInstall": true
-    },
-    {
       "id": "watchlist",
       "name": "自选股",
       "description": "维护个人关注股票列表，并集中查看行情、变化和后续研究入口。",
@@ -332,59 +307,6 @@
         "dataServices": [
           "market-data"
         ],
-        "events": {
-          "emits": [
-            "security.selected"
-          ],
-          "accepts": [
-            "security.selected"
-          ]
-        }
-      },
-      "defaultInstall": true
-    },
-    {
-      "id": "catalyst-calendar",
-      "name": "催化剂日历",
-      "description": "聚合财报预约、解禁、宏观周期观察窗和用户自定义事件，记录来源、新鲜度、确认条件、失效条件与实际结果。",
-      "version": "0.1.0",
-      "tags": [
-        "催化剂",
-        "事件日历",
-        "财报",
-        "宏观周期"
-      ],
-      "route": "/mod-runtime/research/catalyst-calendar",
-      "navigation": {
-        "itemOrder": 65
-      },
-      "manifest": {
-        "compatibility": {
-          "level": 3,
-          "bridgeProtocol": "1.0",
-          "sdkVersion": "^0.1.0",
-          "viewSpecVersion": "1.0"
-        },
-        "permissions": [
-          "market.read",
-          "storage.read",
-          "storage.write"
-        ],
-        "dataServices": [
-          "market-data"
-        ],
-        "storage": {
-          "mode": "desk-managed",
-          "namespaces": [
-            {
-              "id": "catalyst-calendar",
-              "scope": "user-workspace",
-              "schemaVersion": 1,
-              "quotaMb": 2,
-              "maxItemKb": 128
-            }
-          ]
-        },
         "events": {
           "emits": [
             "security.selected"

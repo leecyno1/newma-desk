@@ -1,6 +1,5 @@
 import {
   INVESTMENT_DOMAINS,
-  investmentDomainProject,
 } from "@newma-desk/contracts";
 
 import type { StoredMod } from "../api/modules";
@@ -571,36 +570,6 @@ function buildSidebarProjects(
       settingsDirectory,
     };
   });
-
-  const populatedProjectIds = new Set(projects.map((project) => project.id));
-  for (const domain of INVESTMENT_DOMAINS) {
-    if (populatedProjectIds.has(domain.id)) continue;
-    const projectPreference = preferences.projects?.[domain.id];
-    const project = investmentDomainProject(domain);
-    const name = projectPreference?.label?.trim() || project.name;
-    const order = projectPreference?.order ?? project.order;
-    const pinned = projectPreference?.pinned ?? false;
-    projects.push({
-      id: project.id,
-      name,
-      defaultName: project.name,
-      description: project.description,
-      order,
-      pinned,
-      logo: project.logo,
-      icon: domain.icon,
-      modules: [],
-      sections: [],
-      settingsDirectory: {
-        id: project.id,
-        label: name,
-        groupLabel: project.name,
-        order,
-        pinned,
-        modules: [],
-      },
-    });
-  }
 
   return projects.sort(comparePinnedProjectOrder);
 }

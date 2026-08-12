@@ -88,7 +88,7 @@ test("project navigation supports switching, scoped sections, freezing, persiste
     name: "Newma-Desk Mod 导航",
   });
   const marketProject = navigation.getByRole("button", {
-    name: "市场面 项目",
+    name: "市场 项目",
     exact: true,
   });
   const macroProject = navigation.getByRole("button", {
@@ -99,10 +99,10 @@ test("project navigation supports switching, scoped sections, freezing, persiste
   await expect(macroProject).toBeVisible();
 
   let secondary = page.getByRole("complementary", {
-    name: "市场面 二级导航",
+    name: "市场 二级导航",
   });
   await expect(secondary).toBeVisible();
-  await expect(secondary.locator(".module-button")).toHaveCount(6);
+  await expect(secondary.locator(".module-button")).toHaveCount(5);
   await expect(
     secondary.getByRole("button", { name: "终端", exact: true }),
   ).toBeVisible();
@@ -122,7 +122,7 @@ test("project navigation supports switching, scoped sections, freezing, persiste
 
   await marketProject.click();
   secondary = page.getByRole("complementary", {
-    name: "市场面 二级导航",
+    name: "市场 二级导航",
   });
   await expect(secondary).toBeVisible();
 
@@ -134,11 +134,12 @@ test("project navigation supports switching, scoped sections, freezing, persiste
     .locator("..");
   await multiTimeframeRow.dragTo(terminalRow);
   await expect(secondary.locator(".module-button").first()).toHaveText("多周期");
+  await expect(secondary.locator(".module-button").nth(1)).toHaveText("终端");
 
   await page.getByRole("button", { name: "界面设置" }).click();
   await expect(page.getByRole("heading", { name: "项目导航" })).toBeVisible();
   const marketProjectTitle = page.getByRole("textbox", {
-    name: "市场面 一级标题",
+    name: "市场 一级标题",
   });
   await marketProjectTitle.fill("重点行情");
   await page.getByRole("button", { name: "保存导航" }).click();
@@ -154,15 +155,16 @@ test("project navigation supports switching, scoped sections, freezing, persiste
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(marketProjectTitle).toHaveValue("重点行情");
-  await page.getByRole("button", { name: "恢复 市场面 默认标题" }).click();
+  await page.getByRole("button", { name: "恢复 市场 默认标题" }).click();
   await page.getByRole("button", { name: "保存导航" }).click();
   await expect(page.getByRole("status")).toContainText("项目导航已保存");
 
   await marketProject.click();
   secondary = page.getByRole("complementary", {
-    name: "市场面 二级导航",
+    name: "市场 二级导航",
   });
   await expect(secondary.locator(".module-button").first()).toHaveText("多周期");
+  await expect(secondary.locator(".module-button").nth(1)).toHaveText("终端");
 
   const scannerRow = secondary
     .getByRole("button", { name: "扫描器", exact: true })
@@ -174,7 +176,7 @@ test("project navigation supports switching, scoped sections, freezing, persiste
   ).toHaveCount(0);
   await marketProject.click();
   secondary = page.getByRole("complementary", {
-    name: "市场面 二级导航",
+    name: "市场 二级导航",
   });
   await expect(
     secondary.getByRole("button", { name: "扫描器", exact: true }),
@@ -192,6 +194,11 @@ test("project navigation supports switching, scoped sections, freezing, persiste
     name: "market.quote Provider",
   });
   await expect(quoteProvider).toBeVisible();
+  if (await quoteProvider.inputValue() !== "") {
+    await quoteProvider.selectOption("");
+    await page.getByRole("button", { name: "保存数据路由" }).click();
+    await expect(page.getByRole("status")).toContainText("项目数据路由已保存");
+  }
   await expect(quoteProvider).toHaveValue("");
   await quoteProvider.selectOption("market-data");
   await page.getByRole("button", { name: "保存数据路由" }).click();
@@ -210,12 +217,12 @@ test("project navigation supports switching, scoped sections, freezing, persiste
 
   await marketProject.hover();
   await navigation
-    .getByRole("button", { name: "冻结 市场面 项目" })
+    .getByRole("button", { name: "冻结 市场 项目" })
     .click();
   await expect(marketProject.locator("..")).toHaveAttribute("draggable", "false");
 
   secondary = page.getByRole("complementary", {
-    name: "市场面 二级导航",
+    name: "市场 二级导航",
   });
   const groupedScannerRow = secondary
     .getByRole("button", { name: "扫描器", exact: true })
@@ -250,7 +257,7 @@ test("project navigation supports switching, scoped sections, freezing, persiste
   await page.setViewportSize({ width: 420, height: 820 });
   await page.reload({ waitUntil: "domcontentloaded" });
   secondary = page.getByRole("complementary", {
-    name: "市场面 二级导航",
+    name: "市场 二级导航",
   });
   await expect(secondary).toBeVisible();
   await expect(secondary).toHaveCSS("position", "absolute");
@@ -284,8 +291,8 @@ test("project navigation supports switching, scoped sections, freezing, persiste
     page.getByRole("heading", { name: "项目导航" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("textbox", { name: "市场面 一级标题" }),
-  ).toHaveValue("市场面");
+    page.getByRole("textbox", { name: "市场 一级标题" }),
+  ).toHaveValue("市场");
   await page.screenshot({
     path: testInfo.outputPath("sidebar-settings.png"),
     fullPage: true,
@@ -335,7 +342,7 @@ test("Agent drawer preserves the current Mod layout and bound navigation release
   ).toContainText("已同步", { timeout: 15_000 });
 
   const secondary = page.getByRole("complementary", {
-    name: "市场面 二级导航",
+    name: "市场 二级导航",
   });
   await secondary.getByRole("button", { name: "收起一级与二级导航" }).click();
   await expect(page.locator(".sidebar-shell")).toHaveAttribute(

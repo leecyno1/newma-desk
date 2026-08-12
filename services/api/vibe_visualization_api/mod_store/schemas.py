@@ -35,6 +35,7 @@ INVESTMENT_DOMAIN_IDS = {
     "fundamentals",
     "global-intelligence",
     "capital-flow",
+    "event-intelligence",
     "policy-intelligence",
     "cycle-research",
     "asset-allocation",

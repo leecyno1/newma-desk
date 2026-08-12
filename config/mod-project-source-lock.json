@@ -8,10 +8,35 @@
     ],
     "overlayPolicy": {
       "status": "local-recovery-ready",
-      "reason": "Both nested repositories have clean local snapshot commits and reviewed, clone-tested recovery bundles. The snapshots have not been pushed to an external remote and must not be represented as remotely backed up."
+      "reason": "All nested repositories have clean pinned snapshots. Local recovery bundles for the modified first-party runtimes remain local-only and must not be represented as remotely backed up."
     }
   },
   "projects": [
+    {
+      "id": "world-intel-mcp",
+      "path": "mod-projects/world-intel-mcp",
+      "remote": {
+        "name": "origin",
+        "url": "https://github.com/marc-shade/world-intel-mcp.git"
+      },
+      "branch": {
+        "current": "main",
+        "upstream": "origin/main"
+      },
+      "commit": "4528a6ed69f97ab93f91111ae814871bc1bc6a1a",
+      "workingTree": {
+        "status": "clean",
+        "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "indexSha256": "947570d06bcdb7b3e362c1b7359a776e85a7731dcf8a417958e1d6db2c971f6d",
+        "worktreeSha256": "b9ac1c4210ef77523a6710e4b0ef41c57b19146c9456f81c91b2881bbe90f5fc",
+        "counts": {
+          "entries": 0,
+          "staged": 0,
+          "unstaged": 0,
+          "untracked": 0
+        }
+      }
+    },
     {
       "id": "vibe-research",
       "path": "mod-projects/vibe-research",

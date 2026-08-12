@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.0",
+  "id": "news-radar",
+  "name": "新闻与舆情",
+  "description": "聚合全球新闻、公开舆情与自选动态，并与政策和市场事件统一归档。",
+  "version": "0.1.0",
+  "publisher": "Newma-Desk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": ["新闻", "舆情", "资讯", "事件"],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "vibe-research",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911",
+    "route": "/mod-runtime/research/intel"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "event",
+    "navigation": {
+      "groupLabel": "情报",
+      "groupOrder": 0,
+      "itemOrder": 10,
+      "label": "新闻与舆情",
+      "directory": { "id": "event-suite", "label": "情报工具", "order": 5 },
+      "project": {
+        "id": "event-intelligence",
+        "name": "情报",
+        "order": 0,
+        "description": "统一承载全球态势、新闻、政策、公告、冲突、灾害与舆情。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {
+      "level": 1,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": ["investment.read"],
+    "dataServices": ["vibe-investment-native"],
+    "actions": {},
+    "events": { "emits": [], "accepts": [] }
+  }
+}

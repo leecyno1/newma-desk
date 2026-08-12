@@ -13,6 +13,7 @@ Vibe Research 与 Vibe Trading 的源码工程已收纳到 `mod-projects/`，作
 Newma-Desk
 ├── Vibe Research Mod   -> /mod-runtime/research -> /api/research
 ├── Vibe Trading Mod    -> /mod-runtime/trading  -> /api/trading
+├── World Intelligence  -> 127.0.0.1:8501 -> /api/global-intel
 ├── InStock Analysis    -> 127.0.0.1:9988 -> Newma-Desk 统一行情
 ├── Orchestra Mods      -> 127.0.0.1:3001 -> Orchestra API 8011
 └── Deepsee Mod         -> Deepsee /embed/*      -> Deepsee backend
@@ -30,7 +31,7 @@ Research / Trading Mod
 
 Model Gateway 仍是另一条独立链路，不会自动串到 Agent 后面。
 
-Vibe Research 与 Vibe Trading 保留为完整源码和运行来源，并分别作为不可拆分的项目组进入一个投资栏目。一级导航固定为十四个核心栏目与“其他”，稳定栏目 ID 不随来源仓库、页面路由或服务地址改变；完整规则见 [`investment-domain-mod-standard.md`](./investment-domain-mod-standard.md)。
+Vibe Research 与 Vibe Trading 保留为完整源码和运行来源。Suite 页面保持不可拆分；确需迁移栏目时，页面会先从 Suite 中独立为完整 Mod，同时继续复用原运行时。一级导航固定为十四个核心栏目与“其他”，稳定栏目 ID 不随来源仓库、页面路由或服务地址改变；完整规则见 [`investment-domain-mod-standard.md`](./investment-domain-mod-standard.md)。
 
 统一目录结构：
 
@@ -39,7 +40,8 @@ newma-desk/
 ├── mods/                         # Mod 商店与路由 Manifest
 ├── mod-projects/
 │   ├── vibe-research/             # 投研 Mods 源码和独立后端
-│   └── vibe-trading/              # 量化/交易 Mods 源码和独立后端
+│   ├── vibe-trading/              # 量化/交易 Mods 源码和独立后端
+│   └── world-intel-mcp/            # 全球态势与事件数据平面
 └── services/                     # Newma-Desk 中台与通用能力
 ```
 
@@ -64,7 +66,7 @@ mods/
 
 新 Mod 的 Data Action 可以只声明 Capability、权限和输入输出 Schema，不再写 Provider、API 地址或密钥。省略 `binding.service` 后，Desk 会根据完整项目的 `directory.id`、当前用户与 Workspace 自动选择数据服务，并允许用户在项目设置中覆盖；单页 Mod 使用自身 ID。栏目 `project.id` 只负责导航归属，不承担项目数据作用域。
 
-Vibe Research 与 Vibe Trading 的页面现已分别收敛到 `research-suite` 与 `trading-suite`，展开后的 Mod ID、原生路由、权限和导航保持兼容；重复的“投研 AI 设置”和“量化 Agent”已下架，由 Desk 的 Agent 设置与右侧统一 Agent 抽屉替代。
+Vibe Trading 页面收敛到 `trading-suite`。Vibe Research 的主要研究页面保留在 `research-suite`；新闻与舆情、催化剂日历复用同一运行时，但作为独立 Mod 进入“情报”。重复的“投研 AI 设置”和“量化 Agent”已下架，由 Desk 的 Agent 设置与右侧统一 Agent 抽屉替代。
 
 InStock 的 CZSC/轮动页面以及 Orchestra 的八个顶层工作区也作为默认 Mods 安装。它们继续以独立服务运行，但导航、项目设置、Agent Context、数据路由和统一启动由 Desk 管理。
 
@@ -72,37 +74,36 @@ InStock 的 CZSC/轮动页面以及 Orchestra 的八个顶层工作区也作为�
 
 ### Newma-Desk 图表工作区
 
-以下五个 Level 3 Mods 共享 `@newma-desk/chart-kit`、统一数据能力和同一个市场前端运行时，但在商店、侧边栏、本地状态及 Agent Context 中保持独立：
+全球情报使用独立的 MapLibre GL + deck.gl 前端运行时，并由 `world-intel-mcp` 数据适配器提供全球态势、事件与静态地理数据。市场图表工具继续共享 `market-daily` 交易市场运行时：
 
 | Mod | 共享运行时入口 |
 | --- | --- |
+| 全球情报 | `/mods/global-intelligence/` |
 | 市场扫描器 | `/mods/market-daily/?workspace=scanner` |
 | 多周期看盘 | `/mods/market-daily/?workspace=multi-timeframe` |
 | 相对强弱地图 | `/mods/market-daily/?workspace=relative-strength` |
 | 事件时间轴 | `/mods/market-daily/?workspace=event-timeline` |
 | 交易回放室 | `/mods/market-daily/?workspace=trading-replay` |
 
-这些 Mods 统一收发 `security.selected`，并把当前标的、筛选条件、图表状态、事件与回放进度发布给 Desk 右侧 Agent。Desk Agent 还可以通过反向 UI Action 桥安全切换周期、设置指标、创建价格预警和保存布局；事件保留真实来源与证据 ID，交易回放可沉淀为 Newma-Desk Replay Artifact。
+全球情报发布 `newma-desk.global-intelligence.v1` Agent Context，包含地图图层、筛选、选中事件、来源健康和实时事件摘要。市场 Mods 统一收发 `security.selected`，并把当前标的、筛选条件、图表状态与回放进度发布给 Desk 右侧 Agent；Desk Agent 可通过反向 UI Action 桥安全切换周期、设置指标、创建价格预警和保存布局。
 
-Deepsee 的 11 个页面作为一个完整项目进入“其他 → DeepSee”。行情终端的六个页面作为一个完整项目进入“市场面 → 行情工具”，不再按页面用途拆到个股研究或战术择时。
+Deepsee 的 11 个页面作为一个完整项目进入“其他 → DeepSee”。交易行情与图表工具进入“市场”；全球情报、新闻与舆情、个股事件轴和催化剂日历进入首页“情报”。
 
 市场终端已作为首个统一数据接口示例：嵌入 Desk 时通过宿主 Action 请求 `market.quote`、`market.ohlcv`、`market.overview` 等能力，不感知具体 Provider；独立调试时仍保留固定 `market-data` 客户端作为兼容回退。
 
 ### Vibe Research
 
-这些页面由 [`research-suite/suite.json`](../mods/research-suite/suite.json) 一次声明，再由 Suite Discovery 展开为独立安装项。Vibe Research 作为完整项目整体进入“宏观面”，项目内保留全部页面、共同运行来源、版本和 Agent Workspace。
+主要研究页面由 [`research-suite/suite.json`](../mods/research-suite/suite.json) 声明，再由 Suite Discovery 展开。新闻与舆情、催化剂日历继续复用 Vibe Research 运行时，但已拆为独立 Mod 并进入“情报”。
 
 | Mod | 原生路由 |
 | --- | --- |
 | 每日复盘 | `/daily-review` |
 | 宏观观察 | `/macro-monitor` |
-| 资讯雷达 | `/intel` |
 | 自选股 | `/watchlist` |
 | 研究机会池 | `/idea-funnel` |
 | 个股研究 | `/stock-data` |
 | 产业链研究 | `/sectors` |
 | 基金与 ETF 研究 | `/etf-research` |
-| 催化剂日历 | `/catalyst-calendar` |
 | 财报研究 | `/earnings-workbench` |
 | 同业比较 | `/peer-comparison` |
 | 预测与估值 | `/valuation-workbench` |

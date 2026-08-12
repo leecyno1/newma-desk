@@ -1,9 +1,9 @@
 export const INVESTMENT_DOMAIN_IDS = [
+  "event-intelligence",
   "market-surface",
   "fundamentals",
   "global-intelligence",
   "capital-flow",
-  "policy-intelligence",
   "cycle-research",
   "asset-allocation",
   "tactical-timing",
@@ -28,10 +28,17 @@ export interface InvestmentDomainDefinition {
 
 export const INVESTMENT_DOMAINS: readonly InvestmentDomainDefinition[] = [
   {
+    id: "event-intelligence",
+    name: "情报",
+    order: 0,
+    description: "全球态势、新闻、政策、冲突、灾害、舆情与市场异常事件。",
+    icon: "research",
+  },
+  {
     id: "market-surface",
-    name: "市场面",
+    name: "市场",
     order: 10,
-    description: "行情监控、看盘、市场扫描与每日复盘。",
+    description: "股票、债券及其他交易市场的行情监控、看盘、扫描与回放。",
     icon: "market",
   },
   {
@@ -54,13 +61,6 @@ export const INVESTMENT_DOMAINS: readonly InvestmentDomainDefinition[] = [
     order: 40,
     description: "资金流向、筹码、龙虎榜、情绪指标与技术结构。",
     icon: "market",
-  },
-  {
-    id: "policy-intelligence",
-    name: "政策面",
-    order: 50,
-    description: "政策、会议、新闻、舆情、发言与市场传闻跟踪。",
-    icon: "research",
   },
   {
     id: "cycle-research",

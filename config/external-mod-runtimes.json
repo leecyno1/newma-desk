@@ -44,6 +44,27 @@
       "endpoints": {}
     },
     {
+      "id": "world-intel",
+      "label": "World Intelligence MCP",
+      "adapter": "world-intel",
+      "workspaces": {
+        "source": {
+          "env": "NEWMA_DESK_WORLD_INTEL_WORKSPACE",
+          "candidates": [
+            { "root": "repo", "path": "mod-projects/world-intel-mcp" },
+            { "root": "projects", "path": "world-intel-mcp" }
+          ]
+        }
+      },
+      "endpoints": {
+        "api": {
+          "env": "NEWMA_DESK_WORLD_INTEL_URL",
+          "defaultOrigin": "http://127.0.0.1:8501",
+          "healthPath": "/api/health"
+        }
+      }
+    },
+    {
       "id": "deepsee",
       "label": "Deepsee",
       "adapter": "external-only",

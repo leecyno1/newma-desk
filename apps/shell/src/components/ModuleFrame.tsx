@@ -49,6 +49,9 @@ import {
 import { resolveModUrl } from "../lib/moduleUrl";
 
 const EmbeddedMarketFrame = lazy(() => import("./EmbeddedMarketFrame"));
+const EmbeddedIntelligenceFrame = import.meta.env.DEV
+  ? lazy(() => import("./EmbeddedIntelligenceFrame"))
+  : undefined;
 
 interface ModFrameProps {
   manifest: ModManifest;
@@ -71,8 +74,14 @@ function embeddedMarketMod(manifest: ModManifest) {
   if (manifest.entry.type === "external") return undefined;
   try {
     const url = new URL(manifest.entry.url, window.location.origin);
-    if (url.pathname !== "/mods/market-daily/") return undefined;
+    const kind: "market" | "intelligence" | undefined = url.pathname === "/mods/market-daily/"
+      ? "market"
+      : import.meta.env.DEV && url.pathname === "/mods/global-intelligence/"
+        ? "intelligence"
+        : undefined;
+    if (!kind) return undefined;
     return {
+      kind,
       key: `${url.pathname}${url.search}`,
       src: url.toString(),
       search: url.search,
@@ -360,6 +369,10 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   const [instanceId] = useState(createInstanceId);
   themeRef.current = theme;
   onRequestCopilotOpenRef.current = onRequestCopilotOpen;
+
+  useEffect(() => {
+    if (!embedded) document.title = `${manifest.name} · Newma-Desk`;
+  }, [embedded, manifest.name]);
 
   useImperativeHandle(
     ref,
@@ -945,11 +958,15 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
             </div>
           )}
         >
-          <EmbeddedMarketFrame
-            search={embeddedMarket.search}
-            hostConnection={hostConnection}
-            bridge={embeddedMarketBridge}
-          />
+          {embeddedMarket.kind === "intelligence" && EmbeddedIntelligenceFrame ? (
+            <EmbeddedIntelligenceFrame hostConnection={hostConnection} />
+          ) : (
+            <EmbeddedMarketFrame
+              search={embeddedMarket.search}
+              hostConnection={hostConnection}
+              bridge={embeddedMarketBridge}
+            />
+          )}
         </Suspense>
       </section>
     );

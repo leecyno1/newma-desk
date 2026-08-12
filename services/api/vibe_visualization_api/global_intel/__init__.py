@@ -1,0 +1,1 @@
+"""World Intelligence gateway integration."""

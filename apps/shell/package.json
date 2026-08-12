@@ -12,6 +12,7 @@
   "dependencies": {
     "@newma-desk/contracts": "0.1.0",
     "@newma-desk/desk-ui": "0.1.0",
+    "@newma-desk/global-intelligence": "0.1.0",
     "@newma-desk/market-daily": "0.1.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",

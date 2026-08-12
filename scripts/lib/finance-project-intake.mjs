@@ -10,7 +10,7 @@ export const INVESTMENT_COLUMN_IDS = new Set([
   "fundamentals",
   "global-intelligence",
   "capital-flow",
-  "policy-intelligence",
+  "event-intelligence",
   "cycle-research",
   "asset-allocation",
   "tactical-timing",

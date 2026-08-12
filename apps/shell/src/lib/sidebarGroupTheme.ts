@@ -20,6 +20,8 @@ const presetGroupTones: Record<string, SidebarGroupTone> = {
   "今日": "orange",
   market: "blue",
   "市场": "blue",
+  intelligence: "red",
+  "情报": "red",
   research: "violet",
   "研究": "violet",
   quant: "cyan",

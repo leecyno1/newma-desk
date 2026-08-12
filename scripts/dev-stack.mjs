@@ -241,6 +241,91 @@ async function buildFirstPartyModule(label, workspaceName) {
   });
 }
 
+async function runSetupCommand(label, command, commandArgs, cwd) {
+  console.log(label);
+  const child = spawn(command, commandArgs, {
+    cwd,
+    env: process.env,
+    stdio: "inherit",
+  });
+  await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${label}失败：code=${code ?? "-"} signal=${signal ?? "-"}`));
+    });
+  });
+}
+
+async function ensureWorldIntelRuntime(runtime) {
+  const workspace = runtime?.workspaces.source.path;
+  if (!workspace) {
+    throw new Error("未找到 World Intelligence MCP 源码目录。");
+  }
+  const venvPython = path.join(workspace, ".venv", "bin", "python");
+  if (!existsSync(venvPython)) {
+    const bootstrapPython = existsSync("/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12")
+      ? "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12"
+      : "python3";
+    await runSetupCommand(
+      "初始化 World Intelligence MCP Python 环境",
+      bootstrapPython,
+      ["-m", "venv", ".venv"],
+      workspace,
+    );
+  }
+  const importCheck = spawn(venvPython, [
+    "-c",
+    "import world_intel_mcp.dashboard.app",
+  ], {
+    cwd: workspace,
+    env: process.env,
+    stdio: "ignore",
+  });
+  const ready = await new Promise((resolve) => {
+    importCheck.once("error", () => resolve(false));
+    importCheck.once("exit", (code) => resolve(code === 0));
+  });
+  if (ready) return;
+  await runSetupCommand(
+    "安装 World Intelligence MCP 与 Dashboard 依赖",
+    venvPython,
+    ["-m", "pip", "install", "-e", ".[dashboard]"],
+    workspace,
+  );
+}
+
+function worldIntelServices(runtime) {
+  if (!runtime) return [];
+  const workspace = runtime.workspaces.source.path;
+  const endpoint = runtime.endpoints.api;
+  return [{
+    id: "world-intel-mcp",
+    label: "World Intelligence MCP",
+    cwd: workspace,
+    ...(workspace && endpoint.local
+      ? {
+          command: pythonAt(workspace),
+          commandArgs: [
+            "-m", "world_intel_mcp.dashboard.app",
+            "--host", "127.0.0.1",
+            "--port", String(endpoint.port),
+          ],
+        }
+      : {}),
+    env: {
+      PYTHONUNBUFFERED: "1",
+      WORLD_INTEL_DASHBOARD_HOST: "127.0.0.1",
+      WORLD_INTEL_DASHBOARD_PORT: String(endpoint.port),
+    },
+    criticality: SERVICE_CRITICALITY.CORE,
+    url: endpoint.healthUrl,
+    probe: createHttpProbe(endpoint.healthUrl, {
+      expectedService: "world-intel-mcp",
+    }),
+  }];
+}
+
 function sevenCycleServices(runtime) {
   if (!runtime) return [];
   const workspace = runtime.workspaces.source.path;
@@ -415,10 +500,12 @@ const tradingWorkspace = workspaceFrom(
 const externalRuntimes = await loadExternalModRuntimes({ repoRoot });
 const externalRuntimeEnv = runtimeEnvironment(externalRuntimes);
 const core = coreServices(externalRuntimeEnv);
+const worldIntelRuntime = externalRuntimes.byId["world-intel"];
 const sevenCycleRuntime = externalRuntimes.byId["seven-cycle"];
 const instockRuntime = externalRuntimes.byId.instock;
 const orchestraRuntime = externalRuntimes.byId.orchestra;
 const deepseeRuntime = externalRuntimes.byId.deepsee;
+const worldIntel = worldIntelServices(worldIntelRuntime);
 const sevenCycle = sevenCycleServices(sevenCycleRuntime);
 const instock = instockServices(instockRuntime);
 const orchestra = orchestraServices(orchestraRuntime);
@@ -459,7 +546,7 @@ for (const runtime of externalRuntimes.runtimes) {
 
 if (checkOnly) {
   const results = [];
-  for (const service of [...core, ...instock, ...orchestra, ...sevenCycle, deepsee]) {
+  for (const service of [...worldIntel, ...core, ...instock, ...orchestra, ...sevenCycle, deepsee]) {
     results.push(await statusLine(service));
   }
   const coreReady = results
@@ -497,6 +584,10 @@ if (checkOnly) {
       "Portfolio Center",
       "@newma-desk/portfolio-center",
     );
+    await ensureWorldIntelRuntime(worldIntelRuntime);
+    for (const service of worldIntel) {
+      await supervisor.start(service);
+    }
     await supervisor.start(core[0]);
     await registerStoreMods({
       apiUrl: "http://127.0.0.1:8911",
@@ -512,7 +603,7 @@ if (checkOnly) {
       await supervisor.start(service);
     }
     console.log("\nNewma-Desk 核心已就绪：http://127.0.0.1:5888/?mod=daily-review");
-    console.log("Research / Trading 已作为 Newma-Desk 内置领域运行时加载，不再占用独立端口。");
+    console.log("Research / Trading 与 World Intelligence 已作为 Newma-Desk 核心运行时加载。");
     const optionalServices = [
       ...instock,
       ...orchestra,

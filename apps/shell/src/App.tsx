@@ -36,6 +36,10 @@ import { compileSidebarNavigation } from "./lib/sidebarNavigation";
 
 const ACTIVE_MOD_KEY = "vibedesk.activeMod";
 const LEGACY_ACTIVE_MODULE_KEY = "vibe.shell.activeModule";
+const DEFAULT_MOD_ID = "global-situation";
+const RETIRED_MOD_ALIASES: Readonly<Record<string, string>> = {
+  "event-intelligence": DEFAULT_MOD_ID,
+};
 const PREVIEW_PATTERN = /^([a-z][a-z0-9-]{2,63})@([1-9]\d*)$/;
 
 type ShellView = "mod" | "agent-settings" | "interface-settings" | "store" | "suite-settings";
@@ -107,10 +111,17 @@ function eventSummary(event: ModEvent): string {
 
 function preferredMod(mods: StoredMod[]): StoredMod | undefined {
   const params = new URLSearchParams(window.location.search);
-  const requested = params.get("mod") ?? params.get("module");
-  const stored = storedSelection();
+  const requestedRaw = params.get("mod") ?? params.get("module");
+  const requested = requestedRaw
+    ? RETIRED_MOD_ALIASES[requestedRaw] ?? requestedRaw
+    : undefined;
+  const storedRaw = storedSelection();
+  const stored = storedRaw
+    ? RETIRED_MOD_ALIASES[storedRaw] ?? storedRaw
+    : undefined;
   return (
     mods.find((mod) => mod.moduleId === requested) ??
+    mods.find((mod) => mod.moduleId === DEFAULT_MOD_ID) ??
     mods.find((mod) => mod.moduleId === stored) ??
     mods[0]
   );

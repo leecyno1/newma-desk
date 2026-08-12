@@ -15,6 +15,7 @@ const DEFAULT_ROOTS = [
   "mod-projects/vibe-trading/frontend",
 ];
 const REQUIRED_TEMPLATE_IMPORTS = [
+  "modules/global-intelligence/src/main.tsx",
   "modules/market-daily/src/main.tsx",
   "modules/portfolio-center/src/main.tsx",
 ];

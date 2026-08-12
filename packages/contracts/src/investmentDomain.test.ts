@@ -13,16 +13,16 @@ describe("investment domain registry", () => {
     expect(INVESTMENT_DOMAINS.map((domain) => domain.id)).toEqual(
       INVESTMENT_DOMAIN_IDS,
     );
-    expect(INVESTMENT_DOMAINS.map((domain) => domain.order)).toEqual(
-      Array.from({ length: 15 }, (_, index) => (index + 1) * 10),
-    );
+    expect(INVESTMENT_DOMAINS.map((domain) => domain.order)).toEqual([
+      0, 10, 20, 30, 40, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
+    ]);
   });
 
   it("builds a compact Chinese project identity for the sidebar", () => {
-    const market = INVESTMENT_DOMAINS[0]!;
+    const market = INVESTMENT_DOMAINS[1]!;
     expect(investmentDomainProject(market)).toMatchObject({
       id: "market-surface",
-      name: "市场面",
+      name: "市场",
       logo: { type: "letter", text: "市场" },
     });
   });

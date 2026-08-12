@@ -160,6 +160,7 @@ export function Sidebar({
   const settingsProject = useMemo(
     () => projects.find((project) => (
       project.settingsDirectory.id === suiteSettingsDirectoryId
+      || project.sections.some((section) => section.id === suiteSettingsDirectoryId)
     )),
     [projects, suiteSettingsDirectoryId],
   );
@@ -367,6 +368,7 @@ export function Sidebar({
                 <button
                   type="button"
                   className="project-rail-button"
+                  disabled={loading}
                   aria-label={`${project.name} 项目`}
                   aria-expanded={project.id === activeProject?.id}
                   aria-current={project.id === activeProject?.id ? "page" : undefined}

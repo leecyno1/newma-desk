@@ -80,7 +80,7 @@ async function temporaryStore(catalog, callback) {
   }
 }
 
-test("validates the project Mod store and includes Research and Trading by default", async () => {
+test("validates the project Mod store and defaults only to Intelligence and Market", async () => {
   const store = await loadModStore({
     env: {
       NEWMA_DESK_INVESTMENT_WEB_URL: "https://investment.example",
@@ -103,49 +103,22 @@ test("validates the project Mod store and includes Research and Trading by defau
     "orchestra-suite",
     "calendar-effect-suite",
   ]);
-  assert.deepEqual(store.retiredMods, ["investment-settings", "quant-agent"]);
+  assert.deepEqual(store.retiredMods, ["investment-settings", "quant-agent", "event-intelligence"]);
   assert.deepEqual(defaults.map((mod) => mod.id).sort(), [
-    "daily-review",
-    "macro-monitor",
-    "alpha-lab",
-    "news-radar",
-    "watchlist",
-    "idea-funnel",
-    "portfolio-brief",
-    "portfolio-activities",
-    "portfolio-risk",
-    "portfolio-allocation",
-    "portfolio-performance",
-    "portfolio-settings",
-    "stock-research",
-    "industry-map",
-    "etf-research",
     "catalyst-calendar",
-    "earnings-workbench",
-    "peer-comparison",
-    "valuation-workbench",
-    "research-memo",
-    "thesis-tracker",
-    "research-library",
-    "research-notes",
-    "quant-overview",
-    "backtest-lab",
-    "factor-correlation",
-    "instock-czsc",
-    "instock-rotation",
-    "trade-desk",
-    "trading-settings",
-    "orchestra-committee",
-    "orchestra-history",
-    "orchestra-reports",
-    "orchestra-agents",
-    "orchestra-skills",
-    "orchestra-data",
-    "orchestra-workspace",
-    "orchestra-settings",
-    "calendar-effect-overview",
-    "calendar-effect-history",
+    "event-timeline",
+    "global-situation",
+    "market-daily",
+    "market-scanner",
+    "multi-timeframe",
+    "news-radar",
+    "relative-strength",
+    "trading-replay",
   ].sort());
+  assert.deepEqual(
+    [...new Set(defaults.map((mod) => mod.manifest.navigation.project.id))].sort(),
+    ["event-intelligence", "market-surface"],
+  );
   assert.equal(
     store.mods.find((mod) => mod.id === "daily-review").manifest.entry.url,
     "https://investment.example/mod-runtime/research/daily-review",
@@ -240,8 +213,8 @@ test("validates the project Mod store and includes Research and Trading by defau
     assert.equal(mod.manifest.navigation.directory.id, "portfolio-suite");
   }
   for (const modId of [
-    "daily-review", "macro-monitor", "news-radar", "watchlist", "idea-funnel",
-    "stock-research", "industry-map", "etf-research", "catalyst-calendar",
+    "daily-review", "macro-monitor", "watchlist", "idea-funnel",
+    "stock-research", "industry-map", "etf-research",
     "earnings-workbench", "peer-comparison", "valuation-workbench",
     "research-memo", "thesis-tracker", "research-library", "research-notes",
   ]) {
@@ -249,6 +222,13 @@ test("validates the project Mod store and includes Research and Trading by defau
     assert.equal(mod.suiteId, "research-suite");
     assert.equal(mod.manifest.navigation.project.id, "fundamentals");
     assert.equal(mod.manifest.navigation.directory.id, "research-suite");
+  }
+  for (const modId of [
+    "global-situation", "news-radar", "event-timeline", "catalyst-calendar",
+  ]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.manifest.navigation.project.id, "event-intelligence");
+    assert.equal(mod.manifest.navigation.directory.id, "event-suite");
   }
   for (const modId of ["calendar-effect-overview", "calendar-effect-history"]) {
     const mod = store.mods.find((item) => item.id === modId);
@@ -349,7 +329,7 @@ test("discovers a Mod Suite from the standard HTTP well-known endpoint", async (
     assert.equal(store.suites[0].discoveryUrl, "https://suite.example/.well-known/newma-desk-suite.json");
     assert.equal(store.mods[0].id, "example-overview");
     assert.equal(store.mods[0].suiteId, "example-suite");
-    assert.equal(store.mods[0].defaultInstall, true);
+    assert.equal(store.mods[0].defaultInstall, false);
     assert.equal(store.mods[0].manifest.entry.url, "https://suite.example/overview");
     assert.deepEqual(store.mods[0].manifest.navigation.project, {
       id: "fundamentals",
@@ -679,10 +659,10 @@ test("standardizes the full store without disabling official or third-party Mods
   assert.equal(result.skipped.length, store.mods.length);
   assert.deepEqual(
     result.disabled.map((mod) => mod.moduleId),
-    ["investment-settings", "quant-agent"],
+    ["investment-settings", "quant-agent", "event-intelligence"],
   );
   assert.equal(
     calls.filter((call) => call.init.method === "POST").length,
-    2,
+    3,
   );
 });

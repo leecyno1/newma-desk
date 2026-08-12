@@ -149,6 +149,8 @@ from vibe_visualization_api.finance_pilots.service import (
     FinancePilotNotFoundError,
     FinancePilotService,
 )
+from vibe_visualization_api.global_intel.client import GlobalIntelClient
+from vibe_visualization_api.global_intel.routes import router as global_intel_router
 from vibe_visualization_api.scheduler.service import (
     RefreshSchedulerService,
     SchedulerLifecycle,
@@ -340,6 +342,7 @@ def create_app(
             base_url_overrides={
                 "market-data": app_settings.research_base_url,
                 "instock-analysis": f"{app_settings.instock_web_url}/api/v1",
+                "world-intel": app_settings.world_intel_url,
             },
         )
     )
@@ -349,6 +352,9 @@ def create_app(
     )
     application.state.data_service_registry = data_service_registry
     application.state.data_service_client = resolved_data_service_client
+    application.state.global_intel_client = GlobalIntelClient(
+        app_settings.world_intel_url
+    )
     application.state.data_service_preference_store = DataServicePreferenceStore(
         app_settings.database_path
     )
@@ -436,6 +442,7 @@ def create_app(
     application.include_router(research_archive_router)
     application.include_router(portfolio_center_router)
     application.include_router(finance_pilots_router)
+    application.include_router(global_intel_router)
     application.include_router(mod_snapshots_router, prefix="/api/mods")
     application.include_router(
         mod_snapshots_router,

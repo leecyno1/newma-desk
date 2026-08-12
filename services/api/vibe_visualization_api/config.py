@@ -248,6 +248,9 @@ class Settings(BaseSettings):
     orchestra_backend_workspace: Path = Field(
         default_factory=lambda: resolve_runtime_workspace("orchestra", "backend")
     )
+    world_intel_workspace: Path = Field(
+        default_factory=lambda: resolve_runtime_workspace("world-intel", "source")
+    )
     mod_workspace_overrides: str = ""
     investment_web_url: str = "http://127.0.0.1:8911"
     trading_web_url: str = "http://127.0.0.1:8911"
@@ -265,6 +268,9 @@ class Settings(BaseSettings):
     )
     orchestra_api_url: str = Field(
         default_factory=lambda: resolve_runtime_origin("orchestra", "api")
+    )
+    world_intel_url: str = Field(
+        default_factory=lambda: resolve_runtime_origin("world-intel", "api")
     )
     mod_store_dir: Path = Path("mods")
     mod_store_git_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
@@ -393,6 +399,7 @@ class Settings(BaseSettings):
         "instock_web_url",
         "orchestra_web_url",
         "orchestra_api_url",
+        "world_intel_url",
     )
     @classmethod
     def validate_mod_web_origin(cls, value: str) -> str:

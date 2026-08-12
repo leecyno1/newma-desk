@@ -18,8 +18,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@newma-desk/contracts": "0.1.0",
     "@newma-desk/chart-kit": "0.1.0",
+    "@newma-desk/contracts": "0.1.0",
     "@newma-desk/desk-ui": "0.1.0",
     "@newma-desk/mod-sdk": "0.1.0",
     "klinecharts": "^10.0.0",

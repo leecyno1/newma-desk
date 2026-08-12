@@ -181,6 +181,7 @@ test("the current store keeps legacy Mods compatible and validates declared leve
   ];
   assert.ok(portfolioIds.every((id) => results.find((result) => result.id === id)?.level === 3));
   const chartWorkspaceIds = [
+    "global-situation",
     "market-scanner",
     "multi-timeframe",
     "relative-strength",

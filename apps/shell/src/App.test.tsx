@@ -9,8 +9,6 @@ import {
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { INVESTMENT_DOMAINS } from "@newma-desk/contracts";
-
 import { App, isEmbeddedShellContext } from "./App";
 import type { StoredMod } from "./api/modules";
 import { ShellEventBus } from "./events/ShellEventBus";
@@ -36,10 +34,6 @@ const quantModule = storedModule({
   category: "quant",
   entry: { type: "structured", url: "/modules/quant-lab/" },
 });
-
-const investmentDomainLabels = INVESTMENT_DOMAINS.map(
-  (domain) => `${domain.name} 项目`,
-);
 
 function projectRailLabels(navigation: HTMLElement) {
   return within(navigation)
@@ -216,9 +210,7 @@ describe("App", () => {
       name: "Newma-Desk Mod 导航",
     });
     expect(projectRailLabels(navigation)).toEqual([
-      ...investmentDomainLabels.slice(0, 10),
       "研究资讯 项目",
-      ...investmentDomainLabels.slice(10),
       "市场行情 项目",
     ]);
     await userEvent.click(
@@ -436,11 +428,8 @@ describe("App", () => {
       name: "Newma-Desk Mod 导航",
     });
     expect(projectRailLabels(navigation)).toEqual([
-      investmentDomainLabels[0],
       "量化工作 项目",
-      ...investmentDomainLabels.slice(1, 3),
       "研究工作 项目",
-      ...investmentDomainLabels.slice(3),
       "自定义 Mod 项目",
     ]);
     expect(
@@ -1229,9 +1218,7 @@ describe("App", () => {
       name: "Newma-Desk Mod 导航",
     });
     expect(projectRailLabels(navigation)).toEqual([
-      ...investmentDomainLabels.slice(0, 10),
       "研究资讯 项目",
-      ...investmentDomainLabels.slice(10),
       "A 股总览 项目",
       "市场行情 项目",
       "量化实验室 项目",

@@ -121,7 +121,7 @@ describe("sidebar navigation model", () => {
     );
 
     expect(importedProjectIds(model)).toEqual(["market-suite", "event-timeline"]);
-    expect(model.projects.filter((project) => investmentDomainIds.has(project.id))).toHaveLength(15);
+    expect(model.projects.filter((project) => investmentDomainIds.has(project.id))).toHaveLength(0);
     expect(model.projectsById.get("market-suite")?.modules.map((item) => item.label)).toEqual([
       "终端",
       "扫描器",
@@ -329,12 +329,11 @@ describe("sidebar navigation model", () => {
     );
   });
 
-  it("always exposes the fifteen stable investment domains, including empty domains", () => {
+  it("keeps uninstalled project domains out of the default rail", () => {
     const model = compileSidebarNavigation([], {}, EMPTY_SIDEBAR_NAVIGATION);
 
-    expect(model.projects.map((project) => project.id)).toEqual(INVESTMENT_DOMAIN_IDS);
-    expect(model.projectsById.get("global-intelligence")?.settingsDirectory.modules).toEqual([]);
-    expect(model.projectsById.get("bond-research")?.settingsDirectory.modules).toEqual([]);
+    expect(model.projects).toEqual([]);
+    expect(model.projectsById.size).toBe(0);
   });
 
   it("scopes equal section ids to their owning project", () => {

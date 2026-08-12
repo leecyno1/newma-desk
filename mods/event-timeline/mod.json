@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1.0",
   "id": "event-timeline",
-  "name": "事件时间轴",
-  "description": "从真实 OHLCV 推导价格、量能和突破事件，叠加行情并支持本地研究沉淀。",
+  "name": "个股事件时间轴",
+  "description": "把公告、财报、新闻、研报与量价异动叠加到个股行情时间轴。",
   "version": "0.1.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-dock",
@@ -11,8 +11,8 @@
   "runtime": { "type": "direct", "entry": { "type": "structured", "url": "/mods/market-daily/?workspace=event-timeline" } },
   "manifest": {
     "schemaVersion": "1.1",
-    "category": "market",
-    "navigation": { "groupLabel": "市场面", "groupOrder": 10, "itemOrder": 9, "label": "事件轴", "directory": { "id": "market-suite", "label": "行情工具", "order": 5 }, "project": { "id": "market-surface", "name": "市场面", "order": 10, "description": "行情监控、看盘、市场扫描与每日复盘。" }, "icon": "market" },
+    "category": "event",
+    "navigation": { "groupLabel": "情报", "groupOrder": 0, "itemOrder": 20, "label": "个股事件轴", "directory": { "id": "event-suite", "label": "情报工具", "order": 5 }, "project": { "id": "event-intelligence", "name": "情报", "order": 0, "description": "统一承载全球态势、新闻、政策、公告、冲突、灾害与舆情。" }, "icon": "research" },
     "compatibility": { "level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0" },
     "permissions": ["market.read"], "dataServices": [],
     "actions": {

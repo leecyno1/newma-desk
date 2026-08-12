@@ -21,6 +21,82 @@ function collectConsoleErrors(page: Page) {
 }
 
 test.describe("Newma-Desk chart workspace Mods", () => {
+  test("uses global intelligence as the Desk landing page and keeps Market trading-only", async ({ page }, testInfo) => {
+    const errors = collectConsoleErrors(page);
+    await page.addInitScript(() => {
+      localStorage.removeItem("vibedesk.sidebarNavigation.v1");
+      localStorage.removeItem("vibedesk.moduleCategories.v1");
+    });
+    await page.goto(shellOrigin);
+
+    const navigation = page.getByRole("navigation", { name: "Newma-Desk Mod 导航" });
+    const intelligenceProject = navigation.getByRole("button", { name: "情报 项目", exact: true });
+    await expect(intelligenceProject).toHaveAttribute("aria-current", "page");
+    const intelligenceSecondary = page.getByRole("complementary", { name: "情报 二级导航" });
+    await expect(intelligenceSecondary).toBeVisible();
+    for (const label of ["全球情报", "新闻与舆情", "个股事件轴", "催化剂日历"]) {
+      await expect(intelligenceSecondary.getByRole("button", { name: label, exact: true })).toBeVisible();
+    }
+    const globalSituation = embeddedWorkspace(page, "global-situation");
+    await expect(globalSituation).toHaveAttribute("data-vibedesk-frame-state", "ready");
+    await expect(globalSituation.getByText("全球情报", { exact: true }).first()).toBeVisible();
+    await expect(globalSituation.getByLabel("全球情报地图")).toBeVisible();
+    await expect(globalSituation.locator(".intel-hud")).toContainText("综合风险");
+    await expect(globalSituation.locator(".intel-event-list article").first()).toBeVisible();
+    await expect(globalSituation.locator(".intel-load-card strong")).toHaveText("47/47", { timeout: 120_000 });
+
+    const presetButton = globalSituation.getByRole("button", { name: /态势：/ });
+    await expect(presetButton).toContainText("态势：综合");
+    await presetButton.click();
+    await globalSituation.getByRole("menuitem").filter({ hasText: "冲突" }).click();
+    await expect(presetButton).toContainText("态势：冲突");
+    await expect(globalSituation.getByRole("button", { name: "7 天" })).toHaveAttribute("aria-pressed", "true");
+    await expect(globalSituation.getByRole("button", { name: "仅高优先级" })).toHaveAttribute("aria-pressed", "true");
+    await expect(globalSituation.getByRole("button", { name: "热力" })).toHaveAttribute("aria-pressed", "true");
+    await globalSituation.getByRole("button", { name: "24 小时" }).click();
+    await expect(presetButton).toContainText("态势：手动");
+    await presetButton.click();
+    await globalSituation.getByRole("menuitem").filter({ hasText: "综合" }).click();
+
+    await globalSituation.locator(".intel-health-card").getByRole("button", { name: "详情" }).click();
+    const healthConsole = globalSituation.getByRole("complementary", { name: "数据源健康控制台" });
+    await expect(healthConsole).toBeVisible();
+    await expect(healthConsole).toContainText("有效缓存");
+    await globalSituation.getByRole("button", { name: "关闭数据源健康控制台" }).click();
+
+    await globalSituation.locator(".intel-risk-card").getByRole("button", { name: "研判" }).click();
+    const strategicBriefing = globalSituation.getByRole("complementary", { name: "全球态势研判" });
+    await expect(strategicBriefing).toBeVisible();
+    await expect(strategicBriefing).toContainText("风险域分布");
+    await expect(strategicBriefing).toContainText("当前研判");
+    await expect(strategicBriefing).toContainText("活跃告警");
+    await globalSituation.getByRole("button", { name: "关闭全球态势研判" }).click();
+
+    await globalSituation.locator(".intel-priority-card").getByRole("button", { name: "趋势" }).click();
+    const trendRadar = globalSituation.getByRole("complementary", { name: "时间趋势雷达" });
+    await expect(trendRadar).toBeVisible();
+    await expect(trendRadar).toContainText("活跃基线异常");
+    await expect(trendRadar).toContainText("高波动指标");
+    await expect(trendRadar).toContainText("空间信号汇聚");
+    await trendRadar.getByRole("button", { name: /中东/ }).click();
+    await expect(globalSituation.locator(".intel-map-focus-chip")).toContainText("中东");
+    await globalSituation.locator(".intel-map-focus-chip").click();
+
+    await navigation.getByRole("button", { name: "市场 项目", exact: true }).click();
+    const marketSecondary = page.getByRole("complementary", { name: "市场 二级导航" });
+    await expect(marketSecondary).toBeVisible();
+    await expect(marketSecondary.locator(".module-button")).toHaveCount(5);
+    await expect(marketSecondary.locator(".module-button").first()).toHaveText("终端");
+    await expect(marketSecondary.getByRole("button", { name: "全球情报", exact: true })).toHaveCount(0);
+    await expect(embeddedWorkspace(page, "market-daily")).toHaveAttribute("data-vibedesk-frame-state", "ready");
+    await page.screenshot({
+      path: testInfo.outputPath("global-intelligence-cockpit.png"),
+      fullPage: true,
+    });
+
+    expect(errors).toEqual([]);
+  });
+
   test("grants every embedded workspace the market data actions it uses", async ({ page }) => {
     const errors = collectConsoleErrors(page);
     const workspaces = [

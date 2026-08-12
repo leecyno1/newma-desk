@@ -28,6 +28,7 @@ const INVESTMENT_DOMAIN_IDS = new Set([
   "fundamentals",
   "global-intelligence",
   "capital-flow",
+  "event-intelligence",
   "policy-intelligence",
   "cycle-research",
   "asset-allocation",
@@ -788,9 +789,11 @@ export async function loadModStore({
       id: page.descriptor.id,
       ...(path ? { path } : {}),
       ...(discoveryUrl ? { discoveryUrl } : {}),
-      defaultInstall: page.defaultInstall === undefined
-        ? entry.defaultInstall === true
-        : page.defaultInstall === true,
+      defaultInstall: entry.defaultInstall === false
+        ? false
+        : page.defaultInstall === undefined
+          ? entry.defaultInstall === true
+          : page.defaultInstall === true,
       descriptor: page.descriptor,
       manifest: manifestFromDescriptor(page.descriptor, env),
       suiteId: id,
