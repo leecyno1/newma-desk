@@ -46,6 +46,7 @@ def render(compose_file: str, env_file: str) -> dict:
     ]
     source_text = compose_path.read_text(encoding="utf-8")
     sanitized_compose_path: Path | None = None
+    sanitized_external_path: Path | None = None
     external_env_pattern = re.compile(
         r"(?ms)^    env_file:\n      - /opt/newma-projects/deepsee/\.env\n"
     )
@@ -53,6 +54,22 @@ def render(compose_file: str, env_file: str) -> dict:
         sanitized_compose_path = SERVER / f".{compose_path.name}.validation"
         sanitized_compose_path.write_text(
             external_env_pattern.sub("", source_text), encoding="utf-8"
+        )
+        command[command.index(str(compose_path))] = str(sanitized_compose_path)
+    elif compose_file == "docker-compose.integrations.yml":
+        external_path = SERVER / "docker-compose.external.yml"
+        external_text = external_path.read_text(encoding="utf-8")
+        sanitized_external_path = SERVER / ".docker-compose.external.yml.validation"
+        sanitized_external_path.write_text(
+            external_env_pattern.sub("", external_text), encoding="utf-8"
+        )
+        sanitized_compose_path = SERVER / f".{compose_path.name}.validation"
+        sanitized_compose_path.write_text(
+            source_text.replace(
+                "file: docker-compose.external.yml",
+                f"file: {sanitized_external_path.name}",
+            ),
+            encoding="utf-8",
         )
         command[command.index(str(compose_path))] = str(sanitized_compose_path)
     try:
@@ -70,6 +87,8 @@ def render(compose_file: str, env_file: str) -> dict:
             target.unlink(missing_ok=True)
         if sanitized_compose_path is not None:
             sanitized_compose_path.unlink(missing_ok=True)
+        if sanitized_external_path is not None:
+            sanitized_external_path.unlink(missing_ok=True)
 
 
 def validate_guardrails(label: str, config: dict, issues: list[str]) -> None:
