@@ -15,13 +15,15 @@ SERVER = ROOT / "deploy" / "server"
 
 
 def render(compose_file: str, env_file: str) -> dict:
+    compose_path = SERVER / compose_file
+    env_path = SERVER / env_file
     command = [
         "docker",
         "compose",
         "--env-file",
-        str(SERVER / env_file),
+        str(env_path),
         "-f",
-        str(SERVER / compose_file),
+        str(compose_path),
         "--profile",
         "*",
         "config",
@@ -32,7 +34,7 @@ def render(compose_file: str, env_file: str) -> dict:
     ]
     result = subprocess.run(
         command,
-        cwd=ROOT,
+        cwd=SERVER,
         check=True,
         capture_output=True,
         text=True,
