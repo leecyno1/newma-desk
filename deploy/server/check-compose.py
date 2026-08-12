@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -38,6 +39,7 @@ def render(compose_file: str, env_file: str) -> dict:
         check=True,
         capture_output=True,
         text=True,
+        env={**os.environ, "COMPOSE_ENV_FILES": str(env_path)},
     )
     return json.loads(result.stdout)
 
