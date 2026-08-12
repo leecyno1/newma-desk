@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -44,11 +45,16 @@ def render(compose_file: str, env_file: str) -> dict:
         "json",
     ]
     source_text = compose_path.read_text(encoding="utf-8")
-    deepsee_env = Path("/opt/newma-projects/deepsee/.env")
-    if str(deepsee_env) in source_text and not deepsee_env.exists():
-        deepsee_env.parent.mkdir(parents=True, exist_ok=True)
-        deepsee_env.write_text("# compose validation placeholder\n", encoding="utf-8")
-        temporary_env_files.append(deepsee_env)
+    sanitized_compose_path: Path | None = None
+    external_env_pattern = re.compile(
+        r"(?ms)^    env_file:\n      - /opt/newma-projects/deepsee/\.env\n"
+    )
+    if external_env_pattern.search(source_text):
+        sanitized_compose_path = SERVER / f".{compose_path.name}.validation"
+        sanitized_compose_path.write_text(
+            external_env_pattern.sub("", source_text), encoding="utf-8"
+        )
+        command[command.index(str(compose_path))] = str(sanitized_compose_path)
     try:
         result = subprocess.run(
             command,
@@ -62,6 +68,8 @@ def render(compose_file: str, env_file: str) -> dict:
     finally:
         for target in temporary_env_files:
             target.unlink(missing_ok=True)
+        if sanitized_compose_path is not None:
+            sanitized_compose_path.unlink(missing_ok=True)
 
 
 def validate_guardrails(label: str, config: dict, issues: list[str]) -> None:
