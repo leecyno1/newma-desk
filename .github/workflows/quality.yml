@@ -31,13 +31,16 @@ jobs:
       - name: Install Newma-Desk Python dependencies
         run: |
           python -m venv services/api/.venv
-          services/api/.venv/bin/pip install -e 'services/api[test]'
+          services/api/.venv/bin/pip install -c deploy/server/constraints-domain-runtime.txt -e 'services/api[test]'
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
       - name: Run static release checks
         run: npm run test:release:static
+
+      - name: Validate Compose profiles and resource guardrails
+        run: npm run deploy:check
 
       - name: Run isolated foundation E2E
         run: npm run test:e2e
@@ -73,7 +76,7 @@ jobs:
         run: |
           npm ci
           python -m venv services/api/.venv
-          services/api/.venv/bin/pip install -e 'services/api[test]'
+          services/api/.venv/bin/pip install -c deploy/server/constraints-domain-runtime.txt -e 'services/api[test]'
 
       - name: Check out integrated Mod sources
         env:
@@ -93,8 +96,21 @@ jobs:
         run: |
           npm ci --prefix mod-projects/vibe-research/frontend
           npm ci --prefix mod-projects/vibe-trading/frontend
-          services/api/.venv/bin/pip install -r mod-projects/vibe-research/backend/requirements.txt
-          services/api/.venv/bin/pip install -e mod-projects/vibe-trading
+          services/api/.venv/bin/pip install -r deploy/server/requirements-domain-runtime.txt
+          services/api/.venv/bin/pip check
+
+      - name: Build integrated delivery artifacts
+        run: |
+          NEWMA_DESK_INTEGRATED=1 NEWMA_DOCK_INTEGRATED=1 VITE_BASE_PATH=/mod-runtime/research/ VITE_API_BASE=/api/research npm run build --prefix mod-projects/vibe-research/frontend
+          NEWMA_DESK_INTEGRATED=1 NEWMA_DOCK_INTEGRATED=1 VITE_NEWMA_DESK_INTEGRATED=1 VITE_BASE_PATH=/mod-runtime/trading/ VITE_API_BASE=/api/trading npm run build --prefix mod-projects/vibe-trading/frontend
+          npm run build -w @newma-desk/portfolio-center
+          npm run build -w @newma-desk/market-daily
+          npm run build -w @newma-desk/desk
+
+      - name: Check integrated runtime footprint
+        run: |
+          NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME=1 PYTHONPATH=mod-projects/vibe-research/backend:mod-projects/vibe-trading/agent services/api/.venv/bin/python scripts/measure-domain-runtime.py --root "$PWD" --max-rss-mib 192
+          npm run footprint:check
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium

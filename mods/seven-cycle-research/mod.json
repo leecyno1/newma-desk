@@ -17,9 +17,10 @@
   "manifest": {
     "category": "research",
     "navigation": {
-      "groupLabel": "研究",
-      "groupOrder": 20,
+      "groupLabel": "周期研究",
+      "groupOrder": 60,
       "itemOrder": 25,
+      "project": { "id": "cycle-research", "name": "周期研究", "order": 60, "description": "七周期及其扩展周期框架研究。" },
       "icon": "research"
     },
     "permissions": [],

@@ -97,6 +97,42 @@ export const modCompatibilitySchema = z
   })
   .strict();
 
+export const modStorageNamespaceSchema = z
+  .object({
+    id: z.string().regex(/^[a-z][a-z0-9-]{1,47}$/),
+    scope: z.literal("user-workspace").default("user-workspace"),
+    schemaVersion: z.number().int().positive().max(10_000),
+    quotaMb: z.number().int().positive().max(100),
+    maxItemKb: z.number().int().positive().max(1024).default(256),
+  })
+  .strict();
+
+const deskManagedStorageSchema = z
+  .object({
+    mode: z.literal("desk-managed"),
+    namespaces: z
+      .array(modStorageNamespaceSchema)
+      .min(1)
+      .max(32)
+      .refine(
+        (items) => new Set(items.map((item) => item.id)).size === items.length,
+        { message: "Storage namespace IDs must be unique" },
+      ),
+  })
+  .strict();
+
+export const modStorageSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("stateless") }).strict(),
+  deskManagedStorageSchema,
+  z
+    .object({
+      mode: z.literal("dedicated"),
+      adapter: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+    })
+    .strict(),
+  z.object({ mode: z.literal("artifact") }).strict(),
+]);
+
 const agentActionBindingSchema = z
   .object({
     type: z.literal("agent"),
@@ -149,6 +185,56 @@ export const modActionSchema = z
   })
   .strict();
 
+const modNavigationIconSchema = z.enum([
+  "today",
+  "research",
+  "market",
+  "quant",
+  "trading",
+  "settings",
+  "module",
+]);
+
+const projectLetterSchema = z.string().refine(
+  (value) => {
+    const length = Array.from(value).length;
+    return value.trim() === value && length >= 1 && length <= 2;
+  },
+  { message: "Project logo text must contain one or two visible characters" },
+);
+
+export const modProjectLogoSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("icon"),
+      name: modNavigationIconSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("letter"),
+      text: projectLetterSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("image"),
+      src: z.union([safeRelativeUrl, safeExternalUrl]),
+      alt: z.string().min(1).max(80).optional(),
+    })
+    .strict(),
+]);
+
+export const modNavigationProjectSchema = z
+  .object({
+    id: z.string().regex(/^[a-z][a-z0-9-]{1,47}$/),
+    name: z.string().min(1).max(80),
+    order: z.number().int().nonnegative().default(100),
+    description: z.string().min(1).max(240).optional(),
+    logo: modProjectLogoSchema.optional(),
+  })
+  .strict();
+
 export const modNavigationSchema = z
   .object({
     groupLabel: z.string().min(1).max(40),
@@ -163,17 +249,8 @@ export const modNavigationSchema = z
       })
       .strict()
       .optional(),
-    icon: z
-      .enum([
-        "today",
-        "research",
-        "market",
-        "quant",
-        "trading",
-        "settings",
-        "module",
-      ])
-      .default("module"),
+    project: modNavigationProjectSchema.optional(),
+    icon: modNavigationIconSchema.default("module"),
     role: z.enum(["page", "settings"]).optional(),
   })
   .strict();
@@ -213,6 +290,7 @@ const modManifestV1_1Schema = z
     compatibility: modCompatibilitySchema,
     permissions: z.array(capabilityIdSchema).default([]),
     dataServices: z.array(serviceIdSchema).default([]),
+    storage: modStorageSchema.optional(),
     actions: z.record(capabilityIdSchema, modActionSchema).default({}),
     events: z
       .object({
@@ -249,6 +327,22 @@ const modManifestV1_1Schema = z
 
     const permissions = new Set(manifest.permissions);
     const dataServices = new Set(manifest.dataServices);
+    if (manifest.storage?.mode === "desk-managed") {
+      if (!permissions.has("storage.read")) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["permissions"],
+          message: "Desk-managed storage requires storage.read permission",
+        });
+      }
+      if (!permissions.has("storage.write")) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["permissions"],
+          message: "Desk-managed storage requires storage.write permission",
+        });
+      }
+    }
     for (const [actionId, action] of Object.entries(manifest.actions)) {
       if (!permissions.has(action.permission)) {
         context.addIssue({
@@ -299,8 +393,14 @@ export const modManifestSchema = z.union([
 
 export type ModManifest = z.infer<typeof modManifestSchema>;
 export type ModCompatibility = z.infer<typeof modCompatibilitySchema>;
+export type ModStorage = z.infer<typeof modStorageSchema>;
+export type ModStorageNamespace = z.infer<typeof modStorageNamespaceSchema>;
 export type ModActionBinding = z.infer<typeof modActionBindingSchema>;
 export type ModAction = z.infer<typeof modActionSchema>;
+export type ModProjectLogo = z.infer<typeof modProjectLogoSchema>;
+export type ModNavigationProject = z.infer<
+  typeof modNavigationProjectSchema
+>;
 
 // Compatibility aliases for existing Vibe Research / Vibe Trading adapters.
 // New Newma-Desk code should use the Mod names above.

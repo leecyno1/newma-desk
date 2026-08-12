@@ -17,7 +17,7 @@ def test_daily_stock_analysis_extracts_context_and_drops_advice_fields() -> None
             "blocks": [
                 {
                     "key": "fundamentals",
-                    "label": "基本面",
+                    "label": "宏观面",
                     "status": "available",
                     "source": "Desk Evidence Ledger",
                     "warnings": [],

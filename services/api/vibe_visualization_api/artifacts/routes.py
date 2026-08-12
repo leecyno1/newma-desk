@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 
 from vibe_visualization_api.artifacts.archify import (
     ArchifyRenderer,
+    inject_newma_theme_adapter,
     to_archify_ir,
 )
 from vibe_visualization_api.artifacts.models import (
@@ -13,7 +14,10 @@ from vibe_visualization_api.artifacts.models import (
     ReplayArtifactCreate,
     ReplayArtifactRecord,
 )
-from vibe_visualization_api.artifacts.replay_html import render_replay_html
+from vibe_visualization_api.artifacts.replay_html import (
+    inject_newma_replay_theme_adapter,
+    render_replay_html,
+)
 from vibe_visualization_api.artifacts.store import ArtifactStore
 
 
@@ -115,12 +119,12 @@ def view_replay_artifact(
     store: ArtifactStore = Depends(get_artifact_store),
 ) -> HTMLResponse:
     return HTMLResponse(
-        store.read_replay_html(artifact_id),
+        inject_newma_replay_theme_adapter(store.read_replay_html(artifact_id)),
         headers={
-            "Cache-Control": "public, max-age=31536000, immutable",
+            "Cache-Control": "public, max-age=0, must-revalidate",
             "Content-Security-Policy": (
                 "default-src 'none'; style-src 'unsafe-inline'; "
-                "font-src data:; connect-src 'none'"
+                "script-src 'unsafe-inline'; font-src data:; connect-src 'none'"
             ),
             "X-Content-Type-Options": "nosniff",
         },
@@ -151,7 +155,7 @@ def view_artifact(
     store: ArtifactStore = Depends(get_artifact_store),
 ) -> HTMLResponse:
     return HTMLResponse(
-        store.read_html(artifact_id),
+        inject_newma_theme_adapter(store.read_html(artifact_id)),
         headers={
             "Cache-Control": "public, max-age=31536000, immutable",
             "Content-Security-Policy": (

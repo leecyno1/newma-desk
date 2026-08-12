@@ -1,0 +1,39 @@
+{
+  "id": "world-intel",
+  "name": "World Intelligence MCP",
+  "description": "全球市场、新闻、政策、冲突、灾害、基础设施与地理情报数据平面。",
+  "priority": 20,
+  "baseUrl": "http://127.0.0.1:8501",
+  "healthPath": "/api/health",
+  "transport": "rest",
+  "capabilities": {
+    "global-intel.snapshot": {
+      "method": "GET",
+      "path": "/api/overview",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": { "type": "object", "additionalProperties": true },
+      "permission": "market.read"
+    },
+    "global-intel.static-map": {
+      "method": "GET",
+      "path": "/api/static",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": { "type": "object", "additionalProperties": true },
+      "permission": "market.read"
+    },
+    "global-intel.health": {
+      "method": "GET",
+      "path": "/api/health",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["status"],
+        "properties": { "status": { "type": "string" } },
+        "additionalProperties": true
+      },
+      "permission": "market.read"
+    }
+  },
+  "timeoutSeconds": 180,
+  "allowedHosts": ["127.0.0.1"]
+}

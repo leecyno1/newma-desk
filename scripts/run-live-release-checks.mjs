@@ -39,11 +39,6 @@ const coreChecks = [
       && body?.suites?.trading === true,
   },
   {
-    label: "Market Pulse",
-    url: "http://127.0.0.1:5891/",
-    accepts: (response) => response.ok,
-  },
-  {
     label: "Newma-Desk",
     url: "http://127.0.0.1:5888/",
     accepts: (response) => response.ok,
@@ -67,8 +62,8 @@ async function checkCore() {
     }
   }));
   return {
-    ready: results.every((result) => result.ready),
-    missing: results.filter((result) => !result.ready).map((result) => result.label),
+    ready: results.every((result) => result.ready || result.optional),
+    missing: results.filter((result) => !result.ready && !result.optional).map((result) => result.label),
   };
 }
 

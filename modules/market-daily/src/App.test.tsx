@@ -6,6 +6,7 @@ import type { ModBridge } from "@newma-desk/mod-sdk";
 
 import { buildMarketPageContext, MarketTerminalApp } from "./App";
 import type { MarketDataSource, Quote, SecurityRef } from "./types";
+import type { MarketAlertClient } from "./alerts";
 
 vi.mock("./KLineChartPanel", async () => {
   const React = await import("react");
@@ -63,6 +64,15 @@ function dataSource(): MarketDataSource {
     ]),
     quotes: vi.fn(async () => quotes),
     quote: vi.fn(async (security) => quotes.find((item) => item.symbol === security.symbol) ?? { ...security }),
+    scan: vi.fn(async (market, sort, order = "desc") => ({
+      items: quotes.filter((item) => item.market === market),
+      market,
+      sort,
+      order,
+      source: "test-scan",
+      asOf: "2026-07-24T10:00:00+08:00",
+      coverage: { requested: 100, returned: quotes.filter((item) => item.market === market).length },
+    })),
     ohlcv: vi.fn(async (security, timeframe, adjustment) => ({
       symbol: security.symbol,
       market: security.market,
@@ -100,13 +110,31 @@ function bridge(): ModBridge {
   };
 }
 
+function alertClient(): MarketAlertClient {
+  return {
+    load: vi.fn(async () => []),
+    create: vi.fn(async (input) => ({
+      id: "alert-1",
+      userId: "local-user",
+      workspaceId: "local-workspace",
+      ...input,
+      label: input.label || "价格预警",
+      enabled: input.enabled ?? true,
+      createdAt: "2026-08-02T10:00:00Z",
+      updatedAt: "2026-08-02T10:00:00Z",
+    })),
+    update: vi.fn(async () => { throw new Error("not used"); }),
+    delete: vi.fn(async () => undefined),
+  };
+}
+
 describe("MarketTerminalApp", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
 
   it("renders a KLineChart terminal with quote, order book and market overview", async () => {
-    render(<MarketTerminalApp bridge={bridge()} dataSource={dataSource()} watchlistClient={null} />);
+    render(<MarketTerminalApp bridge={bridge()} dataSource={dataSource()} watchlistClient={null} alertClient={null} />);
 
     expect((await screen.findAllByText("1,500.00"))[0]).toBeVisible();
     expect(screen.getByTestId("kline-chart")).toBeVisible();
@@ -117,7 +145,7 @@ describe("MarketTerminalApp", () => {
 
   it("searches global securities and emits the shared security event", async () => {
     const moduleBridge = bridge();
-    render(<MarketTerminalApp bridge={moduleBridge} dataSource={dataSource()} watchlistClient={null} />);
+    render(<MarketTerminalApp bridge={moduleBridge} dataSource={dataSource()} watchlistClient={null} alertClient={null} />);
 
     await userEvent.type(screen.getByRole("textbox", { name: "搜索证券" }), "NVDA");
     const results = await screen.findByRole("listbox");
@@ -132,8 +160,25 @@ describe("MarketTerminalApp", () => {
     expect((await screen.findAllByText("186.50"))[0]).toBeVisible();
   });
 
+  it("creates manual price alerts through the shared Desk client", async () => {
+    const alerts = alertClient();
+    render(<MarketTerminalApp bridge={bridge()} dataSource={dataSource()} watchlistClient={null} alertClient={alerts} />);
+
+    await userEvent.click(screen.getByLabelText("价格预警中心"));
+    const priceInput = screen.getByRole("spinbutton", { name: "预警价格" });
+    await userEvent.clear(priceInput);
+    await userEvent.type(priceInput, "1600");
+    await userEvent.click(screen.getByRole("button", { name: "添加" }));
+
+    expect(alerts.create).toHaveBeenCalledWith(expect.objectContaining({
+      security: expect.objectContaining(cnSecurity),
+      direction: "above",
+      price: 1600,
+    }));
+  });
+
   it("lets users create their own watchlist groups", async () => {
-    render(<MarketTerminalApp bridge={bridge()} dataSource={dataSource()} watchlistClient={null} />);
+    render(<MarketTerminalApp bridge={bridge()} dataSource={dataSource()} watchlistClient={null} alertClient={null} />);
 
     await userEvent.click(screen.getByRole("button", { name: "新建自选分组" }));
     await userEvent.type(screen.getByRole("textbox", { name: "自选分组名称" }), "我的海外组合");

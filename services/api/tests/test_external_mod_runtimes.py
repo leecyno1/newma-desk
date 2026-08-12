@@ -73,9 +73,18 @@ def test_resolves_endpoint_and_allowed_origin_from_shared_descriptor(
     assert resolve_runtime_origin(
         "example-runtime", "web", descriptor_path=descriptor, env={}
     ) == "http://127.0.0.1:4321"
-    assert default_external_origins(descriptor_path=descriptor) == [
+    assert default_external_origins(descriptor_path=descriptor, env={}) == [
         "http://127.0.0.1:4321"
     ]
+
+
+def test_external_origin_defaults_follow_runtime_environment(tmp_path: Path) -> None:
+    descriptor = descriptor_file(tmp_path)
+
+    assert default_external_origins(
+        descriptor_path=descriptor,
+        env={"NEWMA_DESK_EXAMPLE_WEB_URL": "https://example.example.com"},
+    ) == ["https://example.example.com"]
 
 
 def test_previous_brand_environment_names_remain_compatible(

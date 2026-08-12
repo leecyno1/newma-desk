@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-08-09",
+  "workspacePolicy": {
+    "gitIgnoreRules": [
+      "mod-projects/*",
+      "!mod-projects/README.md"
+    ],
+    "overlayPolicy": {
+      "status": "local-recovery-ready",
+      "reason": "All nested repositories have clean pinned snapshots. Local recovery bundles for the modified first-party runtimes remain local-only and must not be represented as remotely backed up."
+    }
+  },
+  "projects": [
+    {
+      "id": "world-intel-mcp",
+      "path": "mod-projects/world-intel-mcp",
+      "remote": {
+        "name": "origin",
+        "url": "https://github.com/marc-shade/world-intel-mcp.git"
+      },
+      "branch": {
+        "current": "main",
+        "upstream": "origin/main"
+      },
+      "commit": "4528a6ed69f97ab93f91111ae814871bc1bc6a1a",
+      "workingTree": {
+        "status": "clean",
+        "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "indexSha256": "947570d06bcdb7b3e362c1b7359a776e85a7731dcf8a417958e1d6db2c971f6d",
+        "worktreeSha256": "b9ac1c4210ef77523a6710e4b0ef41c57b19146c9456f81c91b2881bbe90f5fc",
+        "counts": {
+          "entries": 0,
+          "staged": 0,
+          "unstaged": 0,
+          "untracked": 0
+        }
+      }
+    },
+    {
+      "id": "vibe-research",
+      "path": "mod-projects/vibe-research",
+      "remote": {
+        "name": "origin",
+        "url": "https://github.com/simonlin1212/Vibe-Research.git"
+      },
+      "branch": {
+        "current": "codex/newma-desk-release-baseline-20260809",
+        "upstream": "origin/main"
+      },
+      "commit": "e4dc07617e9ba16067b38b860e402b4af705a6c3",
+      "workingTree": {
+        "status": "clean",
+        "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "indexSha256": "4f514ba0cdafe33631f9f956033f6d2d2a42ed882c56891098bb28e03091666d",
+        "worktreeSha256": "1dd7bf7e01480a899c1a58daba0a44e4ee883ae149ba56404f4feafdea5b7a9a",
+        "counts": {
+          "entries": 0,
+          "staged": 0,
+          "unstaged": 0,
+          "untracked": 0
+        }
+      }
+    },
+    {
+      "id": "vibe-trading",
+      "path": "mod-projects/vibe-trading",
+      "remote": {
+        "name": "origin",
+        "url": "https://github.com/HKUDS/Vibe-Trading.git"
+      },
+      "branch": {
+        "current": "codex/newma-desk-release-baseline-20260809",
+        "upstream": "origin/main"
+      },
+      "commit": "f159a41033bdb8d3b2c60260bdab9bea045c814f",
+      "workingTree": {
+        "status": "clean",
+        "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "indexSha256": "71cda1329f68d633789cc3e0e7922b112843690d6a7ad2e142abfa0b9df5c319",
+        "worktreeSha256": "7ac2fe1bf1f3c7b490e8b1093e5e7798a98b70be6fd5413f8bfeccf2f9326ab5",
+        "counts": {
+          "entries": 0,
+          "staged": 0,
+          "unstaged": 0,
+          "untracked": 0
+        }
+      }
+    }
+  ]
+}

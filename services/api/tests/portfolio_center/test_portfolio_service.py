@@ -7,7 +7,10 @@ import pytest
 from vibe_visualization_api.portfolio_center.models import (
     PortfolioAccountCreate,
     PortfolioActivityCreate,
+    PortfolioOptimizationRequest,
+    PortfolioPerformanceRequest,
 )
+from vibe_visualization_api.portfolio_center.history import PortfolioPriceHistory
 from vibe_visualization_api.portfolio_center.quotes import (
     PortfolioQuote,
     ResearchPortfolioQuoteProvider,
@@ -35,6 +38,20 @@ class FakeQuoteProvider:
 class UnexpectedQuoteProvider:
     async def get_quotes(self, securities):
         raise AssertionError("quote provider must not be called for a cost-only dashboard")
+
+
+class FakeHistoryProvider:
+    def __init__(self, histories):
+        self.histories = histories
+        self.calls = []
+
+    async def get_histories(self, securities, *, limit):
+        self.calls.append((securities, limit))
+        return {
+            security: self.histories[security]
+            for security in securities
+            if security in self.histories
+        }
 
 
 def activity(**overrides):
@@ -252,3 +269,129 @@ def test_legacy_import_is_idempotent(tmp_path: Path):
     assert first.activities_created == 3
     assert second.reason == "already-imported"
     assert len(store.list_activities(user_id="alice", workspace_id="desk")) == 3
+
+
+@pytest.mark.asyncio
+async def test_dashboard_never_imports_legacy_portfolio_implicitly(tmp_path: Path):
+    legacy_path = tmp_path / "portfolio.json"
+    legacy_path.write_text(
+        '{"holdings":[{"code":"600519","shares":100,"cost":1200}]}',
+        encoding="utf-8",
+    )
+    store = PortfolioStore(tmp_path / "portfolio.db")
+    service = PortfolioCenterService(store, legacy_portfolio_path=legacy_path)
+
+    dashboard = await service.dashboard(
+        user_id="alice",
+        workspace_id="new-workspace",
+        include_quotes=False,
+    )
+
+    assert dashboard.positions == []
+    migrated = service.import_legacy(
+        user_id="alice",
+        workspace_id="new-workspace",
+    )
+    assert migrated.imported is True
+    imported = await service.dashboard(
+        user_id="alice",
+        workspace_id="new-workspace",
+        include_quotes=False,
+    )
+    assert [(item.market, item.symbol) for item in imported.positions] == [
+        ("CN", "600519")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_allocation_optimization_uses_weekly_history_and_currency_scope(
+    tmp_path: Path,
+):
+    store = PortfolioStore(tmp_path / "portfolio.db")
+    stable = [100 * (1.002**index) for index in range(90)]
+    volatile = [
+        100 * (1.003**index) * (1.04 if index % 2 else 0.96)
+        for index in range(90)
+    ]
+    provider = FakeHistoryProvider(
+        {
+            SecurityIdentity("US", "AAPL"): PortfolioPriceHistory(
+                tuple(stable), source="market-data", as_of="2026-08-01"
+            ),
+            SecurityIdentity("US", "MSFT"): PortfolioPriceHistory(
+                tuple(volatile), source="market-data", as_of="2026-08-01"
+            ),
+        }
+    )
+    service = PortfolioCenterService(store, history_provider=provider)
+    store.ensure_default_account(user_id="alice", workspace_id="desk")
+    service.add_activity(
+        user_id="alice",
+        workspace_id="desk",
+        activity=activity(
+            market="US",
+            symbol="AAPL",
+            name="Apple",
+            currency="USD",
+            quantity=10,
+            unitPrice=200,
+        ),
+    )
+    service.add_activity(
+        user_id="alice",
+        workspace_id="desk",
+        activity=activity(
+            market="US",
+            symbol="MSFT",
+            name="Microsoft",
+            currency="USD",
+            quantity=5,
+            unitPrice=400,
+        ),
+    )
+    service.add_activity(
+        user_id="alice",
+        workspace_id="desk",
+        activity=activity(
+            market="CN",
+            symbol="600519",
+            currency="CNY",
+        ),
+    )
+
+    result = await service.optimize_allocation(
+        user_id="alice",
+        workspace_id="desk",
+        request=PortfolioOptimizationRequest(
+            objective="minimum-volatility",
+            currency="USD",
+            lookbackWeeks=52,
+            maxWeight=0.8,
+        ),
+    )
+
+    assert result.status == "ready"
+    assert result.currency == "USD"
+    assert result.data_sources == ["market-data"]
+    assert sum(item.target_weight for item in result.allocations) == pytest.approx(100)
+    targets = {item.symbol: item.target_weight for item in result.allocations}
+    assert targets["AAPL"] > targets["MSFT"]
+    assert provider.calls[0][1] == 53
+    assert {item.symbol for item in result.allocations} == {"AAPL", "MSFT"}
+
+    performance = await service.analyze_historical_performance(
+        user_id="alice",
+        workspace_id="desk",
+        request=PortfolioPerformanceRequest(
+            currency="USD",
+            lookbackWeeks=52,
+            riskFreeRatePct=2,
+        ),
+    )
+
+    assert performance.status == "ready"
+    assert performance.coverage_weight_pct == 100
+    assert performance.metrics is not None
+    assert performance.metrics.annualized_volatility_pct > 0
+    assert len(performance.series) == performance.observations
+    assert provider.calls[1][1] == 53

@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "1.0",
+  "id": "calendar-effect-suite",
+  "name": "日历效应",
+  "description": "中美宏观事件、全球指数历史复盘和历史上的今天。",
+  "version": "0.1.0",
+  "publisher": "日历效应",
+  "upstream": "https://github.com/leecyno1/investment-calendar",
+  "tags": [
+    "宏观日历",
+    "历史复盘",
+    "指数事件",
+    "Apple Calendar"
+  ],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "calendar-effect",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_CALENDAR_EFFECT_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:3002"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "market",
+    "navigation": {
+      "groupLabel": "战术择时",
+      "groupOrder": 80,
+      "itemOrder": 100,
+      "directory": {
+        "id": "calendar-effect-suite",
+        "label": "日历效应",
+        "order": 10
+      },
+      "project": {
+        "id": "tactical-timing",
+        "name": "战术择时",
+        "order": 80,
+        "description": "行业比较、行业轮动、择时与 ETF 轮动。"
+      },
+      "icon": "today"
+    },
+    "compatibility": {
+      "level": 1,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": [],
+    "dataServices": [],
+    "actions": {},
+    "events": {
+      "emits": [],
+      "accepts": []
+    },
+    "refresh": {
+      "mode": "schedule",
+      "cron": "20 6 1 * *"
+    }
+  },
+  "pages": [
+    {
+      "id": "calendar-effect-overview",
+      "name": "事件月历",
+      "description": "按北京时间展示未来宏观、政策和市场事件，并支持日历化浏览。",
+      "tags": [
+        "月历",
+        "宏观",
+        "政策"
+      ],
+      "route": "/",
+      "navigation": {
+        "itemOrder": 10,
+        "label": "月历",
+        "icon": "today"
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "calendar-effect-history",
+      "name": "历史复盘",
+      "description": "跨年份历史大事件、历史上的今天和主要指数事件复盘。",
+      "tags": [
+        "历史",
+        "指数",
+        "复盘"
+      ],
+      "route": "/history",
+      "navigation": {
+        "itemOrder": 20,
+        "label": "复盘",
+        "icon": "market"
+      },
+      "defaultInstall": true
+    }
+  ]
+}

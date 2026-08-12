@@ -6,40 +6,108 @@
     "repository": "https://github.com/leecyno1/newma-dock",
     "ref": "main",
     "pathPrefix": "mods",
-    "mirrors": ["https://gitee.com/leecyno1/newma-dock"],
+    "mirrors": [
+      "https://gitee.com/leecyno1/newma-dock"
+    ],
     "rawBaseUrls": [
       "https://raw.githubusercontent.com/leecyno1/newma-dock/main/mods",
       "https://gitee.com/leecyno1/newma-dock/raw/main/mods"
     ]
   },
-  "retiredMods": ["investment-settings", "quant-agent"],
+  "retiredMods": [
+    "investment-settings",
+    "quant-agent",
+    "event-intelligence"
+  ],
   "mods": [
-    { "id": "market-daily", "path": "market-daily/mod.json" },
-    { "id": "market-scanner", "path": "market-scanner/mod.json" },
-    { "id": "multi-timeframe", "path": "multi-timeframe/mod.json" },
-    { "id": "relative-strength", "path": "relative-strength/mod.json" },
-    { "id": "event-timeline", "path": "event-timeline/mod.json" },
-    { "id": "trading-replay", "path": "trading-replay/mod.json" },
-    { "id": "daily-review", "path": "daily-review/mod.json", "defaultInstall": true },
-    { "id": "alpha-lab", "path": "alpha-lab/mod.json", "defaultInstall": true },
-    { "id": "news-radar", "path": "news-radar/mod.json", "defaultInstall": true },
-    { "id": "watchlist", "path": "watchlist/mod.json", "defaultInstall": true },
-    { "id": "stock-research", "path": "stock-research/mod.json", "defaultInstall": true },
-    { "id": "industry-map", "path": "industry-map/mod.json", "defaultInstall": true },
-    { "id": "seven-cycle-research", "path": "seven-cycle-research/mod.json" },
-    { "id": "research-library", "path": "research-library/mod.json", "defaultInstall": true },
-    { "id": "research-notes", "path": "research-notes/mod.json", "defaultInstall": true },
-    { "id": "quant-overview", "path": "quant-overview/mod.json", "defaultInstall": true },
-    { "id": "backtest-lab", "path": "backtest-lab/mod.json", "defaultInstall": true },
-    { "id": "factor-correlation", "path": "factor-correlation/mod.json", "defaultInstall": true },
-    { "id": "instock-czsc", "path": "instock-czsc/mod.json", "defaultInstall": true },
-    { "id": "instock-rotation", "path": "instock-rotation/mod.json", "defaultInstall": true },
-    { "id": "trade-desk", "path": "trade-desk/mod.json", "defaultInstall": true },
-    { "id": "trading-settings", "path": "trading-settings/mod.json", "defaultInstall": true }
+    {
+      "id": "global-situation",
+      "path": "global-situation/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "news-radar",
+      "path": "news-radar/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "catalyst-calendar",
+      "path": "catalyst-calendar/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "market-daily",
+      "path": "market-daily/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "market-scanner",
+      "path": "market-scanner/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "multi-timeframe",
+      "path": "multi-timeframe/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "relative-strength",
+      "path": "relative-strength/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "event-timeline",
+      "path": "event-timeline/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "trading-replay",
+      "path": "trading-replay/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "seven-cycle-research",
+      "path": "seven-cycle-research/mod.json"
+    },
+    {
+      "id": "instock-czsc",
+      "path": "instock-czsc/mod.json"
+    },
+    {
+      "id": "instock-rotation",
+      "path": "instock-rotation/mod.json"
+    }
   ],
   "suites": [
-    { "id": "portfolio-suite", "path": "portfolio-suite/suite.json", "defaultInstall": true },
-    { "id": "deepsee-suite", "path": "deepsee-suite/suite.json" },
-    { "id": "orchestra-suite", "path": "orchestra-suite/suite.json", "defaultInstall": true }
+    {
+      "id": "research-suite",
+      "path": "research-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "trading-suite",
+      "path": "trading-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "portfolio-suite",
+      "path": "portfolio-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "deepsee-suite",
+      "path": "deepsee-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "orchestra-suite",
+      "path": "orchestra-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "calendar-effect-suite",
+      "path": "calendar-effect-suite/suite.json",
+      "defaultInstall": false
+    }
   ]
 }

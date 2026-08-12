@@ -6,6 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ShellEventBus } from "../events/ShellEventBus";
 import { ModFrame, type ModFrameHandle } from "./ModuleFrame";
 
+vi.mock("./EmbeddedMarketFrame", () => ({
+  default: ({ search }: { search: string }) => (
+    <div data-testid="embedded-market-frame">{search || "terminal"}</div>
+  ),
+}));
+
 const manifest: ModManifest = {
   schemaVersion: "1.0",
   id: "market-daily",
@@ -72,6 +78,36 @@ function dispatchFromFrame(
 afterEach(() => vi.restoreAllMocks());
 
 describe("ModFrame event boundary", () => {
+  it("renders first-party market workspaces inside the Desk instead of an iframe", async () => {
+    const eventBus = new ShellEventBus();
+    const embeddedManifest: ModManifest = {
+      ...connectedManifest,
+      id: "market-scanner",
+      name: "市场扫描器",
+      entry: {
+        type: "structured",
+        url: "/mods/market-daily/?workspace=scanner",
+      },
+    };
+
+    render(
+      <ModFrame
+        manifest={embeddedManifest}
+        eventBus={eventBus}
+        theme="light"
+      />,
+    );
+
+    expect(await screen.findByTestId("embedded-market-frame")).toHaveTextContent(
+      "?workspace=scanner",
+    );
+    expect(screen.queryByTitle("市场扫描器")).not.toBeInTheDocument();
+    const boundary = screen.getByTestId("embedded-market-frame").closest("section");
+    expect(boundary).toHaveAttribute("data-vibedesk-mod-id", "market-scanner");
+    expect(boundary).toHaveAttribute("data-vibedesk-frame-state", "ready");
+    eventBus.close();
+  });
+
   it("exposes a page-context request to the Desk-level copilot", async () => {
     const eventBus = new ShellEventBus();
     const frameHandle = createRef<ModFrameHandle>();
@@ -280,6 +316,10 @@ describe("ModFrame event boundary", () => {
       instanceId: string;
       modId: string;
       environment: { theme: string };
+      appearance: {
+        mode: string;
+        cssVars: Record<string, string>;
+      };
       grants: { permissions: string[]; actions: string[] };
     };
     expect(init).toEqual(
@@ -289,6 +329,13 @@ describe("ModFrame event boundary", () => {
         user: { id: "local-user" },
         workspace: { id: "local-workspace" },
         environment: expect.objectContaining({ theme: "light" }),
+        appearance: expect.objectContaining({
+          mode: "light",
+          cssVars: expect.objectContaining({
+            "--vibe-bg": "#f4efe3",
+            "--vibe-accent": "#a87432",
+          }),
+        }),
         grants: { permissions: [], actions: [] },
       }),
     );
@@ -309,6 +356,13 @@ describe("ModFrame event boundary", () => {
         type: "vibedesk:init",
         instanceId: init.instanceId,
         environment: expect.objectContaining({ theme: "dark" }),
+        appearance: expect.objectContaining({
+          mode: "dark",
+          cssVars: expect.objectContaining({
+            "--vibe-bg": "#0f1714",
+            "--vibe-accent": "#c89a5a",
+          }),
+        }),
       }),
       "http://127.0.0.1:5891",
     );
@@ -459,7 +513,11 @@ describe("ModFrame event boundary", () => {
     )?.[0] as { instanceId: string };
     expect(init).toEqual(
       expect.objectContaining({
-        session: { id: "session-1", expiresAt: "2099-07-23T10:00:00+08:00" },
+        session: {
+          id: "session-1",
+          accessToken: "scoped-token",
+          expiresAt: "2099-07-23T10:00:00+08:00",
+        },
       }),
     );
 
@@ -579,6 +637,12 @@ describe("ModFrame event boundary", () => {
         type: "vibedesk:config",
         moduleId: "market-daily",
         theme: "dark",
+        appearance: expect.objectContaining({
+          mode: "dark",
+          cssVars: expect.objectContaining({
+            "--vibe-accent": "#c89a5a",
+          }),
+        }),
       }),
       "http://127.0.0.1:5891",
     );

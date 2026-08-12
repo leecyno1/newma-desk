@@ -1,8 +1,10 @@
 import {
-  FolderCog,
+  FolderTree,
   GripVertical,
+  Layers3,
   Monitor,
   Moon,
+  PanelLeft,
   Pin,
   RotateCcw,
   Save,
@@ -12,11 +14,12 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { StoredMod } from "../api/modules";
 import {
-  customSidebarDirectory,
-  defaultCategoryLabel,
-  defaultDirectory,
+  automaticProjectMark,
+  compileSidebarNavigation,
+  type SidebarProjectItem,
+} from "../lib/sidebarNavigation";
+import {
   EMPTY_SIDEBAR_NAVIGATION,
-  type SidebarDirectoryRef,
   type SidebarNavigationPreferences,
   type ThemeMode,
 } from "../lib/workspacePreferences";
@@ -43,13 +46,13 @@ const themeOptions = [
   {
     id: "light" as const,
     label: "浅色",
-    description: "保持清晰的白色工作台",
+    description: "暖纸底色与深绿文字，适合长时间阅读",
     icon: Sun,
   },
   {
     id: "dark" as const,
     label: "深色",
-    description: "使用中性的深蓝黑工作台",
+    description: "Verdigris 深绿工作台与克制的暖金强调",
     icon: Moon,
   },
 ];
@@ -76,25 +79,102 @@ function copyNavigationPreferences(
         { ...preference },
       ]),
     ),
+    ...(preferences.projects ? {
+      projects: Object.fromEntries(
+        Object.entries(preferences.projects).map(([projectId, preference]) => [
+          projectId,
+          { ...preference },
+        ]),
+      ),
+    } : {}),
+    ...(preferences.sections ? {
+      sections: Object.fromEntries(
+        Object.entries(preferences.sections).map(([projectId, sections]) => [
+          projectId,
+          Object.fromEntries(
+            Object.entries(sections).map(([sectionId, preference]) => [
+              sectionId,
+              { ...preference },
+            ]),
+          ),
+        ]),
+      ),
+    } : {}),
   };
 }
 
-function hasDirectoryOverride(
-  preferences: SidebarNavigationPreferences,
-  moduleId: string,
-) {
-  return Object.hasOwn(preferences.modules[moduleId] ?? {}, "directory");
+function projectPages(project: SidebarProjectItem) {
+  return [
+    ...project.modules,
+    ...project.sections.flatMap((section) => [
+      ...section.modules,
+      ...(section.settingsModule ? [section.settingsModule] : []),
+    ]),
+    ...(project.settingsModule ? [project.settingsModule] : []),
+  ];
 }
 
-function effectiveDirectory(
-  module: StoredMod,
+function projectMark(project: SidebarProjectItem) {
+  return automaticProjectMark(project.name, project.id, {
+    defaultName: project.defaultName,
+    icon: project.icon,
+  });
+}
+
+function projectTitleDraft(
   preferences: SidebarNavigationPreferences,
-): SidebarDirectoryRef | null {
-  const preference = preferences.modules[module.moduleId];
-  if (preference && Object.hasOwn(preference, "directory")) {
-    return preference.directory ?? null;
+  project: SidebarProjectItem,
+) {
+  const preference = preferences.projects?.[project.id];
+  return preference && Object.hasOwn(preference, "label")
+    ? preference.label ?? ""
+    : project.name;
+}
+
+function hasProjectTitleOverride(
+  preferences: SidebarNavigationPreferences,
+  project: SidebarProjectItem,
+) {
+  const preference = preferences.projects?.[project.id];
+  return (
+    (preference !== undefined && Object.hasOwn(preference, "label")) ||
+    project.name !== project.defaultName
+  );
+}
+
+function removePreferenceLabel(
+  preferences: Record<
+    string,
+    { label?: string; order?: number; pinned?: boolean }
+  >,
+  id: string,
+) {
+  const preference = preferences[id];
+  if (!preference) return;
+  delete preference.label;
+  if (Object.keys(preference).length === 0) delete preferences[id];
+}
+
+function normalizeProjectTitles(
+  preferences: SidebarNavigationPreferences,
+  projects: SidebarProjectItem[],
+) {
+  const next = copyNavigationPreferences(preferences);
+  for (const project of projects) {
+    const preference = next.projects?.[project.id];
+    if (!preference || !Object.hasOwn(preference, "label")) continue;
+    const label = preference.label?.trim().slice(0, 40) ?? "";
+    if (label) {
+      preference.label = label;
+      continue;
+    }
+    removePreferenceLabel(next.projects!, project.id);
+    removePreferenceLabel(next.directories, project.id);
   }
-  return defaultDirectory(module);
+  if (next.projects && Object.keys(next.projects).length === 0) {
+    delete next.projects;
+  }
+  return next;
 }
 
 export function InterfaceSettings({
@@ -106,126 +186,58 @@ export function InterfaceSettings({
   navigationPreferences,
   onNavigationPreferencesChange,
 }: InterfaceSettingsProps) {
-  const [categoryDraft, setCategoryDraft] = useState(categoryOverrides);
   const [navigationDraft, setNavigationDraft] = useState(
     navigationPreferences,
   );
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => setCategoryDraft(categoryOverrides), [categoryOverrides]);
   useEffect(
     () => setNavigationDraft(navigationPreferences),
     [navigationPreferences],
   );
 
-  const categorySuggestions = useMemo(
-    () =>
-      [...new Set([
-        ...modules.map(defaultCategoryLabel),
-        ...Object.values(categoryDraft)
-          .map((label) => label.trim())
-          .filter(Boolean),
-      ])].sort((left, right) => left.localeCompare(right, "zh-CN")),
-    [categoryDraft, modules],
+  const navigation = useMemo(
+    () => compileSidebarNavigation(modules, categoryOverrides, navigationDraft),
+    [categoryOverrides, modules, navigationDraft],
   );
 
-  const directoryCandidates = useMemo(() => {
-    const candidates = new Map<string, SidebarDirectoryRef>();
-    for (const module of modules) {
-      const groupLabel =
-        categoryDraft[module.moduleId]?.trim() || defaultCategoryLabel(module);
-      const directory = effectiveDirectory(module, navigationDraft);
-      if (directory) {
-        candidates.set(`${groupLabel}\u0000${directory.label}`, directory);
+  const updateProjectTitle = (projectId: string, value: string) => {
+    setSaved(false);
+    setNavigationDraft((current) => {
+      const next = copyNavigationPreferences(current);
+      next.projects = { ...(next.projects ?? {}) };
+      next.projects[projectId] = {
+        ...next.projects[projectId],
+        label: value.slice(0, 40),
+      };
+      return next;
+    });
+  };
+
+  const useDefaultProjectTitle = (projectId: string) => {
+    setSaved(false);
+    setNavigationDraft((current) => {
+      const next = copyNavigationPreferences(current);
+      if (next.projects) {
+        removePreferenceLabel(next.projects, projectId);
+        if (Object.keys(next.projects).length === 0) delete next.projects;
       }
-    }
-    return candidates;
-  }, [categoryDraft, modules, navigationDraft]);
-
-  const directorySuggestions = useMemo(
-    () =>
-      [...new Set(
-        [...directoryCandidates.keys()].map((key) => key.split("\u0000")[1]),
-      )]
-        .filter((label): label is string => Boolean(label))
-        .sort((left, right) => left.localeCompare(right, "zh-CN")),
-    [directoryCandidates],
-  );
-
-  const updateCategory = (moduleId: string, value: string) => {
-    setSaved(false);
-    setCategoryDraft((current) => ({ ...current, [moduleId]: value }));
-  };
-
-  const useDefaultCategory = (moduleId: string) => {
-    setSaved(false);
-    setCategoryDraft((current) => {
-      const next = { ...current };
-      delete next[moduleId];
-      return next;
-    });
-  };
-
-  const updateDirectory = (module: StoredMod, value: string) => {
-    setSaved(false);
-    const label = value.trim();
-    const groupLabel =
-      categoryDraft[module.moduleId]?.trim() || defaultCategoryLabel(module);
-    const directory = label
-      ? directoryCandidates.get(`${groupLabel}\u0000${label}`) ??
-        customSidebarDirectory(groupLabel, label)
-      : null;
-    setNavigationDraft((current) => {
-      const next = copyNavigationPreferences(current);
-      next.modules[module.moduleId] = {
-        ...next.modules[module.moduleId],
-        directory,
-      };
-      return next;
-    });
-  };
-
-  const useDefaultDirectory = (moduleId: string) => {
-    setSaved(false);
-    setNavigationDraft((current) => {
-      const next = copyNavigationPreferences(current);
-      const preference = next.modules[moduleId];
-      if (!preference) return next;
-      delete preference.directory;
-      if (Object.keys(preference).length === 0) delete next.modules[moduleId];
-      return next;
-    });
-  };
-
-  const showAtPrimaryLevel = (moduleId: string) => {
-    setSaved(false);
-    setNavigationDraft((current) => {
-      const next = copyNavigationPreferences(current);
-      next.modules[moduleId] = {
-        ...next.modules[moduleId],
-        directory: null,
-      };
+      removePreferenceLabel(next.directories, projectId);
       return next;
     });
   };
 
   const save = () => {
-    const normalizedCategories = Object.fromEntries(
-      Object.entries(categoryDraft).flatMap(([moduleId, label]) => {
-        const trimmed = label.trim();
-        return trimmed ? ([[moduleId, trimmed]] as const) : [];
-      }),
+    const normalizedNavigation = normalizeProjectTitles(
+      navigation.preferences,
+      navigation.projects,
     );
-    const normalizedNavigation = copyNavigationPreferences(navigationDraft);
-    setCategoryDraft(normalizedCategories);
     setNavigationDraft(normalizedNavigation);
-    onCategoryOverridesChange(normalizedCategories);
     onNavigationPreferencesChange(normalizedNavigation);
     setSaved(true);
   };
 
   const reset = () => {
-    setCategoryDraft({});
     setNavigationDraft(EMPTY_SIDEBAR_NAVIGATION);
     onCategoryOverridesChange({});
     onNavigationPreferencesChange(EMPTY_SIDEBAR_NAVIGATION);
@@ -237,7 +249,7 @@ export function InterfaceSettings({
       <header className="settings-page-header">
         <div>
           <h1>界面设置</h1>
-          <p>统一主题、字体和导航结构，所有选择只保存在当前浏览器。</p>
+          <p>统一主题与项目式导航，所有选择只保存在当前浏览器。</p>
         </div>
       </header>
 
@@ -245,7 +257,7 @@ export function InterfaceSettings({
         <div className="settings-section-heading">
           <div>
             <h2 id="theme-heading">主题</h2>
-            <p>浅色、深色和系统外观共享同一套字号、间距与组件比例。</p>
+            <p>Desk 与 Numa Agent 共用 Verdigris 深绿、暖金和紧凑的信息密度。</p>
           </div>
         </div>
         <div className="theme-option-grid">
@@ -268,12 +280,12 @@ export function InterfaceSettings({
         </div>
       </section>
 
-      <section className="settings-section" aria-labelledby="category-heading">
+      <section className="settings-section" aria-labelledby="project-navigation-heading">
         <div className="settings-section-heading category-heading">
           <div>
-            <h2 id="category-heading">侧边栏与二级目录</h2>
+            <h2 id="project-navigation-heading">项目导航</h2>
             <p>
-              一级分类和二级目录均可自定义。排序、跨目录拖放和冻结可直接在左侧导航完成。
+              一级只显示中文项目短标；项目标题可在本机自定义，二级标题与中文短标会自动同步。
             </p>
           </div>
           <div className="settings-actions">
@@ -289,97 +301,116 @@ export function InterfaceSettings({
         </div>
 
         <div className="sidebar-customization-help">
-          <span><GripVertical size={13} aria-hidden="true" />拖拽页面或目录调整顺序</span>
+          <span><PanelLeft size={13} aria-hidden="true" />项目标志与页面面板一体折叠</span>
+          <span><GripVertical size={13} aria-hidden="true" />拖拽项目或项目内页面排序</span>
           <span><Pin size={13} aria-hidden="true" />冻结后保持位置并禁止拖动</span>
-          <span><FolderCog size={13} aria-hidden="true" />同名目录会自动合并</span>
+          <span><FolderTree size={13} aria-hidden="true" />页面不会被拖离所属项目</span>
+          <span><Layers3 size={13} aria-hidden="true" />自定义标题仅保存在当前浏览器</span>
         </div>
 
-        {saved ? (
-          <div className="settings-notice settings-success" role="status">
-            导航设置已保存，左侧边栏已立即更新。
+        {Object.keys(categoryOverrides).length > 0 ? (
+          <div className="settings-notice settings-warning" role="status">
+            检测到 {Object.keys(categoryOverrides).length} 项旧版分类设置。项目式导航不再使用它们。
+            <button
+              type="button"
+              className="inline-settings-action"
+              onClick={() => onCategoryOverridesChange({})}
+            >
+              清除旧设置
+            </button>
           </div>
         ) : null}
 
-        <datalist id="category-suggestions">
-          {categorySuggestions.map((category) => (
-            <option value={category} key={category} />
-          ))}
-        </datalist>
-        <datalist id="directory-suggestions">
-          {directorySuggestions.map((directory) => (
-            <option value={directory} key={directory} />
-          ))}
-        </datalist>
+        {saved ? (
+          <div className="settings-notice settings-success" role="status">
+            项目导航已保存，左侧栏已立即更新。
+          </div>
+        ) : null}
 
-        <div className="category-editor-list">
-          {modules.map((module) => {
-            const defaultLabel = defaultCategoryLabel(module);
-            const manifestDirectory = defaultDirectory(module);
-            const directory = effectiveDirectory(module, navigationDraft);
-            const directoryOverridden = hasDirectoryOverride(
-              navigationDraft,
-              module.moduleId,
-            );
-            return (
-              <div className="category-editor-row" key={module.moduleId}>
-                <span className="category-module-name">
-                  <FolderCog size={16} aria-hidden="true" />
-                  <span>
-                    <strong>{module.manifest.name}</strong>
-                    <small>
-                      {module.moduleId} · 默认：{defaultLabel}
-                      {manifestDirectory ? ` / ${manifestDirectory.label}` : " / 一级"}
-                    </small>
-                  </span>
+        <div className="project-navigation-editor">
+          {navigation.projects.map((project) => (
+            <section className="project-navigation-card" key={project.id}>
+              <header className="project-navigation-card-header">
+                <span className="project-navigation-mark" aria-hidden="true">
+                  {projectMark(project)}
                 </span>
-                <label className="navigation-field">
-                  <span>一级分类</span>
-                  <input
-                    aria-label={`${module.manifest.name}分类`}
-                    list="category-suggestions"
-                    value={categoryDraft[module.moduleId] ?? ""}
-                    placeholder={defaultLabel}
-                    onChange={(event) =>
-                      updateCategory(module.moduleId, event.target.value)
-                    }
-                  />
-                </label>
-                <label className="navigation-field">
-                  <span>二级目录</span>
-                  <input
-                    aria-label={`${module.manifest.name}二级目录`}
-                    list="directory-suggestions"
-                    value={directory?.label ?? ""}
-                    placeholder="一级直接显示"
-                    onChange={(event) => updateDirectory(module, event.target.value)}
-                  />
-                </label>
-                <span className="row-navigation-actions">
-                  <button
-                    type="button"
-                    className="row-reset-action"
-                    onClick={() => showAtPrimaryLevel(module.moduleId)}
-                    disabled={directoryOverridden && directory === null}
-                  >
-                    一级显示
-                  </button>
-                  <button
-                    type="button"
-                    className="row-reset-action"
-                    onClick={() => {
-                      useDefaultCategory(module.moduleId);
-                      useDefaultDirectory(module.moduleId);
-                    }}
-                    disabled={
-                      !categoryDraft[module.moduleId] && !directoryOverridden
-                    }
-                  >
-                    使用默认
-                  </button>
+                <span>
+                  <strong>{project.name}</strong>
+                  <small>{project.id} · {projectPages(project).length} 个页面</small>
                 </span>
+                <span className="project-navigation-source">
+                  <Layers3 size={12} aria-hidden="true" />
+                  {hasProjectTitleOverride(navigationDraft, project)
+                    ? "本地标题"
+                    : "Manifest 默认"}
+                </span>
+              </header>
+
+              <div className="project-title-editor">
+                <label className="project-title-field">
+                  <span>一级标题</span>
+                  <input
+                    type="text"
+                    aria-label={`${project.defaultName} 一级标题`}
+                    aria-describedby={`project-title-hint-${project.id}`}
+                    aria-invalid={!projectTitleDraft(navigationDraft, project).trim()}
+                    maxLength={40}
+                    value={projectTitleDraft(navigationDraft, project)}
+                    onChange={(event) => updateProjectTitle(
+                      project.id,
+                      event.target.value,
+                    )}
+                  />
+                  <small
+                    id={`project-title-hint-${project.id}`}
+                    className="project-title-hint"
+                    data-invalid={!projectTitleDraft(navigationDraft, project).trim() || undefined}
+                  >
+                    {projectTitleDraft(navigationDraft, project).trim()
+                      ? `默认：${project.defaultName} · 标志：${projectMark(project)}`
+                      : `标题不能为空；保存后将恢复“${project.defaultName}”`}
+                  </small>
+                </label>
+                <button
+                  type="button"
+                  className="row-reset-action project-title-reset"
+                  aria-label={`恢复 ${project.defaultName} 默认标题`}
+                  disabled={!hasProjectTitleOverride(navigationDraft, project)}
+                  onClick={() => useDefaultProjectTitle(project.id)}
+                >
+                  <RotateCcw size={12} aria-hidden="true" />
+                  恢复默认
+                </button>
               </div>
-            );
-          })}
+
+              <div className="category-editor-list">
+                {projectPages(project).map((item) => {
+                  const isSettings = item.role === "settings";
+                  return (
+                    <div className="category-editor-row project-page-editor-row" key={item.module.moduleId}>
+                      <span className="category-module-name">
+                        <FolderTree size={16} aria-hidden="true" />
+                        <span>
+                          <strong>{item.label}</strong>
+                          <small>
+                            {item.module.moduleId} · {isSettings ? "项目设置" : "项目页面"}
+                          </small>
+                        </span>
+                      </span>
+                      <span className="navigation-static-field">
+                        <small>所属栏目</small>
+                        <strong>{project.name}</strong>
+                      </span>
+                      <span className="navigation-static-field">
+                        <small>完整项目</small>
+                        <strong>{item.directory?.label ?? "独立 Mod"}</strong>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       </section>
     </div>

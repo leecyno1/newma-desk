@@ -1,0 +1,10 @@
+# Shared Research + Trading dependencies for the Desk API production runtime.
+-c constraints-domain-runtime.txt
+-r requirements-trading-integrated.txt
+
+# Research market-data adapter retained by the Integrated Domain Runtime.
+akshare>=1.10,<2
+
+# mootdx is intentionally excluded from the unified environment. Its latest
+# release requires httpx<0.26, while Desk and Trading require httpx>=0.28.
+# Research imports it lazily, so the Tencent/AKShare paths remain available.

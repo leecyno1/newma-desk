@@ -2,7 +2,10 @@
   "name": "@newma-desk/desk-ui",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "exports": {
-    "./tokens.css": "./src/tokens.css"
+    "./tokens.css": "./src/tokens.css",
+    "./mod-theme.css": "./src/mod-theme.css",
+    "./theme": "./src/theme.ts"
   }
 }

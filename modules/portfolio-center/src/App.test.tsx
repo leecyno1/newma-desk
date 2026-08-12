@@ -1,10 +1,15 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PortfolioCenterApp } from "./App";
-import type { PortfolioDashboard } from "./types";
+import type { PortfolioResearchCoverage } from "@newma-desk/contracts";
+import type {
+  PortfolioDashboard,
+  PortfolioOptimizationResult,
+  PortfolioPerformanceResult,
+} from "./types";
 
 const closeBridge = vi.fn();
 let bridgeHandler: ((event: { event: string; payload: Record<string, unknown> }) => void) | undefined;
@@ -89,6 +94,128 @@ const liveDashboard: PortfolioDashboard = {
   valuationStatus: "live",
 };
 
+const researchCoverage: PortfolioResearchCoverage = {
+  schemaVersion: "newma-desk.portfolio-research-coverage.v1",
+  userId: "local-user",
+  workspaceId: "local-workspace",
+  generatedAt: "2026-08-05T08:00:00Z",
+  summary: {
+    positionCount: 1,
+    completeCount: 1,
+    partialCount: 0,
+    missingCount: 0,
+    attentionCount: 0,
+    activeReferenceCount: 2,
+  },
+  positions: [{
+    market: "CN",
+    symbol: "600519",
+    name: "贵州茅台",
+    accountIds: ["main"],
+    status: "complete",
+    referenceCount: 2,
+    activeReferenceCount: 2,
+    coreKinds: ["thesis"],
+    supportingKinds: ["valuation"],
+    missingGroups: [],
+    attentionReasons: [],
+    latestUpdatedAt: "2026-08-05T07:00:00Z",
+    references: [{
+      id: "archive:thesis-tracker:thesis-1",
+      kind: "thesis",
+      sourceModId: "thesis-tracker",
+      artifactId: "thesis-1",
+      title: "贵州茅台核心逻辑",
+      status: "active",
+      security: { market: "CN", symbol: "600519", name: "贵州茅台" },
+      asOf: "2026-09-01",
+      updatedAt: "2026-08-05T07:00:00Z",
+      tags: ["active"],
+      sourceRevision: 2,
+    }, {
+      id: "archive:valuation-workbench:valuation-1",
+      kind: "valuation",
+      sourceModId: "valuation-workbench",
+      artifactId: "valuation-1",
+      title: "贵州茅台 DCF",
+      status: "active",
+      security: { market: "CN", symbol: "600519", name: "贵州茅台" },
+      updatedAt: "2026-08-04T07:00:00Z",
+      tags: ["company"],
+      sourceRevision: 1,
+    }],
+  }],
+};
+
+const optimizationResult: PortfolioOptimizationResult = {
+  status: "ready",
+  objective: "risk-balanced",
+  method: "lightweight-inverse-volatility",
+  currency: "CNY",
+  timeframe: "1w",
+  lookbackWeeks: 104,
+  observations: 88,
+  dataSources: ["market-data"],
+  asOf: "2026-08-01",
+  annualizedExpectedReturnPct: 8.2,
+  annualizedVolatilityPct: 15.4,
+  currentConcentration: 1,
+  targetConcentration: 1,
+  allocations: [{
+    market: "CN",
+    symbol: "600519",
+    name: "贵州茅台",
+    currency: "CNY",
+    currentWeight: 100,
+    targetWeight: 100,
+    changeWeight: 0,
+    expectedReturnPct: 8.2,
+    volatilityPct: 15.4,
+    riskContributionPct: 100,
+    historyPoints: 89,
+    frozen: false,
+  }],
+  missingAssets: [],
+  warnings: ["结果基于历史周线估计，仅用于组合研究，不代表未来收益。"],
+  generatedAt: "2026-08-02T00:00:00Z",
+};
+
+const performanceResult: PortfolioPerformanceResult = {
+  status: "ready",
+  method: "quantstats-inspired-weekly",
+  currency: "CNY",
+  timeframe: "1w",
+  lookbackWeeks: 156,
+  observations: 52,
+  coverageWeightPct: 100,
+  metrics: {
+    totalReturnPct: 18.5,
+    annualizedReturnPct: 17.9,
+    annualizedVolatilityPct: 21.3,
+    sharpe: 0.74,
+    sortino: 1.12,
+    calmar: 0.91,
+    maxDrawdownPct: -19.6,
+    maxDrawdownDurationWeeks: 12,
+    winRatePct: 55.8,
+    profitFactor: 1.28,
+    bestWeekPct: 7.4,
+    worstWeekPct: -6.2,
+    valueAtRisk95Pct: -4.1,
+    conditionalValueAtRisk95Pct: -5.3,
+  },
+  series: Array.from({ length: 52 }, (_, index) => ({
+    label: `W${index + 1}`,
+    equity: 1 + index * 0.004,
+    drawdownPct: index % 9 === 0 ? -2 : 0,
+  })),
+  dataSources: ["market-data"],
+  asOf: "2026-08-01",
+  missingAssets: [],
+  warnings: ["指标采用当前持仓权重进行历史周线模拟。"],
+  generatedAt: "2026-08-02T00:00:00Z",
+};
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -111,20 +238,28 @@ describe("PortfolioCenterApp", () => {
   it("renders the local ledger before the background quote request completes", async () => {
     let resolveQuotes: ((response: Response) => void) | undefined;
     const quoteResponse = new Promise<Response>((resolve) => { resolveQuotes = resolve; });
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(costDashboard))
-      .mockReturnValueOnce(quoteResponse);
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("research-coverage")) return Promise.resolve(jsonResponse(researchCoverage));
+      if (url.includes("includeQuotes=false")) return Promise.resolve(jsonResponse(costDashboard));
+      return quoteResponse;
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     render(<PortfolioCenterApp />);
 
-    expect(await screen.findByText("贵州茅台")).toBeVisible();
+    expect((await screen.findAllByText("贵州茅台")).length).toBeGreaterThan(0);
     expect(screen.queryByText("正在整理组合账本…")).not.toBeInTheDocument();
     expect(screen.getByText("行情刷新中")).toBeVisible();
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
+    expect(fetchMock).toHaveBeenCalledWith(
       "/api/portfolio-center?includeQuotes=false",
       expect.objectContaining({ headers: expect.any(Object) }),
+    );
+    expect(await screen.findByText("持仓研究覆盖")).toBeVisible();
+    expect(screen.getByText("覆盖完整")).toBeVisible();
+    expect(screen.getByRole("link", { name: "投资逻辑" })).toHaveAttribute(
+      "href",
+      "http://127.0.0.1:5888/?mod=thesis-tracker",
     );
 
     resolveQuotes?.(jsonResponse(liveDashboard));
@@ -134,14 +269,17 @@ describe("PortfolioCenterApp", () => {
   });
 
   it("keeps the cost ledger usable when the background quote refresh fails", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(costDashboard))
-      .mockResolvedValueOnce(jsonResponse({ detail: "quote unavailable" }, 503));
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("research-coverage")) return Promise.resolve(jsonResponse(researchCoverage));
+      if (url.includes("includeQuotes=false")) return Promise.resolve(jsonResponse(costDashboard));
+      return Promise.resolve(jsonResponse({ detail: "quote unavailable" }, 503));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     render(<PortfolioCenterApp />);
 
-    expect(await screen.findByText("贵州茅台")).toBeVisible();
+    expect((await screen.findAllByText("贵州茅台")).length).toBeGreaterThan(0);
     await waitFor(() => {
       expect(screen.getByText("账本已加载，实时行情暂时不可用；当前显示成本口径。")).toBeVisible();
     });
@@ -149,13 +287,16 @@ describe("PortfolioCenterApp", () => {
   });
 
   it("accepts the shared security event and focuses a matching position", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(costDashboard))
-      .mockResolvedValueOnce(jsonResponse(liveDashboard));
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("research-coverage")) return Promise.resolve(jsonResponse(researchCoverage));
+      if (url.includes("includeQuotes=false")) return Promise.resolve(jsonResponse(costDashboard));
+      return Promise.resolve(jsonResponse(liveDashboard));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     render(<PortfolioCenterApp />);
-    expect(await screen.findByText("贵州茅台")).toBeVisible();
+    expect((await screen.findAllByText("贵州茅台")).length).toBeGreaterThan(0);
 
     act(() => {
       bridgeHandler?.({
@@ -165,6 +306,56 @@ describe("PortfolioCenterApp", () => {
     });
 
     expect(await screen.findByText("联动标的 CN:600519")).toBeVisible();
-    expect(screen.getByText("贵州茅台").closest("tr")).toHaveClass("selected");
+    expect(screen.getByRole("cell", { name: /贵州茅台/ }).closest("tr")).toHaveClass("selected");
+  });
+
+  it("generates and renders a constrained allocation proposal", async () => {
+    window.history.replaceState({}, "", "/?workspace=portfolio-allocation");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(costDashboard))
+      .mockResolvedValueOnce(jsonResponse(liveDashboard))
+      .mockResolvedValueOnce(jsonResponse(optimizationResult));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PortfolioCenterApp />);
+    expect(await screen.findByText("配置约束")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /生成目标配置/ }));
+
+    expect(await screen.findByText("当前与目标权重")).toBeVisible();
+    expect(screen.getByText("数据完整")).toBeVisible();
+    expect(screen.getByText("88")).toBeVisible();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/portfolio-center/allocations/optimize",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"objective":"risk-balanced"'),
+        }),
+      );
+    });
+  });
+
+  it("renders QuantStats-style performance metrics from unified history", async () => {
+    window.history.replaceState({}, "", "/?workspace=portfolio-performance");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(costDashboard))
+      .mockResolvedValueOnce(jsonResponse(liveDashboard))
+      .mockResolvedValueOnce(jsonResponse(performanceResult));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PortfolioCenterApp />);
+    expect(await screen.findByText("当前持仓历史模拟")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /计算绩效指标/ }));
+
+    expect(await screen.findByText("收益与风险画像")).toBeVisible();
+    expect(screen.getByText("0.74")).toBeVisible();
+    expect(screen.getByRole("img", { name: "组合历史净值曲线" })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/portfolio-center/performance/analyze",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"lookbackWeeks":156'),
+      }),
+    );
   });
 });

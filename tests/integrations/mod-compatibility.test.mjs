@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -75,6 +77,64 @@ test("rejects confirmation values that the runtime contract cannot parse", () =>
   assert.ok(result.errors.some((error) => error.includes("confirmation must be")));
 });
 
+test("embedded market workspaces declare every data action used by their runtime", () => {
+  const requiredActions = {
+    "market-daily": [
+      "market.symbol-search",
+      "market.quotes",
+      "market.quote",
+      "market.ohlcv",
+      "market.intraday",
+      "market.overview",
+      "market.indices",
+      "market.global-indices",
+      "market.turnover-top",
+    ],
+    "market-scanner": [
+      "market.symbol-search",
+      "market.quote",
+      "market.scan",
+    ],
+    "multi-timeframe": [
+      "market.symbol-search",
+      "market.quote",
+      "market.ohlcv",
+      "market.intraday",
+    ],
+    "relative-strength": [
+      "market.symbol-search",
+      "market.quote",
+      "market.ohlcv",
+    ],
+    "event-timeline": [
+      "market.symbol-search",
+      "market.quote",
+      "market.ohlcv",
+      "market.announcements",
+      "market.reports",
+      "market.news",
+    ],
+    "trading-replay": [
+      "market.symbol-search",
+      "market.quote",
+      "market.ohlcv",
+      "market.intraday",
+    ],
+  };
+
+  for (const [modId, actions] of Object.entries(requiredActions)) {
+    const source = JSON.parse(
+      readFileSync(resolve(`mods/${modId}/mod.json`), "utf8"),
+    );
+    const declared = new Set(Object.keys(source.manifest.actions));
+    assert.deepEqual(
+      actions.filter((actionId) => !declared.has(actionId)),
+      [],
+      `${modId} is missing embedded data actions`,
+    );
+  }
+});
+
 test("the current store keeps legacy Mods compatible and validates declared levels", async () => {
   const results = await runCompatibilityCheck();
 
@@ -93,15 +153,35 @@ test("the current store keeps legacy Mods compatible and validates declared leve
   );
   assert.equal(results.find((result) => result.id === "market-daily").level, 3);
   assert.equal(results.find((result) => result.id === "watchlist").level, 3);
+  assert.equal(results.find((result) => result.id === "idea-funnel").level, 3);
+  assert.equal(results.find((result) => result.id === "research-library").level, 3);
+  assert.equal(results.find((result) => result.id === "research-notes").level, 3);
+  const researchSuiteIds = [
+    "daily-review",
+    "news-radar",
+    "stock-research",
+    "industry-map",
+  ];
+  assert.ok(researchSuiteIds.every((id) => results.find((result) => result.id === id)?.level === 1));
+  assert.equal(results.find((result) => result.id === "etf-research").level, 3);
+  assert.equal(results.find((result) => result.id === "catalyst-calendar").level, 3);
+  assert.equal(results.find((result) => result.id === "earnings-workbench").level, 3);
+  assert.equal(results.find((result) => result.id === "peer-comparison").level, 3);
+  assert.equal(results.find((result) => result.id === "valuation-workbench").level, 3);
+  assert.equal(results.find((result) => result.id === "research-memo").level, 3);
+  assert.equal(results.find((result) => result.id === "macro-monitor").level, 3);
+  assert.equal(results.find((result) => result.id === "thesis-tracker").level, 3);
   const portfolioIds = [
     "portfolio-brief",
     "portfolio-activities",
     "portfolio-risk",
+    "portfolio-allocation",
     "portfolio-performance",
     "portfolio-settings",
   ];
   assert.ok(portfolioIds.every((id) => results.find((result) => result.id === id)?.level === 3));
   const chartWorkspaceIds = [
+    "global-situation",
     "market-scanner",
     "multi-timeframe",
     "relative-strength",
@@ -122,16 +202,41 @@ test("the current store keeps legacy Mods compatible and validates declared leve
     "orchestra-settings",
   ];
   assert.ok(orchestraIds.every((id) => results.find((result) => result.id === id)?.level === 1));
+  const tradingSuiteIds = [
+    "quant-overview",
+    "alpha-lab",
+    "backtest-lab",
+    "factor-correlation",
+    "trade-desk",
+    "trading-settings",
+  ];
+  assert.ok(tradingSuiteIds.every((id) => results.find((result) => result.id === id)?.level === 1));
+  const calendarEffectIds = ["calendar-effect-overview", "calendar-effect-history"];
+  assert.ok(calendarEffectIds.every((id) => results.find((result) => result.id === id)?.level === 1));
   assert.ok(
     results
       .filter((result) => ![
         "market-daily",
         "watchlist",
+        "idea-funnel",
+        "research-library",
+        "research-notes",
+        "etf-research",
+        "catalyst-calendar",
+        "earnings-workbench",
+        "peer-comparison",
+        "valuation-workbench",
+        "research-memo",
+        "macro-monitor",
+        "thesis-tracker",
+        ...researchSuiteIds,
         ...portfolioIds,
         ...chartWorkspaceIds,
         "instock-czsc",
         "instock-rotation",
         ...orchestraIds,
+        ...tradingSuiteIds,
+        ...calendarEffectIds,
       ].includes(result.id))
       .every((result) => result.level === 0),
   );

@@ -4,7 +4,7 @@ import { normalizedStrengthSeries } from "./RelativeStrengthChart";
 
 describe("normalizedStrengthSeries", () => {
   it("normalizes the first close to zero and subsequent closes to percentage returns", () => {
-    const result = normalizedStrengthSeries("CN:600519", "贵州茅台", "#2563eb", [
+    const result = normalizedStrengthSeries("CN:600519", "贵州茅台", "#a87432", [
       { timestamp: 1, open: 10, high: 10, low: 10, close: 10 },
       { timestamp: 2, open: 11, high: 11, low: 11, close: 11 },
     ]);

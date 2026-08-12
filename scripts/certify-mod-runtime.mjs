@@ -102,16 +102,38 @@ async function certifyMod({ browser, mod, shellOrigin, timeoutMs }) {
   }, identity);
 
   let entryUrl;
+  let inlineEmbedded = false;
   const checks = {};
   checks.embed = await captured(async () => {
+    const navigationUrl = `${shellOrigin}/?mod=${encodeURIComponent(mod.id)}`;
     const response = await page.goto(
-      `${shellOrigin}/?mod=${encodeURIComponent(mod.id)}`,
+      navigationUrl,
       { waitUntil: "domcontentloaded", timeout: timeoutMs },
     );
     if (!response?.ok()) {
       throw new Error(`Desk navigation returned HTTP ${response?.status() ?? "unavailable"}`);
     }
+    const boundary = page.locator(
+      `.module-frame[data-vibedesk-mod-id="${mod.id}"]`,
+    );
+    await boundary.waitFor({ state: "visible", timeout: timeoutMs });
     const iframe = page.getByTitle(manifest.name, { exact: true });
+    if (await iframe.count() === 0) {
+      await page.waitForFunction(
+        (id) => {
+          const element = document.querySelector(
+            `.module-frame[data-vibedesk-mod-id="${id}"]`,
+          );
+          return element?.getAttribute("data-vibedesk-frame-state") === "ready"
+            && Boolean(element.textContent?.trim());
+        },
+        mod.id,
+        { timeout: timeoutMs },
+      );
+      inlineEmbedded = true;
+      entryUrl = navigationUrl;
+      return "inline Desk runtime";
+    }
     await iframe.waitFor({ state: "visible", timeout: timeoutMs });
     const src = await iframe.getAttribute("src");
     if (!src) throw new Error("embedded iframe has no src");
@@ -158,6 +180,15 @@ async function certifyMod({ browser, mod, shellOrigin, timeoutMs }) {
       });
       if (!response?.ok()) {
         throw new Error(`narrow entry returned HTTP ${response?.status() ?? "unavailable"}`);
+      }
+      if (inlineEmbedded) {
+        await responsivePage.waitForFunction(
+          (id) => document.querySelector(
+            `.module-frame[data-vibedesk-mod-id="${id}"]`,
+          )?.getAttribute("data-vibedesk-frame-state") === "ready",
+          mod.id,
+          { timeout: timeoutMs },
+        );
       }
       await responsivePage.locator("body").waitFor({ state: "visible", timeout: timeoutMs });
       const overflow = await responsivePage.evaluate(() =>

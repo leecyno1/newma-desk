@@ -35,7 +35,7 @@ Newma-Desk 可以把一次需求固化为长期可用的 `Mod`：每个 Mod 都�
 - ViewSpec 使用 `data-vibe-*` 语义结构，让 Agent 直接读取 HTML 和结构化数据。
 - Model Gateway：传统一次性模型调用，支持 OpenAI-compatible、本地兼容模型和 Anthropic/Claude。
 - Agent Gateway：可直接调用本机 Codex CLI、Claude Code、Gemini CLI，也可接入 Hermes WebUI；按“用户 + Agent + Mod”保留长期上下文。
-- 项目内 `mods/` 是官方商店目录；`mod-projects/` 内置 Vibe Research 和 Vibe Trading。两套业务工程对应的 14 个 Mods 默认启用并注册到侧边栏。
+- 项目内 `mods/` 是官方商店目录；`mod-projects/` 内置 Vibe Research 和 Vibe Trading。两套业务工程对应的 17 个 Mods 默认启用并注册到侧边栏。
 - 侧边栏按 Mod 分类显示固定语义色；用户自定义分类会根据分类名称自动获得稳定颜色。
 - Deepsee 作为独立服务运行；Newma-Desk 商店中的 11 个 Deepsee Mods 直接加载其 `/embed/*` 页面，不复制后端、SQLite 或业务源码。
 
@@ -67,15 +67,24 @@ Mod -> Agent Gateway -> Agent Runtime -> Memory / Skills / Tools
 ├── Today                 今日总览
 └── Daily Review          每日复盘
 
+情报（默认）
+├── Global Intelligence   全球情报
+├── News & Sentiment      新闻与舆情
+├── Security Timeline     个股事件轴
+└── Catalyst Calendar     催化剂日历
+
 市场
 ├── Market Pulse          市场行情
-├── Watchlist             自选股
-├── News Radar            资讯雷达
-└── Portfolio Brief       持仓研报
+├── Market Scanner        市场扫描器
+├── Multi-timeframe       多周期看盘
+├── Relative Strength     相对强弱
+└── Trading Replay        交易回放
 
 研究
+├── Macro Monitor         宏观观察
 ├── Stock Research        个股研究
 ├── Industry Map          产业链研究
+├── Thesis Tracker        投资逻辑
 └── Research Library      研究资料库
 
 量化
@@ -94,6 +103,8 @@ Mod -> Agent Gateway -> Agent Runtime -> Memory / Skills / Tools
 - GitHub 安装源：`leecyno1/newma-dock` 的 `main/mods` 目录
 - Gitee 备用源：`leecyno1/newma-dock` 的 `main/mods` 目录
 - 上游页面仍来自 Vibe Research 和 Vibe Trading，不复制进 Newma-Desk。
+
+GitHub `leecyno1/newma-dock` 是 Newma 四端 Mods 的唯一发布源。桌面、WebUI、iOS 和 Android 只能从该仓库的明确 commit 读取 `mods/store.json` 与 Manifest；本地未提交文件和 Gitee 镜像不能成为发布基线。每月检查只生成变更与兼容风险报告，不自动合并、部署或重启服务。
 
 新环境会把商店全部 Mods 注册到侧边栏：
 
@@ -144,13 +155,13 @@ cd ../..
 cp .env.example .env
 ```
 
-推荐用统一开发启动器启动 Newma-Desk、Market Pulse，以及内置的 Research / Trading 领域运行时：
+推荐用统一开发启动器启动 Newma-Desk，以及内置的 Research / Trading / World Intelligence 运行时：
 
 ```bash
 npm run dev:stack
 ```
 
-Research 与 Trading 不再分别启动 `5899 / 5901 / 8900 / 8899`。它们的领域 API 被挂载到 Newma-Desk API 的 `/api/research`、`/api/trading`，前端构建产物由 `/mod-runtime/research`、`/mod-runtime/trading` 统一托管。标准运行端口为 `5888 / 5891 / 8911`，七周期和 Deepsee 仍按各自服务边界运行。
+Research 与 Trading 不再分别启动 `5899 / 5901 / 8900 / 8899`。它们的领域 API 被挂载到 Newma-Desk API 的 `/api/research`、`/api/trading`，前端构建产物由 `/mod-runtime/research`、`/mod-runtime/trading` 统一托管。World Intelligence 由统一启动器在 `8501` 管理，并由 Newma-Desk API 通过 `/api/global-intel/*` 代理。标准用户入口仍只有 Desk `5888` 与 API `8911`；`5891` 仅保留给市场模组的独立开发模式。
 
 查看整套服务状态：
 
@@ -158,7 +169,7 @@ Research 与 Trading 不再分别启动 `5899 / 5901 / 8900 / 8899`。它们的�
 npm run dev:status
 ```
 
-统一启动器把 Newma-Desk API、Market Pulse、Desk 和内置 Research / Trading 视为核心运行时；InStock、Orchestra、Seven Cycle 与 Deepsee 属于可选或外部 Mod。可选 Mod 不可用时会显示 `WARN/MISS`，但不会关闭已经就绪的 Desk。需要把所有可选 Mod 也纳入严格检查时使用：
+统一启动器把 Newma-Desk API、Desk、内置 Research / Trading 和 World Intelligence 视为核心运行时；市场与情报工作区由 Desk 在 `5888` 内按需加载。InStock、Orchestra、Seven Cycle 与 Deepsee 属于可选或外部 Mod。可选 Mod 不可用时会显示 `WARN/MISS`，但不会关闭已经就绪的 Desk。需要把所有可选 Mod 也纳入严格检查时使用：
 
 ```bash
 npm run dev:status -- --strict
@@ -170,7 +181,7 @@ Newma-Desk 启动 Seven Cycle 时会显式启用严格的 Catalog 设备漂移�
 
 ### 外部 Mod Runtime Descriptor
 
-Deepsee、Seven Cycle、InStock 与 Orchestra 统一由
+World Intelligence、Deepsee、Seven Cycle、InStock 与 Orchestra 统一由
 [`config/external-mod-runtimes.json`](config/external-mod-runtimes.json) 声明工作区候选、HTTP 入口和健康路径。这个 Runtime Descriptor 是启动生命周期的公共 Interface；Node 启动器和 Python Agent Gateway 各自通过 Adapter 读取它，因此端口、路径发现和允许的来源只需要维护一处。
 
 默认会依次从 Newma-Desk 同级项目目录、`~/Desktop/Projects` 和仓库内候选目录发现外部工作区。新机器通常不需要填写个人绝对路径；如果目录布局不同，可以先覆盖发现根目录：
@@ -185,6 +196,8 @@ NEWMA_DESK_DESKTOP_PROJECTS_ROOT=/path/to/desktop-projects
 ```text
 NEWMA_DESK_INSTOCK_WORKSPACE=/path/to/instock-analysis
 NEWMA_DESK_INSTOCK_WEB_URL=https://instock.example.com
+NEWMA_DESK_WORLD_INTEL_WORKSPACE=/path/to/world-intel-mcp
+NEWMA_DESK_WORLD_INTEL_URL=http://127.0.0.1:8501
 ```
 
 本地入口且发现了工作区时，统一启动器负责启动和停止对应进程；远程入口只做健康检查；缺少的可选工作区会保留为明确的降级状态，不影响核心 Desk。空环境变量等同于未覆盖，继续使用 Descriptor 发现。
@@ -196,12 +209,12 @@ services/api/.venv/bin/python -m uvicorn vibe_visualization_api.main:app \
   --app-dir services/api --host 127.0.0.1 --port 8911
 
 VITE_API_PROXY_TARGET=http://127.0.0.1:8911 \
-VITE_MOD_ORIGIN=http://127.0.0.1:5891 \
+VITE_MOD_ORIGIN=http://127.0.0.1:5888 \
 npm run dev:shell -- --host 127.0.0.1 --port 5888
 
 VITE_GATEWAY_BASE_URL=http://127.0.0.1:8911 \
 VITE_PARENT_ORIGIN=http://127.0.0.1:5888 \
-npm run dev -w @newma-desk/market-pulse -- \
+npm run dev -w @newma-desk/market-daily -- \
   --host 127.0.0.1 --port 5891
 ```
 
@@ -234,6 +247,8 @@ NEWMA_DESK_AGENT_TIMEOUT_SECONDS=300
 NEWMA_DESK_WORKSPACE_ROOT=.
 NEWMA_DESK_INVESTMENT_WORKSPACE=mod-projects/vibe-research
 NEWMA_DESK_TRADING_WORKSPACE=mod-projects/vibe-trading
+NEWMA_DESK_WORLD_INTEL_WORKSPACE=mod-projects/world-intel-mcp
+NEWMA_DESK_WORLD_INTEL_URL=http://127.0.0.1:8501
 NEWMA_DESK_MOD_SESSION_SECRET=请在生产环境设置固定随机值
 NEWMA_DESK_MOD_SESSION_TTL_SECONDS=900
 

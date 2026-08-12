@@ -15,6 +15,12 @@ from vibe_visualization_api.agent_gateway.models import (
 from vibe_visualization_api.ai_context.market_explain import (
     build_market_explain_prompt,
 )
+from vibe_visualization_api.ai_context.finance_capabilities import (
+    FinanceCapabilityContextEnricher,
+)
+from vibe_visualization_api.ai_context.light_research import (
+    LightResearchContextEnricher,
+)
 from vibe_visualization_api.agent_gateway.registry import AgentAdapterRegistry
 from vibe_visualization_api.agent_gateway.preferences import AgentPreferenceStore
 from vibe_visualization_api.agent_gateway.store import (
@@ -46,6 +52,10 @@ class AgentTaskService:
         snapshot_store: SnapshotStore | None = None,
         preference_store: AgentPreferenceStore | None = None,
         context_store: ModContextStore | None = None,
+        research_enricher: LightResearchContextEnricher | None = None,
+        finance_capability_enricher: (
+            FinanceCapabilityContextEnricher | None
+        ) = None,
     ):
         self._store = store
         self._event_bus = event_bus
@@ -53,6 +63,8 @@ class AgentTaskService:
         self._snapshot_store = snapshot_store
         self._preference_store = preference_store
         self._context_store = context_store
+        self._research_enricher = research_enricher
+        self._finance_capability_enricher = finance_capability_enricher
         self._active: dict[str, ActiveTask] = {}
         self._cancel_lock = asyncio.Lock()
 
@@ -229,6 +241,10 @@ class AgentTaskService:
     ) -> None:
         terminal_seen = False
         try:
+            if self._finance_capability_enricher is not None:
+                request = await self._finance_capability_enricher.enrich(request)
+            if self._research_enricher is not None:
+                request = await self._research_enricher.enrich(request)
             async for adapter_event in adapter.run(task_id, request):
                 event = await self._persist_event(task_id, adapter_event)
                 await self._event_bus.publish(event)

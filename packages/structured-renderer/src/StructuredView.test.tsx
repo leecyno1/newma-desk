@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -16,7 +16,13 @@ vi.mock("echarts-for-react/lib/core", () => ({
   },
 }));
 
-afterEach(() => chartSpy.mockClear());
+afterEach(() => {
+  chartSpy.mockClear();
+  document.documentElement.removeAttribute("class");
+  document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("data-vibedesk-theme");
+  document.documentElement.removeAttribute("style");
+});
 
 describe("resolvePath", () => {
   it("resolves own nested data and returns undefined for missing values", () => {
@@ -120,7 +126,7 @@ describe("StructuredView", () => {
     expect(screen.getByTestId("chart")).toHaveStyle({ height: "320px" });
     expect(screen.getByTitle("产业链图谱")).toHaveAttribute(
       "src",
-      "http://127.0.0.1:8911/api/artifacts/abc/view",
+      "http://127.0.0.1:8911/api/artifacts/abc/view?newmaTheme=1",
     );
     const embeddedArtifact = container.querySelector(
       'script[type="application/json"][data-vibe-artifact-spec]',
@@ -129,6 +135,86 @@ describe("StructuredView", () => {
       nodes: [{ id: "upstream", label: "上游" }],
       edges: [],
     });
+  });
+
+  it("forwards the current Newma theme to artifact frames", async () => {
+    const schema: View = {
+      version: "1.0",
+      title: "图谱",
+      blocks: [{
+        id: "artifact",
+        type: "artifact",
+        renderer: "archify",
+        urlPath: "artifactUrl",
+      }],
+    };
+    document.documentElement.dataset.theme = "light";
+    document.documentElement.style.setProperty("--vibe-bg", "#f4efe3");
+    document.documentElement.style.setProperty("--newma-accent", "#a87432");
+    render(
+      <StructuredView
+        schema={schema}
+        data={{ artifactUrl: "https://artifacts.example/view?source=desk#graph" }}
+      />,
+    );
+    const iframe = screen.getByTitle("archify artifact") as HTMLIFrameElement;
+    expect(iframe.src).toBe(
+      "https://artifacts.example/view?source=desk&newmaTheme=1#graph",
+    );
+    const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
+
+    fireEvent.load(iframe);
+    expect(postMessage).toHaveBeenLastCalledWith(
+      {
+        type: "newma:artifact-theme",
+        mode: "light",
+        cssVars: {
+          "--vibe-bg": "#f4efe3",
+          "--newma-accent": "#a87432",
+        },
+      },
+      "https://artifacts.example",
+    );
+
+    document.documentElement.dataset.theme = "dark";
+    document.documentElement.style.setProperty("--vibe-bg", "#0f1714");
+    window.dispatchEvent(new CustomEvent("newma:themechange", {
+      detail: {
+        mode: "dark",
+        appearance: { cssVars: { "--vibe-accent": "#c89a5a" } },
+      },
+    }));
+    expect(postMessage).toHaveBeenLastCalledWith(
+      {
+        type: "newma:artifact-theme",
+        mode: "dark",
+        cssVars: expect.objectContaining({
+          "--vibe-bg": "#0f1714",
+          "--vibe-accent": "#c89a5a",
+        }),
+      },
+      "https://artifacts.example",
+    );
+
+    document.documentElement.dataset.vibedeskTheme = "light";
+    window.dispatchEvent(new CustomEvent("vibedesk:theme", {
+      detail: { mode: "light" },
+    }));
+    expect(postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "newma:artifact-theme", mode: "light" }),
+      "https://artifacts.example",
+    );
+
+    document.documentElement.dataset.theme = "light";
+    document.documentElement.style.setProperty("--vibe-bg", "#f4efe3");
+    await waitFor(() => expect(postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: "newma:artifact-theme",
+        mode: "light",
+        cssVars: expect.objectContaining({ "--vibe-bg": "#f4efe3" }),
+      }),
+      "https://artifacts.example",
+    ));
   });
 
   it("sorts a table without mutating the source rows", async () => {

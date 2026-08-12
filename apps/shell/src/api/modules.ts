@@ -1,7 +1,8 @@
+import { modManifestSchema, type ModManifest } from "@newma-desk/contracts";
 import {
-  modManifestSchema,
-  type ModManifest,
-} from "@newma-desk/contracts";
+  normalizeModCopilotPrompts,
+  type ModCopilotPrompts,
+} from "../lib/modCopilotPrompts";
 
 export interface StoredMod {
   moduleId: string;
@@ -9,6 +10,7 @@ export interface StoredMod {
   status: "draft" | "published" | "disabled";
   manifest: ModManifest;
   createdAt: string;
+  copilotPrompts?: ModCopilotPrompts;
 }
 
 function parseStoredMod(value: unknown): StoredMod {
@@ -39,6 +41,7 @@ function parseStoredMod(value: unknown): StoredMod {
     status: row.status,
     manifest: manifest.data,
     createdAt: row.createdAt,
+    copilotPrompts: normalizeModCopilotPrompts(row.copilotPrompts),
   };
 }
 

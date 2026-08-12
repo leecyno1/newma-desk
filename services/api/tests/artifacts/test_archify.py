@@ -1,4 +1,7 @@
-from vibe_visualization_api.artifacts.archify import to_archify_ir
+from vibe_visualization_api.artifacts.archify import (
+    inject_newma_theme_adapter,
+    to_archify_ir,
+)
 from vibe_visualization_api.artifacts.models import GraphArtifactCreate
 
 
@@ -34,3 +37,13 @@ def test_archify_places_parallel_suppliers_in_the_same_dependency_layer() -> Non
     assert positions["laser"][0] < positions["engine"][0]
     assert positions["engine"][0] < positions["module"][0]
     assert positions["module"][0] < positions["network"][0]
+
+
+def test_newma_theme_adapter_is_injected_once() -> None:
+    source = "<!DOCTYPE html><html><head><title>Graph</title></head><body></body></html>"
+
+    adapted = inject_newma_theme_adapter(source)
+
+    assert "data-newma-archify-theme-adapter" in adapted
+    assert "newma:artifact-theme" in adapted
+    assert inject_newma_theme_adapter(adapted) == adapted

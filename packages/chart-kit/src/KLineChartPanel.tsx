@@ -60,18 +60,75 @@ function publishCrosshair(group: string, source: (crosshair: Crosshair) => void,
   }
 }
 
-function annotationStyles(tone: ChartAnnotation["tone"], dark: boolean) {
+interface ResolvedChartColors {
+  grid: string;
+  text: string;
+  axis: string;
+  up: string;
+  down: string;
+  warning: string;
+  accent: string;
+  accentContrast: string;
+  surfaceRaised: string;
+}
+
+function cssColor(
+  element: HTMLElement | null | undefined,
+  name: string,
+  fallback: string,
+): string {
+  if (!element) return fallback;
+  const view = element?.ownerDocument.defaultView;
+  const value = view?.getComputedStyle(element).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function chartColors(
+  theme: "light" | "dark",
+  element?: HTMLElement | null,
+): ResolvedChartColors {
+  const dark = theme === "dark";
+  return {
+    grid: cssColor(element, "--vibe-chart-grid", dark ? "#2a3931" : "#d8cdbb"),
+    text: cssColor(element, "--vibe-chart-text", dark ? "#a8b4a5" : "#66766e"),
+    axis: cssColor(element, "--vibe-chart-axis", dark ? "#405146" : "#b9aa90"),
+    up: cssColor(element, "--vibe-chart-up", dark ? "#f87171" : "#dc2626"),
+    down: cssColor(element, "--vibe-chart-down", dark ? "#4ade80" : "#16a34a"),
+    warning: cssColor(element, "--vibe-warning", dark ? "#fbbf24" : "#a16207"),
+    accent: cssColor(element, "--vibe-accent", dark ? "#c89a5a" : "#a87432"),
+    accentContrast: cssColor(
+      element,
+      "--vibe-accent-contrast",
+      dark ? "#102019" : "#173128",
+    ),
+    surfaceRaised: cssColor(
+      element,
+      "--vibe-surface-raised",
+      dark ? "#1a2821" : "#fffaf1",
+    ),
+  };
+}
+
+function annotationStyles(
+  tone: ChartAnnotation["tone"],
+  theme: "light" | "dark",
+  element?: HTMLElement | null,
+) {
+  const palette = chartColors(theme, element);
   const color = tone === "positive"
-    ? "#dc2626"
+    ? palette.up
     : tone === "negative"
-      ? "#16a34a"
+      ? palette.down
       : tone === "warning"
-        ? "#d97706"
-        : "#2563eb";
+        ? palette.warning
+        : palette.accent;
   return {
     line: { color, size: 1, style: "dashed" as const },
     text: {
-      color: dark ? "#f8fafc" : "#ffffff",
+      color:
+        tone === undefined || tone === "info"
+          ? palette.accentContrast
+          : palette.surfaceRaised,
       backgroundColor: color,
       borderColor: color,
       borderSize: 1,
@@ -97,49 +154,49 @@ function periodOf(timeframe: Timeframe) {
   return periods[timeframe];
 }
 
-function chartStyles(theme: "light" | "dark") {
-  const dark = theme === "dark";
+function chartStyles(theme: "light" | "dark", element?: HTMLElement | null) {
+  const palette = chartColors(theme, element);
   return {
     grid: {
-      horizontal: { color: dark ? "#263244" : "#e8edf3" },
-      vertical: { color: dark ? "#263244" : "#eef2f6" },
+      horizontal: { color: palette.grid },
+      vertical: { color: palette.grid },
     },
     candle: {
       bar: {
-        upColor: "#dc2626",
-        downColor: "#16a34a",
-        noChangeColor: dark ? "#94a3b8" : "#64748b",
-        upBorderColor: "#dc2626",
-        downBorderColor: "#16a34a",
-        noChangeBorderColor: dark ? "#94a3b8" : "#64748b",
-        upWickColor: "#dc2626",
-        downWickColor: "#16a34a",
-        noChangeWickColor: dark ? "#94a3b8" : "#64748b",
+        upColor: palette.up,
+        downColor: palette.down,
+        noChangeColor: palette.text,
+        upBorderColor: palette.up,
+        downBorderColor: palette.down,
+        noChangeBorderColor: palette.text,
+        upWickColor: palette.up,
+        downWickColor: palette.down,
+        noChangeWickColor: palette.text,
       },
       priceMark: {
-        high: { color: dark ? "#cbd5e1" : "#475569" },
-        low: { color: dark ? "#cbd5e1" : "#475569" },
+        high: { color: palette.text },
+        low: { color: palette.text },
         last: {
-          upColor: "#dc2626",
-          downColor: "#16a34a",
-          noChangeColor: dark ? "#94a3b8" : "#64748b",
+          upColor: palette.up,
+          downColor: palette.down,
+          noChangeColor: palette.text,
         },
       },
     },
     xAxis: {
-      axisLine: { color: dark ? "#334155" : "#d8e0e9" },
-      tickText: { color: dark ? "#94a3b8" : "#64748b" },
-      tickLine: { color: dark ? "#334155" : "#d8e0e9" },
+      axisLine: { color: palette.axis },
+      tickText: { color: palette.text },
+      tickLine: { color: palette.axis },
     },
     yAxis: {
-      axisLine: { color: dark ? "#334155" : "#d8e0e9" },
-      tickText: { color: dark ? "#94a3b8" : "#64748b" },
-      tickLine: { color: dark ? "#334155" : "#d8e0e9" },
+      axisLine: { color: palette.axis },
+      tickText: { color: palette.text },
+      tickLine: { color: palette.axis },
     },
-    separator: { color: dark ? "#334155" : "#d8e0e9" },
+    separator: { color: palette.axis },
     crosshair: {
-      horizontal: { line: { color: dark ? "#64748b" : "#94a3b8" } },
-      vertical: { line: { color: dark ? "#64748b" : "#94a3b8" } },
+      horizontal: { line: { color: palette.text } },
+      vertical: { line: { color: palette.text } },
     },
   };
 }
@@ -190,7 +247,7 @@ export const KLineChartPanel = forwardRef<KLineChartPanelHandle, KLineChartPanel
       const chart = init(element, {
         locale: "zh-CN",
         timezone: security.timezone || (security.market === "US" ? "America/New_York" : security.market === "HK" ? "Asia/Hong_Kong" : "Asia/Shanghai"),
-        styles: chartStyles(theme),
+        styles: chartStyles(theme, element),
       });
       if (!chart) return;
       chartRef.current = chart;
@@ -259,14 +316,14 @@ export const KLineChartPanel = forwardRef<KLineChartPanelHandle, KLineChartPanel
         lock: true,
         points: [{ timestamp: annotation.timestamp, value: annotation.value }],
         extendData: annotation.label,
-        styles: annotationStyles(annotation.tone, theme === "dark"),
+        styles: annotationStyles(annotation.tone, theme, elementRef.current),
       })));
     }, [annotations, theme]);
 
     useEffect(() => {
       const chart = chartRef.current;
       if (!chart) return;
-      chart.setStyles(chartStyles(theme));
+      chart.setStyles(chartStyles(theme, elementRef.current));
       chart.setTimezone(
         security.timezone || (security.market === "US" ? "America/New_York" : security.market === "HK" ? "Asia/Hong_Kong" : "Asia/Shanghai"),
       );

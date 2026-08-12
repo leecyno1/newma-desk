@@ -33,7 +33,14 @@ import {
 } from "@newma-desk/mod-sdk";
 
 import { createMarketDataSource, securityKey } from "./data";
+import {
+  createMarketAlertClient,
+  useMarketAlerts,
+  type MarketAlertClient,
+  type PriceAlert,
+} from "./alerts";
 import { resolveParentOrigin } from "./lib/runtimeOrigin";
+import { MarketAlertCenter } from "./MarketAlertCenter";
 import {
   KLineChartPanel,
   type KLineChartPanelHandle,
@@ -82,8 +89,10 @@ export interface MarketTerminalAppProps {
   bridge?: ModBridge;
   dataSource?: MarketDataSource;
   watchlistClient?: WatchlistClient | null;
+  alertClient?: MarketAlertClient | null;
   fetch?: GatewayFetch;
   gatewayBaseUrl?: string;
+  hostConnection?: EmbeddedHost;
 }
 
 function configuredOrigin(name: "gateway" | "parent") {
@@ -171,6 +180,7 @@ export function buildMarketPageContext(input: {
   source?: string;
   asOf?: string;
   visibleRange?: { from: number; to: number };
+  alerts?: PriceAlert[];
 }): ModPageContext {
   return {
     view: { id: MOD_ID, title: "市场终端" },
@@ -200,7 +210,11 @@ export function buildMarketPageContext(input: {
       ...(input.asOf ? { asOf: input.asOf } : {}),
       source: input.source || "vibe-research-market-terminal",
       freshness: input.quote ? "live" : "unknown",
-      summary: quoteSummary(input.quote),
+      summary: {
+        ...quoteSummary(input.quote),
+        alertCount: input.alerts?.length ?? 0,
+        alerts: (input.alerts ?? []).slice(0, 8),
+      },
     },
     actions: [
       { id: "market.refresh", label: "刷新终端数据", available: true, inputSchema: { type: "object", additionalProperties: false } },
@@ -215,23 +229,16 @@ export function buildMarketPageContext(input: {
 
 function useDeskTheme() {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
-    if (document.documentElement.dataset.theme === "dark") return "dark";
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
   });
   useEffect(() => {
     const root = document.documentElement;
-    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
     const update = () => {
-      const explicit = root.dataset.theme;
-      setTheme(explicit === "dark" || (!explicit && media?.matches) ? "dark" : "light");
+      setTheme(root.dataset.theme === "dark" ? "dark" : "light");
     };
     const observer = new MutationObserver(update);
     observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
-    media?.addEventListener?.("change", update);
-    return () => {
-      observer.disconnect();
-      media?.removeEventListener?.("change", update);
-    };
+    return () => observer.disconnect();
   }, []);
   return theme;
 }
@@ -240,8 +247,10 @@ export function MarketTerminalApp({
   bridge: providedBridge,
   dataSource: providedDataSource,
   watchlistClient: providedWatchlistClient,
+  alertClient: providedAlertClient,
   fetch: providedFetch,
   gatewayBaseUrl,
+  hostConnection: providedHostConnection,
 }: MarketTerminalAppProps) {
   const theme = useDeskTheme();
   const fetcher = useMemo(
@@ -249,9 +258,9 @@ export function MarketTerminalApp({
     [providedFetch],
   );
   const [gatewayOrigin, setGatewayOrigin] = useState(
-    gatewayBaseUrl || configuredOrigin("gateway"),
+    providedHostConnection ? new URL(providedHostConnection.config.gateways.data).origin : (gatewayBaseUrl || configuredOrigin("gateway")),
   );
-  const [hostConnection, setHostConnection] = useState<EmbeddedHost>();
+  const [hostConnection, setHostConnection] = useState<EmbeddedHost | undefined>(providedHostConnection);
   const dataSource = useMemo(
     () => providedDataSource ?? createMarketDataSource({
       baseUrl: gatewayOrigin,
@@ -333,9 +342,11 @@ export function MarketTerminalApp({
   };
 
   const watchlistIdentity = hostIdentity ?? (
-    window.self === window.top
-      ? { userId: "local-user", workspaceId: "local-workspace" }
-      : undefined
+    hostConnection
+      ? { userId: hostConnection.config.user.id, workspaceId: hostConnection.config.workspace.id }
+      : window.self === window.top
+        ? { userId: "local-user", workspaceId: "local-workspace" }
+        : undefined
   );
   const sharedWatchlistClient = useMemo(() => {
     if (providedWatchlistClient === null) return undefined;
@@ -353,6 +364,29 @@ export function MarketTerminalApp({
     watchlistIdentity?.userId,
     watchlistIdentity?.workspaceId,
   ]);
+  const sharedAlertClient = useMemo(() => {
+    if (providedAlertClient === null) return undefined;
+    if (providedAlertClient) return providedAlertClient;
+    if (!watchlistIdentity) return undefined;
+    return createMarketAlertClient({
+      baseUrl: gatewayOrigin,
+      fetch: fetcher,
+      ...watchlistIdentity,
+    });
+  }, [
+    fetcher,
+    gatewayOrigin,
+    providedAlertClient,
+    watchlistIdentity?.userId,
+    watchlistIdentity?.workspaceId,
+  ]);
+  const {
+    alerts,
+    status: alertStatus,
+    createAlert,
+    updateAlert,
+    deleteAlert,
+  } = useMarketAlerts(sharedAlertClient);
 
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? groups[0];
   const contextRef = useRef<ModPageContext>(
@@ -368,6 +402,7 @@ export function MarketTerminalApp({
       source: chartMeta.source || quote?.source,
       asOf: chartMeta.asOf || quote?.asOf,
       visibleRange,
+      alerts,
     }),
   );
   contextRef.current = buildMarketPageContext({
@@ -382,6 +417,7 @@ export function MarketTerminalApp({
     source: chartMeta.source || quote?.source,
     asOf: chartMeta.asOf || quote?.asOf,
     visibleRange,
+    alerts,
   });
 
   useEffect(() => saveWatchGroups(groups), [groups]);
@@ -450,6 +486,17 @@ export function MarketTerminalApp({
   }, [applyWatchlistSnapshot, sharedWatchlistClient]);
 
   useEffect(() => {
+    if (providedHostConnection) {
+      setHostConnection(providedHostConnection);
+      setGatewayOrigin(new URL(providedHostConnection.config.gateways.data).origin);
+      setHostIdentity({
+        userId: providedHostConnection.config.user.id,
+        workspaceId: providedHostConnection.config.workspace.id,
+      });
+      document.documentElement.dataset.theme = providedHostConnection.config.environment.theme;
+      document.documentElement.lang = providedHostConnection.config.environment.locale;
+      return;
+    }
     if (providedBridge) return;
     const controller = new AbortController();
     let close: () => void = () => undefined;
@@ -486,7 +533,7 @@ export function MarketTerminalApp({
       removeContextProvider();
       close();
     };
-  }, [providedBridge]);
+  }, [providedBridge, providedHostConnection]);
 
   useEffect(() => {
     hostConnection?.publishContext(contextRef.current);
@@ -502,7 +549,13 @@ export function MarketTerminalApp({
     railTab,
     chartMeta,
     visibleRange,
+    alerts,
   ]);
+
+  useEffect(
+    () => hostConnection?.setContextProvider(() => contextRef.current),
+    [hostConnection],
+  );
 
   const selectSecurity = useCallback((next: SecurityRef, emit = true) => {
     setSecurity(next);
@@ -633,7 +686,7 @@ export function MarketTerminalApp({
     void loadMarketOverview();
   }, [loadMarketOverview, loadQuote, loadWatchQuotes]);
 
-  const handleUiAction = useCallback((actionId: string, input: Record<string, unknown>) => {
+  const handleUiAction = useCallback(async (actionId: string, input: Record<string, unknown>) => {
     if (actionId === "market.refresh") {
       refreshAll();
       return { refreshed: true };
@@ -664,16 +717,12 @@ export function MarketTerminalApp({
       const price = input.price;
       const direction = input.direction;
       if (typeof price !== "number" || !Number.isFinite(price) || price <= 0 || (direction !== "above" && direction !== "below")) throw new Error("价格预警参数无效");
-      const key = "vibedesk.market-daily.alerts.v1";
-      let alerts: unknown[] = [];
-      try {
-        const parsed = JSON.parse(window.localStorage.getItem(key) || "[]");
-        if (Array.isArray(parsed)) alerts = parsed;
-      } catch {
-        alerts = [];
-      }
-      const alert = { id: globalThis.crypto?.randomUUID?.() ?? `alert-${Date.now()}`, security, direction, price, label: typeof input.label === "string" ? input.label.slice(0, 80) : "", createdAt: new Date().toISOString() };
-      window.localStorage.setItem(key, JSON.stringify([alert, ...alerts].slice(0, 50)));
+      const alert = await createAlert({
+        security,
+        direction,
+        price,
+        label: typeof input.label === "string" ? input.label.slice(0, 80) : "",
+      });
       return { alert };
     }
     if (actionId === "workspace.save-layout") {
@@ -695,7 +744,7 @@ export function MarketTerminalApp({
       return { layout };
     }
     throw new Error(`市场终端不支持动作 ${actionId}`);
-  }, [refreshAll, security]);
+  }, [createAlert, refreshAll, security]);
 
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
 
@@ -838,6 +887,15 @@ export function MarketTerminalApp({
         </div>
 
         <div className="topbar-actions">
+          <MarketAlertCenter
+            alerts={alerts}
+            security={security}
+            quote={quote}
+            available={alertStatus !== "unavailable"}
+            onCreate={(input) => createAlert({ security, ...input })}
+            onToggle={(alert) => updateAlert(alert.id, { enabled: !alert.enabled })}
+            onDelete={(alert) => deleteAlert(alert.id)}
+          />
           <button type="button" className="icon-button" onClick={refreshAll} aria-label="刷新终端"><RefreshCw size={15} /></button>
           <button type="button" className="icon-button" onClick={requestFullscreen} aria-label="全屏"><Expand size={15} /></button>
         </div>

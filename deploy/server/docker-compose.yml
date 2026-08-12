@@ -6,6 +6,7 @@ name: newma-desk
 x-core-environment: &core-environment
   NEWMA_DESK_ENABLE_DOMAIN_SUITES: "true"
   NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME: "1"
+  NEWMA_DESK_DOMAIN_SUITE_WORKSPACE_VENVS: "false"
   NEWMA_DESK_INVESTMENT_WORKSPACE: /app/mod-projects/vibe-research
   NEWMA_DESK_TRADING_WORKSPACE: /app/mod-projects/vibe-trading
   NEWMA_DESK_PROJECTS_ROOT: /projects
@@ -18,12 +19,19 @@ services:
     build:
       context: ../..
       dockerfile: deploy/server/Dockerfile
-    image: newma-desk:server
+      target: api-runtime
+    image: newma-desk:api
+    profiles: ["core", "ops"]
     restart: unless-stopped
+    init: true
+    mem_limit: ${NEWMA_DESK_API_MEMORY_LIMIT:-768m}
+    pids_limit: 256
+    security_opt: ["no-new-privileges:true"]
     env_file: .env.server
     environment:
       <<: *core-environment
-      PATH: /app/runtime/codex/node_modules/.bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8911:8911"
     volumes:
@@ -36,39 +44,38 @@ services:
       timeout: 5s
       retries: 12
 
-  market:
-    image: newma-desk:server
-    restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_healthy
-    env_file: .env.server
-    environment:
-      VITE_API_PROXY_TARGET: http://api:8911
-      VITE_GATEWAY_BASE_URL: "${PUBLIC_API_ORIGIN:?Set PUBLIC_API_ORIGIN in deploy/server/.env.server and pass --env-file deploy/server/.env.server}"
-      VITE_PARENT_ORIGIN: "${PUBLIC_DESK_ORIGIN:?Set PUBLIC_DESK_ORIGIN in deploy/server/.env.server and pass --env-file deploy/server/.env.server}"
-    command: ["npm", "run", "dev", "-w", "@newma-desk/market-pulse", "--", "--host", "0.0.0.0", "--port", "5891", "--strictPort"]
-    ports:
-      - "5891:5891"
-
   desk:
-    image: newma-desk:server
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+      target: desk-runtime
+    image: newma-desk:desk
+    profiles: ["core"]
     restart: unless-stopped
+    mem_limit: ${NEWMA_DESK_STATIC_MEMORY_LIMIT:-96m}
+    pids_limit: 64
+    security_opt: ["no-new-privileges:true"]
     depends_on:
       api:
         condition: service_healthy
-      market:
-        condition: service_started
-    env_file: .env.server
-    environment:
-      VITE_API_PROXY_TARGET: http://api:8911
-      VITE_MOD_ORIGIN: "${PUBLIC_MOD_ORIGIN:?Set PUBLIC_MOD_ORIGIN in deploy/server/.env.server and pass --env-file deploy/server/.env.server}"
-    command: ["npm", "run", "dev:shell", "--", "--host", "0.0.0.0", "--port", "5888", "--strictPort"]
     ports:
       - "5888:5888"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:5888/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   register-mods:
-    image: newma-desk:server
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+      target: ops-runtime
+    image: newma-desk:ops
+    profiles: ["ops"]
+    mem_limit: 128m
+    pids_limit: 64
+    security_opt: ["no-new-privileges:true"]
     depends_on:
       api:
         condition: service_healthy
@@ -76,15 +83,18 @@ services:
     environment:
       <<: *core-environment
       NEWMA_DESK_CONTROL_PLANE_URL: http://api:8911
-    command: ["node", "scripts/register-store-defaults.mjs", "--api-url=http://api:8911"]
     restart: "no"
 
   gateway:
     image: nginx:1.27-alpine
+    profiles: ["core"]
     restart: unless-stopped
+    mem_limit: ${NEWMA_DESK_STATIC_MEMORY_LIMIT:-96m}
+    pids_limit: 64
+    security_opt: ["no-new-privileges:true"]
     depends_on:
       desk:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "80:80"
     volumes:

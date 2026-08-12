@@ -10,6 +10,10 @@ services:
       dockerfile: /opt/newma-desk/deploy/server/Dockerfile.deepsee
     image: newma-deepsee:server
     restart: unless-stopped
+    init: true
+    mem_limit: ${NEWMA_DEEPSEE_MEMORY_LIMIT:-768m}
+    pids_limit: 256
+    security_opt: ["no-new-privileges:true"]
     env_file:
       - /opt/newma-projects/deepsee/.env
     environment:
@@ -25,6 +29,10 @@ services:
       dockerfile: /opt/newma-desk/deploy/server/Dockerfile.seven-cycle
     image: newma-seven-cycle:server
     restart: unless-stopped
+    init: true
+    mem_limit: ${NEWMA_SEVEN_CYCLE_MEMORY_LIMIT:-1536m}
+    pids_limit: 256
+    security_opt: ["no-new-privileges:true"]
     command: ["/bin/sh", "/newma-deploy/seven-cycle-entrypoint.sh"]
     ports:
       - "4174:4174"
@@ -43,6 +51,10 @@ services:
       dockerfile: /opt/newma-desk/deploy/server/Dockerfile.instock
     image: newma-instock:server
     restart: unless-stopped
+    init: true
+    mem_limit: ${NEWMA_INSTOCK_MEMORY_LIMIT:-768m}
+    pids_limit: 256
+    security_opt: ["no-new-privileges:true"]
     environment:
       INSTOCK_SKIP_DB: "1"
       INSTOCK_MARKET_DATA_PROVIDER: vibedesk
@@ -59,6 +71,9 @@ services:
   orchestra-postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    mem_limit: ${NEWMA_ORCHESTRA_POSTGRES_MEMORY_LIMIT:-512m}
+    pids_limit: 128
+    security_opt: ["no-new-privileges:true"]
     env_file: .env.external
     environment:
       POSTGRES_DB: orchestra
@@ -75,6 +90,9 @@ services:
   orchestra-redis:
     image: redis:7-alpine
     restart: unless-stopped
+    mem_limit: ${NEWMA_ORCHESTRA_REDIS_MEMORY_LIMIT:-256m}
+    pids_limit: 128
+    security_opt: ["no-new-privileges:true"]
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - orchestra-redis:/data
@@ -90,6 +108,10 @@ services:
       dockerfile: /opt/newma-desk/deploy/server/Dockerfile.orchestra-api
     image: newma-orchestra-api:server
     restart: unless-stopped
+    init: true
+    mem_limit: ${NEWMA_ORCHESTRA_API_MEMORY_LIMIT:-1024m}
+    pids_limit: 256
+    security_opt: ["no-new-privileges:true"]
     depends_on:
       orchestra-postgres:
         condition: service_healthy
@@ -119,6 +141,9 @@ services:
         VITE_VIBEDESK_PARENT_ORIGIN: "${PUBLIC_DESK_ORIGIN:?Set PUBLIC_DESK_ORIGIN in deploy/server/.env.external and pass --env-file deploy/server/.env.external}"
     image: newma-orchestra-web:server
     restart: unless-stopped
+    mem_limit: ${NEWMA_ORCHESTRA_WEB_MEMORY_LIMIT:-128m}
+    pids_limit: 64
+    security_opt: ["no-new-privileges:true"]
     depends_on:
       orchestra-api:
         condition: service_started

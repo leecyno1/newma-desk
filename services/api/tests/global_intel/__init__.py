@@ -1,0 +1,1 @@
+"""Global Intelligence gateway tests."""

@@ -128,6 +128,43 @@ async def test_codex_cli_task_scope_does_not_read_or_persist_memory(
 
 
 @pytest.mark.asyncio
+async def test_local_cli_returns_validated_artifacts(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        runtime_dir=tmp_path,
+        database_path=tmp_path / "gateway.db",
+        workspace_root=tmp_path,
+        investment_workspace=tmp_path,
+        trading_workspace=tmp_path,
+        _env_file=None,
+    )
+    adapter = LocalCliAgentAdapter(
+        "codex",
+        settings,
+        AgentConversationStore(settings.database_path),
+    )
+    adapter._executable = lambda: "/usr/bin/true"  # type: ignore[method-assign]
+
+    async def artifact_answer(*_args: object) -> str:
+        return (
+            "结论正文。\n"
+            '<vibedesk_artifacts>[{"kind":"report","title":"完整研究",'
+            '"content":"报告正文"}]</vibedesk_artifacts>'
+        )
+
+    adapter._execute = artifact_answer  # type: ignore[method-assign]
+    events = await _collect(
+        adapter,
+        AgentTaskCreate(module_id="market-daily", prompt="生成研究"),
+    )
+
+    assert events[-1].data["answer"] == "结论正文。"
+    assert events[-1].data["artifacts"][0]["title"] == "完整研究"
+    assert "vibedesk_artifacts" not in events[-1].data["answer"]
+
+
+@pytest.mark.asyncio
 async def test_missing_cli_returns_safe_failed_event(tmp_path: Path) -> None:
     settings = Settings(
         runtime_dir=tmp_path,

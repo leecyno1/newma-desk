@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import {
   forwardRef,
+  lazy,
+  Suspense,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -28,6 +30,13 @@ import {
   type ModManifest,
   type ModPageContext,
 } from "@newma-desk/contracts";
+import { createNewmaDeskAppearance } from "@newma-desk/desk-ui/theme";
+import type {
+  ModBridge,
+  ModContextProvider,
+  ModHostConnection,
+  ModUiActionHandler,
+} from "@newma-desk/mod-sdk";
 
 import type { ShellEventBus } from "../events/ShellEventBus";
 import {
@@ -39,10 +48,16 @@ import {
 } from "../api/modSessions";
 import { resolveModUrl } from "../lib/moduleUrl";
 
+const EmbeddedMarketFrame = lazy(() => import("./EmbeddedMarketFrame"));
+const EmbeddedIntelligenceFrame = import.meta.env.DEV
+  ? lazy(() => import("./EmbeddedIntelligenceFrame"))
+  : undefined;
+
 interface ModFrameProps {
   manifest: ModManifest;
   eventBus: ShellEventBus;
   theme: "light" | "dark";
+  embedded?: boolean;
   userId?: string;
   workspaceId?: string;
   locale?: string;
@@ -53,6 +68,162 @@ interface ModFrameProps {
   copilotOpen?: boolean;
   onToggleCopilot?: () => void;
   onRequestCopilotOpen?: () => void;
+}
+
+function embeddedMarketMod(manifest: ModManifest) {
+  if (manifest.entry.type === "external") return undefined;
+  try {
+    const url = new URL(manifest.entry.url, window.location.origin);
+    const kind: "market" | "intelligence" | undefined = url.pathname === "/mods/market-daily/"
+      ? "market"
+      : import.meta.env.DEV && url.pathname === "/mods/global-intelligence/"
+        ? "intelligence"
+        : undefined;
+    if (!kind) return undefined;
+    return {
+      kind,
+      key: `${url.pathname}${url.search}`,
+      src: url.toString(),
+      search: url.search,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+type EmbeddedMarketTerminalHost = Extract<ModHostConnection, { embedded: true }>;
+
+type LocalEmbeddedMarketHost = EmbeddedMarketTerminalHost & {
+  requestContext(
+    reason?: "agent" | "refresh",
+  ): Promise<ModPageContext | undefined>;
+  invokeUiAction<T = unknown>(
+    actionId: string,
+    input?: Record<string, unknown>,
+  ): Promise<T>;
+};
+
+function createEmbeddedMarketHost(input: {
+  manifest: ModManifest;
+  userId: string;
+  workspaceId: string;
+  theme: "light" | "dark";
+  locale: string;
+  timezone: string;
+  sessionIssuer: (input: ModSessionIssuerInput) => Promise<ModSession>;
+  actionInvoker: typeof invokeModSessionAction;
+  contextSaver: typeof saveModContext;
+  latestContextRef: { current: ModPageContext | undefined };
+  contextProviderRef: { current: ModContextProvider | undefined };
+  uiActionHandlerRef: { current: ModUiActionHandler | undefined };
+  onContextPublished?: (context: ModPageContext) => void;
+}): LocalEmbeddedMarketHost {
+  const config = createDeskInit(
+    input.manifest,
+    createInstanceId(),
+    input.userId,
+    input.workspaceId,
+    input.theme,
+    input.locale,
+    input.timezone,
+  );
+  const noop = () => () => undefined;
+  let sessionPromise: Promise<ModSession> | undefined;
+  let session: ModSession | undefined;
+  const ensureSession = (force = false) => {
+    if (!force && session && new Date(session.expiresAt).getTime() > Date.now() + 30_000) {
+      return Promise.resolve(session);
+    }
+    if (!force && sessionPromise) return sessionPromise;
+    sessionPromise = input.sessionIssuer({
+      modId: input.manifest.id,
+      instanceId: config.instanceId,
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+    }).then((next) => {
+      session = next;
+      sessionPromise = undefined;
+      return next;
+    }, (error) => {
+      sessionPromise = undefined;
+      throw error;
+    });
+    return sessionPromise;
+  };
+  return {
+    embedded: true,
+    config,
+    subscribe: noop,
+    setContextProvider(provider) {
+      input.contextProviderRef.current = provider;
+      return () => {
+        if (input.contextProviderRef.current === provider) input.contextProviderRef.current = undefined;
+      };
+    },
+    setUiActionHandler(handler) {
+      input.uiActionHandlerRef.current = handler;
+      return () => {
+        if (input.uiActionHandlerRef.current === handler) input.uiActionHandlerRef.current = undefined;
+      };
+    },
+    publishContext(context) {
+      input.latestContextRef.current = context;
+      input.onContextPublished?.(context);
+      void ensureSession().then((currentSession) => input.contextSaver(currentSession, context)).catch(() => undefined);
+    },
+    invokeAction: async <T = unknown>(actionId: string, actionInput: Record<string, unknown> = {}): Promise<T> => {
+      if (!declaredActionIds(input.manifest).includes(actionId)) {
+        throw new Error(`Mod 未声明动作 ${actionId}`);
+      }
+      const currentSession = await ensureSession();
+      const result = await input.actionInvoker(currentSession, actionId, actionInput);
+      return result.body as T;
+    },
+    close() {},
+    requestContext(reason = "agent") {
+      if (input.latestContextRef.current) {
+        return Promise.resolve(input.latestContextRef.current);
+      }
+      return Promise.resolve(input.contextProviderRef.current?.()).then((context) => {
+        if (context) input.latestContextRef.current = context;
+        return context;
+      });
+    },
+    invokeUiAction<T = unknown>(actionId: string, actionInput: Record<string, unknown> = {}) {
+      if (!declaredActionIds(input.manifest).includes(actionId)) {
+        return Promise.reject(new Error(`Mod 未声明动作 ${actionId}`));
+      }
+      const handler = input.uiActionHandlerRef.current;
+      if (!handler) {
+        return Promise.reject(new Error("Mod UI action bridge is unavailable"));
+      }
+      return Promise.resolve(handler(actionId, actionInput)) as Promise<T>;
+    },
+  };
+}
+
+function createEmbeddedMarketBridge(eventBus: ShellEventBus, manifest: ModManifest): ModBridge {
+  return {
+    emit(event, payload, target) {
+      const envelope = modEventSchema.parse({
+        version: "1.0",
+        event,
+        source: manifest.id,
+        ...(target ? { target } : {}),
+        traceId: createInstanceId(),
+        payload,
+      });
+      eventBus.route(envelope);
+      return envelope;
+    },
+    subscribe(handler) {
+      return eventBus.subscribe(handler, {
+        moduleId: manifest.id,
+        accepts: manifest.events.accepts,
+      });
+    },
+    close() {},
+  };
 }
 
 export interface ModFrameHandle {
@@ -98,18 +269,26 @@ function createDeskInit(
     user: { id: userId },
     workspace: { id: workspaceId },
     environment: { theme, locale, timezone },
+    appearance: createNewmaDeskAppearance(theme),
     gateways: {
       actions: `${origin}/api/mods/${encodeURIComponent(manifest.id)}/actions`,
       agent: `${origin}/api/agent`,
       model: `${origin}/api/model`,
       data: `${origin}/api/data-services`,
+      storage: `${origin}/api/mods/${encodeURIComponent(manifest.id)}/storage`,
     },
     grants: {
       permissions: session?.grants.permissions ?? manifest.permissions,
       actions: session?.grants.actions ?? declaredActionIds(manifest),
     },
     ...(session
-      ? { session: { id: session.sessionId, expiresAt: session.expiresAt } }
+      ? {
+          session: {
+            id: session.sessionId,
+            accessToken: session.accessToken,
+            expiresAt: session.expiresAt,
+          },
+        }
       : {}),
   };
 }
@@ -126,6 +305,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       manifest,
       eventBus,
       theme,
+      embedded = false,
       userId = "local-user",
       workspaceId = "local-workspace",
       locale = globalThis.navigator?.language || "zh-CN",
@@ -139,7 +319,15 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     },
     ref,
   ) {
+  const embeddedMarket = useMemo(() => embeddedMarketMod(manifest), [manifest]);
+  const embeddedMarketBridge = useMemo(
+    () => embeddedMarket
+      ? createEmbeddedMarketBridge(eventBus, manifest)
+      : undefined,
+    [embeddedMarket, eventBus, manifest],
+  );
   const resolution = useMemo(() => {
+    if (embeddedMarket) return { src: embeddedMarket.src, error: undefined };
     try {
       return { src: resolveModUrl(manifest.entry), error: undefined };
     } catch (error) {
@@ -148,7 +336,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         error: error instanceof Error ? error.message : "Mod 地址配置无效",
       };
     }
-  }, [manifest.entry]);
+  }, [embeddedMarket, manifest.entry]);
   const [frameState, setFrameState] = useState<"loading" | "ready" | "error">(
     "loading",
   );
@@ -166,6 +354,10 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   const sessionRef = useRef<ModSession | undefined>(undefined);
   const sessionPromiseRef = useRef<Promise<ModSession> | undefined>(undefined);
   const latestContextRef = useRef<ModPageContext | undefined>(undefined);
+  const embeddedContextProviderRef = useRef<ModContextProvider | undefined>(undefined);
+  const embeddedUiActionHandlerRef = useRef<ModUiActionHandler | undefined>(undefined);
+  const embeddedMarketHostRef = useRef<LocalEmbeddedMarketHost | undefined>(undefined);
+  const embeddedMarketKeyRef = useRef<string | undefined>(undefined);
   const requestContextRef = useRef<
     (
       reason: "initial" | "agent" | "refresh",
@@ -178,19 +370,30 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   themeRef.current = theme;
   onRequestCopilotOpenRef.current = onRequestCopilotOpen;
 
+  useEffect(() => {
+    if (!embedded) document.title = `${manifest.name} · Newma-Desk`;
+  }, [embedded, manifest.name]);
+
   useImperativeHandle(
     ref,
     () => ({
       requestContext(reason = "agent") {
+        if (embeddedMarketHostRef.current) {
+          return embeddedMarketHostRef.current.requestContext(reason);
+        }
         return requestContextRef.current?.(reason) ?? Promise.resolve(undefined);
       },
       reload() {
+        if (embeddedMarketHostRef.current) return;
         const frame = frameRef.current;
         if (!frame || !resolution.src) return;
         setFrameState("loading");
         frame.src = resolution.src;
       },
       invokeUiAction<T = unknown>(actionId: string, input: Record<string, unknown> = {}) {
+        if (embeddedMarketHostRef.current) {
+          return embeddedMarketHostRef.current.invokeUiAction<T>(actionId, input);
+        }
         const invoke = invokeUiActionRef.current;
         return invoke
           ? invoke<T>(actionId, input)
@@ -201,6 +404,11 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   );
 
   useLayoutEffect(() => {
+    if (embeddedMarket) {
+      requestContextRef.current = undefined;
+      invokeUiActionRef.current = undefined;
+      return;
+    }
     setFrameState("loading");
     const frame = frameRef.current;
     if (!frame || !resolution.src) return;
@@ -239,6 +447,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
           userId,
           workspaceId,
           theme: themeRef.current,
+          appearance: createNewmaDeskAppearance(themeRef.current),
         },
         expectedOrigin,
       );
@@ -624,9 +833,11 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     actionInvoker,
     contextSaver,
     sessionIssuer,
+    embeddedMarket,
   ]);
 
   useEffect(() => {
+    if (embeddedMarket) return;
     if (!resolution.src || frameState !== "ready") return;
     const target = frameRef.current?.contentWindow;
     if (!target) return;
@@ -639,6 +850,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         userId,
         workspaceId,
         theme,
+        appearance: createNewmaDeskAppearance(theme),
       },
       origin,
     );
@@ -670,6 +882,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     timezone,
     userId,
     workspaceId,
+    embeddedMarket,
   ]);
 
   if (resolution.error || !resolution.src) {
@@ -681,6 +894,84 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     );
   }
 
+  if (embeddedMarket) {
+    if (
+      !embeddedMarketHostRef.current ||
+      embeddedMarketKeyRef.current !== embeddedMarket.key
+    ) {
+      embeddedMarketHostRef.current?.close();
+      embeddedMarketKeyRef.current = embeddedMarket.key;
+      latestContextRef.current = undefined;
+      embeddedContextProviderRef.current = undefined;
+      embeddedUiActionHandlerRef.current = undefined;
+      embeddedMarketHostRef.current = createEmbeddedMarketHost({
+        manifest,
+        userId,
+        workspaceId,
+        theme,
+        locale,
+        timezone,
+        sessionIssuer,
+        actionInvoker,
+        contextSaver,
+        latestContextRef,
+        contextProviderRef: embeddedContextProviderRef,
+        uiActionHandlerRef: embeddedUiActionHandlerRef,
+        onContextPublished: () => setContextState("received"),
+      });
+    }
+    const hostConnection = embeddedMarketHostRef.current;
+    return (
+      <section
+        className="module-frame"
+        aria-busy={false}
+        data-vibedesk-mod-id={manifest.id}
+        data-vibedesk-frame-state="ready"
+        data-vibedesk-bridge-state="acknowledged"
+        data-vibedesk-context-state={contextState}
+        data-vibedesk-embedded={embedded || undefined}
+      >
+        {!embedded && onToggleCopilot ? (
+          <header className="frame-toolbar embedded-market-toolbar">
+            <div>
+              <strong>{manifest.name}</strong>
+              <span>{manifest.version}</span>
+            </div>
+            <div className="frame-toolbar-actions">
+              <button
+                type="button"
+                className="frame-copilot-button"
+                aria-pressed={copilotOpen}
+                onClick={onToggleCopilot}
+              >
+                <MessageSquareText size={14} aria-hidden="true" />
+                问当前 Mod
+              </button>
+            </div>
+          </header>
+        ) : null}
+        <Suspense
+          fallback={(
+            <div className="frame-status" role="status">
+              <LoaderCircle className="spin" size={18} aria-hidden="true" />
+              正在加载市场工作区…
+            </div>
+          )}
+        >
+          {embeddedMarket.kind === "intelligence" && EmbeddedIntelligenceFrame ? (
+            <EmbeddedIntelligenceFrame hostConnection={hostConnection} />
+          ) : (
+            <EmbeddedMarketFrame
+              search={embeddedMarket.search}
+              hostConnection={hostConnection}
+              bridge={embeddedMarketBridge}
+            />
+          )}
+        </Suspense>
+      </section>
+    );
+  }
+
   return (
     <section
       className="module-frame"
@@ -689,30 +980,33 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       data-vibedesk-frame-state={frameState}
       data-vibedesk-bridge-state={bridgeState}
       data-vibedesk-context-state={contextState}
+      data-vibedesk-embedded={embedded || undefined}
     >
-      <header className="frame-toolbar">
-        <div>
-          <strong>{manifest.name}</strong>
-          <span>{manifest.version}</span>
-        </div>
-        <div className="frame-toolbar-actions">
-          {onToggleCopilot ? (
-            <button
-              type="button"
-              className="frame-copilot-button"
-              aria-pressed={copilotOpen}
-              onClick={onToggleCopilot}
-            >
-              <MessageSquareText size={14} aria-hidden="true" />
-              问当前 Mod
-            </button>
-          ) : null}
-          <a href={resolution.src} target="_blank" rel="noreferrer">
-            独立打开
-            <ExternalLink size={14} aria-hidden="true" />
-          </a>
-        </div>
-      </header>
+      {!embedded ? (
+        <header className="frame-toolbar">
+          <div>
+            <strong>{manifest.name}</strong>
+            <span>{manifest.version}</span>
+          </div>
+          <div className="frame-toolbar-actions">
+            {onToggleCopilot ? (
+              <button
+                type="button"
+                className="frame-copilot-button"
+                aria-pressed={copilotOpen}
+                onClick={onToggleCopilot}
+              >
+                <MessageSquareText size={14} aria-hidden="true" />
+                问当前 Mod
+              </button>
+            ) : null}
+            <a href={resolution.src} target="_blank" rel="noreferrer">
+              独立打开
+              <ExternalLink size={14} aria-hidden="true" />
+            </a>
+          </div>
+        </header>
+      ) : null}
       {frameState === "loading" ? (
         <div className="frame-status" role="status">
           <LoaderCircle className="spin" size={18} aria-hidden="true" />

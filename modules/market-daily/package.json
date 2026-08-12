@@ -1,8 +1,16 @@
 {
-  "name": "@newma-desk/market-pulse",
+  "name": "@newma-desk/market-daily",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./src/index.ts",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -10,8 +18,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@newma-desk/contracts": "0.1.0",
     "@newma-desk/chart-kit": "0.1.0",
+    "@newma-desk/contracts": "0.1.0",
     "@newma-desk/desk-ui": "0.1.0",
     "@newma-desk/mod-sdk": "0.1.0",
     "klinecharts": "^10.0.0",

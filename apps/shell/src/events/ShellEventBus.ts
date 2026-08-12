@@ -23,6 +23,11 @@ export interface ShellEventRegistration {
   origin: string;
 }
 
+export interface ShellEventReplaySubscription {
+  moduleId: string;
+  accepts: readonly string[];
+}
+
 class TraceCache {
   private readonly values = new Set<string>();
 
@@ -125,9 +130,19 @@ export class ShellEventBus {
     this.routeValidated(value, sourceWindow);
   }
 
-  subscribe(handler: (event: ModEvent) => void): () => void {
+  subscribe(
+    handler: (event: ModEvent) => void,
+    replay?: ShellEventReplaySubscription,
+  ): () => void {
     if (this.closed) return () => undefined;
     this.observers.add(handler);
+    if (replay) {
+      for (const eventName of replay.accepts) {
+        const latest = this.latestBroadcasts.get(eventName);
+        if (!latest || latest.source === replay.moduleId) continue;
+        handler(latest);
+      }
+    }
     return () => this.observers.delete(handler);
   }
 

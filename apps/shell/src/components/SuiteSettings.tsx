@@ -168,7 +168,7 @@ export function SuiteSettings({
         <div>
           <h1>{suiteLabel} · 项目设置</h1>
           <p>
-            该二级目录包含 {modules.length} 个 Mod。数据服务由 Newma-Desk 统一托管，
+            该项目包含 {modules.length} 个页面。数据服务由 Newma-Desk 统一托管，
             Mod 无需保存 API 地址、Token 或密钥。
           </p>
         </div>
@@ -204,7 +204,7 @@ export function SuiteSettings({
         <div className="settings-section-heading">
           <div>
             <h2 id="suite-members-heading">项目页面</h2>
-            <p>这里展示当前被归入该二级目录的所有 Mod。</p>
+            <p>这里展示由同一项目 Manifest 自动接入的页面与设置入口。</p>
           </div>
         </div>
         <div className="suite-member-list">

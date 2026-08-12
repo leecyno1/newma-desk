@@ -20,10 +20,15 @@ export interface SidebarDirectoryPreference {
   pinned?: boolean;
 }
 
+/** `label` is the user's local first-level project title override. */
+export type SidebarProjectPreference = SidebarDirectoryPreference;
+
 export interface SidebarNavigationPreferences {
   version: 1;
   modules: Record<string, SidebarModulePreference>;
   directories: Record<string, SidebarDirectoryPreference>;
+  projects?: Record<string, SidebarProjectPreference>;
+  sections?: Record<string, Record<string, SidebarDirectoryPreference>>;
 }
 
 const THEME_KEY = "vibedesk.themeMode";
@@ -93,6 +98,31 @@ function finiteOrder(value: unknown): number | undefined {
     : undefined;
 }
 
+function navigationPreferenceMap(
+  value: unknown,
+): Record<string, SidebarDirectoryPreference> {
+  const record = typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  return Object.fromEntries(Object.entries(record).flatMap(([id, entry]) => {
+    if (
+      !/^[a-z][a-z0-9-]{1,47}$/.test(id) ||
+      typeof entry !== "object" ||
+      entry === null ||
+      Array.isArray(entry)
+    ) return [];
+    const source = entry as Record<string, unknown>;
+    const preference: SidebarDirectoryPreference = {};
+    if (typeof source.label === "string" && source.label.trim()) {
+      preference.label = source.label.trim().slice(0, 40);
+    }
+    const order = finiteOrder(source.order);
+    if (order !== undefined) preference.order = order;
+    if (typeof source.pinned === "boolean") preference.pinned = source.pinned;
+    return [[id, preference] as const];
+  }));
+}
+
 function directoryRef(value: unknown): SidebarDirectoryRef | null | undefined {
   if (value === null) return null;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -133,20 +163,25 @@ export function loadSidebarNavigationPreferences(): SidebarNavigationPreferences
       if (typeof source.pinned === "boolean") preference.pinned = source.pinned;
       return [[moduleId, preference] as const];
     }));
-    const rawDirectories = typeof record.directories === "object" && record.directories !== null && !Array.isArray(record.directories)
-      ? record.directories as Record<string, unknown>
+    const directories = navigationPreferenceMap(record.directories);
+    const projects = navigationPreferenceMap(record.projects);
+    const rawSections = typeof record.sections === "object" && record.sections !== null && !Array.isArray(record.sections)
+      ? record.sections as Record<string, unknown>
       : {};
-    const directories = Object.fromEntries(Object.entries(rawDirectories).flatMap(([directoryId, value]) => {
-      if (!/^[a-z][a-z0-9-]{1,47}$/.test(directoryId) || typeof value !== "object" || value === null || Array.isArray(value)) return [];
-      const source = value as Record<string, unknown>;
-      const preference: SidebarDirectoryPreference = {};
-      if (typeof source.label === "string" && source.label.trim()) preference.label = source.label.trim().slice(0, 40);
-      const order = finiteOrder(source.order);
-      if (order !== undefined) preference.order = order;
-      if (typeof source.pinned === "boolean") preference.pinned = source.pinned;
-      return [[directoryId, preference] as const];
+    const sections = Object.fromEntries(Object.entries(rawSections).flatMap(([projectId, value]) => {
+      if (!/^[a-z][a-z0-9-]{1,47}$/.test(projectId)) return [];
+      const projectSections = navigationPreferenceMap(value);
+      return Object.keys(projectSections).length > 0
+        ? [[projectId, projectSections] as const]
+        : [];
     }));
-    return { version: 1, modules, directories };
+    return {
+      version: 1,
+      modules,
+      directories,
+      ...(Object.keys(projects).length > 0 ? { projects } : {}),
+      ...(Object.keys(sections).length > 0 ? { sections } : {}),
+    };
   } catch {
     return EMPTY_SIDEBAR_NAVIGATION;
   }

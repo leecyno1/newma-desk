@@ -27,23 +27,16 @@ const DEFAULT_WORKSPACE_SECURITY: SecurityRef = {
 
 export function useDeskTheme() {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
-    if (document.documentElement.dataset.theme === "dark") return "dark";
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
   });
   useEffect(() => {
     const root = document.documentElement;
-    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
     const update = () => {
-      const explicit = root.dataset.theme;
-      setTheme(explicit === "dark" || (!explicit && media?.matches) ? "dark" : "light");
+      setTheme(root.dataset.theme === "dark" ? "dark" : "light");
     };
     const observer = new MutationObserver(update);
     observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
-    media?.addEventListener?.("change", update);
-    return () => {
-      observer.disconnect();
-      media?.removeEventListener?.("change", update);
-    };
+    return () => observer.disconnect();
   }, []);
   return theme;
 }

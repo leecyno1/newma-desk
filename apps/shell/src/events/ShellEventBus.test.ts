@@ -176,6 +176,20 @@ describe("ShellEventBus", () => {
     );
   });
 
+  it("replays the latest accepted broadcast to a later embedded Mod", () => {
+    const bus = new ShellEventBus(runtime());
+    const selected = event({ payload: { symbol: "688981", market: "CN" } });
+    bus.route(selected);
+    const observed = vi.fn();
+
+    bus.subscribe(observed, {
+      moduleId: "multi-timeframe",
+      accepts: ["security.selected"],
+    });
+
+    expect(observed).toHaveBeenCalledWith(selected);
+  });
+
   it("uses each registered exact origin and never a wildcard", () => {
     const bus = new ShellEventBus(runtime());
     const target = targetWindow();

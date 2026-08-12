@@ -1,0 +1,209 @@
+{
+  "schemaVersion": "1.0",
+  "id": "trading-suite",
+  "name": "Vibe Trading",
+  "description": "Vibe Trading 的量化与交易页面集合，由 Newma-Desk 统一挂载并按页面展开为独立 Mod。",
+  "version": "0.1.0",
+  "publisher": "Newma-Desk",
+  "upstream": "https://github.com/HKUDS/Vibe-Trading",
+  "tags": [
+    "量化",
+    "交易",
+    "Trading"
+  ],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "vibe-trading",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_TRADING_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "quant",
+    "navigation": {
+      "groupLabel": "量化研究",
+      "groupOrder": 120,
+      "itemOrder": 100,
+      "directory": {
+        "id": "trading-suite",
+        "label": "Vibe Trading",
+        "order": 10
+      },
+      "project": {
+        "id": "quant-research",
+        "name": "量化研究",
+        "order": 120,
+        "description": "因子、策略、回测、相关性与量化实验。"
+      },
+      "icon": "quant"
+    },
+    "compatibility": {
+      "level": 1,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": [],
+    "dataServices": [],
+    "actions": {},
+    "events": {
+      "emits": [],
+      "accepts": []
+    }
+  },
+  "pages": [
+    {
+      "id": "quant-overview",
+      "name": "量化总览",
+      "description": "查看量化研究环境、任务状态、核心指标和最近运行结果。",
+      "tags": [
+        "量化",
+        "总览",
+        "运行状态"
+      ],
+      "route": "/mod-runtime/trading/",
+      "navigation": {
+        "itemOrder": 10
+      },
+      "manifest": {
+        "permissions": [
+          "trading.read"
+        ],
+        "dataServices": [
+          "vibe-trading-native"
+        ]
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "alpha-lab",
+      "name": "因子实验室",
+      "description": "浏览和管理 Alpha 因子库，查看公式、来源、标签和因子研究信息。",
+      "tags": [
+        "Alpha",
+        "因子",
+        "量化"
+      ],
+      "route": "/mod-runtime/trading/alpha-zoo",
+      "navigation": {
+        "itemOrder": 20
+      },
+      "manifest": {
+        "permissions": [
+          "trading.read",
+          "trading.compute"
+        ],
+        "dataServices": [
+          "vibe-trading-native"
+        ]
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "backtest-lab",
+      "name": "回测实验室",
+      "description": "运行安全的纸面回测，并用策略实验账本统一查看版本、样本区间、收益、风险、成本假设和运行制品。",
+      "tags": [
+        "回测",
+        "策略",
+        "实验账本",
+        "报告"
+      ],
+      "route": "/mod-runtime/trading/reports",
+      "navigation": {
+        "itemOrder": 30
+      },
+      "manifest": {
+        "permissions": [
+          "trading.read",
+          "trading.compute"
+        ],
+        "dataServices": [
+          "vibe-trading-native"
+        ],
+        "storage": {
+          "mode": "artifact"
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "factor-correlation",
+      "name": "相关性分析",
+      "description": "分析因子之间的相关性与重复度，为因子筛选和组合构建提供依据。",
+      "tags": [
+        "因子",
+        "相关性",
+        "分析"
+      ],
+      "route": "/mod-runtime/trading/correlation",
+      "navigation": {
+        "itemOrder": 40
+      },
+      "manifest": {
+        "permissions": [
+          "trading.read",
+          "trading.compute"
+        ],
+        "dataServices": [
+          "vibe-trading-native"
+        ]
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "trade-desk",
+      "name": "交易台",
+      "description": "查看策略运行、交易任务和执行状态；真实交易仍由独立确认链路控制。",
+      "tags": [
+        "交易",
+        "运行",
+        "策略"
+      ],
+      "route": "/mod-runtime/trading/runtime",
+      "navigation": {
+        "itemOrder": 50,
+        "icon": "trading"
+      },
+      "manifest": {
+        "category": "trading",
+        "permissions": [
+          "trading.read",
+          "trading.runtime"
+        ],
+        "dataServices": [
+          "vibe-trading-native"
+        ]
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "trading-settings",
+      "name": "量化系统设置",
+      "description": "配置量化数据源、运行环境和 Vibe Trading 系统连接。",
+      "tags": [
+        "设置",
+        "量化",
+        "连接"
+      ],
+      "route": "/mod-runtime/trading/settings",
+      "navigation": {
+        "itemOrder": 90,
+        "icon": "settings",
+        "role": "settings"
+      },
+      "manifest": {
+        "category": "system",
+        "permissions": [
+          "trading.settings"
+        ],
+        "dataServices": [
+          "vibe-trading-native"
+        ]
+      },
+      "defaultInstall": true
+    }
+  ]
+}

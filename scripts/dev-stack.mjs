@@ -166,6 +166,9 @@ function coreServices(externalRuntimeEnv = {}) {
         NEWMA_DESK_ENABLE_DOMAIN_SUITES: "true",
         NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME: "1",
         VIBEDESK_INTEGRATED_DOMAIN_RUNTIME: "1",
+        // Local compatibility only. Production installs one pinned dependency
+        // set into the API image and never mixes nested virtual environments.
+        NEWMA_DESK_DOMAIN_SUITE_WORKSPACE_VENVS: "true",
         NEWMA_DESK_INVESTMENT_WORKSPACE: path.join(repoRoot, "mod-projects", "vibe-research"),
         NEWMA_DESK_TRADING_WORKSPACE: path.join(repoRoot, "mod-projects", "vibe-trading"),
         NEWMA_DESK_INVESTMENT_WEB_URL: "http://127.0.0.1:8911",
@@ -175,24 +178,6 @@ function coreServices(externalRuntimeEnv = {}) {
       criticality: SERVICE_CRITICALITY.CORE,
       url: apiHealthUrl,
       probe: createApiReadinessProbe(),
-    },
-    {
-      id: "market-pulse",
-      label: "Market Pulse",
-      cwd: repoRoot,
-      command: "npm",
-      commandArgs: [
-        "run", "dev", "-w", "@newma-desk/market-pulse", "--",
-        "--host", "127.0.0.1", "--port", "5891", "--strictPort",
-      ],
-      env: {
-        VITE_API_PROXY_TARGET: "http://127.0.0.1:8911",
-        VITE_GATEWAY_BASE_URL: "http://127.0.0.1:8911",
-        VITE_PARENT_ORIGIN: "http://127.0.0.1:5888",
-      },
-      criticality: SERVICE_CRITICALITY.CORE,
-      url: "http://127.0.0.1:5891/",
-      probe: createHttpProbe("http://127.0.0.1:5891/"),
     },
     {
       id: "newma-desk-web",
@@ -205,7 +190,6 @@ function coreServices(externalRuntimeEnv = {}) {
       ],
       env: {
         VITE_API_PROXY_TARGET: "http://127.0.0.1:8911",
-        VITE_MOD_ORIGIN: "http://127.0.0.1:5891",
       },
       criticality: SERVICE_CRITICALITY.CORE,
       url: "http://127.0.0.1:5888/",
@@ -226,6 +210,7 @@ async function buildIntegratedFrontend(label, workspace, basePath, apiBase) {
       ...process.env,
       NEWMA_DESK_INTEGRATED: "1",
       NEWMA_DOCK_INTEGRATED: "1",
+      VITE_NEWMA_DESK_INTEGRATED: "1",
       VITE_BASE_PATH: basePath,
       VITE_API_BASE: apiBase,
     },
@@ -254,6 +239,91 @@ async function buildFirstPartyModule(label, workspaceName) {
       else reject(new Error(`${label} 构建失败：code=${code ?? "-"} signal=${signal ?? "-"}`));
     });
   });
+}
+
+async function runSetupCommand(label, command, commandArgs, cwd) {
+  console.log(label);
+  const child = spawn(command, commandArgs, {
+    cwd,
+    env: process.env,
+    stdio: "inherit",
+  });
+  await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${label}失败：code=${code ?? "-"} signal=${signal ?? "-"}`));
+    });
+  });
+}
+
+async function ensureWorldIntelRuntime(runtime) {
+  const workspace = runtime?.workspaces.source.path;
+  if (!workspace) {
+    throw new Error("未找到 World Intelligence MCP 源码目录。");
+  }
+  const venvPython = path.join(workspace, ".venv", "bin", "python");
+  if (!existsSync(venvPython)) {
+    const bootstrapPython = existsSync("/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12")
+      ? "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12"
+      : "python3";
+    await runSetupCommand(
+      "初始化 World Intelligence MCP Python 环境",
+      bootstrapPython,
+      ["-m", "venv", ".venv"],
+      workspace,
+    );
+  }
+  const importCheck = spawn(venvPython, [
+    "-c",
+    "import world_intel_mcp.dashboard.app",
+  ], {
+    cwd: workspace,
+    env: process.env,
+    stdio: "ignore",
+  });
+  const ready = await new Promise((resolve) => {
+    importCheck.once("error", () => resolve(false));
+    importCheck.once("exit", (code) => resolve(code === 0));
+  });
+  if (ready) return;
+  await runSetupCommand(
+    "安装 World Intelligence MCP 与 Dashboard 依赖",
+    venvPython,
+    ["-m", "pip", "install", "-e", ".[dashboard]"],
+    workspace,
+  );
+}
+
+function worldIntelServices(runtime) {
+  if (!runtime) return [];
+  const workspace = runtime.workspaces.source.path;
+  const endpoint = runtime.endpoints.api;
+  return [{
+    id: "world-intel-mcp",
+    label: "World Intelligence MCP",
+    cwd: workspace,
+    ...(workspace && endpoint.local
+      ? {
+          command: pythonAt(workspace),
+          commandArgs: [
+            "-m", "world_intel_mcp.dashboard.app",
+            "--host", "127.0.0.1",
+            "--port", String(endpoint.port),
+          ],
+        }
+      : {}),
+    env: {
+      PYTHONUNBUFFERED: "1",
+      WORLD_INTEL_DASHBOARD_HOST: "127.0.0.1",
+      WORLD_INTEL_DASHBOARD_PORT: String(endpoint.port),
+    },
+    criticality: SERVICE_CRITICALITY.CORE,
+    url: endpoint.healthUrl,
+    probe: createHttpProbe(endpoint.healthUrl, {
+      expectedService: "world-intel-mcp",
+    }),
+  }];
 }
 
 function sevenCycleServices(runtime) {
@@ -430,10 +500,12 @@ const tradingWorkspace = workspaceFrom(
 const externalRuntimes = await loadExternalModRuntimes({ repoRoot });
 const externalRuntimeEnv = runtimeEnvironment(externalRuntimes);
 const core = coreServices(externalRuntimeEnv);
+const worldIntelRuntime = externalRuntimes.byId["world-intel"];
 const sevenCycleRuntime = externalRuntimes.byId["seven-cycle"];
 const instockRuntime = externalRuntimes.byId.instock;
 const orchestraRuntime = externalRuntimes.byId.orchestra;
 const deepseeRuntime = externalRuntimes.byId.deepsee;
+const worldIntel = worldIntelServices(worldIntelRuntime);
 const sevenCycle = sevenCycleServices(sevenCycleRuntime);
 const instock = instockServices(instockRuntime);
 const orchestra = orchestraServices(orchestraRuntime);
@@ -474,7 +546,7 @@ for (const runtime of externalRuntimes.runtimes) {
 
 if (checkOnly) {
   const results = [];
-  for (const service of [...core, ...instock, ...orchestra, ...sevenCycle, deepsee]) {
+  for (const service of [...worldIntel, ...core, ...instock, ...orchestra, ...sevenCycle, deepsee]) {
     results.push(await statusLine(service));
   }
   const coreReady = results
@@ -512,6 +584,10 @@ if (checkOnly) {
       "Portfolio Center",
       "@newma-desk/portfolio-center",
     );
+    await ensureWorldIntelRuntime(worldIntelRuntime);
+    for (const service of worldIntel) {
+      await supervisor.start(service);
+    }
     await supervisor.start(core[0]);
     await registerStoreMods({
       apiUrl: "http://127.0.0.1:8911",
@@ -523,10 +599,11 @@ if (checkOnly) {
         NEWMA_DESK_CONTROL_PLANE_URL: "http://127.0.0.1:8911",
       },
     });
-    await supervisor.start(core[1]);
-    await supervisor.start(core[2]);
+    for (const service of core.slice(1)) {
+      await supervisor.start(service);
+    }
     console.log("\nNewma-Desk 核心已就绪：http://127.0.0.1:5888/?mod=daily-review");
-    console.log("Research / Trading 已作为 Newma-Desk 内置领域运行时加载，不再占用独立端口。");
+    console.log("Research / Trading 与 World Intelligence 已作为 Newma-Desk 核心运行时加载。");
     const optionalServices = [
       ...instock,
       ...orchestra,

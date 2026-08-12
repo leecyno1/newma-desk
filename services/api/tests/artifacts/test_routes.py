@@ -67,6 +67,8 @@ def test_archify_artifact_can_be_rendered_published_and_reloaded(
     assert created.json()["archifyIr"]["diagram_type"] == "architecture"
     assert view.status_code == 200
     assert "AI 算力产业链" in view.text
+    assert "data-newma-archify-theme-adapter" in view.text
+    assert "newma:artifact-theme" in view.text
     assert "default-src 'none'" in view.headers["content-security-policy"]
     assert published.status_code == 200
     assert published.json()["status"] == "published"
@@ -132,3 +134,8 @@ def test_replay_session_is_persisted_as_a_vibedesk_artifact(
     assert listed.json()[0]["spec"]["orders"][0]["side"] == "buy"
     assert view.status_code == 200
     assert "贵州茅台日线回放" in view.text
+    assert "data-newma-replay-theme-adapter" in view.text
+    assert "data-newma-archify-theme-adapter" in view.text
+    assert "newma:artifact-theme" in view.text
+    assert "prefers-color-scheme" not in view.text
+    assert "script-src 'unsafe-inline'" in view.headers["content-security-policy"]

@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1.0",
+  "artifacts": [
+    {
+      "id": "desk-shell",
+      "path": "apps/shell/dist",
+      "required": true,
+      "maxTotalBytes": 921600,
+      "maxFileBytes": 430080
+    },
+    {
+      "id": "portfolio-runtime",
+      "path": "modules/portfolio-center/dist",
+      "required": true,
+      "maxTotalBytes": 430080,
+      "maxFileBytes": 358400
+    },
+    {
+      "id": "research-suite",
+      "path": "mod-projects/vibe-research/frontend/dist",
+      "required": false,
+      "maxTotalBytes": 1048576,
+      "maxFileBytes": 262144,
+      "forbiddenText": [
+        "订阅接入",
+        "Claude Code",
+        "openrouter",
+        "api.deepseek"
+      ]
+    },
+    {
+      "id": "trading-suite",
+      "path": "mod-projects/vibe-trading/frontend/dist",
+      "required": false,
+      "maxTotalBytes": 1900000,
+      "maxFileBytes": 720000
+    }
+  ],
+  "dockerContext": {
+    "ignoreFile": ".dockerignore",
+    "requiredPatterns": [
+      ".git",
+      ".worktrees",
+      "legacy-workspace",
+      "**/node_modules",
+      "**/.venv",
+      "**/.pytest_cache",
+      "**/.cache",
+      "**/__pycache__",
+      "**/*.tsbuildinfo",
+      "runtime",
+      "apps/*/dist",
+      "modules/*/dist",
+      "mod-projects/vibe-research/.git",
+      "mod-projects/vibe-research/frontend/dist",
+      "mod-projects/vibe-research/backend/tests",
+      "mod-projects/vibe-trading/.git",
+      "mod-projects/vibe-trading/assets",
+      "mod-projects/vibe-trading/build",
+      "mod-projects/vibe-trading/wiki",
+      "mod-projects/vibe-trading/frontend/dist",
+      "mod-projects/vibe-trading/agent/tests",
+      "mod-projects/vibe-trading/agent/.swarm",
+      "mod-projects/vibe-trading/agent/cli",
+      "mod-projects/vibe-trading/agent/*.egg-info",
+      "mod-projects/vibe-trading/agent/mcp_server.py",
+      "mod-projects/vibe-trading/agent/runs",
+      "mod-projects/vibe-trading/agent/sessions",
+      "mod-projects/vibe-trading/agent/uploads"
+    ]
+  },
+  "pythonRequirements": [
+    {
+      "id": "domain-runtime",
+      "path": "deploy/server/requirements-domain-runtime.txt",
+      "required": true,
+      "forbiddenDistributions": [
+        "ccxt",
+        "fastmcp",
+        "langchain",
+        "langchain-core",
+        "langchain-openai",
+        "langgraph",
+        "matplotlib",
+        "mootdx",
+        "prompt-toolkit",
+        "smartmoneyconcepts",
+        "weasyprint"
+      ]
+    },
+    {
+      "id": "trading-integrated",
+      "path": "deploy/server/requirements-trading-integrated.txt",
+      "required": false,
+      "forbiddenDistributions": [
+        "ccxt",
+        "fastmcp",
+        "langchain",
+        "langchain-core",
+        "langchain-openai",
+        "langgraph",
+        "matplotlib",
+        "prompt-toolkit",
+        "smartmoneyconcepts",
+        "weasyprint"
+      ]
+    }
+  ]
+}

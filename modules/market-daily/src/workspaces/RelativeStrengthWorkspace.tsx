@@ -11,7 +11,14 @@ import { securityKey } from "../data";
 import type { Bar, MarketDataSource, SecurityRef } from "../types";
 import { WORKSPACE_SECURITIES, movement, signed } from "./shared";
 
-const COLORS = ["#2563eb", "#7c3aed", "#dc2626", "#0f766e", "#d97706", "#0891b2"];
+const COLORS = [
+  "var(--vibe-accent)",
+  "var(--workspace-verdigris)",
+  "var(--workspace-olive)",
+  "var(--workspace-copper)",
+  "var(--vibe-text-soft)",
+  "var(--vibe-border-strong)",
+];
 const DEFAULT_COMPARE = WORKSPACE_SECURITIES.slice(0, 5);
 
 function finalReturn(series: RelativeStrengthSeries) {
@@ -66,7 +73,7 @@ export function RelativeStrengthWorkspace({
     normalizedStrengthSeries(
       securityKey(item),
       item.name,
-      COLORS[index % COLORS.length] ?? "#2563eb",
+      COLORS[index % COLORS.length] ?? "var(--vibe-accent)",
       barsBySecurity[securityKey(item)] ?? [],
     )), [barsBySecurity, securities]);
   const ranking = useMemo(() => [...series].sort((left, right) => finalReturn(right) - finalReturn(left)), [series]);

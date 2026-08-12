@@ -19,6 +19,9 @@ from starlette.concurrency import run_in_threadpool
 
 from vibe_visualization_api.agent_gateway.models import AgentTaskCreate
 from vibe_visualization_api.control_plane.actions import payload_hash
+from vibe_visualization_api.control_plane.copilot_prompts import (
+    build_mod_copilot_prompts,
+)
 from vibe_visualization_api.config import Settings, get_settings
 from vibe_visualization_api.control_plane.models import StoredModule
 from vibe_visualization_api.control_plane.packages import (
@@ -108,8 +111,18 @@ def _instance_id_header(
 )
 def list_modules(
     repository: ModuleRepository = Depends(get_repository),
-) -> list[StoredModule]:
-    return repository.list_published()
+) -> list[StoredModuleResponse]:
+    return [
+        StoredModuleResponse(
+            module_id=stored.module_id,
+            revision=stored.revision,
+            status=stored.status,
+            manifest=stored.manifest,
+            created_at=stored.created_at,
+            copilot_prompts=build_mod_copilot_prompts(stored.manifest),
+        )
+        for stored in repository.list_published()
+    ]
 
 
 @router.post(

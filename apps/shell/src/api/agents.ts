@@ -18,6 +18,15 @@ export interface AgentPreferences {
   updatedAt: string | null;
 }
 
+export interface AgentArtifact {
+  id: string;
+  kind: "report" | "graph" | "replay";
+  title: string;
+  summary?: string;
+  content?: string;
+  viewUrl?: string;
+}
+
 interface CapabilityResponse {
   adapters: AgentAdapterDescription[];
   moduleActions: Array<{ moduleId: string; capabilities: string[] }>;
@@ -26,10 +35,19 @@ interface CapabilityResponse {
 export interface AgentTask {
   id: string;
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  request?: {
+    adapter?: string | null;
+    moduleId?: string | null;
+    memoryScope?: "user-agent-mod" | "task";
+    [key: string]: unknown;
+  };
   result?: {
     answer?: string;
     message?: string;
     actions?: Array<{ actionId: string; input?: Record<string, unknown> }>;
+    artifacts?: unknown;
+    agentId?: string;
+    upstreamSessionId?: string;
     [key: string]: unknown;
   } | null;
   error?: string | null;

@@ -1,0 +1,29 @@
+# Controlled dependency set for Newma-Desk's integrated Trading runtime.
+#
+# Validated on Wednesday, July 29, 2026 in a clean temporary venv by importing
+# `mod-projects/vibe-trading/agent/api_server.py` with
+# `PYTHONPATH=mod-projects/vibe-trading/agent`.
+# Clean unified runtime reference on macOS arm64: 260.6 MiB of file content
+# (289 MiB allocated on disk), 69 installed distributions and 64.8 MiB import
+# RSS while registering 47 Research and 33 Trading routes.
+#
+# Scope:
+# - Covers only the Trading domain routes retained by Desk: runs, factor
+#   catalog/bench/compare, correlation, data-source settings and live status.
+# - Native Agent/session/channel/upload/scheduler/document-report dependencies
+#   are deliberately excluded; those Interfaces are owned by Desk.
+# - Research installs the shared A-share stack (pandas and AKShare)
+#   before this file. Repeating compatible direct requirements here keeps this
+#   file independently import-testable without installing the upstream package.
+
+fastapi>=0.116,<1
+httpx>=0.28,<1
+numpy>=1.24,<3
+pandas>=2,<3
+pydantic>=2.11,<3
+python-dotenv>=1,<2
+pyyaml>=6,<7
+requests>=2.31,<3
+rich>=13,<16
+tushare>=1.2.89,<2
+uvicorn[standard]>=0.35,<1

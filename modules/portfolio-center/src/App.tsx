@@ -4,11 +4,13 @@ import {
   ArrowUpFromLine,
   BadgeDollarSign,
   Banknote,
+  ChartPie,
   CircleDollarSign,
   Gauge,
   Landmark,
   Layers3,
   LoaderCircle,
+  NotebookTabs,
   Plus,
   RefreshCw,
   Settings2,
@@ -18,7 +20,12 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { ModPageContext } from "@newma-desk/contracts";
+import type {
+  ModPageContext,
+  PortfolioResearchCoverage,
+  PortfolioResearchPosition,
+  ResearchArchiveEntry,
+} from "@newma-desk/contracts";
 import {
   connectModHost,
   createModBridge,
@@ -30,6 +37,11 @@ import type {
   ActivityType,
   Market,
   PortfolioDashboard,
+  PortfolioOptimizationInput,
+  PortfolioOptimizationObjective,
+  PortfolioOptimizationResult,
+  PortfolioPerformanceInput,
+  PortfolioPerformanceResult,
   PortfolioPosition,
   PortfolioWorkspace,
 } from "./types";
@@ -49,6 +61,11 @@ const WORKSPACES: Record<PortfolioWorkspace, { title: string; eyebrow: string; s
     title: "组合风控",
     eyebrow: "RISK TOPOLOGY",
     subtitle: "先识别集中度、市场与币种暴露，再进入优化和压力测试。",
+  },
+  "portfolio-allocation": {
+    title: "资产配置",
+    eyebrow: "ALLOCATION STUDIO",
+    subtitle: "以统一历史行情为依据，对当前持仓生成可解释、可约束的目标权重。",
   },
   "portfolio-performance": {
     title: "绩效归因",
@@ -71,6 +88,12 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
   deposit: "入金",
   withdrawal: "出金",
   split: "拆并股",
+};
+
+const OPTIMIZATION_LABELS: Record<PortfolioOptimizationObjective, { name: string; note: string }> = {
+  "risk-balanced": { name: "风险均衡", note: "降低单一高波动资产对组合的支配。" },
+  "minimum-volatility": { name: "最低波动", note: "寻找历史协方差下更平稳的权重组合。" },
+  "return-seeking": { name: "收益增强", note: "按历史风险调整后收益分配权重。" },
 };
 
 type EmbeddedHost = Extract<ModHostConnection, { embedded: true }>;
@@ -118,9 +141,14 @@ function workspaceBlocks(workspace: PortfolioWorkspace) {
   const shared = [{ id: "portfolio-header", type: "portfolio-summary", title: "组合账本状态" }];
   if (workspace === "portfolio-activities") return [...shared, { id: "activity-ledger", type: "portfolio-activities", title: "交易流水" }];
   if (workspace === "portfolio-risk") return [...shared, { id: "risk-map", type: "portfolio-risk", title: "集中度与暴露" }];
+  if (workspace === "portfolio-allocation") return [...shared, { id: "allocation-studio", type: "portfolio-allocation", title: "资产配置与组合优化" }];
   if (workspace === "portfolio-performance") return [...shared, { id: "performance-ledger", type: "portfolio-performance", title: "绩效归因" }];
   if (workspace === "portfolio-settings") return [...shared, { id: "portfolio-settings", type: "settings", title: "账户与迁移" }];
-  return [...shared, { id: "portfolio-positions", type: "portfolio", title: "持仓与配置" }];
+  return [
+    ...shared,
+    { id: "portfolio-positions", type: "portfolio", title: "持仓与配置" },
+    { id: "portfolio-research-coverage", type: "research-coverage", title: "持仓研究覆盖" },
+  ];
 }
 
 function buildContext(
@@ -128,9 +156,18 @@ function buildContext(
   dashboard?: PortfolioDashboard,
   selected?: PortfolioPosition,
   linkedSecurity?: LinkedSecurity,
+  optimization?: PortfolioOptimizationResult,
+  performance?: PortfolioPerformanceResult,
+  researchCoverage?: PortfolioResearchCoverage,
 ): ModPageContext {
   const config = WORKSPACES[workspace];
   const activeSecurity = selected || linkedSecurity;
+  const selectedResearch = activeSecurity
+    ? researchCoverage?.positions.find((item) =>
+      item.market === activeSecurity.market &&
+      item.symbol.toUpperCase() === activeSecurity.symbol.toUpperCase()
+    )
+    : undefined;
   return {
     view: { id: workspace, title: config.title },
     visibleBlocks: workspaceBlocks(workspace),
@@ -141,7 +178,14 @@ function buildContext(
       ...(activeSecurity.currency ? { currency: activeSecurity.currency } : {}),
       ...(selected ? { accountId: selected.accountId } : {}),
     } : {},
-    filters: { workspace, valuation: dashboard?.valuationStatus || "unknown" },
+    filters: {
+      workspace,
+      valuation: dashboard?.valuationStatus || "unknown",
+      ...(optimization ? {
+        optimizationObjective: optimization.objective,
+        optimizationCurrency: optimization.currency,
+      } : {}),
+    },
     data: {
       asOf: dashboard?.updatedAt,
       source: "newma-desk-portfolio-ledger",
@@ -159,14 +203,114 @@ function buildContext(
         },
         selectedPosition: selected || {},
         linkedSecurity: linkedSecurity || {},
+        optimization: optimization || {},
+        historicalPerformance: performance || {},
+        portfolioResearchCoverage: researchCoverage ? {
+          schemaVersion: researchCoverage.schemaVersion,
+          generatedAt: researchCoverage.generatedAt,
+          summary: researchCoverage.summary,
+          selectedPosition: selectedResearch || {},
+          note: "组合研究覆盖只包含研究档案引用与派生缺口，不复制研究正文，也不构成持仓建议。",
+        } : {},
       } : {},
     },
     actions: [
       { id: "portfolio.refresh", label: "刷新组合", available: true },
+      { id: "portfolio.optimize", label: "生成资产配置方案", available: workspace === "portfolio-allocation" },
+      { id: "portfolio.analyze-performance", label: "分析历史绩效", available: workspace === "portfolio-performance" },
       { id: "portfolio.import-legacy", label: "导入旧持仓", available: workspace === "portfolio-settings" },
     ],
     tasks: [],
   };
+}
+
+const RESEARCH_KIND_LABELS: Record<ResearchArchiveEntry["kind"], string> = {
+  "uploaded-report": "上传研报",
+  "research-record": "研究记录",
+  thesis: "投资逻辑",
+  earnings: "财报",
+  "peer-comparison": "同业",
+  valuation: "估值",
+  "research-memo": "备忘录",
+};
+
+const COVERAGE_LABELS: Record<PortfolioResearchPosition["status"], string> = {
+  complete: "覆盖完整",
+  partial: "部分覆盖",
+  missing: "尚未覆盖",
+};
+
+const MISSING_LABELS: Record<PortfolioResearchPosition["missingGroups"][number], string> = {
+  "core-thesis-or-memo": "缺投资逻辑或研究备忘录",
+  "supporting-analysis": "缺财报、同业或估值支持",
+};
+
+const ATTENTION_LABELS: Record<PortfolioResearchPosition["attentionReasons"][number], string> = {
+  "review-overdue": "逻辑复核已到期",
+  "stale-core-research": "核心备忘录待更新",
+  "invalidated-thesis": "存在已证伪逻辑",
+};
+
+function researchSourceUrl(reference: ResearchArchiveEntry) {
+  return `${parentOrigin()}/?mod=${encodeURIComponent(reference.sourceModId)}`;
+}
+
+function ResearchCoveragePanel({
+  coverage,
+  loading,
+  selected,
+  onSelect,
+}: {
+  coverage?: PortfolioResearchCoverage;
+  loading: boolean;
+  selected?: PortfolioPosition;
+  onSelect(position: PortfolioResearchPosition): void;
+}) {
+  if (!coverage) return <section className="folio-panel research-coverage-panel">
+    <div className="panel-title"><div><span>RESEARCH COVERAGE</span><h2>持仓研究覆盖</h2></div><NotebookTabs size={18} /></div>
+    <div className="empty-copy">{loading ? "正在核对研究档案…" : "研究档案索引暂时不可用，持仓账本不受影响。"}</div>
+  </section>;
+  const selectedCoverage = selected
+    ? coverage.positions.find((item) =>
+      item.market === selected.market && item.symbol === selected.symbol
+    )
+    : undefined;
+  return <section className="folio-panel research-coverage-panel">
+    <div className="panel-title">
+      <div><span>RESEARCH COVERAGE</span><h2>持仓研究覆盖</h2></div>
+      <div className="coverage-summary" aria-label="研究覆盖摘要">
+        <span><b>{coverage.summary.completeCount}</b>完整</span>
+        <span><b>{coverage.summary.partialCount}</b>部分</span>
+        <span><b>{coverage.summary.missingCount}</b>缺失</span>
+        {coverage.summary.attentionCount > 0 && <span className="attention"><b>{coverage.summary.attentionCount}</b>需关注</span>}
+      </div>
+    </div>
+    {coverage.positions.length === 0 ? <div className="empty-copy">当前没有持仓，建立持仓后自动核对研究档案。</div> : <div className="research-coverage-list">
+      {coverage.positions.map((item) => {
+        const focused = selectedCoverage?.market === item.market && selectedCoverage.symbol === item.symbol;
+        return <article className={focused ? "selected" : ""} key={`${item.market}:${item.symbol}`} onClick={() => onSelect(item)}>
+          <div className="coverage-position">
+            <span>{item.market}</span>
+            <div><strong>{item.name}</strong><small>{item.symbol} · {item.accountIds.join(" / ")}</small></div>
+          </div>
+          <div className={`coverage-state state-${item.status}`}><i />{COVERAGE_LABELS[item.status]}</div>
+          <div className="coverage-references">
+            {item.references.length === 0 ? <span className="coverage-gap">{item.missingGroups.map((gap) => MISSING_LABELS[gap]).join("；")}</span> : item.references.slice(0, 6).map((reference) => (
+              <a key={reference.id} href={researchSourceUrl(reference)} target="_top" onClick={(event) => event.stopPropagation()} title={reference.title}>
+                {RESEARCH_KIND_LABELS[reference.kind]}
+              </a>
+            ))}
+          </div>
+          <div className="coverage-meta">
+            <span>{item.activeReferenceCount} 份有效引用</span>
+            {item.latestUpdatedAt && <span>更新 {new Date(item.latestUpdatedAt).toLocaleDateString("zh-CN")}</span>}
+            {item.attentionReasons.map((reason) => <b key={reason}>{ATTENTION_LABELS[reason]}</b>)}
+          </div>
+        </article>;
+      })}
+    </div>}
+    <p className="method-note">覆盖表示研究档案是否齐备，只检查引用、状态与复核日期，不读取正文、不评判持仓。</p>
+  </section>;
 }
 
 function CurrencyCards({ dashboard }: { dashboard: PortfolioDashboard }) {
@@ -321,11 +465,199 @@ function RiskView({ dashboard }: { dashboard: PortfolioDashboard }) {
   </div>;
 }
 
-function PerformanceView({ dashboard }: { dashboard: PortfolioDashboard }) {
+function AllocationView({
+  dashboard,
+  result,
+  onResult,
+}: {
+  dashboard: PortfolioDashboard;
+  result?: PortfolioOptimizationResult;
+  onResult(result: PortfolioOptimizationResult): void;
+}) {
+  const currencies = useMemo(
+    () => Array.from(new Set(dashboard.positions.map((position) => position.currency))),
+    [dashboard.positions],
+  );
+  const [currency, setCurrency] = useState(currencies[0] || "CNY");
+  const [objective, setObjective] = useState<PortfolioOptimizationObjective>("risk-balanced");
+  const [lookbackWeeks, setLookbackWeeks] = useState(104);
+  const [maxWeight, setMaxWeight] = useState(35);
+  const [cashWeight, setCashWeight] = useState(0);
+  const [riskFreeRate, setRiskFreeRate] = useState(2);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (currencies.length > 0 && !currencies.includes(currency)) setCurrency(currencies[0]);
+  }, [currencies, currency]);
+
+  const run = async () => {
+    setRunning(true); setError("");
+    try {
+      const input: PortfolioOptimizationInput = {
+        objective,
+        currency,
+        lookbackWeeks,
+        maxWeight: maxWeight / 100,
+        allowCash: cashWeight > 0,
+        cashWeight: cashWeight / 100,
+        riskFreeRatePct: riskFreeRate,
+      };
+      onResult(await portfolioClient({
+        userId: dashboard.userId,
+        workspaceId: dashboard.workspaceId,
+      }).optimizeAllocation(input));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "资产配置计算暂时不可用");
+    } finally { setRunning(false); }
+  };
+
+  const activeResult = result?.currency === currency ? result : undefined;
+  return <div className="allocation-studio">
+    <section className="folio-panel allocation-controls">
+      <div className="panel-title"><div><span>CONSTRAINTS</span><h2>配置约束</h2></div><Settings2 size={18} /></div>
+      <div className="objective-grid">
+        {(Object.entries(OPTIMIZATION_LABELS) as Array<[PortfolioOptimizationObjective, { name: string; note: string }]>).map(([key, item]) => (
+          <button key={key} className={objective === key ? "active" : ""} onClick={() => setObjective(key)}>
+            <strong>{item.name}</strong><span>{item.note}</span>
+          </button>
+        ))}
+      </div>
+      <div className="allocation-form-grid">
+        <label><span>分析币种</span><select value={currency} onChange={(event) => setCurrency(event.target.value)} disabled={currencies.length === 0}>{currencies.length ? currencies.map((item) => <option key={item}>{item}</option>) : <option>CNY</option>}</select></label>
+        <label><span>历史窗口</span><select value={lookbackWeeks} onChange={(event) => setLookbackWeeks(Number(event.target.value))}><option value={52}>1 年 · 52 周</option><option value={104}>2 年 · 104 周</option><option value={156}>3 年 · 156 周</option><option value={260}>5 年 · 260 周</option></select></label>
+        <label><span>单一资产上限</span><select value={maxWeight} onChange={(event) => setMaxWeight(Number(event.target.value))}><option value={20}>20%</option><option value={25}>25%</option><option value={35}>35%</option><option value={50}>50%</option><option value={100}>不限制</option></select></label>
+        <label><span>现金储备</span><select value={cashWeight} onChange={(event) => setCashWeight(Number(event.target.value))}><option value={0}>不保留</option><option value={5}>5%</option><option value={10}>10%</option><option value={20}>20%</option></select></label>
+        <label><span>现金年化参考</span><input inputMode="decimal" value={riskFreeRate} onChange={(event) => setRiskFreeRate(Number(event.target.value))} /></label>
+      </div>
+      {error && <div className="inline-error">{error}</div>}
+      <button className="primary-button" onClick={() => void run()} disabled={running || currencies.length === 0}>{running ? <LoaderCircle className="spin" size={16} /> : <ChartPie size={16} />}生成目标配置</button>
+      <p className="method-note">同一币种单独计算，历史行情统一由 Desk 数据接口提供；方案不会自动改写账本或执行交易。</p>
+    </section>
+
+    <div className="allocation-results">
+      {!activeResult ? <section className="folio-panel allocation-empty">
+        <ChartPie size={28} /><strong>等待生成配置方案</strong><span>选择目标与约束后，比较当前权重和目标权重。</span>
+      </section> : <>
+        <section className="allocation-metrics">
+          <article><span>历史年化收益估计</span><strong className={pnlClass(activeResult.annualizedExpectedReturnPct)}>{signed(activeResult.annualizedExpectedReturnPct, "%")}</strong></article>
+          <article><span>历史年化波动估计</span><strong>{number(activeResult.annualizedVolatilityPct)}%</strong></article>
+          <article><span>目标集中度 HHI</span><strong>{number(activeResult.targetConcentration, 4)}</strong><small>当前 {number(activeResult.currentConcentration, 4)}</small></article>
+          <article><span>有效周度样本</span><strong>{activeResult.observations}</strong><small>{activeResult.dataSources.join(" · ") || "统一行情"}</small></article>
+        </section>
+        <section className="folio-panel allocation-table-panel">
+          <div className="panel-title"><div><span>TARGET WEIGHTS</span><h2>当前与目标权重</h2></div><span className={`optimization-status status-${activeResult.status}`}>{activeResult.status === "ready" ? "数据完整" : activeResult.status === "partial" ? "部分冻结" : "数据不足"}</span></div>
+          <div className="allocation-comparison-list">{activeResult.allocations.map((item) => (
+            <article key={`${item.market}:${item.symbol}`}>
+              <div className="allocation-security"><span>{item.market}</span><div><strong>{item.name}</strong><small>{item.symbol}{item.frozen ? " · 历史不足，权重冻结" : ` · ${item.historyPoints} 周`}</small></div></div>
+              <div className="weight-comparison">
+                <div><span>当前</span><i style={{ width: `${Math.min(100, item.currentWeight)}%` }} /><b>{number(item.currentWeight)}%</b></div>
+                <div className="target"><span>目标</span><i style={{ width: `${Math.min(100, item.targetWeight)}%` }} /><b>{number(item.targetWeight)}%</b></div>
+              </div>
+              <strong className={pnlClass(item.changeWeight)}>{signed(item.changeWeight, "%")}</strong>
+            </article>
+          ))}</div>
+        </section>
+        <section className="folio-panel allocation-evidence">
+          <div className="panel-title"><div><span>MODEL NOTES</span><h2>方法与限制</h2></div><ShieldCheck size={18} /></div>
+          <dl><div><dt>算法</dt><dd>{activeResult.method}</dd></div><div><dt>历史窗口</dt><dd>{activeResult.lookbackWeeks} 周 · 周线</dd></div><div><dt>数据截至</dt><dd>{activeResult.asOf || "—"}</dd></div></dl>
+          <ul>{activeResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+        </section>
+      </>}
+    </div>
+  </div>;
+}
+
+function PerformanceView({
+  dashboard,
+  result,
+  onResult,
+}: {
+  dashboard: PortfolioDashboard;
+  result?: PortfolioPerformanceResult;
+  onResult(result: PortfolioPerformanceResult): void;
+}) {
+  const currencies = useMemo(
+    () => Array.from(new Set(dashboard.positions.map((position) => position.currency))),
+    [dashboard.positions],
+  );
+  const [currency, setCurrency] = useState(currencies[0] || "CNY");
+  const [lookbackWeeks, setLookbackWeeks] = useState(156);
+  const [riskFreeRate, setRiskFreeRate] = useState(2);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (currencies.length > 0 && !currencies.includes(currency)) setCurrency(currencies[0]);
+  }, [currencies, currency]);
+  const run = async () => {
+    setRunning(true); setError("");
+    try {
+      const input: PortfolioPerformanceInput = { currency, lookbackWeeks, riskFreeRatePct: riskFreeRate };
+      onResult(await portfolioClient({
+        userId: dashboard.userId,
+        workspaceId: dashboard.workspaceId,
+      }).analyzePerformance(input));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "绩效分析暂时不可用");
+    } finally { setRunning(false); }
+  };
+  const activeResult = result?.currency === currency ? result : undefined;
+  const metrics = activeResult?.metrics;
+  const curve = useMemo(() => {
+    const values = activeResult?.series.map((point) => point.equity) || [];
+    if (values.length < 2) return "";
+    const minimum = Math.min(...values);
+    const maximum = Math.max(...values);
+    const span = Math.max(maximum - minimum, 0.0001);
+    return values.map((value, index) => {
+      const x = index / (values.length - 1) * 1000;
+      const y = 215 - (value - minimum) / span * 175;
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    }).join(" ");
+  }, [activeResult]);
+
   return <div className="performance-stack">
     <CurrencyCards dashboard={dashboard} />
+    <div className="performance-workbench">
+      <section className="folio-panel performance-controls">
+        <div className="panel-title"><div><span>HISTORICAL LENS</span><h2>当前持仓历史模拟</h2></div><ChartPie size={18} /></div>
+        <div className="allocation-form-grid">
+          <label><span>分析币种</span><select value={currency} onChange={(event) => setCurrency(event.target.value)} disabled={currencies.length === 0}>{currencies.length ? currencies.map((item) => <option key={item}>{item}</option>) : <option>CNY</option>}</select></label>
+          <label><span>历史窗口</span><select value={lookbackWeeks} onChange={(event) => setLookbackWeeks(Number(event.target.value))}><option value={52}>1 年</option><option value={104}>2 年</option><option value={156}>3 年</option><option value={260}>5 年</option></select></label>
+          <label><span>无风险年化参考</span><input inputMode="decimal" value={riskFreeRate} onChange={(event) => setRiskFreeRate(Number(event.target.value))} /></label>
+        </div>
+        {error && <div className="inline-error">{error}</div>}
+        <button className="primary-button" onClick={() => void run()} disabled={running || currencies.length === 0}>{running ? <LoaderCircle className="spin" size={16} /> : <BadgeDollarSign size={16} />}计算绩效指标</button>
+        <p className="method-note">按当前持仓权重回看历史周线，适合衡量组合结构；账本中的真实盈亏与现金收入仍在下方单独展示。</p>
+      </section>
+
+      {!metrics ? <section className="folio-panel performance-empty"><BadgeDollarSign size={28} /><strong>等待绩效分析</strong><span>生成收益、波动、回撤和尾部风险指标。</span></section> : <section className="folio-panel performance-analysis">
+        <div className="panel-title"><div><span>QUANTSTATS CORE</span><h2>收益与风险画像</h2></div><span className={`optimization-status status-${activeResult?.status}`}>覆盖 {number(activeResult?.coverageWeightPct)}%</span></div>
+        <div className="performance-metric-grid">
+          <article><span>累计收益</span><strong className={pnlClass(metrics.totalReturnPct)}>{signed(metrics.totalReturnPct, "%")}</strong></article>
+          <article><span>年化收益</span><strong className={pnlClass(metrics.annualizedReturnPct)}>{signed(metrics.annualizedReturnPct, "%")}</strong></article>
+          <article><span>年化波动</span><strong>{number(metrics.annualizedVolatilityPct)}%</strong></article>
+          <article><span>最大回撤</span><strong className="negative">{number(metrics.maxDrawdownPct)}%</strong><small>{metrics.maxDrawdownDurationWeeks} 周</small></article>
+          <article><span>Sharpe</span><strong>{number(metrics.sharpe)}</strong></article>
+          <article><span>Sortino</span><strong>{number(metrics.sortino)}</strong></article>
+          <article><span>Calmar</span><strong>{number(metrics.calmar)}</strong></article>
+          <article><span>周胜率</span><strong>{number(metrics.winRatePct)}%</strong></article>
+        </div>
+        <div className="performance-curve">
+          <div><strong>净值曲线</strong><span>{activeResult?.observations} 周 · {activeResult?.dataSources.join(" · ") || "统一行情"}</span></div>
+          {curve ? <svg viewBox="0 0 1000 240" preserveAspectRatio="none" role="img" aria-label="组合历史净值曲线"><line x1="0" y1="215" x2="1000" y2="215" /><polyline points={curve} /></svg> : <div className="empty-copy">样本不足</div>}
+        </div>
+        <div className="tail-risk-grid">
+          <div><span>95% VaR / 周</span><strong>{number(metrics.valueAtRisk95Pct)}%</strong></div>
+          <div><span>95% CVaR / 周</span><strong>{number(metrics.conditionalValueAtRisk95Pct)}%</strong></div>
+          <div><span>最好一周</span><strong className="positive">{signed(metrics.bestWeekPct, "%")}</strong></div>
+          <div><span>最差一周</span><strong className="negative">{signed(metrics.worstWeekPct, "%")}</strong></div>
+        </div>
+        <ul className="performance-warnings">{activeResult?.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+      </section>}
+    </div>
     <section className="folio-panel performance-ledger">
-      <div className="panel-title"><div><span>ATTRIBUTION</span><h2>收益与费用归因</h2></div><BadgeDollarSign size={18} /></div>
+      <div className="panel-title"><div><span>ATTRIBUTION</span><h2>账本收益与费用归因</h2></div><BadgeDollarSign size={18} /></div>
       <div className="performance-grid">{dashboard.currencies.map((item) => (
         <article key={item.currency}><header><strong>{item.currency}</strong><span>{dashboard.valuationStatus}</span></header>
           <dl>
@@ -382,6 +714,10 @@ export function PortfolioCenterApp() {
   const config = WORKSPACES[workspace];
   const [identity, setIdentity] = useState<PortfolioIdentity>({ userId: "local-user", workspaceId: "local-workspace" });
   const [dashboard, setDashboard] = useState<PortfolioDashboard>();
+  const [optimization, setOptimization] = useState<PortfolioOptimizationResult>();
+  const [performance, setPerformance] = useState<PortfolioPerformanceResult>();
+  const [researchCoverage, setResearchCoverage] = useState<PortfolioResearchCoverage>();
+  const [researchCoverageLoading, setResearchCoverageLoading] = useState(false);
   const [selected, setSelected] = useState<PortfolioPosition>();
   const [linkedSecurity, setLinkedSecurity] = useState<LinkedSecurity>();
   const [loading, setLoading] = useState(true);
@@ -390,15 +726,20 @@ export function PortfolioCenterApp() {
   const [host, setHost] = useState<EmbeddedHost>();
   const contextRef = useRef<ModPageContext>(buildContext(workspace));
   const identityRef = useRef(identity);
+  const dashboardRef = useRef(dashboard);
   const loadRef = useRef<() => Promise<void>>(async () => undefined);
   const requestIdRef = useRef(0);
   const quoteControllerRef = useRef<AbortController | undefined>(undefined);
+  const researchControllerRef = useRef<AbortController | undefined>(undefined);
   const bridge = useMemo(() => createModBridge({ modId: workspace, parentOrigin: parentOrigin() }), [workspace]);
 
   const load = useCallback(async () => {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     quoteControllerRef.current?.abort();
+    researchControllerRef.current?.abort();
+    setResearchCoverage(undefined);
+    setResearchCoverageLoading(workspace === "portfolio-brief");
     setRefreshingQuotes(false);
     setLoading(true);
     setError("");
@@ -408,6 +749,20 @@ export function PortfolioCenterApp() {
       if (requestIdRef.current !== requestId) return;
       setDashboard(costDashboard);
       setLoading(false);
+      if (workspace === "portfolio-brief") {
+        const researchController = new AbortController();
+        researchControllerRef.current = researchController;
+        void client.researchCoverage({ signal: researchController.signal })
+          .then((coverage) => {
+            if (requestIdRef.current === requestId && !researchController.signal.aborted) {
+              setResearchCoverage(coverage);
+            }
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            if (requestIdRef.current === requestId) setResearchCoverageLoading(false);
+          });
+      }
       if (costDashboard.positions.length === 0) return;
 
       const controller = new AbortController();
@@ -430,10 +785,12 @@ export function PortfolioCenterApp() {
     } catch (reason) {
       if (requestIdRef.current !== requestId) return;
       setError(reason instanceof Error ? reason.message : "组合数据暂时不可用");
+      setResearchCoverageLoading(false);
       setLoading(false);
     }
-  }, [identity]);
+  }, [identity, workspace]);
   identityRef.current = identity;
+  dashboardRef.current = dashboard;
   loadRef.current = load;
 
   useEffect(() => { void load(); }, [load]);
@@ -456,6 +813,32 @@ export function PortfolioCenterApp() {
         next.setContextProvider(() => contextRef.current);
         next.setUiActionHandler(async (actionId) => {
           if (actionId === "portfolio.refresh") { await loadRef.current(); return { ok: true }; }
+          if (actionId === "portfolio.optimize") {
+            const currency = dashboardRef.current?.positions[0]?.currency;
+            if (!currency) throw new Error("当前组合没有可优化持仓");
+            const result = await portfolioClient(identityRef.current).optimizeAllocation({
+              objective: "risk-balanced",
+              currency,
+              lookbackWeeks: 104,
+              maxWeight: 0.35,
+              allowCash: false,
+              cashWeight: 0,
+              riskFreeRatePct: 2,
+            });
+            setOptimization(result);
+            return result;
+          }
+          if (actionId === "portfolio.analyze-performance") {
+            const currency = dashboardRef.current?.positions[0]?.currency;
+            if (!currency) throw new Error("当前组合没有可分析持仓");
+            const result = await portfolioClient(identityRef.current).analyzePerformance({
+              currency,
+              lookbackWeeks: 156,
+              riskFreeRatePct: 2,
+            });
+            setPerformance(result);
+            return result;
+          }
           if (actionId === "portfolio.import-legacy") {
             const result = await portfolioClient(identityRef.current).importLegacy();
             await loadRef.current();
@@ -470,6 +853,7 @@ export function PortfolioCenterApp() {
 
   useEffect(() => () => {
     quoteControllerRef.current?.abort();
+    researchControllerRef.current?.abort();
     bridge.close();
   }, [bridge]);
 
@@ -496,8 +880,8 @@ export function PortfolioCenterApp() {
     ));
   }, [dashboard, linkedSecurity]);
 
-  contextRef.current = buildContext(workspace, dashboard, selected, linkedSecurity);
-  useEffect(() => { if (host) host.publishContext(contextRef.current); }, [dashboard, host, linkedSecurity, selected, workspace]);
+  contextRef.current = buildContext(workspace, dashboard, selected, linkedSecurity, optimization, performance, researchCoverage);
+  useEffect(() => { if (host) host.publishContext(contextRef.current); }, [dashboard, host, linkedSecurity, optimization, performance, researchCoverage, selected, workspace]);
 
   const selectPosition = (position: PortfolioPosition) => {
     setSelected(position);
@@ -508,6 +892,13 @@ export function PortfolioCenterApp() {
       currency: position.currency,
     });
     bridge.emit("security.selected", { symbol: position.symbol, name: position.name, market: position.market, currency: position.currency });
+  };
+
+  const selectResearchPosition = (item: PortfolioResearchPosition) => {
+    const position = dashboard?.positions.find((candidate) =>
+      candidate.market === item.market && candidate.symbol === item.symbol
+    );
+    if (position) selectPosition(position);
   };
 
   return <main className="portfolio-root">
@@ -522,10 +913,11 @@ export function PortfolioCenterApp() {
 
     {error && <div className="error-banner">{error}</div>}
     {!dashboard && loading ? <div className="loading-stage"><LoaderCircle className="spin" /><span>正在整理组合账本…</span></div> : dashboard && <>
-      {workspace === "portfolio-brief" && <div className="overview-stack"><CurrencyCards dashboard={dashboard} /><div className="content-grid"><PositionsTable dashboard={dashboard} selected={selected} onSelect={selectPosition} /><AllocationBars title="市场暴露" items={dashboard.analytics.byMarket} /></div></div>}
+      {workspace === "portfolio-brief" && <div className="overview-stack"><CurrencyCards dashboard={dashboard} /><div className="content-grid"><PositionsTable dashboard={dashboard} selected={selected} onSelect={selectPosition} /><AllocationBars title="市场暴露" items={dashboard.analytics.byMarket} /></div><ResearchCoveragePanel coverage={researchCoverage} loading={researchCoverageLoading} selected={selected} onSelect={selectResearchPosition} /></div>}
       {workspace === "portfolio-activities" && <div className="journal-grid"><ActivityForm dashboard={dashboard} onCreated={() => void load()} /><ActivityLedger dashboard={dashboard} onDeleted={() => void load()} /></div>}
       {workspace === "portfolio-risk" && <RiskView dashboard={dashboard} />}
-      {workspace === "portfolio-performance" && <PerformanceView dashboard={dashboard} />}
+      {workspace === "portfolio-allocation" && <AllocationView dashboard={dashboard} result={optimization} onResult={setOptimization} />}
+      {workspace === "portfolio-performance" && <PerformanceView dashboard={dashboard} result={performance} onResult={setPerformance} />}
       {workspace === "portfolio-settings" && <SettingsView dashboard={dashboard} onRefresh={() => void load()} />}
     </>}
 

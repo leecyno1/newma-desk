@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { connectModHost, type ModHostRuntime } from "./host";
+import {
+  applyDeskAppearance,
+  connectModHost,
+  type ModHostRuntime,
+} from "./host";
 
 function embeddedRuntime() {
   let listener: ((event: MessageEvent) => void) | undefined;
@@ -27,7 +31,192 @@ function embeddedRuntime() {
   };
 }
 
+function createAppearance(
+  mode: "light" | "dark",
+  cssVars: Record<string, string>,
+  bg = mode === "dark" ? "#0f1714" : "#f4efe3",
+) {
+  return {
+    contractVersion: "1.0" as const,
+    mode,
+    cssVars,
+    semantic: {
+      bg,
+      surface: mode === "dark" ? "#16211c" : "#fbf7ef",
+      surfaceMuted: mode === "dark" ? "#121d18" : "#f6f0e2",
+      surfaceRaised: mode === "dark" ? "#1a2821" : "#fffaf1",
+      border: mode === "dark" ? "#2a3931" : "#d6cab5",
+      borderStrong: mode === "dark" ? "#405146" : "#baa17d",
+      text: mode === "dark" ? "#f3ecdd" : "#173128",
+      textSoft: mode === "dark" ? "#cfc7b7" : "#345347",
+      textMuted: mode === "dark" ? "#a8b4a5" : "#60756a",
+      textFaint: mode === "dark" ? "#78847a" : "#7f8f85",
+      accent: mode === "dark" ? "#c89a5a" : "#a87432",
+      accentHover: mode === "dark" ? "#dab47d" : "#bb8a47",
+      accentSoft: mode === "dark" ? "#5a452c" : "#ead8ba",
+      accentSurface: mode === "dark" ? "#2c2a21" : "#f2e8d5",
+      accentContrast: mode === "dark" ? "#102019" : "#173128",
+      positive: mode === "dark" ? "#f87171" : "#dc2626",
+      negative: mode === "dark" ? "#4ade80" : "#16a34a",
+      warning: "#fbbf24",
+      error: mode === "dark" ? "#f87171" : "#dc2626",
+      successText: mode === "dark" ? "#86efac" : "#166534",
+      successBg: mode === "dark" ? "#0d2818" : "#dcfce7",
+      successBorder: "#166534",
+      errorText: mode === "dark" ? "#fca5a5" : "#991b1b",
+      errorBg: mode === "dark" ? "#321417" : "#fee2e2",
+      errorBorder: "#7f1d1d",
+    },
+    charts: {
+      gridColor: mode === "dark" ? "#2a3931" : "#d6cab5",
+      textColor: mode === "dark" ? "#a8b4a5" : "#60756a",
+      axisColor: mode === "dark" ? "#405146" : "#baa17d",
+      upColor: mode === "dark" ? "#f87171" : "#dc2626",
+      downColor: mode === "dark" ? "#4ade80" : "#16a34a",
+      tooltipBg: mode === "dark" ? "#1a2821" : "#fffaf1",
+      tooltipBorder: mode === "dark" ? "#405146" : "#baa17d",
+      tooltipText: mode === "dark" ? "#f3ecdd" : "#173128",
+      series: [mode === "dark" ? "#c89a5a" : "#a87432", mode === "dark" ? "#70a596" : "#3f7667"],
+    },
+  };
+}
+
+function createThemeRoot() {
+  const properties = new Map<string, string>();
+  const classes = new Set<string>();
+  const dispatchEvent = vi.fn();
+  const setThemeColor = vi.fn();
+  class ThemeEvent {
+    constructor(
+      readonly type: string,
+      readonly init: { detail: unknown },
+    ) {}
+  }
+  const ownerDocument = {
+    querySelector: vi.fn(() => ({ setAttribute: setThemeColor })),
+    defaultView: {
+      CustomEvent: ThemeEvent,
+      dispatchEvent,
+    },
+  };
+  const root = {
+    dataset: {} as Record<string, string>,
+    classList: {
+      toggle(name: string, enabled: boolean) {
+        if (enabled) classes.add(name);
+        else classes.delete(name);
+      },
+      contains(name: string) {
+        return classes.has(name);
+      },
+    },
+    style: {
+      colorScheme: "",
+      setProperty(name: string, value: string) {
+        properties.set(name, value);
+      },
+      removeProperty(name: string) {
+        properties.delete(name);
+      },
+      getPropertyValue(name: string) {
+        return properties.get(name) ?? "";
+      },
+    },
+    ownerDocument,
+  } as unknown as HTMLElement;
+  return { root, properties, classes, dispatchEvent, setThemeColor, ownerDocument };
+}
+
 describe("connectModHost", () => {
+  it("applies the Newma palette, mode classes, and theme event", () => {
+    const { root, classes, dispatchEvent, setThemeColor } = createThemeRoot();
+
+    applyDeskAppearance(
+      {
+        environment: { theme: "dark" },
+        appearance: createAppearance("dark", {
+          "--vibe-bg": "#0f1714",
+          "--vibe-accent": "#c89a5a",
+        }),
+      },
+      root,
+    );
+
+    expect(root.dataset.theme).toBe("dark");
+    expect(root.dataset.vibedeskTheme).toBe("dark");
+    expect(root.dataset.bsTheme).toBe("dark");
+    expect(root.classList.contains("dark")).toBe(true);
+    expect(root.classList.contains("light")).toBe(false);
+    expect(root.style.colorScheme).toBe("dark");
+    expect(root.style.getPropertyValue("--vibe-accent")).toBe("#c89a5a");
+    expect(setThemeColor).toHaveBeenCalledWith("content", "#0f1714");
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "newma:themechange" }),
+    );
+
+    applyDeskAppearance({ environment: { theme: "light" } }, root);
+
+    expect(root.dataset.theme).toBe("light");
+    expect(root.dataset.bsTheme).toBe("light");
+    expect(root.classList.contains("dark")).toBe(false);
+    expect(root.classList.contains("light")).toBe(true);
+    expect(root.style.getPropertyValue("--vibe-accent")).toBe("");
+    expect(setThemeColor).toHaveBeenLastCalledWith("content", "#f4efe3");
+  });
+
+  it("clears stale CSS variables when appearance shrinks, disappears, or mismatches the active mode", () => {
+    const { root, dispatchEvent, setThemeColor } = createThemeRoot();
+
+    applyDeskAppearance(
+      {
+        environment: { theme: "dark" },
+        appearance: createAppearance("dark", {
+          "--vibe-bg": "#0f1714",
+          "--vibe-accent": "#c89a5a",
+          "--chart-series-1": "#70a596",
+        }),
+      },
+      root,
+    );
+    expect(root.style.getPropertyValue("--vibe-accent")).toBe("#c89a5a");
+    expect(root.style.getPropertyValue("--chart-series-1")).toBe("#70a596");
+
+    applyDeskAppearance(
+      {
+        environment: { theme: "dark" },
+        appearance: createAppearance("dark", {
+          "--vibe-bg": "#16211c",
+        }, "#16211c"),
+      },
+      root,
+    );
+    expect(root.style.getPropertyValue("--vibe-bg")).toBe("#16211c");
+    expect(root.style.getPropertyValue("--vibe-accent")).toBe("");
+    expect(root.style.getPropertyValue("--chart-series-1")).toBe("");
+    expect(setThemeColor).toHaveBeenLastCalledWith("content", "#16211c");
+
+    applyDeskAppearance({ environment: { theme: "dark" } }, root);
+    expect(root.style.getPropertyValue("--vibe-bg")).toBe("");
+    expect(setThemeColor).toHaveBeenLastCalledWith("content", "#0f1714");
+
+    applyDeskAppearance(
+      {
+        environment: { theme: "dark" },
+        appearance: createAppearance("light", {
+          "--vibe-accent": "#a87432",
+        }),
+      },
+      root,
+    );
+    expect(root.style.getPropertyValue("--vibe-accent")).toBe("");
+    expect(dispatchEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: "newma:themechange",
+        init: { detail: { mode: "dark" } },
+      }),
+    );
+  });
+
   it("returns immediately when the Mod runs standalone", async () => {
     const standalone = {} as Window;
     Object.assign(standalone, { parent: standalone });
@@ -43,6 +232,133 @@ describe("connectModHost", () => {
         runtime,
       ),
     ).resolves.toEqual({ embedded: false, close: expect.any(Function) });
+  });
+
+  it("uses Newma light as the standalone default and preserves an explicit dark mode", async () => {
+    const lightTheme = createThemeRoot();
+    const lightWindow = {
+      document: { documentElement: lightTheme.root },
+    } as unknown as Window;
+    Object.assign(lightWindow, { parent: lightWindow });
+
+    await connectModHost(
+      { modId: "market-daily", parentOrigin: "https://desk.example" },
+      {
+        window: lightWindow,
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      },
+    );
+
+    expect(lightTheme.root.dataset.theme).toBe("light");
+    expect(lightTheme.root.dataset.vibedeskTheme).toBe("light");
+    expect(lightTheme.root.style.colorScheme).toBe("light");
+
+    const darkTheme = createThemeRoot();
+    darkTheme.root.dataset.theme = "dark";
+    const darkWindow = {
+      document: { documentElement: darkTheme.root },
+    } as unknown as Window;
+    Object.assign(darkWindow, { parent: darkWindow });
+
+    await connectModHost(
+      { modId: "market-daily", parentOrigin: "https://desk.example" },
+      {
+        window: darkWindow,
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      },
+    );
+
+    expect(darkTheme.root.dataset.theme).toBe("dark");
+    expect(darkTheme.root.dataset.vibedeskTheme).toBe("dark");
+    expect(darkTheme.root.style.colorScheme).toBe("dark");
+  });
+
+  it("recognizes standalone dark markers from data-vibedesk-theme, data-bs-theme, and .dark", async () => {
+    const embeddedDarkTheme = createThemeRoot();
+    embeddedDarkTheme.root.dataset.vibedeskTheme = "dark";
+    const embeddedDarkWindow = {
+      document: { documentElement: embeddedDarkTheme.root },
+    } as unknown as Window;
+    Object.assign(embeddedDarkWindow, { parent: embeddedDarkWindow });
+
+    await connectModHost(
+      { modId: "market-daily", parentOrigin: "https://desk.example" },
+      {
+        window: embeddedDarkWindow,
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      },
+    );
+
+    expect(embeddedDarkTheme.root.dataset.theme).toBe("dark");
+    expect(embeddedDarkTheme.root.dataset.bsTheme).toBe("dark");
+
+    const bootstrapDarkTheme = createThemeRoot();
+    bootstrapDarkTheme.root.dataset.bsTheme = "dark";
+    const bootstrapDarkWindow = {
+      document: { documentElement: bootstrapDarkTheme.root },
+    } as unknown as Window;
+    Object.assign(bootstrapDarkWindow, { parent: bootstrapDarkWindow });
+
+    await connectModHost(
+      { modId: "market-daily", parentOrigin: "https://desk.example" },
+      {
+        window: bootstrapDarkWindow,
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      },
+    );
+
+    expect(bootstrapDarkTheme.root.dataset.theme).toBe("dark");
+    expect(bootstrapDarkTheme.root.dataset.vibedeskTheme).toBe("dark");
+
+    const classDarkTheme = createThemeRoot();
+    classDarkTheme.root.classList.toggle("dark", true);
+    const classDarkWindow = {
+      document: { documentElement: classDarkTheme.root },
+    } as unknown as Window;
+    Object.assign(classDarkWindow, { parent: classDarkWindow });
+
+    await connectModHost(
+      { modId: "market-daily", parentOrigin: "https://desk.example" },
+      {
+        window: classDarkWindow,
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      },
+    );
+
+    expect(classDarkTheme.root.dataset.theme).toBe("dark");
+    expect(classDarkTheme.root.dataset.vibedeskTheme).toBe("dark");
+  });
+
+  it("prefers explicit data-theme over legacy standalone dark markers", async () => {
+    const conflictedTheme = createThemeRoot();
+    conflictedTheme.root.dataset.theme = "light";
+    conflictedTheme.root.dataset.vibedeskTheme = "dark";
+    conflictedTheme.root.dataset.bsTheme = "dark";
+    conflictedTheme.root.classList.toggle("dark", true);
+    const conflictedWindow = {
+      document: { documentElement: conflictedTheme.root },
+    } as unknown as Window;
+    Object.assign(conflictedWindow, { parent: conflictedWindow });
+
+    await connectModHost(
+      { modId: "market-daily", parentOrigin: "https://desk.example" },
+      {
+        window: conflictedWindow,
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      },
+    );
+
+    expect(conflictedTheme.root.dataset.theme).toBe("light");
+    expect(conflictedTheme.root.dataset.vibedeskTheme).toBe("light");
+    expect(conflictedTheme.root.dataset.bsTheme).toBe("light");
+    expect(conflictedTheme.root.classList.contains("dark")).toBe(false);
+    expect(conflictedTheme.root.classList.contains("light")).toBe(true);
   });
 
   it("sends hello, accepts an exact-origin init, and acknowledges it", async () => {
@@ -126,6 +442,95 @@ describe("connectModHost", () => {
     resolved.close();
   });
 
+  it("applies follow-up init messages without leaving stale appearance variables behind", async () => {
+    const { parent, runtime, dispatch } = embeddedRuntime();
+    const { root, setThemeColor, ownerDocument } = createThemeRoot();
+    Object.defineProperty(runtime.window, "document", {
+      configurable: true,
+      value: { documentElement: root } as unknown as Document,
+    });
+    Object.defineProperty(root, "ownerDocument", {
+      configurable: true,
+      value: ownerDocument as unknown as Document,
+    });
+
+    const connection = connectModHost(
+      {
+        modId: "market-daily",
+        parentOrigin: "https://desk.example",
+        capabilities: ["theme"],
+      },
+      runtime,
+    );
+
+    const darkInit = {
+      type: "vibedesk:init",
+      protocolVersion: "1.0",
+      instanceId: "instance-1",
+      modId: "market-daily",
+      user: { id: "alice" },
+      workspace: { id: "default" },
+      environment: {
+        theme: "dark",
+        locale: "zh-CN",
+        timezone: "Asia/Shanghai",
+      },
+      appearance: createAppearance("dark", {
+        "--vibe-bg": "#0f1714",
+        "--vibe-accent": "#c89a5a",
+        "--chart-series-1": "#70a596",
+      }),
+      gateways: {
+        actions: "https://desk.example/api/mods/market-daily/actions",
+        agent: "https://desk.example/api/agent",
+        model: "https://desk.example/api/model",
+        data: "https://desk.example/api/data-services",
+      },
+      grants: { permissions: ["market.read"], actions: ["market.explain"] },
+    } as const;
+
+    dispatch({
+      origin: "https://desk.example",
+      source: parent,
+      data: darkInit,
+    } as MessageEvent);
+
+    const resolved = await connection;
+    if (!resolved.embedded) throw new Error("expected embedded connection");
+    expect(root.style.getPropertyValue("--vibe-accent")).toBe("#c89a5a");
+    expect(root.style.getPropertyValue("--chart-series-1")).toBe("#70a596");
+
+    dispatch({
+      origin: "https://desk.example",
+      source: parent,
+      data: {
+        ...darkInit,
+        appearance: createAppearance("dark", {
+          "--vibe-bg": "#16211c",
+        }, "#16211c"),
+      },
+    } as MessageEvent);
+    expect(root.style.getPropertyValue("--vibe-bg")).toBe("#16211c");
+    expect(root.style.getPropertyValue("--vibe-accent")).toBe("");
+    expect(root.style.getPropertyValue("--chart-series-1")).toBe("");
+    expect(setThemeColor).toHaveBeenLastCalledWith("content", "#16211c");
+
+    dispatch({
+      origin: "https://desk.example",
+      source: parent,
+      data: {
+        ...darkInit,
+        environment: { ...darkInit.environment, theme: "light" as const },
+        appearance: undefined,
+      },
+    } as MessageEvent);
+    expect(root.dataset.theme).toBe("light");
+    expect(root.style.getPropertyValue("--vibe-bg")).toBe("");
+    expect(setThemeColor).toHaveBeenLastCalledWith("content", "#f4efe3");
+
+    resolved.close();
+  });
+
   it("publishes semantic context and proxies granted actions through the host", async () => {
     const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
     const pending = connectModHost(
@@ -151,7 +556,11 @@ describe("connectModHost", () => {
         data: "https://desk.example/api/data-services",
       },
       grants: { permissions: ["market.read"], actions: ["market.explain"] },
-      session: { id: "session-1", expiresAt: "2026-07-23T10:00:00+08:00" },
+      session: {
+        id: "session-1",
+        accessToken: "scoped-session-token",
+        expiresAt: "2026-07-23T10:00:00+08:00",
+      },
     } as const;
     dispatch({
       origin: "https://desk.example",

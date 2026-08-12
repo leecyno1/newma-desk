@@ -12,10 +12,12 @@ from vibe_visualization_api.control_plane.schemas import (
     ModuleEntry,
     ModuleEvents,
     ModuleNavigation,
+    ModuleNavigationDirectory,
+    ModuleNavigationProject,
     ModuleRefresh,
+    ModuleStorage,
     StoredModuleResponse,
 )
-
 
 MODULE_ID_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
 MODULE_VERSION_PATTERN = r"^\d+\.\d+\.\d+$"
@@ -28,6 +30,30 @@ LEGACY_VIBEDESK_SUITE_PATH = "/.well-known/vibedesk-suite.json"
 SUITE_ENV_PATTERN = r"^(?:NEWMA_DESK|NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$"
 RUNTIME_ID_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
 RUNTIME_WORKSPACE_PATTERN = r"^[a-z][a-z0-9-]{1,31}$"
+INVESTMENT_DOMAIN_IDS = {
+    "market-surface",
+    "fundamentals",
+    "global-intelligence",
+    "capital-flow",
+    "event-intelligence",
+    "policy-intelligence",
+    "cycle-research",
+    "asset-allocation",
+    "tactical-timing",
+    "equity-research",
+    "fund-research",
+    "bond-research",
+    "quant-research",
+    "investment-committee",
+    "trading-risk-portfolio",
+    "other",
+}
+OTHER_DOMAIN_PROJECT = {
+    "id": "other",
+    "name": "其他",
+    "order": 150,
+    "description": "尚未归入核心投研流程的管理工具与扩展能力。",
+}
 
 
 def _https_url(value: str, label: str) -> str:
@@ -287,6 +313,7 @@ class StoreManifestTemplate(ApiModel):
     icon: str | None = None
     permissions: list[str] = Field(default_factory=list)
     data_services: list[str] = Field(default_factory=list)
+    storage: ModuleStorage | None = None
     compatibility: ModuleCompatibility | None = None
     agent_capabilities: list[str] | None = None
     actions: dict[str, ModuleAction] | None = None
@@ -309,7 +336,11 @@ class StoreManifestTemplate(ApiModel):
     @model_validator(mode="after")
     def validate_versioned_template(self):
         if self.schema_version == "1.0":
-            if self.compatibility is not None or self.actions is not None:
+            if (
+                self.compatibility is not None
+                or self.storage is not None
+                or self.actions is not None
+            ):
                 raise ValueError("Manifest template 1.0 cannot declare 1.1 fields")
             return self
         if self.compatibility is None or self.actions is None:
@@ -350,8 +381,12 @@ class SuiteExternalRuntime(ApiModel):
 
 
 class StoreSuitePageNavigation(ApiModel):
+    group_label: str | None = Field(default=None, min_length=1, max_length=40)
+    group_order: int | None = Field(default=None, ge=0)
     item_order: int | None = Field(default=None, ge=0)
     label: str | None = Field(default=None, min_length=1, max_length=40)
+    directory: ModuleNavigationDirectory | None = None
+    project: ModuleNavigationProject | None = None
     icon: Literal[
         "today",
         "research",
@@ -365,9 +400,12 @@ class StoreSuitePageNavigation(ApiModel):
 
 
 class StoreSuitePageManifest(ApiModel):
+    schema_version: Literal["1.0", "1.1"] | None = None
+    category: str | None = Field(default=None, pattern=MODULE_CATEGORY_PATTERN)
     icon: str | None = None
     permissions: list[str] | None = None
     data_services: list[str] | None = None
+    storage: ModuleStorage | None = None
     compatibility: ModuleCompatibility | None = None
     agent_capabilities: list[str] | None = None
     actions: dict[str, ModuleAction] | None = None
@@ -379,6 +417,7 @@ class StoreSuitePage(ApiModel):
     id: str = Field(pattern=MODULE_ID_PATTERN)
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(min_length=1, max_length=240)
+    version: str | None = Field(default=None, pattern=MODULE_VERSION_PATTERN)
     tags: list[str] | None = Field(default=None, max_length=8)
     route: str = Field(min_length=1, max_length=240)
     navigation: StoreSuitePageNavigation = Field(
@@ -415,17 +454,41 @@ class StoreModSuiteDescriptor(ApiModel):
     @model_validator(mode="after")
     def validate_navigation_and_pages(self):
         navigation = self.manifest.navigation
-        if (
-            navigation is None
-            or navigation.directory is None
-            or navigation.directory.id != self.id
-        ):
+        if navigation is None:
+            raise ValueError("Mod Suite navigation is required")
+        if navigation.directory is None or navigation.directory.id != self.id:
             raise ValueError(
-                "Mod Suite navigation directory id must equal the Suite id"
+                f"Mod Suite must use navigation.directory.id={self.id} "
+                "to remain one complete project"
+            )
+        domain_id = navigation.project.id if navigation.project is not None else "other"
+        if domain_id not in INVESTMENT_DOMAIN_IDS:
+            raise ValueError(
+                "Mod Suite must be placed in one of the 14 investment domains or other"
             )
         page_ids = [page.id for page in self.pages]
         if len(page_ids) != len(set(page_ids)):
             raise ValueError("Mod Suite contains duplicate page ids")
+        for page in self.pages:
+            page_navigation = page.navigation
+            if (
+                page_navigation.project is not None
+                and page_navigation.project.id != domain_id
+            ):
+                raise ValueError("Mod Suite cannot split pages across investment domains")
+            if (
+                page_navigation.directory is not None
+                and page_navigation.directory.id != navigation.directory.id
+            ):
+                raise ValueError("Mod Suite cannot split pages into another project group")
+            if (
+                page_navigation.group_label is not None
+                and page_navigation.group_label != navigation.group_label
+            ) or (
+                page_navigation.group_order is not None
+                and page_navigation.group_order != navigation.group_order
+            ):
+                raise ValueError("Mod Suite cannot split pages across navigation groups")
         return self
 
 
@@ -453,6 +516,10 @@ def expand_mod_suite(
             exclude_none=True,
             mode="json",
         )
+        navigation.setdefault(
+            "project",
+            OTHER_DOMAIN_PROJECT,
+        )
         if page.navigation.item_order is not None:
             navigation["itemOrder"] = page.navigation.item_order
         navigation["label"] = page.navigation.label or page.name
@@ -461,13 +528,25 @@ def expand_mod_suite(
         if page.navigation.role is not None:
             navigation["role"] = page.navigation.role
 
+        merged_manifest = {
+            **shared_manifest,
+            **page_manifest,
+            "navigation": navigation,
+        }
+        merged_schema_version = merged_manifest.get("schemaVersion", "1.0")
+        if merged_schema_version == "1.1":
+            merged_manifest.pop("agentCapabilities", None)
+        else:
+            merged_manifest.pop("compatibility", None)
+            merged_manifest.pop("actions", None)
+
         descriptor = StoreModDescriptor.model_validate(
             {
                 "schemaVersion": "1.0",
                 "id": page.id,
                 "name": page.name,
                 "description": page.description,
-                "version": suite.version,
+                "version": page.version or suite.version,
                 "publisher": suite.publisher,
                 "upstream": suite.upstream,
                 "tags": page.tags if page.tags is not None else suite.tags,
@@ -487,15 +566,46 @@ def expand_mod_suite(
                     if suite.agent_workspace is not None
                     else {}
                 ),
-                "manifest": {
-                    **shared_manifest,
-                    **page_manifest,
-                    "navigation": navigation,
-                },
+                "manifest": merged_manifest,
             }
         )
         expanded.append((descriptor, page.default_install))
     return expanded
+
+
+def validate_complete_project_groups(
+    descriptors: list[StoreModDescriptor],
+) -> None:
+    groups: dict[str, list[ModuleNavigation]] = {}
+    for descriptor in descriptors:
+        navigation = descriptor.manifest.navigation
+        if navigation is None or navigation.directory is None:
+            continue
+        groups.setdefault(navigation.directory.id, []).append(navigation)
+
+    for directory_id, members in groups.items():
+        project_ids = {
+            navigation.project.id if navigation.project is not None else None
+            for navigation in members
+        }
+        group_labels = {navigation.group_label for navigation in members}
+        group_orders = {navigation.group_order for navigation in members}
+        directory_labels = {
+            navigation.directory.label
+            for navigation in members
+            if navigation.directory is not None
+        }
+        if (
+            len(project_ids) != 1
+            or None in project_ids
+            or len(group_labels) != 1
+            or len(group_orders) != 1
+            or len(directory_labels) != 1
+        ):
+            raise ValueError(
+                f"{directory_id} is one complete project and cannot be split "
+                "across Desk columns"
+            )
 
 
 class StoreResponseModel(ApiModel):

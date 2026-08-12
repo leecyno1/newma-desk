@@ -1,13 +1,5 @@
 import {
-  BarChart3,
-  Binary,
-  BookOpenText,
   Bot,
-  Boxes,
-  CalendarDays,
-  CandlestickChart,
-  ChevronRight,
-  Folder,
   FolderOpen,
   GripVertical,
   Palette,
@@ -22,18 +14,23 @@ import {
 import { useEffect, useMemo, useState, type DragEvent } from "react";
 
 import type { StoredMod } from "../api/modules";
+import newmaMarkUrl from "../assets/newma-mark.svg";
 import {
-  moveSidebarDirectory,
+  automaticProjectMark,
+  moveSidebarProject,
   moveSidebarModule,
-  toggleSidebarDirectoryPinned,
   toggleSidebarModulePinned,
+  toggleSidebarProjectPinned,
   type SidebarDirectoryItem,
-  type SidebarGroupItem,
   type SidebarModuleItem,
   type SidebarNavigationModel,
+  type SidebarProjectItem,
+  type SidebarProjectSectionItem,
 } from "../lib/sidebarNavigation";
-import { sidebarGroupTone } from "../lib/sidebarGroupTheme";
-import type { SidebarNavigationPreferences } from "../lib/workspacePreferences";
+import type {
+  SidebarDirectoryRef,
+  SidebarNavigationPreferences,
+} from "../lib/workspacePreferences";
 
 interface SidebarProps {
   navigation: SidebarNavigationModel;
@@ -53,18 +50,23 @@ interface SidebarProps {
 }
 
 type DraggedItem =
-  | { type: "module"; id: string }
-  | { type: "directory"; id: string; groupLabel: string };
+  | { type: "module"; id: string; projectId: string }
+  | { type: "project"; id: string };
 
-const categoryIcons = {
-  today: CalendarDays,
-  research: BookOpenText,
-  market: BarChart3,
-  quant: Binary,
-  trading: CandlestickChart,
-  settings: Settings,
-  module: Boxes,
-} as const;
+function ProjectMark({
+  project,
+}: {
+  project: SidebarProjectItem;
+}) {
+  return (
+    <span className="project-letter-mark" aria-hidden="true">
+      {automaticProjectMark(project.name, project.id, {
+        defaultName: project.defaultName,
+        icon: project.icon,
+      })}
+    </span>
+  );
+}
 
 function PinButton({
   label,
@@ -130,6 +132,10 @@ function ModuleRow({
   );
 }
 
+function projectPageCount(project: SidebarProjectItem) {
+  return project.settingsDirectory.modules.length + (project.settingsModule ? 1 : 0);
+}
+
 export function Sidebar({
   navigation,
   selectedId,
@@ -146,83 +152,81 @@ export function Sidebar({
   onOpenSuiteSettings,
   onNavigationPreferencesChange,
 }: SidebarProps) {
-  const { groups, preferences } = navigation;
+  const { groups, preferences, projects } = navigation;
   const selectedItem = useMemo(
     () => selectedId ? navigation.modulesById.get(selectedId) : undefined,
     [navigation, selectedId],
   );
-  const [openDirectoryId, setOpenDirectoryId] = useState<string>();
+  const settingsProject = useMemo(
+    () => projects.find((project) => (
+      project.settingsDirectory.id === suiteSettingsDirectoryId
+      || project.sections.some((section) => section.id === suiteSettingsDirectoryId)
+    )),
+    [projects, suiteSettingsDirectoryId],
+  );
+  const [activeProjectId, setActiveProjectId] = useState<string>();
   const [navigationCollapsed, setNavigationCollapsed] = useState(false);
   const [dragged, setDragged] = useState<DraggedItem>();
 
   useEffect(() => {
-    setOpenDirectoryId(
-      suiteSettingsDirectoryId ?? selectedItem?.directory?.id,
-    );
-  }, [selectedItem?.directory?.id, suiteSettingsDirectoryId]);
+    const requestedProjectId = settingsProject?.id ?? selectedItem?.projectId;
+    setActiveProjectId((current) => {
+      if (requestedProjectId && navigation.projectsById.has(requestedProjectId)) {
+        return requestedProjectId;
+      }
+      if (current && navigation.projectsById.has(current)) return current;
+      return projects[0]?.id;
+    });
+  }, [navigation.projectsById, projects, selectedItem?.projectId, settingsProject?.id]);
 
-  const activeDirectory = openDirectoryId
-    ? navigation.directoriesById.get(openDirectoryId)
+  const activeProject = activeProjectId
+    ? navigation.projectsById.get(activeProjectId)
     : undefined;
 
   const collapseNavigation = () => setNavigationCollapsed(true);
   const expandNavigation = () => setNavigationCollapsed(false);
 
-  const activateDirectory = (directory: SidebarDirectoryItem) => {
-    if (directory.id === activeDirectory?.id) {
-      setOpenDirectoryId(undefined);
-      return;
-    }
-
-    setOpenDirectoryId(directory.id);
+  const activateProject = (project: SidebarProjectItem) => {
+    setActiveProjectId(project.id);
     expandNavigation();
     const defaultModule = (
-      directory.modules[0] ?? directory.settingsModule
+      project.settingsDirectory.modules[0] ?? project.settingsModule
     )?.module;
     if (defaultModule && defaultModule.moduleId !== selectedId) {
       onSelect(defaultModule);
+    } else if (!defaultModule) {
+      onOpenSuiteSettings(project.settingsDirectory);
     }
   };
 
-  const beginModuleDrag = (event: DragEvent<HTMLDivElement>, item: SidebarModuleItem) => {
+  const beginModuleDrag = (
+    event: DragEvent<HTMLDivElement>,
+    item: SidebarModuleItem,
+  ) => {
     if (item.pinned) {
       event.preventDefault();
       return;
     }
-    setDragged({ type: "module", id: item.module.moduleId });
+    setDragged({ type: "module", id: item.module.moduleId, projectId: item.projectId });
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", item.module.moduleId);
   };
 
-  const beginDirectoryDrag = (
-    event: DragEvent<HTMLDivElement>,
-    group: SidebarGroupItem,
-    directory: SidebarDirectoryItem,
-  ) => {
-    if (directory.pinned) {
-      event.preventDefault();
-      return;
-    }
-    setDragged({ type: "directory", id: directory.id, groupLabel: group.label });
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", directory.id);
-  };
-
   const dropModule = (
     event: DragEvent,
-    group: SidebarGroupItem,
-    directory: SidebarDirectoryItem | null,
+    project: SidebarProjectItem,
+    directory: SidebarDirectoryRef | null,
     beforeModuleId?: string,
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    if (dragged?.type !== "module") return;
+    if (!dragged || dragged.type !== "module" || dragged.projectId !== project.id) return;
     onNavigationPreferencesChange(moveSidebarModule(
       preferences,
       groups,
       dragged.id,
       {
-        groupLabel: group.label,
+        projectId: project.id,
         directory: directory ? { id: directory.id, label: directory.label } : null,
         ...(beforeModuleId ? { beforeModuleId } : {}),
       },
@@ -230,28 +234,104 @@ export function Sidebar({
     setDragged(undefined);
   };
 
-  const dropDirectory = (
+  const beginProjectDrag = (
+    event: DragEvent<HTMLDivElement>,
+    project: SidebarProjectItem,
+  ) => {
+    if (project.pinned) {
+      event.preventDefault();
+      return;
+    }
+    setDragged({ type: "project", id: project.id });
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", project.id);
+  };
+
+  const dropProject = (
     event: DragEvent,
-    group: SidebarGroupItem,
-    beforeDirectoryId?: string,
+    beforeProjectId?: string,
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    if (dragged?.type !== "directory" || dragged.groupLabel !== group.label) return;
-    onNavigationPreferencesChange(moveSidebarDirectory(
+    if (!dragged || dragged.type !== "project") return;
+    onNavigationPreferencesChange(moveSidebarProject(
       preferences,
-      group,
+      projects,
       dragged.id,
-      beforeDirectoryId,
+      beforeProjectId,
     ));
     setDragged(undefined);
   };
+
+  const renderModule = (
+    item: SidebarModuleItem,
+    project: SidebarProjectItem,
+    directory: SidebarDirectoryRef | null,
+  ) => (
+    <ModuleRow
+      key={`${item.module.moduleId}@${item.module.revision}`}
+      item={item}
+      selected={item.module.moduleId === selectedId}
+      onSelect={() => onSelect(item.module)}
+      onPin={() => onNavigationPreferencesChange(
+        toggleSidebarModulePinned(preferences, item.module.moduleId),
+      )}
+      onDragStart={(event) => beginModuleDrag(event, item)}
+      onDragEnd={() => setDragged(undefined)}
+      onDrop={(event) => dropModule(
+        event,
+        project,
+        directory ?? item.directory,
+        item.module.moduleId,
+      )}
+    />
+  );
+
+  const renderSection = (
+    section: SidebarProjectSectionItem,
+    project: SidebarProjectItem,
+  ) => (
+    <section className="project-section" aria-labelledby={`project-section-${project.id}-${section.id}`} key={section.id}>
+      <h3 id={`project-section-${project.id}-${section.id}`}>
+        <FolderOpen size={12} aria-hidden="true" />
+        <span>{section.label}</span>
+        <small>{section.modules.length}</small>
+      </h3>
+      <div
+        className="project-section-pages"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => dropModule(event, project, section)}
+      >
+        {section.modules.map((item) => renderModule(item, project, section))}
+        {section.settingsModule ? (
+          <button
+            type="button"
+            className="secondary-settings-button project-section-settings"
+            aria-current={section.settingsModule.module.moduleId === selectedId ? "page" : undefined}
+            onClick={() => onSelect(section.settingsModule!.module)}
+          >
+            <Settings size={12} aria-hidden="true" />
+            {section.settingsModule.label}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="secondary-settings-button project-section-settings"
+          aria-current={suiteSettingsDirectoryId === section.id ? "page" : undefined}
+          onClick={() => onOpenSuiteSettings(section)}
+        >
+          <Settings size={12} aria-hidden="true" />
+          {section.settingsModule ? "Desk 项目配置" : "项目设置"}
+        </button>
+      </div>
+    </section>
+  );
 
   return (
     <div
       className="sidebar-shell"
       data-navigation-collapsed={navigationCollapsed ? "true" : "false"}
-      data-secondary-open={activeDirectory && !navigationCollapsed ? "true" : "false"}
+      data-secondary-open={activeProject && !navigationCollapsed ? "true" : "false"}
     >
       <button
         type="button"
@@ -262,150 +342,139 @@ export function Sidebar({
       >
         <PanelLeftOpen size={16} aria-hidden="true" />
       </button>
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true"><Boxes size={20} /></span>
-          <span><strong>Newma-Desk</strong><small>智能模组工作台</small></span>
-          <button
-            type="button"
-            className="sidebar-collapse-button"
-            aria-label="收起一级与二级导航"
-            title="收起导航"
-            onClick={collapseNavigation}
-          >
-            <PanelLeftClose size={15} aria-hidden="true" />
-          </button>
-        </div>
-        <nav aria-label="Newma-Desk Mod 导航" className="module-nav">
-          {groups.map((group) => {
-            const Icon = categoryIcons[group.icon] ?? Boxes;
-            const headingId = `category-${group.id}`;
-            return (
-              <section
-                className="module-group"
-                role="group"
-                aria-labelledby={headingId}
-                data-group-tone={sidebarGroupTone(group.label)}
-                key={group.id}
-              >
-                <h2
-                  id={headingId}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => dropModule(event, group, null)}
-                >
-                  <Icon size={14} aria-hidden="true" />{group.label}
-                </h2>
-                {group.directories.map((directory) => (
-                  <div
-                    className="directory-nav-row"
-                    data-active={directory.id === activeDirectory?.id || undefined}
-                    data-pinned={directory.pinned || undefined}
-                    draggable={!directory.pinned}
-                    key={directory.id}
-                    onDragStart={(event) => beginDirectoryDrag(event, group, directory)}
-                    onDragEnd={() => setDragged(undefined)}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      if (dragged?.type === "directory") dropDirectory(event, group, directory.id);
-                      else dropModule(event, group, directory);
-                    }}
-                  >
-                    <GripVertical className="sidebar-drag-handle" size={12} aria-hidden="true" />
-                    <button
-                      type="button"
-                      className="directory-button"
-                      aria-expanded={directory.id === activeDirectory?.id}
-                      onClick={() => activateDirectory(directory)}
-                    >
-                      {directory.id === activeDirectory?.id ? <FolderOpen size={13} aria-hidden="true" /> : <Folder size={13} aria-hidden="true" />}
-                      <span>{directory.label}</span><small>{directory.modules.length + (directory.settingsModule ? 1 : 0)}</small><ChevronRight size={12} aria-hidden="true" />
-                    </button>
-                    <PinButton
-                      label={`${directory.label}目录`}
-                      pinned={directory.pinned}
-                      onClick={() => onNavigationPreferencesChange(toggleSidebarDirectoryPinned(preferences, directory.id))}
-                    />
-                  </div>
-                ))}
-                {group.modules.map((item) => (
-                  <ModuleRow
-                    key={`${item.module.moduleId}@${item.module.revision}`}
-                    item={item}
-                    selected={item.module.moduleId === selectedId}
-                    onSelect={() => onSelect(item.module)}
-                    onPin={() => onNavigationPreferencesChange(toggleSidebarModulePinned(preferences, item.module.moduleId))}
-                    onDragStart={(event) => beginModuleDrag(event, item)}
-                    onDragEnd={() => setDragged(undefined)}
-                    onDrop={(event) => dropModule(event, group, null, item.module.moduleId)}
-                  />
-                ))}
-              </section>
-            );
-          })}
-        </nav>
-        <div className="sidebar-tools">
-          <button className="sidebar-tool-button" type="button" onClick={onOpenStore} aria-current={storeActive ? "page" : undefined}><Store size={15} aria-hidden="true" />Mod 商店</button>
-          <button className="sidebar-tool-button" type="button" onClick={onOpenInterfaceSettings} aria-current={interfaceSettingsActive ? "page" : undefined}><Palette size={15} aria-hidden="true" />界面设置</button>
-          <button className="sidebar-tool-button" type="button" onClick={onOpenAgentSettings} aria-current={agentSettingsActive ? "page" : undefined}><Bot size={15} aria-hidden="true" />Agent 设置</button>
-        </div>
-        <button className="reload-button" type="button" onClick={onReload} disabled={loading}><RefreshCw size={15} aria-hidden="true" />{loading ? "正在加载" : "重新加载 Mod"}</button>
-      </aside>
 
-      {activeDirectory ? (
-        <aside className="secondary-sidebar" aria-label={`${activeDirectory.label} 二级导航`}>
-          <header>
-            <div><FolderOpen size={15} aria-hidden="true" /><span><strong>{activeDirectory.label}</strong><small>{activeDirectory.modules.length + (activeDirectory.settingsModule ? 1 : 0)} 个页面</small></span></div>
-            <button type="button" aria-label="收起一级与二级导航" onClick={collapseNavigation}><PanelLeftClose size={14} aria-hidden="true" /></button>
-          </header>
-          <div
-            className="secondary-module-list"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              const group = groups.find((item) => item.label === activeDirectory.groupLabel);
-              if (group) dropModule(event, group, activeDirectory);
-            }}
-          >
-            {activeDirectory.modules.map((item) => {
-              const group = groups.find((candidate) => candidate.label === activeDirectory.groupLabel)!;
-              return (
-                <ModuleRow
-                  key={`${item.module.moduleId}@${item.module.revision}`}
-                  item={item}
-                  selected={item.module.moduleId === selectedId}
-                  onSelect={() => onSelect(item.module)}
-                  onPin={() => onNavigationPreferencesChange(toggleSidebarModulePinned(preferences, item.module.moduleId))}
-                  onDragStart={(event) => beginModuleDrag(event, item)}
-                  onDragEnd={() => setDragged(undefined)}
-                  onDrop={(event) => dropModule(event, group, activeDirectory, item.module.moduleId)}
-                />
-              );
-            })}
+      <aside className="sidebar" aria-label="Newma-Desk 项目导航">
+        <div className="project-rail">
+          <div className="desk-rail-mark" title="Newma-Desk · 智能模组工作台">
+            <img src={newmaMarkUrl} alt="Newma-Desk" />
           </div>
-          <footer className="secondary-sidebar-footer">
-            {activeDirectory.settingsModule ? (
+          <nav
+            aria-label="Newma-Desk Mod 导航"
+            className="project-rail-nav"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => dropProject(event)}
+          >
+            {projects.map((project) => (
+              <div
+                className="project-rail-item"
+                data-pinned={project.pinned || undefined}
+                draggable={!project.pinned}
+                key={project.id}
+                onDragStart={(event) => beginProjectDrag(event, project)}
+                onDragEnd={() => setDragged(undefined)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => dropProject(event, project.id)}
+              >
+                <button
+                  type="button"
+                  className="project-rail-button"
+                  disabled={loading}
+                  aria-label={`${project.name} 项目`}
+                  aria-expanded={project.id === activeProject?.id}
+                  aria-current={project.id === activeProject?.id ? "page" : undefined}
+                  title={`${project.name} · ${projectPageCount(project)} 个页面`}
+                  onClick={() => activateProject(project)}
+                >
+                  <ProjectMark project={project} />
+                </button>
+                <button
+                  type="button"
+                  className="project-rail-pin"
+                  aria-label={`${project.pinned ? "取消冻结" : "冻结"} ${project.name} 项目`}
+                  title={project.pinned ? "取消冻结项目" : "冻结项目位置"}
+                  onClick={() => onNavigationPreferencesChange(
+                    toggleSidebarProjectPinned(preferences, project.id),
+                  )}
+                >
+                  {project.pinned ? <PinOff size={10} aria-hidden="true" /> : <Pin size={10} aria-hidden="true" />}
+                </button>
+              </div>
+            ))}
+          </nav>
+          <div className="project-rail-tools">
+            <button type="button" aria-label="Mod 商店" title="Mod 商店" aria-current={storeActive ? "page" : undefined} onClick={onOpenStore}><Store size={17} aria-hidden="true" /></button>
+            <button type="button" aria-label="界面设置" title="界面设置" aria-current={interfaceSettingsActive ? "page" : undefined} onClick={onOpenInterfaceSettings}><Palette size={17} aria-hidden="true" /></button>
+            <button type="button" aria-label="Agent 设置" title="Agent 设置" aria-current={agentSettingsActive ? "page" : undefined} onClick={onOpenAgentSettings}><Bot size={17} aria-hidden="true" /></button>
+            <button type="button" aria-label={loading ? "正在加载 Mod" : "重新加载 Mod"} title={loading ? "正在加载 Mod" : "重新加载 Mod"} disabled={loading} onClick={onReload}><RefreshCw className={loading ? "spin" : undefined} size={17} aria-hidden="true" /></button>
+          </div>
+        </div>
+
+        {activeProject ? (
+          <div
+            className="project-panel secondary-sidebar"
+            role="complementary"
+            aria-label={`${activeProject.name} 二级导航`}
+          >
+            <header className="project-panel-header">
+              <div className="project-panel-identity">
+                <span className="project-panel-product">Newma-Desk</span>
+                <strong>{activeProject.name}</strong>
+                <small>{projectPageCount(activeProject)} 个页面</small>
+              </div>
+              <button
+                type="button"
+                aria-label="收起一级与二级导航"
+                title="收起导航"
+                onClick={collapseNavigation}
+              >
+                <PanelLeftClose size={15} aria-hidden="true" />
+              </button>
+            </header>
+
+            {activeProject.description ? (
+              <p className="project-panel-description">{activeProject.description}</p>
+            ) : null}
+
+            <nav
+              className="project-module-list secondary-module-list"
+              aria-label={`${activeProject.name} 页面`}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => dropModule(event, activeProject, null)}
+            >
+              {activeProject.sections.length > 0 && activeProject.modules.length > 0 ? (
+                <h3 className="project-page-heading">项目页面</h3>
+              ) : null}
+              {activeProject.modules.map((item) => renderModule(item, activeProject, null))}
+              {activeProject.sections.map((section) => renderSection(section, activeProject))}
+              {activeProject.modules.length === 0 && activeProject.sections.length === 0 ? (
+                <div className="project-panel-no-pages">
+                  <strong>暂无页面</strong>
+                  <small>后续接入此领域的 Mod 会自动显示在这里。</small>
+                </div>
+              ) : null}
+            </nav>
+
+            <footer className="project-panel-footer secondary-sidebar-footer">
+              {activeProject.settingsModule ? (
+                <button
+                  type="button"
+                  className="secondary-settings-button"
+                  aria-current={activeProject.settingsModule.module.moduleId === selectedId ? "page" : undefined}
+                  onClick={() => onSelect(activeProject.settingsModule!.module)}
+                >
+                  <Settings size={14} aria-hidden="true" />
+                  {activeProject.settingsModule.label}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="secondary-settings-button"
-                aria-current={activeDirectory.settingsModule.module.moduleId === selectedId ? "page" : undefined}
-                onClick={() => onSelect(activeDirectory.settingsModule!.module)}
+                aria-current={suiteSettingsDirectoryId === activeProject.settingsDirectory.id ? "page" : undefined}
+                onClick={() => onOpenSuiteSettings(activeProject.settingsDirectory)}
               >
                 <Settings size={14} aria-hidden="true" />
-                {activeDirectory.settingsModule.label}
+                {activeProject.settingsModule ? "Desk 栏目配置" : "栏目设置"}
               </button>
-            ) : null}
-            <button
-              type="button"
-              className="secondary-settings-button"
-              aria-current={suiteSettingsDirectoryId === activeDirectory.id ? "page" : undefined}
-              onClick={() => onOpenSuiteSettings(activeDirectory)}
-            >
-              <Settings size={14} aria-hidden="true" />
-              {activeDirectory.settingsModule ? "Desk 项目配置" : "项目设置"}
-            </button>
-            <small>拖拽页面可排序；拖到一级分类标题可移出目录。</small>
-          </footer>
-        </aside>
-      ) : null}
+              <small>页面仅可在所属完整项目内排序；不能跨项目移动。</small>
+            </footer>
+          </div>
+        ) : (
+          <div className="project-panel project-panel-empty">
+            <strong>暂无项目</strong>
+            <small>安装或发布 Mod 后会自动接入。</small>
+          </div>
+        )}
+      </aside>
     </div>
   );
 }

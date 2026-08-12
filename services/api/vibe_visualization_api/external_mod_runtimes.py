@@ -163,7 +163,9 @@ def resolve_runtime_origin(
 
 
 def default_external_origins(
-    *, descriptor_path: Path | None = None
+    *,
+    descriptor_path: Path | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> list[str]:
     descriptor = load_runtime_descriptor(descriptor_path)
     origins: list[str] = []
@@ -173,7 +175,7 @@ def default_external_origins(
                 str(runtime["id"]),
                 str(endpoint_name),
                 descriptor_path=descriptor_path,
-                env={},
+                env=env,
             )
             if origin not in origins:
                 origins.append(origin)
