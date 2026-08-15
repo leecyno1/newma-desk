@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { StoredMod } from "../api/modules";
 import {
-  automaticProjectMark,
+  sidebarProjectMark,
   compileSidebarNavigation,
   type SidebarProjectItem,
 } from "../lib/sidebarNavigation";
@@ -115,10 +115,7 @@ function projectPages(project: SidebarProjectItem) {
 }
 
 function projectMark(project: SidebarProjectItem) {
-  return automaticProjectMark(project.name, project.id, {
-    defaultName: project.defaultName,
-    icon: project.icon,
-  });
+  return sidebarProjectMark(project);
 }
 
 function projectTitleDraft(
@@ -393,7 +390,7 @@ export function InterfaceSettings({
                         <span>
                           <strong>{item.label}</strong>
                           <small>
-                            {item.module.moduleId} · {isSettings ? "项目设置" : "项目页面"}
+                            {item.module.moduleId} · {isSettings ? "模组设置" : "项目页面"}
                           </small>
                         </span>
                       </span>

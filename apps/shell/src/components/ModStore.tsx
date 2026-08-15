@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   installStoreMod,
   listStoreMods,
+  syncStoreMods,
   type ModStoreCatalog,
   type StoreMod,
 } from "../api/store";
@@ -51,6 +52,25 @@ export function ModStore({ onInstalled }: ModStoreProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const sync = async () => {
+    setLoading(true);
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      const next = await syncStoreMods();
+      setCatalog(next);
+      setNotice(
+        next.commit
+          ? `已同步 GitHub 版本 ${next.commit.slice(0, 8)}。`
+          : "已同步 GitHub 模组目录。",
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "GitHub 同步失败");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const categories = useMemo(
     () => [
@@ -100,14 +120,33 @@ export function ModStore({ onInstalled }: ModStoreProps) {
       <header className="store-page-header">
         <div>
           <h1>Mod 商店</h1>
-          <p>从项目官方 Git 商店按需安装功能，安装后会自动出现在左侧导航。</p>
+          <p>
+            从 Newma-Desk 官方 GitHub
+            目录按需安装；同步只更新目录快照，安装后才进入左侧导航。
+          </p>
+          {catalog?.commit ? (
+            <small className="store-source-revision">
+              main · {catalog.commit.slice(0, 8)}
+            </small>
+          ) : null}
         </div>
-        {catalog ? (
-          <a href={catalog.repository} target="_blank" rel="noreferrer">
-            查看商店仓库
-            <ExternalLink size={14} aria-hidden="true" />
-          </a>
-        ) : null}
+        <div className="store-page-actions">
+          <button
+            type="button"
+            className="primary-action"
+            disabled={loading}
+            onClick={() => void sync()}
+          >
+            <RefreshCw className={loading ? "spin" : ""} size={14} />
+            同步 GitHub
+          </button>
+          {catalog ? (
+            <a href={catalog.repository} target="_blank" rel="noreferrer">
+              查看仓库
+              <ExternalLink size={14} aria-hidden="true" />
+            </a>
+          ) : null}
+        </div>
       </header>
 
       {error ? (
@@ -145,12 +184,16 @@ export function ModStore({ onInstalled }: ModStoreProps) {
             onChange={(event) => setCategory(event.target.value)}
           >
             {categories.map((option) => (
-              <option value={option} key={option}>{option}</option>
+              <option value={option} key={option}>
+                {option}
+              </option>
             ))}
           </select>
         </label>
         <span className="store-result-count">
-          {catalog ? `${visibleMods.length} / ${catalog.mods.length} 个 Mod` : ""}
+          {catalog
+            ? `${visibleMods.length} / ${catalog.mods.length} 个 Mod`
+            : ""}
         </span>
       </section>
 
@@ -180,13 +223,17 @@ export function ModStore({ onInstalled }: ModStoreProps) {
                 </span>
                 <div>
                   <h2>{mod.name}</h2>
-                  <span>{mod.version} · {mod.category}</span>
+                  <span>
+                    {mod.version} · {mod.category}
+                  </span>
                 </div>
                 {mod.defaultInstall ? <small>内置 Mod</small> : null}
               </div>
               <p>{mod.description}</p>
               <div className="store-tag-list" aria-label={`${mod.name}标签`}>
-                {mod.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                {mod.tags.map((tag) => (
+                  <span key={tag}>{tag}</span>
+                ))}
               </div>
               <footer>
                 <a href={mod.sourceUrl} target="_blank" rel="noreferrer">
@@ -195,13 +242,21 @@ export function ModStore({ onInstalled }: ModStoreProps) {
                 </a>
                 <button
                   type="button"
-                  className={installed ? "store-installed-button" : "store-install-button"}
+                  className={
+                    installed
+                      ? "store-installed-button"
+                      : "store-install-button"
+                  }
                   aria-label={`${installLabel(mod, installing)} ${mod.name}`}
                   disabled={installed || installing || Boolean(installingId)}
                   onClick={() => void install(mod)}
                 >
                   {installing ? (
-                    <LoaderCircle className="spin" size={14} aria-hidden="true" />
+                    <LoaderCircle
+                      className="spin"
+                      size={14}
+                      aria-hidden="true"
+                    />
                   ) : installed ? (
                     <Check size={14} aria-hidden="true" />
                   ) : (

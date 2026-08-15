@@ -1,20 +1,34 @@
 {
   "schemaVersion": "1.0",
   "id": "event-timeline",
-  "name": "个股事件时间轴",
-  "description": "把公告、财报、新闻、研报与量价异动叠加到个股行情时间轴。",
-  "version": "0.1.0",
+  "name": "日线时间轴",
+  "description": "把股票、ETF 与开放式基金的日线、公开事件和异动按交易日对齐。",
+  "version": "0.4.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-dock",
- "tags": ["事件", "时间轴", "量价", "研究沉淀"],
+  "tags": ["日K", "ETF", "基金", "事件", "量价", "研究沉淀"],
   "agentWorkspace": { "type": "desk" },
   "runtime": { "type": "direct", "entry": { "type": "structured", "url": "/mods/market-daily/?workspace=event-timeline" } },
   "manifest": {
     "schemaVersion": "1.1",
     "category": "event",
-    "navigation": { "groupLabel": "情报", "groupOrder": 0, "itemOrder": 20, "label": "个股事件轴", "directory": { "id": "event-suite", "label": "情报工具", "order": 5 }, "project": { "id": "event-intelligence", "name": "情报", "order": 0, "description": "统一承载全球态势、新闻、政策、公告、冲突、灾害与舆情。" }, "icon": "research" },
+    "navigation": { "groupLabel": "全球", "groupOrder": 0, "itemOrder": 20, "label": "日线时间轴", "directory": { "id": "global-suite", "label": "全球工具", "order": 5 }, "project": { "id": "global-intelligence", "name": "全球", "order": 0, "description": "统一承载全球态势、新闻、冲突、灾害、事件与舆情。" }, "icon": "research" },
     "compatibility": { "level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0" },
     "permissions": ["market.read"], "dataServices": [],
+    "wiki": {
+      "contractVersion": "1.0",
+      "subjectTypes": ["security", "etf", "fund"],
+      "concepts": ["events", "price-action"],
+      "entrypoints": [
+        {
+          "id": "timeline",
+          "intent": "event.timeline",
+          "label": "日线事件",
+          "contextContract": "newma.wiki.subject.v1",
+          "defaults": { "period": "daily" }
+        }
+      ]
+    },
     "actions": {
       "market.refresh": {
         "binding": { "type": "local" }, "execution": "request", "permission": "market.read",

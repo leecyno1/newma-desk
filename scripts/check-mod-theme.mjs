@@ -18,6 +18,9 @@ const REQUIRED_TEMPLATE_IMPORTS = [
   "modules/global-intelligence/src/main.tsx",
   "modules/market-daily/src/main.tsx",
   "modules/portfolio-center/src/main.tsx",
+  "modules/creator-studio/src/main.tsx",
+  "modules/policy-analysis/src/main.tsx",
+  "modules/capital-flow/src/main.tsx",
 ];
 const EXTERNAL_THEME_ADAPTERS = [
   {

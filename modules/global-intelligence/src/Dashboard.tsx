@@ -3,16 +3,19 @@ import {
   AlertTriangle,
   Anchor,
   Bell,
+  BellRing,
   BellPlus,
   BookOpen,
   Building2,
   Cable,
+  Check,
   ChevronDown,
   CircleDot,
   Clock3,
   CloudSun,
   Crosshair,
   Database,
+  Languages,
   ExternalLink,
   Flame,
   Fuel,
@@ -21,6 +24,7 @@ import {
   HeartPulse,
   Landmark,
   Layers3,
+  Locate,
   LocateFixed,
   Map as MapIcon,
   Newspaper,
@@ -28,11 +32,14 @@ import {
   Play,
   Radio,
   Radiation,
+  RefreshCw,
   Route,
   Search,
   Satellite,
   ShieldAlert,
   Ship,
+  Sparkles,
+  Star,
   Target,
   Trash2,
   TrendingUp,
@@ -47,14 +54,24 @@ import {
   type CSSProperties,
 } from "react";
 
+import { createModSnapshotCache } from "@newma-desk/mod-sdk";
+
 import {
   GLOBAL_INTELLIGENCE_CONTRACT,
   calculateGlobalIntelMarketReactions,
   calculateGlobalIntelRouteAlerts,
   calculateGlobalIntelRouteImpacts,
   clusterGlobalIntelEvents,
+  globalIntelEventIdentity,
+  findGlobalMediaMonitorAnnotation,
+  findGlobalMediaMonitorTopic,
+  globalMediaTopicSimilarity,
   isActionableGlobalIntelEvent,
+  mediaSentimentLabel,
+  mediaVelocityLabel,
+  mergeGlobalIntelEventHistory,
   normalizeGlobalIntelEvents,
+  normalizeGlobalMediaMonitor,
   normalizeGlobalIntelPoints,
   normalizeGlobalIntelRoutes,
   reconcileGlobalIntelRouteAlertStates,
@@ -63,12 +80,14 @@ import {
   type GlobalIntelDataSource,
   type GlobalIntelEvent,
   type GlobalIntelEventCluster,
+  type GlobalIntelEventHistoryEntry,
   type GlobalIntelMilitaryTrackHistory,
   type GlobalIntelPoint,
   type GlobalIntelRoute,
   type GlobalIntelRouteAlertDisposition,
   type GlobalIntelRouteAlertState,
   type GlobalIntelSeverity,
+  type GlobalMediaMonitorTopic,
 } from "./data";
 import {
   IntelligenceMap,
@@ -215,6 +234,14 @@ interface ConvergenceHotspot {
   earthquakeCount: number;
 }
 
+const MEDIA_SENTIMENT_ORDER = ["positive", "negative", "neutral", "mixed"] as const;
+const MEDIA_SENTIMENT_SHORT_LABEL = {
+  positive: "正",
+  negative: "负",
+  neutral: "中",
+  mixed: "混",
+} as const;
+
 interface SavedWatchRegion {
   id: string;
   name: string;
@@ -223,10 +250,46 @@ interface SavedWatchRegion {
   baselinePointIds: string[];
 }
 
+interface EventDisposition {
+  acknowledgedAt?: string;
+  acknowledgedChangeAt?: string;
+  watching?: boolean;
+}
+
+interface MediaWatchRule {
+  id: string;
+  label: string;
+  keywords: string[];
+  createdAt: string;
+  baselineSignature?: string;
+}
+
+interface MediaTopicHistoryEntry {
+  id: string;
+  label: string;
+  headline: string;
+  keywords: string[];
+  sources: string[];
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastChangedAt: string;
+  mentionCount: number;
+  sourceCount: number;
+  heatScore: number;
+  attentionScore?: number;
+  spreadScore: number;
+  verificationStatus: string;
+  verificationHistory: Array<{ status: string; timestamp: string }>;
+}
+
 const WATCH_REGIONS_KEY = "newma-desk.global-intelligence.watch-regions.v1";
 const ROUTE_ALERTS_KEY = "newma-desk.global-intelligence.route-alerts.v1";
 const MILITARY_TRACKS_KEY = "newma-desk.global-intelligence.military-tracks.v1";
-
+const EVENT_HISTORY_KEY = "newma-desk.global-intelligence.event-history.v1";
+const EVENT_DISPOSITIONS_KEY = "newma-desk.global-intelligence.event-dispositions.v1";
+const EVENT_ATTENTION_BASELINE_KEY = "newma-desk.global-intelligence.attention-baseline.v2";
+const MEDIA_WATCH_RULES_KEY = "newma-desk.global-intelligence.media-watch-rules.v1";
+const MEDIA_TOPIC_HISTORY_KEY = "newma-desk.global-intelligence.media-topic-history.v1";
 const SITUATION_PRESETS: SituationPreset[] = [
   {
     id: "overview",
@@ -384,6 +447,33 @@ const TREND_LABELS: Record<string, string> = {
   south_china_sea: "南海",
 };
 
+const DEFAULT_CONVERGENCE_HOTSPOTS: ConvergenceHotspot[] = [
+  {
+    id: "default-middle-east",
+    label: "中东",
+    latitude: 29.5,
+    longitude: 45.5,
+    score: 0,
+    earthquakeCount: 0,
+  },
+  {
+    id: "default-east-asia",
+    label: "东亚",
+    latitude: 30.5,
+    longitude: 121.5,
+    score: 0,
+    earthquakeCount: 0,
+  },
+  {
+    id: "default-europe",
+    label: "欧洲",
+    latitude: 50.0,
+    longitude: 12.0,
+    score: 0,
+    earthquakeCount: 0,
+  },
+];
+
 function loadWatchRegions(): SavedWatchRegion[] {
   try {
     const saved = JSON.parse(localStorage.getItem(WATCH_REGIONS_KEY) || "[]") as unknown;
@@ -413,6 +503,125 @@ function loadMilitaryTrackHistory(): GlobalIntelMilitaryTrackHistory {
   } catch {
     return {};
   }
+}
+
+function loadEventHistory(): GlobalIntelEventHistoryEntry[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(EVENT_HISTORY_KEY) || "[]") as unknown;
+    return Array.isArray(saved)
+      ? saved.map((item) => ({
+        ...item as GlobalIntelEventHistoryEntry,
+        lastChangedAt: (item as GlobalIntelEventHistoryEntry).lastChangedAt
+          || (item as GlobalIntelEventHistoryEntry).firstSeenAt
+          || (item as GlobalIntelEventHistoryEntry).timestamp,
+        observationCount: Number((item as GlobalIntelEventHistoryEntry).observationCount) || 1,
+      }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadEventDispositions(): Record<string, EventDisposition> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(EVENT_DISPOSITIONS_KEY) || "{}") as unknown;
+    return typeof saved === "object" && saved !== null && !Array.isArray(saved)
+      ? saved as Record<string, EventDisposition>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadMediaWatchRules(): MediaWatchRule[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MEDIA_WATCH_RULES_KEY) || "[]") as unknown;
+    return Array.isArray(saved) ? saved as MediaWatchRule[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadMediaTopicHistory(): MediaTopicHistoryEntry[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MEDIA_TOPIC_HISTORY_KEY) || "[]") as unknown;
+    return Array.isArray(saved) ? saved.map((item) => ({
+      ...item as MediaTopicHistoryEntry,
+      verificationHistory: Array.isArray((item as MediaTopicHistoryEntry).verificationHistory)
+        ? (item as MediaTopicHistoryEntry).verificationHistory
+        : [{
+          status: (item as MediaTopicHistoryEntry).verificationStatus || "常规报道",
+          timestamp: (item as MediaTopicHistoryEntry).lastChangedAt || (item as MediaTopicHistoryEntry).lastSeenAt,
+        }],
+    })) : [];
+  } catch {
+    return [];
+  }
+}
+
+function mediaWatchRuleMatchesTopic(rule: MediaWatchRule, topic: GlobalMediaMonitorTopic) {
+  if (rule.id === topic.id) return true;
+  const haystack = `${topic.label} ${topic.headline} ${topic.keywords.join(" ")}`.toLocaleLowerCase();
+  const keywords = [...new Set(rule.keywords.map((keyword) => keyword.trim()).filter(Boolean))];
+  const matches = keywords.filter((keyword) => haystack.includes(keyword.toLocaleLowerCase())).length;
+  return matches >= Math.min(2, keywords.length);
+}
+
+function mediaTopicSignature(topic: GlobalMediaMonitorTopic) {
+  return `${topic.mentionCount}|${topic.sourceCount}|${topic.heatScore}|${topic.attentionScore}|${topic.spreadScore}|${topic.verificationStatus}|${topic.framingDivergence}`;
+}
+
+function mergeMediaTopicHistory(
+  history: MediaTopicHistoryEntry[],
+  topics: GlobalMediaMonitorTopic[],
+  observedAt: string,
+) {
+  const byId = new Map(history.map((item) => [item.id, item]));
+  for (const topic of topics) {
+    let previous = byId.get(topic.id);
+    if (!previous) {
+      const semanticMatch = [...byId.values()]
+        .map((item) => ({ item, similarity: globalMediaTopicSimilarity(topic, item) }))
+        .sort((left, right) => right.similarity - left.similarity)[0];
+      if (semanticMatch && semanticMatch.similarity >= 62) {
+        previous = semanticMatch.item;
+        byId.delete(previous.id);
+      }
+    }
+    const changed = previous && (
+      previous.mentionCount !== topic.mentionCount
+      || previous.sourceCount !== topic.sourceCount
+      || previous.heatScore !== topic.heatScore
+      || previous.attentionScore !== topic.attentionScore
+      || previous.spreadScore !== topic.spreadScore
+      || previous.verificationStatus !== topic.verificationStatus
+    );
+    byId.set(topic.id, {
+      id: topic.id,
+      label: topic.label,
+      headline: topic.headline,
+      keywords: topic.keywords,
+      sources: topic.sources,
+      firstSeenAt: previous?.firstSeenAt || observedAt,
+      lastSeenAt: observedAt,
+      lastChangedAt: changed ? observedAt : previous?.lastChangedAt || observedAt,
+      mentionCount: topic.mentionCount,
+      sourceCount: topic.sourceCount,
+      heatScore: topic.heatScore,
+      attentionScore: topic.attentionScore,
+      spreadScore: topic.spreadScore,
+      verificationStatus: topic.verificationStatus,
+      verificationHistory: previous?.verificationStatus !== topic.verificationStatus
+        ? [
+          ...(previous?.verificationHistory ?? []),
+          { status: topic.verificationStatus, timestamp: observedAt },
+        ].slice(-8)
+        : previous?.verificationHistory ?? [{ status: topic.verificationStatus, timestamp: observedAt }],
+    });
+  }
+  return [...byId.values()]
+    .sort((left, right) => Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt))
+    .slice(0, 180);
 }
 
 function safeExternalUrl(value?: string) {
@@ -668,7 +877,7 @@ function trendRadar(snapshot: Record<string, unknown>) {
     mean: Number(trend.mean ?? 0),
     observations: Number(trend.observations ?? 0),
   }));
-  const hotspots: ConvergenceHotspot[] = recordList(convergence.hotspots).map((hotspot, index) => {
+  const liveHotspots: ConvergenceHotspot[] = recordList(convergence.hotspots).map((hotspot, index) => {
     const signals = recordValue(hotspot.signals);
     return {
       id: `${String(hotspot.name ?? "hotspot")}-${index}`,
@@ -679,6 +888,11 @@ function trendRadar(snapshot: Record<string, unknown>) {
       earthquakeCount: Number(signals.earthquakes ?? 0),
     };
   });
+  const liveLabels = new Set(liveHotspots.map((hotspot) => hotspot.label));
+  const hotspots = [
+    ...liveHotspots,
+    ...DEFAULT_CONVERGENCE_HOTSPOTS.filter((hotspot) => !liveLabels.has(hotspot.label)),
+  ];
   return {
     anomalies,
     trends,
@@ -730,6 +944,111 @@ function confidenceLabel(cluster?: GlobalIntelEventCluster) {
   return "待核验";
 }
 
+function recordKindLabel(event: GlobalIntelEvent) {
+  if (event.recordKind === "observation") return "原始观测";
+  if (event.recordKind === "news") return "新闻报道";
+  return "异常事件";
+}
+
+function recordKindExplanation(event: GlobalIntelEvent) {
+  if (event.recordKind === "observation") {
+    return "这是传感器、行情或周期指标的当前读数，不等同于新闻，也未自动判定为异常事件。";
+  }
+  if (event.recordKind === "news") {
+    return "这是公开来源的报道或通报。系统保留摘要和原始链接，但报道本身仍需结合其他来源核验。";
+  }
+  return "这是由异常阈值、轨迹规则、冲突或灾害记录触发的事件信号；它提示需要关注，不代表系统已确认因果关系。";
+}
+
+type EventMonitorState = "new" | "ongoing" | "resolved";
+type EventFeedMode = "changes" | "unread" | "watching" | "all";
+const CHANGE_FEED_LIMIT = 60;
+const CHANGE_FEED_SOURCE_LIMIT = 8;
+const EVENT_FEED_SEVERITY_RANK: Record<GlobalIntelSeverity, number> = {
+  critical: 5,
+  high: 4,
+  medium: 3,
+  low: 2,
+  info: 1,
+};
+
+function eventMonitorState(
+  event: GlobalIntelEvent,
+  currentIdentities: Set<string>,
+  history?: GlobalIntelEventHistoryEntry,
+): EventMonitorState {
+  if (!currentIdentities.has(globalIntelEventIdentity(event))) return "resolved";
+  if (!history) return "ongoing";
+  return history && (
+    history.observationCount > 1
+    || Date.now() - Date.parse(history.firstSeenAt) >= 10 * 60 * 1000
+  ) ? "ongoing" : "new";
+}
+
+function eventMonitorLabel(state: EventMonitorState) {
+  if (state === "new") return "新出现";
+  if (state === "ongoing") return "持续中";
+  return "已离开";
+}
+
+function eventRequiresAttention(
+  event: GlobalIntelEvent,
+  history: GlobalIntelEventHistoryEntry | undefined,
+  disposition: EventDisposition | undefined,
+  currentIdentities: Set<string>,
+) {
+  if (!history) return !disposition?.acknowledgedAt;
+  const changedAt = Date.parse(history.lastChangedAt || history.firstSeenAt || event.timestamp);
+  const acknowledgedChangeAt = Date.parse(
+    disposition?.acknowledgedChangeAt || disposition?.acknowledgedAt || "",
+  );
+  if (!Number.isFinite(acknowledgedChangeAt) || acknowledgedChangeAt < changedAt) return true;
+  return !currentIdentities.has(globalIntelEventIdentity(event))
+    && Number.isFinite(Date.parse(history.resolvedAt || ""))
+    && acknowledgedChangeAt < Date.parse(history.resolvedAt || "");
+}
+
+function clusterMonitorState(
+  cluster: GlobalIntelEventCluster,
+  currentIdentities: Set<string>,
+  historyByIdentity: Map<string, GlobalIntelEventHistoryEntry>,
+): EventMonitorState {
+  const current = cluster.events.filter((event) => currentIdentities.has(globalIntelEventIdentity(event)));
+  if (!current.length) return "resolved";
+  return current.some((event) => eventMonitorState(
+    event,
+    currentIdentities,
+    historyByIdentity.get(globalIntelEventIdentity(event)),
+  ) === "ongoing") ? "ongoing" : "new";
+}
+
+function dispositionAcknowledged(
+  event: GlobalIntelEvent | undefined,
+  history: GlobalIntelEventHistoryEntry | undefined,
+  disposition: EventDisposition | undefined,
+  currentIdentities: Set<string>,
+) {
+  return Boolean(event && disposition?.acknowledgedAt && !eventRequiresAttention(
+    event,
+    history,
+    disposition,
+    currentIdentities,
+  ));
+}
+
+function eventActivityTimestamp(
+  event: GlobalIntelEvent,
+  history?: GlobalIntelEventHistoryEntry,
+) {
+  const eventTimestamp = Date.parse(event.timestamp);
+  const changedTimestamp = Date.parse(history?.lastChangedAt || "");
+  if (!Number.isFinite(changedTimestamp)) return event.timestamp;
+  if (!Number.isFinite(eventTimestamp) || changedTimestamp > eventTimestamp) {
+    return history!.lastChangedAt;
+  }
+  return event.timestamp;
+}
+
 function pointInRegion(point: GlobalIntelPoint, region: IntelligenceRegion) {
   const longitudeMatches = region.west <= region.east
     ? point.longitude >= region.west && point.longitude <= region.east
@@ -749,15 +1068,39 @@ export function GlobalIntelligenceDashboard({
   dataSource,
   theme,
   refreshNonce,
+  cacheIdentity,
+  onRefresh,
   onContextChange,
 }: {
   dataSource: GlobalIntelDataSource;
   theme: "light" | "dark";
   refreshNonce: number;
+  cacheIdentity?: { userId: string; workspaceId: string };
+  onRefresh(): void;
   onContextChange(value: Record<string, unknown>): void;
 }) {
-  const [snapshot, setSnapshot] = useState<Record<string, unknown>>({});
+  const snapshotCache = useMemo(() => cacheIdentity
+    ? createModSnapshotCache<Record<string, unknown>>({
+        modId: "global-situation",
+        userId: cacheIdentity.userId,
+        workspaceId: cacheIdentity.workspaceId,
+        resourceKey: "overview",
+        schemaVersion: 1,
+        maxBytes: 8 * 1024 * 1024,
+      })
+    : undefined, [cacheIdentity?.userId, cacheIdentity?.workspaceId]);
+  const [snapshot, setSnapshot] = useState<Record<string, unknown>>(() => (
+    cacheIdentity ? snapshotCache?.read()?.value ?? {} : {}
+  ));
   const [militaryTrackHistory, setMilitaryTrackHistory] = useState(loadMilitaryTrackHistory);
+  const [eventHistory, setEventHistory] = useState(loadEventHistory);
+  const [eventDispositions, setEventDispositions] = useState(loadEventDispositions);
+  const [mediaWatchRules, setMediaWatchRules] = useState(loadMediaWatchRules);
+  const [mediaTopicHistory, setMediaTopicHistory] = useState(loadMediaTopicHistory);
+  const [eventHistoryObservedAt, setEventHistoryObservedAt] = useState("");
+  const [attentionBaselineReady, setAttentionBaselineReady] = useState(
+    () => localStorage.getItem(EVENT_ATTENTION_BASELINE_KEY) === "ready",
+  );
   const [riskClock, setRiskClock] = useState(() => Date.now());
   const [status, setStatus] = useState<"connecting" | "live" | "degraded">("connecting");
   const [error, setError] = useState("");
@@ -767,6 +1110,7 @@ export function GlobalIntelligenceDashboard({
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("24h");
   const [query, setQuery] = useState("");
   const [showObservations, setShowObservations] = useState(false);
+  const [eventFeedMode, setEventFeedMode] = useState<EventFeedMode>("changes");
   const [mapMode, setMapMode] = useState<IntelligenceMapMode>("signals");
   const [activeRouteKinds, setActiveRouteKinds] = useState<Set<GlobalIntelRoute["kind"]>>(
     () => new Set(ROUTE_FILTERS.map((item) => item.kind)),
@@ -787,6 +1131,7 @@ export function GlobalIntelligenceDashboard({
   const [healthPanelOpen, setHealthPanelOpen] = useState(false);
   const [briefPanelOpen, setBriefPanelOpen] = useState(false);
   const [trendPanelOpen, setTrendPanelOpen] = useState(false);
+  const [mediaPanelOpen, setMediaPanelOpen] = useState(false);
   const [mapFocus, setMapFocus] = useState<IntelligenceMapFocus>();
 
   useEffect(() => {
@@ -800,6 +1145,34 @@ export function GlobalIntelligenceDashboard({
   useEffect(() => {
     sessionStorage.setItem(MILITARY_TRACKS_KEY, JSON.stringify(militaryTrackHistory));
   }, [militaryTrackHistory]);
+
+  useEffect(() => {
+    localStorage.setItem(EVENT_HISTORY_KEY, JSON.stringify(eventHistory));
+  }, [eventHistory]);
+
+  useEffect(() => {
+    localStorage.setItem(EVENT_DISPOSITIONS_KEY, JSON.stringify(eventDispositions));
+  }, [eventDispositions]);
+
+  useEffect(() => {
+    localStorage.setItem(MEDIA_WATCH_RULES_KEY, JSON.stringify(mediaWatchRules));
+  }, [mediaWatchRules]);
+
+  useEffect(() => {
+    localStorage.setItem(MEDIA_TOPIC_HISTORY_KEY, JSON.stringify(mediaTopicHistory));
+  }, [mediaTopicHistory]);
+
+  useEffect(() => {
+    if (!snapshotCache) return;
+    if (!Object.keys(snapshot).length) return;
+    const timer = window.setTimeout(() => {
+      snapshotCache.write(
+        snapshot,
+        typeof snapshot.timestamp === "string" ? snapshot.timestamp : undefined,
+      );
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [snapshot, snapshotCache]);
 
   useEffect(() => {
     if (!("military_flights" in snapshot)) return;
@@ -818,17 +1191,22 @@ export function GlobalIntelligenceDashboard({
 
   useEffect(() => {
     let active = true;
-    setStatus("connecting");
+    setStatus(Object.keys(snapshot).length ? "degraded" : "connecting");
     setError("");
-    setSnapshot({});
     setProgress({ done: 0, total: 0 });
 
     const loadSnapshot = (request: Promise<Record<string, unknown>>) => {
       void request.then((payload) => {
         if (!active) return;
         setSnapshot((current) => mergeSnapshot(current, payload));
+        const done = Number(payload._done);
+        const total = Number(payload._total);
+        if (Number.isFinite(done) && Number.isFinite(total)) setProgress({ done, total });
+        if (payload._static === true) setStatus("degraded");
       }).catch(() => {
-        if (active) setError("全球情报静态数据暂时不可用");
+        if (active) setError(Object.keys(snapshot).length
+          ? "更新失败，当前为上次数据"
+          : "全球情报静态数据暂时不可用");
       });
     };
     loadSnapshot(dataSource.staticSnapshot());
@@ -845,25 +1223,76 @@ export function GlobalIntelligenceDashboard({
       active = false;
       close();
     };
-  }, [dataSource, refreshNonce]);
+  }, [dataSource, refreshNonce, snapshotCache]);
 
   const points = useMemo(() => normalizeGlobalIntelPoints(snapshot), [snapshot]);
   const events = useMemo(
     () => normalizeGlobalIntelEvents(snapshot, militaryTrackHistory),
     [militaryTrackHistory, snapshot],
   );
+  const dataSettlementComplete = progress.total > 0 && progress.done >= progress.total;
+  useEffect(() => {
+    if (!events.length) return;
+    if (progress.total > 0 && progress.done < progress.total) return;
+    const observedAt = typeof snapshot.timestamp === "string"
+      ? snapshot.timestamp
+      : new Date().toISOString();
+    setEventHistory((current) => mergeGlobalIntelEventHistory(current, events, observedAt));
+    setEventHistoryObservedAt(observedAt);
+  }, [events, progress.done, progress.total, snapshot.timestamp]);
+  const eventTimeline = useMemo(() => {
+    const merged = new Map<string, GlobalIntelEvent>();
+    for (const event of eventHistory) merged.set(globalIntelEventIdentity(event), event);
+    for (const event of events) merged.set(globalIntelEventIdentity(event), event);
+    return [...merged.values()].sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp));
+  }, [eventHistory, events]);
+  const currentEventIdentities = useMemo(
+    () => new Set(events.map(globalIntelEventIdentity)),
+    [events],
+  );
+  const historyByIdentity = useMemo(
+    () => new Map(eventHistory.map((event) => [globalIntelEventIdentity(event), event])),
+    [eventHistory],
+  );
   const routes = useMemo(() => normalizeGlobalIntelRoutes(snapshot), [snapshot]);
   const actionableEvents = useMemo(
+    () => eventTimeline.filter(isActionableGlobalIntelEvent),
+    [eventTimeline],
+  );
+  const currentActionableEvents = useMemo(
     () => events.filter(isActionableGlobalIntelEvent),
     [events],
   );
+  useEffect(() => {
+    if (attentionBaselineReady || !actionableEvents.length) return;
+    if (progress.total > 0 && progress.done < progress.total) return;
+    const baselineAt = typeof snapshot.timestamp === "string"
+      ? snapshot.timestamp
+      : new Date().toISOString();
+    if (eventHistoryObservedAt !== baselineAt) return;
+    setEventDispositions((current) => {
+      const nextState = { ...current };
+      for (const event of actionableEvents) {
+        const identity = globalIntelEventIdentity(event);
+        if (!identity) continue;
+        nextState[identity] = {
+          ...(nextState[identity] ?? {}),
+          acknowledgedAt: nextState[identity]?.acknowledgedAt || baselineAt,
+          acknowledgedChangeAt: historyByIdentity.get(identity)?.lastChangedAt || baselineAt,
+        };
+      }
+      return nextState;
+    });
+    localStorage.setItem(EVENT_ATTENTION_BASELINE_KEY, "ready");
+    setAttentionBaselineReady(true);
+  }, [actionableEvents, attentionBaselineReady, eventHistoryObservedAt, historyByIdentity, progress.done, progress.total, snapshot.timestamp]);
   const observationEvents = useMemo(
     () => events.filter((event) => !isActionableGlobalIntelEvent(event)),
     [events],
   );
   const routeImpacts = useMemo(
-    () => calculateGlobalIntelRouteImpacts(actionableEvents, points, routes, riskClock),
-    [actionableEvents, points, riskClock, routes],
+    () => calculateGlobalIntelRouteImpacts(currentActionableEvents, points, routes, riskClock),
+    [currentActionableEvents, points, riskClock, routes],
   );
   const routesWithRisk = useMemo(() => {
     const impactsByRoute = new Map<string, typeof routeImpacts>();
@@ -911,9 +1340,14 @@ export function GlobalIntelligenceDashboard({
     const counts = Object.fromEntries(
       EVENT_FILTER_CATEGORIES.map((category) => [category, 0]),
     ) as Record<GlobalIntelCategory, number>;
-    for (const event of actionableEvents) counts[event.category] = (counts[event.category] ?? 0) + 1;
+    for (const event of actionableEvents.filter((item) => inTimeWindow(
+      eventActivityTimestamp(item, historyByIdentity.get(globalIntelEventIdentity(item))),
+      timeWindow,
+    ))) {
+      counts[event.category] = (counts[event.category] ?? 0) + 1;
+    }
     return counts;
-  }, [actionableEvents]);
+  }, [actionableEvents, historyByIdentity, timeWindow]);
   const pointById = useMemo(() => new Map(points.map((point) => [point.id, point])), [points]);
   const visiblePoints = useMemo(
     () => points.filter((point) => (
@@ -924,11 +1358,14 @@ export function GlobalIntelligenceDashboard({
   );
   const filteredEvents = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    return events.filter((event) => {
+    return eventTimeline.filter((event) => {
       if (!showObservations && !isActionableGlobalIntelEvent(event)) return false;
       if (categoryFilter !== "all" && event.category !== categoryFilter) return false;
       if (!matchesSeverity(event.severity, severityFilter)) return false;
-      if (!inTimeWindow(event.timestamp, timeWindow)) return false;
+      if (!inTimeWindow(
+        eventActivityTimestamp(event, historyByIdentity.get(globalIntelEventIdentity(event))),
+        timeWindow,
+      )) return false;
       if (selectedRegion) {
         const point = event.pointId ? pointById.get(event.pointId) : undefined;
         if (!point || !pointInRegion(point, selectedRegion)) return false;
@@ -938,18 +1375,91 @@ export function GlobalIntelligenceDashboard({
         .toLocaleLowerCase()
         .includes(normalizedQuery);
     });
-  }, [categoryFilter, events, pointById, query, selectedRegion, severityFilter, showObservations, timeWindow]);
+  }, [categoryFilter, eventTimeline, historyByIdentity, pointById, query, selectedRegion, severityFilter, showObservations, timeWindow]);
+  const changeFocusedEvents = useMemo(() => {
+    const dispositionFilteredEvents = eventFeedMode === "watching"
+      ? filteredEvents.filter((event) => eventDispositions[globalIntelEventIdentity(event)]?.watching)
+      : eventFeedMode === "unread"
+        ? filteredEvents.filter((event) => attentionBaselineReady && eventRequiresAttention(
+          event,
+          historyByIdentity.get(globalIntelEventIdentity(event)),
+          eventDispositions[globalIntelEventIdentity(event)],
+          currentEventIdentities,
+        ))
+        : filteredEvents;
+    if (eventFeedMode === "watching" || eventFeedMode === "unread") {
+      return [...dispositionFilteredEvents].sort((left, right) => {
+        const leftIdentity = globalIntelEventIdentity(left);
+        const rightIdentity = globalIntelEventIdentity(right);
+        const leftNeedsAttention = eventRequiresAttention(
+          left,
+          historyByIdentity.get(leftIdentity),
+          eventDispositions[leftIdentity],
+          currentEventIdentities,
+        );
+        const rightNeedsAttention = eventRequiresAttention(
+          right,
+          historyByIdentity.get(rightIdentity),
+          eventDispositions[rightIdentity],
+          currentEventIdentities,
+        );
+        return Number(rightNeedsAttention) - Number(leftNeedsAttention)
+          || Date.parse(historyByIdentity.get(rightIdentity)?.lastChangedAt ?? right.timestamp)
+            - Date.parse(historyByIdentity.get(leftIdentity)?.lastChangedAt ?? left.timestamp);
+      });
+    }
+    if (eventFeedMode === "all") {
+      return dispositionFilteredEvents;
+    }
+    const changeCutoff = riskClock - 6 * 60 * 60 * 1000;
+    const stateRank: Record<EventMonitorState, number> = { new: 3, resolved: 2, ongoing: 1 };
+    const candidates = dispositionFilteredEvents
+      .map((event) => {
+        const history = historyByIdentity.get(globalIntelEventIdentity(event));
+        const state = eventMonitorState(event, currentEventIdentities, history);
+        return { event, history, state };
+      })
+      .filter(({ event, history, state }) => (
+        state !== "ongoing"
+        || event.severity === "critical"
+        || event.severity === "high"
+        || Boolean(history && Date.parse(history.lastChangedAt) >= changeCutoff)
+      ))
+      .sort((left, right) => (
+        stateRank[right.state] - stateRank[left.state]
+        || EVENT_FEED_SEVERITY_RANK[right.event.severity] - EVENT_FEED_SEVERITY_RANK[left.event.severity]
+        || Date.parse(right.history?.lastChangedAt ?? right.event.timestamp)
+          - Date.parse(left.history?.lastChangedAt ?? left.event.timestamp)
+      ));
+    const sourceCounts = new Map<string, number>();
+    const selected: GlobalIntelEvent[] = [];
+    for (const { event } of candidates) {
+      const sourceKey = `${event.category}:${event.source}`;
+      const sourceCount = sourceCounts.get(sourceKey) ?? 0;
+      if (event.severity !== "critical" && sourceCount >= CHANGE_FEED_SOURCE_LIMIT) continue;
+      selected.push(event);
+      sourceCounts.set(sourceKey, sourceCount + 1);
+      if (selected.length >= CHANGE_FEED_LIMIT) break;
+    }
+    return selected;
+  }, [attentionBaselineReady, currentEventIdentities, eventDispositions, eventFeedMode, filteredEvents, historyByIdentity, riskClock]);
   const playbackRange = useMemo(() => {
-    const timestamps = filteredEvents.map((event) => Date.parse(event.timestamp)).filter(Number.isFinite);
+    const timestamps = changeFocusedEvents.map((event) => Date.parse(eventActivityTimestamp(
+      event,
+      historyByIdentity.get(globalIntelEventIdentity(event)),
+    ))).filter(Number.isFinite);
     return timestamps.length
       ? { start: Math.min(...timestamps), end: Math.max(...timestamps) }
       : { start: Date.now(), end: Date.now() };
-  }, [filteredEvents]);
+  }, [changeFocusedEvents, historyByIdentity]);
   const playbackTime = playbackRange.start
     + (playbackRange.end - playbackRange.start) * playbackCursor / 100;
   const visibleEvents = useMemo(
-    () => filteredEvents.filter((event) => Date.parse(event.timestamp) <= playbackTime),
-    [filteredEvents, playbackTime],
+    () => changeFocusedEvents.filter((event) => Date.parse(eventActivityTimestamp(
+      event,
+      historyByIdentity.get(globalIntelEventIdentity(event)),
+    )) <= playbackTime),
+    [changeFocusedEvents, historyByIdentity, playbackTime],
   );
   const eventClusters = useMemo(() => clusterGlobalIntelEvents(actionableEvents), [actionableEvents]);
   const visibleEventClusters = useMemo(
@@ -958,23 +1468,82 @@ export function GlobalIntelligenceDashboard({
   );
   const countryRisk = useMemo(() => {
     const risk: Record<string, number> = {};
-    for (const event of actionableEvents) {
+    for (const event of currentActionableEvents.filter((item) => inTimeWindow(item.timestamp, "24h"))) {
       if (!event.countryCode) continue;
       risk[event.countryCode] = Math.min(100, (risk[event.countryCode] ?? 0) + RISK_WEIGHT[event.severity]);
     }
     return risk;
-  }, [actionableEvents]);
-  const selectedEvent = events.find((event) => event.id === selectedEventId);
-  const selectedCluster = eventClusters.find((cluster) => (
-    cluster.events.some((event) => event.id === selectedEventId)
-  ));
+  }, [currentActionableEvents]);
+  const selectedEvent = eventTimeline.find((event) => event.id === selectedEventId);
+  const selectedCluster = selectedEvent
+    ? eventClusters.find((cluster) => cluster.events.some((event) => event.id === selectedEventId))
+      ?? clusterGlobalIntelEvents(actionableEvents.filter((event) => (
+        event.id === selectedEventId
+        || (event.category === selectedEvent.category
+          && event.countryCode === selectedEvent.countryCode
+          && Math.abs(Date.parse(event.timestamp) - Date.parse(selectedEvent.timestamp)) <= 18 * 60 * 60 * 1000)
+      ))).find((cluster) => cluster.events.some((event) => event.id === selectedEventId))
+    : undefined;
   const selectedPoint = points.find((point) => point.id === selectedPointId);
   const selectedFacts = selectedEvent?.facts ?? selectedPoint?.facts;
   const selectedContent = selectedEvent?.content ?? selectedPoint?.content;
+  const selectedHistory = selectedEvent
+    ? historyByIdentity.get(globalIntelEventIdentity(selectedEvent))
+    : undefined;
+  const selectedEventState = selectedEvent
+    ? eventMonitorState(selectedEvent, currentEventIdentities, selectedHistory)
+    : undefined;
+  const selectedEventImpacts = selectedEvent
+    ? routeImpacts
+      .filter((impact) => impact.eventId === selectedEvent.id)
+      .flatMap((impact) => {
+        const route = routesWithRisk.find((item) => item.id === impact.routeId);
+        return route ? [{ impact, route }] : [];
+      })
+    : [];
+  const visibleClusterMonitorStates = visibleEventClusters.map((cluster) => (
+    clusterMonitorState(cluster, currentEventIdentities, historyByIdentity)
+  ));
+  const newEventCount = visibleClusterMonitorStates.filter((state) => state === "new").length;
+  const ongoingEventCount = visibleClusterMonitorStates.filter((state) => state === "ongoing").length;
+  const recentlyResolvedEventCount = visibleClusterMonitorStates.filter((state) => state === "resolved").length;
+  const unacknowledgedEventCount = useMemo(() => clusterGlobalIntelEvents(filteredEvents).filter((cluster) => (
+    cluster.events.some((event) => attentionBaselineReady && eventRequiresAttention(
+      event,
+      historyByIdentity.get(globalIntelEventIdentity(event)),
+      eventDispositions[globalIntelEventIdentity(event)],
+      currentEventIdentities,
+    ))
+  )).length, [attentionBaselineReady, currentEventIdentities, eventDispositions, filteredEvents, historyByIdentity]);
+  const watchingEventCount = useMemo(() => clusterGlobalIntelEvents(filteredEvents).filter((cluster) => (
+    cluster.events.some((event) => eventDispositions[globalIntelEventIdentity(event)]?.watching)
+  )).length, [eventDispositions, filteredEvents]);
+  const watchingAttentionCount = useMemo(() => clusterGlobalIntelEvents(filteredEvents).filter((cluster) => (
+    cluster.events.some((event) => {
+      const identity = globalIntelEventIdentity(event);
+      const disposition = eventDispositions[identity];
+      return disposition?.watching && attentionBaselineReady && eventRequiresAttention(
+        event,
+        historyByIdentity.get(identity),
+        disposition,
+        currentEventIdentities,
+      );
+    })
+  )).length, [attentionBaselineReady, currentEventIdentities, eventDispositions, filteredEvents, historyByIdentity]);
+  const selectedEventIdentity = selectedEvent ? globalIntelEventIdentity(selectedEvent) : "";
+  const selectedEventDisposition = selectedEventIdentity
+    ? eventDispositions[selectedEventIdentity]
+    : undefined;
+  const selectedEventAcknowledged = dispositionAcknowledged(
+    selectedEvent,
+    selectedHistory,
+    selectedEventDisposition,
+    currentEventIdentities,
+  );
   const selectedRoute = routesWithRisk.find((route) => route.id === selectedRouteId);
   const selectedRouteImpacts = routeImpacts.filter((impact) => impact.routeId === selectedRouteId);
   const selectedRouteEvents = selectedRouteImpacts
-    .map((impact) => ({ impact, event: events.find((event) => event.id === impact.eventId) }))
+    .map((impact) => ({ impact, event: eventTimeline.find((event) => event.id === impact.eventId) }))
     .filter((item): item is { impact: typeof routeImpacts[number]; event: GlobalIntelEvent } => Boolean(item.event));
   const selectedRoutePrimaryImpact = selectedRouteImpacts[0];
   const selectedRouteMarketReactions = marketReactions.filter((reaction) => reaction.routeId === selectedRouteId);
@@ -1010,12 +1579,93 @@ export function GlobalIntelligenceDashboard({
   )), [activeLayers, activeRouteKinds, categoryFilter, mapMode, severityFilter, showCountryRisk, timeWindow]);
   const briefing = useMemo(() => strategicBriefing(snapshot), [snapshot]);
   const trend = useMemo(() => trendRadar(snapshot), [snapshot]);
+  const mediaMonitor = useMemo(() => normalizeGlobalMediaMonitor(snapshot), [snapshot]);
+  const mediaAttentionTopics = useMemo(() => [...mediaMonitor.topics].sort((left, right) => (
+    right.attentionScore - left.attentionScore
+    || right.heatScore - left.heatScore
+    || right.spreadScore - left.spreadScore
+  )), [mediaMonitor.topics]);
+  useEffect(() => {
+    if (!mediaMonitor.topics.length || !mediaMonitor.timestamp) return;
+    setMediaTopicHistory((current) => mergeMediaTopicHistory(
+      current,
+      mediaMonitor.topics,
+      mediaMonitor.timestamp,
+    ));
+  }, [mediaMonitor.timestamp, mediaMonitor.topics]);
+  const mediaAnnotationByEventId = useMemo(() => new Map(events
+    .filter((event) => event.recordKind === "news")
+    .flatMap((event) => {
+      const annotation = findGlobalMediaMonitorAnnotation(snapshot, event);
+      return annotation ? [[event.id, annotation] as const] : [];
+    })), [events, snapshot]);
   const risk = briefing;
-  const highPriorityEventCount = actionableEvents.filter((event) => (
-    event.severity === "critical" || event.severity === "high"
+  const highPriorityEventCount = currentActionableEvents.filter((event) => (
+    inTimeWindow(event.timestamp, "24h")
+    && (event.severity === "critical" || event.severity === "high")
   )).length;
   const highPriorityCount = highPriorityEventCount + highRouteAlertCount;
   const lastUpdate = typeof snapshot.timestamp === "string" ? snapshot.timestamp : "";
+  const selectedMediaAnnotation = selectedEvent
+    ? mediaAnnotationByEventId.get(selectedEvent.id)
+      ?? findGlobalMediaMonitorAnnotation(snapshot, selectedEvent)
+    : undefined;
+  const selectedMediaTopic = findGlobalMediaMonitorTopic(mediaMonitor, selectedMediaAnnotation);
+  const watchedMediaTopics = useMemo(() => mediaMonitor.topics.filter((topic) => (
+    mediaWatchRules.some((rule) => mediaWatchRuleMatchesTopic(rule, topic))
+  )), [mediaMonitor.topics, mediaWatchRules]);
+  const watchedMediaTopicChanges = useMemo(() => watchedMediaTopics.filter((topic) => {
+    const rule = mediaWatchRules.find((item) => mediaWatchRuleMatchesTopic(item, topic));
+    return Boolean(rule?.baselineSignature && rule.baselineSignature !== mediaTopicSignature(topic));
+  }), [mediaWatchRules, watchedMediaTopics]);
+  useEffect(() => {
+    if (!mediaMonitor.topics.length || !mediaWatchRules.some((rule) => !rule.baselineSignature)) return;
+    setMediaWatchRules((current) => current.map((rule) => {
+      if (rule.baselineSignature) return rule;
+      const topic = mediaMonitor.topics.find((item) => mediaWatchRuleMatchesTopic(rule, item));
+      return topic ? { ...rule, baselineSignature: mediaTopicSignature(topic) } : rule;
+    }));
+  }, [mediaMonitor.topics, mediaWatchRules]);
+  const selectedMediaTopicWatched = Boolean(selectedMediaTopic && mediaWatchRules.some((rule) => (
+    mediaWatchRuleMatchesTopic(rule, selectedMediaTopic)
+  )));
+  const selectedMediaTopicHistory = selectedMediaTopic
+    ? mediaTopicHistory.find((item) => item.id === selectedMediaTopic.id)
+    : undefined;
+  const selectedMediaVerificationEvolution = useMemo(() => {
+    const sourceTimeline = selectedMediaTopic?.verificationTimeline ?? [];
+    const historyTimeline = selectedMediaTopicHistory?.verificationHistory ?? [];
+    return [
+      ...historyTimeline.map((step) => ({
+        status: step.status,
+        flag: "history",
+        timestamp: step.timestamp,
+        source: "浏览器历史",
+        title: "主题核验状态发生变化",
+      })),
+      ...sourceTimeline,
+    ].filter((step, index, items) => items.findIndex((candidate) => (
+      candidate.status === step.status
+      && candidate.timestamp === step.timestamp
+      && candidate.source === step.source
+    )) === index).sort((left, right) => {
+      const leftTime = Date.parse(left.timestamp);
+      const rightTime = Date.parse(right.timestamp);
+      return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
+    });
+  }, [selectedMediaTopic, selectedMediaTopicHistory]);
+  const similarMediaTopics = useMemo(() => {
+    if (!selectedMediaTopic) return [];
+    return mediaTopicHistory
+      .filter((item) => item.id !== selectedMediaTopic.id)
+      .map((item) => ({
+        topic: item,
+        similarity: globalMediaTopicSimilarity(selectedMediaTopic, item),
+      }))
+      .filter((item) => item.similarity >= 24)
+      .sort((left, right) => right.similarity - left.similarity)
+      .slice(0, 4);
+  }, [mediaTopicHistory, selectedMediaTopic]);
 
   useEffect(() => {
     if (!playbackPlaying) return;
@@ -1037,16 +1687,25 @@ export function GlobalIntelligenceDashboard({
       progress,
       pointCount: points.length,
       visiblePointCount: visiblePoints.length,
-      eventCount: events.length,
-      actionableEventCount: actionableEvents.length,
+      eventCount: eventTimeline.length,
+      historicalEventCount: eventHistory.length,
+      actionableEventCount: currentActionableEvents.length,
       observationCount: observationEvents.length,
       visibleEventCount: visibleEvents.length,
       eventClusterCount: eventClusters.length,
       visibleEventClusterCount: visibleEventClusters.length,
+      eventLifecycle: {
+        new: newEventCount,
+        ongoing: ongoingEventCount,
+        recentlyResolved: recentlyResolvedEventCount,
+        unacknowledged: unacknowledgedEventCount,
+        watching: watchingEventCount,
+        watchingAttention: watchingAttentionCount,
+      },
       highPriorityCount,
       situationPreset: activePreset?.id ?? "custom",
       activeLayers: [...activeLayers],
-      filters: { categoryFilter, severityFilter, timeWindow, query, showObservations },
+      filters: { categoryFilter, severityFilter, timeWindow, query, showObservations, eventFeedMode },
       mapMode,
       routes: {
         visible: activeRouteKinds.size > 0,
@@ -1094,12 +1753,30 @@ export function GlobalIntelligenceDashboard({
         hotspots: trend.hotspots,
         focusedHotspot: mapFocus ?? null,
       },
+      mediaMonitor: {
+        analyzedItems: mediaMonitor.summary.analyzedItems,
+        sourceCount: mediaMonitor.summary.sourceCount,
+        languageCount: mediaMonitor.summary.languageCount,
+        topicCount: mediaMonitor.summary.topicCount,
+        heatVelocityPct: mediaMonitor.summary.heatVelocityPct,
+        spreadScore: mediaMonitor.summary.spreadScore,
+        sentiment: mediaMonitor.summary.sentiment,
+        crossLanguageTopicCount: mediaMonitor.summary.crossLanguageTopicCount,
+        flaggedTopicCount: mediaMonitor.summary.flaggedTopicCount,
+        reversalTopicCount: mediaMonitor.summary.reversalTopicCount,
+        divergentTopicCount: mediaMonitor.summary.divergentTopicCount,
+        attentionTopicCount: mediaMonitor.summary.attentionTopicCount,
+        watchRuleCount: mediaWatchRules.length,
+        watchedTopicCount: watchedMediaTopics.length,
+        watchedTopicChangeCount: watchedMediaTopicChanges.length,
+        topTopics: mediaAttentionTopics.slice(0, 6),
+      },
       lastUpdate: lastUpdate || null,
       events: visibleEvents.slice(0, 30),
       dataContract: GLOBAL_INTELLIGENCE_CONTRACT,
       source: "world-intel-mcp",
     });
-  }, [actionableEvents.length, activeLayers, activePreset?.id, activeRouteKinds, affectedRouteCount, briefing, categoryFilter, countryRisk, eventClusters.length, events.length, health.cache, health.healthy, health.issueCount, health.total, highPriorityCount, highRouteAlertCount, lastUpdate, mapFocus, mapMode, marketConfirmedRouteCount, observationEvents.length, onContextChange, playbackCursor, playbackPlaying, playbackTime, points.length, progress, query, routeAlerts.length, routes.length, selectedEvent, selectedPoint, selectedRegion, selectedRoute, severityFilter, showCountryRisk, showObservations, status, timeWindow, trend, visibleEventClusters.length, visibleEvents, visiblePoints.length, visibleRoutes.length, watchedRegionViews]);
+  }, [activeLayers, activePreset?.id, activeRouteKinds, affectedRouteCount, briefing, categoryFilter, countryRisk, currentActionableEvents.length, eventClusters.length, eventFeedMode, eventHistory.length, eventTimeline.length, health.cache, health.healthy, health.issueCount, health.total, highPriorityCount, highRouteAlertCount, lastUpdate, mapFocus, mapMode, marketConfirmedRouteCount, mediaAttentionTopics, mediaMonitor, mediaWatchRules.length, newEventCount, observationEvents.length, ongoingEventCount, onContextChange, playbackCursor, playbackPlaying, playbackTime, points.length, progress, query, recentlyResolvedEventCount, routeAlerts.length, routes.length, selectedEvent, selectedPoint, selectedRegion, selectedRoute, severityFilter, showCountryRisk, showObservations, status, timeWindow, trend, unacknowledgedEventCount, visibleEventClusters.length, visibleEvents, visiblePoints.length, visibleRoutes.length, watchedMediaTopicChanges.length, watchedMediaTopics.length, watchedRegionViews, watchingAttentionCount, watchingEventCount]);
 
   const applySituationPreset = (preset: SituationPreset) => {
     setActiveLayers(new Set(preset.activeLayers));
@@ -1185,15 +1862,117 @@ export function GlobalIntelligenceDashboard({
 
   const selectPoint = useCallback((point: GlobalIntelPoint) => {
     setSelectedPointId(point.id);
-    const event = events.find((item) => item.pointId === point.id);
+    const event = eventTimeline.find((item) => item.pointId === point.id);
     setSelectedEventId(event?.id ?? "");
     setSelectedRouteId("");
-  }, [events]);
+  }, [eventTimeline]);
 
-  const selectEvent = (event: GlobalIntelEvent) => {
+  const setEventsDisposition = (eventsToUpdate: GlobalIntelEvent[], update: Partial<EventDisposition>) => {
+    setEventDispositions((current) => {
+      const nextState = { ...current };
+      for (const event of eventsToUpdate) {
+        const identity = globalIntelEventIdentity(event);
+        if (!identity) continue;
+        const next = { ...(nextState[identity] ?? {}), ...update };
+        if (!next.acknowledgedAt && !next.watching) delete nextState[identity];
+        else nextState[identity] = next;
+      }
+      return nextState;
+    });
+  };
+
+  const acknowledgeEvents = (eventsToUpdate: GlobalIntelEvent[]) => {
+    const acknowledgedAt = new Date().toISOString();
+    setEventDispositions((current) => {
+      const nextState = { ...current };
+      for (const event of eventsToUpdate) {
+        const identity = globalIntelEventIdentity(event);
+        if (!identity) continue;
+        const history = historyByIdentity.get(identity);
+        nextState[identity] = {
+          ...(nextState[identity] ?? {}),
+          acknowledgedAt,
+          acknowledgedChangeAt: history?.lastChangedAt || acknowledgedAt,
+        };
+      }
+      return nextState;
+    });
+  };
+
+  const markVisibleEventsHandled = () => {
+    acknowledgeEvents(visibleEventClusters.flatMap((cluster) => cluster.events));
+  };
+
+  const toggleMediaTopicWatch = (topic: GlobalMediaMonitorTopic) => {
+    setMediaWatchRules((current) => {
+      const matching = current.filter((rule) => mediaWatchRuleMatchesTopic(rule, topic));
+      if (matching.length) {
+        const matchingIds = new Set(matching.map((rule) => rule.id));
+        return current.filter((rule) => !matchingIds.has(rule.id));
+      }
+      return [...current, {
+        id: topic.id,
+        label: topic.label,
+        keywords: [...new Set((topic.keywords.length ? topic.keywords : [topic.label]).filter(Boolean))].slice(0, 6),
+        createdAt: new Date().toISOString(),
+        baselineSignature: mediaTopicSignature(topic),
+      }];
+    });
+  };
+
+  const acknowledgeMediaTopic = (topic: GlobalMediaMonitorTopic) => {
+    const baselineSignature = mediaTopicSignature(topic);
+    setMediaWatchRules((current) => current.map((rule) => (
+      mediaWatchRuleMatchesTopic(rule, topic) ? { ...rule, baselineSignature } : rule
+    )));
+  };
+
+  const openMediaTopic = (topic: GlobalMediaMonitorTopic | MediaTopicHistoryEntry) => {
+    if ("items" in topic && topic.items.length) {
+      const relatedEvents = events.filter((event) => {
+        if (event.recordKind !== "news") return false;
+        const annotation = mediaAnnotationByEventId.get(event.id)
+          ?? findGlobalMediaMonitorAnnotation(snapshot, event);
+        return annotation?.topicId === topic.id;
+      });
+      const nextEvent = relatedEvents[0];
+      if (nextEvent) {
+        setCategoryFilter("news");
+        setEventFeedMode("all");
+        setSelectedEventId(nextEvent.id);
+        setSelectedPointId(nextEvent.pointId ?? "");
+        setSelectedRouteId("");
+        setMediaPanelOpen(false);
+        return;
+      }
+    }
+    setQuery(topic.headline);
+    setCategoryFilter("news");
+    setEventFeedMode("all");
+    setMediaPanelOpen(false);
+  };
+
+  const selectEvent = (event: GlobalIntelEvent, acknowledge = true) => {
     setSelectedEventId(event.id);
-    if (event.pointId) setSelectedPointId(event.pointId);
+    setSelectedPointId(event.pointId ?? "");
     setSelectedRouteId("");
+    if (acknowledge) {
+      const cluster = eventClusters.find((item) => item.events.some((candidate) => candidate.id === event.id));
+      acknowledgeEvents(cluster?.events ?? [event]);
+    }
+  };
+
+  const focusSelectedEvent = () => {
+    const point = selectedEvent?.pointId ? pointById.get(selectedEvent.pointId) : selectedPoint;
+    if (!point) return;
+    setSelectedPointId(point.id);
+    setMapFocus({
+      id: `event-${point.id}-${Date.now()}`,
+      longitude: point.longitude,
+      latitude: point.latitude,
+      label: selectedEvent?.title ?? point.title,
+      zoom: 5,
+    });
   };
 
   const selectRoute = (route: GlobalIntelRoute) => {
@@ -1221,6 +2000,7 @@ export function GlobalIntelligenceDashboard({
               setBriefPanelOpen((value) => !value);
               setHealthPanelOpen(false);
               setTrendPanelOpen(false);
+              setMediaPanelOpen(false);
             }}
             aria-expanded={briefPanelOpen}
           >
@@ -1237,30 +2017,55 @@ export function GlobalIntelligenceDashboard({
               setTrendPanelOpen((value) => !value);
               setBriefPanelOpen(false);
               setHealthPanelOpen(false);
+              setMediaPanelOpen(false);
             }}
             aria-expanded={trendPanelOpen}
           >
             趋势<TrendingUp size={11} />
           </button>
         </div>
-        <div><span><CircleDot size={14} />地图信号</span><strong>{visiblePoints.length}</strong><small>{points.length} 个点位 · {affectedRouteCount} 条通道受影响</small></div>
-        <div className="intel-health-card" data-issues={health.issueCount > 0}>
-          <span><Radio size={14} />数据源健康</span>
-          <strong>{health.total ? `${health.healthy}/${health.total}` : health.issueCount ? `${health.issueCount} 异常` : "连接中"}</strong>
-          <small>{status === "live" ? "实时流已连接" : status === "degraded" ? "降级重连中" : "正在建立连接"}{health.issueCount ? ` · ${health.issueCount} 项异常` : ""}</small>
+        <div className="intel-media-card" data-alert={mediaMonitor.summary.flaggedTopicCount > 0}>
+          <span><Sparkles size={14} />舆情雷达</span>
+          <strong>{mediaMonitor.summary.attentionTopicCount || mediaMonitor.summary.topicCount || "—"}</strong>
+          <small>
+            {mediaMonitor.summary.analyzedItems} 条报道 · 负面 {mediaMonitor.summary.sentiment.negativePct}% · 热度 {mediaVelocityLabel(mediaMonitor.summary.heatVelocityPct, mediaMonitor.summary.velocityState)}
+            {mediaMonitor.summary.flaggedTopicCount ? ` · ${mediaMonitor.summary.flaggedTopicCount} 条核验提示` : ""}
+            {watchedMediaTopicChanges.length ? ` · 关注变化 ${watchedMediaTopicChanges.length}` : watchedMediaTopics.length ? ` · 关注命中 ${watchedMediaTopics.length}` : ""}
+          </small>
           <button
             type="button"
             onClick={() => {
-              setHealthPanelOpen((value) => !value);
+              setMediaPanelOpen((value) => !value);
               setBriefPanelOpen(false);
               setTrendPanelOpen(false);
+              setHealthPanelOpen(false);
             }}
-            aria-expanded={healthPanelOpen}
+            aria-expanded={mediaPanelOpen}
           >
-            详情<ChevronDown size={11} />
+            查看<Languages size={11} />
           </button>
         </div>
-        <div className="intel-load-card"><span><Activity size={14} />加载进度</span><strong>{progress.total ? `${progress.done}/${progress.total}` : "静态层"}</strong><small>{lastUpdate ? relativeTime(lastUpdate) : "等待动态数据"}</small></div>
+        <div><span><CircleDot size={14} />地图与通道</span><strong>{visiblePoints.length}</strong><small>{points.length} 个点位 · {affectedRouteCount} 条通道受影响</small></div>
+        <div className="intel-health-card" data-issues={health.issueCount > 0}>
+          <span><Radio size={14} />数据与更新</span>
+          <strong>{health.total ? `${health.healthy}/${health.total}` : status === "degraded" && dataSettlementComplete ? "静态可用" : health.issueCount ? `${health.issueCount} 异常` : "连接中"}</strong>
+          <small>{status === "live" ? "实时" : status === "degraded" ? "降级" : "连接中"} · {progress.total ? `${progress.done}/${progress.total}` : "静态层"} · {lastUpdate ? relativeTime(lastUpdate) : "等待更新"}{status === "degraded" && dataSettlementComplete ? " · 已结算" : ""}{health.issueCount ? ` · ${health.issueCount} 异常` : ""}</small>
+          <div className="intel-health-actions">
+            <button type="button" onClick={onRefresh} aria-label="刷新全球情报"><RefreshCw size={11} />刷新</button>
+            <button
+              type="button"
+              onClick={() => {
+                setHealthPanelOpen((value) => !value);
+                setBriefPanelOpen(false);
+                setTrendPanelOpen(false);
+                setMediaPanelOpen(false);
+              }}
+              aria-expanded={healthPanelOpen}
+            >
+              详情<ChevronDown size={11} />
+            </button>
+          </div>
+        </div>
       </section>
 
       {healthPanelOpen ? (
@@ -1442,6 +2247,111 @@ export function GlobalIntelligenceDashboard({
         </aside>
       ) : null}
 
+      {mediaPanelOpen ? (
+        <aside className="intel-media-console" aria-label="全球舆情雷达">
+          <header>
+            <div><Sparkles size={15} /><span><strong>全球舆情雷达</strong><small>MEDIA VELOCITY · FRAMING · VERIFICATION</small></span></div>
+            <div>
+              <small>{mediaMonitor.timestamp ? `${relativeTime(mediaMonitor.timestamp)}更新` : "等待新闻批次"}</small>
+              <button type="button" onClick={() => setMediaPanelOpen(false)} aria-label="关闭全球舆情雷达"><X size={14} /></button>
+            </div>
+          </header>
+          <section className="intel-media-summary">
+            <div data-tone="negative">
+              <small>报道语气</small>
+              <strong>{mediaMonitor.summary.sentiment.negativePct}%</strong>
+              <span>负面 · 正面 {mediaMonitor.summary.sentiment.positivePct}%</span>
+            </div>
+            <div data-trend={mediaMonitor.summary.velocityState}>
+              <small>讨论热度</small>
+              <strong>{mediaVelocityLabel(mediaMonitor.summary.heatVelocityPct, mediaMonitor.summary.velocityState)}</strong>
+              <span>{mediaMonitor.summary.velocityState === "new" ? "前一时段无可比样本" : `${mediaMonitor.summary.windowHours}h 对比前一时段`}</span>
+            </div>
+            <div>
+              <small>主题聚类</small>
+              <strong>{mediaMonitor.summary.topicCount}</strong>
+              <span>{mediaMonitor.summary.attentionTopicCount} 个值得留意 · {mediaMonitor.summary.crossLanguageTopicCount} 个跨语言</span>
+            </div>
+            <div>
+              <small>传播范围</small>
+              <strong>{mediaMonitor.summary.spreadScore}</strong>
+              <span>{mediaMonitor.summary.sourceCount} 源 · {mediaMonitor.summary.languageCount} 语种</span>
+            </div>
+            <div data-alert={mediaMonitor.summary.flaggedTopicCount > 0}>
+              <small>核验提示</small>
+              <strong>{mediaMonitor.summary.flaggedTopicCount}</strong>
+              <span>纠正/反转 {mediaMonitor.summary.reversalTopicCount}</span>
+            </div>
+            <div data-alert={watchedMediaTopics.length > 0}>
+              <small>主题关注</small>
+              <strong>{mediaWatchRules.length}</strong>
+              <span>{watchedMediaTopicChanges.length ? `${watchedMediaTopicChanges.length} 个主题有变化` : `本批命中 ${watchedMediaTopics.length}`}</span>
+            </div>
+          </section>
+          <div className="intel-media-body">
+            <article className="intel-media-topic-list">
+              <header><span><TrendingUp size={12} />优先关注</span><small>ATTENTION / HEAT</small></header>
+              <div>
+                {mediaAttentionTopics.slice(0, 12).map((topic) => (
+                  <div
+                    key={topic.id}
+                    data-verification={topic.verificationStatus !== "常规报道"}
+                    data-watching={mediaWatchRules.some((rule) => mediaWatchRuleMatchesTopic(rule, topic))}
+                  >
+                    <button type="button" className="intel-media-topic-main" onClick={() => openMediaTopic(topic)}>
+                      <span>
+                        <strong>{topic.label}</strong>
+                        <small>
+                          {topic.sourceCount} 源 · {topic.languageLabels.join("/") || "单语"} · {topic.spreadLevel}
+                        </small>
+                      </span>
+                      <b title={`关注度 ${topic.attentionScore} · 热度 ${topic.heatScore}`}>{topic.attentionScore}</b>
+                      <em data-trend={topic.velocityState}>{mediaVelocityLabel(topic.heatVelocityPct, topic.velocityState)}</em>
+                      <i style={{ "--media-reach": `${topic.spreadScore}%` } as CSSProperties}><u /></i>
+                      {topic.attentionLevel !== "常规" ? <mark data-attention={topic.attentionLevel}>{topic.attentionLevel}</mark> : null}
+                      <mark data-sentiment={topic.sentiment}>{mediaSentimentLabel(topic.sentiment)}</mark>
+                      {topic.verificationStatus !== "常规报道" ? <mark data-verify="true">{topic.verificationStatus}</mark> : null}
+                      {topic.framingDivergence ? <mark data-divergence="true">表述分歧</mark> : null}
+                      {topic.crossLanguage ? <mark data-language="true"><Languages size={9} />跨语言</mark> : null}
+                    </button>
+                    <button type="button" className="intel-media-topic-watch" onClick={() => toggleMediaTopicWatch(topic)}>
+                      <Star size={9} />{mediaWatchRules.some((rule) => mediaWatchRuleMatchesTopic(rule, topic)) ? "已关注" : "关注"}
+                    </button>
+                  </div>
+                ))}
+                {mediaMonitor.topics.length === 0 ? <p>正在等待新闻与社交信号完成聚类。</p> : null}
+              </div>
+            </article>
+            <article className="intel-media-frame-list">
+              <header><span><Newspaper size={12} />媒体框架</span><small>TONE BY SOURCE TYPE</small></header>
+              <div>
+                {mediaMonitor.mediaFrames.map((frame) => {
+                  const total = Math.max(1, frame.count);
+                  return (
+                    <section key={frame.group}>
+                      <span><strong>{frame.label}</strong><small>{frame.count} 条 · {frame.sources.slice(0, 3).join(" / ")}</small></span>
+                      <b>{frame.dominantLabel}</b>
+                      <i>
+                        {MEDIA_SENTIMENT_ORDER.map((sentiment) => (
+                          <em
+                            key={sentiment}
+                            data-sentiment={sentiment}
+                            style={{ width: `${frame[sentiment] / total * 100}%` }}
+                            title={`${MEDIA_SENTIMENT_SHORT_LABEL[sentiment]} ${frame[sentiment]}`}
+                          />
+                        ))}
+                      </i>
+                    </section>
+                  );
+                })}
+                {mediaMonitor.mediaFrames.length === 0 ? <p>暂无可比较的媒体来源结构。</p> : null}
+              </div>
+              <footer>{mediaMonitor.caveat || "情绪表示报道语气；核验提示不等于真假判定。"}</footer>
+            </article>
+          </div>
+        </aside>
+      ) : null}
+
       {error ? <div className="intel-error" role="alert"><AlertTriangle size={14} />{error}</div> : null}
 
       <section className="intel-command-bar">
@@ -1484,19 +2394,10 @@ export function GlobalIntelligenceDashboard({
           <button type="button" aria-pressed={severityFilter === "all"} onClick={() => setSeverityFilter("all")}>全部级别</button>
           <button type="button" aria-pressed={severityFilter === "priority"} onClick={() => setSeverityFilter("priority")}>仅高优先级</button>
         </div>
-        <div className="intel-segments intel-map-mode" aria-label="地图模式">
-          <button type="button" aria-pressed={mapMode === "signals"} onClick={() => setMapMode("signals")}><MapIcon size={13} />信号</button>
-          <button type="button" aria-pressed={mapMode === "heat"} onClick={() => setMapMode("heat")}><Flame size={13} />热力</button>
-        </div>
-        <div className="intel-segments intel-map-overlays" aria-label="地图叠加层">
-          <button type="button" aria-pressed={showCountryRisk} onClick={() => setShowCountryRisk((value) => !value)}><Landmark size={13} />国家风险</button>
-        </div>
-        <div className="intel-segments intel-route-filters" aria-label="战略通道分类">
-          {ROUTE_FILTERS.map(({ kind, label, icon: Icon }) => (
-            <button type="button" key={kind} aria-pressed={activeRouteKinds.has(kind)} onClick={() => toggleRouteKind(kind)}>
-              <Icon size={13} />{label} {routes.filter((route) => route.kind === kind).length}
-            </button>
-          ))}
+        <div className="intel-live-state" data-status={status}>
+          <i />
+          <span>{status === "live" ? "实时" : status === "degraded" ? "降级" : "连接中"}</span>
+          <time>{lastUpdate ? relativeTime(lastUpdate) : "等待首批数据"}</time>
         </div>
       </section>
 
@@ -1553,7 +2454,28 @@ export function GlobalIntelligenceDashboard({
               );
             })}
           </div>
-          <footer><Clock3 size={13} />图层与实时流同步</footer>
+          <section className="intel-map-settings" aria-label="地图设置">
+            <header><MapIcon size={12} /><span>地图设置</span></header>
+            <div className="intel-map-setting-group">
+              <small>显示</small>
+              <div>
+                <button type="button" aria-pressed={mapMode === "signals"} onClick={() => setMapMode("signals")}>信号</button>
+                <button type="button" aria-pressed={mapMode === "heat"} onClick={() => setMapMode("heat")}>热力</button>
+                <button type="button" aria-pressed={showCountryRisk} onClick={() => setShowCountryRisk((value) => !value)}>国家风险</button>
+              </div>
+            </div>
+            <div className="intel-map-setting-group">
+              <small>战略通道</small>
+              <div>
+                {ROUTE_FILTERS.map(({ kind, label }) => (
+                  <button type="button" key={kind} aria-pressed={activeRouteKinds.has(kind)} onClick={() => toggleRouteKind(kind)}>
+                    {label}<b>{routes.filter((route) => route.kind === kind).length}</b>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <footer><Clock3 size={11} />图层与实时流同步</footer>
+          </section>
         </aside>
 
         <section className="intel-map-panel">
@@ -1678,9 +2600,19 @@ export function GlobalIntelligenceDashboard({
         <section className="intel-event-rail">
           <header className="intel-panel-title">
             <div><Radio size={14} /><span>实时事件流</span></div>
-            <small>{visibleEventClusters.length} 簇 / {visibleEvents.length} 记录</small>
+            <div className="intel-event-summary">
+              <small>未处理 {unacknowledgedEventCount} · 关注 {watchingEventCount}{watchingAttentionCount ? `（${watchingAttentionCount} 变化）` : ""} · 新 {newEventCount}</small>
+              {unacknowledgedEventCount > 0 ? (
+                <button type="button" onClick={markVisibleEventsHandled}><Check size={10} />处理当前</button>
+              ) : null}
+            </div>
           </header>
           <div className="intel-category-strip" role="group" aria-label="事件分类">
+            <button type="button" aria-pressed={eventFeedMode === "changes"} onClick={() => setEventFeedMode("changes")}>变化优先</button>
+            <button type="button" aria-pressed={eventFeedMode === "unread"} onClick={() => setEventFeedMode("unread")}><BellRing size={10} />未处理 {unacknowledgedEventCount}</button>
+            <button type="button" aria-pressed={eventFeedMode === "watching"} onClick={() => setEventFeedMode("watching")}><Star size={10} />关注 {watchingEventCount}</button>
+            <button type="button" aria-pressed={eventFeedMode === "all"} onClick={() => setEventFeedMode("all")}>全部动态</button>
+            <span aria-hidden="true" />
             <button type="button" aria-pressed={categoryFilter === "all"} onClick={() => setCategoryFilter("all")}>全部</button>
             <button type="button" aria-pressed={showObservations} onClick={() => setShowObservations((value) => !value)}>
               原始观测 {observationEvents.length}
@@ -1693,27 +2625,103 @@ export function GlobalIntelligenceDashboard({
           </div>
           <div className="intel-event-list">
             {visibleEventClusters.slice(0, 160).map((cluster) => {
-              const event = cluster.primary;
+              const currentClusterEvents = cluster.events.filter((item) => (
+                currentEventIdentities.has(globalIntelEventIdentity(item))
+              ));
+              const event = currentClusterEvents.find((item) => item.id === cluster.primary.id)
+                ?? currentClusterEvents[0]
+                ?? cluster.primary;
               const meta = CATEGORY_META[event.category];
               const Icon = meta.icon;
+              const clusterIsCurrent = currentClusterEvents.length > 0;
+              const monitorState = clusterMonitorState(cluster, currentEventIdentities, historyByIdentity);
+              const clusterActivityAt = cluster.events.reduce((latest, item) => {
+                const activityAt = eventActivityTimestamp(
+                  item,
+                  historyByIdentity.get(globalIntelEventIdentity(item)),
+                );
+                return Date.parse(activityAt) > Date.parse(latest) ? activityAt : latest;
+              }, cluster.updatedAt);
+              const clusterNeedsAttention = cluster.events.some((item) => (
+                eventRequiresAttention(
+                  item,
+                  historyByIdentity.get(globalIntelEventIdentity(item)),
+                  eventDispositions[globalIntelEventIdentity(item)],
+                  currentEventIdentities,
+                )
+              ));
+              const clusterAcknowledged = !clusterNeedsAttention;
+              const clusterWatching = cluster.events.some((item) => (
+                eventDispositions[globalIntelEventIdentity(item)]?.watching
+              ));
+              const mediaAnnotation = cluster.events
+                .map((item) => mediaAnnotationByEventId.get(item.id))
+                .find(Boolean);
               return (
-                <article key={cluster.id} data-selected={cluster.events.some((item) => item.id === selectedEventId)} data-severity={event.severity}>
-                  <button type="button" onClick={() => selectEvent(event)}>
+                <article
+                  key={cluster.id}
+                  data-selected={cluster.events.some((item) => item.id === selectedEventId)}
+                  data-severity={event.severity}
+                  data-history={!clusterIsCurrent}
+                  data-monitor-state={monitorState}
+                  data-acknowledged={clusterAcknowledged}
+                  data-watching={clusterWatching}
+                >
+                  <button type="button" className="intel-event-main" onClick={() => selectEvent(event)}>
                     <i style={{ "--event-color": meta.color } as CSSProperties}><Icon size={13} /></i>
                     <span>
                       <small>
-                        {meta.label} · {relativeTime(cluster.updatedAt)}
+                        {recordKindLabel(event)} · {meta.label} · {relativeTime(clusterActivityAt)}
                         {cluster.events.length > 1 ? <mark>{cluster.events.length} 条证据</mark> : null}
+                        <mark data-state={monitorState}>{eventMonitorLabel(monitorState)}</mark>
+                        {clusterWatching ? <mark data-state={clusterNeedsAttention ? "watching-change" : "watching"}>{clusterNeedsAttention ? "关注有变化" : "关注中"}</mark> : null}
+                        {mediaAnnotation ? <mark data-sentiment={mediaAnnotation.sentiment}>{mediaSentimentLabel(mediaAnnotation.sentiment)}</mark> : null}
+                        {mediaAnnotation?.velocityState === "new" ? <mark data-heat="new">热度 新出现</mark> : null}
+                        {mediaAnnotation?.heatVelocityPct !== null && mediaAnnotation && Math.abs(mediaAnnotation.heatVelocityPct) >= 20 ? <mark data-heat={mediaAnnotation.heatVelocityPct > 0 ? "up" : "down"}>热度 {mediaVelocityLabel(mediaAnnotation.heatVelocityPct, mediaAnnotation.velocityState)}</mark> : null}
+                        {mediaAnnotation?.verificationStatus !== "常规报道" ? <mark data-verify="true">{mediaAnnotation?.verificationStatus}</mark> : null}
+                        {mediaAnnotation?.crossLanguageTopic ? <mark data-language="true">跨语言</mark> : null}
                       </small>
                       <strong>{event.title}</strong>
                       <em>{event.detail}</em>
                       <b>{cluster.sources.slice(0, 3).join(" / ")} · {confidenceLabel(cluster)}</b>
                     </span>
                   </button>
+                  <button
+                    type="button"
+                    className="intel-event-quick-watch"
+                    aria-label={clusterWatching ? "取消关注事件" : "关注事件"}
+                    aria-pressed={clusterWatching}
+                    onClick={() => setEventsDisposition(cluster.events, { watching: !clusterWatching })}
+                  >
+                    <Star size={11} />
+                  </button>
                 </article>
               );
             })}
-            {visibleEventClusters.length === 0 ? <div className="intel-empty">当前筛选没有匹配事件</div> : null}
+            {visibleEventClusters.length === 0 ? (
+              <div
+                className="intel-empty"
+                data-state={dataSettlementComplete && eventTimeline.length === 0 ? "settled" : "filtered"}
+                role="status"
+              >
+                <strong>
+                  {dataSettlementComplete && eventTimeline.length === 0
+                    ? "数据已结算，暂无实时事件"
+                    : eventFeedMode === "changes"
+                      ? "当前筛选没有重点变化"
+                      : eventFeedMode === "unread"
+                        ? "当前事件均已处理"
+                        : eventFeedMode === "watching"
+                          ? "还没有关注事件"
+                          : "当前筛选没有匹配事件"}
+                </strong>
+                <small>
+                  {dataSettlementComplete && eventTimeline.length === 0
+                    ? `${progress.done}/${progress.total} 个数据任务已完成；地图、点位和战略通道仍可正常浏览。`
+                    : "可调整时间、级别或分类筛选查看其他内容。"}
+                </small>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -1721,7 +2729,45 @@ export function GlobalIntelligenceDashboard({
           <aside className="intel-detail-drawer">
             <header>
               <div><small>INTELLIGENCE DOSSIER</small><strong>事件详情</strong></div>
-              <button type="button" onClick={clearSelection} aria-label="关闭详情"><X size={15} /></button>
+              <div className="intel-detail-header-actions">
+                {selectedEvent ? (
+                  <>
+                    {selectedEvent.pointId && pointById.has(selectedEvent.pointId) ? (
+                      <button type="button" onClick={focusSelectedEvent} aria-label="在地图定位"><Locate size={14} /></button>
+                    ) : null}
+                    <button
+                      type="button"
+                      data-active={selectedEventDisposition?.watching}
+                      aria-pressed={Boolean(selectedEventDisposition?.watching)}
+                      onClick={() => setEventsDisposition(
+                        selectedCluster?.events ?? [selectedEvent],
+                        { watching: !selectedEventDisposition?.watching },
+                      )}
+                      aria-label={selectedEventDisposition?.watching ? "取消关注事件" : "关注事件"}
+                    >
+                      <Star size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      data-active={selectedEventAcknowledged}
+                      aria-pressed={selectedEventAcknowledged}
+                      onClick={() => setEventsDisposition(
+                        selectedCluster?.events ?? [selectedEvent],
+                        selectedEventAcknowledged
+                          ? { acknowledgedAt: undefined, acknowledgedChangeAt: undefined }
+                          : {
+                            acknowledgedAt: new Date().toISOString(),
+                            acknowledgedChangeAt: selectedHistory?.lastChangedAt || new Date().toISOString(),
+                          },
+                      )}
+                      aria-label={selectedEventAcknowledged ? "标记为未处理" : "标记为已处理"}
+                    >
+                      <Check size={14} />
+                    </button>
+                  </>
+                ) : null}
+                <button type="button" onClick={clearSelection} aria-label="关闭详情"><X size={15} /></button>
+              </div>
             </header>
             <div className="intel-detail-body">
               <span
@@ -1732,6 +2778,13 @@ export function GlobalIntelligenceDashboard({
               </span>
               <h2>{selectedRoute?.name ?? selectedEvent?.title ?? selectedPoint?.title}</h2>
               <p>{selectedRoute ? (selectedRoute.detail || "战略通道示意") : selectedEvent?.detail ?? selectedPoint?.detail}</p>
+              {selectedEvent ? (
+                <div className="intel-event-disposition-summary">
+                  <span data-active={selectedEventAcknowledged}><Check size={11} />{selectedEventAcknowledged ? "已处理" : "未处理"}</span>
+                  <span data-active={selectedEventDisposition?.watching}><Star size={11} />{selectedEventDisposition?.watching ? "关注中" : "未关注"}</span>
+                  {selectedEvent.pointId && pointById.has(selectedEvent.pointId) ? <button type="button" onClick={focusSelectedEvent}><Locate size={11} />地图定位</button> : null}
+                </div>
+              ) : null}
               {selectedRoute ? (
                 <dl>
                   <div><dt>类型</dt><dd>{selectedRoute.kind === "pipeline" ? "能源管线" : selectedRoute.kind === "cable" ? "海底光缆走廊" : "航运通道"}</dd></div>
@@ -1743,6 +2796,8 @@ export function GlobalIntelligenceDashboard({
                 </dl>
               ) : (
                 <dl>
+                  {selectedEvent ? <div><dt>记录类型</dt><dd>{recordKindLabel(selectedEvent)}</dd></div> : null}
+                  {selectedEventState ? <div><dt>监控状态</dt><dd>{eventMonitorLabel(selectedEventState)}</dd></div> : null}
                   <div><dt>严重度</dt><dd>{selectedEvent?.severity ?? selectedPoint?.severity}</dd></div>
                   <div><dt>来源</dt><dd>{selectedEvent?.source ?? selectedPoint?.source}</dd></div>
                   <div><dt>时间</dt><dd>{selectedEvent ? new Date(selectedEvent.timestamp).toLocaleString("zh-CN") : selectedPoint?.timestamp ? new Date(selectedPoint.timestamp).toLocaleString("zh-CN") : "静态情报层"}</dd></div>
@@ -1752,6 +2807,140 @@ export function GlobalIntelligenceDashboard({
                   ))}
                 </dl>
               )}
+              {selectedEvent ? (
+                <section className="intel-record-explanation" data-kind={selectedEvent.recordKind ?? "event"}>
+                  <h3>{recordKindLabel(selectedEvent)}是什么意思</h3>
+                  <p>{recordKindExplanation(selectedEvent)}</p>
+                </section>
+              ) : null}
+              {selectedEvent?.recordKind === "news" && selectedMediaAnnotation ? (
+                <section className="intel-media-dossier" data-verification={selectedMediaAnnotation.verificationStatus !== "常规报道"}>
+                  <header>
+                    <span><Sparkles size={12} />舆情观察</span>
+                    <div>
+                      <strong>{selectedMediaAnnotation.verificationStatus}</strong>
+                      {selectedMediaTopic ? (
+                        <button
+                          type="button"
+                          data-active={selectedMediaTopicWatched}
+                          onClick={() => toggleMediaTopicWatch(selectedMediaTopic)}
+                        >
+                          <Star size={10} />{selectedMediaTopicWatched ? "取消关注" : "关注主题"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </header>
+                  <dl>
+                    <div><dt>报道语气</dt><dd>{mediaSentimentLabel(selectedMediaAnnotation.sentiment)}</dd></div>
+                    <div><dt>热度增速</dt><dd>{mediaVelocityLabel(selectedMediaAnnotation.heatVelocityPct, selectedMediaAnnotation.velocityState)}</dd></div>
+                    <div><dt>传播范围</dt><dd>{selectedMediaAnnotation.spreadScore}/100</dd></div>
+                    <div><dt>跨语言合并</dt><dd>{selectedMediaAnnotation.crossLanguageTopic ? "已合并" : "单语主题"}</dd></div>
+                  </dl>
+                  {selectedMediaTopic ? (
+                    <>
+                      <h3>{selectedMediaTopic.label}</h3>
+                      <p>
+                        {selectedMediaTopic.mentionCount} 条相关记录，来自 {selectedMediaTopic.sourceCount} 个来源、
+                        {selectedMediaTopic.languageLabels.join("、") || "单一语种"}；传播级别为{selectedMediaTopic.spreadLevel}，
+                        关注度 {selectedMediaTopic.attentionScore}/100（{selectedMediaTopic.attentionLevel}）。
+                        {selectedMediaTopic.mediaFrames.length
+                          ? ` 不同来源框架：${selectedMediaTopic.mediaFrames.map((frame) => `${frame.label}${frame.dominantLabel}`).join("；")}。`
+                          : ""}
+                      {selectedMediaTopic.framingDivergence ? " 不同类型媒体的报道语气存在分歧，建议对照原文。" : ""}
+                      </p>
+                      {selectedMediaTopic.items.length > 1 ? (
+                        <div className="intel-media-related-reports">
+                          <h4>相关报道</h4>
+                          {selectedMediaTopic.items.slice(0, 6).map((item) => {
+                            const url = safeExternalUrl(item.url);
+                            const content = (
+                              <>
+                                <span><strong>{item.source}</strong><small>{item.published ? relativeTime(item.published) : "时间未知"} · {mediaSentimentLabel(item.sentiment)}</small></span>
+                                <b>{item.title}</b>
+                                {url ? <ExternalLink size={10} /> : null}
+                              </>
+                            );
+                            return url ? (
+                              <a key={item.key} href={url} target="_blank" rel="noreferrer">{content}</a>
+                            ) : (
+                              <div key={item.key}>{content}</div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                      {selectedMediaTopicHistory ? (
+                        <p className="intel-media-history-summary">
+                          浏览器自 {new Date(selectedMediaTopicHistory.firstSeenAt).toLocaleString("zh-CN")} 开始记录；
+                          最近变化于 {new Date(selectedMediaTopicHistory.lastChangedAt).toLocaleString("zh-CN")}。
+                        </p>
+                      ) : null}
+                      {selectedMediaTopicWatched && watchedMediaTopicChanges.some((topic) => topic.id === selectedMediaTopic.id) ? (
+                        <button type="button" className="intel-media-change-ack" onClick={() => acknowledgeMediaTopic(selectedMediaTopic)}>
+                          <Check size={10} />标记本次变化已查看
+                        </button>
+                      ) : null}
+                      {selectedMediaVerificationEvolution.length ? (
+                        <div className="intel-media-verification-timeline">
+                          <h4>核验演化</h4>
+                          <ol>
+                            {selectedMediaVerificationEvolution.map((step, index) => (
+                              <li key={`${step.flag}-${step.timestamp}-${index}`} data-status={step.flag}>
+                                <time>{step.timestamp ? new Date(step.timestamp).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "时间未知"}</time>
+                                <strong>{step.status} · {step.source}</strong>
+                                <span>{step.title}</span>
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      ) : null}
+                      {similarMediaTopics.length ? (
+                        <div className="intel-media-similar-topics">
+                          <h4>历史相似线索</h4>
+                          {similarMediaTopics.map(({ topic, similarity }) => (
+                            <button type="button" key={topic.id} onClick={() => openMediaTopic(topic)}>
+                              <span><strong>{topic.label}</strong><small>{new Date(topic.lastSeenAt).toLocaleDateString("zh-CN")} · {topic.sourceCount} 源</small></span>
+                              <b>{similarity}%</b>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                  <small>核验提示只识别报道中的“据称、否认、更正、反转”等显式措辞，不直接判断真假。</small>
+                </section>
+              ) : null}
+              {selectedEventImpacts.length ? (
+                <section className="intel-evidence-chain">
+                  <header>
+                    <span><Route size={12} />关联通道与潜在影响</span>
+                    <strong>{selectedEventImpacts.length} 条关系</strong>
+                  </header>
+                  <p>连接只表示地理邻近或文本提及，用于提示可能受影响对象，不代表通道已经中断。</p>
+                  <ol>
+                    {selectedEventImpacts.slice(0, 6).map(({ impact, route }) => (
+                      <li key={`${impact.routeId}-${impact.eventId}`}>
+                        <button type="button" onClick={() => selectRoute(route)}>
+                          <time>{impact.relation === "mentioned" ? "文本提及" : `${impact.distanceKm ?? "—"} km`}</time>
+                          <strong>{route.name} · 风险 {impact.riskScore}</strong>
+                          <span>{route.exposure ? [...route.exposure.commodities, ...route.exposure.industries].slice(0, 4).join("、") : route.detail}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ) : null}
+              {selectedEvent && selectedHistory ? (
+                <section className="intel-event-lifecycle" data-state={selectedEventState}>
+                  <h3>轻量历史</h3>
+                  <p>
+                    浏览器首次记录于 {new Date(selectedHistory.firstSeenAt).toLocaleString("zh-CN")}，
+                    最近看到于 {new Date(selectedHistory.lastSeenAt).toLocaleString("zh-CN")}，
+                    最近变化于 {new Date(selectedHistory.lastChangedAt).toLocaleString("zh-CN")}，
+                    已累计捕获 {selectedHistory.observationCount} 次；当前状态为{eventMonitorLabel(selectedEventState ?? "new")}。
+                    {selectedEventState === "resolved" ? "“已离开”仅表示它不在最新数据快照中，不代表事件已经结束。" : ""}
+                  </p>
+                </section>
+              ) : null}
               {selectedRoute ? (
                 <>
                   {selectedRouteAlert ? (

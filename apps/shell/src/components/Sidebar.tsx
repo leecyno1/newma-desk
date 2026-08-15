@@ -16,9 +16,9 @@ import { useEffect, useMemo, useState, type DragEvent } from "react";
 import type { StoredMod } from "../api/modules";
 import newmaMarkUrl from "../assets/newma-mark.svg";
 import {
-  automaticProjectMark,
   moveSidebarProject,
   moveSidebarModule,
+  sidebarProjectMark,
   toggleSidebarModulePinned,
   toggleSidebarProjectPinned,
   type SidebarDirectoryItem,
@@ -60,10 +60,7 @@ function ProjectMark({
 }) {
   return (
     <span className="project-letter-mark" aria-hidden="true">
-      {automaticProjectMark(project.name, project.id, {
-        defaultName: project.defaultName,
-        icon: project.icon,
-      })}
+      {sidebarProjectMark(project)}
     </span>
   );
 }
@@ -92,6 +89,7 @@ function PinButton({
 
 function ModuleRow({
   item,
+  index,
   selected,
   onSelect,
   onPin,
@@ -100,6 +98,7 @@ function ModuleRow({
   onDrop,
 }: {
   item: SidebarModuleItem;
+  index: number;
   selected: boolean;
   onSelect: () => void;
   onPin: () => void;
@@ -111,6 +110,7 @@ function ModuleRow({
     <div
       className="module-nav-row"
       data-module-id={item.module.moduleId}
+      data-tone={(index % 5) + 1}
       data-pinned={item.pinned || undefined}
       draggable={!item.pinned}
       onDragStart={onDragStart}
@@ -122,10 +122,11 @@ function ModuleRow({
       <button
         className="module-button"
         type="button"
+        aria-label={item.label}
         aria-current={selected ? "page" : undefined}
         onClick={onSelect}
       >
-        {item.label}
+        <span className="module-nav-label">{item.label}</span>
       </button>
       <PinButton label={item.label} pinned={item.pinned} onClick={onPin} />
     </div>
@@ -182,6 +183,11 @@ export function Sidebar({
   const activeProject = activeProjectId
     ? navigation.projectsById.get(activeProjectId)
     : undefined;
+  const showProjectDataSettings = Boolean(
+    activeProject && (
+      activeProject.modules.length > 0 || activeProject.sections.length !== 1
+    ),
+  );
 
   const collapseNavigation = () => setNavigationCollapsed(true);
   const expandNavigation = () => setNavigationCollapsed(false);
@@ -271,6 +277,7 @@ export function Sidebar({
     <ModuleRow
       key={`${item.module.moduleId}@${item.module.revision}`}
       item={item}
+      index={Math.max(0, project.settingsDirectory.modules.findIndex((member) => member.module.moduleId === item.module.moduleId))}
       selected={item.module.moduleId === selectedId}
       onSelect={() => onSelect(item.module)}
       onPin={() => onNavigationPreferencesChange(
@@ -311,7 +318,7 @@ export function Sidebar({
             onClick={() => onSelect(section.settingsModule!.module)}
           >
             <Settings size={12} aria-hidden="true" />
-            {section.settingsModule.label}
+            模组设置
           </button>
         ) : null}
         <button
@@ -321,7 +328,7 @@ export function Sidebar({
           onClick={() => onOpenSuiteSettings(section)}
         >
           <Settings size={12} aria-hidden="true" />
-          {section.settingsModule ? "Desk 项目配置" : "项目设置"}
+          栏目数据与能力
         </button>
       </div>
     </section>
@@ -444,29 +451,33 @@ export function Sidebar({
               ) : null}
             </nav>
 
-            <footer className="project-panel-footer secondary-sidebar-footer">
-              {activeProject.settingsModule ? (
-                <button
-                  type="button"
-                  className="secondary-settings-button"
-                  aria-current={activeProject.settingsModule.module.moduleId === selectedId ? "page" : undefined}
-                  onClick={() => onSelect(activeProject.settingsModule!.module)}
-                >
-                  <Settings size={14} aria-hidden="true" />
-                  {activeProject.settingsModule.label}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="secondary-settings-button"
-                aria-current={suiteSettingsDirectoryId === activeProject.settingsDirectory.id ? "page" : undefined}
-                onClick={() => onOpenSuiteSettings(activeProject.settingsDirectory)}
-              >
-                <Settings size={14} aria-hidden="true" />
-                {activeProject.settingsModule ? "Desk 栏目配置" : "栏目设置"}
-              </button>
-              <small>页面仅可在所属完整项目内排序；不能跨项目移动。</small>
-            </footer>
+            {activeProject.settingsModule || showProjectDataSettings ? (
+              <footer className="project-panel-footer secondary-sidebar-footer">
+                {activeProject.settingsModule ? (
+                  <button
+                    type="button"
+                    className="secondary-settings-button"
+                    aria-current={activeProject.settingsModule.module.moduleId === selectedId ? "page" : undefined}
+                    onClick={() => onSelect(activeProject.settingsModule!.module)}
+                  >
+                    <Settings size={14} aria-hidden="true" />
+                    模组设置
+                  </button>
+                ) : null}
+                {showProjectDataSettings ? (
+                  <button
+                    type="button"
+                    className="secondary-settings-button"
+                    aria-current={suiteSettingsDirectoryId === activeProject.settingsDirectory.id ? "page" : undefined}
+                    onClick={() => onOpenSuiteSettings(activeProject.settingsDirectory)}
+                  >
+                    <Settings size={14} aria-hidden="true" />
+                    项目数据与能力
+                  </button>
+                ) : null}
+                <small>模组设置管理业务参数；数据与能力管理 Desk 接入。页面仅可在项目内排序。</small>
+              </footer>
+            ) : null}
           </div>
         ) : (
           <div className="project-panel project-panel-empty">

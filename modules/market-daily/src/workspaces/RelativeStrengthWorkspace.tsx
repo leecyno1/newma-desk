@@ -1,11 +1,12 @@
 import { GitCompareArrows, RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   RelativeStrengthChart,
   normalizedStrengthSeries,
   type RelativeStrengthSeries,
 } from "@newma-desk/chart-kit";
+import { createModSnapshotCache } from "@newma-desk/mod-sdk";
 
 import { securityKey } from "../data";
 import type { Bar, MarketDataSource, SecurityRef } from "../types";
@@ -27,12 +28,14 @@ function finalReturn(series: RelativeStrengthSeries) {
 
 export function RelativeStrengthWorkspace({
   dataSource,
+  cacheIdentity,
   security,
   onSelectSecurity,
   refreshNonce,
   onContextChange,
 }: {
   dataSource: MarketDataSource;
+  cacheIdentity?: { userId: string; workspaceId: string };
   security: SecurityRef;
   onSelectSecurity: (security: SecurityRef) => void;
   refreshNonce: number;
@@ -46,7 +49,23 @@ export function RelativeStrengthWorkspace({
   const [securities, setSecurities] = useState(initial);
   const [barsBySecurity, setBarsBySecurity] = useState<Record<string, Bar[]>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [period, setPeriod] = useState<"1d" | "1w">("1d");
+  const resourceKey = useMemo(() => `period:${period}:securities:${securities
+    .map(securityKey)
+    .sort()
+    .join(",")}`, [period, securities]);
+  const cache = useMemo(() => cacheIdentity ? createModSnapshotCache<Record<string, Bar[]>>({
+    modId: "relative-strength",
+    ...cacheIdentity,
+    resourceKey,
+    maxBytes: 2 * 1024 * 1024,
+  }) : undefined, [cacheIdentity?.userId, cacheIdentity?.workspaceId, resourceKey]);
+  const cacheKey = cache?.key;
+  const resourceKeyRef = useRef<string | undefined>(undefined);
+  const cacheKeyRef = useRef<string | undefined>(undefined);
+  const barsBySecurityRef = useRef(barsBySecurity);
+  barsBySecurityRef.current = barsBySecurity;
 
   useEffect(() => {
     if (securities.some((item) => securityKey(item) === securityKey(security))) return;
@@ -56,18 +75,33 @@ export function RelativeStrengthWorkspace({
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setError("");
+    const cached = cache?.read()?.value;
+    const resourceChanged = resourceKeyRef.current !== resourceKey;
+    const cacheChanged = cacheKeyRef.current !== cacheKey;
+    resourceKeyRef.current = resourceKey;
+    cacheKeyRef.current = cacheKey;
+    if (resourceChanged) setBarsBySecurity(cached ?? {});
+    else if (cacheChanged && cached && Object.keys(barsBySecurityRef.current).length === 0) {
+      setBarsBySecurity(cached);
+    }
     void Promise.all(securities.map(async (item) => {
       const result = await dataSource.ohlcv(item, period, item.market === "CN" ? "qfq" : "none");
       return [securityKey(item), result.items] as const;
     })).then((entries) => {
-      if (active) setBarsBySecurity(Object.fromEntries(entries));
+      if (!active) return;
+      const next = Object.fromEntries(entries);
+      setBarsBySecurity(next);
+      cache?.write(next);
     }).catch(() => {
-      if (active) setBarsBySecurity({});
+      if (active) setError(Object.keys(cached ?? barsBySecurityRef.current).length
+        ? "更新失败，当前为上次数据"
+        : "相对强弱数据暂不可用");
     }).finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, [dataSource, period, refreshNonce, securities]);
+  }, [cacheKey, dataSource, period, refreshNonce, resourceKey]);
 
   const series = useMemo(() => securities.map((item, index) =>
     normalizedStrengthSeries(
@@ -96,9 +130,11 @@ export function RelativeStrengthWorkspace({
             <button type="button" aria-pressed={period === "1w"} onClick={() => setPeriod("1w")}>周线</button>
           </div>
         </div>
-        {loading ? <div className="workspace-chart-loading"><RefreshCw className="spin" size={16} />正在计算归一化走势…</div> : null}
-        {!loading && series.some((item) => item.points.length) ? <RelativeStrengthChart series={series} /> : null}
-        {!loading && series.every((item) => item.points.length === 0) ? <div className="workspace-empty">相对强弱数据暂不可用</div> : null}
+        {loading && series.every((item) => item.points.length === 0) ? <div className="workspace-chart-loading"><RefreshCw className="spin" size={16} />正在计算归一化走势…</div> : null}
+        {series.some((item) => item.points.length) ? <RelativeStrengthChart series={series} /> : null}
+        {loading && series.some((item) => item.points.length) ? <div className="workspace-update-note"><RefreshCw className="spin" size={13} />更新中，当前展示上次数据</div> : null}
+        {!loading && error ? <div className="workspace-update-note workspace-error">{error}</div> : null}
+        {!loading && !error && series.every((item) => item.points.length === 0) ? <div className="workspace-empty">相对强弱数据暂不可用</div> : null}
       </section>
       <aside className="relative-ranking-panel">
         <div className="workspace-section-title"><span>阶段排名</span><small>基准日 = 0%</small></div>

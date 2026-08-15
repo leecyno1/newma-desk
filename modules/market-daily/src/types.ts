@@ -22,12 +22,12 @@ export interface SecurityRef {
   currency?: string;
   timezone?: string;
   assetType?: string;
+  securityType?: string;
 }
 
 export interface SearchResult extends SecurityRef {
   source?: string;
   quoteId?: string;
-  securityType?: string;
 }
 
 export interface OrderLevel {
@@ -59,6 +59,14 @@ export interface Quote extends SecurityRef {
   sources?: string[];
   asOf?: string;
   industry?: string;
+  fundType?: string;
+  fundCompany?: string;
+  fundManager?: string;
+  navDate?: string;
+  cumulativeNav?: number | null;
+  subscribeStatus?: string;
+  redeemStatus?: string;
+  minimumPurchase?: number | null;
 }
 
 export interface MarketScanResult {
@@ -82,6 +90,9 @@ export interface Bar {
   close: number;
   volume?: number;
   turnover?: number;
+  cumulativeNav?: number | null;
+  changePct?: number | null;
+  navEvent?: string;
 }
 
 export interface OhlcvResult {

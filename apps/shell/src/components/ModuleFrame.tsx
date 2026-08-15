@@ -1,4 +1,5 @@
 import {
+  ArrowRightLeft,
   ExternalLink,
   LoaderCircle,
   MessageSquareText,
@@ -19,21 +20,26 @@ import {
 import {
   deskActionResultSchema,
   deskContextRequestSchema,
+  deskHandoffSchema,
   deskUiActionRequestSchema,
   modAckSchema,
   modActionRequestSchema,
   modContextSchema,
   modEventSchema,
+  modHandoffResultSchema,
   modHelloSchema,
   modUiActionResultSchema,
   type DeskInit,
   type ModManifest,
   type ModPageContext,
+  type WikiHandoff,
+  type WikiLink,
 } from "@newma-desk/contracts";
 import { createNewmaDeskAppearance } from "@newma-desk/desk-ui/theme";
 import type {
   ModBridge,
   ModContextProvider,
+  ModHandoffHandler,
   ModHostConnection,
   ModUiActionHandler,
 } from "@newma-desk/mod-sdk";
@@ -42,6 +48,7 @@ import type { ShellEventBus } from "../events/ShellEventBus";
 import {
   invokeModSessionAction,
   issueModSession,
+  ModSessionRequestError,
   saveModContext,
   type ModSession,
   type ModSessionIssuerInput,
@@ -68,6 +75,13 @@ interface ModFrameProps {
   copilotOpen?: boolean;
   onToggleCopilot?: () => void;
   onRequestCopilotOpen?: () => void;
+  onContextPublished?: (context: ModPageContext) => void;
+  wikiSubjectName?: string;
+  wikiLinks?: WikiLink[];
+  wikiLoading?: boolean;
+  wikiActiveLinkId?: string;
+  wikiError?: string;
+  onOpenWikiLink?: (link: WikiLink) => void;
 }
 
 function embeddedMarketMod(manifest: ModManifest) {
@@ -95,12 +109,14 @@ type EmbeddedMarketTerminalHost = Extract<ModHostConnection, { embedded: true }>
 
 type LocalEmbeddedMarketHost = EmbeddedMarketTerminalHost & {
   requestContext(
-    reason?: "agent" | "refresh",
+    reason?: "initial" | "agent" | "refresh",
   ): Promise<ModPageContext | undefined>;
   invokeUiAction<T = unknown>(
     actionId: string,
     input?: Record<string, unknown>,
   ): Promise<T>;
+  deliverHandoff(handoff: WikiHandoff): Promise<unknown>;
+  updateTheme(theme: "light" | "dark"): void;
 };
 
 function createEmbeddedMarketHost(input: {
@@ -116,9 +132,10 @@ function createEmbeddedMarketHost(input: {
   latestContextRef: { current: ModPageContext | undefined };
   contextProviderRef: { current: ModContextProvider | undefined };
   uiActionHandlerRef: { current: ModUiActionHandler | undefined };
+  handoffHandlerRef: { current: ModHandoffHandler | undefined };
   onContextPublished?: (context: ModPageContext) => void;
 }): LocalEmbeddedMarketHost {
-  const config = createDeskInit(
+  let config = createDeskInit(
     input.manifest,
     createInstanceId(),
     input.userId,
@@ -127,7 +144,13 @@ function createEmbeddedMarketHost(input: {
     input.locale,
     input.timezone,
   );
-  const noop = () => () => undefined;
+  const subscribers = new Set<(config: DeskInit) => void>();
+  const queuedHandoffs = new Set<{
+    handoff: WikiHandoff;
+    resolve(value: unknown): void;
+    reject(reason: unknown): void;
+    timer: number;
+  }>();
   let sessionPromise: Promise<ModSession> | undefined;
   let session: ModSession | undefined;
   const ensureSession = (force = false) => {
@@ -150,10 +173,40 @@ function createEmbeddedMarketHost(input: {
     });
     return sessionPromise;
   };
+  const saveContext = async (context: ModPageContext) => {
+    let currentSession = await ensureSession();
+    try {
+      await input.contextSaver(currentSession, context);
+    } catch (reason) {
+      if (!isRecoverableSessionError(reason)) throw reason;
+      currentSession = await ensureSession(true);
+      await input.contextSaver(currentSession, context);
+    }
+  };
+  const invokeAction = async <T = unknown>(
+    actionId: string,
+    actionInput: Record<string, unknown>,
+  ): Promise<T> => {
+    let currentSession = await ensureSession();
+    try {
+      const result = await input.actionInvoker(currentSession, actionId, actionInput);
+      return result.body as T;
+    } catch (reason) {
+      if (!isRecoverableSessionError(reason)) throw reason;
+      currentSession = await ensureSession(true);
+      const result = await input.actionInvoker(currentSession, actionId, actionInput);
+      return result.body as T;
+    }
+  };
   return {
     embedded: true,
-    config,
-    subscribe: noop,
+    get config() {
+      return config;
+    },
+    subscribe(handler) {
+      subscribers.add(handler);
+      return () => subscribers.delete(handler);
+    },
     setContextProvider(provider) {
       input.contextProviderRef.current = provider;
       return () => {
@@ -169,17 +222,38 @@ function createEmbeddedMarketHost(input: {
     publishContext(context) {
       input.latestContextRef.current = context;
       input.onContextPublished?.(context);
-      void ensureSession().then((currentSession) => input.contextSaver(currentSession, context)).catch(() => undefined);
+      void saveContext(context).catch(() => undefined);
     },
     invokeAction: async <T = unknown>(actionId: string, actionInput: Record<string, unknown> = {}): Promise<T> => {
       if (!declaredActionIds(input.manifest).includes(actionId)) {
         throw new Error(`Mod 未声明动作 ${actionId}`);
       }
-      const currentSession = await ensureSession();
-      const result = await input.actionInvoker(currentSession, actionId, actionInput);
-      return result.body as T;
+      return invokeAction<T>(actionId, actionInput);
     },
-    close() {},
+    setHandoffHandler(handler) {
+      input.handoffHandlerRef.current = handler;
+      for (const pending of [...queuedHandoffs]) {
+        queuedHandoffs.delete(pending);
+        window.clearTimeout(pending.timer);
+        void Promise.resolve(handler(pending.handoff)).then(
+          pending.resolve,
+          pending.reject,
+        );
+      }
+      return () => {
+        if (input.handoffHandlerRef.current === handler) {
+          input.handoffHandlerRef.current = undefined;
+        }
+      };
+    },
+    close() {
+      subscribers.clear();
+      for (const pending of queuedHandoffs) {
+        window.clearTimeout(pending.timer);
+        pending.reject(new Error("Mod frame was closed"));
+      }
+      queuedHandoffs.clear();
+    },
     requestContext(reason = "agent") {
       if (input.latestContextRef.current) {
         return Promise.resolve(input.latestContextRef.current);
@@ -198,6 +272,38 @@ function createEmbeddedMarketHost(input: {
         return Promise.reject(new Error("Mod UI action bridge is unavailable"));
       }
       return Promise.resolve(handler(actionId, actionInput)) as Promise<T>;
+    },
+    deliverHandoff(handoff) {
+      if (handoff.targetModId !== input.manifest.id) {
+        return Promise.reject(new Error("Wiki 交接目标与当前 Mod 不一致"));
+      }
+      const handler = input.handoffHandlerRef.current;
+      if (handler) return Promise.resolve(handler(handoff));
+      return new Promise((resolve, reject) => {
+        const pending = {
+          handoff,
+          resolve,
+          reject,
+          timer: window.setTimeout(() => {
+            queuedHandoffs.delete(pending);
+            reject(new Error("Mod 未及时接收 Wiki 交接"));
+          }, 10_000),
+        };
+        queuedHandoffs.add(pending);
+      });
+    },
+    updateTheme(theme) {
+      if (config.environment.theme === theme) return;
+      config = createDeskInit(
+        input.manifest,
+        config.instanceId,
+        input.userId,
+        input.workspaceId,
+        theme,
+        input.locale,
+        input.timezone,
+      );
+      for (const subscriber of subscribers) subscriber(config);
     },
   };
 }
@@ -228,13 +334,14 @@ function createEmbeddedMarketBridge(eventBus: ShellEventBus, manifest: ModManife
 
 export interface ModFrameHandle {
   requestContext(
-    reason?: "agent" | "refresh",
+    reason?: "initial" | "agent" | "refresh",
   ): Promise<ModPageContext | undefined>;
   reload(): void;
   invokeUiAction<T = unknown>(
     actionId: string,
     input?: Record<string, unknown>,
   ): Promise<T>;
+  deliverHandoff(handoff: WikiHandoff): Promise<unknown>;
 }
 
 function createInstanceId(): string {
@@ -248,6 +355,13 @@ function declaredActionIds(manifest: ModManifest): string[] {
   return manifest.schemaVersion === "1.1"
     ? Object.keys(manifest.actions)
     : manifest.agentCapabilities;
+}
+
+function isRecoverableSessionError(reason: unknown): boolean {
+  return (
+    reason instanceof ModSessionRequestError &&
+    reason.status === 401
+  );
 }
 
 function createDeskInit(
@@ -299,6 +413,97 @@ function logIgnoredMessage(reason: string) {
   }
 }
 
+function FrameToolbar({
+  manifest,
+  copilotOpen,
+  onToggleCopilot,
+  externalUrl,
+  wikiSubjectName,
+  wikiLinks,
+  wikiLoading,
+  wikiActiveLinkId,
+  wikiError,
+  onOpenWikiLink,
+}: {
+  manifest: ModManifest;
+  copilotOpen: boolean;
+  onToggleCopilot?: () => void;
+  externalUrl?: string;
+  wikiSubjectName?: string;
+  wikiLinks: WikiLink[];
+  wikiLoading: boolean;
+  wikiActiveLinkId?: string;
+  wikiError?: string;
+  onOpenWikiLink?: (link: WikiLink) => void;
+}) {
+  const showWiki = Boolean(
+    wikiSubjectName || wikiLinks.length || wikiLoading || wikiError,
+  );
+  return (
+    <header className="frame-toolbar">
+      <div className="frame-toolbar-title">
+        <strong>{manifest.name}</strong>
+        <span>{manifest.version}</span>
+      </div>
+      {showWiki ? (
+        <nav className="frame-wiki-links" aria-label="关联研究 Mod">
+          <span className="frame-wiki-subject">
+            关联{wikiSubjectName ? ` · ${wikiSubjectName}` : "研究"}
+          </span>
+          {wikiLoading && wikiLinks.length === 0 ? (
+            <span className="frame-wiki-state">
+              <LoaderCircle className="spin" size={12} aria-hidden="true" />
+              匹配中
+            </span>
+          ) : null}
+          {wikiLinks.map((link) => {
+            const active = wikiActiveLinkId === link.id;
+            return (
+              <button
+                key={link.id}
+                type="button"
+                title={link.reason}
+                aria-label={`用 ${link.label} 查看 ${wikiSubjectName ?? "当前对象"}`}
+                disabled={active}
+                onClick={() => onOpenWikiLink?.(link)}
+              >
+                {active ? (
+                  <LoaderCircle className="spin" size={12} aria-hidden="true" />
+                ) : (
+                  <ArrowRightLeft size={12} aria-hidden="true" />
+                )}
+                {link.label}
+              </button>
+            );
+          })}
+          {wikiError ? (
+            <span className="frame-wiki-error" role="status">{wikiError}</span>
+          ) : null}
+        </nav>
+      ) : <span className="frame-toolbar-spacer" aria-hidden="true" />}
+      <div className="frame-toolbar-actions">
+        {onToggleCopilot ? (
+          <button
+            type="button"
+            className="frame-copilot-button"
+            aria-pressed={copilotOpen}
+            onClick={onToggleCopilot}
+          >
+            <MessageSquareText size={14} aria-hidden="true" />
+            问当前 Mod
+          </button>
+        ) : null}
+        {externalUrl ? (
+          <a href={externalUrl} target="_blank" rel="noreferrer">
+            独立打开
+            <ExternalLink size={14} aria-hidden="true" />
+          </a>
+        ) : null}
+      </div>
+    </header>
+  );
+}
+
 export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   function ModFrame(
     {
@@ -316,6 +521,13 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       copilotOpen = false,
       onToggleCopilot,
       onRequestCopilotOpen,
+      onContextPublished,
+      wikiSubjectName,
+      wikiLinks = [],
+      wikiLoading = false,
+      wikiActiveLinkId,
+      wikiError,
+      onOpenWikiLink,
     },
     ref,
   ) {
@@ -349,6 +561,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   const frameRef = useRef<HTMLIFrameElement>(null);
   const themeRef = useRef(theme);
   const onRequestCopilotOpenRef = useRef(onRequestCopilotOpen);
+  const onContextPublishedRef = useRef(onContextPublished);
   const handshakeRef = useRef(false);
   const acknowledgedRef = useRef(false);
   const sessionRef = useRef<ModSession | undefined>(undefined);
@@ -356,6 +569,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   const latestContextRef = useRef<ModPageContext | undefined>(undefined);
   const embeddedContextProviderRef = useRef<ModContextProvider | undefined>(undefined);
   const embeddedUiActionHandlerRef = useRef<ModUiActionHandler | undefined>(undefined);
+  const embeddedHandoffHandlerRef = useRef<ModHandoffHandler | undefined>(undefined);
   const embeddedMarketHostRef = useRef<LocalEmbeddedMarketHost | undefined>(undefined);
   const embeddedMarketKeyRef = useRef<string | undefined>(undefined);
   const requestContextRef = useRef<
@@ -366,13 +580,21 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   const invokeUiActionRef = useRef<
     <T = unknown>(actionId: string, input?: Record<string, unknown>) => Promise<T>
   >(undefined);
+  const deliverHandoffRef = useRef<
+    (handoff: WikiHandoff) => Promise<unknown>
+  >(undefined);
   const [instanceId] = useState(createInstanceId);
   themeRef.current = theme;
   onRequestCopilotOpenRef.current = onRequestCopilotOpen;
+  onContextPublishedRef.current = onContextPublished;
 
   useEffect(() => {
     if (!embedded) document.title = `${manifest.name} · Newma-Desk`;
   }, [embedded, manifest.name]);
+
+  useEffect(() => {
+    embeddedMarketHostRef.current?.updateTheme(theme);
+  }, [theme]);
 
   useImperativeHandle(
     ref,
@@ -399,6 +621,15 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
           ? invoke<T>(actionId, input)
           : Promise.reject(new Error("Mod UI action bridge is unavailable"));
       },
+      deliverHandoff(handoff) {
+        if (embeddedMarketHostRef.current) {
+          return embeddedMarketHostRef.current.deliverHandoff(handoff);
+        }
+        const deliver = deliverHandoffRef.current;
+        return deliver
+          ? deliver(handoff)
+          : Promise.reject(new Error("Mod Wiki 交接通道不可用"));
+      },
     }),
     [resolution.src],
   );
@@ -407,6 +638,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     if (embeddedMarket) {
       requestContextRef.current = undefined;
       invokeUiActionRef.current = undefined;
+      deliverHandoffRef.current = undefined;
       return;
     }
     setFrameState("loading");
@@ -430,6 +662,17 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         timer: number;
       }
     >();
+    const pendingHandoffs = new Map<
+      string,
+      {
+        handoff: WikiHandoff;
+        resolve(value: unknown): void;
+        reject(reason: unknown): void;
+        timer: number;
+        sent: boolean;
+      }
+    >();
+    let helloCapabilities = new Set<string>();
     handshakeRef.current = false;
     acknowledgedRef.current = false;
     setBridgeState("pending");
@@ -453,6 +696,23 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       );
     };
 
+    const postSessionInit = (session: ModSession) => {
+      if (!handshakeRef.current) return;
+      frame.contentWindow?.postMessage(
+        createDeskInit(
+          manifest,
+          instanceId,
+          userId,
+          workspaceId,
+          themeRef.current,
+          locale,
+          timezone,
+          session,
+        ),
+        expectedOrigin,
+      );
+    };
+
     const ensureSession = (force = false): Promise<ModSession> => {
       const current = sessionRef.current;
       if (
@@ -463,6 +723,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         return Promise.resolve(current);
       }
       if (!force && sessionPromiseRef.current) return sessionPromiseRef.current;
+      const isRenewal = current !== undefined;
       const pending = sessionIssuer({
         modId: manifest.id,
         instanceId,
@@ -471,6 +732,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       }).then((session) => {
         sessionRef.current = session;
         sessionPromiseRef.current = undefined;
+        if (isRenewal) postSessionInit(session);
         return session;
       }, (error) => {
         sessionPromiseRef.current = undefined;
@@ -478,6 +740,23 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       });
       sessionPromiseRef.current = pending;
       return pending;
+    };
+
+    const refreshSession = async (): Promise<ModSession> => {
+      return ensureSession(true);
+    };
+
+    const withSessionRecovery = async <T,>(
+      operation: (session: ModSession) => Promise<T>,
+    ): Promise<T> => {
+      let session = await ensureSession();
+      try {
+        return await operation(session);
+      } catch (reason) {
+        if (!isRecoverableSessionError(reason)) throw reason;
+        session = await refreshSession();
+        return operation(session);
+      }
     };
 
     const postInit = async () => {
@@ -559,6 +838,52 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     };
     invokeUiActionRef.current = invokeUiAction;
 
+    const flushHandoffs = () => {
+      if (!acknowledgedRef.current) return;
+      for (const [requestId, pending] of pendingHandoffs) {
+        if (pending.sent) continue;
+        if (!helloCapabilities.has("handoff")) {
+          pendingHandoffs.delete(requestId);
+          window.clearTimeout(pending.timer);
+          pending.reject(new Error("目标 Mod 尚未接入 Wiki 交接"));
+          continue;
+        }
+        pending.sent = true;
+        frame.contentWindow?.postMessage(
+          deskHandoffSchema.parse({
+            type: "vibedesk:handoff",
+            requestId,
+            instanceId,
+            modId: manifest.id,
+            handoff: pending.handoff,
+          }),
+          expectedOrigin,
+        );
+      }
+    };
+
+    const deliverHandoff = (handoff: WikiHandoff): Promise<unknown> => {
+      if (handoff.targetModId !== manifest.id) {
+        return Promise.reject(new Error("Wiki 交接目标与当前 Mod 不一致"));
+      }
+      const requestId = createInstanceId();
+      return new Promise((resolve, reject) => {
+        const timer = window.setTimeout(() => {
+          pendingHandoffs.delete(requestId);
+          reject(new Error("Mod Wiki 交接超时"));
+        }, 10_000);
+        pendingHandoffs.set(requestId, {
+          handoff,
+          resolve,
+          reject,
+          timer,
+          sent: false,
+        });
+        flushHandoffs();
+      });
+    };
+    deliverHandoffRef.current = deliverHandoff;
+
     const finishContextRequest = (
       requestId: string,
       context?: ModPageContext,
@@ -611,6 +936,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
           return;
         }
         handshakeRef.current = true;
+        helloCapabilities = new Set(hello.data.capabilities);
         setBridgeState("hello");
         if (registeredWindow !== currentWindow) registerCurrentWindow();
         void postInit().catch(() => {
@@ -632,6 +958,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         handshakeRef.current = true;
         acknowledgedRef.current = true;
         setBridgeState("acknowledged");
+        flushHandoffs();
         void requestContext("initial");
         return;
       }
@@ -675,8 +1002,10 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         }
         latestContextRef.current = context.data.context;
         setContextState("received");
-        void ensureSession()
-          .then((session) => contextSaver(session, context.data.context))
+        onContextPublishedRef.current?.(context.data.context);
+        void withSessionRecovery((session) =>
+          contextSaver(session, context.data.context),
+        )
           .then(
             () =>
               finishContextRequest(
@@ -713,6 +1042,25 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         return;
       }
 
+      const handoffResult = modHandoffResultSchema.safeParse(message.data);
+      if (handoffResult.success) {
+        if (
+          !acknowledgedRef.current ||
+          handoffResult.data.modId !== manifest.id ||
+          handoffResult.data.instanceId !== instanceId
+        ) {
+          logIgnoredMessage("handoff result handshake mismatch");
+          return;
+        }
+        const pending = pendingHandoffs.get(handoffResult.data.requestId);
+        if (!pending || pending.handoff.id !== handoffResult.data.handoffId) return;
+        pendingHandoffs.delete(handoffResult.data.requestId);
+        window.clearTimeout(pending.timer);
+        if (handoffResult.data.ok) pending.resolve(handoffResult.data.result);
+        else pending.reject(new Error(handoffResult.data.error.message));
+        return;
+      }
+
       const actionRequest = modActionRequestSchema.safeParse(message.data);
       if (actionRequest.success) {
         if (
@@ -733,12 +1081,13 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
             ? requestContext("agent")
             : Promise.resolve();
         void synchronizeContext
-          .then(() => ensureSession())
-          .then((session) =>
-            actionInvoker(
-              session,
-              actionRequest.data.actionId,
-              actionRequest.data.input,
+          .then(() =>
+            withSessionRecovery((session) =>
+              actionInvoker(
+                session,
+                actionRequest.data.actionId,
+                actionRequest.data.input,
+              ),
             ),
           )
           .then(({ status, body }) => {
@@ -817,8 +1166,14 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         pending.reject(new Error("Mod frame was closed"));
       }
       pendingUiActions.clear();
+      for (const pending of pendingHandoffs.values()) {
+        window.clearTimeout(pending.timer);
+        pending.reject(new Error("Mod frame was closed"));
+      }
+      pendingHandoffs.clear();
       requestContextRef.current = undefined;
       invokeUiActionRef.current = undefined;
+      deliverHandoffRef.current = undefined;
       if (registeredWindow) eventBus.unregister(registeredWindow);
     };
   }, [
@@ -904,6 +1259,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       latestContextRef.current = undefined;
       embeddedContextProviderRef.current = undefined;
       embeddedUiActionHandlerRef.current = undefined;
+      embeddedHandoffHandlerRef.current = undefined;
       embeddedMarketHostRef.current = createEmbeddedMarketHost({
         manifest,
         userId,
@@ -917,7 +1273,11 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         latestContextRef,
         contextProviderRef: embeddedContextProviderRef,
         uiActionHandlerRef: embeddedUiActionHandlerRef,
-        onContextPublished: () => setContextState("received"),
+        handoffHandlerRef: embeddedHandoffHandlerRef,
+        onContextPublished: (context) => {
+          setContextState("received");
+          onContextPublishedRef.current?.(context);
+        },
       });
     }
     const hostConnection = embeddedMarketHostRef.current;
@@ -931,24 +1291,18 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         data-vibedesk-context-state={contextState}
         data-vibedesk-embedded={embedded || undefined}
       >
-        {!embedded && onToggleCopilot ? (
-          <header className="frame-toolbar embedded-market-toolbar">
-            <div>
-              <strong>{manifest.name}</strong>
-              <span>{manifest.version}</span>
-            </div>
-            <div className="frame-toolbar-actions">
-              <button
-                type="button"
-                className="frame-copilot-button"
-                aria-pressed={copilotOpen}
-                onClick={onToggleCopilot}
-              >
-                <MessageSquareText size={14} aria-hidden="true" />
-                问当前 Mod
-              </button>
-            </div>
-          </header>
+        {!embedded ? (
+          <FrameToolbar
+            manifest={manifest}
+            copilotOpen={copilotOpen}
+            onToggleCopilot={onToggleCopilot}
+            wikiSubjectName={wikiSubjectName}
+            wikiLinks={wikiLinks}
+            wikiLoading={wikiLoading}
+            wikiActiveLinkId={wikiActiveLinkId}
+            wikiError={wikiError}
+            onOpenWikiLink={onOpenWikiLink}
+          />
         ) : null}
         <Suspense
           fallback={(
@@ -983,29 +1337,18 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       data-vibedesk-embedded={embedded || undefined}
     >
       {!embedded ? (
-        <header className="frame-toolbar">
-          <div>
-            <strong>{manifest.name}</strong>
-            <span>{manifest.version}</span>
-          </div>
-          <div className="frame-toolbar-actions">
-            {onToggleCopilot ? (
-              <button
-                type="button"
-                className="frame-copilot-button"
-                aria-pressed={copilotOpen}
-                onClick={onToggleCopilot}
-              >
-                <MessageSquareText size={14} aria-hidden="true" />
-                问当前 Mod
-              </button>
-            ) : null}
-            <a href={resolution.src} target="_blank" rel="noreferrer">
-              独立打开
-              <ExternalLink size={14} aria-hidden="true" />
-            </a>
-          </div>
-        </header>
+        <FrameToolbar
+          manifest={manifest}
+          copilotOpen={copilotOpen}
+          onToggleCopilot={onToggleCopilot}
+          externalUrl={resolution.src}
+          wikiSubjectName={wikiSubjectName}
+          wikiLinks={wikiLinks}
+          wikiLoading={wikiLoading}
+          wikiActiveLinkId={wikiActiveLinkId}
+          wikiError={wikiError}
+          onOpenWikiLink={onOpenWikiLink}
+        />
       ) : null}
       {frameState === "loading" ? (
         <div className="frame-status" role="status">

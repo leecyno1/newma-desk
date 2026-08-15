@@ -24,6 +24,10 @@ Newma-Desk 左侧只显示十四个核心投研栏目与“其他”的中文方
 
 读取 Navigation Descriptor 并生成独立 Mod Manifest 的 Module。Git / 本地文件与 `.well-known/newma-desk-suite.json` HTTP 声明是该 Seam 上的不同 Adapter；旧 `.well-known/newma-dock-suite.json` 与 `.well-known/vibedesk-suite.json` 在兼容期作为回退入口。生成后的 Manifest 继续进入既有 Mod Registry。
 
+## Mod Update Catalog
+
+以 GitHub `main` 的明确 commit 为发布快照，统一提供目录同步、版本比较和项目级安装。Desk 校验完整商店与 Suite 后原子替换本地快照；Newma 宿主只调用 Desk Interface，不直接执行 Git、写插件目录或复制 Desk 业务代码。
+
 ## Navigation Compiler
 
 把已发布 Mod Manifest、Suite 默认导航和 Preference Overlay 编译成 Desk 唯一导航树的 Module。一级栏目、二级完整项目分组、项目设置和当前路由都应读取同一份编译结果。
@@ -39,6 +43,62 @@ Newma-Desk 左侧只显示十四个核心投研栏目与“其他”的中文方
 ## Integrated Domain Runtime
 
 把第一方 Research / Trading Mod Suite 收敛到 Desk 核心交付物中的运行方式。该 Module 只暴露经过权限筛选的领域 Interface，复用 Desk Agent、模型设置、调度和确认能力；生产环境使用一套固定依赖，不加载嵌套工作区的虚拟环境，也不启动上游自带 Agent、频道或后台任务。
+
+## Creator Studio Suite
+
+Newma-Desk 中承载完整自媒体创作主链的 Mod Suite。它以状态看板为默认首页，以内容采集、选题 Brief、初稿生产、多通路转写、发布、复盘六个 Workflow Stage 作为纵向导航；审核、交付物、剪辑和发布操作属于具体 Workflow Node，不再形成独立业务页面。
+
+## Workflow Stage
+
+自媒体主链中的稳定纵向阶段。六个 Stage 只表达业务进程和阶段交付，不直接暴露脚本、目录或旧 Manifest 差异；每个 Stage 的内部步骤由横向 Workflow Node 表达。
+
+## Workflow Node
+
+Workflow Stage 内可独立运行、审核、反馈和转接的最小工作节点。Node 声明 Material Requirement、输出 Artifact、Gate、Action、可用 Capability Adapter 和 Editor Session；用户可从任意 Node 新建项目，但必须先满足该 Node 的 Material Requirement。
+
+## Node Workspace
+
+用户选择一个 Workflow Stage 和 Workflow Node 后进入的统一互动页面。它集中显示状态、输入素材、上游交付物、当前产物、参数、修改与反馈、审核、人工编辑、运行日志和下一节点转接，避免把同一节点的信息拆散到多个全局页面。
+
+## Material Requirement
+
+Workflow Node 对输入素材的结构化要求，包括类型、格式、是否必需以及允许来自人工上传或上游 Artifact Handoff。Node 在 Material Requirement 未满足时不得进入运行状态。
+
+## Artifact Handoff
+
+把上游 Workflow Node 的版本化 Artifact 作为下游 Material Requirement 输入的转接记录。它保存来源 Run、来源 Artifact、目标 Stage / Node 和匹配结果，只传递引用与版本，不复制媒体文件；人工修改上游后，受影响的下游交付物必须标记为 stale。
+
+## Capability Adapter
+
+在受控 Seam 上封装本地 CLI、Skill、外部项目、编辑器或发布连接器差异的 Adapter。前端只能按注册 ID 和声明参数调用，不能提交任意终端命令；CLI 检测、参数构造、输出解析和错误归一都留在 Adapter Implementation 内。
+
+## Node Execution Adapter
+
+把一个 Workflow Node 的结构化输入转换为真实执行、人工审核会话或编辑会话的 Adapter。每个 Node 只引用稳定 Executor ID；命令白名单、参数构造、运行时选择、日志和 Artifact 回写集中在 Creator Run Control Module 内，Agent 与可视化按钮共用同一 Interface。
+
+## Creator Execution Job
+
+Workflow Node 的持久化异步执行记录。Job 保存 Run、Node、Executor、结构化请求、进度、结果和取消状态；后台运行与 Run revision 原子衔接，应用重启后排队任务可恢复，已中断任务明确失败，不允许前端用本地状态伪装执行完成。
+
+## Editor Session Runtime
+
+人工编辑节点的受控运行 Module。它根据 Registry 只启动白名单 Editor Adapter，记录打开、保存、关闭和输出 Artifact；HTML Anything、HTML Video、公众号预览、分镜与粗剪审核等编辑器共享同一 Interface，未注册实现必须明确显示不可用。
+
+## Publish Execution Module
+
+发布阶段中“预检、明确确认、执行、回执验真”的深 Module。发布确认是一次性权限，进入 Creator Execution Job 队列即消费，失败重试必须重新确认；账号健康、阻塞项、平台回执和验真结果统一回写 Run 的 Publish State。
+
+## Artifact Lineage
+
+维护 Artifact 版本、内容摘要、父产物、生产 Job 和参数摘要的 Module。新版本不覆盖旧版本；已被 Handoff 消费的上游 Artifact 被替代后，Lineage 沿 Handoff 图递归把下游 Material、Artifact、Node 和 Handoff 标记为 stale，直到新的版本化 Handoff 恢复目标 Node。
+
+## Creator Marketplace
+
+Creator Studio Suite 内用于测试和选择仓库、Skills、模板、流水线、编辑器和发布连接器的业务超市。选择项先经过兼容性检查和演示，再保存为版本化预设；它不替代 Newma Mod Store，也不能直接修改生产注册表。
+
+## Notification Inbox
+
+Creator Studio Suite 的统一消息入口。它聚合待审核 Gate、新交付物、阻塞 Node、发布失败和 Handoff 就绪事件，并在顶部计数器与动态通知中投影；真实状态仍由运行事件和快照提供，通知本身不是状态源。
 
 ## Runtime Descriptor
 
@@ -72,6 +132,10 @@ External Mod Runtime 的统一声明文件。它描述稳定 ID、工作区发�
 
 由 Desk 提供给 Mod 的统一持久化 Interface。Mod 只声明存储模式、namespace、Schema 版本和容量，不接触数据库地址、凭据或表名；Desk 在用户、工作区、Mod 与 namespace 四个维度实施隔离，并通过 SQLite 或未来的 PostgreSQL Adapter 提供相同语义。
 
+## Mod Data Continuity
+
+Mod 在读取型页面中保留最后一次成功展示快照，并在后台刷新最新数据的标准行为。快照按用户、Workspace、Mod 和资源隔离；刷新期间旧数据继续可见，成功后替换，失败时明确标记为上次数据。它只用于显示连续性，不保存交易执行状态、凭据或一次性任务结果。
+
 ## Research Archive Index
 
 由 Desk 从各研究 Mod 已有的 Desk Storage 文档中派生的统一研究档案索引。该 Module 只返回来源 Mod、档案 ID、标题、证券身份、状态、时间与标签等最小引用，不复制研究正文、财务明细、行情、新闻或上传文件；文件内容继续由独立 Blob Adapter 管理。
@@ -79,3 +143,19 @@ External Mod Runtime 的统一声明文件。它描述稳定 ID、工作区发�
 ## Portfolio Research Coverage
 
 把 Portfolio Ledger 当前持仓与 Research Archive Index 按市场和证券代码匹配后即时派生的研究覆盖视图。它只表达是否具备有效核心档案、支持档案、复核日期和来源引用，不复制研究正文、不持久化派生结果，也不产生持仓评分、仓位建议或交易信号。
+
+## Mod Wiki Graph
+
+由全部已发布 Mod 的 Wiki Profile、当前页面 Wiki Subject、研究意图、概念标签和数据能力即时派生的跨 Mod 连接图。它只保存身份与能力引用，不复制行情、新闻、财报或研究正文；新增或更新 Mod 后由 Resolver 自动重算。
+
+## Wiki Subject
+
+跨 Mod 共享的标准研究对象。股票、ETF 与开放式基金必须同时携带对象类型、市场和代码，并使用 `security:CN:300308`、`etf:CN:512010`、`fund:CN:003562` 这类 Canonical ID；名称只用于展示和消歧，不能替代标准身份。
+
+## Wiki Profile
+
+Manifest 1.1 中可选的机器可读声明，描述 Mod 支持的 Wiki Subject 类型、概念和可进入的研究意图。只有声明入口且真实接入 Wiki Handoff 的 Mod 才能成为可跳转目标。
+
+## Wiki Handoff
+
+用户点击顶部关联 Mod 后，由 Desk 创建的短期、用户与 Workspace 隔离的对象交接记录。Shell 只在目标 Mod 完成 Bridge 握手后投递，目标确认接收后消费；长参数 URL 不再承担跨 Mod 状态传递。

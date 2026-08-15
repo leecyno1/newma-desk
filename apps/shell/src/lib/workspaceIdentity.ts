@@ -5,6 +5,7 @@ export interface WorkspaceIdentity {
 
 const USER_KEY = "vibedesk.userId.v1";
 const WORKSPACE_KEY = "vibedesk.workspaceId.v1";
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 function randomId(prefix: string): string {
   const value =
@@ -13,21 +14,26 @@ function randomId(prefix: string): string {
   return `${prefix}-${value}`;
 }
 
+function locationWorkspaceId(): string | undefined {
+  const value = new URLSearchParams(window.location.search).get("workspace")?.trim();
+  return value && ID_PATTERN.test(value) ? value : undefined;
+}
+
 export function loadWorkspaceIdentity(): WorkspaceIdentity {
   try {
     const storedUser = window.localStorage.getItem(USER_KEY);
     const storedWorkspace = window.localStorage.getItem(WORKSPACE_KEY);
     const userId = storedUser || randomId("user");
-    const workspaceId = storedWorkspace || randomId("workspace");
+    const workspaceId = locationWorkspaceId() || storedWorkspace || randomId("workspace");
     if (!storedUser) window.localStorage.setItem(USER_KEY, userId);
-    if (!storedWorkspace) {
+    if (!storedWorkspace && !locationWorkspaceId()) {
       window.localStorage.setItem(WORKSPACE_KEY, workspaceId);
     }
     return { userId, workspaceId };
   } catch {
     return {
       userId: randomId("user"),
-      workspaceId: randomId("workspace"),
+      workspaceId: locationWorkspaceId() || randomId("workspace"),
     };
   }
 }

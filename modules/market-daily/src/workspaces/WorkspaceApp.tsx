@@ -19,7 +19,7 @@ import {
   type ModHostConnection,
 } from "@newma-desk/mod-sdk";
 
-import { createMarketDataSource, securityKey } from "../data";
+import { createMarketDataSource, isEtfSecurity, isOpenFundSecurity, securityKey } from "../data";
 import {
   createMarketAlertClient,
   useMarketAlerts,
@@ -28,6 +28,10 @@ import {
 import { resolveParentOrigin } from "../lib/runtimeOrigin";
 import { MarketAlertCenter } from "../MarketAlertCenter";
 import type { MarketDataSource, Quote, SecurityRef } from "../types";
+import {
+  securityFromWikiHandoff,
+  wikiContextForSecurity,
+} from "../wiki";
 import { EventTimelineWorkspace } from "./EventTimelineWorkspace";
 import { MultiTimeframeWorkspace } from "./MultiTimeframeWorkspace";
 import { RelativeStrengthWorkspace } from "./RelativeStrengthWorkspace";
@@ -36,6 +40,7 @@ import { ScannerWorkspace } from "./ScannerWorkspace";
 import type { MarketWorkspaceConfig } from "./config";
 import {
   SecuritySearch,
+  EVENT_TIMELINE_ETFS,
   WORKSPACE_SECURITIES,
   formatPrice,
   movement,
@@ -123,6 +128,15 @@ export function buildWorkspacePageContext(input: {
       { id: "market.set-alert", label: "设置价格预警", available: true, inputSchema: { type: "object", required: ["direction", "price"], properties: { direction: { enum: ["above", "below"] }, price: { type: "number", exclusiveMinimum: 0 }, label: { type: "string", maxLength: 80 } }, additionalProperties: false } },
       { id: "workspace.save-layout", label: "保存当前布局", available: true, inputSchema: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, additionalProperties: false } },
     ],
+    ...(input.config.kind === "event-timeline"
+      ? {
+          wiki: wikiContextForSecurity({
+            security: input.security,
+            intent: "event.timeline",
+            timeframe: "daily",
+          }),
+        }
+      : {}),
     tasks: [],
   };
 }
@@ -143,7 +157,16 @@ export function MarketWorkspaceApp({
   const fetcher = useMemo(() => providedFetch ?? globalThis.fetch.bind(globalThis), [providedFetch]);
   const [gatewayOrigin, setGatewayOrigin] = useState(gatewayBaseUrl || configuredOrigin("gateway"));
   const [hostConnection, setHostConnection] = useState<EmbeddedHost | undefined>(providedHostConnection);
-  const [hostIdentity, setHostIdentity] = useState<{ userId: string; workspaceId: string }>();
+  const [hostIdentity, setHostIdentity] = useState<{ userId: string; workspaceId: string } | undefined>(() => (
+    providedHostConnection
+      ? {
+          userId: providedHostConnection.config.user.id,
+          workspaceId: providedHostConnection.config.workspace.id,
+        }
+      : window.self === window.top
+        ? { userId: "local-user", workspaceId: "local-workspace" }
+        : undefined
+  ));
   const dataSource = useMemo(
     () => providedDataSource ?? createMarketDataSource({
       baseUrl: gatewayOrigin,
@@ -160,15 +183,12 @@ export function MarketWorkspaceApp({
   const ownsBridge = !providedBridge;
   const closeTimer = useRef<number | undefined>(undefined);
   const [security, setSecurity] = useState<SecurityRef>(initialSecurity);
+  const [securityValidated, setSecurityValidated] = useState(() => !isOpenFundSecurity(initialSecurity));
   const [quote, setQuote] = useState<Quote>();
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [workspaceState, setWorkspaceState] = useState<Record<string, unknown>>({});
   const [workspaceAction, setWorkspaceAction] = useState<WorkspaceUiAction>();
-  const alertIdentity = hostIdentity ?? (
-    window.self === window.top
-      ? { userId: "local-user", workspaceId: "local-workspace" }
-      : undefined
-  );
+  const alertIdentity = hostIdentity;
   const sharedAlertClient = useMemo(() => {
     if (providedAlertClient === null) return undefined;
     if (providedAlertClient) return providedAlertClient;
@@ -194,6 +214,12 @@ export function MarketWorkspaceApp({
   } = useMarketAlerts(sharedAlertClient);
   const [lastSavedLayout, setLastSavedLayout] = useState<{ name: string; savedAt: string }>();
   const [error, setError] = useState("");
+  const quoteResourceKeyRef = useRef("");
+  const isEtf = isEtfSecurity(security);
+  const isFund = isOpenFundSecurity(security);
+  const shortcutSecurities = config.kind === "event-timeline"
+    ? [...WORKSPACE_SECURITIES.slice(0, 2), ...EVENT_TIMELINE_ETFS]
+    : WORKSPACE_SECURITIES.slice(0, 6);
   const layoutStateRef = useRef<Record<string, unknown>>({ security, ...workspaceState });
 
   const updateWorkspaceState = useCallback((next: Record<string, unknown>) => {
@@ -236,7 +262,7 @@ export function MarketWorkspaceApp({
       modId: config.modId,
       parentOrigin: configuredOrigin("parent"),
       sdkVersion: "0.1.0",
-      capabilities: ["events", "actions", "data", "context", "theme"],
+      capabilities: ["events", "actions", "data", "context", "theme", "handoff"],
       signal: controller.signal,
     }).then((connection) => {
       close = connection.close;
@@ -324,6 +350,7 @@ export function MarketWorkspaceApp({
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
 
   const selectSecurity = useCallback((next: SecurityRef, emit = true) => {
+    setSecurityValidated(true);
     setSecurity(next);
     window.localStorage.setItem(`vibedesk.${config.modId}.security.v1`, JSON.stringify(next));
     if (emit) {
@@ -332,9 +359,17 @@ export function MarketWorkspaceApp({
         name: next.name,
         market: next.market,
         exchange: next.exchange ?? "",
+        ...(next.assetType ? { assetType: next.assetType } : {}),
+        ...(next.securityType ? { securityType: next.securityType } : {}),
       });
     }
   }, [bridge, config.modId]);
+
+  useEffect(() => hostConnection?.setHandoffHandler((handoff) => {
+    const next = securityFromWikiHandoff(handoff);
+    selectSecurity(next, false);
+    return { selected: next.symbol };
+  }), [hostConnection, selectSecurity]);
 
   useEffect(() => {
     if (closeTimer.current !== undefined) {
@@ -343,13 +378,15 @@ export function MarketWorkspaceApp({
     }
     const unsubscribe = bridge.subscribe((event) => {
       if (event.event !== "security.selected") return;
-      const { symbol, name, market, exchange } = event.payload;
+      const { symbol, name, market, exchange, assetType, securityType } = event.payload;
       if (typeof symbol !== "string" || (market !== "CN" && market !== "HK" && market !== "US")) return;
       selectSecurity({
         symbol,
         name: typeof name === "string" ? name : symbol,
         market,
         ...(typeof exchange === "string" ? { exchange } : {}),
+        ...(typeof assetType === "string" ? { assetType } : {}),
+        ...(typeof securityType === "string" ? { securityType } : {}),
       }, false);
     });
     return () => {
@@ -360,28 +397,60 @@ export function MarketWorkspaceApp({
 
   useEffect(() => {
     let active = true;
-    void dataSource.quote(security).then((next) => {
-      if (!active) return;
-      setQuote(next);
+    const quoteResourceKey = `${securityKey(security)}:${security.assetType || "stock"}`;
+    if (quoteResourceKeyRef.current !== quoteResourceKey) {
+      quoteResourceKeyRef.current = quoteResourceKey;
+      setQuote(undefined);
       setError("");
-    }).catch((reason) => active && setError(errorMessage(reason)));
+    }
+    void (async () => {
+      try {
+        if (!securityValidated && isOpenFundSecurity(security)) {
+          const matches = await dataSource.search(security.name, security.market);
+          if (!active) return;
+          const replacement = matches.find((item) => (
+            item.market === security.market
+            && item.symbol === security.symbol
+            && item.name.trim() === security.name.trim()
+            && !isOpenFundSecurity(item)
+          ));
+          if (replacement) {
+            selectSecurity(replacement, false);
+            return;
+          }
+        }
+        const next = await dataSource.quote(security);
+        if (!active) return;
+        setQuote(next);
+        setSecurityValidated(true);
+        setError("");
+      } catch (reason) {
+        if (active) setError(errorMessage(reason));
+      }
+    })();
     return () => {
       active = false;
     };
-  }, [dataSource, refreshNonce, security]);
+  }, [dataSource, refreshNonce, security, selectSecurity]);
 
-  const content = config.kind === "scanner"
-    ? <ScannerWorkspace dataSource={dataSource} security={security} onSelectSecurity={selectSecurity} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
+  const content = !securityValidated
+    ? null
+    : config.kind === "scanner"
+    ? <ScannerWorkspace dataSource={dataSource} cacheIdentity={hostIdentity} security={security} onSelectSecurity={selectSecurity} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
     : config.kind === "multi-timeframe"
       ? <MultiTimeframeWorkspace action={workspaceAction} dataSource={dataSource} security={security} quote={quote} theme={theme} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
       : config.kind === "relative-strength"
-        ? <RelativeStrengthWorkspace dataSource={dataSource} security={security} onSelectSecurity={selectSecurity} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
+        ? <RelativeStrengthWorkspace dataSource={dataSource} cacheIdentity={hostIdentity} security={security} onSelectSecurity={selectSecurity} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
         : config.kind === "event-timeline"
-          ? <EventTimelineWorkspace action={workspaceAction} dataSource={dataSource} security={security} theme={theme} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
-          : <ReplayWorkspace action={workspaceAction} artifactClient={artifactClient} dataSource={dataSource} security={security} theme={theme} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />;
+          ? <EventTimelineWorkspace action={workspaceAction} cacheIdentity={hostIdentity} dataSource={dataSource} security={security} quote={quote} theme={theme} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
+          : <ReplayWorkspace action={workspaceAction} artifactClient={artifactClient} cacheIdentity={hostIdentity} dataSource={dataSource} security={security} theme={theme} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />;
 
   return (
-    <main className={`market-workspace-root${error ? " has-error" : ""}`} style={{ "--workspace-accent": config.accent } as CSSProperties}>
+    <main
+      className={`market-workspace-root${error ? " has-error" : ""}`}
+      data-embedded={embedded || undefined}
+      style={{ "--workspace-accent": config.accent } as CSSProperties}
+    >
       <header className="workspace-topbar">
         <div className="workspace-title">
           <strong>{config.title}</strong>
@@ -392,15 +461,15 @@ export function MarketWorkspaceApp({
       </header>
       <section className="workspace-quote-strip">
         <div className="workspace-current-security">
-          <i>{security.market}</i>
-          <span><strong>{quote?.name || security.name}</strong><small>{security.symbol} · {quote?.exchange || security.exchange || security.market}</small></span>
+          <i>{isFund ? "基金" : isEtf ? "ETF" : security.market}</i>
+          <span><strong>{quote?.name || security.name}</strong><small>{security.symbol} · {isEtf || isFund ? `${security.market} · ` : ""}{quote?.exchange || security.exchange || security.market}</small></span>
         </div>
         <div className={`workspace-current-price ${movement(quote?.changePct)}`}>
-          <strong>{formatPrice(quote?.price, security.market === "HK" ? 3 : 2)}</strong>
+          <strong>{formatPrice(quote?.price, isFund ? 4 : security.market === "HK" ? 3 : 2)}</strong>
           <span>{signed(quote?.changePct)}</span>
         </div>
         <div className="workspace-security-shortcuts" role="group" aria-label="快速切换标的">
-          {WORKSPACE_SECURITIES.slice(0, 6).map((item) => (
+          {shortcutSecurities.map((item) => (
             <button type="button" key={securityKey(item)} aria-pressed={securityKey(item) === securityKey(security)} onClick={() => selectSecurity(item)}>{item.name}</button>
           ))}
         </div>

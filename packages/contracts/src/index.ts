@@ -14,3 +14,4 @@ export * from "./researchArchive";
 export * from "./thesis";
 export * from "./valuation";
 export * from "./view";
+export * from "./wiki";

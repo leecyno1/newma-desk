@@ -1,10 +1,8 @@
-export type StoreInstallState =
-  | "available"
-  | "installed"
-  | "update-available";
+export type StoreInstallState = "available" | "installed" | "update-available";
 
 export interface StoreMod {
   id: string;
+  suiteId: string;
   name: string;
   description: string;
   version: string;
@@ -15,6 +13,8 @@ export interface StoreMod {
   defaultInstall: boolean;
   installState: StoreInstallState;
   installedRevision?: number;
+  installedVersion?: string;
+  installedStatus?: "published" | "disabled";
   sourceUrl: string;
 }
 
@@ -23,6 +23,9 @@ export interface ModStoreCatalog {
   name: string;
   repository: string;
   ref: string;
+  catalogSource: "bundled" | "github";
+  commit?: string;
+  syncedAt?: string;
   mods: StoreMod[];
 }
 
@@ -61,6 +64,7 @@ function parseStoreMod(value: unknown): StoreMod {
   }
   return {
     id: row.id,
+    suiteId: nonEmptyString(row.suiteId) ? row.suiteId : row.id,
     name: row.name,
     description: row.description,
     version: row.version,
@@ -73,12 +77,18 @@ function parseStoreMod(value: unknown): StoreMod {
     ...(row.installedRevision === undefined
       ? {}
       : { installedRevision: row.installedRevision as number }),
+    ...(nonEmptyString(row.installedVersion)
+      ? { installedVersion: row.installedVersion }
+      : {}),
+    ...(row.installedStatus === "published" ||
+    row.installedStatus === "disabled"
+      ? { installedStatus: row.installedStatus }
+      : {}),
     sourceUrl: row.sourceUrl,
   };
 }
 
-export async function listStoreMods(): Promise<ModStoreCatalog> {
-  const response = await fetch("/api/store/mods");
+async function readStoreCatalog(response: Response): Promise<ModStoreCatalog> {
   if (!response.ok) throw new Error(`Mod 商店连接失败（${response.status}）`);
   let value: unknown;
   try {
@@ -104,8 +114,19 @@ export async function listStoreMods(): Promise<ModStoreCatalog> {
     name: row.name,
     repository: row.repository,
     ref: row.ref,
+    catalogSource: row.catalogSource === "github" ? "github" : "bundled",
+    ...(nonEmptyString(row.commit) ? { commit: row.commit } : {}),
+    ...(nonEmptyString(row.syncedAt) ? { syncedAt: row.syncedAt } : {}),
     mods: row.mods.map(parseStoreMod),
   };
+}
+
+export async function listStoreMods(): Promise<ModStoreCatalog> {
+  return readStoreCatalog(await fetch("/api/store/mods"));
+}
+
+export async function syncStoreMods(): Promise<ModStoreCatalog> {
+  return readStoreCatalog(await fetch("/api/store/sync", { method: "POST" }));
 }
 
 export async function installStoreMod(
@@ -134,7 +155,11 @@ export async function installStoreMod(
     body && typeof body === "object"
       ? (body as Record<string, unknown>).action
       : undefined;
-  if (action !== "installed" && action !== "updated" && action !== "unchanged") {
+  if (
+    action !== "installed" &&
+    action !== "updated" &&
+    action !== "unchanged"
+  ) {
     throw new Error("Mod 商店返回了无效安装结果");
   }
   return action;

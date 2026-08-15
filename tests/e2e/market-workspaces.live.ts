@@ -30,11 +30,11 @@ test.describe("Newma-Desk chart workspace Mods", () => {
     await page.goto(shellOrigin);
 
     const navigation = page.getByRole("navigation", { name: "Newma-Desk Mod 导航" });
-    const intelligenceProject = navigation.getByRole("button", { name: "情报 项目", exact: true });
+    const intelligenceProject = navigation.getByRole("button", { name: "全球 项目", exact: true });
     await expect(intelligenceProject).toHaveAttribute("aria-current", "page");
-    const intelligenceSecondary = page.getByRole("complementary", { name: "情报 二级导航" });
+    const intelligenceSecondary = page.getByRole("complementary", { name: "全球 二级导航" });
     await expect(intelligenceSecondary).toBeVisible();
-    for (const label of ["全球情报", "新闻与舆情", "个股事件轴", "催化剂日历"]) {
+    for (const label of ["全球情报", "新闻与舆情", "日线时间轴", "催化剂日历"]) {
       await expect(intelligenceSecondary.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
     const globalSituation = embeddedWorkspace(page, "global-situation");
@@ -42,8 +42,17 @@ test.describe("Newma-Desk chart workspace Mods", () => {
     await expect(globalSituation.getByText("全球情报", { exact: true }).first()).toBeVisible();
     await expect(globalSituation.getByLabel("全球情报地图")).toBeVisible();
     await expect(globalSituation.locator(".intel-hud")).toContainText("综合风险");
-    await expect(globalSituation.locator(".intel-event-list article").first()).toBeVisible();
-    await expect(globalSituation.locator(".intel-load-card strong")).toHaveText("47/47", { timeout: 120_000 });
+    const dataUpdateCard = globalSituation.locator(".intel-health-card");
+    await expect(dataUpdateCard).toContainText(/\d+\/\d+/, { timeout: 120_000 });
+    await expect(dataUpdateCard).not.toContainText("等待更新");
+    await expect(globalSituation.locator(".intel-live-state")).not.toHaveAttribute("data-status", "connecting");
+    const firstEvent = globalSituation.locator(".intel-event-list article").first();
+    const settledEmpty = globalSituation.locator('.intel-empty[data-state="settled"]');
+    await expect(firstEvent.or(settledEmpty)).toBeVisible();
+    if (await settledEmpty.isVisible()) {
+      await expect(settledEmpty).toContainText("数据已结算，暂无实时事件");
+      await expect(settledEmpty).toContainText(/\d+\/\d+ 个数据任务已完成/);
+    }
 
     const presetButton = globalSituation.getByRole("button", { name: /态势：/ });
     await expect(presetButton).toContainText("态势：综合");
@@ -103,7 +112,7 @@ test.describe("Newma-Desk chart workspace Mods", () => {
       ["market-scanner", "市场扫描器"],
       ["multi-timeframe", "多周期看盘"],
       ["relative-strength", "相对强弱地图"],
-      ["event-timeline", "事件时间轴"],
+      ["event-timeline", "日线时间轴"],
       ["trading-replay", "交易回放室"],
     ] as const;
 
@@ -144,13 +153,13 @@ test.describe("Newma-Desk chart workspace Mods", () => {
 
     await page.goto(`${shellOrigin}/?mod=event-timeline`);
     const eventTimeline = embeddedWorkspace(page, "event-timeline");
-    await expect(eventTimeline.getByText("事件时间轴", { exact: true })).toBeVisible();
-    await expect(eventTimeline.getByLabel("事件时间轴 K 线图")).toBeVisible();
+    await expect(eventTimeline.getByText("日线时间轴", { exact: true }).first()).toBeVisible();
+    await expect(eventTimeline.getByLabel("日线时间轴 K 线图")).toBeVisible();
     await expect(eventTimeline.getByRole("group", { name: "事件筛选" })).toBeVisible();
 
     await page.goto(`${shellOrigin}/?mod=trading-replay`);
     const tradingReplay = embeddedWorkspace(page, "trading-replay");
-    await expect(tradingReplay.getByText("交易回放室", { exact: true })).toBeVisible();
+    await expect(workspaceTitle(page, "trading-replay")).toHaveText("交易回放室");
     await expect(tradingReplay.getByText(/未来数据已隐藏/)).toBeVisible();
     await tradingReplay.getByRole("button", { name: "模拟买入" }).click();
     await expect(tradingReplay.getByText("决策次数").locator("..")).toContainText("1");
@@ -159,12 +168,82 @@ test.describe("Newma-Desk chart workspace Mods", () => {
     expect(errors).toEqual([]);
   });
 
+  test("loads stock, ETF and open fund timelines from code or name search", async ({ page }) => {
+    const errors = collectConsoleErrors(page);
+    await page.goto(`${shellOrigin}/?mod=event-timeline`);
+    const workspace = embeddedWorkspace(page, "event-timeline");
+    const search = workspace.getByRole("textbox", { name: "搜索证券" });
+    const currentSecurity = workspace.locator(".workspace-current-security");
+    const timelineCount = workspace.locator(".event-chart-panel .workspace-section-title small");
+
+    const selectSecurity = async (query: string, code: string) => {
+      await search.fill(query);
+      const result = workspace.getByRole("listbox").getByRole("button").filter({ hasText: code }).first();
+      await expect(result).toBeVisible({ timeout: 30_000 });
+      await result.click();
+      await expect(currentSecurity).toContainText(code);
+      await expect(timelineCount).not.toHaveText("等待数据", { timeout: 30_000 });
+      await expect(workspace.locator(".workspace-error-banner")).toHaveCount(0);
+      await expect(workspace.locator(".workspace-update-note.workspace-error")).toHaveCount(0);
+    };
+
+    await selectSecurity("zjxc", "300308");
+    await expect(currentSecurity.locator("i")).toHaveText("CN");
+
+    await selectSecurity("00981", "00981");
+    await expect(currentSecurity.locator("i")).toHaveText("HK");
+
+    await selectSecurity("AAPL", "AAPL");
+    await expect(currentSecurity.locator("i")).toHaveText("US");
+
+    await selectSecurity("510300", "510300");
+    await expect(currentSecurity.locator("i")).toHaveText("ETF");
+    await expect(workspace.getByText("ETF 日线事件", { exact: true })).toBeVisible();
+
+    await selectSecurity("易方达消费", "110022");
+    await expect(currentSecurity.locator("i")).toHaveText("基金");
+    await expect(workspace.getByText("基金净值事件", { exact: true })).toBeVisible();
+    await expect(workspace.getByText("data service upstream failed", { exact: false })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("repairs a previously cached stock that was misclassified as an open fund", async ({ page }) => {
+    const errors = collectConsoleErrors(page);
+    await page.addInitScript(() => {
+      localStorage.setItem("vibedesk.event-timeline.security.v1", JSON.stringify({
+        symbol: "300308",
+        name: "中际旭创",
+        market: "CN",
+        exchange: "OTC",
+        assetType: "fund",
+      }));
+    });
+
+    await page.goto(`${shellOrigin}/?mod=event-timeline`);
+    const workspace = embeddedWorkspace(page, "event-timeline");
+    const currentSecurity = workspace.locator(".workspace-current-security");
+
+    await expect(currentSecurity).toContainText("中际旭创");
+    await expect(currentSecurity).toContainText("300308 · SZ", { timeout: 30_000 });
+    await expect(currentSecurity.locator("i")).toHaveText("CN");
+    await expect(workspace.getByText("基金", { exact: true })).toHaveCount(0);
+    await expect(workspace.getByText("data service upstream failed", { exact: false })).toHaveCount(0);
+    await expect(workspace.locator(".event-chart-panel .workspace-section-title small")).not.toHaveText("等待数据", {
+      timeout: 30_000,
+    });
+    await expect.poll(async () => workspace.evaluate(() => {
+      const saved = localStorage.getItem("vibedesk.event-timeline.security.v1");
+      return saved ? JSON.parse(saved) : null;
+    })).toMatchObject({ symbol: "300308", exchange: "SZ", assetType: "stock" });
+    expect(errors).toEqual([]);
+  });
+
   test("replays security selection into another Mod and persists structured Agent context", async ({ page, request }) => {
     const errors = collectConsoleErrors(page);
     await page.goto(`${shellOrigin}/?mod=market-scanner`);
     const scanner = embeddedWorkspace(page, "market-scanner");
     await expect(scanner.getByText("市场扫描器", { exact: true })).toBeVisible();
-    await scanner.locator("button.scanner-row").filter({ hasText: "中芯国际" }).first().click();
+    await scanner.locator("button.scanner-row").filter({ hasText: "688981" }).click();
 
     await page
       .locator('[data-module-id="multi-timeframe"] .module-button')

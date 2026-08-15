@@ -44,6 +44,27 @@
       "endpoints": {}
     },
     {
+      "id": "creator-studio",
+      "label": "Newma Creator Studio",
+      "adapter": "integrated",
+      "workspaces": {
+        "source": {
+          "env": "NEWMA_DESK_CREATOR_STUDIO_WORKSPACE",
+          "candidates": [
+            { "root": "projects", "path": "公众号文章" },
+            { "root": "repo", "path": "mod-projects/creator-studio" }
+          ]
+        }
+      },
+      "endpoints": {
+        "web": {
+          "env": "NEWMA_DESK_CREATOR_STUDIO_WEB_URL",
+          "defaultOrigin": "http://127.0.0.1:8911",
+          "healthPath": "/api/creator-studio/system"
+        }
+      }
+    },
+    {
       "id": "world-intel",
       "label": "World Intelligence MCP",
       "adapter": "world-intel",

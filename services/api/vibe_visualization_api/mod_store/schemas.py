@@ -16,6 +16,7 @@ from vibe_visualization_api.control_plane.schemas import (
     ModuleNavigationProject,
     ModuleRefresh,
     ModuleStorage,
+    ModuleWikiProfile,
     StoredModuleResponse,
 )
 
@@ -46,13 +47,6 @@ INVESTMENT_DOMAIN_IDS = {
     "quant-research",
     "investment-committee",
     "trading-risk-portfolio",
-    "other",
-}
-OTHER_DOMAIN_PROJECT = {
-    "id": "other",
-    "name": "其他",
-    "order": 150,
-    "description": "尚未归入核心投研流程的管理工具与扩展能力。",
 }
 
 
@@ -118,7 +112,11 @@ class StoreGitSource(ApiModel):
     def validate_ref(cls, value: str) -> str:
         if (
             not value[0].isalnum()
-            or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-" for character in value)
+            or any(
+                character
+                not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-"
+                for character in value
+            )
             or ".." in value
             or "//" in value
         ):
@@ -134,7 +132,7 @@ class StoreGitSource(ApiModel):
     @classmethod
     def validate_path_prefix(cls, value: str) -> str:
         if (
-            value.startswith(('/', '\\'))
+            value.startswith(("/", "\\"))
             or "\\" in value
             or any(part in {"", ".", ".."} for part in value.split("/"))
         ):
@@ -151,7 +149,7 @@ class StoreCatalogEntry(ApiModel):
     @classmethod
     def validate_path(cls, value: str) -> str:
         if (
-            value.startswith(('/', '\\'))
+            value.startswith(("/", "\\"))
             or "\\" in value
             or any(part in {"", ".", ".."} for part in value.split("/"))
             or not value.endswith("/mod.json")
@@ -199,7 +197,7 @@ class StoreSuiteCatalogEntry(ApiModel):
         if value is None:
             return None
         if (
-            value.startswith(('/', '\\'))
+            value.startswith(("/", "\\"))
             or "\\" in value
             or any(part in {"", ".", ".."} for part in value.split("/"))
             or not value.endswith("/suite.json")
@@ -251,7 +249,10 @@ class StoreCatalog(ApiModel):
             or len(paths) != len(set(paths))
             or len(suite_sources) != len(set(suite_sources))
             or len(self.retired_mods) != len(set(self.retired_mods))
-            or any(re.fullmatch(MODULE_ID_PATTERN, item) is None for item in self.retired_mods)
+            or any(
+                re.fullmatch(MODULE_ID_PATTERN, item) is None
+                for item in self.retired_mods
+            )
             or set(ids).intersection(self.retired_mods)
         ):
             raise ValueError("store catalog contains duplicate Mods or Mod Suites")
@@ -314,6 +315,7 @@ class StoreManifestTemplate(ApiModel):
     permissions: list[str] = Field(default_factory=list)
     data_services: list[str] = Field(default_factory=list)
     storage: ModuleStorage | None = None
+    wiki: ModuleWikiProfile | None = None
     compatibility: ModuleCompatibility | None = None
     agent_capabilities: list[str] | None = None
     actions: dict[str, ModuleAction] | None = None
@@ -339,6 +341,7 @@ class StoreManifestTemplate(ApiModel):
             if (
                 self.compatibility is not None
                 or self.storage is not None
+                or self.wiki is not None
                 or self.actions is not None
             ):
                 raise ValueError("Manifest template 1.0 cannot declare 1.1 fields")
@@ -387,15 +390,18 @@ class StoreSuitePageNavigation(ApiModel):
     label: str | None = Field(default=None, min_length=1, max_length=40)
     directory: ModuleNavigationDirectory | None = None
     project: ModuleNavigationProject | None = None
-    icon: Literal[
-        "today",
-        "research",
-        "market",
-        "quant",
-        "trading",
-        "settings",
-        "module",
-    ] | None = None
+    icon: (
+        Literal[
+            "today",
+            "research",
+            "market",
+            "quant",
+            "trading",
+            "settings",
+            "module",
+        ]
+        | None
+    ) = None
     role: Literal["page", "settings"] | None = None
 
 
@@ -406,6 +412,7 @@ class StoreSuitePageManifest(ApiModel):
     permissions: list[str] | None = None
     data_services: list[str] | None = None
     storage: ModuleStorage | None = None
+    wiki: ModuleWikiProfile | None = None
     compatibility: ModuleCompatibility | None = None
     agent_capabilities: list[str] | None = None
     actions: dict[str, ModuleAction] | None = None
@@ -461,10 +468,10 @@ class StoreModSuiteDescriptor(ApiModel):
                 f"Mod Suite must use navigation.directory.id={self.id} "
                 "to remain one complete project"
             )
-        domain_id = navigation.project.id if navigation.project is not None else "other"
-        if domain_id not in INVESTMENT_DOMAIN_IDS:
+        domain_id = navigation.project.id if navigation.project is not None else self.id
+        if domain_id not in INVESTMENT_DOMAIN_IDS and domain_id != self.id:
             raise ValueError(
-                "Mod Suite must be placed in one of the 14 investment domains or other"
+                "Mod Suite must use an investment domain or its own suite id as project id"
             )
         page_ids = [page.id for page in self.pages]
         if len(page_ids) != len(set(page_ids)):
@@ -475,12 +482,16 @@ class StoreModSuiteDescriptor(ApiModel):
                 page_navigation.project is not None
                 and page_navigation.project.id != domain_id
             ):
-                raise ValueError("Mod Suite cannot split pages across investment domains")
+                raise ValueError(
+                    "Mod Suite cannot split pages across investment domains"
+                )
             if (
                 page_navigation.directory is not None
                 and page_navigation.directory.id != navigation.directory.id
             ):
-                raise ValueError("Mod Suite cannot split pages into another project group")
+                raise ValueError(
+                    "Mod Suite cannot split pages into another project group"
+                )
             if (
                 page_navigation.group_label is not None
                 and page_navigation.group_label != navigation.group_label
@@ -488,7 +499,9 @@ class StoreModSuiteDescriptor(ApiModel):
                 page_navigation.group_order is not None
                 and page_navigation.group_order != navigation.group_order
             ):
-                raise ValueError("Mod Suite cannot split pages across navigation groups")
+                raise ValueError(
+                    "Mod Suite cannot split pages across navigation groups"
+                )
         return self
 
 
@@ -516,10 +529,12 @@ def expand_mod_suite(
             exclude_none=True,
             mode="json",
         )
-        navigation.setdefault(
-            "project",
-            OTHER_DOMAIN_PROJECT,
-        )
+        navigation.setdefault("project", {
+            "id": suite.id,
+            "name": suite.name,
+            "order": shared_navigation.group_order,
+            "description": suite.description,
+        })
         if page.navigation.item_order is not None:
             navigation["itemOrder"] = page.navigation.item_order
         navigation["label"] = page.navigation.label or page.name
@@ -621,6 +636,7 @@ class StoreResponseModel(ApiModel):
 
 class StoreModResponse(StoreResponseModel):
     id: str
+    suite_id: str
     name: str
     description: str
     version: str
@@ -631,6 +647,9 @@ class StoreModResponse(StoreResponseModel):
     default_install: bool
     install_state: Literal["available", "installed", "update-available"]
     installed_revision: int | None = None
+    installed_version: str | None = None
+    installed_status: Literal["published", "disabled"] | None = None
+    navigation: ModuleNavigation | None = None
     source_url: str
 
 
@@ -639,6 +658,9 @@ class ModStoreResponse(StoreResponseModel):
     name: str
     repository: str
     ref: str
+    catalog_source: Literal["bundled", "github"] = "bundled"
+    commit: str | None = None
+    synced_at: str | None = None
     mods: list[StoreModResponse]
 
 
@@ -646,4 +668,12 @@ class StoreInstallResponse(StoreResponseModel):
     action: Literal["installed", "updated", "unchanged"]
     descriptor_source: Literal["remote", "bundled"]
     source_url: str
+    source_commit: str | None = None
     mod: StoredModuleResponse
+
+
+class StoreProjectInstallResponse(StoreResponseModel):
+    action: Literal["installed", "updated", "unchanged"]
+    project_id: str
+    source_commit: str | None = None
+    mods: list[StoredModuleResponse]

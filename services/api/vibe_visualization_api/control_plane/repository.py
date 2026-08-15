@@ -218,6 +218,119 @@ class ModuleRepository:
         finally:
             connection.close()
 
+    def list_installed(self) -> list[StoredModule]:
+        """Return the active published revision or latest disabled revision."""
+
+        connection = connect(self._database_path)
+        try:
+            rows = connection.execute(
+                """
+                WITH ranked AS (
+                  SELECT
+                    module_id,
+                    revision,
+                    status,
+                    manifest_json,
+                    created_at,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY module_id
+                      ORDER BY
+                        CASE status WHEN 'published' THEN 0 ELSE 1 END,
+                        revision DESC
+                    ) AS position
+                  FROM module_revisions
+                  WHERE status IN ('published', 'disabled')
+                )
+                SELECT module_id, revision, status, manifest_json, created_at
+                FROM ranked
+                WHERE position = 1
+                ORDER BY module_id
+                """
+            ).fetchall()
+            return [_stored_module(row) for row in rows]
+        finally:
+            connection.close()
+
+    def install_batch(
+        self,
+        manifests: list[dict[str, object]],
+    ) -> list[StoredModule]:
+        """Install and publish a group of manifests in one transaction."""
+
+        module_ids = [manifest.get("id") for manifest in manifests]
+        if len(module_ids) != len(set(module_ids)):
+            raise ValueError("batch manifests must contain unique module IDs")
+
+        stored_rows: list[sqlite3.Row] = []
+        with self._transaction() as connection:
+            for manifest in manifests:
+                module_id = manifest.get("id")
+                if (
+                    not isinstance(module_id, str)
+                    or MODULE_ID_PATTERN.fullmatch(module_id) is None
+                ):
+                    raise ValueError("manifest['id'] must match ^[a-z][a-z0-9-]{2,63}$")
+
+                current = self._get_installed_row(connection, module_id)
+                if current is not None and current["manifest_json"] == _json_dumps(
+                    manifest
+                ):
+                    if current["status"] == "disabled":
+                        connection.execute(
+                            """
+                            UPDATE module_revisions
+                            SET status = 'published'
+                            WHERE module_id = ? AND revision = ?
+                            """,
+                            (module_id, current["revision"]),
+                        )
+                        _append_audit(
+                            connection,
+                            event_type="enable",
+                            module_id=module_id,
+                            revision=cast(int, current["revision"]),
+                        )
+                        current = self._get_revision_row(
+                            connection,
+                            module_id,
+                            cast(int, current["revision"]),
+                        )
+                    stored_rows.append(current)
+                    continue
+
+                draft = self._create_draft_row(
+                    connection,
+                    manifest,
+                    event_type="store_install",
+                )
+                revision = cast(int, draft["revision"])
+                connection.execute(
+                    """
+                    UPDATE module_revisions
+                    SET status = 'disabled'
+                    WHERE module_id = ? AND status = 'published'
+                    """,
+                    (module_id,),
+                )
+                connection.execute(
+                    """
+                    UPDATE module_revisions
+                    SET status = 'published'
+                    WHERE module_id = ? AND revision = ?
+                    """,
+                    (module_id, revision),
+                )
+                _append_audit(
+                    connection,
+                    event_type="publish",
+                    module_id=module_id,
+                    revision=revision,
+                )
+                stored_rows.append(
+                    self._get_revision_row(connection, module_id, revision)
+                )
+        return [_stored_module(row) for row in stored_rows]
+
     def get_revision(self, module_id: str, revision: int) -> StoredModule:
         connection = connect(self._database_path)
         try:
@@ -362,6 +475,23 @@ class ModuleRepository:
             FROM module_revisions
             WHERE module_id = ? AND status = 'published'
             ORDER BY revision DESC
+            LIMIT 1
+            """,
+            (module_id,),
+        ).fetchone()
+
+    @staticmethod
+    def _get_installed_row(
+        connection: sqlite3.Connection, module_id: str
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            """
+            SELECT module_id, revision, status, manifest_json, created_at
+            FROM module_revisions
+            WHERE module_id = ? AND status IN ('published', 'disabled')
+            ORDER BY
+              CASE status WHEN 'published' THEN 0 ELSE 1 END,
+              revision DESC
             LIMIT 1
             """,
             (module_id,),

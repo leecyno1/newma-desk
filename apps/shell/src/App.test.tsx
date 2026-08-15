@@ -98,6 +98,57 @@ function deferred() {
   return { promise, resolve };
 }
 
+function connectedWikiModule(input: {
+  id: string;
+  name: string;
+  intent: string;
+  entrypointId: string;
+}): StoredMod {
+  return {
+    moduleId: input.id,
+    revision: 1,
+    status: "published",
+    manifest: {
+      schemaVersion: "1.1",
+      id: input.id,
+      name: input.name,
+      version: "1.0.0",
+      category: "research",
+      entry: { type: "structured", url: `/modules/${input.id}/` },
+      compatibility: { level: 2, bridgeProtocol: "1.0" },
+      permissions: [],
+      dataServices: [],
+      actions: {},
+      events: { emits: [], accepts: [] },
+      wiki: {
+        contractVersion: "1.0",
+        subjectTypes: ["security", "etf", "fund"],
+        concepts: [],
+        entrypoints: [
+          {
+            id: input.entrypointId,
+            intent: input.intent,
+            label: input.name,
+            contextContract: "newma.wiki.subject.v1",
+            defaults: {},
+          },
+        ],
+      },
+    },
+    createdAt: "2026-08-15T00:00:00Z",
+  };
+}
+
+function dispatchFromModFrame(frame: HTMLIFrameElement, data: unknown) {
+  window.dispatchEvent(
+    new MessageEvent("message", {
+      data,
+      origin: new URL(frame.src).origin,
+      source: frame.contentWindow,
+    }),
+  );
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
@@ -112,6 +163,266 @@ describe("App", () => {
     expect(
       isEmbeddedShellContext({ self: {}, top: {} }),
     ).toBe(true);
+  });
+
+  it("resolves, delivers, and consumes a Wiki handoff between Mods", async () => {
+    const source = connectedWikiModule({
+      id: "market-daily",
+      name: "市场概览",
+      intent: "market.overview",
+      entrypointId: "overview",
+    });
+    const target = connectedWikiModule({
+      id: "event-timeline",
+      name: "日线时间轴",
+      intent: "event.timeline",
+      entrypointId: "timeline",
+    });
+    const subject = {
+      type: "security" as const,
+      canonicalId: "security:CN:300308",
+      displayName: "中际旭创",
+      market: "CN" as const,
+      symbol: "300308",
+      assetType: "stock" as const,
+    };
+    const handoffId = "hf_appwiki1234";
+    let resolutionRequest: unknown;
+    let handoffRequest: unknown;
+    let handoffIdentity: string[] = [];
+    let deleteCount = 0;
+
+    window.history.replaceState(null, "", "/?mod=market-daily");
+    serveRegistry([source, target]);
+    server.use(
+      http.post("/api/mods/:modId/sessions", async ({ params, request }) => {
+        const body = (await request.json()) as {
+          instanceId: string;
+          workspaceId: string;
+        };
+        return HttpResponse.json({
+          sessionId: `session-${String(params.modId)}`,
+          instanceId: body.instanceId,
+          accessToken: `token-${String(params.modId)}`,
+          tokenType: "Bearer",
+          expiresAt: "2099-08-15T10:00:00+08:00",
+          userId: request.headers.get("x-user-id") ?? "local-user",
+          workspaceId: body.workspaceId,
+          moduleId: String(params.modId),
+          revision: 1,
+          grants: { permissions: [], actions: [] },
+        });
+      }),
+      http.put("/api/mods/:modId/context", () =>
+        new HttpResponse(null, { status: 204 }),
+      ),
+      http.post("/api/wiki/link-resolutions", async ({ request }) => {
+        resolutionRequest = await request.json();
+        return HttpResponse.json({
+          sourceModId: "market-daily",
+          subject,
+          links: [
+            {
+              id: "link-event-timeline",
+              targetModId: "event-timeline",
+              targetRevision: 1,
+              entrypointId: "timeline",
+              intent: "event.timeline",
+              label: "日线事件",
+              reason: "同一标的，可查看日线事件",
+              score: 75,
+              match: {
+                subjectType: "security",
+                intentScore: 25,
+                concepts: [],
+                dataCapabilities: ["market.ohlcv"],
+              },
+            },
+          ],
+          generatedAt: "2026-08-15T10:00:00+08:00",
+        });
+      }),
+      http.post("/api/wiki/handoffs", async ({ request }) => {
+        handoffRequest = await request.json();
+        handoffIdentity = [
+          request.headers.get("x-user-id") ?? "",
+          request.headers.get("x-workspace-id") ?? "",
+        ];
+        return HttpResponse.json({
+          version: 1,
+          id: handoffId,
+          sourceModId: "market-daily",
+          sourceSnapshotId: "market-daily:snapshot-1",
+          targetModId: "event-timeline",
+          entrypointId: "timeline",
+          subject,
+          relatedSubjects: [],
+          conceptIds: ["concept:CN:CPO"],
+          intent: "event.timeline",
+          timeframe: "daily",
+          parameters: {},
+          createdAt: "2026-08-15T10:00:00+08:00",
+          expiresAt: "2026-08-15T10:05:00+08:00",
+        });
+      }),
+      http.delete(`/api/wiki/handoffs/${handoffId}`, () => {
+        deleteCount += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    render(<App />);
+
+    const sourceFrame = await screen.findByTitle("市场概览") as HTMLIFrameElement;
+    const sourceWindow = sourceFrame.contentWindow;
+    if (!sourceWindow) throw new Error("expected source Mod frame");
+    const sourcePost = vi
+      .spyOn(sourceWindow, "postMessage")
+      .mockImplementation(() => undefined);
+    dispatchFromModFrame(sourceFrame, {
+      type: "vibedesk:hello",
+      modId: "market-daily",
+      protocolVersions: ["1.0"],
+      capabilities: ["context"],
+    });
+    await waitFor(() =>
+      expect(sourcePost).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "vibedesk:init" }),
+        "http://127.0.0.1:5891",
+      ),
+    );
+    const sourceInit = sourcePost.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:init",
+    )?.[0] as { instanceId: string };
+    dispatchFromModFrame(sourceFrame, {
+      type: "vibedesk:ack",
+      protocolVersion: "1.0",
+      instanceId: sourceInit.instanceId,
+      modId: "market-daily",
+    });
+    await waitFor(() =>
+      expect(sourcePost).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "vibedesk:context-request" }),
+        "http://127.0.0.1:5891",
+      ),
+    );
+    const contextRequest = sourcePost.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:context-request",
+    )?.[0] as { requestId: string };
+    dispatchFromModFrame(sourceFrame, {
+      type: "vibedesk:context",
+      requestId: contextRequest.requestId,
+      instanceId: sourceInit.instanceId,
+      modId: "market-daily",
+      context: {
+        view: { id: "market-overview", title: "市场概览" },
+        visibleBlocks: [],
+        selection: { symbol: "300308" },
+        filters: {},
+        data: {},
+        actions: [],
+        tasks: [],
+        wiki: {
+          primarySubject: subject,
+          relatedSubjects: [],
+          conceptIds: ["concept:CN:CPO"],
+          intent: "market.overview",
+          timeframe: "daily",
+          snapshotId: "market-daily:snapshot-1",
+        },
+      },
+    });
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "用 日线事件 查看 中际旭创",
+      }),
+    );
+    expect(resolutionRequest).toMatchObject({
+      sourceModId: "market-daily",
+      context: { primarySubject: subject },
+    });
+    expect(handoffRequest).toMatchObject({
+      sourceModId: "market-daily",
+      targetModId: "event-timeline",
+      entrypointId: "timeline",
+      context: { primarySubject: subject },
+    });
+    expect(handoffIdentity[0]).toMatch(/^user-/);
+    expect(handoffIdentity[1]).toMatch(/^workspace-/);
+
+    const targetFrame = await screen.findByTitle("日线时间轴") as HTMLIFrameElement;
+    expect(window.location.search).toContain("mod=event-timeline");
+    expect(window.location.search).toContain(`handoff=${handoffId}`);
+    const targetWindow = targetFrame.contentWindow;
+    if (!targetWindow) throw new Error("expected target Mod frame");
+    const targetPost = vi
+      .spyOn(targetWindow, "postMessage")
+      .mockImplementation(() => undefined);
+    dispatchFromModFrame(targetFrame, {
+      type: "vibedesk:hello",
+      modId: "event-timeline",
+      protocolVersions: ["1.0"],
+      capabilities: ["context", "handoff"],
+    });
+    await waitFor(() =>
+      expect(targetPost).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "vibedesk:init" }),
+        "http://127.0.0.1:5891",
+      ),
+    );
+    const targetInit = targetPost.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:init",
+    )?.[0] as { instanceId: string };
+    dispatchFromModFrame(targetFrame, {
+      type: "vibedesk:ack",
+      protocolVersion: "1.0",
+      instanceId: targetInit.instanceId,
+      modId: "event-timeline",
+    });
+    await waitFor(() =>
+      expect(targetPost).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "vibedesk:handoff",
+          handoff: expect.objectContaining({
+            id: handoffId,
+            subject,
+          }),
+        }),
+        "http://127.0.0.1:5891",
+      ),
+    );
+    const delivered = targetPost.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:handoff",
+    )?.[0] as { requestId: string };
+    dispatchFromModFrame(targetFrame, {
+      type: "vibedesk:handoff-result",
+      requestId: delivered.requestId,
+      instanceId: targetInit.instanceId,
+      modId: "event-timeline",
+      handoffId,
+      ok: true,
+      result: { selected: "300308" },
+    });
+
+    await waitFor(() => expect(deleteCount).toBe(1));
+    await waitFor(() => expect(window.location.search).not.toContain("handoff="));
   });
 
   it("opens the project Mod store and installs a selected Mod from Git", async () => {
@@ -749,11 +1060,11 @@ describe("App", () => {
     });
     expect(within(secondary).getByRole("heading", { name: /行情工具/ })).toBeVisible();
     await userEvent.click(
-      within(secondary).getByRole("button", { name: "项目设置" }),
+      within(secondary).getByRole("button", { name: "栏目数据与能力" }),
     );
 
     expect(
-      await screen.findByRole("heading", { name: "行情工具 · 项目设置" }),
+      await screen.findByRole("heading", { name: "行情工具 · 数据与能力" }),
     ).toBeVisible();
     expect(window.location.search).toContain("view=suite-settings");
     expect(window.location.search).toContain("directory=market-suite");
@@ -965,6 +1276,35 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: "关闭 Agent 侧栏" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "独立打开" })).not.toBeInTheDocument();
     expect(window.location.search).toBe("?mod=market-daily&copilot=1");
+  });
+
+  it("fails closed when an embedded requested Mod is missing from the runtime", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/?mod=global-situation&copilot=1&host=newma&project=event-intelligence",
+    );
+    window.localStorage.setItem("vibedesk.activeMod", "alpha-lab");
+    serveRegistry([
+      storedModule({
+        id: "alpha-lab",
+        name: "因子实验室",
+        category: "quant",
+        entry: { type: "external", url: "https://mods.example/alpha-lab" },
+      }),
+    ]);
+
+    render(<App embedded />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "当前 NewmaDesk 运行时未安装「global-situation」",
+    );
+    expect(screen.queryByRole("iframe")).not.toBeInTheDocument();
+    expect(window.location.search).toContain("mod=global-situation");
+    expect(window.location.search).not.toContain("mod=alpha-lab");
+    expect(window.localStorage.getItem("vibedesk.activeMod")).toBe(
+      "alpha-lab",
+    );
   });
 
   it("falls back to localStorage when the query module is invalid", async () => {

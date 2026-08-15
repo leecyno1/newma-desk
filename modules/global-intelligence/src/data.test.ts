@@ -6,13 +6,291 @@ import {
   calculateGlobalIntelRouteImpacts,
   clusterGlobalIntelEvents,
   createGlobalIntelDataSource,
+  globalIntelEventIdentity,
   isActionableGlobalIntelEvent,
+  globalMediaTopicSimilarity,
+  mediaVelocityLabel,
+  mergeGlobalIntelEventHistory,
+  normalizeGlobalMediaMonitor,
   normalizeGlobalIntelEvents,
   normalizeGlobalIntelPoints,
   normalizeGlobalIntelRoutes,
   reconcileGlobalIntelRouteAlertStates,
   updateGlobalIntelMilitaryTrackHistory,
 } from "./data";
+
+describe("global intelligence media monitor", () => {
+  it("normalizes sentiment, velocity, cross-language topics, framing, and verification", () => {
+    const monitor = normalizeGlobalMediaMonitor({
+      media_monitor: {
+        timestamp: "2026-08-12T12:00:00Z",
+        caveat: "lightweight",
+        summary: {
+          analyzed_items: 20,
+          news_items: 18,
+          social_items: 2,
+          source_count: 8,
+          language_count: 3,
+          topic_count: 4,
+          current_mentions: 12,
+          previous_mentions: 6,
+          heat_velocity_pct: 100,
+          velocity_state: "rising",
+          window_hours: 12,
+          cross_language_topic_count: 2,
+          flagged_topic_count: 1,
+          disputed_topic_count: 1,
+          reversal_topic_count: 0,
+          divergent_topic_count: 1,
+          attention_topic_count: 2,
+          spread_score: 68,
+          sentiment: {
+            positive: 3, negative: 8, neutral: 7, mixed: 2,
+            positive_pct: 15, negative_pct: 40, neutral_pct: 35, mixed_pct: 10, net_score: -24,
+          },
+        },
+        topics: [{
+          id: "topic-hormuz", label: "伊朗 · 霍尔木兹海峡", headline: "Hormuz report",
+          mention_count: 6, current_mentions: 5, previous_mentions: 1,
+          heat_velocity_pct: 400, velocity_state: "rising", heat_score: 90,
+          attention_score: 88, attention_level: "重点",
+          spread_score: 82, spread_level: "广泛传播", source_count: 4,
+          sources: ["Reuters", "BBC Mundo"], source_tiers: ["wire", "major"],
+          language_count: 2, languages: ["en", "es"], language_labels: ["英语", "西班牙语"],
+          cross_language: true, sentiment: "negative", sentiment_score: -0.5,
+          sentiment_counts: { positive: 0, negative: 4, neutral: 2, mixed: 0 },
+          media_frames: [{
+            group: "mainstream", label: "主流媒体 / 通讯社", count: 6,
+            positive: 0, negative: 4, neutral: 2, mixed: 0,
+            dominant_sentiment: "negative", dominant_label: "偏负面", sources: ["Reuters", "BBC Mundo"],
+          }],
+          framing_divergence: true, framing_divergence_score: 58,
+          verification_status: "存在争议", verification_flags: ["unverified", "denial"],
+          verification_timeline: [{
+            status: "出现否认", flag: "denial", timestamp: "2026-08-12T11:00:00Z",
+            source: "Reuters", title: "Hormuz report", url: "https://example.com/hormuz",
+          }],
+          social_engagement: 5000, latest_at: "2026-08-12T11:00:00Z", keywords: ["伊朗", "霍尔木兹海峡"],
+          items: [{
+            key: "story-1", title: "Hormuz report", source: "Reuters", url: "https://example.com/hormuz",
+            language: "en", sentiment: "negative", published: "2026-08-12T11:00:00Z", kind: "news",
+          }],
+        }],
+        annotations: [{
+          key: "https://example.com/hormuz", title: "Hormuz report", source: "Reuters", url: "https://example.com/hormuz",
+          topic_id: "topic-hormuz", sentiment: "negative", sentiment_score: -0.5, language: "en",
+          verification_status: "存在争议", verification_flags: ["unverified", "denial"],
+          heat_velocity_pct: 400, velocity_state: "rising", spread_score: 82, cross_language_topic: true,
+        }],
+        media_frames: [],
+      },
+    });
+
+    expect(monitor.summary).toEqual(expect.objectContaining({
+      analyzedItems: 20,
+      heatVelocityPct: 100,
+      crossLanguageTopicCount: 2,
+      flaggedTopicCount: 1,
+      divergentTopicCount: 1,
+      attentionTopicCount: 2,
+    }));
+    expect(monitor.topics[0]).toEqual(expect.objectContaining({
+      id: "topic-hormuz",
+      crossLanguage: true,
+      verificationStatus: "存在争议",
+      sentiment: "negative",
+      attentionScore: 88,
+      attentionLevel: "重点",
+      framingDivergence: true,
+      items: [expect.objectContaining({ source: "Reuters", sentiment: "negative" })],
+      verificationTimeline: [expect.objectContaining({ status: "出现否认" })],
+    }));
+    expect(monitor.annotations[0]).toEqual(expect.objectContaining({
+      topicId: "topic-hormuz",
+      spreadScore: 82,
+    }));
+  });
+
+  it("shows new topics without inventing a +100% baseline", () => {
+    const monitor = normalizeGlobalMediaMonitor({
+      media_monitor: {
+        summary: { heat_velocity_pct: null, velocity_state: "new" },
+        topics: [{
+          id: "new-topic", label: "新主题", headline: "New topic", velocity_state: "new",
+          heat_velocity_pct: null,
+        }],
+      },
+    });
+
+    expect(monitor.summary.heatVelocityPct).toBeNull();
+    expect(monitor.topics[0]?.heatVelocityPct).toBeNull();
+    expect(mediaVelocityLabel(null, "new")).toBe("新出现");
+  });
+
+  it("normalizes legacy new-topic +100% values to an honest new label", () => {
+    const monitor = normalizeGlobalMediaMonitor({
+      media_monitor: {
+        summary: { heat_velocity_pct: 100, velocity_state: "new" },
+        topics: [{ id: "legacy-new", label: "Legacy", heat_velocity_pct: 100, velocity_state: "new" }],
+      },
+    });
+
+    expect(monitor.summary.heatVelocityPct).toBeNull();
+    expect(mediaVelocityLabel(monitor.topics[0]?.heatVelocityPct, "new")).toBe("新出现");
+  });
+
+  it("finds lightweight historical similarities from topic words and sources", () => {
+    expect(globalMediaTopicSimilarity(
+      { id: "a", label: "伊朗 霍尔木兹", headline: "Hormuz shipping disruption", keywords: ["伊朗", "航运"], sources: ["Reuters"] },
+      { id: "b", label: "伊朗 航运", headline: "Hormuz route risk", keywords: ["伊朗", "航运"], sources: ["Reuters"] },
+    )).toBeGreaterThan(35);
+  });
+
+  it("attaches lightweight media analysis to news records", () => {
+    const events = normalizeGlobalIntelEvents({
+      timestamp: "2026-08-12T12:00:00Z",
+      news_feed: {
+        items: [{
+          title: "Iran denies unverified Hormuz closure report",
+          feed_name: "Reuters World",
+          source_tier: "wire",
+          published: "2026-08-12T11:00:00Z",
+          link: "https://example.com/hormuz",
+        }],
+      },
+      media_monitor: {
+        annotations: [{
+          key: "https://example.com/hormuz",
+          title: "Iran denies unverified Hormuz closure report",
+          source: "Reuters World",
+          url: "https://example.com/hormuz",
+          topic_id: "topic-hormuz",
+          sentiment: "negative",
+          sentiment_score: -0.5,
+          language: "en",
+          verification_status: "存在争议",
+          verification_flags: ["unverified", "denial"],
+          heat_velocity_pct: 120,
+          velocity_state: "rising",
+          spread_score: 78,
+          cross_language_topic: true,
+        }],
+      },
+    });
+
+    expect(events[0]?.facts).toEqual(expect.arrayContaining([
+      { label: "报道语气", value: "负面" },
+      { label: "热度增速", value: "+120%" },
+      { label: "传播范围", value: "78/100" },
+      { label: "跨语言合并", value: "是" },
+      { label: "核验提示", value: "存在争议" },
+    ]));
+  });
+});
+
+describe("global intelligence lightweight history", () => {
+  it("keeps actionable records, refreshes last seen time, and drops observations", () => {
+    const event = {
+      id: "event-1",
+      category: "conflict" as const,
+      title: "Port disruption",
+      detail: "Access restricted",
+      source: "Test",
+      severity: "high" as const,
+      timestamp: "2026-08-10T08:00:00Z",
+      recordKind: "event" as const,
+    };
+    const first = mergeGlobalIntelEventHistory([], [event, {
+      ...event,
+      id: "observation-1",
+      title: "PAT452",
+      recordKind: "observation" as const,
+    }], "2026-08-10T09:00:00Z");
+    const refreshed = mergeGlobalIntelEventHistory(first, [event], "2026-08-10T10:00:00Z");
+
+    expect(first).toHaveLength(1);
+    expect(refreshed[0]).toEqual(expect.objectContaining({
+      firstSeenAt: "2026-08-10T09:00:00Z",
+      lastSeenAt: "2026-08-10T10:00:00Z",
+      lastChangedAt: "2026-08-10T09:00:00Z",
+      observationCount: 2,
+    }));
+  });
+
+  it("keeps the same signal identity when values and refresh timestamps change", () => {
+    const first = {
+      id: "market-first",
+      category: "market" as const,
+      title: "WTI 上涨 2.10%",
+      detail: "最新价格 82.1",
+      source: "Yahoo Finance",
+      severity: "high" as const,
+      timestamp: "2026-08-10T09:00:00Z",
+      recordKind: "event" as const,
+    };
+    const next = {
+      ...first,
+      id: "market-next",
+      title: "WTI 上涨 2.35%",
+      detail: "最新价格 82.4",
+      timestamp: "2026-08-10T10:00:00Z",
+    };
+
+    expect(globalIntelEventIdentity(first)).toBe(globalIntelEventIdentity(next));
+    const history = mergeGlobalIntelEventHistory([], [first], "2026-08-10T09:00:00Z");
+    const refreshed = mergeGlobalIntelEventHistory(history, [next], "2026-08-10T10:00:00Z");
+    expect(refreshed).toHaveLength(1);
+    expect(refreshed[0]).toEqual(expect.objectContaining({
+      id: "market-next",
+      lastChangedAt: "2026-08-10T10:00:00Z",
+      observationCount: 2,
+    }));
+  });
+
+  it("does not multiply capture counts when one snapshot repeats the same event", () => {
+    const event = {
+      id: "event-1",
+      category: "disaster" as const,
+      title: "M5.1 near test city",
+      detail: "Depth 12 km",
+      source: "USGS",
+      severity: "medium" as const,
+      timestamp: "2026-08-10T09:00:00Z",
+      recordKind: "event" as const,
+    };
+    const history = mergeGlobalIntelEventHistory([], [event, event], "2026-08-10T10:00:00Z");
+
+    expect(history).toHaveLength(1);
+    expect(history[0]).toEqual(expect.objectContaining({ observationCount: 1 }));
+  });
+
+  it("records one resolution change and marks a later reappearance as changed", () => {
+    const event = {
+      id: "event-1",
+      category: "infrastructure" as const,
+      title: "Cable corridor disruption",
+      detail: "Maintenance in progress",
+      source: "Test",
+      severity: "high" as const,
+      timestamp: "2026-08-10T08:00:00Z",
+      recordKind: "event" as const,
+    };
+    const active = mergeGlobalIntelEventHistory([], [event], "2026-08-10T09:00:00Z");
+    const resolved = mergeGlobalIntelEventHistory(active, [], "2026-08-10T10:00:00Z");
+    const stillResolved = mergeGlobalIntelEventHistory(resolved, [], "2026-08-10T11:00:00Z");
+    const reappeared = mergeGlobalIntelEventHistory(stillResolved, [event], "2026-08-10T12:00:00Z");
+
+    expect(resolved[0]).toEqual(expect.objectContaining({
+      resolvedAt: "2026-08-10T10:00:00Z",
+      lastChangedAt: "2026-08-10T10:00:00Z",
+    }));
+    expect(stillResolved[0]?.lastChangedAt).toBe("2026-08-10T10:00:00Z");
+    expect(reappeared[0]).toEqual(expect.objectContaining({
+      lastChangedAt: "2026-08-10T12:00:00Z",
+    }));
+    expect(reappeared[0]?.resolvedAt).toBeUndefined();
+  });
+});
 
 describe("global intelligence route alert lifecycle", () => {
   it("tracks escalation, acknowledgement, downgrade, and resolution", () => {
@@ -357,6 +635,31 @@ describe("global intelligence event clusters", () => {
       primary: expect.objectContaining({ id: "ap-1" }),
       sources: ["Reuters", "AP"],
     }));
+  });
+
+  it("does not merge unrelated NAVAREA warnings just because they share a year", () => {
+    const clusters = clusterGlobalIntelEvents([
+      {
+        id: "nav-1",
+        category: "maritime",
+        title: "NAVAREA 12 · 2023-93",
+        detail: "Missile firing area near Hawaii",
+        source: "NGA 航行警告",
+        severity: "high",
+        timestamp: "2026-08-12T08:00:00Z",
+      },
+      {
+        id: "nav-2",
+        category: "maritime",
+        title: "NAVAREA 4 · 2023-601",
+        detail: "Light unreliable in the Gulf of Mexico",
+        source: "NGA 航行警告",
+        severity: "medium",
+        timestamp: "2026-08-12T08:10:00Z",
+      },
+    ]);
+
+    expect(clusters).toHaveLength(2);
   });
 });
 
@@ -1019,6 +1322,8 @@ describe("createGlobalIntelDataSource", () => {
     expect(onStatus).toHaveBeenNthCalledWith(1, "connecting");
     expect(onStatus).toHaveBeenNthCalledWith(2, "live");
     expect(onPayload).toHaveBeenCalledWith({ timestamp: "now" });
+    sourceState.onerror?.();
+    expect(onStatus).toHaveBeenLastCalledWith("degraded");
     unsubscribe();
     expect(close).toHaveBeenCalledOnce();
   });

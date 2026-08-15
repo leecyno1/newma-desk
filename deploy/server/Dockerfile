@@ -15,6 +15,7 @@ RUN npm ci \
     && NEWMA_DESK_INTEGRATED=1 NEWMA_DOCK_INTEGRATED=1 VITE_BASE_PATH=/mod-runtime/research/ VITE_API_BASE=/api/research npm run build --prefix mod-projects/vibe-research/frontend \
     && NEWMA_DESK_INTEGRATED=1 NEWMA_DOCK_INTEGRATED=1 VITE_NEWMA_DESK_INTEGRATED=1 VITE_BASE_PATH=/mod-runtime/trading/ VITE_API_BASE=/api/trading npm run build --prefix mod-projects/vibe-trading/frontend \
     && npm run build -w @newma-desk/portfolio-center \
+    && npm run build -w @newma-desk/creator-studio \
     && npm run build -w @newma-desk/desk
 
 FROM python:3.12-slim-bookworm AS python-builder
@@ -86,6 +87,7 @@ COPY mod-projects/vibe-trading/agent ./mod-projects/vibe-trading/agent
 COPY --from=web-builder /app/mod-projects/vibe-trading/frontend/dist ./mod-projects/vibe-trading/frontend/dist
 
 COPY --from=web-builder /app/modules/portfolio-center/dist ./modules/portfolio-center/dist
+COPY --from=web-builder /app/modules/creator-studio/dist ./modules/creator-studio/dist
 
 RUN rm -rf \
     /app/mod-projects/vibe-trading/agent/runs \

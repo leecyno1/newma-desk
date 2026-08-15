@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import manifestParity from "../../../tests/fixtures/mod-manifest-parity.json";
+
 import { moduleManifestSchema } from "./module";
 
 const valid = {
@@ -55,6 +57,13 @@ const connected = {
 } as const;
 
 describe("moduleManifestSchema", () => {
+  it.each(manifestParity.cases)(
+    "keeps the shared manifest contract aligned for $id",
+    ({ expectedValid, manifest }) => {
+      expect(moduleManifestSchema.safeParse(manifest).success).toBe(expectedValid);
+    },
+  );
+
   it("parses a valid module manifest", () => {
     expect(moduleManifestSchema.parse(valid)).toEqual(valid);
   });
@@ -269,6 +278,49 @@ describe("moduleManifestSchema", () => {
         },
       },
     });
+  });
+
+  it("accepts a versioned Wiki profile on Manifest 1.1", () => {
+    const parsed = moduleManifestSchema.parse({
+      ...connected,
+      wiki: {
+        contractVersion: "1.0",
+        subjectTypes: ["security", "etf"],
+        concepts: ["technical-analysis"],
+        entrypoints: [
+          {
+            id: "structure",
+            intent: "technical.structure",
+            label: "结构",
+            contextContract: "newma.wiki.subject.v1",
+          },
+        ],
+      },
+    });
+
+    expect(parsed.schemaVersion).toBe("1.1");
+    if (parsed.schemaVersion !== "1.1") throw new Error("expected Manifest 1.1");
+    expect(parsed.wiki?.entrypoints[0]?.id).toBe("structure");
+  });
+
+  it("keeps Wiki profiles unavailable to legacy Manifest 1.0", () => {
+    expect(() =>
+      moduleManifestSchema.parse({
+        ...valid,
+        wiki: {
+          contractVersion: "1.0",
+          subjectTypes: ["security"],
+          entrypoints: [
+            {
+              id: "overview",
+              intent: "market.overview",
+              label: "概览",
+              contextContract: "newma.wiki.subject.v1",
+            },
+          ],
+        },
+      }),
+    ).toThrow();
   });
 
   it("requires Level 3 Mods to declare the ViewSpec version", () => {

@@ -2,8 +2,8 @@
   "schemaVersion": "1.0",
   "id": "news-radar",
   "name": "新闻与舆情",
-  "description": "聚合全球新闻、公开舆情与自选动态，并与政策和市场事件统一归档。",
-  "version": "0.1.0",
+  "description": "聚合公开新闻与自选动态，按事件聚类展示热度变化、报道语气、传播范围、来源分歧和待核验线索。",
+  "version": "0.3.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": ["新闻", "舆情", "资讯", "事件"],
@@ -22,26 +22,51 @@
     "schemaVersion": "1.1",
     "category": "event",
     "navigation": {
-      "groupLabel": "情报",
+      "groupLabel": "全球",
       "groupOrder": 0,
       "itemOrder": 10,
       "label": "新闻与舆情",
-      "directory": { "id": "event-suite", "label": "情报工具", "order": 5 },
+      "directory": { "id": "global-suite", "label": "全球工具", "order": 5 },
       "project": {
-        "id": "event-intelligence",
-        "name": "情报",
+        "id": "global-intelligence",
+        "name": "全球",
         "order": 0,
-        "description": "统一承载全球态势、新闻、政策、公告、冲突、灾害与舆情。"
+        "description": "统一承载全球态势、新闻、冲突、灾害、事件与舆情。"
       },
       "icon": "research"
     },
     "compatibility": {
-      "level": 1,
-      "bridgeProtocol": "1.0"
+      "level": 3,
+      "bridgeProtocol": "1.0",
+      "sdkVersion": "^0.1.0",
+      "viewSpecVersion": "1.0"
     },
     "permissions": ["investment.read"],
     "dataServices": ["vibe-investment-native"],
-    "actions": {},
+    "wiki": {
+      "contractVersion": "1.0",
+      "subjectTypes": ["security", "etf", "fund", "topic"],
+      "concepts": ["news-monitor", "sentiment"],
+      "entrypoints": [
+        {
+          "id": "news",
+          "intent": "news.monitor",
+          "label": "新闻事件",
+          "contextContract": "newma.wiki.subject.v1",
+          "defaults": {}
+        }
+      ]
+    },
+    "actions": {
+      "news.refresh": {
+        "binding": { "type": "local" },
+        "execution": "request",
+        "permission": "investment.read",
+        "inputSchema": { "type": "object", "additionalProperties": false },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none"
+      }
+    },
     "events": { "emits": [], "accepts": [] }
   }
 }

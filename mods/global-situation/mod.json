@@ -19,16 +19,16 @@
     "schemaVersion": "1.1",
     "category": "event",
     "navigation": {
-      "groupLabel": "情报",
+      "groupLabel": "全球",
       "groupOrder": 0,
       "itemOrder": 0,
       "label": "全球情报",
-      "directory": { "id": "event-suite", "label": "情报工具", "order": 5 },
+      "directory": { "id": "global-suite", "label": "全球工具", "order": 5 },
       "project": {
-        "id": "event-intelligence",
-        "name": "情报",
+        "id": "global-intelligence",
+        "name": "全球",
         "order": 0,
-        "description": "统一承载全球态势、新闻、政策、公告、冲突、灾害与舆情。"
+        "description": "统一承载全球态势、新闻、冲突、灾害、事件与舆情。"
       },
       "icon": "market"
     },

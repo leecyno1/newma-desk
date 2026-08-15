@@ -106,7 +106,7 @@ Mod -> Agent Gateway -> Agent Runtime -> Memory / Skills / Tools
 
 GitHub `leecyno1/newma-dock` 是 Newma 四端 Mods 的唯一发布源。桌面、WebUI、iOS 和 Android 只能从该仓库的明确 commit 读取 `mods/store.json` 与 Manifest；本地未提交文件和 Gitee 镜像不能成为发布基线。每月检查只生成变更与兼容风险报告，不自动合并、部署或重启服务。
 
-新环境会把商店全部 Mods 注册到侧边栏：
+新环境默认只注册“情报”和“市场”两个项目；其他项目保留在 Mod 商店，由用户自行安装：
 
 ```bash
 npm run mods:check
@@ -117,13 +117,13 @@ npm run mods:register
 
 `mods:compat` 只验证 Manifest 声明与静态合同，不授予运行认证；`mods:certify` 会连接当前运行中的 Desk，实际检查页面健康、iframe 嵌入、Bridge 握手、320px 布局，并为 Level 3 验证 Agent Context 的接收与持久化。认证报告默认写入系统临时目录。
 
-已有环境需要同步完整商店清单时，也可以运行：
+管理员需要显式同步完整商店清单时，可以运行：
 
 ```bash
 npm run mods:standardize
 ```
 
-侧边栏会显示全部已注册 Mods；“Mod 商店”继续负责浏览来源、查看安装状态和从 Git 更新。第三方 Mod 不会被标准化脚本移除。
+默认注册不会移除已有用户安装的 Mod，也不会重置其启停和排序；“Mod 商店”继续负责浏览来源、查看安装状态和从 Git 更新。`mods:standardize` 才会补齐完整官方商店，第三方 Mod 不会被该脚本移除。
 
 默认地址：
 
@@ -279,6 +279,16 @@ npm run test:api
 npm run test:e2e
 ```
 
+发布基座的专项门禁：
+
+```bash
+npm run shell:mods:check
+npm run mods:data:check
+npm run test:release:static
+```
+
+`shell:mods:check` 防止 Desk Shell 直接依赖业务 Mod。当前只保留 `global-intelligence` 与 `market-daily` 两个已有内嵌例外；新增业务 Mod 必须通过 Manifest + Bridge 接入。`mods:data:check` 验证官方默认 Mod 的 Data Action 确实存在 Provider，并校验 Capability 与权限一致。`test:release:static` 已包含这两项门禁。
+
 Manifest 的兼容等级只是声明。运行中的 Mod 还需要通过 `npm run mods:certify` 检查 health、embed、Bridge、窄屏布局和相应等级的 Agent Context，才算获得 Runtime Certification。
 
 完整发布验收可以一次执行：
@@ -287,7 +297,7 @@ Manifest 的兼容等级只是声明。运行中的 Mod 还需要通过 `npm run
 npm run test:release
 ```
 
-它先执行静态测试、类型检查、构建和 Python 测试，再复用当前 Newma-Desk 核心栈；若核心未运行则临时启动。随后执行核心状态检查、Manifest 合同、7 个 Level 3 默认 Mod 的 Runtime Certification，以及侧边栏、市场工作区和内置 Research / Trading 的 Live E2E。临时启动的进程会在验收结束后统一停止。
+它先执行静态测试、Shell 依赖门禁、Data Action 门禁、类型检查、构建和 Python 测试，再复用当前 Newma-Desk 核心栈；若核心未运行则临时启动。随后执行核心状态检查、Manifest 合同、Runtime Certification，以及侧边栏、市场工作区和内置 Research / Trading 的 Live E2E。认证对象自动读取 Mod Store 中 `defaultInstall=true` 的 Manifest 1.1 Mod，不再维护硬编码名单。临时启动的进程会在验收结束后统一停止。
 
 默认发布验收允许外部可选 Mod 降级；需要把 Deepsee、Seven Cycle、InStock 和 Orchestra 全部作为发布条件时使用：
 

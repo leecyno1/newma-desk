@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { wikiHandoffSchema, wikiPageContextSchema } from "./wiki";
+
 const modIdSchema = z.string().regex(/^[a-z][a-z0-9-]{2,63}$/);
 const actionIdSchema = z
   .string()
@@ -103,6 +105,7 @@ export const modHelloSchema = z
           "context",
           "storage",
           "theme",
+          "handoff",
         ]),
       )
       .max(20)
@@ -226,6 +229,7 @@ export const modPageContextSchema = z
       )
       .max(200)
       .default([]),
+    wiki: wikiPageContextSchema.optional(),
   })
   .strict();
 
@@ -322,6 +326,50 @@ export const modUiActionResultSchema = z.discriminatedUnion("ok", [
     .strict(),
 ]);
 
+export const deskHandoffSchema = z
+  .object({
+    type: z.literal("vibedesk:handoff"),
+    requestId: requestIdSchema,
+    instanceId: instanceIdSchema,
+    modId: modIdSchema,
+    handoff: wikiHandoffSchema,
+  })
+  .strict()
+  .superRefine((message, context) => {
+    if (message.handoff.targetModId !== message.modId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["handoff", "targetModId"],
+        message: "Wiki handoff target must match the receiving Mod",
+      });
+    }
+  });
+
+const modHandoffResultBaseSchema = z.object({
+  type: z.literal("vibedesk:handoff-result"),
+  requestId: requestIdSchema,
+  instanceId: instanceIdSchema,
+  modId: modIdSchema,
+  handoffId: z.string().regex(/^hf_[A-Za-z0-9_-]{8,120}$/),
+});
+
+export const modHandoffResultSchema = z.discriminatedUnion("ok", [
+  modHandoffResultBaseSchema
+    .extend({ ok: z.literal(true), result: z.unknown() })
+    .strict(),
+  modHandoffResultBaseSchema
+    .extend({
+      ok: z.literal(false),
+      error: z
+        .object({
+          code: z.string().min(1).max(120),
+          message: z.string().min(1).max(500),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
+
 export type ModHello = z.infer<typeof modHelloSchema>;
 export type DeskAppearance = z.infer<typeof deskAppearanceSchema>;
 export type DeskInit = z.infer<typeof deskInitSchema>;
@@ -333,3 +381,5 @@ export type ModActionRequest = z.infer<typeof modActionRequestSchema>;
 export type DeskActionResult = z.infer<typeof deskActionResultSchema>;
 export type DeskUiActionRequest = z.infer<typeof deskUiActionRequestSchema>;
 export type ModUiActionResult = z.infer<typeof modUiActionResultSchema>;
+export type DeskHandoff = z.infer<typeof deskHandoffSchema>;
+export type ModHandoffResult = z.infer<typeof modHandoffResultSchema>;

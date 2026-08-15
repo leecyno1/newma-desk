@@ -23,8 +23,8 @@
   "manifest": {
     "category": "deepsee",
     "navigation": {
-      "groupLabel": "其他",
-      "groupOrder": 150,
+      "groupLabel": "DeepSee",
+      "groupOrder": 160,
       "itemOrder": 100,
       "directory": {
         "id": "deepsee-suite",
@@ -32,10 +32,11 @@
         "order": 10
       },
       "project": {
-        "id": "other",
-        "name": "其他",
-        "order": 150,
-        "description": "尚未归入核心投研流程的管理工具与扩展能力。"
+        "id": "deepsee-suite",
+        "name": "DeepSee",
+        "order": 160,
+        "description": "DeepSee 信息流、分析、触达与设置工具。",
+        "logo": {"type": "letter", "text": "深瞳"}
       },
       "icon": "module"
     },

@@ -2,7 +2,7 @@ import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import type { MarketDataSource, MarketFilter, Quote, SearchResult, SecurityRef } from "../types";
-import { securityKey } from "../data";
+import { isEtfSecurity, isOpenFundSecurity, securityKey } from "../data";
 
 export const WORKSPACE_SECURITIES: SecurityRef[] = [
   { symbol: "600519", name: "贵州茅台", market: "CN", exchange: "SH", currency: "CNY" },
@@ -15,6 +15,13 @@ export const WORKSPACE_SECURITIES: SecurityRef[] = [
   { symbol: "AAPL", name: "Apple", market: "US", exchange: "NASDAQ", currency: "USD" },
   { symbol: "NVDA", name: "NVIDIA", market: "US", exchange: "NASDAQ", currency: "USD" },
   { symbol: "TSLA", name: "Tesla", market: "US", exchange: "NASDAQ", currency: "USD" },
+];
+
+export const EVENT_TIMELINE_ETFS: SecurityRef[] = [
+  { symbol: "510300", name: "沪深300ETF", market: "CN", exchange: "SH", currency: "CNY", assetType: "etf", securityType: "ETF" },
+  { symbol: "510050", name: "上证50ETF", market: "CN", exchange: "SH", currency: "CNY", assetType: "etf", securityType: "ETF" },
+  { symbol: "159915", name: "创业板ETF", market: "CN", exchange: "SZ", currency: "CNY", assetType: "etf", securityType: "ETF" },
+  { symbol: "588000", name: "科创50ETF", market: "CN", exchange: "SH", currency: "CNY", assetType: "etf", securityType: "ETF" },
 ];
 
 const DEFAULT_WORKSPACE_SECURITY: SecurityRef = {
@@ -86,6 +93,15 @@ export function quoteSummary(quote?: Quote) {
     amount: quote.amount ?? null,
     pe: quote.pe ?? null,
     pb: quote.pb ?? null,
+    ...(quote.assetType === "fund" ? {
+      fundType: quote.fundType ?? null,
+      fundCompany: quote.fundCompany ?? null,
+      fundManager: quote.fundManager ?? null,
+      navDate: quote.navDate ?? null,
+      cumulativeNav: quote.cumulativeNav ?? null,
+      subscribeStatus: quote.subscribeStatus ?? null,
+      redeemStatus: quote.redeemStatus ?? null,
+    } : {}),
   };
 }
 
@@ -128,13 +144,13 @@ export function SecuritySearch({
       <Search size={14} aria-hidden="true" />
       <input
         aria-label="搜索证券"
-        placeholder="代码、公司或 ETF"
+        placeholder="代码、公司、ETF 或基金"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
       <select aria-label="搜索市场" value={market} onChange={(event) => setMarket(event.target.value as MarketFilter)}>
         <option value="ALL">全部</option>
-        <option value="CN">A股</option>
+        <option value="CN">A股 / 基金</option>
         <option value="HK">港股</option>
         <option value="US">美股</option>
       </select>
@@ -148,15 +164,15 @@ export function SecuritySearch({
           {results.map((item) => (
             <button
               type="button"
-              key={securityKey(item)}
+              key={`${securityKey(item)}:${item.assetType || item.exchange || "security"}`}
               onClick={() => {
                 onSelect(item);
                 setQuery("");
               }}
             >
-              <span>{item.market}</span>
+              <span>{isOpenFundSecurity(item) ? "基金" : isEtfSecurity(item) ? "ETF" : item.market}</span>
               <strong>{item.name}</strong>
-              <small>{item.symbol}</small>
+              <small>{item.symbol} · {item.exchange || item.market}</small>
             </button>
           ))}
         </div>

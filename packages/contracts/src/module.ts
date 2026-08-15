@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { modEventNameSchema } from "./event";
+import { modWikiProfileSchema } from "./wiki";
 
 const LOCAL_URL_ORIGIN = "https://module.local";
 
@@ -291,6 +292,7 @@ const modManifestV1_1Schema = z
     permissions: z.array(capabilityIdSchema).default([]),
     dataServices: z.array(serviceIdSchema).default([]),
     storage: modStorageSchema.optional(),
+    wiki: modWikiProfileSchema.optional(),
     actions: z.record(capabilityIdSchema, modActionSchema).default({}),
     events: z
       .object({

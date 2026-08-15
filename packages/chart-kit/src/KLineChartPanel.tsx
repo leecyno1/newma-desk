@@ -28,6 +28,7 @@ export interface KLineChartPanelProps {
   security: SecurityRef;
   timeframe: Timeframe;
   adjustment: Adjustment;
+  variant?: "candlestick" | "nav";
   primaryIndicator: PrimaryIndicator;
   secondaryIndicator: SecondaryIndicator;
   theme: "light" | "dark";
@@ -68,6 +69,7 @@ interface ResolvedChartColors {
   down: string;
   warning: string;
   accent: string;
+  accentArea: string;
   accentContrast: string;
   surfaceRaised: string;
 }
@@ -96,6 +98,11 @@ function chartColors(
     down: cssColor(element, "--vibe-chart-down", dark ? "#4ade80" : "#16a34a"),
     warning: cssColor(element, "--vibe-warning", dark ? "#fbbf24" : "#a16207"),
     accent: cssColor(element, "--vibe-accent", dark ? "#c89a5a" : "#a87432"),
+    accentArea: cssColor(
+      element,
+      "--vibe-chart-area",
+      dark ? "rgba(200, 154, 90, 0.22)" : "rgba(168, 116, 50, 0.18)",
+    ),
     accentContrast: cssColor(
       element,
       "--vibe-accent-contrast",
@@ -154,14 +161,20 @@ function periodOf(timeframe: Timeframe) {
   return periods[timeframe];
 }
 
-function chartStyles(theme: "light" | "dark", element?: HTMLElement | null) {
+function chartStyles(
+  theme: "light" | "dark",
+  element?: HTMLElement | null,
+  variant: KLineChartPanelProps["variant"] = "candlestick",
+) {
   const palette = chartColors(theme, element);
+  const isNav = variant === "nav";
   return {
     grid: {
       horizontal: { color: palette.grid },
       vertical: { color: palette.grid },
     },
     candle: {
+      type: isNav ? "area" as const : "candle_solid" as const,
       bar: {
         upColor: palette.up,
         downColor: palette.down,
@@ -173,15 +186,36 @@ function chartStyles(theme: "light" | "dark", element?: HTMLElement | null) {
         downWickColor: palette.down,
         noChangeWickColor: palette.text,
       },
+      area: {
+        lineSize: 2,
+        lineColor: palette.accent,
+        value: "close",
+        smooth: true,
+        backgroundColor: [
+          { offset: 0, color: palette.accentArea },
+          { offset: 1, color: "rgba(0, 0, 0, 0)" },
+        ],
+        point: { show: false },
+      },
       priceMark: {
-        high: { color: palette.text },
-        low: { color: palette.text },
+        high: { show: !isNav, color: palette.text },
+        low: { show: !isNav, color: palette.text },
         last: {
           upColor: palette.up,
           downColor: palette.down,
           noChangeColor: palette.text,
         },
       },
+      ...(isNav ? {
+        tooltip: {
+          legend: {
+            template: [
+              { title: "日期", value: "{time}" },
+              { title: "单位净值", value: "{close}" },
+            ],
+          },
+        },
+      } : {}),
     },
     xAxis: {
       axisLine: { color: palette.axis },
@@ -207,6 +241,7 @@ export const KLineChartPanel = forwardRef<KLineChartPanelHandle, KLineChartPanel
       security,
       timeframe,
       adjustment,
+      variant = "candlestick",
       primaryIndicator,
       secondaryIndicator,
       theme,
@@ -225,6 +260,10 @@ export const KLineChartPanel = forwardRef<KLineChartPanelHandle, KLineChartPanel
     const elementRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<Chart | null>(null);
     const loaderRef = useRef(loadBars);
+    const lastGoodBarsRef = useRef<Bar[]>([]);
+    const dataKeyRef = useRef("");
+    const refreshNonceRef = useRef(refreshNonce);
+    const reloadRef = useRef<() => Promise<void>>(async () => undefined);
     const stateRef = useRef({ onRangeChange, onCrosshairChange, onLoadState });
     loaderRef.current = loadBars;
     stateRef.current = { onRangeChange, onCrosshairChange, onLoadState };
@@ -247,22 +286,46 @@ export const KLineChartPanel = forwardRef<KLineChartPanelHandle, KLineChartPanel
       const chart = init(element, {
         locale: "zh-CN",
         timezone: security.timezone || (security.market === "US" ? "America/New_York" : security.market === "HK" ? "Asia/Hong_Kong" : "Asia/Shanghai"),
-        styles: chartStyles(theme, element),
+        styles: chartStyles(theme, element, variant),
       });
       if (!chart) return;
       chartRef.current = chart;
+      const requestBars = async () => {
+        stateRef.current.onLoadState?.({ loading: true });
+        try {
+          const bars = await loaderRef.current();
+          lastGoodBarsRef.current = bars;
+          chart.setDataLoader({
+            getBars({ callback }) {
+              callback(bars as KLineData[], false);
+            },
+          });
+          stateRef.current.onLoadState?.({ loading: false });
+        } catch (reason) {
+          stateRef.current.onLoadState?.({
+            loading: false,
+            error: lastGoodBarsRef.current.length
+              ? "更新失败，当前为上次数据"
+              : reason instanceof Error ? reason.message : "K 线加载失败",
+          });
+        }
+      };
+      reloadRef.current = requestBars;
       chart.setDataLoader({
         async getBars({ callback }) {
           stateRef.current.onLoadState?.({ loading: true });
           try {
             const bars = await loaderRef.current();
+            lastGoodBarsRef.current = bars;
             callback(bars as KLineData[], false);
             stateRef.current.onLoadState?.({ loading: false });
           } catch (reason) {
-            callback([], false);
+            callback(lastGoodBarsRef.current as KLineData[], false);
             stateRef.current.onLoadState?.({
               loading: false,
-              error: reason instanceof Error ? reason.message : "K 线加载失败",
+              error: lastGoodBarsRef.current.length
+                ? "更新失败，当前为上次数据"
+                : reason instanceof Error ? reason.message : "K 线加载失败",
             });
           }
         },
@@ -301,6 +364,7 @@ export const KLineChartPanel = forwardRef<KLineChartPanelHandle, KLineChartPanel
         chart.unsubscribeAction("onCrosshairChange", onChartCrosshairChange);
         dispose(chart);
         chartRef.current = null;
+        reloadRef.current = async () => undefined;
       };
     }, []);
 
@@ -323,21 +387,37 @@ export const KLineChartPanel = forwardRef<KLineChartPanelHandle, KLineChartPanel
     useEffect(() => {
       const chart = chartRef.current;
       if (!chart) return;
-      chart.setStyles(chartStyles(theme, elementRef.current));
-      chart.setTimezone(
-        security.timezone || (security.market === "US" ? "America/New_York" : security.market === "HK" ? "Asia/Hong_Kong" : "Asia/Shanghai"),
-      );
-      chart.setSymbol({
-        ticker: `${security.market}:${security.symbol}`,
-        pricePrecision: security.market === "HK" ? 3 : 2,
-        volumePrecision: 0,
-      });
-      chart.setPeriod(periodOf(timeframe));
+      const nextDataKey = `${security.market}:${security.symbol}:${timeframe}:${adjustment}:${variant}`;
+      const dataChanged = dataKeyRef.current !== nextDataKey;
+      const refreshRequested = refreshNonceRef.current !== refreshNonce;
+      if (dataChanged) {
+        dataKeyRef.current = nextDataKey;
+        lastGoodBarsRef.current = [];
+      }
+      refreshNonceRef.current = refreshNonce;
+      chart.setStyles(chartStyles(theme, elementRef.current, variant));
+      if (dataChanged) {
+        chart.setTimezone(
+          security.timezone || (security.market === "US" ? "America/New_York" : security.market === "HK" ? "Asia/Hong_Kong" : "Asia/Shanghai"),
+        );
+        chart.setSymbol({
+          ticker: `${security.market}:${security.symbol}`,
+          pricePrecision: variant === "nav" ? 4 : security.market === "HK" ? 3 : 2,
+          volumePrecision: 0,
+        });
+        chart.setPeriod(periodOf(timeframe));
+      } else if (refreshRequested) {
+        void reloadRef.current();
+      }
+    }, [adjustment, refreshNonce, security, theme, timeframe, variant]);
+
+    useEffect(() => {
+      const chart = chartRef.current;
+      if (!chart) return;
       chart.removeIndicator();
       chart.createIndicator({ name: primaryIndicator, paneId: "candle_pane" }, true);
       chart.createIndicator(secondaryIndicator, false);
-      chart.resetData();
-    }, [adjustment, primaryIndicator, refreshNonce, secondaryIndicator, security, theme, timeframe]);
+    }, [primaryIndicator, secondaryIndicator]);
 
     return (
       <div

@@ -1,4 +1,5 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import {
   request,
@@ -25,6 +26,33 @@ const demoManifest = {
   agentCapabilities: [],
   events: { emits: [], accepts: [] },
 };
+
+async function publishManifest(
+  api: APIRequestContext,
+  manifest: Record<string, unknown>,
+  operation: string,
+): Promise<void> {
+  const draftResponse = await api.post("/api/mods/drafts", {
+    data: manifest,
+  });
+  await expectStatus(draftResponse, 201, `Creating ${operation} draft`);
+
+  const draft = (await draftResponse.json()) as {
+    moduleId?: unknown;
+    revision?: unknown;
+  };
+  if (
+    draft.moduleId !== manifest.id ||
+    !Number.isInteger(draft.revision)
+  ) {
+    throw new Error(`Creating ${operation} draft returned an invalid revision`);
+  }
+
+  const publishResponse = await api.post(
+    `/api/mods/${draft.moduleId}/revisions/${draft.revision}/publish`,
+  );
+  await expectStatus(publishResponse, 200, `Publishing ${operation} draft`);
+}
 
 async function responseSummary(response: APIResponse): Promise<string> {
   const text = (await response.text()).replace(/\s+/g, " ").trim();
@@ -81,25 +109,15 @@ export default async function globalSetup(): Promise<void> {
     await waitForApi(api);
     await resetE2eDatabase();
 
-    const draftResponse = await api.post("/api/mods/drafts", {
-      data: demoManifest,
-    });
-    await expectStatus(draftResponse, 201, "Creating the demo module draft");
-
-    const draft = (await draftResponse.json()) as {
-      moduleId?: unknown;
-      revision?: unknown;
-    };
-    if (draft.moduleId !== "demo" || !Number.isInteger(draft.revision)) {
-      throw new Error(
-        "Creating the demo module draft returned an invalid revision",
-      );
-    }
-
-    const publishResponse = await api.post(
-      `/api/mods/demo/revisions/${draft.revision}/publish`,
+    await publishManifest(api, demoManifest, "the demo module");
+    const marketManifest = JSON.parse(
+      await readFile(resolve("modules/market-daily/module.json"), "utf8"),
+    ) as Record<string, unknown>;
+    await publishManifest(
+      api,
+      marketManifest,
+      "the market module",
     );
-    await expectStatus(publishResponse, 200, "Publishing the demo module draft");
   } finally {
     await api.dispose();
   }

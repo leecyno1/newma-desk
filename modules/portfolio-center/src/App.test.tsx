@@ -14,17 +14,21 @@ import type {
 const closeBridge = vi.fn();
 let bridgeHandler: ((event: { event: string; payload: Record<string, unknown> }) => void) | undefined;
 
-vi.mock("@newma-desk/mod-sdk", () => ({
-  connectModHost: vi.fn(async () => ({ embedded: false, close: vi.fn() })),
-  createModBridge: vi.fn(() => ({
-    emit: vi.fn(),
-    subscribe: vi.fn((handler) => {
-      bridgeHandler = handler;
-      return () => { bridgeHandler = undefined; };
-    }),
-    close: closeBridge,
-  })),
-}));
+vi.mock("@newma-desk/mod-sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@newma-desk/mod-sdk")>();
+  return {
+    ...actual,
+    connectModHost: vi.fn(async () => ({ embedded: false, close: vi.fn() })),
+    createModBridge: vi.fn(() => ({
+      emit: vi.fn(),
+      subscribe: vi.fn((handler) => {
+        bridgeHandler = handler;
+        return () => { bridgeHandler = undefined; };
+      }),
+      close: closeBridge,
+    })),
+  };
+});
 
 const costDashboard: PortfolioDashboard = {
   userId: "local-user",

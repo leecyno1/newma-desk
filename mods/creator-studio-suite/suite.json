@@ -1,0 +1,374 @@
+{
+  "schemaVersion": "1.0",
+  "id": "creator-studio-suite",
+  "name": "Newma Creator Studio",
+  "description": "从内容采集、Brief、初稿、转写、发布到复盘的完整自媒体创作控制台。",
+  "version": "0.2.0",
+  "publisher": "Newma-Desk",
+  "tags": ["创作", "工作流", "视频", "发布"],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "creator-studio",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_CREATOR_STUDIO_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "creator",
+    "navigation": {
+      "groupLabel": "Newma Creator Studio",
+      "groupOrder": 150,
+      "itemOrder": 10,
+      "directory": {
+        "id": "creator-studio-suite",
+        "label": "Newma Creator Studio",
+        "order": 10
+      },
+      "project": {
+        "id": "creator-studio-suite",
+        "name": "Newma Creator Studio",
+        "order": 150,
+        "description": "从内容采集、Brief、初稿、转写、发布到复盘的完整自媒体创作控制台。",
+        "logo": {"type": "letter", "text": "创作"}
+      },
+      "icon": "module"
+    },
+    "compatibility": {
+      "level": 3,
+      "bridgeProtocol": "1.0",
+      "sdkVersion": "^0.1.0",
+      "viewSpecVersion": "1.0"
+    },
+    "permissions": [
+      "creator.read",
+      "creator.write",
+      "creator.review",
+      "creator.execute"
+    ],
+    "dataServices": [],
+    "actions": {
+      "creator.run.create": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["title", "stageId", "nodeId", "materials"],
+          "properties": {
+            "title": {"type": "string", "minLength": 1, "maxLength": 160},
+            "stageId": {"type": "string", "minLength": 1},
+            "nodeId": {"type": "string", "minLength": 1},
+            "materials": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["type", "path"],
+                "properties": {
+                  "type": {"type": "string", "minLength": 1},
+                  "path": {"type": "string", "minLength": 1},
+                  "source": {"enum": ["manual", "upstream"]},
+                  "label": {"type": "string"}
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.run.select": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.read",
+        "inputSchema": {
+          "type": "object",
+          "required": ["runId"],
+          "properties": {"runId": {"type": "string", "minLength": 1}},
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.node.select": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.read",
+        "inputSchema": {
+          "type": "object",
+          "required": ["stageId", "nodeId"],
+          "properties": {
+            "stageId": {"type": "string", "minLength": 1},
+            "nodeId": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.node.run": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.execute",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.node.retry": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.execute",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.node.configure": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["parameters"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "parameters": {"type": "object", "additionalProperties": true},
+            "replace": {"type": "boolean"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.node.submit-feedback": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["message"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "message": {"type": "string", "minLength": 1, "maxLength": 4000}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.node.approve": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.review",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.node.request-changes": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.review",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "message": {"type": "string", "maxLength": 4000}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.material.attach": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["type", "path"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "type": {"type": "string", "minLength": 1},
+            "path": {"type": "string", "minLength": 1},
+            "source": {"enum": ["manual", "upstream"]},
+            "label": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.artifact.register": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["type", "path"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "type": {"type": "string", "minLength": 1},
+            "path": {"type": "string", "minLength": 1},
+            "label": {"type": "string"},
+            "status": {"enum": ["created", "approved", "failed", "stale"]}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.handoff.create": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["targetStageId", "targetNodeId"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "targetStageId": {"type": "string", "minLength": 1},
+            "targetNodeId": {"type": "string", "minLength": 1},
+            "artifactIds": {"type": "array", "items": {"type": "string"}}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.workflow.continue": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.execute",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.capability.detect": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.read",
+        "inputSchema": {"type": "object", "additionalProperties": false},
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.run.refresh": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.read",
+        "inputSchema": {"type": "object", "additionalProperties": false},
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      }
+    },
+    "events": {"emits": [], "accepts": []},
+    "refresh": {"mode": "manual"}
+  },
+  "pages": [
+    {
+      "id": "creator-dashboard",
+      "name": "状态看板",
+      "description": "查看每个创作任务的六阶段流程、当前节点、交付物与待审核状态。",
+      "route": "/mod-runtime/creator-studio/?workspace=dashboard",
+      "navigation": {"itemOrder": 10, "label": "状态看板"}
+    },
+    {
+      "id": "creator-workbench",
+      "name": "内容采集",
+      "description": "配置来源、采集入库、清洗归一并完成采集审核。",
+      "route": "/mod-runtime/creator-studio/?workspace=intake",
+      "navigation": {"itemOrder": 20, "label": "内容采集"}
+    },
+    {
+      "id": "creator-brief",
+      "name": "选题 Brief",
+      "description": "归并事件、形成选题池、研究 Brief 并完成选题审核。",
+      "route": "/mod-runtime/creator-studio/?workspace=brief",
+      "navigation": {"itemOrder": 30, "label": "选题 Brief"}
+    },
+    {
+      "id": "creator-draft",
+      "name": "初稿生产",
+      "description": "建立证据底稿、文章结构、长文、图表与配图。",
+      "route": "/mod-runtime/creator-studio/?workspace=draft",
+      "navigation": {"itemOrder": 40, "label": "初稿生产"}
+    },
+    {
+      "id": "creator-transwrite",
+      "name": "多通路转写",
+      "description": "完成剧本重写、导演分镜、素材生产、剪辑、渲染与成片审核。",
+      "route": "/mod-runtime/creator-studio/?workspace=transwrite",
+      "navigation": {"itemOrder": 50, "label": "多通路转写"}
+    },
+    {
+      "id": "creator-publish",
+      "name": "发布",
+      "description": "完成渠道包装、账号路由、发布预检、执行与回执验真。",
+      "route": "/mod-runtime/creator-studio/?workspace=publish",
+      "navigation": {"itemOrder": 60, "label": "发布"}
+    },
+    {
+      "id": "creator-postmortem",
+      "name": "复盘",
+      "description": "回收数据、分析效果、回写知识并创建下一轮任务。",
+      "route": "/mod-runtime/creator-studio/?workspace=postmortem",
+      "navigation": {"itemOrder": 70, "label": "复盘"}
+    },
+    {
+      "id": "creator-marketplace",
+      "name": "超市项目",
+      "description": "浏览已注册仓库、Skills、模板、流水线和可用能力。",
+      "route": "/mod-runtime/creator-studio/?workspace=marketplace",
+      "navigation": {"itemOrder": 80, "label": "超市项目"}
+    },
+    {
+      "id": "creator-settings",
+      "name": "项目设置",
+      "description": "查看 Creator Studio 工作区、注册表、命名空间与本地 Capability Adapter。",
+      "route": "/mod-runtime/creator-studio/?workspace=settings",
+      "navigation": {
+        "itemOrder": 90,
+        "label": "项目设置",
+        "icon": "settings",
+        "role": "settings"
+      }
+    }
+  ]
+}

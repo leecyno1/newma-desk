@@ -8,13 +8,13 @@ import {
 } from "./investmentDomain";
 
 describe("investment domain registry", () => {
-  it("keeps the fifteen stable domains in product order", () => {
-    expect(INVESTMENT_DOMAINS).toHaveLength(15);
+  it("keeps the fourteen stable domains in product order", () => {
+    expect(INVESTMENT_DOMAINS).toHaveLength(14);
     expect(INVESTMENT_DOMAINS.map((domain) => domain.id)).toEqual(
       INVESTMENT_DOMAIN_IDS,
     );
     expect(INVESTMENT_DOMAINS.map((domain) => domain.order)).toEqual([
-      0, 10, 20, 30, 40, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
+      0, 10, 20, 30, 40, 60, 70, 80, 90, 100, 110, 120, 130, 140,
     ]);
   });
 

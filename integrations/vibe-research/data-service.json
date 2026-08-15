@@ -95,7 +95,8 @@
         "required": ["symbol", "market"],
         "properties": {
           "symbol": { "type": "string", "minLength": 1, "maxLength": 24 },
-          "market": { "enum": ["CN", "HK", "US"] }
+          "market": { "enum": ["CN", "HK", "US"] },
+          "assetType": { "enum": ["stock", "etf", "fund", "index"] }
         },
         "additionalProperties": false
       },
@@ -138,7 +139,8 @@
           "market": { "enum": ["CN", "HK", "US"] },
           "timeframe": { "enum": ["1m", "5m", "15m", "30m", "60m", "1d", "1w", "1M"] },
           "limit": { "type": "integer", "minimum": 40, "maximum": 800 },
-          "adjust": { "enum": ["none", "qfq", "hfq"] }
+          "adjust": { "enum": ["none", "qfq", "hfq"] },
+          "assetType": { "enum": ["stock", "etf", "fund", "index"] }
         },
         "additionalProperties": false
       },
@@ -160,7 +162,8 @@
           "market": { "enum": ["CN", "HK", "US"] },
           "timeframe": { "enum": ["1m", "5m", "15m", "30m", "60m"] },
           "limit": { "type": "integer", "minimum": 40, "maximum": 800 },
-          "adjust": { "enum": ["none", "qfq", "hfq"] }
+          "adjust": { "enum": ["none", "qfq", "hfq"] },
+          "assetType": { "enum": ["stock", "etf", "fund", "index"] }
         },
         "additionalProperties": false
       },
@@ -249,7 +252,10 @@
       "inputSchema": {
         "type": "object",
         "required": ["code"],
-        "properties": { "code": { "type": "string", "pattern": "^[0-9]{6}$" } },
+        "properties": {
+          "code": { "type": "string", "pattern": "^[0-9]{6}$" },
+          "assetType": { "enum": ["stock", "etf", "fund"] }
+        },
         "additionalProperties": false
       },
       "outputSchema": {

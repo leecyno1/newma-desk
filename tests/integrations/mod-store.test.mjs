@@ -80,7 +80,7 @@ async function temporaryStore(catalog, callback) {
   }
 }
 
-test("validates the project Mod store and defaults only to Intelligence and Market", async () => {
+test("validates the project Mod store and installs the core Desk projects", async () => {
   const store = await loadModStore({
     env: {
       NEWMA_DESK_INVESTMENT_WEB_URL: "https://investment.example",
@@ -102,22 +102,13 @@ test("validates the project Mod store and defaults only to Intelligence and Mark
     "deepsee-suite",
     "orchestra-suite",
     "calendar-effect-suite",
+    "creator-studio-suite",
   ]);
   assert.deepEqual(store.retiredMods, ["investment-settings", "quant-agent", "event-intelligence"]);
-  assert.deepEqual(defaults.map((mod) => mod.id).sort(), [
-    "catalyst-calendar",
-    "event-timeline",
-    "global-situation",
-    "market-daily",
-    "market-scanner",
-    "multi-timeframe",
-    "news-radar",
-    "relative-strength",
-    "trading-replay",
-  ].sort());
+  assert.deepEqual(defaults.map((mod) => mod.id), ["global-situation"]);
   assert.deepEqual(
     [...new Set(defaults.map((mod) => mod.manifest.navigation.project.id))].sort(),
-    ["event-intelligence", "market-surface"],
+    ["global-intelligence"],
   );
   assert.equal(
     store.mods.find((mod) => mod.id === "daily-review").manifest.entry.url,
@@ -185,10 +176,10 @@ test("validates the project Mod store and defaults only to Intelligence and Mark
   );
   assert.equal(
     store.mods.find((mod) => mod.id === "deepsee-overview").manifest.navigation.project.id,
-    "other",
+    "deepsee-suite",
   );
   for (const mod of store.mods.filter((item) => item.id.startsWith("deepsee-"))) {
-    assert.equal(mod.manifest.navigation.project.id, "other");
+    assert.equal(mod.manifest.navigation.project.id, "deepsee-suite");
     assert.equal(mod.manifest.navigation.directory.id, "deepsee-suite");
     assert.equal(mod.manifest.navigation.directory.label, "DeepSee");
   }
@@ -227,9 +218,13 @@ test("validates the project Mod store and defaults only to Intelligence and Mark
     "global-situation", "news-radar", "event-timeline", "catalyst-calendar",
   ]) {
     const mod = store.mods.find((item) => item.id === modId);
-    assert.equal(mod.manifest.navigation.project.id, "event-intelligence");
-    assert.equal(mod.manifest.navigation.directory.id, "event-suite");
+    assert.equal(mod.manifest.navigation.project.id, "global-intelligence");
+    assert.equal(mod.manifest.navigation.directory.id, "global-suite");
   }
+  assert.equal(store.mods.find((mod) => mod.id === "policy-analysis").manifest.navigation.project.id, "policy-intelligence");
+  assert.equal(store.mods.find((mod) => mod.id === "policy-analysis").manifest.navigation.directory.id, "policy-suite");
+  assert.equal(store.mods.find((mod) => mod.id === "capital-flow").manifest.navigation.project.id, "capital-flow");
+  assert.equal(store.mods.find((mod) => mod.id === "capital-flow").manifest.navigation.directory.id, "capital-flow-suite");
   for (const modId of ["calendar-effect-overview", "calendar-effect-history"]) {
     const mod = store.mods.find((item) => item.id === modId);
     assert.equal(mod.suiteId, "calendar-effect-suite");
@@ -264,6 +259,15 @@ test("validates the project Mod store and defaults only to Intelligence and Mark
       maxItemKb: 64,
     }],
   });
+  assert.deepEqual(stockResearch.manifest.wiki.subjectTypes, ["security"]);
+  assert.equal(stockResearch.manifest.wiki.entrypoints[0].intent, "equity.research");
+  const industryMap = store.mods.find((mod) => mod.id === "industry-map");
+  assert.deepEqual(industryMap.manifest.wiki.subjectTypes, [
+    "security",
+    "industry",
+    "concept",
+  ]);
+  assert.equal(industryMap.manifest.wiki.entrypoints[0].intent, "industry.chain");
   for (const modId of [
     "quant-overview",
     "alpha-lab",
@@ -349,7 +353,7 @@ test("discovers a Mod Suite from the standard HTTP well-known endpoint", async (
   assert.equal(calls[0].init.headers.Accept, "application/json");
 });
 
-test("places a legacy HTTP Mod Suite intact under other", async () => {
+test("promotes a legacy HTTP Mod Suite to its own project", async () => {
   const descriptor = structuredClone(HTTP_SUITE_DESCRIPTOR);
   delete descriptor.manifest.navigation.project;
   const catalog = {
@@ -375,10 +379,10 @@ test("places a legacy HTTP Mod Suite intact under other", async () => {
     });
 
     assert.deepEqual(store.mods[0].manifest.navigation.project, {
-      id: "other",
-      name: "其他",
-      order: 150,
-      description: "尚未归入核心投研流程的管理工具与扩展能力。",
+      id: "example-suite",
+      name: "示例项目",
+      order: 10,
+      description: "通过 HTTP 自动发现的示例 Mod Suite。",
     });
   });
 });

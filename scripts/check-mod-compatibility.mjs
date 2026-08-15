@@ -85,6 +85,14 @@ export function checkModManifest(manifest) {
   if (!dataServices) errors.push("dataServices must be an array of strings");
 
   if (value.schemaVersion === "1.0") {
+    if (
+      value.compatibility !== undefined
+      || value.storage !== undefined
+      || value.wiki !== undefined
+      || value.actions !== undefined
+    ) {
+      errors.push("Manifest 1.0 cannot declare 1.1 fields");
+    }
     const agents = stringArray(value.agentCapabilities) ?? [];
     if (agents.length > 0) badges.add("Agent");
     if ((dataServices ?? []).length > 0) badges.add("Data");

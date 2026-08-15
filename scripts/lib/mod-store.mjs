@@ -39,14 +39,7 @@ const INVESTMENT_DOMAIN_IDS = new Set([
   "quant-research",
   "investment-committee",
   "trading-risk-portfolio",
-  "other",
 ]);
-const OTHER_DOMAIN_PROJECT = {
-  id: "other",
-  name: "其他",
-  order: 150,
-  description: "尚未归入核心投研流程的管理工具与扩展能力。",
-};
 
 function assertObject(value, label) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -457,10 +450,15 @@ function suitePageDescriptors(descriptor) {
       `${suiteId} must use navigation.directory.id=${suiteId} to remain one complete project`,
     );
   }
-  const suiteProject = parsedSharedNavigation.project || OTHER_DOMAIN_PROJECT;
-  if (!INVESTMENT_DOMAIN_IDS.has(suiteProject.id)) {
+  const suiteProject = parsedSharedNavigation.project || {
+    id: suiteId,
+    name: suiteName,
+    order: parsedSharedNavigation.groupOrder,
+    description: suiteDescription,
+  };
+  if (!INVESTMENT_DOMAIN_IDS.has(suiteProject.id) && suiteProject.id !== suiteId) {
     throw new Error(
-      `${suiteId} must be placed in one of the 14 investment domains or other`,
+      `${suiteId} must use an investment domain or its own suite id as project id`,
     );
   }
   const sharedNavigation = {
@@ -541,6 +539,7 @@ function suitePageDescriptors(descriptor) {
       "permissions",
       "dataServices",
       "storage",
+      "wiki",
       "compatibility",
       "agentCapabilities",
       "actions",
@@ -683,6 +682,9 @@ function manifestFromDescriptor(descriptor, env) {
     actions: assertObject(template.actions || {}, `${id}.manifest.actions`),
     ...(template.storage
       ? { storage: assertObject(template.storage, `${id}.manifest.storage`) }
+      : {}),
+    ...(template.wiki
+      ? { wiki: assertObject(template.wiki, `${id}.manifest.wiki`) }
       : {}),
   };
 }

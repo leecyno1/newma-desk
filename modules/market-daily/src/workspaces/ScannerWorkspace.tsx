@@ -1,5 +1,7 @@
 import { Filter, Plus, RefreshCw, Save, SlidersHorizontal, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { createModSnapshotCache } from "@newma-desk/mod-sdk";
 
 import type {
   MarketDataSource,
@@ -86,12 +88,14 @@ function scanValue(quote: Quote, sort: MarketScanSort) {
 
 export function ScannerWorkspace({
   dataSource,
+  cacheIdentity,
   security,
   onSelectSecurity,
   refreshNonce,
   onContextChange,
 }: {
   dataSource: MarketDataSource;
+  cacheIdentity?: { userId: string; workspaceId: string };
   security: SecurityRef;
   onSelectSecurity: (security: SecurityRef) => void;
   refreshNonce: number;
@@ -116,11 +120,43 @@ export function ScannerWorkspace({
   }>({ requested: 0, returned: 0, sources: [], markets: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const cache = useMemo(() => cacheIdentity ? createModSnapshotCache<{
+    quotes: Quote[];
+    meta: typeof scanMeta;
+  }>({
+    modId: "market-scanner",
+    ...cacheIdentity,
+    resourceKey: `scan:${market}:${sort}:${order}`,
+    maxBytes: 2 * 1024 * 1024,
+  }) : undefined, [cacheIdentity?.userId, cacheIdentity?.workspaceId, market, order, sort]);
+  const cacheKey = cache?.key;
+  const resourceKey = `scan:${market}:${sort}:${order}`;
+  const resourceKeyRef = useRef<string | undefined>(undefined);
+  const cacheKeyRef = useRef<string | undefined>(undefined);
+  const quotesRef = useRef(quotes);
+  quotesRef.current = quotes;
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError("");
+    const cached = cache?.read()?.value;
+    const resourceChanged = resourceKeyRef.current !== resourceKey;
+    const cacheChanged = cacheKeyRef.current !== cacheKey;
+    resourceKeyRef.current = resourceKey;
+    cacheKeyRef.current = cacheKey;
+    if (resourceChanged) {
+      if (cached) {
+        setQuotes(cached.quotes);
+        setScanMeta(cached.meta);
+      } else {
+        setQuotes([]);
+        setScanMeta({ requested: 0, returned: 0, sources: [], markets: [] });
+      }
+    } else if (cacheChanged && cached && quotesRef.current.length === 0) {
+      setQuotes(cached.quotes);
+      setScanMeta(cached.meta);
+    }
     const markets = market === "ALL" ? SCAN_MARKETS : [market];
     void Promise.allSettled(markets.map((marketId) =>
       dataSource.scan(marketId, sort, order, 100),
@@ -133,21 +169,28 @@ export function ScannerWorkspace({
       for (const result of fulfilled) {
         for (const quote of result.items) uniqueQuotes.set(securityKey(quote), quote);
       }
-      setQuotes([...uniqueQuotes.values()]);
-      setScanMeta({
+      const nextQuotes = [...uniqueQuotes.values()];
+      const nextMeta = {
         requested: fulfilled.reduce((sum, result) => sum + result.coverage.requested, 0),
         returned: uniqueQuotes.size,
         sources: [...new Set(fulfilled.map((result) => result.source))],
         asOf: fulfilled.map((result) => result.asOf).filter(Boolean).sort().at(-1),
         markets: fulfilled.map((result) => result.market),
-      });
-      if (!fulfilled.length) setError("A/H/US 扫描行情暂时不可用");
+      };
+      if (fulfilled.length) {
+        setQuotes(nextQuotes);
+        setScanMeta(nextMeta);
+        cache?.write({ quotes: nextQuotes, meta: nextMeta }, nextMeta.asOf);
+      }
+      if (!fulfilled.length) setError((cached?.quotes.length || (!resourceChanged && quotesRef.current.length))
+        ? "更新失败，当前为上次数据"
+        : "A/H/US 扫描行情暂时不可用");
       else if (fulfilled.length < markets.length) setError("部分市场扫描源暂时不可用，已展示可用市场");
     }).finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, [dataSource, market, order, refreshNonce, sort]);
+  }, [cacheKey, dataSource, market, order, refreshNonce, sort]);
 
   const filtered = useMemo(() => [...quotes]
     .filter((quote) => market === "ALL" || quote.market === market)
@@ -342,7 +385,9 @@ export function ScannerWorkspace({
               <span><em className={`scanner-signal ${movement(quote.changePct)}`}>{scannerSignal(quote)}</em></span>
             </button>
           ))}
-          {loading ? <div className="workspace-empty"><RefreshCw className="spin" size={16} />正在扫描行情…</div> : null}
+          {loading && quotes.length === 0 ? <div className="workspace-empty"><RefreshCw className="spin" size={16} />正在扫描行情…</div> : null}
+          {loading && quotes.length > 0 ? <div className="workspace-update-note"><RefreshCw className="spin" size={13} />更新中，当前展示上次数据</div> : null}
+          {!loading && error && quotes.length > 0 ? <div className="workspace-update-note workspace-error">{error}</div> : null}
           {!loading && error && quotes.length === 0 ? <div className="workspace-empty workspace-error">{error}</div> : null}
           {!loading && !error && filtered.length === 0 ? <div className="workspace-empty">当前条件没有匹配标的</div> : null}
         </div>

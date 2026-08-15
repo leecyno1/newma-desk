@@ -53,12 +53,12 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
   "event-timeline": {
     kind: "event-timeline",
     modId: "event-timeline",
-    title: "事件时间轴",
-    description: "将价格异动、成交量变化和阶段突破叠加到行情时间线上。",
+    title: "日线时间轴",
+    description: "将股票、ETF 与开放式基金的日线和公开事件按交易日对齐。",
     accent: "var(--vibe-accent)",
     blocks: [
-      { id: "event-chart", type: "klinechart", title: "事件行情" },
-      { id: "event-list", type: "event-timeline", title: "市场事件" },
+      { id: "event-chart", type: "klinechart", title: "日线事件图层" },
+      { id: "event-list", type: "event-timeline", title: "日线事件" },
     ],
   },
   "trading-replay": {

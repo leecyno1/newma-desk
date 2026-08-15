@@ -6,11 +6,13 @@ import {
   deskContextRequestSchema,
   deskInitSchema,
   deskUiActionRequestSchema,
+  deskHandoffSchema,
   modAckSchema,
   modActionRequestSchema,
   modContextSchema,
   modHelloSchema,
   modUiActionResultSchema,
+  modHandoffResultSchema,
 } from "./bridge";
 
 const darkAppearance = {
@@ -201,6 +203,19 @@ describe("Newma-Desk bridge protocol", () => {
           data: { freshness: "fresh" },
           actions: [{ id: "market.explain", available: true }],
           tasks: [],
+          wiki: {
+            primarySubject: {
+              type: "security",
+              canonicalId: "security:CN:300308",
+              displayName: "中际旭创",
+              market: "CN",
+              symbol: "300308",
+              assetType: "stock",
+            },
+            relatedSubjects: [],
+            conceptIds: ["concept:CN:CPO"],
+            intent: "market.overview",
+          },
         },
       }),
     ).toBeTruthy();
@@ -239,5 +254,60 @@ describe("Newma-Desk bridge protocol", () => {
         result: { accepted: true },
       }),
     ).toBeTruthy();
+  });
+
+  it("validates a Desk-to-Mod Wiki handoff lifecycle", () => {
+    const handoff = {
+      version: 1,
+      id: "hf_abc12345",
+      sourceModId: "market-daily",
+      targetModId: "instock-czsc",
+      entrypointId: "structure",
+      subject: {
+        type: "etf",
+        canonicalId: "etf:CN:512010",
+        displayName: "医药 ETF",
+        market: "CN",
+        symbol: "512010",
+        assetType: "etf",
+      },
+      relatedSubjects: [],
+      conceptIds: ["concept:CN:医药"],
+      intent: "technical.structure",
+      timeframe: "daily",
+      parameters: { bars: 480 },
+      createdAt: "2026-08-15T10:00:00+08:00",
+      expiresAt: "2026-08-15T10:05:00+08:00",
+    } as const;
+
+    expect(
+      deskHandoffSchema.parse({
+        type: "vibedesk:handoff",
+        requestId: "handoff-1",
+        instanceId: "instance-1",
+        modId: "instock-czsc",
+        handoff,
+      }),
+    ).toBeTruthy();
+    expect(
+      modHandoffResultSchema.parse({
+        type: "vibedesk:handoff-result",
+        requestId: "handoff-1",
+        instanceId: "instance-1",
+        modId: "instock-czsc",
+        handoffId: handoff.id,
+        ok: true,
+        result: { applied: true },
+      }),
+    ).toBeTruthy();
+    expect(() =>
+      deskHandoffSchema.parse({
+        type: "vibedesk:handoff",
+        requestId: "handoff-2",
+        instanceId: "instance-1",
+        modId: "news-radar",
+        handoff,
+      }),
+    ).toThrow(/target/);
   });
 });

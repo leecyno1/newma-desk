@@ -82,9 +82,12 @@ def _database_has_application_rows(database_path: Path) -> bool | None:
             ).fetchall()
             for (table_name,) in table_names:
                 quoted_name = str(table_name).replace('"', '""')
-                if connection.execute(
-                    f'SELECT 1 FROM "{quoted_name}" LIMIT 1'
-                ).fetchone() is not None:
+                if (
+                    connection.execute(
+                        f'SELECT 1 FROM "{quoted_name}" LIMIT 1'
+                    ).fetchone()
+                    is not None
+                ):
                     return True
     except (OSError, sqlite3.Error):
         return None
@@ -138,10 +141,13 @@ def resolve_database_path(configured_path: Path) -> Path:
         (
             configured_path.with_name(name)
             for name in LEGACY_DATABASE_NAMES
-            if (_module_revision_count(
-                configured_path.with_name(name),
-                published_only=True,
-            ) or 0)
+            if (
+                _module_revision_count(
+                    configured_path.with_name(name),
+                    published_only=True,
+                )
+                or 0
+            )
             > 0
         ),
         None,
@@ -177,6 +183,22 @@ def _default_trading_workspace() -> Path:
 
 def _default_portfolio_center_dist() -> Path:
     return _default_project_root() / "modules" / "portfolio-center" / "dist"
+
+
+def _default_creator_studio_workspace() -> Path:
+    return resolve_runtime_workspace("creator-studio", "source")
+
+
+def _default_creator_studio_dist() -> Path:
+    return _default_project_root() / "modules" / "creator-studio" / "dist"
+
+
+def _default_policy_analysis_dist() -> Path:
+    return _default_project_root() / "modules" / "policy-analysis" / "dist"
+
+
+def _default_capital_flow_dist() -> Path:
+    return _default_project_root() / "modules" / "capital-flow" / "dist"
 
 
 def _default_external_finance_pilot_descriptor() -> Path:
@@ -227,6 +249,15 @@ class Settings(BaseSettings):
     investment_workspace: Path = Field(default_factory=_default_investment_workspace)
     trading_workspace: Path = Field(default_factory=_default_trading_workspace)
     portfolio_center_dist: Path = Field(default_factory=_default_portfolio_center_dist)
+    creator_studio_workspace: Path = Field(
+        default_factory=_default_creator_studio_workspace
+    )
+    creator_studio_dist: Path = Field(default_factory=_default_creator_studio_dist)
+    policy_analysis_dist: Path = Field(default_factory=_default_policy_analysis_dist)
+    capital_flow_dist: Path = Field(default_factory=_default_capital_flow_dist)
+    capital_flow_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    policy_rsshub_base_url: str = ""
+    policy_collector_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
     external_finance_pilot_descriptor: Path = Field(
         default_factory=_default_external_finance_pilot_descriptor
     )
@@ -254,6 +285,7 @@ class Settings(BaseSettings):
     mod_workspace_overrides: str = ""
     investment_web_url: str = "http://127.0.0.1:8911"
     trading_web_url: str = "http://127.0.0.1:8911"
+    creator_studio_web_url: str = "http://127.0.0.1:8911"
     seven_cycle_web_url: str = Field(
         default_factory=lambda: resolve_runtime_origin("seven-cycle", "web")
     )
@@ -274,6 +306,7 @@ class Settings(BaseSettings):
     )
     mod_store_dir: Path = Path("mods")
     mod_store_git_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    mod_store_github_token: SecretStr = SecretStr("")
     # Standard managed nodes use 8788. c10375 is the explicit 8787 exception
     # and must override this through NEWMA_DESK_HERMES_WEBUI_BASE_URL.
     hermes_webui_base_url: str = "http://127.0.0.1:8788"
@@ -391,9 +424,20 @@ class Settings(BaseSettings):
             raise ValueError("Research base URL must be an HTTP origin or path")
         return value.rstrip("/")
 
+    @field_validator("policy_rsshub_base_url")
+    @classmethod
+    def validate_policy_rsshub_base_url(cls, value: str) -> str:
+        if not value:
+            return value
+        parsed = urlsplit(value)
+        if (parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment):
+            raise ValueError("Policy RSSHub base URL must be an HTTP URL")
+        return value.rstrip("/")
+
     @field_validator(
         "investment_web_url",
         "trading_web_url",
+        "creator_studio_web_url",
         "seven_cycle_web_url",
         "deepsee_web_url",
         "instock_web_url",

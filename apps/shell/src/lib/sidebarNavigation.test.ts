@@ -108,7 +108,7 @@ describe("sidebar navigation model", () => {
   it("compiles project identities for the logo rail and falls back to a standalone Mod", () => {
     const standalone = storedMod(
       "event-timeline",
-      "事件时间轴",
+      "日线时间轴",
       40,
       undefined,
       undefined,
@@ -176,7 +176,7 @@ describe("sidebar navigation model", () => {
   it("does not move a page into a different project", () => {
     const standalone = storedMod(
       "event-timeline",
-      "事件时间轴",
+      "日线时间轴",
       40,
       undefined,
       undefined,
@@ -457,8 +457,8 @@ describe("sidebar navigation model", () => {
     expect(model.modulesById.get("market-settings")?.role).toBe("settings");
   });
 
-  it("keeps a complete project's settings inside its column section", () => {
-    const domain = { id: "other", name: "其他", order: 150 };
+  it("keeps a custom project's pages and settings in its first-level entry", () => {
+    const domain = { id: "deepsee-suite", name: "DeepSee", order: 160 };
     const overview = storedMod(
       "deepsee-overview",
       "总览",
@@ -480,14 +480,13 @@ describe("sidebar navigation model", () => {
       {},
       EMPTY_SIDEBAR_NAVIGATION,
     );
-    const other = model.projectsById.get("other");
+    const deepsee = model.projectsById.get("deepsee-suite");
 
-    expect(other?.settingsModule).toBeUndefined();
-    expect(other?.sections[0]).toMatchObject({ id: "deepsee-suite", label: "DeepSee" });
-    expect(other?.sections[0]?.modules.map((item) => item.module.moduleId)).toEqual([
+    expect(deepsee?.sections).toHaveLength(0);
+    expect(deepsee?.modules.map((item) => item.module.moduleId)).toEqual([
       "deepsee-overview",
     ]);
-    expect(other?.sections[0]?.settingsModule?.module.moduleId).toBe("deepsee-settings");
+    expect(deepsee?.settingsModule?.module.moduleId).toBe("deepsee-settings");
   });
 
   it("rebases stale preference deltas without copying new Suite pages", () => {

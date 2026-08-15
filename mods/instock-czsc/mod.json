@@ -3,7 +3,7 @@
   "id": "instock-czsc",
   "name": "CZSC 缠论结构",
   "description": "基于官方 CZSC 的分型、笔、中枢和当前结构信号可视化，历史启发式标记与官方信号明确分层。",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "publisher": "InStock Integration",
   "upstream": "https://github.com/myhhub/stock",
  "tags": ["CZSC", "缠论", "K线", "结构分析"],
@@ -41,6 +41,20 @@
     },
     "permissions": ["analysis.read"],
     "dataServices": [],
+    "wiki": {
+      "contractVersion": "1.0",
+      "subjectTypes": ["security", "etf"],
+      "concepts": ["technical-analysis", "czsc"],
+      "entrypoints": [
+        {
+          "id": "structure",
+          "intent": "technical.structure",
+          "label": "CZSC 结构",
+          "contextContract": "newma.wiki.subject.v1",
+          "defaults": { "period": "daily", "bars": 480 }
+        }
+      ]
+    },
     "actions": {
       "analysis.czsc": {
         "binding": {
@@ -54,7 +68,9 @@
           "properties": {
             "code": { "type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$" },
             "period": { "enum": ["daily", "weekly", "monthly"] },
-            "bars": { "enum": [120, 240, 480, 800] }
+            "bars": { "enum": [120, 240, 480, 800] },
+            "asOf": { "type": "string", "format": "date" },
+            "refresh": { "enum": ["0", "1"] }
           },
           "additionalProperties": false
         },

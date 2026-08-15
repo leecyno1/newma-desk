@@ -70,9 +70,7 @@ def test_publish_missing_revision_does_not_disable_current_published(
     tmp_path: Path,
 ) -> None:
     repo = ModuleRepository(tmp_path / "registry.db")
-    published = repo.publish(
-        "market-daily", repo.create_draft(MANIFEST).revision
-    )
+    published = repo.publish("market-daily", repo.create_draft(MANIFEST).revision)
 
     with pytest.raises(ModuleNotFoundError):
         repo.publish("market-daily", 999)
@@ -101,9 +99,7 @@ def test_publish_already_published_revision_preserves_current_published(
     tmp_path: Path,
 ) -> None:
     repo = ModuleRepository(tmp_path / "registry.db")
-    current = repo.publish(
-        "market-daily", repo.create_draft(MANIFEST).revision
-    )
+    current = repo.publish("market-daily", repo.create_draft(MANIFEST).revision)
 
     with pytest.raises(InvalidModuleStateError):
         repo.publish("market-daily", current.revision)
@@ -144,9 +140,7 @@ def test_rollback_to_current_published_revision_raises_invalid_state(
     tmp_path: Path,
 ) -> None:
     repo = ModuleRepository(tmp_path / "registry.db")
-    published = repo.publish(
-        "market-daily", repo.create_draft(MANIFEST).revision
-    )
+    published = repo.publish("market-daily", repo.create_draft(MANIFEST).revision)
 
     with pytest.raises(InvalidModuleStateError):
         repo.rollback("market-daily", published.revision)
@@ -158,9 +152,7 @@ def test_rollback_to_draft_revision_preserves_current_published(
     tmp_path: Path,
 ) -> None:
     repo = ModuleRepository(tmp_path / "registry.db")
-    current = repo.publish(
-        "market-daily", repo.create_draft(MANIFEST).revision
-    )
+    current = repo.publish("market-daily", repo.create_draft(MANIFEST).revision)
     draft = repo.create_draft({**MANIFEST, "version": "0.2.0"})
 
     with pytest.raises(InvalidModuleStateError):
@@ -185,6 +177,45 @@ def test_list_published_is_deterministic_with_one_revision_per_module(
     assert [(module.module_id, module.revision) for module in published] == [
         ("market-daily", market_v2.revision),
         ("research", research.revision),
+    ]
+
+
+def test_list_installed_keeps_disabled_modules_discoverable(tmp_path: Path) -> None:
+    repo = ModuleRepository(tmp_path / "registry.db")
+    first = repo.install_batch([MANIFEST])[0]
+    disabled = repo.disable("market-daily")
+
+    assert disabled.revision == first.revision
+    assert repo.list_published() == []
+    assert repo.list_installed() == [disabled]
+
+
+def test_install_batch_updates_a_project_atomically(tmp_path: Path) -> None:
+    database_path = tmp_path / "registry.db"
+    repo = ModuleRepository(database_path)
+    first = repo.install_batch(
+        [
+            MANIFEST,
+            {**MANIFEST, "id": "market-scanner", "name": "市场扫描"},
+        ]
+    )
+    updated = repo.install_batch(
+        [
+            {**MANIFEST, "version": "0.2.0"},
+            {
+                **MANIFEST,
+                "id": "market-scanner",
+                "name": "市场扫描",
+                "version": "0.2.0",
+            },
+        ]
+    )
+
+    assert [item.revision for item in first] == [1, 1]
+    assert [item.revision for item in updated] == [2, 2]
+    assert [item.manifest["version"] for item in repo.list_published()] == [
+        "0.2.0",
+        "0.2.0",
     ]
 
 

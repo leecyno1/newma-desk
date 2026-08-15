@@ -688,4 +688,89 @@ describe("connectModHost", () => {
     );
     connection.close();
   });
+
+  it("queues a Wiki handoff until the Mod registers its handler", async () => {
+    const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
+    const pending = connectModHost(
+      {
+        modId: "instock-czsc",
+        parentOrigin: "https://desk.example",
+        capabilities: ["handoff"],
+      },
+      runtime,
+    );
+    dispatch({
+      origin: "https://desk.example",
+      source: parent,
+      data: {
+        type: "vibedesk:init",
+        protocolVersion: "1.0",
+        instanceId: "instance-czsc",
+        modId: "instock-czsc",
+        user: { id: "alice" },
+        workspace: { id: "desk-1" },
+        environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+        gateways: {
+          actions: "https://desk.example/api/mods/instock-czsc/actions",
+          agent: "https://desk.example/api/agent",
+          model: "https://desk.example/api/model",
+          data: "https://desk.example/api/data-services",
+        },
+        grants: { permissions: [], actions: [] },
+      },
+    } as MessageEvent);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+
+    const handoff = {
+      version: 1,
+      id: "hf_abc12345",
+      sourceModId: "market-daily",
+      targetModId: "instock-czsc",
+      entrypointId: "structure",
+      subject: {
+        type: "etf",
+        canonicalId: "etf:CN:512010",
+        displayName: "医药 ETF",
+        market: "CN",
+        symbol: "512010",
+        assetType: "etf",
+      },
+      relatedSubjects: [],
+      conceptIds: ["concept:CN:医药"],
+      intent: "technical.structure",
+      timeframe: "daily",
+      parameters: { bars: 480 },
+      createdAt: "2026-08-15T10:00:00+08:00",
+      expiresAt: "2026-08-15T10:05:00+08:00",
+    } as const;
+    dispatch({
+      origin: "https://desk.example",
+      source: parent,
+      data: {
+        type: "vibedesk:handoff",
+        requestId: "handoff-1",
+        instanceId: "instance-czsc",
+        modId: "instock-czsc",
+        handoff,
+      },
+    } as MessageEvent);
+
+    const handler = vi.fn(() => ({ applied: true }));
+    connection.setHandoffHandler(handler);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).toHaveBeenCalledWith(handoff);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vibedesk:handoff-result",
+        requestId: "handoff-1",
+        handoffId: handoff.id,
+        ok: true,
+      }),
+      "https://desk.example",
+    );
+    connection.close();
+  });
 });

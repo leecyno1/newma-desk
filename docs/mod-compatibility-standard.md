@@ -506,6 +506,20 @@ Agent-only Skill 必须复用用户统一 Agent 设置和 Secret Interface；不
 
 Newma-Desk 必须在调用前验证输入，在返回 Mod 前验证输出。未安装、未授权或 Schema 不匹配的 Service 不得被调用。
 
+### 8.1 Mod Data Continuity
+
+所有第一方读取型 Mod 必须遵循以下刷新行为：
+
+- 首次加载优先恢复同一“用户 + Workspace + Mod + 资源”的最后成功快照，再后台请求最新数据。
+- 手动刷新、自动轮询和 Agent 触发刷新不得先清空当前页面；已有数据继续可见，并显示轻量“更新中”状态。
+- 最新请求成功后原子替换当前数据与最后成功快照；失败时保留旧数据，并提示“更新失败，当前为上次数据”。
+- 证券、周期、筛选器或其他资源身份变化时，只能恢复新资源自己的快照，不得沿用上一资源的数据。
+- 快照必须带 Schema 版本和数据时间；不兼容或损坏快照应直接丢弃，缓存故障不得阻塞 Mod。
+- 默认使用 `@newma-desk/mod-sdk` 的 `createModSnapshotCache()`。Shell 不负责缓存跨 Origin iframe 内的业务数据。
+- 不得缓存交易执行状态、凭据、授权信息、写入中的表单、一次性任务结果或其他安全敏感状态。
+
+该标准是显示连续性 Interface，不替代 [MOD Storage Standard](./mod-storage-standard.md)。需要跨设备、长期保存或多人共享的数据仍必须使用 Mod Storage Interface。
+
 ## 9. 事件与 Workspace Context
 
 事件用于“发生了什么”，Context 用于“当前是什么”。两者不能混用。
@@ -559,3 +573,15 @@ Agent 使用 `vibedesk:context-request/context` 获取这些信息，不应抓�
 - Level 3 ViewSpec 与 Context。
 
 商店展示的等级、徽章、健康状态和测试时间都必须来自检查结果。
+
+### 12.1 官方发布门禁
+
+```bash
+npm run shell:mods:check
+npm run mods:data:check
+npm run test:release:static
+```
+
+- Desk Shell 不得直接依赖业务 Mod；当前仅 `global-intelligence` 与 `market-daily` 是已有内嵌例外。新增业务 Mod 必须通过 Manifest + Bridge 接入。
+- 官方默认 Mod 的每个 Data Action 必须存在真实 Provider，且 Capability、Service 声明和权限必须一致。
+- `test:release:static` 必须包含以上两项检查；运行认证对象从 Mod Store 中 `defaultInstall=true` 的 Manifest 1.1 Mod 自动生成，不得维护独立硬编码名单。

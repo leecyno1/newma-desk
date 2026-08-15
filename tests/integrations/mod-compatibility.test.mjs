@@ -8,6 +8,10 @@ import {
   runCompatibilityCheck,
 } from "../../scripts/check-mod-compatibility.mjs";
 
+const manifestParity = JSON.parse(
+  readFileSync(resolve("tests/fixtures/mod-manifest-parity.json"), "utf8"),
+);
+
 const connected = {
   schemaVersion: "1.1",
   id: "factor-lab",
@@ -38,6 +42,13 @@ const connected = {
   },
   events: { emits: [], accepts: [] },
 };
+
+for (const fixture of manifestParity.cases) {
+  test(`keeps the shared manifest contract aligned for ${fixture.id}`, () => {
+    const result = checkModManifest(fixture.manifest);
+    assert.equal(result.contractStatus === "passed", fixture.expectedValid);
+  });
+}
 
 test("validates a connected Mod contract and derives capability badges", () => {
   const result = checkModManifest(connected);
@@ -156,13 +167,11 @@ test("the current store keeps legacy Mods compatible and validates declared leve
   assert.equal(results.find((result) => result.id === "idea-funnel").level, 3);
   assert.equal(results.find((result) => result.id === "research-library").level, 3);
   assert.equal(results.find((result) => result.id === "research-notes").level, 3);
-  const researchSuiteIds = [
-    "daily-review",
-    "news-radar",
-    "stock-research",
-    "industry-map",
-  ];
-  assert.ok(researchSuiteIds.every((id) => results.find((result) => result.id === id)?.level === 1));
+  assert.equal(results.find((result) => result.id === "daily-review").level, 1);
+  assert.equal(results.find((result) => result.id === "stock-research").level, 3);
+  assert.equal(results.find((result) => result.id === "industry-map").level, 3);
+  assert.equal(results.find((result) => result.id === "news-radar").level, 3);
+  assert.equal(results.find((result) => result.id === "capital-flow").level, 3);
   assert.equal(results.find((result) => result.id === "etf-research").level, 3);
   assert.equal(results.find((result) => result.id === "catalyst-calendar").level, 3);
   assert.equal(results.find((result) => result.id === "earnings-workbench").level, 3);
@@ -213,10 +222,25 @@ test("the current store keeps legacy Mods compatible and validates declared leve
   assert.ok(tradingSuiteIds.every((id) => results.find((result) => result.id === id)?.level === 1));
   const calendarEffectIds = ["calendar-effect-overview", "calendar-effect-history"];
   assert.ok(calendarEffectIds.every((id) => results.find((result) => result.id === id)?.level === 1));
+  const creatorStudioIds = [
+    "creator-dashboard",
+    "creator-workbench",
+    "creator-brief",
+    "creator-draft",
+    "creator-transwrite",
+    "creator-publish",
+    "creator-postmortem",
+    "creator-marketplace",
+    "creator-settings",
+  ];
+  assert.ok(creatorStudioIds.every((id) => results.find((result) => result.id === id)?.level === 3));
   assert.ok(
     results
       .filter((result) => ![
         "market-daily",
+        "news-radar",
+        "policy-analysis",
+        "capital-flow",
         "watchlist",
         "idea-funnel",
         "research-library",
@@ -229,7 +253,9 @@ test("the current store keeps legacy Mods compatible and validates declared leve
         "research-memo",
         "macro-monitor",
         "thesis-tracker",
-        ...researchSuiteIds,
+        "daily-review",
+        "stock-research",
+        "industry-map",
         ...portfolioIds,
         ...chartWorkspaceIds,
         "instock-czsc",
@@ -237,6 +263,7 @@ test("the current store keeps legacy Mods compatible and validates declared leve
         ...orchestraIds,
         ...tradingSuiteIds,
         ...calendarEffectIds,
+        ...creatorStudioIds,
       ].includes(result.id))
       .every((result) => result.level === 0),
   );

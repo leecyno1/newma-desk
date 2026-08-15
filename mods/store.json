@@ -28,42 +28,52 @@
     {
       "id": "news-radar",
       "path": "news-radar/mod.json",
-      "defaultInstall": true
+      "defaultInstall": false
+    },
+    {
+      "id": "policy-analysis",
+      "path": "policy-analysis/mod.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "capital-flow",
+      "path": "capital-flow/mod.json",
+      "defaultInstall": false
     },
     {
       "id": "catalyst-calendar",
       "path": "catalyst-calendar/mod.json",
-      "defaultInstall": true
+      "defaultInstall": false
     },
     {
       "id": "market-daily",
       "path": "market-daily/mod.json",
-      "defaultInstall": true
+      "defaultInstall": false
     },
     {
       "id": "market-scanner",
       "path": "market-scanner/mod.json",
-      "defaultInstall": true
+      "defaultInstall": false
     },
     {
       "id": "multi-timeframe",
       "path": "multi-timeframe/mod.json",
-      "defaultInstall": true
+      "defaultInstall": false
     },
     {
       "id": "relative-strength",
       "path": "relative-strength/mod.json",
-      "defaultInstall": true
+      "defaultInstall": false
     },
     {
       "id": "event-timeline",
       "path": "event-timeline/mod.json",
-      "defaultInstall": true
+      "defaultInstall": false
     },
     {
       "id": "trading-replay",
       "path": "trading-replay/mod.json",
-      "defaultInstall": true
+      "defaultInstall": false
     },
     {
       "id": "seven-cycle-research",
@@ -107,6 +117,11 @@
     {
       "id": "calendar-effect-suite",
       "path": "calendar-effect-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "creator-studio-suite",
+      "path": "creator-studio-suite/suite.json",
       "defaultInstall": false
     }
   ]

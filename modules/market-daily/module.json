@@ -2,7 +2,7 @@
   "schemaVersion": "1.1",
   "id": "market-daily",
   "name": "市场终端",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "category": "market",
   "navigation": {
     "groupLabel": "市场",
@@ -28,6 +28,20 @@
   },
   "permissions": ["market.read"],
   "dataServices": ["market-data"],
+  "wiki": {
+    "contractVersion": "1.0",
+    "subjectTypes": ["security", "etf"],
+    "concepts": ["market-data", "price-action"],
+    "entrypoints": [
+      {
+        "id": "overview",
+        "intent": "market.overview",
+        "label": "市场行情",
+        "contextContract": "newma.wiki.subject.v1",
+        "defaults": {}
+      }
+    ]
+  },
   "actions": {
     "market.refresh": {
       "binding": { "type": "local" },

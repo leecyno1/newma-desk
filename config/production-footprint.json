@@ -16,6 +16,13 @@
       "maxFileBytes": 358400
     },
     {
+      "id": "creator-studio-runtime",
+      "path": "modules/creator-studio/dist",
+      "required": true,
+      "maxTotalBytes": 520000,
+      "maxFileBytes": 430000
+    },
+    {
       "id": "research-suite",
       "path": "mod-projects/vibe-research/frontend/dist",
       "required": false,

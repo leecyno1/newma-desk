@@ -20,6 +20,16 @@ export interface ModSessionIssuerInput {
   workspaceId: string;
 }
 
+export class ModSessionRequestError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ModSessionRequestError";
+    this.status = status;
+  }
+}
+
 async function responseJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -125,9 +135,9 @@ export async function invokeModSessionAction(
   );
   const body = await responseJson(response);
   if (!response.ok) {
-    throw Object.assign(
-      new Error(errorDetail(body, `Mod action returned ${response.status}`)),
-      { status: response.status },
+    throw new ModSessionRequestError(
+      response.status,
+      errorDetail(body, `Mod action returned ${response.status}`),
     );
   }
   return { status: response.status, body };
@@ -153,6 +163,9 @@ export async function saveModContext(
   );
   if (!response.ok) {
     const body = await responseJson(response);
-    throw new Error(errorDetail(body, `Mod context returned ${response.status}`));
+    throw new ModSessionRequestError(
+      response.status,
+      errorDetail(body, `Mod context returned ${response.status}`),
+    );
   }
 }

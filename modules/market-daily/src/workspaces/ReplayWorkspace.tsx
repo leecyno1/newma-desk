@@ -1,8 +1,8 @@
 import { Archive, ExternalLink, Pause, Play, RefreshCcw, SkipForward, TrendingDown, TrendingUp } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { KLineChartPanel, type ChartAnnotation } from "@newma-desk/chart-kit";
-import type { ArtifactClient, ReplayArtifactRecord } from "@newma-desk/mod-sdk";
+import { createModSnapshotCache, type ArtifactClient, type ReplayArtifactRecord } from "@newma-desk/mod-sdk";
 
 import type { Bar, MarketDataSource, SecurityRef, Timeframe } from "../types";
 import { formatPrice, movement, signed } from "./shared";
@@ -30,6 +30,7 @@ function formatReplayDate(timestamp?: number) {
 export function ReplayWorkspace({
   action,
   artifactClient,
+  cacheIdentity,
   dataSource,
   security,
   theme,
@@ -38,6 +39,7 @@ export function ReplayWorkspace({
 }: {
   action?: WorkspaceUiAction;
   artifactClient: ArtifactClient;
+  cacheIdentity?: { userId: string; workspaceId: string };
   dataSource: MarketDataSource;
   security: SecurityRef;
   theme: "light" | "dark";
@@ -56,6 +58,19 @@ export function ReplayWorkspace({
   const [savingArtifact, setSavingArtifact] = useState(false);
   const [savedArtifact, setSavedArtifact] = useState<ReplayArtifactRecord>();
   const [artifactError, setArtifactError] = useState("");
+  const [dataError, setDataError] = useState("");
+  const cache = useMemo(() => cacheIdentity ? createModSnapshotCache<Bar[]>({
+    modId: "trading-replay",
+    ...cacheIdentity,
+    resourceKey: `bars:${security.market}:${security.symbol}:${timeframe}`,
+    maxBytes: 2 * 1024 * 1024,
+  }) : undefined, [cacheIdentity?.userId, cacheIdentity?.workspaceId, security.market, security.symbol, timeframe]);
+  const cacheKey = cache?.key;
+  const resourceKey = `bars:${security.market}:${security.symbol}:${timeframe}`;
+  const resourceKeyRef = useRef<string | undefined>(undefined);
+  const cacheKeyRef = useRef<string | undefined>(undefined);
+  const barsRef = useRef(bars);
+  barsRef.current = bars;
 
   useEffect(() => {
     if (!action) return;
@@ -69,24 +84,45 @@ export function ReplayWorkspace({
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setDataError("");
     setPlaying(false);
-    setOrders([]);
+    const cached = cache?.read()?.value;
+    const resourceChanged = resourceKeyRef.current !== resourceKey;
+    const cacheChanged = cacheKeyRef.current !== cacheKey;
+    resourceKeyRef.current = resourceKey;
+    cacheKeyRef.current = cacheKey;
+    if (resourceChanged) {
+      if (cached?.length) {
+        setBars(cached);
+        setCursor(Math.min(Math.max(60, Math.round(cached.length * 0.35)), cached.length));
+      } else {
+        setBars([]);
+        setCursor(0);
+      }
+      setOrders([]);
+    } else if (cacheChanged && cached?.length && barsRef.current.length === 0) {
+      setBars(cached);
+      setCursor(Math.min(Math.max(60, Math.round(cached.length * 0.35)), cached.length));
+    }
     void dataSource.ohlcv(security, timeframe, security.market === "CN" && timeframe === "1d" ? "qfq" : "none")
       .then((result) => {
         if (!active) return;
         setBars(result.items);
         setCursor(Math.min(Math.max(60, Math.round(result.items.length * 0.35)), result.items.length));
+        setOrders([]);
+        cache?.write(result.items, result.asOf);
       })
       .catch(() => {
         if (!active) return;
-        setBars([]);
-        setCursor(0);
+        setDataError((cached?.length || (!resourceChanged && barsRef.current.length))
+          ? "更新失败，当前为上次数据"
+          : "历史行情暂不可用");
       })
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, [dataSource, refreshNonce, security, timeframe]);
+  }, [cacheKey, dataSource, refreshNonce, security.market, security.symbol, timeframe]);
 
   useEffect(() => {
     if (!playing || cursor >= bars.length) return;
@@ -224,7 +260,9 @@ export function ReplayWorkspace({
           <span className="replay-date">{formatReplayDate(currentBar?.timestamp)}</span>
         </div>
         <div className="replay-chart-wrap">
-          {loading ? <div className="workspace-chart-loading">正在准备历史行情…</div> : null}
+          {loading && !bars.length ? <div className="workspace-chart-loading">正在准备历史行情…</div> : null}
+          {loading && bars.length ? <div className="workspace-update-note"><RefreshCcw className="spin" size={13} />更新中，当前展示上次数据</div> : null}
+          {!loading && dataError ? <div className="workspace-update-note workspace-error">{dataError}</div> : null}
           <KLineChartPanel
             security={security}
             timeframe={timeframe}

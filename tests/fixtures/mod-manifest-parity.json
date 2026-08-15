@@ -1,0 +1,387 @@
+{
+  "cases": [
+    {
+      "id": "valid-manifest-1-0",
+      "expectedValid": true,
+      "manifest": {
+        "schemaVersion": "1.0",
+        "id": "legacy-monitor",
+        "name": "Legacy Monitor",
+        "version": "1.0.0",
+        "category": "research",
+        "entry": {
+          "type": "static",
+          "url": "/mods/legacy-monitor/"
+        },
+        "permissions": [
+          "research.read"
+        ],
+        "dataServices": [],
+        "agentCapabilities": [],
+        "events": {
+          "emits": [],
+          "accepts": []
+        }
+      }
+    },
+    {
+      "id": "valid-level-2",
+      "expectedValid": true,
+      "manifest": {
+        "schemaVersion": "1.1",
+        "id": "factor-lab",
+        "name": "Factor Lab",
+        "version": "1.0.0",
+        "category": "quant",
+        "entry": {
+          "type": "external",
+          "url": "https://quant.example/mod"
+        },
+        "compatibility": {
+          "level": 2,
+          "bridgeProtocol": "1.0"
+        },
+        "permissions": [
+          "quant.execute",
+          "research.read"
+        ],
+        "dataServices": [
+          "market-data"
+        ],
+        "actions": {
+          "factor.backtest": {
+            "binding": {
+              "type": "data",
+              "service": "market-data",
+              "capability": "market.quote"
+            },
+            "execution": "request",
+            "permission": "quant.execute",
+            "inputSchema": {
+              "type": "object"
+            },
+            "outputSchema": {
+              "type": "object"
+            },
+            "confirmation": "user"
+          },
+          "research.explain": {
+            "binding": {
+              "type": "agent",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "research.read",
+            "inputSchema": {
+              "type": "object"
+            },
+            "outputSchema": {
+              "type": "object"
+            },
+            "confirmation": "none"
+          }
+        },
+        "events": {
+          "emits": [],
+          "accepts": []
+        }
+      }
+    },
+    {
+      "id": "valid-wiki-profile",
+      "expectedValid": true,
+      "manifest": {
+        "schemaVersion": "1.1",
+        "id": "wiki-market-view",
+        "name": "Wiki Market View",
+        "version": "1.0.0",
+        "category": "market",
+        "entry": {
+          "type": "static",
+          "url": "/mods/wiki-market-view/"
+        },
+        "compatibility": {
+          "level": 2,
+          "bridgeProtocol": "1.0"
+        },
+        "permissions": [],
+        "dataServices": [],
+        "wiki": {
+          "contractVersion": "1.0",
+          "subjectTypes": ["security", "etf"],
+          "concepts": ["market-overview"],
+          "entrypoints": [
+            {
+              "id": "overview",
+              "intent": "market.overview",
+              "label": "市场概览",
+              "contextContract": "newma.wiki.subject.v1",
+              "defaults": {
+                "timeframe": "daily"
+              }
+            }
+          ]
+        },
+        "actions": {},
+        "events": {
+          "emits": [],
+          "accepts": []
+        }
+      }
+    },
+    {
+      "id": "invalid-legacy-wiki-profile",
+      "expectedValid": false,
+      "manifest": {
+        "schemaVersion": "1.0",
+        "id": "legacy-wiki-view",
+        "name": "Legacy Wiki View",
+        "version": "1.0.0",
+        "category": "market",
+        "entry": {
+          "type": "static",
+          "url": "/mods/legacy-wiki-view/"
+        },
+        "permissions": [],
+        "dataServices": [],
+        "agentCapabilities": [],
+        "wiki": {
+          "contractVersion": "1.0",
+          "subjectTypes": ["security"],
+          "entrypoints": [
+            {
+              "id": "overview",
+              "intent": "market.overview",
+              "label": "市场概览",
+              "contextContract": "newma.wiki.subject.v1"
+            }
+          ]
+        },
+        "events": {
+          "emits": [],
+          "accepts": []
+        }
+      }
+    },
+    {
+      "id": "invalid-local-url",
+      "expectedValid": false,
+      "manifest": {
+        "schemaVersion": "1.0",
+        "id": "unsafe-monitor",
+        "name": "Unsafe Monitor",
+        "version": "1.0.0",
+        "category": "research",
+        "entry": {
+          "type": "static",
+          "url": "/../secret"
+        },
+        "permissions": [],
+        "dataServices": [],
+        "agentCapabilities": [],
+        "events": {
+          "emits": [],
+          "accepts": []
+        }
+      }
+    },
+    {
+      "id": "invalid-level-3-without-viewspec",
+      "expectedValid": false,
+      "manifest": {
+        "schemaVersion": "1.1",
+        "id": "level-three-monitor",
+        "name": "Level Three Monitor",
+        "version": "1.0.0",
+        "category": "research",
+        "entry": {
+          "type": "static",
+          "url": "/mods/level-three-monitor/"
+        },
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0"
+        },
+        "permissions": [],
+        "dataServices": [],
+        "actions": {},
+        "events": {
+          "emits": [],
+          "accepts": []
+        }
+      }
+    },
+    {
+      "id": "invalid-undeclared-permission",
+      "expectedValid": false,
+      "manifest": {
+        "schemaVersion": "1.1",
+        "id": "permission-monitor",
+        "name": "Permission Monitor",
+        "version": "1.0.0",
+        "category": "research",
+        "entry": {
+          "type": "static",
+          "url": "/mods/permission-monitor/"
+        },
+        "compatibility": {
+          "level": 2,
+          "bridgeProtocol": "1.0"
+        },
+        "permissions": [],
+        "dataServices": [],
+        "actions": {
+          "research.refresh": {
+            "binding": {
+              "type": "local"
+            },
+            "execution": "request",
+            "permission": "research.read",
+            "inputSchema": {
+              "type": "object"
+            },
+            "outputSchema": {
+              "type": "object"
+            },
+            "confirmation": "none"
+          }
+        },
+        "events": {
+          "emits": [],
+          "accepts": []
+        }
+      }
+    },
+    {
+      "id": "invalid-undeclared-explicit-service",
+      "expectedValid": false,
+      "manifest": {
+        "schemaVersion": "1.1",
+        "id": "service-monitor",
+        "name": "Service Monitor",
+        "version": "1.0.0",
+        "category": "research",
+        "entry": {
+          "type": "static",
+          "url": "/mods/service-monitor/"
+        },
+        "compatibility": {
+          "level": 2,
+          "bridgeProtocol": "1.0"
+        },
+        "permissions": [
+          "market.read"
+        ],
+        "dataServices": [],
+        "actions": {
+          "market.quote": {
+            "binding": {
+              "type": "data",
+              "service": "market-data"
+            },
+            "execution": "request",
+            "permission": "market.read",
+            "inputSchema": {
+              "type": "object"
+            },
+            "outputSchema": {
+              "type": "object"
+            },
+            "confirmation": "none"
+          }
+        },
+        "events": {
+          "emits": [],
+          "accepts": []
+        }
+      }
+    },
+    {
+      "id": "invalid-agent-non-task-execution",
+      "expectedValid": false,
+      "manifest": {
+        "schemaVersion": "1.1",
+        "id": "agent-monitor",
+        "name": "Agent Monitor",
+        "version": "1.0.0",
+        "category": "research",
+        "entry": {
+          "type": "static",
+          "url": "/mods/agent-monitor/"
+        },
+        "compatibility": {
+          "level": 2,
+          "bridgeProtocol": "1.0"
+        },
+        "permissions": [
+          "research.read"
+        ],
+        "dataServices": [],
+        "actions": {
+          "research.explain": {
+            "binding": {
+              "type": "agent",
+              "memoryScope": "task"
+            },
+            "execution": "request",
+            "permission": "research.read",
+            "inputSchema": {
+              "type": "object"
+            },
+            "outputSchema": {
+              "type": "object"
+            },
+            "confirmation": "none"
+          }
+        },
+        "events": {
+          "emits": [],
+          "accepts": []
+        }
+      }
+    },
+    {
+      "id": "invalid-trade-without-strong-confirmation",
+      "expectedValid": false,
+      "manifest": {
+        "schemaVersion": "1.1",
+        "id": "trade-monitor",
+        "name": "Trade Monitor",
+        "version": "1.0.0",
+        "category": "trading",
+        "entry": {
+          "type": "static",
+          "url": "/mods/trade-monitor/"
+        },
+        "compatibility": {
+          "level": 2,
+          "bridgeProtocol": "1.0"
+        },
+        "permissions": [
+          "trade.execute"
+        ],
+        "dataServices": [],
+        "actions": {
+          "trade.execute": {
+            "binding": {
+              "type": "local"
+            },
+            "execution": "request",
+            "permission": "trade.execute",
+            "inputSchema": {
+              "type": "object"
+            },
+            "outputSchema": {
+              "type": "object"
+            },
+            "confirmation": "user"
+          }
+        },
+        "events": {
+          "emits": [],
+          "accepts": []
+        }
+      }
+    }
+  ]
+}

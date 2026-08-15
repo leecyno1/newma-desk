@@ -5,6 +5,7 @@ import {
 
 export * from "./agent";
 export * from "./artifact";
+export * from "./cache";
 export * from "./data";
 export * from "./host";
 export * from "./model";

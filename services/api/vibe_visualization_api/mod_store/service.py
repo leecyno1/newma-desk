@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import tempfile
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urljoin, urlsplit
@@ -34,6 +37,7 @@ from vibe_visualization_api.mod_store.schemas import (
     StoreModDescriptor,
     StoreModSuiteDescriptor,
     StoreModResponse,
+    StoreProjectInstallResponse,
     StoreSuiteCatalogEntry,
     RuntimeAgentWorkspace,
     WELL_KNOWN_SUITE_PATH,
@@ -43,6 +47,8 @@ from vibe_visualization_api.mod_store.schemas import (
 
 
 MAX_DESCRIPTOR_BYTES = 256 * 1024
+MAX_CATALOG_BYTES = 512 * 1024
+GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
 class ModStoreError(Exception):
@@ -75,11 +81,28 @@ class ModStoreDescriptorError(ModStoreError):
     detail = "Git returned an invalid Mod descriptor"
 
 
+class ModStoreSyncError(ModStoreError):
+    status_code = 502
+    detail = "Unable to sync Mod catalog from GitHub"
+
+
 DescriptorFetcher = Callable[
     [StoreCatalog, StoreCatalogEntry | StoreSuiteCatalogEntry],
     Awaitable[dict[str, Any]],
 ]
 RuntimeWorkspaceResolver = Callable[[str, str], Path]
+CatalogSnapshotFetcher = Callable[
+    [StoreCatalog],
+    Awaitable[tuple[str, dict[str, Any], dict[str, dict[str, Any]]]],
+]
+
+
+@dataclass(frozen=True)
+class RemoteCatalogSnapshot:
+    catalog: StoreCatalog
+    commit: str
+    synced_at: str
+    descriptors: dict[str, dict[str, Any]]
 
 
 def _stable_json(value: object) -> str:
@@ -96,14 +119,19 @@ class ModStoreService:
         settings: Settings,
         *,
         descriptor_fetcher: DescriptorFetcher | None = None,
+        catalog_snapshot_fetcher: CatalogSnapshotFetcher | None = None,
         runtime_workspace_resolver: RuntimeWorkspaceResolver | None = None,
     ) -> None:
         self._settings = settings
         self._store_dir = settings.mod_store_dir
         self._descriptor_fetcher = descriptor_fetcher or self._fetch_descriptor
+        self._catalog_snapshot_fetcher = (
+            catalog_snapshot_fetcher or self._fetch_github_snapshot
+        )
         self._runtime_workspace_resolver = (
             runtime_workspace_resolver or resolve_runtime_workspace
         )
+        self._sync_lock = asyncio.Lock()
 
     def _catalog(self) -> StoreCatalog:
         try:
@@ -112,10 +140,184 @@ class ModStoreService:
         except (OSError, json.JSONDecodeError, ValidationError) as error:
             raise ModStoreCatalogError() from error
 
+    def _snapshot_path(self) -> Path:
+        return self._settings.runtime_dir / "mod-store-catalog.json"
+
+    @staticmethod
+    def _github_repository_parts(repository: str) -> tuple[str, str]:
+        parsed = urlsplit(repository)
+        parts = [part for part in parsed.path.split("/") if part]
+        if parsed.hostname != "github.com" or len(parts) != 2:
+            raise ModStoreSyncError()
+        owner, name = parts
+        return owner, name.removesuffix(".git")
+
+    def _catalog_at_commit(
+        self,
+        catalog: StoreCatalog,
+        commit: str,
+    ) -> StoreCatalog:
+        owner, name = self._github_repository_parts(catalog.git.repository)
+        git = catalog.git.model_copy(
+            update={
+                "ref": commit,
+                "mirrors": [],
+                "raw_base_urls": [
+                    "https://raw.githubusercontent.com/"
+                    f"{owner}/{name}/{commit}/{catalog.git.path_prefix}"
+                ],
+            }
+        )
+        return catalog.model_copy(update={"git": git})
+
+    @staticmethod
+    def _validate_catalog_authority(
+        bundled: StoreCatalog,
+        remote: StoreCatalog,
+    ) -> None:
+        if (
+            remote.id != bundled.id
+            or remote.git.repository != bundled.git.repository
+            or remote.git.ref != bundled.git.ref
+            or remote.git.path_prefix != bundled.git.path_prefix
+        ):
+            raise ModStoreSyncError()
+
+    @staticmethod
+    def _validate_catalog_coverage(
+        bundled: StoreCatalog,
+        remote: StoreCatalog,
+    ) -> None:
+        remote_mods = {entry.id: entry.path for entry in remote.mods}
+        remote_suites = {
+            entry.id: (
+                entry.path,
+                entry.discovery.model_dump(mode="json")
+                if entry.discovery is not None
+                else None,
+            )
+            for entry in remote.suites
+        }
+        if any(remote_mods.get(entry.id) != entry.path for entry in bundled.mods):
+            raise ModStoreSyncError()
+        if any(
+            remote_suites.get(entry.id)
+            != (
+                entry.path,
+                entry.discovery.model_dump(mode="json")
+                if entry.discovery is not None
+                else None,
+            )
+            for entry in bundled.suites
+        ):
+            raise ModStoreSyncError()
+
+    @staticmethod
+    def _validate_git_descriptors(
+        catalog: StoreCatalog,
+        descriptors: dict[str, dict[str, Any]],
+    ) -> None:
+        expected_ids = {
+            entry.id for entry in [*catalog.mods, *catalog.suites] if entry.path
+        }
+        if set(descriptors) != expected_ids:
+            raise ModStoreSyncError()
+
+        expanded: list[StoreModDescriptor] = []
+        try:
+            for entry in catalog.mods:
+                descriptor = StoreModDescriptor.model_validate(descriptors[entry.id])
+                if descriptor.id != entry.id:
+                    raise ModStoreSyncError()
+                expanded.append(descriptor)
+            for entry in catalog.suites:
+                if entry.path is None:
+                    continue
+                suite = StoreModSuiteDescriptor.model_validate(descriptors[entry.id])
+                if suite.id != entry.id:
+                    raise ModStoreSyncError()
+                expanded.extend(item for item, _ in expand_mod_suite(suite))
+            validate_complete_project_groups(expanded)
+        except (ValidationError, TypeError, ValueError) as error:
+            raise ModStoreSyncError() from error
+
+    def _snapshot(self) -> RemoteCatalogSnapshot | None:
+        try:
+            raw = json.loads(self._snapshot_path().read_text("utf-8"))
+            if not isinstance(raw, dict) or raw.get("schemaVersion") != "1.0":
+                return None
+            commit = raw.get("commit")
+            synced_at = raw.get("syncedAt")
+            descriptor_rows = raw.get("descriptors")
+            if (
+                not isinstance(commit, str)
+                or GIT_COMMIT_PATTERN.fullmatch(commit) is None
+                or not isinstance(synced_at, str)
+                or not isinstance(descriptor_rows, dict)
+            ):
+                return None
+            datetime.fromisoformat(synced_at)
+            catalog = StoreCatalog.model_validate(raw.get("catalog"))
+            bundled = self._catalog()
+            self._validate_catalog_authority(bundled, catalog)
+            self._validate_catalog_coverage(bundled, catalog)
+            descriptors = {
+                key: value
+                for key, value in descriptor_rows.items()
+                if isinstance(key, str) and isinstance(value, dict)
+            }
+            if len(descriptors) != len(descriptor_rows):
+                return None
+            self._validate_git_descriptors(catalog, descriptors)
+            return RemoteCatalogSnapshot(
+                catalog=self._catalog_at_commit(catalog, commit),
+                commit=commit,
+                synced_at=synced_at,
+                descriptors=descriptors,
+            )
+        except (
+            OSError,
+            json.JSONDecodeError,
+            ValidationError,
+            ValueError,
+            ModStoreError,
+        ):
+            return None
+
+    def _write_snapshot(
+        self,
+        catalog: StoreCatalog,
+        commit: str,
+        synced_at: str,
+        descriptors: dict[str, dict[str, Any]],
+    ) -> None:
+        path = self._snapshot_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        temp.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": "1.0",
+                    "repository": catalog.git.repository,
+                    "ref": catalog.git.ref,
+                    "commit": commit,
+                    "syncedAt": synced_at,
+                    "catalog": catalog.model_dump(by_alias=True, mode="json"),
+                    "descriptors": descriptors,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        os.chmod(temp, 0o600)
+        os.replace(temp, path)
+
     async def _entry(
         self,
         catalog: StoreCatalog,
         mod_id: str,
+        descriptors: dict[str, dict[str, Any]] | None = None,
     ) -> tuple[
         StoreCatalogEntry | StoreSuiteCatalogEntry,
         str | None,
@@ -125,7 +327,11 @@ class ModStoreService:
         if standalone is not None:
             return standalone, None, None
         for suite_entry in catalog.suites:
-            suite = await self._suite_descriptor(catalog, suite_entry)
+            suite = await self._suite_descriptor(
+                catalog,
+                suite_entry,
+                descriptors=descriptors,
+            )
             if any(page.id == mod_id for page in suite.pages):
                 return (
                     suite_entry,
@@ -173,7 +379,20 @@ class ModStoreService:
         self,
         catalog: StoreCatalog,
         entry: StoreSuiteCatalogEntry,
+        *,
+        descriptors: dict[str, dict[str, Any]] | None = None,
     ) -> StoreModSuiteDescriptor:
+        if descriptors is not None and entry.path is not None:
+            raw = descriptors.get(entry.id)
+            if raw is None:
+                raise ModStoreCatalogError()
+            try:
+                descriptor = StoreModSuiteDescriptor.model_validate(raw)
+            except ValidationError as error:
+                raise ModStoreCatalogError() from error
+            if descriptor.id != entry.id:
+                raise ModStoreCatalogError()
+            return descriptor
         if entry.path is not None:
             return self._local_suite_descriptor(entry)
         try:
@@ -217,6 +436,58 @@ class ModStoreService:
                         entry.default_install if page_default is None else page_default,
                     )
                 )
+        ids = [descriptor.id for _, descriptor, _ in rows]
+        if len(ids) != len(set(ids)) or set(ids).intersection(catalog.retired_mods):
+            raise ModStoreCatalogError()
+        try:
+            validate_complete_project_groups([descriptor for _, descriptor, _ in rows])
+        except ValueError as error:
+            raise ModStoreCatalogError() from error
+        return rows
+
+    async def _snapshot_mods(
+        self,
+        catalog: StoreCatalog,
+        descriptors: dict[str, dict[str, Any]],
+    ) -> list[
+        tuple[
+            StoreCatalogEntry | StoreSuiteCatalogEntry,
+            StoreModDescriptor,
+            bool,
+        ]
+    ]:
+        rows: list[
+            tuple[
+                StoreCatalogEntry | StoreSuiteCatalogEntry,
+                StoreModDescriptor,
+                bool,
+            ]
+        ] = []
+        try:
+            for entry in catalog.mods:
+                descriptor = StoreModDescriptor.model_validate(descriptors[entry.id])
+                if descriptor.id != entry.id:
+                    raise ModStoreCatalogError()
+                rows.append((entry, descriptor, entry.default_install))
+            for entry in catalog.suites:
+                suite = await self._suite_descriptor(
+                    catalog,
+                    entry,
+                    descriptors=descriptors,
+                )
+                for descriptor, page_default in expand_mod_suite(suite):
+                    rows.append(
+                        (
+                            entry,
+                            descriptor,
+                            entry.default_install
+                            if page_default is None
+                            else page_default,
+                        )
+                    )
+        except (KeyError, ValidationError, TypeError, ValueError) as error:
+            raise ModStoreCatalogError() from error
+
         ids = [descriptor.id for _, descriptor, _ in rows]
         if len(ids) != len(set(ids)) or set(ids).intersection(catalog.retired_mods):
             raise ModStoreCatalogError()
@@ -444,22 +715,265 @@ class ModStoreService:
             raise ModStoreCatalogError()
         suite = self._local_suite_descriptor(entry)
         descriptor = next(
-            (
-                item
-                for item, _ in expand_mod_suite(suite)
-                if item.id == suite_page_id
-            ),
+            (item for item, _ in expand_mod_suite(suite) if item.id == suite_page_id),
             None,
         )
         if descriptor is None:
             raise ModStoreCatalogError()
         return descriptor
 
-    async def list(self, repository: ModuleRepository) -> ModStoreResponse:
+    async def _active_mods(
+        self,
+    ) -> tuple[
+        StoreCatalog,
+        list[
+            tuple[
+                StoreCatalogEntry | StoreSuiteCatalogEntry,
+                StoreModDescriptor,
+                bool,
+            ]
+        ],
+        RemoteCatalogSnapshot | None,
+    ]:
+        snapshot = self._snapshot()
+        if snapshot is not None:
+            return (
+                snapshot.catalog,
+                await self._snapshot_mods(snapshot.catalog, snapshot.descriptors),
+                snapshot,
+            )
         catalog = self._catalog()
-        installed = {item.module_id: item for item in repository.list_published()}
+        return catalog, await self._local_mods(catalog), None
+
+    async def sync(self, repository: ModuleRepository) -> ModStoreResponse:
+        async with self._sync_lock:
+            bundled = self._catalog()
+            try:
+                commit, raw_catalog, descriptors = await self._catalog_snapshot_fetcher(
+                    bundled
+                )
+                if GIT_COMMIT_PATTERN.fullmatch(commit) is None:
+                    raise ModStoreSyncError()
+                remote = StoreCatalog.model_validate(raw_catalog)
+                self._validate_catalog_authority(bundled, remote)
+                self._validate_catalog_coverage(bundled, remote)
+                self._validate_git_descriptors(remote, descriptors)
+                synced_at = datetime.now(timezone.utc).isoformat()
+                self._write_snapshot(remote, commit, synced_at, descriptors)
+            except ModStoreError:
+                raise
+            except (OSError, ValidationError, TypeError, ValueError) as error:
+                raise ModStoreSyncError() from error
+        return await self.list(repository)
+
+    async def _fetch_github_snapshot(
+        self,
+        catalog: StoreCatalog,
+    ) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]]]:
+        # GitHub is the sole release authority. Mirrors may distribute already
+        # commit-pinned content, but they must never choose the catalog commit.
+        self._github_repository_parts(catalog.git.repository)
+        git_snapshot = await self._fetch_github_snapshot_from_git(catalog)
+        if git_snapshot is not None:
+            return git_snapshot
+
+        owner, name = self._github_repository_parts(catalog.git.repository)
+        timeout = httpx.Timeout(self._settings.mod_store_git_timeout_seconds)
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "Newma-Desk-Mod-Store",
+        }
+        token = self._settings.mod_store_github_token.get_secret_value().strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=False,
+            trust_env=False,
+            headers=headers,
+        ) as client:
+            commit_body = await self._fetch_json_document(
+                client,
+                "https://api.github.com/repos/"
+                f"{quote(owner, safe='')}/{quote(name, safe='')}/commits/"
+                f"{quote(catalog.git.ref, safe='')}",
+                max_bytes=MAX_DESCRIPTOR_BYTES,
+            )
+            commit = commit_body.get("sha")
+            if (
+                not isinstance(commit, str)
+                or GIT_COMMIT_PATTERN.fullmatch(commit) is None
+            ):
+                raise ModStoreSyncError()
+
+            raw_root = (
+                "https://raw.githubusercontent.com/"
+                f"{quote(owner, safe='')}/{quote(name, safe='')}/{commit}/"
+                f"{quote(catalog.git.path_prefix, safe='/')}"
+            )
+            raw_catalog = await self._fetch_json_document(
+                client,
+                f"{raw_root}/store.json",
+                max_bytes=MAX_CATALOG_BYTES,
+            )
+            try:
+                remote = StoreCatalog.model_validate(raw_catalog)
+            except ValidationError as error:
+                raise ModStoreSyncError() from error
+
+            semaphore = asyncio.Semaphore(6)
+
+            async def fetch_entry(
+                entry: StoreCatalogEntry | StoreSuiteCatalogEntry,
+            ) -> tuple[str, dict[str, Any]]:
+                if entry.path is None:
+                    raise ModStoreSyncError()
+                encoded_path = "/".join(
+                    quote(part, safe="") for part in entry.path.split("/")
+                )
+                async with semaphore:
+                    body = await self._fetch_json_document(
+                        client,
+                        f"{raw_root}/{encoded_path}",
+                        max_bytes=MAX_DESCRIPTOR_BYTES,
+                    )
+                return entry.id, body
+
+            entries = [entry for entry in [*remote.mods, *remote.suites] if entry.path]
+            descriptors = dict(await asyncio.gather(*(fetch_entry(e) for e in entries)))
+            return commit, raw_catalog, descriptors
+
+    async def _fetch_github_snapshot_from_git(
+        self,
+        catalog: StoreCatalog,
+    ) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]]] | None:
+        timeout = self._settings.mod_store_git_timeout_seconds
+        environment = {
+            **os.environ,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GCM_INTERACTIVE": "never",
+        }
+        try:
+            self._settings.runtime_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(
+                prefix="newma-desk-catalog-",
+                dir=self._settings.runtime_dir,
+            ) as directory:
+                initialized = await self._run_git(
+                    ["init", "--bare", directory],
+                    timeout=timeout,
+                    environment=environment,
+                )
+                if initialized is None:
+                    return None
+                fetched = await self._run_git(
+                    [
+                        "--git-dir",
+                        directory,
+                        "fetch",
+                        "--depth=1",
+                        "--no-tags",
+                        catalog.git.repository,
+                        catalog.git.ref,
+                    ],
+                    timeout=timeout,
+                    environment=environment,
+                )
+                if fetched is None:
+                    return None
+                commit_body = await self._run_git(
+                    ["--git-dir", directory, "rev-parse", "FETCH_HEAD"],
+                    timeout=timeout,
+                    environment=environment,
+                )
+                if commit_body is None:
+                    return None
+                commit = commit_body.decode("ascii", errors="ignore").strip()
+                if GIT_COMMIT_PATTERN.fullmatch(commit) is None:
+                    raise ModStoreSyncError()
+                catalog_body = await self._run_git(
+                    [
+                        "--git-dir",
+                        directory,
+                        "show",
+                        f"{commit}:{catalog.git.path_prefix}/store.json",
+                    ],
+                    timeout=timeout,
+                    environment=environment,
+                )
+                if catalog_body is None or len(catalog_body) > MAX_CATALOG_BYTES:
+                    raise ModStoreSyncError()
+                try:
+                    raw_catalog = json.loads(catalog_body)
+                    remote = StoreCatalog.model_validate(raw_catalog)
+                except (
+                    UnicodeDecodeError,
+                    json.JSONDecodeError,
+                    ValidationError,
+                ) as error:
+                    raise ModStoreSyncError() from error
+
+                descriptors: dict[str, dict[str, Any]] = {}
+                for entry in [*remote.mods, *remote.suites]:
+                    if entry.path is None:
+                        continue
+                    body = await self._run_git(
+                        [
+                            "--git-dir",
+                            directory,
+                            "show",
+                            f"{commit}:{remote.git.path_prefix}/{entry.path}",
+                        ],
+                        timeout=timeout,
+                        environment=environment,
+                    )
+                    if body is None or len(body) > MAX_DESCRIPTOR_BYTES:
+                        raise ModStoreSyncError()
+                    try:
+                        value = json.loads(body)
+                    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                        raise ModStoreSyncError() from error
+                    if not isinstance(value, dict):
+                        raise ModStoreSyncError()
+                    descriptors[entry.id] = value
+                return commit, raw_catalog, descriptors
+        except OSError:
+            return None
+        return None
+
+    async def _fetch_json_document(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        max_bytes: int,
+    ) -> dict[str, Any]:
+        try:
+            async with client.stream("GET", url) as response:
+                if response.status_code != 200:
+                    raise ModStoreSyncError()
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ModStoreSyncError()
+                    chunks.append(chunk)
+        except httpx.HTTPError as error:
+            raise ModStoreSyncError() from error
+        try:
+            body = json.loads(b"".join(chunks))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ModStoreSyncError() from error
+        if not isinstance(body, dict):
+            raise ModStoreSyncError()
+        return body
+
+    async def list(self, repository: ModuleRepository) -> ModStoreResponse:
+        catalog, catalog_mods, snapshot = await self._active_mods()
+        installed = {item.module_id: item for item in repository.list_installed()}
         rows: list[StoreModResponse] = []
-        for entry, descriptor, default_install in await self._local_mods(catalog):
+        for entry, descriptor, default_install in catalog_mods:
             manifest = self._manifest(descriptor)
             current = installed.get(descriptor.id)
             if current is None:
@@ -471,6 +985,7 @@ class ModStoreService:
             rows.append(
                 StoreModResponse(
                     id=descriptor.id,
+                    suite_id=entry.id,
                     name=descriptor.name,
                     description=descriptor.description,
                     version=descriptor.version,
@@ -483,6 +998,11 @@ class ModStoreService:
                     default_install=default_install,
                     install_state=install_state,
                     installed_revision=current.revision if current else None,
+                    installed_version=(
+                        str(current.manifest.get("version")) if current else None
+                    ),
+                    installed_status=current.status if current else None,
+                    navigation=descriptor.manifest.navigation,
                     source_url=self._source_page_url(catalog, entry),
                 )
             )
@@ -490,7 +1010,10 @@ class ModStoreService:
             id=catalog.id,
             name=catalog.name,
             repository=catalog.git.repository,
-            ref=catalog.git.ref,
+            ref=self._catalog().git.ref if snapshot else catalog.git.ref,
+            catalog_source="github" if snapshot else "bundled",
+            commit=snapshot.commit if snapshot else None,
+            synced_at=snapshot.synced_at if snapshot else None,
             mods=rows,
         )
 
@@ -499,14 +1022,22 @@ class ModStoreService:
         mod_id: str,
         repository: ModuleRepository,
     ) -> StoreInstallResponse:
-        catalog = self._catalog()
-        entry, suite_page_id, discovered_suite = await self._entry(catalog, mod_id)
+        snapshot = self._snapshot()
+        catalog = snapshot.catalog if snapshot is not None else self._catalog()
+        entry, suite_page_id, discovered_suite = await self._entry(
+            catalog,
+            mod_id,
+            descriptors=snapshot.descriptors if snapshot else None,
+        )
         try:
-            raw = (
-                discovered_suite.model_dump(by_alias=True, mode="json")
-                if discovered_suite is not None
-                else await self._descriptor_fetcher(catalog, entry)
-            )
+            if snapshot is not None and entry.path is not None:
+                raw = snapshot.descriptors[entry.id]
+            else:
+                raw = (
+                    discovered_suite.model_dump(by_alias=True, mode="json")
+                    if discovered_suite is not None
+                    else await self._descriptor_fetcher(catalog, entry)
+                )
         except ModStoreSourceError as source_error:
             try:
                 descriptor = self._local_install_descriptor(entry, suite_page_id)
@@ -540,24 +1071,80 @@ class ModStoreService:
             raise ModStoreDescriptorError()
 
         manifest = self._manifest(descriptor)
-        current_by_id = {item.module_id: item for item in repository.list_published()}
+        current_by_id = {item.module_id: item for item in repository.list_installed()}
         current = current_by_id.get(mod_id)
         source_url = self._source_page_url(catalog, entry)
-        if current is not None and _manifest_equal(current.manifest, manifest):
+        if (
+            current is not None
+            and current.status == "published"
+            and _manifest_equal(current.manifest, manifest)
+        ):
             return StoreInstallResponse(
                 action="unchanged",
                 descriptor_source=descriptor_source,
                 source_url=source_url,
+                source_commit=snapshot.commit if snapshot else None,
                 mod=current,
             )
 
-        draft = repository.create_draft(manifest)
-        published = repository.publish(mod_id, draft.revision)
+        published = repository.install_batch([manifest])[0]
         return StoreInstallResponse(
             action="updated" if current is not None else "installed",
             descriptor_source=descriptor_source,
             source_url=source_url,
+            source_commit=snapshot.commit if snapshot else None,
             mod=published,
+        )
+
+    async def install_project(
+        self,
+        project_id: str,
+        repository: ModuleRepository,
+    ) -> StoreProjectInstallResponse:
+        if not re.fullmatch(r"^[a-z][a-z0-9-]{1,47}$", project_id):
+            raise ModStoreNotFoundError()
+
+        _, rows, snapshot = await self._active_mods()
+        selected = [
+            descriptor
+            for _, descriptor, _ in rows
+            if (
+                descriptor.manifest.navigation.directory.id
+                if descriptor.manifest.navigation is not None
+                and descriptor.manifest.navigation.directory is not None
+                else descriptor.id
+            )
+            == project_id
+        ]
+        if not selected:
+            raise ModStoreNotFoundError()
+
+        installed = {item.module_id: item for item in repository.list_installed()}
+        manifests = [self._manifest(descriptor) for descriptor in selected]
+        changed = [
+            manifest
+            for manifest in manifests
+            if (
+                (current := installed.get(str(manifest["id"]))) is None
+                or current.status != "published"
+                or not _manifest_equal(current.manifest, manifest)
+            )
+        ]
+        if not changed:
+            modules = [installed[str(manifest["id"])] for manifest in manifests]
+            action = "unchanged"
+        else:
+            modules = repository.install_batch(manifests)
+            action = (
+                "updated"
+                if any(installed.get(item.module_id) for item in modules)
+                else "installed"
+            )
+        return StoreProjectInstallResponse(
+            action=action,
+            project_id=project_id,
+            source_commit=snapshot.commit if snapshot else None,
+            mods=modules,
         )
 
     async def _fetch_descriptor(

@@ -1,15 +1,58 @@
-import { createRef } from "react";
+import { createRef, useEffect, useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ModEvent, ModManifest } from "@newma-desk/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ModSessionRequestError } from "../api/modSessions";
 import { ShellEventBus } from "../events/ShellEventBus";
 import { ModFrame, type ModFrameHandle } from "./ModuleFrame";
 
 vi.mock("./EmbeddedMarketFrame", () => ({
-  default: ({ search }: { search: string }) => (
-    <div data-testid="embedded-market-frame">{search || "terminal"}</div>
-  ),
+  default: ({
+    hostConnection,
+    search,
+  }: {
+    hostConnection?: {
+      setContextProvider?: (
+        provider: () => {
+          actions: never[];
+          data: Record<string, never>;
+          filters: Record<string, never>;
+          selection: { symbol: string };
+          tasks: never[];
+          view: { id: string; title: string };
+          visibleBlocks: never[];
+        },
+      ) => () => void;
+    };
+    search: string;
+  }) => {
+    hostConnection?.setContextProvider?.(() => ({
+      view: { id: "market-scanner", title: "市场扫描器" },
+      visibleBlocks: [],
+      selection: { symbol: "600519" },
+      filters: {},
+      data: {},
+      actions: [],
+      tasks: [],
+    }));
+    return <div data-testid="embedded-market-frame">{search || "terminal"}</div>;
+  },
+}));
+
+vi.mock("./EmbeddedIntelligenceFrame", () => ({
+  default: ({
+    hostConnection,
+  }: {
+    hostConnection: {
+      config: { environment: { theme: string } };
+      subscribe(handler: (config: { environment: { theme: string } }) => void): () => void;
+    };
+  }) => {
+    const [theme, setTheme] = useState(hostConnection.config.environment.theme);
+    useEffect(() => hostConnection.subscribe((config) => setTheme(config.environment.theme)), [hostConnection]);
+    return <div data-testid="embedded-intelligence-frame">{theme}</div>;
+  },
 }));
 
 const manifest: ModManifest = {
@@ -108,10 +151,67 @@ describe("ModFrame event boundary", () => {
     eventBus.close();
   });
 
+  it("accepts an initial context request for an embedded first-party workspace", async () => {
+    const eventBus = new ShellEventBus();
+    const frameHandle = createRef<ModFrameHandle>();
+    render(
+      <ModFrame
+        ref={frameHandle}
+        manifest={{
+          ...connectedManifest,
+          id: "market-scanner",
+          name: "市场扫描器",
+          entry: {
+            type: "structured",
+            url: "/mods/market-daily/?workspace=scanner",
+          },
+        }}
+        eventBus={eventBus}
+        theme="light"
+      />,
+    );
+    expect(await screen.findByTestId("embedded-market-frame")).toBeVisible();
+    await expect(
+      frameHandle.current?.requestContext("initial"),
+    ).resolves.toMatchObject({ selection: { symbol: "600519" } });
+    eventBus.close();
+  });
+
+  it("updates the embedded intelligence theme with the Desk", async () => {
+    const eventBus = new ShellEventBus();
+    const intelligenceManifest: ModManifest = {
+      ...connectedManifest,
+      id: "global-situation",
+      name: "全球情报",
+      entry: {
+        type: "structured",
+        url: "/mods/global-intelligence/",
+      },
+    };
+    const view = render(
+      <ModFrame
+        manifest={intelligenceManifest}
+        eventBus={eventBus}
+        theme="light"
+      />,
+    );
+
+    expect(await screen.findByTestId("embedded-intelligence-frame")).toHaveTextContent("light");
+    view.rerender(
+      <ModFrame
+        manifest={intelligenceManifest}
+        eventBus={eventBus}
+        theme="dark"
+      />,
+    );
+    expect(screen.getByTestId("embedded-intelligence-frame")).toHaveTextContent("dark");
+    eventBus.close();
+  });
+
   it("exposes a page-context request to the Desk-level copilot", async () => {
     const eventBus = new ShellEventBus();
     const frameHandle = createRef<ModFrameHandle>();
-    const contextSaver = vi.fn(async () => undefined);
+    const contextSaver = vi.fn(async (_session: { accessToken: string }) => undefined);
     render(
       <ModFrame
         ref={frameHandle}
@@ -452,6 +552,98 @@ describe("ModFrame event boundary", () => {
     eventBus.close();
   });
 
+  it("queues a Wiki handoff until the target Mod finishes its handshake", async () => {
+    const eventBus = new ShellEventBus();
+    const frameHandle = createRef<ModFrameHandle>();
+    render(
+      <ModFrame
+        ref={frameHandle}
+        manifest={connectedManifest}
+        eventBus={eventBus}
+        theme="light"
+        sessionIssuer={async (input) => ({
+          sessionId: "session-handoff",
+          instanceId: input.instanceId,
+          accessToken: "token",
+          tokenType: "Bearer",
+          expiresAt: "2099-07-23T10:00:00+08:00",
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          moduleId: input.modId,
+          revision: 1,
+          grants: { permissions: [], actions: [] },
+        })}
+      />,
+    );
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow || !frameHandle.current) throw new Error("expected Mod frame");
+    const postMessage = vi.spyOn(frameWindow, "postMessage").mockImplementation(() => undefined);
+    const handoff = {
+      version: 1 as const,
+      id: "hf_test1234",
+      sourceModId: "event-timeline",
+      targetModId: "market-daily",
+      entrypointId: "overview",
+      subject: {
+        type: "security" as const,
+        canonicalId: "security:CN:300308",
+        displayName: "中际旭创",
+        market: "CN" as const,
+        symbol: "300308",
+        assetType: "stock" as const,
+      },
+      relatedSubjects: [],
+      conceptIds: [],
+      intent: "market.overview",
+      timeframe: "daily",
+      parameters: {},
+      createdAt: "2026-08-15T10:00:00+08:00",
+      expiresAt: "2026-08-15T10:05:00+08:00",
+    };
+
+    const pending = frameHandle.current.deliverHandoff(handoff);
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "vibedesk:handoff" }),
+      expect.anything(),
+    );
+    dispatchFromFrame(frame, {
+      type: "vibedesk:hello",
+      modId: "market-daily",
+      protocolVersions: ["1.0"],
+      capabilities: ["handoff"],
+    });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "vibedesk:init" }),
+      "http://127.0.0.1:5891",
+    ));
+    const init = postMessage.mock.calls.find(
+      ([message]) => typeof message === "object" && message !== null && "type" in message && message.type === "vibedesk:init",
+    )?.[0] as { instanceId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:ack",
+      protocolVersion: "1.0",
+      instanceId: init.instanceId,
+      modId: "market-daily",
+    });
+    const request = postMessage.mock.calls.find(
+      ([message]) => typeof message === "object" && message !== null && "type" in message && message.type === "vibedesk:handoff",
+    )?.[0] as { requestId: string };
+    expect(request).toBeDefined();
+    dispatchFromFrame(frame, {
+      type: "vibedesk:handoff-result",
+      requestId: request.requestId,
+      instanceId: init.instanceId,
+      modId: "market-daily",
+      handoffId: handoff.id,
+      ok: true,
+      result: { selected: "300308" },
+    });
+
+    await expect(pending).resolves.toEqual({ selected: "300308" });
+    eventBus.close();
+  });
+
   it("issues a scoped session, persists Mod context, and proxies actions", async () => {
     const eventBus = new ShellEventBus();
     const sessionIssuer = vi.fn(async (input: { instanceId: string }) => ({
@@ -473,7 +665,7 @@ describe("ModFrame event boundary", () => {
       status: 202,
       body: { id: "task-1", status: "queued" },
     }));
-    const contextSaver = vi.fn(async () => undefined);
+    const contextSaver = vi.fn(async (_session: { accessToken: string }) => undefined);
     render(
       <ModFrame
         manifest={connectedManifest}
@@ -611,6 +803,282 @@ describe("ModFrame event boundary", () => {
       }),
       "http://127.0.0.1:5891",
     );
+    eventBus.close();
+  });
+
+  it("renews an invalid Mod session and retries context persistence once", async () => {
+    const eventBus = new ShellEventBus();
+    const sessionIssuer = vi.fn(async (input: { instanceId: string }) => {
+      const generation = sessionIssuer.mock.calls.length;
+      return {
+        sessionId: `session-${generation}`,
+        instanceId: input.instanceId,
+        accessToken: `token-${generation}`,
+        tokenType: "Bearer" as const,
+        expiresAt: "2099-07-23T10:00:00+08:00",
+        userId: "alice",
+        workspaceId: "desk-1",
+        moduleId: "market-daily",
+        revision: 1,
+        grants: {
+          permissions: ["market.read"],
+          actions: ["market.explain"],
+        },
+      };
+    });
+    const contextSaver = vi
+      .fn()
+      .mockRejectedValueOnce(new ModSessionRequestError(401, "expired"))
+      .mockResolvedValueOnce(undefined);
+    render(
+      <ModFrame
+        manifest={connectedManifest}
+        eventBus={eventBus}
+        theme="light"
+        userId="alice"
+        workspaceId="desk-1"
+        sessionIssuer={sessionIssuer}
+        contextSaver={contextSaver}
+      />,
+    );
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error("expected iframe window");
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    dispatchFromFrame(frame, {
+      type: "vibedesk:hello",
+      modId: "market-daily",
+      protocolVersions: ["1.0"],
+      capabilities: ["context"],
+    });
+    await waitFor(() => expect(sessionIssuer).toHaveBeenCalledTimes(1));
+    const init = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:init",
+    )?.[0] as { instanceId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:ack",
+      protocolVersion: "1.0",
+      instanceId: init.instanceId,
+      modId: "market-daily",
+    });
+    dispatchFromFrame(frame, {
+      type: "vibedesk:context",
+      requestId: "context-retry",
+      instanceId: init.instanceId,
+      modId: "market-daily",
+      context: {
+        view: { id: "market-daily", title: "市场行情" },
+        visibleBlocks: [],
+        selection: { symbol: "600519" },
+        filters: {},
+        data: { freshness: "fresh" },
+        actions: [],
+        tasks: [],
+      },
+    });
+
+    await waitFor(() => expect(contextSaver).toHaveBeenCalledTimes(2));
+    expect(sessionIssuer).toHaveBeenCalledTimes(2);
+    expect(contextSaver.mock.calls[0]?.[0].accessToken).toBe("token-1");
+    expect(contextSaver.mock.calls[1]?.[0].accessToken).toBe("token-2");
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vibedesk:init",
+        session: expect.objectContaining({ accessToken: "token-2" }),
+      }),
+      "http://127.0.0.1:5891",
+    );
+    eventBus.close();
+  });
+
+  it("pushes a proactively renewed session to the Mod before persisting context", async () => {
+    const eventBus = new ShellEventBus();
+    const sessionIssuer = vi.fn(async (input: { instanceId: string }) => {
+      const generation = sessionIssuer.mock.calls.length;
+      return {
+        sessionId: `session-${generation}`,
+        instanceId: input.instanceId,
+        accessToken: `token-${generation}`,
+        tokenType: "Bearer" as const,
+        expiresAt:
+          generation === 1
+            ? new Date(Date.now() + 10_000).toISOString()
+            : "2099-07-23T10:00:00+08:00",
+        userId: "alice",
+        workspaceId: "desk-1",
+        moduleId: "market-daily",
+        revision: generation,
+        grants: {
+          permissions: ["market.read", "storage.read", "storage.write"],
+          actions: ["market.explain"],
+        },
+      };
+    });
+    const contextSaver = vi.fn(async (_session: { accessToken: string }) => undefined);
+    render(
+      <ModFrame
+        manifest={connectedManifest}
+        eventBus={eventBus}
+        theme="light"
+        userId="alice"
+        workspaceId="desk-1"
+        sessionIssuer={sessionIssuer}
+        contextSaver={contextSaver}
+      />,
+    );
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error("expected iframe window");
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    dispatchFromFrame(frame, {
+      type: "vibedesk:hello",
+      modId: "market-daily",
+      protocolVersions: ["1.0"],
+      capabilities: ["context", "storage"],
+    });
+    await waitFor(() => expect(sessionIssuer).toHaveBeenCalledTimes(1));
+    const firstInit = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:init",
+    )?.[0] as { instanceId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:ack",
+      protocolVersion: "1.0",
+      instanceId: firstInit.instanceId,
+      modId: "market-daily",
+    });
+    postMessage.mockClear();
+
+    dispatchFromFrame(frame, {
+      type: "vibedesk:context",
+      requestId: "context-proactive-renewal",
+      instanceId: firstInit.instanceId,
+      modId: "market-daily",
+      context: {
+        view: { id: "market-daily", title: "市场行情" },
+        visibleBlocks: [],
+        selection: { symbol: "600519" },
+        filters: {},
+        data: { freshness: "fresh" },
+        actions: [],
+        tasks: [],
+      },
+    });
+
+    await waitFor(() => expect(contextSaver).toHaveBeenCalledTimes(1));
+    expect(sessionIssuer).toHaveBeenCalledTimes(2);
+    expect(contextSaver.mock.calls[0]?.[0].accessToken).toBe("token-2");
+    expect(postMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      contextSaver.mock.invocationCallOrder[0]!,
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vibedesk:init",
+        session: expect.objectContaining({ accessToken: "token-2" }),
+      }),
+      "http://127.0.0.1:5891",
+    );
+    eventBus.close();
+  });
+
+  it("does not renew a valid session for an authorization failure", async () => {
+    const eventBus = new ShellEventBus();
+    const sessionIssuer = vi.fn(async (input: { instanceId: string }) => ({
+      sessionId: "session-1",
+      instanceId: input.instanceId,
+      accessToken: "token-1",
+      tokenType: "Bearer" as const,
+      expiresAt: "2099-07-23T10:00:00+08:00",
+      userId: "alice",
+      workspaceId: "desk-1",
+      moduleId: "market-daily",
+      revision: 1,
+      grants: {
+        permissions: ["market.read"],
+        actions: ["market.explain"],
+      },
+    }));
+    const contextSaver = vi.fn(async () => {
+      throw new ModSessionRequestError(403, "forbidden");
+    });
+    render(
+      <ModFrame
+        manifest={connectedManifest}
+        eventBus={eventBus}
+        theme="light"
+        userId="alice"
+        workspaceId="desk-1"
+        sessionIssuer={sessionIssuer}
+        contextSaver={contextSaver}
+      />,
+    );
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error("expected iframe window");
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    dispatchFromFrame(frame, {
+      type: "vibedesk:hello",
+      modId: "market-daily",
+      protocolVersions: ["1.0"],
+      capabilities: ["context"],
+    });
+    await waitFor(() => expect(sessionIssuer).toHaveBeenCalledTimes(1));
+    const init = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:init",
+    )?.[0] as { instanceId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:ack",
+      protocolVersion: "1.0",
+      instanceId: init.instanceId,
+      modId: "market-daily",
+    });
+    dispatchFromFrame(frame, {
+      type: "vibedesk:context",
+      requestId: "context-forbidden",
+      instanceId: init.instanceId,
+      modId: "market-daily",
+      context: {
+        view: { id: "market-daily", title: "市场行情" },
+        visibleBlocks: [],
+        selection: { symbol: "600519" },
+        filters: {},
+        data: {},
+        actions: [],
+        tasks: [],
+      },
+    });
+
+    await waitFor(() => expect(contextSaver).toHaveBeenCalledTimes(1));
+    expect(sessionIssuer).toHaveBeenCalledTimes(1);
+    expect(
+      postMessage.mock.calls.filter(
+        ([message]) =>
+          typeof message === "object" &&
+          message !== null &&
+          "type" in message &&
+          message.type === "vibedesk:init",
+      ),
+    ).toHaveLength(1);
     eventBus.close();
   });
 

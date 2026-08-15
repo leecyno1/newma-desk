@@ -79,6 +79,14 @@ export function GlobalIntelligenceApp({
   const [theme, setTheme] = useState<"light" | "dark">(
     providedHostConnection?.config.environment.theme ?? initialTheme(),
   );
+  const [cacheIdentity, setCacheIdentity] = useState(() => providedHostConnection
+    ? {
+        userId: providedHostConnection.config.user.id,
+        workspaceId: providedHostConnection.config.workspace.id,
+      }
+    : embedded
+      ? undefined
+      : { userId: "local-user", workspaceId: "local-workspace" });
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [dashboardState, setDashboardState] = useState<Record<string, unknown>>({});
   const contextRef = useRef(buildGlobalIntelligenceContext(dashboardState));
@@ -119,9 +127,14 @@ export function GlobalIntelligenceApp({
       setHostConnection(connection);
       setGatewayOrigin(new URL(connection.config.gateways.data).origin);
       setTheme(connection.config.environment.theme);
+      setCacheIdentity({
+        userId: connection.config.user.id,
+        workspaceId: connection.config.workspace.id,
+      });
       unsubscribe = connection.subscribe((config) => {
         setGatewayOrigin(new URL(config.gateways.data).origin);
         setTheme(config.environment.theme);
+        setCacheIdentity({ userId: config.user.id, workspaceId: config.workspace.id });
       });
       removeContextProvider = connection.setContextProvider(() => contextRef.current);
     }).catch(() => undefined);
@@ -132,6 +145,20 @@ export function GlobalIntelligenceApp({
       close();
     };
   }, [embedded, providedHostConnection]);
+
+  useEffect(() => {
+    if (!providedHostConnection) return;
+    setTheme(providedHostConnection.config.environment.theme);
+    setCacheIdentity({
+      userId: providedHostConnection.config.user.id,
+      workspaceId: providedHostConnection.config.workspace.id,
+    });
+    return providedHostConnection.subscribe((config) => {
+      setGatewayOrigin(new URL(config.gateways.data).origin);
+      setTheme(config.environment.theme);
+      setCacheIdentity({ userId: config.user.id, workspaceId: config.workspace.id });
+    });
+  }, [providedHostConnection]);
 
   useEffect(() => hostConnection?.setContextProvider(() => contextRef.current), [hostConnection]);
 
@@ -161,26 +188,33 @@ export function GlobalIntelligenceApp({
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
 
   return (
-    <main className="global-intelligence-root">
-      <header className="global-intelligence-topbar">
-        <div className="global-intelligence-identity">
-          <i><Globe2 size={18} /></i>
-          <span><strong>全球情报</strong><small>GLOBAL INTELLIGENCE OPERATIONS</small></span>
-        </div>
-        <div className="global-intelligence-runtime"><Radio size={13} />World Intelligence MCP · 实时数据平面</div>
-        <button type="button" onClick={() => setRefreshNonce((value) => value + 1)}><RefreshCw size={14} />刷新情报</button>
-      </header>
+    <main className="global-intelligence-root" data-embedded={embedded}>
+      {!embedded ? (
+        <header className="global-intelligence-topbar">
+          <div className="global-intelligence-identity">
+            <i><Globe2 size={18} /></i>
+            <span><strong>全球情报</strong><small>GLOBAL INTELLIGENCE OPERATIONS</small></span>
+          </div>
+          <div className="global-intelligence-runtime"><Radio size={13} />World Intelligence MCP · 实时数据平面</div>
+          <button type="button" onClick={() => setRefreshNonce((value) => value + 1)}><RefreshCw size={14} />刷新情报</button>
+        </header>
+      ) : null}
       <GlobalIntelligenceDashboard
+        key={cacheIdentity ? `${cacheIdentity.userId}:${cacheIdentity.workspaceId}` : "pending-host"}
         dataSource={dataSource}
         theme={theme}
         refreshNonce={refreshNonce}
+        cacheIdentity={cacheIdentity}
+        onRefresh={() => setRefreshNonce((value) => value + 1)}
         onContextChange={setDashboardState}
       />
-      <footer className="global-intelligence-statusbar">
-        <span><i />GLOBAL-SITUATION</span>
-        <span>情报数据合同：newma-desk.global-intelligence.v1</span>
-        <span>MAPLIBRE GL · DECK.GL</span>
-      </footer>
+      {!embedded ? (
+        <footer className="global-intelligence-statusbar">
+          <span><i />GLOBAL-SITUATION</span>
+          <span>情报数据合同：newma-desk.global-intelligence.v1</span>
+          <span>MAPLIBRE GL · DECK.GL</span>
+        </footer>
+      ) : null}
     </main>
   );
 }

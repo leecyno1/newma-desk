@@ -222,6 +222,14 @@ export interface GlobalIntelEvent {
   content?: string;
 }
 
+export interface GlobalIntelEventHistoryEntry extends GlobalIntelEvent {
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastChangedAt: string;
+  observationCount: number;
+  resolvedAt?: string;
+}
+
 export interface GlobalIntelEventCluster {
   id: string;
   primary: GlobalIntelEvent;
@@ -232,8 +240,223 @@ export interface GlobalIntelEventCluster {
   updatedAt: string;
 }
 
+export type GlobalMediaSentiment = "positive" | "negative" | "neutral" | "mixed";
+
+export interface GlobalMediaMonitorFrame {
+  group: string;
+  label: string;
+  count: number;
+  positive: number;
+  negative: number;
+  neutral: number;
+  mixed: number;
+  dominantSentiment: GlobalMediaSentiment;
+  dominantLabel: string;
+  sources: string[];
+}
+
+export interface GlobalMediaMonitorTopic {
+  id: string;
+  label: string;
+  headline: string;
+  mentionCount: number;
+  currentMentions: number;
+  previousMentions: number;
+  heatVelocityPct: number | null;
+  velocityState: "rising" | "falling" | "flat" | "new";
+  heatScore: number;
+  attentionScore: number;
+  attentionLevel: string;
+  spreadScore: number;
+  spreadLevel: string;
+  sourceCount: number;
+  sources: string[];
+  sourceTiers: string[];
+  languageCount: number;
+  languages: string[];
+  languageLabels: string[];
+  crossLanguage: boolean;
+  sentiment: GlobalMediaSentiment;
+  sentimentScore: number;
+  sentimentCounts: Record<GlobalMediaSentiment, number>;
+  mediaFrames: GlobalMediaMonitorFrame[];
+  framingDivergence: boolean;
+  framingDivergenceScore: number;
+  verificationStatus: string;
+  verificationFlags: string[];
+  verificationTimeline: GlobalMediaVerificationStep[];
+  socialEngagement: number;
+  latestAt: string;
+  keywords: string[];
+  items: GlobalMediaMonitorTopicItem[];
+}
+
+export interface GlobalMediaMonitorTopicItem {
+  key: string;
+  title: string;
+  source: string;
+  url: string;
+  language: string;
+  sentiment: GlobalMediaSentiment;
+  published: string;
+  kind: "news" | "social";
+}
+
+export interface GlobalMediaVerificationStep {
+  status: string;
+  flag: string;
+  timestamp: string;
+  source: string;
+  title: string;
+  url: string;
+}
+
+export interface GlobalMediaMonitorAnnotation {
+  key: string;
+  title: string;
+  source: string;
+  url: string;
+  topicId: string;
+  sentiment: GlobalMediaSentiment;
+  sentimentScore: number;
+  language: string;
+  verificationStatus: string;
+  verificationFlags: string[];
+  heatVelocityPct: number | null;
+  velocityState: GlobalMediaMonitorTopic["velocityState"];
+  spreadScore: number;
+  crossLanguageTopic: boolean;
+}
+
+export interface GlobalMediaMonitor {
+  summary: {
+    analyzedItems: number;
+    newsItems: number;
+    socialItems: number;
+    sourceCount: number;
+    languageCount: number;
+    topicCount: number;
+    currentMentions: number;
+    previousMentions: number;
+    heatVelocityPct: number | null;
+    velocityState: "rising" | "falling" | "flat" | "new";
+    windowHours: number;
+    crossLanguageTopicCount: number;
+    flaggedTopicCount: number;
+    disputedTopicCount: number;
+    reversalTopicCount: number;
+    divergentTopicCount: number;
+    attentionTopicCount: number;
+    spreadScore: number;
+    sentiment: {
+      positive: number;
+      negative: number;
+      neutral: number;
+      mixed: number;
+      positivePct: number;
+      negativePct: number;
+      neutralPct: number;
+      mixedPct: number;
+      netScore: number;
+    };
+  };
+  topics: GlobalMediaMonitorTopic[];
+  mediaFrames: GlobalMediaMonitorFrame[];
+  annotations: GlobalMediaMonitorAnnotation[];
+  caveat: string;
+  timestamp: string;
+}
+
 export function isActionableGlobalIntelEvent(event: GlobalIntelEvent) {
   return event.recordKind !== "observation";
+}
+
+export function globalIntelEventIdentity(event: GlobalIntelEvent) {
+  const subject = normalizedEntityText(event.title)
+    .split(/\s+/)
+    .filter((token) => !/^\d+(?:\.\d+)?$/.test(token))
+    .join(" ");
+  const identity = event.recordKind === "news"
+    ? [event.recordKind, event.category, event.source, event.title, event.url]
+    : [event.recordKind ?? "event", event.category, event.source, subject, event.countryCode, event.pointId];
+  return normalizedEntityText(identity.filter(Boolean).join(" | "));
+}
+
+function globalIntelEventRevision(event: GlobalIntelEvent) {
+  return normalizedEntityText([
+    event.title,
+    event.detail,
+    event.severity,
+    event.country,
+    event.content,
+  ].filter(Boolean).join(" | "));
+}
+
+export function mergeGlobalIntelEventHistory(
+  history: GlobalIntelEventHistoryEntry[],
+  currentEvents: GlobalIntelEvent[],
+  observedAt = new Date().toISOString(),
+  maxEntries = 320,
+): GlobalIntelEventHistoryEntry[] {
+  const observedMs = Date.parse(observedAt);
+  const normalizedObservedAt = Number.isFinite(observedMs) ? observedAt : new Date().toISOString();
+  const cutoff = Date.parse(normalizedObservedAt) - 7 * 24 * 60 * 60 * 1000;
+  const entries = new Map<string, GlobalIntelEventHistoryEntry>();
+  const previousByIdentity = new Map<string, GlobalIntelEventHistoryEntry>();
+
+  for (const event of history) {
+    if (!isActionableGlobalIntelEvent(event)) continue;
+    const lastSeenAt = event.lastSeenAt || event.timestamp;
+    if (Date.parse(lastSeenAt) < cutoff) continue;
+    const fingerprint = globalIntelEventIdentity(event);
+    if (fingerprint) {
+      previousByIdentity.set(fingerprint, event);
+      entries.set(fingerprint, event);
+    }
+  }
+
+  const currentIdentities = new Set(
+    currentEvents.filter(isActionableGlobalIntelEvent).map(globalIntelEventIdentity),
+  );
+  for (const [fingerprint, previous] of previousByIdentity) {
+    if (currentIdentities.has(fingerprint) || previous.resolvedAt) continue;
+    entries.set(fingerprint, {
+      ...previous,
+      lastChangedAt: normalizedObservedAt,
+      resolvedAt: normalizedObservedAt,
+    });
+  }
+
+  for (const event of currentEvents.filter(isActionableGlobalIntelEvent)) {
+    const fingerprint = globalIntelEventIdentity(event);
+    if (!fingerprint) continue;
+    const previous = previousByIdentity.get(fingerprint);
+    const compactEvent = {
+      ...event,
+      detail: event.detail.slice(0, 600),
+      ...(event.content ? { content: event.content.slice(0, 1200) } : {}),
+    };
+    entries.set(fingerprint, {
+      ...compactEvent,
+      firstSeenAt: previous?.firstSeenAt || normalizedObservedAt,
+      lastSeenAt: normalizedObservedAt,
+      lastChangedAt: !previous
+        || Boolean(previous.resolvedAt)
+        || globalIntelEventRevision(previous) !== globalIntelEventRevision(compactEvent)
+        ? normalizedObservedAt
+        : previous.lastChangedAt || previous.firstSeenAt || normalizedObservedAt,
+      observationCount: previous && Date.parse(normalizedObservedAt) - Date.parse(previous.lastSeenAt) < 60_000
+        ? previous.observationCount
+        : (previous?.observationCount ?? 0) + 1,
+    });
+  }
+
+  return [...entries.values()]
+    .sort((left, right) => (
+      Date.parse(right.timestamp) - Date.parse(left.timestamp)
+      || Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
+    ))
+    .slice(0, maxEntries);
 }
 
 const ROUTE_RELEVANT_CATEGORIES: Record<GlobalIntelRoute["kind"], Set<GlobalIntelCategory>> = {
@@ -452,7 +675,7 @@ export function calculateGlobalIntelRouteImpacts(
 
 const CLUSTER_STOPWORDS = new Set([
   "about", "after", "amid", "from", "into", "latest", "more", "over", "says",
-  "that", "the", "their", "this", "through", "update", "with", "world",
+  "that", "the", "their", "this", "through", "update", "with", "world", "navarea",
   "事件", "全球", "最新", "相关", "表示", "发生", "正在", "以及",
 ]);
 const EVENT_SEVERITY_RANK: Record<GlobalIntelSeverity, number> = {
@@ -465,7 +688,11 @@ const EVENT_SEVERITY_RANK: Record<GlobalIntelSeverity, number> = {
 
 function eventTokens(title: string) {
   const words = title.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-  const tokens = new Set(words.filter((word) => word.length >= 3 && !CLUSTER_STOPWORDS.has(word)));
+  const tokens = new Set(words.filter((word) => (
+    word.length >= 3
+    && !/^\d+$/.test(word)
+    && !CLUSTER_STOPWORDS.has(word)
+  )));
   for (const run of title.match(/[\p{Script=Han}]{3,}/gu) ?? []) {
     for (let index = 0; index < run.length - 1; index += 1) tokens.add(run.slice(index, index + 2));
   }
@@ -571,6 +798,249 @@ function plainText(value: unknown) {
     .replace(/&gt;/gi, ">")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function booleanValue(value: unknown) {
+  return value === true || value === 1 || value === "true";
+}
+
+function mediaSentiment(value: unknown): GlobalMediaSentiment {
+  const normalized = String(value ?? "").toLocaleLowerCase();
+  return normalized === "positive" || normalized === "negative"
+    || normalized === "mixed" || normalized === "neutral"
+    ? normalized
+    : "neutral";
+}
+
+function mediaVelocityState(value: unknown): GlobalMediaMonitorTopic["velocityState"] {
+  const normalized = String(value ?? "").toLocaleLowerCase();
+  return normalized === "rising" || normalized === "falling" || normalized === "new"
+    ? normalized
+    : "flat";
+}
+
+function nullableNumberValue(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return value === null || value === undefined || value === ""
+    ? null
+    : numberValue(record, key) ?? null;
+}
+
+function mediaVelocityValue(
+  record: Record<string, unknown>,
+  state: GlobalMediaMonitorTopic["velocityState"],
+) {
+  const value = nullableNumberValue(record, "heat_velocity_pct");
+  return state === "new" && (value === 100 || value === null) ? null : value;
+}
+
+function normalizeMediaFrames(value: unknown): GlobalMediaMonitorFrame[] {
+  return listValue(value).map((frame) => ({
+    group: stringValue(frame, "group") || "other",
+    label: stringValue(frame, "label") || "其他来源",
+    count: numberValue(frame, "count") ?? 0,
+    positive: numberValue(frame, "positive") ?? 0,
+    negative: numberValue(frame, "negative") ?? 0,
+    neutral: numberValue(frame, "neutral") ?? 0,
+    mixed: numberValue(frame, "mixed") ?? 0,
+    dominantSentiment: mediaSentiment(frame.dominant_sentiment),
+    dominantLabel: stringValue(frame, "dominant_label") || "中性",
+    sources: stringList(frame.sources),
+  }));
+}
+
+export function normalizeGlobalMediaMonitor(
+  snapshot: Record<string, unknown>,
+): GlobalMediaMonitor {
+  const domain = objectValue(snapshot.media_monitor);
+  const summary = objectValue(domain.summary);
+  const sentiment = objectValue(summary.sentiment);
+  const topics = domainRecords(snapshot, "media_monitor", "topics").map((topic) => {
+    const counts = objectValue(topic.sentiment_counts);
+    const velocityState = mediaVelocityState(topic.velocity_state);
+    return {
+      id: stringValue(topic, "id") || stableId("media-topic", stringValue(topic, "label", "headline")),
+      label: stringValue(topic, "label") || stringValue(topic, "headline") || "未命名主题",
+      headline: stringValue(topic, "headline") || stringValue(topic, "label"),
+      mentionCount: numberValue(topic, "mention_count") ?? 0,
+      currentMentions: numberValue(topic, "current_mentions") ?? 0,
+      previousMentions: numberValue(topic, "previous_mentions") ?? 0,
+      heatVelocityPct: mediaVelocityValue(topic, velocityState),
+      velocityState,
+      heatScore: numberValue(topic, "heat_score") ?? 0,
+      attentionScore: numberValue(topic, "attention_score") ?? numberValue(topic, "heat_score") ?? 0,
+      attentionLevel: stringValue(topic, "attention_level") || "常规",
+      spreadScore: numberValue(topic, "spread_score") ?? 0,
+      spreadLevel: stringValue(topic, "spread_level") || "有限传播",
+      sourceCount: numberValue(topic, "source_count") ?? 0,
+      sources: stringList(topic.sources),
+      sourceTiers: stringList(topic.source_tiers),
+      languageCount: numberValue(topic, "language_count") ?? 0,
+      languages: stringList(topic.languages),
+      languageLabels: stringList(topic.language_labels),
+      crossLanguage: booleanValue(topic.cross_language),
+      sentiment: mediaSentiment(topic.sentiment),
+      sentimentScore: numberValue(topic, "sentiment_score") ?? 0,
+      sentimentCounts: {
+        positive: numberValue(counts, "positive") ?? 0,
+        negative: numberValue(counts, "negative") ?? 0,
+        neutral: numberValue(counts, "neutral") ?? 0,
+        mixed: numberValue(counts, "mixed") ?? 0,
+      },
+      mediaFrames: normalizeMediaFrames(topic.media_frames),
+      framingDivergence: booleanValue(topic.framing_divergence),
+      framingDivergenceScore: numberValue(topic, "framing_divergence_score") ?? 0,
+      verificationStatus: stringValue(topic, "verification_status") || "常规报道",
+      verificationFlags: stringList(topic.verification_flags),
+      verificationTimeline: listValue(topic.verification_timeline).map((step) => ({
+        status: stringValue(step, "status") || "核验提示",
+        flag: stringValue(step, "flag"),
+        timestamp: isoTimestamp(step.timestamp),
+        source: stringValue(step, "source") || "公开来源",
+        title: stringValue(step, "title"),
+        url: stringValue(step, "url"),
+      })).filter((step) => step.title),
+      socialEngagement: numberValue(topic, "social_engagement") ?? 0,
+      latestAt: isoTimestamp(topic.latest_at),
+      keywords: stringList(topic.keywords),
+      items: listValue(topic.items).map((item) => ({
+        key: stringValue(item, "key") || stableId("media-item", stringValue(item, "source"), stringValue(item, "title")),
+        title: stringValue(item, "title"),
+        source: stringValue(item, "source") || "公开来源",
+        url: stringValue(item, "url"),
+        language: stringValue(item, "language") || "en",
+        sentiment: mediaSentiment(item.sentiment),
+        published: isoTimestamp(item.published),
+        kind: (stringValue(item, "kind") === "social" ? "social" : "news") as GlobalMediaMonitorTopicItem["kind"],
+      })).filter((item) => item.title),
+    } satisfies GlobalMediaMonitorTopic;
+  });
+  const annotations = domainRecords(snapshot, "media_monitor", "annotations").map((annotation) => {
+    const velocityState = mediaVelocityState(annotation.velocity_state);
+    return ({
+      key: stringValue(annotation, "key"),
+      title: stringValue(annotation, "title"),
+      source: stringValue(annotation, "source"),
+      url: stringValue(annotation, "url"),
+      topicId: stringValue(annotation, "topic_id"),
+      sentiment: mediaSentiment(annotation.sentiment),
+      sentimentScore: numberValue(annotation, "sentiment_score") ?? 0,
+      language: stringValue(annotation, "language") || "en",
+      verificationStatus: stringValue(annotation, "verification_status") || "常规报道",
+      verificationFlags: stringList(annotation.verification_flags),
+      heatVelocityPct: mediaVelocityValue(annotation, velocityState),
+      velocityState,
+      spreadScore: numberValue(annotation, "spread_score") ?? 0,
+      crossLanguageTopic: booleanValue(annotation.cross_language_topic),
+    });
+  }).filter((annotation) => annotation.title);
+
+  const summaryVelocityState = mediaVelocityState(summary.velocity_state);
+
+  return {
+    summary: {
+      analyzedItems: numberValue(summary, "analyzed_items") ?? 0,
+      newsItems: numberValue(summary, "news_items") ?? 0,
+      socialItems: numberValue(summary, "social_items") ?? 0,
+      sourceCount: numberValue(summary, "source_count") ?? 0,
+      languageCount: numberValue(summary, "language_count") ?? 0,
+      topicCount: numberValue(summary, "topic_count") ?? topics.length,
+      currentMentions: numberValue(summary, "current_mentions") ?? 0,
+      previousMentions: numberValue(summary, "previous_mentions") ?? 0,
+      heatVelocityPct: mediaVelocityValue(summary, summaryVelocityState),
+      velocityState: summaryVelocityState,
+      windowHours: numberValue(summary, "window_hours") ?? 12,
+      crossLanguageTopicCount: numberValue(summary, "cross_language_topic_count") ?? 0,
+      flaggedTopicCount: numberValue(summary, "flagged_topic_count") ?? 0,
+      disputedTopicCount: numberValue(summary, "disputed_topic_count") ?? 0,
+      reversalTopicCount: numberValue(summary, "reversal_topic_count") ?? 0,
+      divergentTopicCount: numberValue(summary, "divergent_topic_count") ?? 0,
+      attentionTopicCount: numberValue(summary, "attention_topic_count") ?? 0,
+      spreadScore: numberValue(summary, "spread_score") ?? 0,
+      sentiment: {
+        positive: numberValue(sentiment, "positive") ?? 0,
+        negative: numberValue(sentiment, "negative") ?? 0,
+        neutral: numberValue(sentiment, "neutral") ?? 0,
+        mixed: numberValue(sentiment, "mixed") ?? 0,
+        positivePct: numberValue(sentiment, "positive_pct") ?? 0,
+        negativePct: numberValue(sentiment, "negative_pct") ?? 0,
+        neutralPct: numberValue(sentiment, "neutral_pct") ?? 0,
+        mixedPct: numberValue(sentiment, "mixed_pct") ?? 0,
+        netScore: numberValue(sentiment, "net_score") ?? 0,
+      },
+    },
+    topics,
+    mediaFrames: normalizeMediaFrames(domain.media_frames),
+    annotations,
+    caveat: stringValue(domain, "caveat"),
+    timestamp: isoTimestamp(domain.timestamp),
+  };
+}
+
+export function mediaSentimentLabel(sentiment: GlobalMediaSentiment) {
+  return sentiment === "positive" ? "正面"
+    : sentiment === "negative" ? "负面"
+      : sentiment === "mixed" ? "正负交织"
+        : "中性";
+}
+
+export function signedPercent(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "基线不足";
+  return `${value > 0 ? "+" : ""}${Math.round(value)}%`;
+}
+
+export function mediaVelocityLabel(
+  value: number | null | undefined,
+  state: GlobalMediaMonitorTopic["velocityState"],
+) {
+  return state === "new" && value === null ? "新出现" : signedPercent(value);
+}
+
+export function globalMediaTopicSimilarity(
+  left: Pick<GlobalMediaMonitorTopic, "id" | "label" | "headline" | "keywords" | "sources">,
+  right: Pick<GlobalMediaMonitorTopic, "id" | "label" | "headline" | "keywords" | "sources">,
+) {
+  if (left.id === right.id) return 100;
+  const words = (topic: typeof left) => new Set(
+    [topic.label, topic.headline, ...topic.keywords]
+      .flatMap((value) => normalizedEntityText(value).split(" "))
+      .filter((value) => value.length >= 2),
+  );
+  const leftWords = words(left);
+  const rightWords = words(right);
+  const wordUnion = new Set([...leftWords, ...rightWords]);
+  const wordOverlap = [...leftWords].filter((value) => rightWords.has(value)).length;
+  const leftSources = new Set(left.sources.map(normalizedEntityText));
+  const sourceOverlap = right.sources.filter((value) => leftSources.has(normalizedEntityText(value))).length;
+  const score = (wordUnion.size ? wordOverlap / wordUnion.size * 82 : 0)
+    + Math.min(18, sourceOverlap * 6);
+  return Math.round(Math.min(99, score));
+}
+
+export function findGlobalMediaMonitorAnnotation(
+  snapshot: Record<string, unknown>,
+  input: { title: string; source?: string; url?: string },
+) {
+  const monitor = normalizeGlobalMediaMonitor(snapshot);
+  const title = normalizedEntityText(input.title);
+  const source = normalizedEntityText(input.source ?? "");
+  const url = input.url?.trim() ?? "";
+  return monitor.annotations.find((annotation) => (
+    Boolean(url && annotation.url === url)
+    || (
+      normalizedEntityText(annotation.title) === title
+      && (!source || normalizedEntityText(annotation.source) === source)
+    )
+  ));
+}
+
+export function findGlobalMediaMonitorTopic(
+  monitor: GlobalMediaMonitor,
+  annotation?: GlobalMediaMonitorAnnotation,
+) {
+  return annotation
+    ? monitor.topics.find((topic) => topic.id === annotation.topicId)
+    : undefined;
 }
 
 function severityValue(value: unknown, fallback: GlobalIntelSeverity = "info"): GlobalIntelSeverity {
@@ -2213,6 +2683,11 @@ export function normalizeGlobalIntelEvents(
     const tier = stringValue(item, "source_tier");
     const url = stringValue(item, "link", "url");
     const content = plainText(stringValue(item, "content"));
+    const annotation = findGlobalMediaMonitorAnnotation(snapshot, {
+      title,
+      source,
+      url,
+    });
     events.push({
       id: stableId("news", source, timestamp, title),
       category: "news",
@@ -2224,6 +2699,15 @@ export function normalizeGlobalIntelEvents(
       ...(tier ? { sourceTier: tier } : {}),
       ...(url ? { url } : {}),
       ...(content ? { content } : {}),
+      ...(annotation ? {
+        facts: eventFacts([
+          ["报道语气", mediaSentimentLabel(annotation.sentiment)],
+          ["热度增速", mediaVelocityLabel(annotation.heatVelocityPct, annotation.velocityState)],
+          ["传播范围", `${annotation.spreadScore}/100`],
+          ["跨语言合并", annotation.crossLanguageTopic ? "是" : "否"],
+          ["核验提示", annotation.verificationStatus],
+        ]),
+      } : {}),
       recordKind: "news",
     });
   }
@@ -2242,6 +2726,7 @@ export function normalizeGlobalIntelEvents(
       timestamp,
       country: stringValue(item, "country"),
       ...(countryCode(item, stringValue(item, "country")) ? { countryCode: countryCode(item, stringValue(item, "country")) } : {}),
+      recordKind: "observation",
     });
   }
 
@@ -2274,6 +2759,7 @@ export function normalizeGlobalIntelEvents(
       source: "Yahoo Finance",
       severity: Math.abs(change) >= 2 ? "high" : "info",
       timestamp: fallbackTimestamp,
+      recordKind: Math.abs(change) >= 2 ? "event" : "observation",
     });
   }
 
@@ -2311,6 +2797,7 @@ export function normalizeGlobalIntelEvents(
       severity: highConcern ? "high" : "low",
       timestamp,
       ...(url ? { url } : {}),
+      recordKind: "news",
     });
   }
 
@@ -2367,6 +2854,7 @@ export function normalizeGlobalIntelEvents(
         ["太阳风", numberValue(spaceDomain, "solar_wind_speed_km_s") === undefined ? "" : `${numberValue(spaceDomain, "solar_wind_speed_km_s")} km/s`],
       ]),
       url: "https://www.swpc.noaa.gov/",
+      recordKind: kp !== undefined && kp >= 5 ? "event" : "observation",
     });
   }
   for (const item of listValue(spaceDomain.alerts).slice(0, 5)) {
@@ -2407,6 +2895,7 @@ export function normalizeGlobalIntelEvents(
         ["分类", stringValue(item, "category")],
       ]),
       ...(url ? { url } : {}),
+      recordKind: "observation",
     });
   }
 
@@ -2536,6 +3025,7 @@ export function normalizeGlobalIntelEvents(
       timestamp,
       facts: eventFacts([["赞同率", numberValue(item, "upvote_ratio")]]),
       ...(url ? { url } : {}),
+      recordKind: "news",
     });
   }
 
@@ -2556,6 +3046,7 @@ export function normalizeGlobalIntelEvents(
         ["寻求庇护者", compactNumber(numberValue(displacementTotals, "total_asylum_seekers") ?? 0)],
         ["无国籍人口", compactNumber(numberValue(displacementTotals, "total_stateless") ?? 0)],
       ]),
+      recordKind: "observation",
     });
   }
 

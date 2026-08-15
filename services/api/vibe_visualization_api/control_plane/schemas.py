@@ -25,6 +25,8 @@ MODULE_CATEGORY_PATTERN = r"^[a-z][a-z0-9-]{1,31}$"
 MODULE_EVENT_PATTERN = r"^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$"
 MODULE_CAPABILITY_PATTERN = r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$"
 MODULE_SERVICE_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
+WIKI_CONCEPT_PATTERN = r"^[a-z][a-z0-9-]{1,63}$"
+WIKI_ENTRYPOINT_PATTERN = r"^[a-z][a-z0-9-]{1,63}$"
 INVALID_PERCENT_ENCODING = re.compile(r"%(?![0-9a-fA-F]{2})")
 URL_ADAPTER = TypeAdapter(AnyUrl)
 
@@ -331,6 +333,79 @@ class ModuleAction(ApiModel):
         return value
 
 
+WikiSubjectType = Literal[
+    "security",
+    "etf",
+    "fund",
+    "company",
+    "industry",
+    "concept",
+    "event",
+    "topic",
+]
+
+
+class ModuleWikiEntrypoint(ApiModel):
+    id: str = Field(pattern=WIKI_ENTRYPOINT_PATTERN)
+    intent: str = Field(pattern=MODULE_CAPABILITY_PATTERN)
+    label: str = Field(min_length=1, max_length=80)
+    context_contract: Literal["newma.wiki.subject.v1"]
+    defaults: dict[str, str | int | float | bool] = Field(
+        default_factory=dict,
+        max_length=32,
+    )
+
+    @field_validator("defaults")
+    @classmethod
+    def validate_defaults(
+        cls,
+        value: dict[str, str | int | float | bool],
+    ) -> dict[str, str | int | float | bool]:
+        if any(isinstance(item, str) and len(item) > 500 for item in value.values()):
+            raise ValueError("Wiki default strings cannot exceed 500 characters")
+        return value
+
+
+class ModuleWikiProfile(ApiModel):
+    contract_version: Literal["1.0"]
+    subject_types: list[WikiSubjectType] = Field(min_length=1, max_length=16)
+    concepts: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+    )
+    entrypoints: list[ModuleWikiEntrypoint] = Field(min_length=1, max_length=20)
+
+    @field_validator("subject_types")
+    @classmethod
+    def validate_subject_types(
+        cls,
+        value: list[WikiSubjectType],
+    ) -> list[WikiSubjectType]:
+        if len(value) != len(set(value)):
+            raise ValueError("Wiki subject types must be unique")
+        return value
+
+    @field_validator("concepts")
+    @classmethod
+    def validate_concepts(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)) or any(
+            re.fullmatch(WIKI_CONCEPT_PATTERN, item) is None for item in value
+        ):
+            raise ValueError("Wiki concepts must be unique valid slugs")
+        return value
+
+    @field_validator("entrypoints")
+    @classmethod
+    def validate_entrypoints(
+        cls,
+        value: list[ModuleWikiEntrypoint],
+    ) -> list[ModuleWikiEntrypoint]:
+        ids = [entrypoint.id for entrypoint in value]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Wiki entrypoint IDs must be unique")
+        return value
+
+
 class ModSessionCreate(ApiModel):
     instance_id: str = Field(min_length=1, max_length=128)
     workspace_id: str = Field(min_length=1, max_length=128)
@@ -380,6 +455,7 @@ class ModuleManifest(ApiModel):
     permissions: list[str] = Field(default_factory=list)
     data_services: list[str] = Field(default_factory=list)
     storage: ModuleStorage | None = None
+    wiki: ModuleWikiProfile | None = None
     agent_capabilities: list[str] | None = None
     actions: dict[str, ModuleAction] | None = None
     events: ModuleEvents = Field(default_factory=ModuleEvents)
@@ -403,6 +479,7 @@ class ModuleManifest(ApiModel):
         "navigation",
         "compatibility",
         "storage",
+        "wiki",
         "agent_capabilities",
         "actions",
         "refresh",
@@ -420,6 +497,7 @@ class ModuleManifest(ApiModel):
             if (
                 self.compatibility is not None
                 or self.storage is not None
+                or self.wiki is not None
                 or self.actions is not None
             ):
                 raise ValueError("Manifest 1.0 cannot declare 1.1 fields")

@@ -16,7 +16,9 @@
         "properties": {
           "code": { "type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$" },
           "period": { "enum": ["daily", "weekly", "monthly"] },
-          "bars": { "enum": [120, 240, 480, 800] }
+          "bars": { "enum": [120, 240, 480, 800] },
+          "asOf": { "type": "string", "format": "date" },
+          "refresh": { "enum": ["0", "1"] }
         },
         "additionalProperties": false
       },

@@ -60,7 +60,7 @@ mods/
 └── ...
 ```
 
-`store.json` 负责商店顺序、内置默认标记和 Git 安装源；单页 Mod 继续使用 `mod.json`，多页面项目收敛到 `suite.json`。标准配置会把商店全部 Mods 注册到侧边栏。通过商店安装或更新时，API 会通过标准 Git 拉取优先读取 GitHub，失败后尝试 Gitee；Raw HTTP 仅作为备用，再通过控制面创建并发布 Mod 修订。
+`store.json` 负责商店顺序、内置默认标记和 Git 安装源；单页 Mod 继续使用 `mod.json`，多页面项目收敛到 `suite.json`。新状态默认只注册“情报”和“市场”，其他项目由用户从商店安装；已有状态不会被默认注册重置。通过商店安装或更新时，API 会通过标准 Git 拉取优先读取 GitHub，失败后尝试 Gitee；Raw HTTP 仅作为备用，再通过控制面创建并发布 Mod 修订。
 
 多页面项目使用 Manifest `navigation.project` 声明唯一所属栏目，用与 Suite ID 相同的 `navigation.directory.id` 声明完整项目组。页面仍按“一页一 Mod”保留独立权限、生命周期和 Agent Context，但不能跨栏目或跨项目组拆分；一级栏固定显示十四个核心栏目与“其他”，二级面板按完整项目列出原有页面和项目设置。
 
@@ -68,7 +68,7 @@ mods/
 
 Vibe Trading 页面收敛到 `trading-suite`。Vibe Research 的主要研究页面保留在 `research-suite`；新闻与舆情、催化剂日历复用同一运行时，但作为独立 Mod 进入“情报”。重复的“投研 AI 设置”和“量化 Agent”已下架，由 Desk 的 Agent 设置与右侧统一 Agent 抽屉替代。
 
-InStock 的 CZSC/轮动页面以及 Orchestra 的八个顶层工作区也作为默认 Mods 安装。它们继续以独立服务运行，但导航、项目设置、Agent Context、数据路由和统一启动由 Desk 管理。
+InStock 的 CZSC/轮动页面以及 Orchestra 的八个顶层工作区保留在 Mod 商店中，用户安装后继续以独立服务运行；导航、项目设置、Agent Context、数据路由和统一启动由 Desk 管理。
 
 ## Mod 清单
 
@@ -82,12 +82,12 @@ InStock 的 CZSC/轮动页面以及 Orchestra 的八个顶层工作区也作为�
 | 市场扫描器 | `/mods/market-daily/?workspace=scanner` |
 | 多周期看盘 | `/mods/market-daily/?workspace=multi-timeframe` |
 | 相对强弱地图 | `/mods/market-daily/?workspace=relative-strength` |
-| 事件时间轴 | `/mods/market-daily/?workspace=event-timeline` |
+| 日线时间轴 | `/mods/market-daily/?workspace=event-timeline` |
 | 交易回放室 | `/mods/market-daily/?workspace=trading-replay` |
 
 全球情报发布 `newma-desk.global-intelligence.v1` Agent Context，包含地图图层、筛选、选中事件、来源健康和实时事件摘要。市场 Mods 统一收发 `security.selected`，并把当前标的、筛选条件、图表状态与回放进度发布给 Desk 右侧 Agent；Desk Agent 可通过反向 UI Action 桥安全切换周期、设置指标、创建价格预警和保存布局。
 
-Deepsee 的 11 个页面作为一个完整项目进入“其他 → DeepSee”。交易行情与图表工具进入“市场”；全球情报、新闻与舆情、个股事件轴和催化剂日历进入首页“情报”。
+Deepsee 的 11 个页面作为一个完整项目进入“其他 → DeepSee”。交易行情与图表工具进入“市场”；全球情报、新闻与舆情、日线时间轴和催化剂日历进入首页“情报”。
 
 市场终端已作为首个统一数据接口示例：嵌入 Desk 时通过宿主 Action 请求 `market.quote`、`market.ohlcv`、`market.overview` 等能力，不感知具体 Provider；独立调试时仍保留固定 `market-data` 客户端作为兼容回退。
 
@@ -112,7 +112,7 @@ Deepsee 的 11 个页面作为一个完整项目进入“其他 → DeepSee”�
 | 研究档案 | `/my-reports` |
 | 研究记录 | `/notes` |
 
-催化剂日历与市场侧“事件时间轴”共享 `newma-desk.catalyst-calendar.v1` 合同。日历负责未来事件、周期观察窗、确认/失效条件和结果归档；事件时间轴负责已发生事件与历史行情叠加。详细标准见 [`catalyst-calendar-standard.md`](./catalyst-calendar-standard.md)。
+催化剂日历与市场侧“日线时间轴”共享 `newma-desk.catalyst-calendar.v1` 合同。日历负责未来事件、周期观察窗、确认/失效条件和结果归档；日线时间轴负责已发生事件与历史行情叠加。详细标准见 [`catalyst-calendar-standard.md`](./catalyst-calendar-standard.md)。
 
 宏观观察使用 `newma-desk.macro-monitor.v1` 合同，把增长、价格、流动性、经济事件、来源状态和缺口统一进入 Desk Agent Context。它与七周期研究互补：宏观观察呈现可核验事实与发布日历，七周期只提供通过门槛的概率观察窗。
 详细标准见 [`macro-monitor-standard.md`](./macro-monitor-standard.md)。
@@ -257,7 +257,7 @@ services/api/.venv/bin/python -m uvicorn vibe_visualization_api.main:app \
   --app-dir services/api --host 127.0.0.1 --port 8911
 ```
 
-注册商店全部 Mods：
+注册默认“情报”和“市场” Mods：
 
 ```bash
 npm run mods:register
@@ -269,7 +269,7 @@ npm run mods:register
 npm run mods:standardize
 ```
 
-完成后全部商店 Mods 会出现在 Newma-Desk 左侧导航中；商店继续提供 Git 来源、安装状态和更新入口。
+完成后默认只会出现“情报”和“市场”；已有环境中已安装的项目保持不变。`mods:standardize` 用于管理员显式补齐全部官方商店，商店继续提供 Git 来源、安装状态和更新入口。
 
 ```bash
 VITE_API_PROXY_TARGET=http://127.0.0.1:8911 \

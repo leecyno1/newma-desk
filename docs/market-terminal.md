@@ -43,7 +43,7 @@ Newma-Desk Data Service + Bridge + Mod Context + Desk Copilot
 | 市场扫描器 | `?workspace=scanner` | 多市场过滤、AND/OR 条件表达式、保存/更新/删除组合、候选排序与标的联动。 |
 | 多周期看盘 | `?workspace=multi-timeframe` | 日线、60 分钟、15 分钟、5 分钟四图联动、共享十字光标和聚焦布局。 |
 | 相对强弱地图 | `?workspace=relative-strength` | 多标的归一化曲线、阶段排名与跨市场比较。 |
-| 事件时间轴 | `?workspace=event-timeline` | 合并公告/财报/新闻/研报证据与 OHLCV 事件，保留来源、链接和证据 ID。 |
+| 日线时间轴 | `?workspace=event-timeline` | 将股票与 ETF 的日 K、公告/资讯和量价事件按交易日对齐，保留来源、链接和证据 ID。 |
 | 交易回放室 | `?workspace=trading-replay` | 隐藏未来数据、逐根播放、模拟买卖、交易点图层与 Replay Artifact。 |
 
 每个工作区拥有独立 Mod ID、商店条目、侧边栏名称、本地状态和 Agent Context；生产部署由 Desk 的 `5888` 前端按需加载这些工作区，不再需要 `5891` 进程。`5891` 仅保留给市场包的独立开发模式。全球情报使用独立 `global-intelligence` 运行时和 `newma-desk.global-intelligence.v1` 合同，经 `/api/global-intel/*` 接入 `world-intel-mcp`，浏览器不直接连接上游服务。
@@ -67,7 +67,7 @@ Newma-Desk Data Service + Bridge + Mod Context + Desk Copilot
 
 ## 已落地的共享能力
 
-1. 事件时间轴通过 `market.announcements`、`market.reports`、`market.news` 接入真实证据；海外数据源未启用时显式显示 `unsupported`，不会生成虚构事件。
+1. 日线时间轴通过 `market.announcements`、`market.reports`、`market.news` 接入真实证据；ETF 使用基金公告与 ETF 资讯，海外数据源未启用时显式显示 `unsupported`，不会生成虚构事件。
 2. Chart Kit 已提供通用注释/信号图层、交易点图层与跨图表十字光标组；用户画线和系统注释使用独立 overlay group。
 3. 市场扫描器已支持 AND/OR 条件表达式，覆盖涨跌幅、量比、成交额、PE、PB，并可在本机保存、恢复、更新和删除。
 4. 交易回放可保存为 Newma-Desk Replay Artifact，API 提供创建、列表、最近、读取、发布和受 CSP 保护的 HTML 查看页。

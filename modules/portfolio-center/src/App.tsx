@@ -29,6 +29,7 @@ import type {
 import {
   connectModHost,
   createModBridge,
+  createModSnapshotCache,
   type ModHostConnection,
 } from "@newma-desk/mod-sdk";
 
@@ -712,7 +713,11 @@ function SettingsView({ dashboard, onRefresh }: { dashboard: PortfolioDashboard;
 export function PortfolioCenterApp() {
   const workspace = workspaceFromSearch();
   const config = WORKSPACES[workspace];
-  const [identity, setIdentity] = useState<PortfolioIdentity>({ userId: "local-user", workspaceId: "local-workspace" });
+  const [identity, setIdentity] = useState<PortfolioIdentity | undefined>(() => (
+    window.self === window.top
+      ? { userId: "local-user", workspaceId: "local-workspace" }
+      : undefined
+  ));
   const [dashboard, setDashboard] = useState<PortfolioDashboard>();
   const [optimization, setOptimization] = useState<PortfolioOptimizationResult>();
   const [performance, setPerformance] = useState<PortfolioPerformanceResult>();
@@ -721,34 +726,75 @@ export function PortfolioCenterApp() {
   const [selected, setSelected] = useState<PortfolioPosition>();
   const [linkedSecurity, setLinkedSecurity] = useState<LinkedSecurity>();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [refreshingQuotes, setRefreshingQuotes] = useState(false);
   const [error, setError] = useState("");
   const [host, setHost] = useState<EmbeddedHost>();
   const contextRef = useRef<ModPageContext>(buildContext(workspace));
-  const identityRef = useRef(identity);
+  const identityRef = useRef<PortfolioIdentity | undefined>(identity);
   const dashboardRef = useRef(dashboard);
+  const researchCoverageRef = useRef(researchCoverage);
   const loadRef = useRef<() => Promise<void>>(async () => undefined);
   const requestIdRef = useRef(0);
+  const identityKeyRef = useRef<string | undefined>(undefined);
   const quoteControllerRef = useRef<AbortController | undefined>(undefined);
   const researchControllerRef = useRef<AbortController | undefined>(undefined);
   const bridge = useMemo(() => createModBridge({ modId: workspace, parentOrigin: parentOrigin() }), [workspace]);
+  const dashboardCache = useMemo(() => identity ? createModSnapshotCache<PortfolioDashboard>({
+    modId: workspace,
+    ...identity,
+    resourceKey: "dashboard",
+    maxBytes: 2 * 1024 * 1024,
+  }) : undefined, [identity?.userId, identity?.workspaceId, workspace]);
+  const coverageCache = useMemo(() => identity ? createModSnapshotCache<PortfolioResearchCoverage>({
+    modId: workspace,
+    ...identity,
+    resourceKey: "research-coverage",
+    maxBytes: 1024 * 1024,
+  }) : undefined, [identity?.userId, identity?.workspaceId, workspace]);
+  const dashboardCacheKey = dashboardCache?.key;
+  const coverageCacheKey = coverageCache?.key;
 
   const load = useCallback(async () => {
+    if (!identity || !dashboardCache || !coverageCache) return;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     quoteControllerRef.current?.abort();
     researchControllerRef.current?.abort();
-    setResearchCoverage(undefined);
+    const cachedDashboard = dashboardCache.read()?.value;
+    const cachedCoverage = coverageCache.read()?.value;
+    const identityKey = `${identity.userId}:${identity.workspaceId}:${workspace}`;
+    const identityChanged = identityKeyRef.current !== identityKey;
+    identityKeyRef.current = identityKey;
+    if (identityChanged) {
+      setDashboard(cachedDashboard);
+      dashboardRef.current = cachedDashboard;
+      setResearchCoverage(cachedCoverage);
+      researchCoverageRef.current = cachedCoverage;
+      setOptimization(undefined);
+      setPerformance(undefined);
+      setSelected(undefined);
+    }
+    const currentDashboard = identityChanged ? cachedDashboard : dashboardRef.current;
+    if (!currentDashboard && cachedDashboard) setDashboard(cachedDashboard);
+    if (!researchCoverageRef.current && cachedCoverage) {
+      setResearchCoverage(cachedCoverage);
+      researchCoverageRef.current = cachedCoverage;
+    }
     setResearchCoverageLoading(workspace === "portfolio-brief");
     setRefreshingQuotes(false);
-    setLoading(true);
+    setLoading(!currentDashboard && !cachedDashboard);
+    setRefreshing(Boolean(currentDashboard || cachedDashboard));
     setError("");
     const client = portfolioClient(identity);
     try {
       const costDashboard = await client.dashboard({ includeQuotes: false });
       if (requestIdRef.current !== requestId) return;
       setDashboard(costDashboard);
+      dashboardRef.current = costDashboard;
+      dashboardCache.write(costDashboard, costDashboard.updatedAt);
       setLoading(false);
+      setRefreshing(false);
       if (workspace === "portfolio-brief") {
         const researchController = new AbortController();
         researchControllerRef.current = researchController;
@@ -756,6 +802,8 @@ export function PortfolioCenterApp() {
           .then((coverage) => {
             if (requestIdRef.current === requestId && !researchController.signal.aborted) {
               setResearchCoverage(coverage);
+              researchCoverageRef.current = coverage;
+              coverageCache.write(coverage, coverage.generatedAt);
             }
           })
           .catch(() => undefined)
@@ -763,7 +811,10 @@ export function PortfolioCenterApp() {
             if (requestIdRef.current === requestId) setResearchCoverageLoading(false);
           });
       }
-      if (costDashboard.positions.length === 0) return;
+      if (costDashboard.positions.length === 0) {
+        setResearchCoverageLoading(false);
+        return;
+      }
 
       const controller = new AbortController();
       quoteControllerRef.current = controller;
@@ -772,6 +823,8 @@ export function PortfolioCenterApp() {
         .then((quotedDashboard) => {
           if (requestIdRef.current === requestId && !controller.signal.aborted) {
             setDashboard(quotedDashboard);
+            dashboardRef.current = quotedDashboard;
+            dashboardCache.write(quotedDashboard, quotedDashboard.updatedAt);
           }
         })
         .catch((reason) => {
@@ -787,13 +840,15 @@ export function PortfolioCenterApp() {
       setError(reason instanceof Error ? reason.message : "组合数据暂时不可用");
       setResearchCoverageLoading(false);
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [identity, workspace]);
+  }, [coverageCacheKey, dashboardCacheKey, identity, workspace]);
   identityRef.current = identity;
   dashboardRef.current = dashboard;
+  researchCoverageRef.current = researchCoverage;
   loadRef.current = load;
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (identity) void load(); }, [identity, load]);
 
   useEffect(() => {
     let active = true;
@@ -814,6 +869,7 @@ export function PortfolioCenterApp() {
         next.setUiActionHandler(async (actionId) => {
           if (actionId === "portfolio.refresh") { await loadRef.current(); return { ok: true }; }
           if (actionId === "portfolio.optimize") {
+            if (!identityRef.current) throw new Error("Desk 身份尚未就绪");
             const currency = dashboardRef.current?.positions[0]?.currency;
             if (!currency) throw new Error("当前组合没有可优化持仓");
             const result = await portfolioClient(identityRef.current).optimizeAllocation({
@@ -829,6 +885,7 @@ export function PortfolioCenterApp() {
             return result;
           }
           if (actionId === "portfolio.analyze-performance") {
+            if (!identityRef.current) throw new Error("Desk 身份尚未就绪");
             const currency = dashboardRef.current?.positions[0]?.currency;
             if (!currency) throw new Error("当前组合没有可分析持仓");
             const result = await portfolioClient(identityRef.current).analyzePerformance({
@@ -840,6 +897,7 @@ export function PortfolioCenterApp() {
             return result;
           }
           if (actionId === "portfolio.import-legacy") {
+            if (!identityRef.current) throw new Error("Desk 身份尚未就绪");
             const result = await portfolioClient(identityRef.current).importLegacy();
             await loadRef.current();
             return result;
@@ -907,7 +965,7 @@ export function PortfolioCenterApp() {
       <div className="header-actions">
         {linkedSecurity && <span className="linked-security-pill">联动标的 {linkedSecurity.market}:{linkedSecurity.symbol}</span>}
         <span className={`valuation-pill state-${refreshingQuotes ? "loading" : dashboard?.valuationStatus || "loading"}`}><i />{refreshingQuotes ? "行情刷新中" : dashboard?.valuationStatus === "live" ? "实时估值" : dashboard?.valuationStatus === "partial" ? "部分实时" : "成本口径"}</span>
-        <button className="refresh-button" onClick={() => void load()} disabled={loading}>{loading || refreshingQuotes ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}刷新</button>
+        <button className="refresh-button" onClick={() => void load()} disabled={loading || refreshing}>{loading || refreshing || refreshingQuotes ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}{refreshing ? "更新中" : "刷新"}</button>
       </div>
     </header>
 

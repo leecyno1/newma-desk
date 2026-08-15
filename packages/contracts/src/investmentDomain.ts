@@ -13,7 +13,6 @@ export const INVESTMENT_DOMAIN_IDS = [
   "quant-research",
   "investment-committee",
   "trading-risk-portfolio",
-  "other",
 ] as const;
 
 export type InvestmentDomainId = (typeof INVESTMENT_DOMAIN_IDS)[number];
@@ -124,13 +123,6 @@ export const INVESTMENT_DOMAINS: readonly InvestmentDomainDefinition[] = [
     order: 140,
     description: "交易执行、风险控制、持仓、组合管理与绩效归因。",
     icon: "trading",
-  },
-  {
-    id: "other",
-    name: "其他",
-    order: 150,
-    description: "尚未归入核心投研流程的管理工具与扩展能力。",
-    icon: "module",
   },
 ] as const;
 

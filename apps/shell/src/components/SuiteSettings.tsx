@@ -114,7 +114,7 @@ export function SuiteSettings({
       })
       .catch((reason: unknown) => {
         if (active) {
-          setError(reason instanceof Error ? reason.message : "项目设置加载失败");
+          setError(reason instanceof Error ? reason.message : "数据与能力加载失败");
         }
       })
       .finally(() => {
@@ -147,7 +147,7 @@ export function SuiteSettings({
       setDraft(saved.capabilityServices);
       setMessage("项目数据路由已保存，下一次请求立即生效。");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "项目设置保存失败");
+      setError(reason instanceof Error ? reason.message : "数据与能力保存失败");
     } finally {
       setSaving(false);
     }
@@ -157,7 +157,7 @@ export function SuiteSettings({
     return (
       <div className="agent-settings-state" role="status">
         <LoaderCircle className="spin" size={20} aria-hidden="true" />
-        正在读取项目设置…
+        正在读取数据与能力…
       </div>
     );
   }
@@ -166,7 +166,7 @@ export function SuiteSettings({
     <section className="suite-settings-page">
       <header className="settings-page-header">
         <div>
-          <h1>{suiteLabel} · 项目设置</h1>
+          <h1>{suiteLabel} · 数据与能力</h1>
           <p>
             该项目包含 {modules.length} 个页面。数据服务由 Newma-Desk 统一托管，
             Mod 无需保存 API 地址、Token 或密钥。

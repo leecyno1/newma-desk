@@ -7,6 +7,8 @@ while preserving their independent repositories and runtimes:
 - `vibe-trading/` provides the default quant and trading Mods.
 - `world-intel-mcp/` provides the managed global intelligence data plane used by
   the Market global-situation map and the Event workspace.
+- `rsshub-policy/` is the pinned RSSHub upstream used as the independent policy
+  collection foundation. Policy scoring and the Desk UI remain Newma-owned.
 
 The unified launcher discovers both directories automatically. Environment
 variables are only needed when intentionally overriding these in-tree defaults.

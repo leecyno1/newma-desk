@@ -55,6 +55,10 @@ from vibe_visualization_api.config import (
     get_settings,
     resolve_database_path,
 )
+from vibe_visualization_api.creator_studio.routes import (
+    router as creator_studio_router,
+)
+from vibe_visualization_api.creator_studio.service import CreatorStudioService
 from vibe_visualization_api.model_gateway.adapters.base import ModelAdapter
 from vibe_visualization_api.model_gateway.adapters.anthropic import (
     AnthropicModelAdapter,
@@ -77,9 +81,14 @@ from vibe_visualization_api.market_alerts.store import (
 )
 from vibe_visualization_api.mod_store.routes import router as mod_store_router
 from vibe_visualization_api.mod_store.service import (
+    CatalogSnapshotFetcher,
     DescriptorFetcher,
     ModStoreService,
 )
+from vibe_visualization_api.policy_analysis.routes import (
+    router as policy_analysis_router,
+)
+from vibe_visualization_api.capital_flow.routes import router as capital_flow_router
 from vibe_visualization_api.mod_storage.routes import router as mod_storage_router
 from vibe_visualization_api.mod_storage.store import (
     ModStorageConflictError,
@@ -165,6 +174,8 @@ from vibe_visualization_api.watchlists.store import (
     WatchlistNotFoundError,
     WatchlistStore,
 )
+from vibe_visualization_api.wiki.routes import router as wiki_router
+from vibe_visualization_api.wiki.store import WikiHandoffStore, WikiSubjectStore
 
 
 def create_app(
@@ -176,6 +187,7 @@ def create_app(
     data_service_client: DataServiceClient | None = None,
     scheduler_service: SchedulerLifecycle | None = None,
     mod_store_fetcher: DescriptorFetcher | None = None,
+    mod_store_snapshot_fetcher: CatalogSnapshotFetcher | None = None,
     portfolio_quote_provider: PortfolioQuoteProvider | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
@@ -192,6 +204,7 @@ def create_app(
     mod_store_service = ModStoreService(
         app_settings,
         descriptor_fetcher=mod_store_fetcher,
+        catalog_snapshot_fetcher=mod_store_snapshot_fetcher,
     )
     configured_adapters = (
         list(agent_adapters)
@@ -218,7 +231,7 @@ def create_app(
             HermesWebUIAdapter(
                 app_settings,
                 agent_session_store,
-            )
+            ),
         ]
     )
     adapter_registry = AgentAdapterRegistry(
@@ -242,6 +255,7 @@ def create_app(
     async def lifespan(application: FastAPI):
         domain_suites = application.state.domain_suites
         await domain_suites.startup()
+        application.state.creator_studio_service.startup()
         active_scheduler = application.state.scheduler_service
         if app_settings.enable_scheduler:
             if active_scheduler is None:
@@ -251,6 +265,7 @@ def create_app(
         try:
             yield
         finally:
+            application.state.creator_studio_service.shutdown()
             if app_settings.enable_scheduler and active_scheduler is not None:
                 await active_scheduler.stop()
             agent_service = application.state.agent_task_service
@@ -367,6 +382,12 @@ def create_app(
     )
     application.state.mod_context_store = mod_context_store
     application.state.mod_storage_store = mod_storage_store
+    application.state.wiki_handoff_store = WikiHandoffStore(
+        app_settings.database_path
+    )
+    application.state.wiki_subject_store = WikiSubjectStore(
+        app_settings.database_path
+    )
     application.state.mod_store_service = mod_store_service
     application.state.artifact_store = ArtifactStore(app_settings.runtime_dir)
     application.state.archify_renderer = ArchifyRenderer(
@@ -405,6 +426,10 @@ def create_app(
         ),
         legacy_portfolio_path=app_settings.legacy_portfolio_path,
     )
+    application.state.creator_studio_service = CreatorStudioService(
+        app_settings.database_path,
+        app_settings.creator_studio_workspace,
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.origin_list(),
@@ -441,8 +466,12 @@ def create_app(
     application.include_router(market_alerts_router)
     application.include_router(research_archive_router)
     application.include_router(portfolio_center_router)
+    application.include_router(creator_studio_router)
     application.include_router(finance_pilots_router)
     application.include_router(global_intel_router)
+    application.include_router(policy_analysis_router)
+    application.include_router(capital_flow_router)
+    application.include_router(wiki_router)
     application.include_router(mod_snapshots_router, prefix="/api/mods")
     application.include_router(
         mod_snapshots_router,
@@ -764,6 +793,30 @@ def create_app(
             "/mod-runtime/portfolio-center",
             SpaStaticFiles(directory=str(portfolio_center_dist), html=True),
             name="portfolio-center-mod-runtime",
+        )
+
+    creator_studio_dist = app_settings.creator_studio_dist.expanduser().resolve()
+    if creator_studio_dist.is_dir():
+        application.mount(
+            "/mod-runtime/creator-studio",
+            SpaStaticFiles(directory=str(creator_studio_dist), html=True),
+            name="creator-studio-mod-runtime",
+        )
+
+    policy_analysis_dist = app_settings.policy_analysis_dist.expanduser().resolve()
+    if policy_analysis_dist.is_dir():
+        application.mount(
+            "/mod-runtime/policy-analysis",
+            SpaStaticFiles(directory=str(policy_analysis_dist), html=True),
+            name="policy-analysis-mod-runtime",
+        )
+
+    capital_flow_dist = app_settings.capital_flow_dist.expanduser().resolve()
+    if capital_flow_dist.is_dir():
+        application.mount(
+            "/mod-runtime/capital-flow",
+            SpaStaticFiles(directory=str(capital_flow_dist), html=True),
+            name="capital-flow-mod-runtime",
         )
 
     application.state.domain_suites = mount_domain_suites(

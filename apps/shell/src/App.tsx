@@ -1,13 +1,32 @@
 import { AlertTriangle, Boxes, Eye, LoaderCircle, RotateCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-import type { ModEvent } from "@newma-desk/contracts";
+import type {
+  ModEvent,
+  ModPageContext,
+  WikiHandoff,
+  WikiLink,
+  WikiPageContext,
+} from "@newma-desk/contracts";
 
 import {
   getModRevision,
   listMods,
   type StoredMod,
 } from "./api/modules";
+import {
+  createWikiHandoff,
+  deleteWikiHandoff,
+  getWikiHandoff,
+  resolveWikiLinks,
+} from "./api/wiki";
 import { ModCopilot } from "./components/ModCopilot";
 import {
   ModFrame,
@@ -32,6 +51,11 @@ import {
   type ThemeMode,
 } from "./lib/workspacePreferences";
 import { loadWorkspaceIdentity } from "./lib/workspaceIdentity";
+import {
+  newmaHostIdentityFromLocation,
+  parseNewmaHostContextRequest,
+  postNewmaHostContext,
+} from "./lib/hostBridge";
 import { compileSidebarNavigation } from "./lib/sidebarNavigation";
 
 const ACTIVE_MOD_KEY = "vibedesk.activeMod";
@@ -41,6 +65,7 @@ const RETIRED_MOD_ALIASES: Readonly<Record<string, string>> = {
   "event-intelligence": DEFAULT_MOD_ID,
 };
 const PREVIEW_PATTERN = /^([a-z][a-z0-9-]{2,63})@([1-9]\d*)$/;
+const HANDOFF_PATTERN = /^hf_[A-Za-z0-9_-]{8,120}$/;
 
 type ShellView = "mod" | "agent-settings" | "interface-settings" | "store" | "suite-settings";
 const DIRECTORY_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
@@ -127,13 +152,32 @@ function preferredMod(mods: StoredMod[]): StoredMod | undefined {
   );
 }
 
-function writeModLocation(modId: string, mode: "push" | "replace") {
+function requestedModFromLocation(): string | undefined {
+  const params = new URLSearchParams(window.location.search);
+  const requestedRaw = params.get("mod") ?? params.get("module");
+  return requestedRaw
+    ? RETIRED_MOD_ALIASES[requestedRaw] ?? requestedRaw
+    : undefined;
+}
+
+function handoffFromLocation(): string | undefined {
+  const handoffId = new URLSearchParams(window.location.search).get("handoff");
+  return handoffId && HANDOFF_PATTERN.test(handoffId) ? handoffId : undefined;
+}
+
+function writeModLocation(
+  modId: string,
+  mode: "push" | "replace",
+  handoffId?: string,
+) {
   const url = new URL(window.location.href);
   url.searchParams.delete("preview");
   url.searchParams.delete("module");
   url.searchParams.delete("view");
   url.searchParams.delete("directory");
   url.searchParams.set("mod", modId);
+  if (handoffId) url.searchParams.set("handoff", handoffId);
+  else url.searchParams.delete("handoff");
   window.history[mode === "push" ? "pushState" : "replaceState"](
     null,
     "",
@@ -172,6 +216,7 @@ function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
 
 export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
   const [identity] = useState(loadWorkspaceIdentity);
+  const [newmaHostIdentity] = useState(newmaHostIdentityFromLocation);
   const [eventBus] = useState(() => new ShellEventBus());
   const [lastEvent, setLastEvent] = useState<ModEvent>();
   const [modules, setModules] = useState<StoredMod[]>([]);
@@ -201,10 +246,54 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
   const [copilotOpen, setCopilotOpen] = useState(() =>
     embedded ? false : copilotFromLocation(),
   );
+  const [wikiContext, setWikiContext] = useState<WikiPageContext>();
+  const [wikiLinks, setWikiLinks] = useState<WikiLink[]>([]);
+  const [wikiLoading, setWikiLoading] = useState(false);
+  const [wikiResolutionError, setWikiResolutionError] = useState<string>();
+  const [wikiActiveLinkId, setWikiActiveLinkId] = useState<string>();
+  const [pendingHandoff, setPendingHandoff] = useState<WikiHandoff>();
+  const [handoffLocationId, setHandoffLocationId] = useState(
+    handoffFromLocation,
+  );
+  const [handoffError, setHandoffError] = useState<string>();
+  const [handoffRetryNonce, setHandoffRetryNonce] = useState(0);
   const moduleFrameRef = useRef<ModFrameHandle>(null);
   const previewRequestRef = useRef<AbortController | undefined>(undefined);
   const previewRequestSequenceRef = useRef(0);
+  const wikiRequestRef = useRef<AbortController | undefined>(undefined);
+  const wikiContextKeyRef = useRef("");
+  const deliveringHandoffRef = useRef<string | undefined>(undefined);
   const resolvedTheme = resolveTheme(themeMode, prefersDark);
+
+  useEffect(() => {
+    if (!embedded || !newmaHostIdentity) return;
+    const handleHostRequest = (event: MessageEvent): void => {
+      if (event.source !== window.parent) return;
+      if (event.origin !== newmaHostIdentity.parentMessageOrigin) return;
+      const request = parseNewmaHostContextRequest(event.data);
+      if (
+        !request ||
+        request.projectId !== newmaHostIdentity.projectId ||
+        request.workspaceId !== newmaHostIdentity.workspaceId ||
+        request.modId !== selectedId
+      ) {
+        return;
+      }
+      void moduleFrameRef.current
+        ?.requestContext(request.reason)
+        .then((context) => {
+          if (!context) return;
+          postNewmaHostContext({
+            context,
+            identity: newmaHostIdentity,
+            modId: request.modId,
+            requestId: request.requestId,
+          });
+        });
+    };
+    window.addEventListener("message", handleHostRequest);
+    return () => window.removeEventListener("message", handleHostRequest);
+  }, [embedded, newmaHostIdentity, selectedId]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
@@ -238,6 +327,18 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
       modulesRef.current = rows;
       setModules(rows);
       setRegistryLoaded(true);
+      const requestedMod = requestedModFromLocation();
+      if (
+        embedded &&
+        requestedMod &&
+        !rows.some((module) => module.moduleId === requestedMod)
+      ) {
+        setSelectedId(undefined);
+        setRegistryError(
+          `当前 NewmaDesk 运行时未安装「${requestedMod}」，请先同步或更新该 Mod。`,
+        );
+        return;
+      }
       setSelectedId((current) => {
         const selection =
           rows.find((module) => module.moduleId === current) ??
@@ -252,7 +353,11 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
           const params = new URLSearchParams(window.location.search);
           const requested = params.get("mod") ?? params.get("module");
           if (requested !== selection.moduleId) {
-            writeModLocation(selection.moduleId, "replace");
+            writeModLocation(
+              selection.moduleId,
+              "replace",
+              handoffFromLocation(),
+            );
           }
         }
 
@@ -328,6 +433,9 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
   const syncLocation = useCallback(() => {
     const params = new URLSearchParams(window.location.search);
     const requestedView = embedded ? "mod" : viewFromLocation();
+    setHandoffLocationId(
+      requestedView === "mod" ? handoffFromLocation() : undefined,
+    );
     setCopilotOpen(!embedded && requestedView === "mod" && copilotFromLocation());
     if (requestedView !== "mod") {
       cancelPreviewRequest();
@@ -375,7 +483,7 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
     };
   }, [cancelPreviewRequest, loadRegistry, syncLocation]);
 
-  const selectModule = (module: StoredMod) => {
+  const selectModule = (module: StoredMod, handoffId?: string) => {
     cancelPreviewRequest();
     setPreviewMode(false);
     setPreview(undefined);
@@ -383,8 +491,15 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
     setSelectedId(module.moduleId);
     setActiveView("mod");
     setSuiteSettingsDirectoryId(undefined);
+    setHandoffLocationId(handoffId);
+    if (!handoffId) {
+      deliveringHandoffRef.current = undefined;
+      setPendingHandoff(undefined);
+      setHandoffError(undefined);
+      setWikiActiveLinkId(undefined);
+    }
     rememberSelection(module.moduleId);
-    writeModLocation(module.moduleId, "push");
+    writeModLocation(module.moduleId, "push", handoffId);
   };
 
   const openAgentSettings = () => {
@@ -412,6 +527,7 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
     url.searchParams.delete("module");
     url.searchParams.delete("mod");
     url.searchParams.delete("copilot");
+    url.searchParams.delete("handoff");
     url.searchParams.set("view", "suite-settings");
     url.searchParams.set("directory", directoryId);
     window.history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
@@ -431,6 +547,7 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
     url.searchParams.delete("mod");
     url.searchParams.delete("directory");
     url.searchParams.delete("copilot");
+    url.searchParams.delete("handoff");
     url.searchParams.set("view", view);
     window.history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
   };
@@ -486,6 +603,213 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
     !previewMode &&
     !registryError;
 
+  useLayoutEffect(() => {
+    wikiRequestRef.current?.abort();
+    wikiRequestRef.current = undefined;
+    wikiContextKeyRef.current = "";
+    setWikiContext(undefined);
+    setWikiLinks([]);
+    setWikiLoading(false);
+    setWikiResolutionError(undefined);
+  }, [activeModule?.moduleId, activeView, previewMode]);
+
+  useEffect(() => () => wikiRequestRef.current?.abort(), []);
+
+  const handleContextPublished = useCallback((context: ModPageContext) => {
+    if (embedded && newmaHostIdentity && activeModule) {
+      postNewmaHostContext({
+        context,
+        identity: newmaHostIdentity,
+        modId: activeModule.moduleId,
+      });
+    }
+
+    const nextWikiContext = context.wiki;
+    if (!activeModule || previewMode || !nextWikiContext) {
+      wikiRequestRef.current?.abort();
+      wikiRequestRef.current = undefined;
+      wikiContextKeyRef.current = "";
+      setWikiContext(undefined);
+      setWikiLinks([]);
+      setWikiLoading(false);
+      setWikiResolutionError(undefined);
+      return;
+    }
+
+    const contextKey = `${activeModule.moduleId}:${JSON.stringify(nextWikiContext)}`;
+    if (wikiContextKeyRef.current === contextKey) return;
+    wikiContextKeyRef.current = contextKey;
+    wikiRequestRef.current?.abort();
+    const controller = new AbortController();
+    wikiRequestRef.current = controller;
+    setWikiContext(nextWikiContext);
+    setWikiLoading(true);
+    setWikiResolutionError(undefined);
+
+    void resolveWikiLinks({
+      sourceModId: activeModule.moduleId,
+      context: nextWikiContext,
+      limit: 5,
+      signal: controller.signal,
+    }).then((resolution) => {
+      if (controller.signal.aborted) return;
+      setWikiLinks(
+        resolution.links.filter((link) =>
+          modulesRef.current.some((module) => module.moduleId === link.targetModId),
+        ),
+      );
+    }).catch((reason: unknown) => {
+      if (
+        controller.signal.aborted ||
+        (typeof reason === "object" && reason !== null && "name" in reason && reason.name === "AbortError")
+      ) return;
+      setWikiLinks([]);
+      setWikiResolutionError(
+        reason instanceof Error ? reason.message : "关联研究暂不可用",
+      );
+    }).finally(() => {
+      if (!controller.signal.aborted) setWikiLoading(false);
+    });
+  }, [activeModule, embedded, newmaHostIdentity, previewMode]);
+
+  const openWikiLink = async (link: WikiLink) => {
+    if (!activeModule || !wikiContext || wikiActiveLinkId) return;
+    const target = modulesRef.current.find(
+      (module) => module.moduleId === link.targetModId,
+    );
+    if (!target) {
+      setHandoffError("关联 Mod 尚未安装或已停用");
+      return;
+    }
+
+    setWikiActiveLinkId(link.id);
+    setHandoffError(undefined);
+    try {
+      const handoff = await createWikiHandoff({
+        userId: identity.userId,
+        workspaceId: identity.workspaceId,
+        sourceModId: activeModule.moduleId,
+        targetModId: link.targetModId,
+        entrypointId: link.entrypointId,
+        context: wikiContext,
+      });
+      setPendingHandoff(handoff);
+      deliveringHandoffRef.current = undefined;
+      selectModule(target, handoff.id);
+    } catch (reason) {
+      setWikiActiveLinkId(undefined);
+      setHandoffError(
+        reason instanceof Error ? reason.message : "跨 Mod 切换失败",
+      );
+    }
+  };
+
+  const clearHandoffLocation = useCallback((handoffId: string) => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("handoff") !== handoffId) return;
+    url.searchParams.delete("handoff");
+    window.history.replaceState(
+      null,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+    setHandoffLocationId(undefined);
+  }, []);
+
+  useEffect(() => {
+    if (
+      !handoffLocationId ||
+      !selectedId ||
+      pendingHandoff?.id === handoffLocationId ||
+      activeView !== "mod" ||
+      previewMode
+    ) return;
+    const controller = new AbortController();
+    void getWikiHandoff({
+      handoffId: handoffLocationId,
+      userId: identity.userId,
+      workspaceId: identity.workspaceId,
+      signal: controller.signal,
+    }).then((handoff) => {
+      if (controller.signal.aborted) return;
+      if (handoff.targetModId !== selectedId) {
+        throw new Error("Wiki 交接目标与当前 Mod 不一致");
+      }
+      deliveringHandoffRef.current = undefined;
+      setPendingHandoff(handoff);
+      setHandoffError(undefined);
+    }).catch((reason: unknown) => {
+      if (
+        controller.signal.aborted ||
+        (typeof reason === "object" && reason !== null && "name" in reason && reason.name === "AbortError")
+      ) return;
+      setHandoffError(
+        reason instanceof Error ? reason.message : "Wiki 交接已失效",
+      );
+    });
+    return () => controller.abort();
+  }, [
+    activeView,
+    handoffLocationId,
+    handoffRetryNonce,
+    identity.userId,
+    identity.workspaceId,
+    pendingHandoff?.id,
+    previewMode,
+    selectedId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !pendingHandoff ||
+      pendingHandoff.targetModId !== activeModule?.moduleId ||
+      activeView !== "mod" ||
+      previewMode ||
+      deliveringHandoffRef.current === pendingHandoff.id
+    ) return;
+    const frame = moduleFrameRef.current;
+    if (!frame) return;
+    deliveringHandoffRef.current = pendingHandoff.id;
+    let active = true;
+    void frame.deliverHandoff(pendingHandoff).then(async () => {
+      await deleteWikiHandoff({
+        handoffId: pendingHandoff.id,
+        userId: identity.userId,
+        workspaceId: identity.workspaceId,
+      }).catch(() => undefined);
+      if (!active) return;
+      clearHandoffLocation(pendingHandoff.id);
+      setPendingHandoff(undefined);
+      setWikiActiveLinkId(undefined);
+      setHandoffError(undefined);
+      deliveringHandoffRef.current = undefined;
+    }).catch((reason: unknown) => {
+      if (!active) return;
+      deliveringHandoffRef.current = undefined;
+      setHandoffError(
+        reason instanceof Error ? reason.message : "目标 Mod 未能接收 Wiki 交接",
+      );
+    });
+    return () => {
+      active = false;
+    };
+  }, [
+    activeModule?.moduleId,
+    activeView,
+    clearHandoffLocation,
+    handoffRetryNonce,
+    identity.userId,
+    identity.workspaceId,
+    pendingHandoff,
+    previewMode,
+  ]);
+
+  const retryHandoff = () => {
+    deliveringHandoffRef.current = undefined;
+    setHandoffError(undefined);
+    setHandoffRetryNonce((value) => value + 1);
+  };
+
   return (
     <div className="shell-layout" data-embedded={embedded || undefined}>
       {!embedded ? (
@@ -525,6 +849,9 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
         ) : null}
         {previewError ? (
           <ErrorBanner message={previewError} onRetry={retryPreview} />
+        ) : null}
+        {handoffError && pendingHandoff ? (
+          <ErrorBanner message={handoffError} onRetry={retryHandoff} />
         ) : null}
         {activeView === "mod" && registryLoading && modules.length === 0 ? (
           <div className="content-state" role="status">
@@ -595,6 +922,13 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
               onRequestCopilotOpen={
                 embedded ? undefined : () => changeCopilotOpen(true)
               }
+              onContextPublished={handleContextPublished}
+              wikiSubjectName={wikiContext?.primarySubject.displayName}
+              wikiLinks={wikiLinks}
+              wikiLoading={wikiLoading}
+              wikiActiveLinkId={wikiActiveLinkId}
+              wikiError={wikiResolutionError ?? (!pendingHandoff ? handoffError : undefined)}
+              onOpenWikiLink={(link) => void openWikiLink(link)}
             />
             {!embedded ? (
               <ModCopilot

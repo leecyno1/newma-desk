@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,9 +12,9 @@ vi.mock("@newma-desk/chart-kit", async () => {
   const actual = await vi.importActual<typeof import("@newma-desk/chart-kit")>("@newma-desk/chart-kit");
   return {
     ...actual,
-    KLineChartPanel: (props: { ariaLabel?: string; loadBars: () => Promise<unknown> }) => {
+    KLineChartPanel: (props: { ariaLabel?: string; variant?: string; loadBars: () => Promise<unknown> }) => {
       void props.loadBars();
-      return <div data-testid="workspace-kline" aria-label={props.ariaLabel} />;
+      return <div data-testid="workspace-kline" data-variant={props.variant} aria-label={props.ariaLabel} />;
     },
     RelativeStrengthChart: () => <div data-testid="relative-strength-chart" />,
   };
@@ -126,6 +126,108 @@ describe("market chart workspaces", () => {
     expect(await screen.findAllByTestId("workspace-kline")).toHaveLength(4);
     await userEvent.click(screen.getByRole("button", { name: "MACD" }));
     expect(screen.getByRole("button", { name: "MACD" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("switches the daily timeline to the ETF event composition", async () => {
+    const source = dataSource();
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES["event-timeline"]} bridge={bridge("event-timeline")} dataSource={source} alertClient={null} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "沪深300ETF" }));
+
+    expect(await screen.findByText("ETF 日线事件")).toBeVisible();
+    expect(screen.getByRole("button", { name: "基金公告" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "ETF资讯" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "财报" })).not.toBeInTheDocument();
+    expect(source.events).toHaveBeenCalledWith(expect.objectContaining({
+      symbol: "510300",
+      assetType: "etf",
+    }));
+  });
+
+  it("renders open funds as a NAV line with fund profile metadata", async () => {
+    const source = dataSource();
+    const fund: SecurityRef = {
+      symbol: "110022",
+      name: "易方达消费行业股票",
+      market: "CN",
+      exchange: "OTC",
+      assetType: "fund",
+      securityType: "股票型",
+    };
+    source.search = vi.fn(async () => [fund]);
+    source.quote = vi.fn(async () => ({
+      ...fund,
+      price: 2.928,
+      changePct: -0.71,
+      fundType: "股票型",
+      fundCompany: "易方达基金",
+      fundManager: "萧楠",
+      navDate: "2026-08-14",
+      subscribeStatus: "开放申购",
+      redeemStatus: "开放赎回",
+    }));
+
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES["event-timeline"]} bridge={bridge("event-timeline")} dataSource={source} alertClient={null} />);
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索证券" }), "110022");
+    await userEvent.click(await screen.findByRole("button", { name: /易方达消费行业股票/ }));
+
+    expect(await screen.findByText("基金净值事件")).toBeVisible();
+    expect(screen.getByLabelText("基金净值日线图")).toHaveAttribute("data-variant", "nav");
+    expect(await screen.findByText("易方达基金")).toBeVisible();
+    expect(screen.getByText(/开放申购 · 开放赎回/)).toBeVisible();
+  });
+
+  it("repairs a persisted stock that was previously stored as an OTC fund", async () => {
+    const source = dataSource();
+    const stock: SecurityRef = {
+      symbol: "300308",
+      name: "中际旭创",
+      market: "CN",
+      exchange: "SZ",
+      assetType: "stock",
+    };
+    window.localStorage.setItem("vibedesk.event-timeline.security.v1", JSON.stringify({
+      ...stock,
+      exchange: "OTC",
+      assetType: "fund",
+    }));
+    source.search = vi.fn(async () => [stock]);
+    source.quote = vi.fn(async (item) => item.assetType === "fund"
+      ? { ...item, name: "大成科技创新混合C", exchange: "OTC", price: 4.5843, assetType: "fund" }
+      : { ...stock, price: 943, changePct: 1.2 });
+
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES["event-timeline"]} bridge={bridge("event-timeline")} dataSource={source} alertClient={null} />);
+
+    expect(await screen.findByText("300308 · SZ", { exact: true })).toBeVisible();
+    expect(screen.getByText("CN", { selector: ".workspace-current-security > i" })).toBeVisible();
+    expect(source.search).toHaveBeenCalledWith("中际旭创", "CN");
+    await waitFor(() => expect(source.quote).toHaveBeenLastCalledWith(expect.objectContaining({
+      symbol: "300308",
+      assetType: "stock",
+    })));
+    expect(JSON.parse(window.localStorage.getItem("vibedesk.event-timeline.security.v1") || "{}")).toMatchObject({
+      symbol: "300308",
+      exchange: "SZ",
+      assetType: "stock",
+    });
+  });
+
+  it("marks the market workspace as embedded for host-controlled scrolling", async () => {
+    const { container } = render(
+      <MarketWorkspaceApp
+        config={MARKET_WORKSPACES["multi-timeframe"]}
+        bridge={bridge("multi-timeframe")}
+        dataSource={dataSource()}
+        alertClient={null}
+        embedded
+      />,
+    );
+
+    expect(await screen.findAllByTestId("workspace-kline")).toHaveLength(4);
+    expect(container.querySelector(".market-workspace-root")).toHaveAttribute(
+      "data-embedded",
+      "true",
+    );
   });
 
   it("supports replay decisions while future bars remain hidden", async () => {

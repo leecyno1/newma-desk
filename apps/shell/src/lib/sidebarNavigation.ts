@@ -221,6 +221,17 @@ export interface SidebarNavigationModel {
   preferences: SidebarNavigationPreferences;
 }
 
+export function sidebarProjectMark(project: Pick<SidebarProjectItem, "name" | "id" | "defaultName" | "icon" | "logo">) {
+  if (project.logo.type === "letter") {
+    const mark = Array.from(project.logo.text.trim()).slice(0, 2).join("");
+    if (Array.from(mark).length === 2) return mark;
+  }
+  return automaticProjectMark(project.name, project.id, {
+    defaultName: project.defaultName,
+    icon: project.icon,
+  });
+}
+
 export interface SidebarModuleDropTarget {
   projectId: string;
   directory: SidebarDirectoryRef | null;

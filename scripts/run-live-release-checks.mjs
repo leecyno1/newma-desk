@@ -4,6 +4,8 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { selectReleaseCertificationMods } from "./lib/official-release.mjs";
+import { loadModStore } from "./lib/mod-store.mjs";
 import { inspectProcessLock } from "./lib/process-lock.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -14,16 +16,6 @@ const stackPidFile = (
   || process.env.VIBEDESK_STACK_PID_FILE
   || path.join(repoRoot, "runtime", "newma-desk-stack.pid")
 );
-const selectedLevelThreeMods = [
-  "market-daily",
-  "market-scanner",
-  "multi-timeframe",
-  "relative-strength",
-  "event-timeline",
-  "trading-replay",
-  "watchlist",
-].join(",");
-
 const coreChecks = [
   {
     label: "Newma-Desk API",
@@ -132,6 +124,12 @@ async function stopStack(stack) {
 }
 
 async function main() {
+  const store = await loadModStore();
+  const releaseMods = selectReleaseCertificationMods(store);
+  if (releaseMods.length === 0) {
+    throw new Error("No default Manifest 1.1 Mods selected for certification");
+  }
+  const selectedModIds = releaseMods.map((mod) => mod.id).join(",");
   const requireExternal =
     (
       process.env.NEWMA_DESK_REQUIRE_EXTERNAL_MODS ||
@@ -169,12 +167,14 @@ async function main() {
       ...(requireExternal ? ["--", "--strict"] : []),
     ]);
     await run(npmCommand, ["run", "mods:compat"]);
+    await run(npmCommand, ["run", "mods:data:check"]);
+    process.stdout.write(`CERTIFICATION TARGETS ${selectedModIds}\n`);
     await run(npmCommand, [
       "run",
       "mods:certify",
       "--",
       "--mod",
-      selectedLevelThreeMods,
+      selectedModIds,
     ]);
     await run(npmCommand, ["run", "test:e2e:sidebar"]);
     await run(npmCommand, ["run", "test:e2e:market"]);

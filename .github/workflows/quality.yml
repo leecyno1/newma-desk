@@ -104,6 +104,7 @@ jobs:
           NEWMA_DESK_INTEGRATED=1 NEWMA_DOCK_INTEGRATED=1 VITE_BASE_PATH=/mod-runtime/research/ VITE_API_BASE=/api/research npm run build --prefix mod-projects/vibe-research/frontend
           NEWMA_DESK_INTEGRATED=1 NEWMA_DOCK_INTEGRATED=1 VITE_NEWMA_DESK_INTEGRATED=1 VITE_BASE_PATH=/mod-runtime/trading/ VITE_API_BASE=/api/trading npm run build --prefix mod-projects/vibe-trading/frontend
           npm run build -w @newma-desk/portfolio-center
+          npm run build -w @newma-desk/creator-studio
           npm run build -w @newma-desk/market-daily
           npm run build -w @newma-desk/desk
 

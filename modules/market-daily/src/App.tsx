@@ -66,6 +66,10 @@ import {
   type WatchlistClient,
   type WatchlistSnapshot,
 } from "./watchlist";
+import {
+  securityFromWikiHandoff,
+  wikiContextForSecurity,
+} from "./wiki";
 
 const MOD_ID = "market-daily";
 const TIMEFRAMES: Array<{ id: Timeframe; label: string }> = [
@@ -223,6 +227,11 @@ export function buildMarketPageContext(input: {
       { id: "market.set-alert", label: "设置价格预警", available: true, inputSchema: { type: "object", required: ["direction", "price"], properties: { direction: { enum: ["above", "below"] }, price: { type: "number", exclusiveMinimum: 0 }, label: { type: "string", maxLength: 80 } }, additionalProperties: false } },
       { id: "workspace.save-layout", label: "保存当前布局", available: true, inputSchema: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, additionalProperties: false } },
     ],
+    wiki: wikiContextForSecurity({
+      security: input.security,
+      intent: "market.overview",
+      timeframe: input.timeframe,
+    }),
     tasks: [],
   };
 }
@@ -515,7 +524,7 @@ export function MarketTerminalApp({
       modId: MOD_ID,
       parentOrigin: configuredOrigin("parent"),
       sdkVersion: "0.1.0",
-      capabilities: ["events", "actions", "data", "context", "theme"],
+      capabilities: ["events", "actions", "data", "context", "theme", "handoff"],
       signal: controller.signal,
     }).then((connection) => {
       close = connection.close;
@@ -570,6 +579,19 @@ export function MarketTerminalApp({
       });
     }
   }, [bridge]);
+
+  useEffect(() => hostConnection?.setHandoffHandler((handoff) => {
+    const next = securityFromWikiHandoff(handoff);
+    if (next.assetType === "fund") {
+      throw new Error("市场终端暂不支持开放式基金交接");
+    }
+    selectSecurity(next, false);
+    const requestedPeriod = handoff.parameters.period;
+    if (requestedPeriod === "daily") setTimeframe("1d");
+    else if (requestedPeriod === "weekly") setTimeframe("1w");
+    else if (requestedPeriod === "monthly") setTimeframe("1M");
+    return { selected: next.symbol };
+  }), [hostConnection, selectSecurity]);
 
   useEffect(() => {
     if (bridgeCloseTimer.current !== undefined) {

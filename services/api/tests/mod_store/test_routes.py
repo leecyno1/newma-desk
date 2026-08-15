@@ -314,7 +314,7 @@ def test_suite_expansion_preserves_project_identity_on_every_page() -> None:
         }
 
 
-def test_suite_expansion_places_legacy_suite_intact_under_other() -> None:
+def test_suite_expansion_promotes_legacy_suite_to_custom_project() -> None:
     legacy_descriptor = json.loads(json.dumps(SUITE_DESCRIPTOR))
     del legacy_descriptor["manifest"]["navigation"]["project"]
     suite = StoreModSuiteDescriptor.model_validate(legacy_descriptor)
@@ -328,10 +328,10 @@ def test_suite_expansion_places_legacy_suite_intact_under_other() -> None:
         assert navigation.project.model_dump(
             by_alias=True, exclude_none=True, mode="json"
         ) == {
-            "id": "other",
-            "name": "其他",
-            "order": 150,
-            "description": "尚未归入核心投研流程的管理工具与扩展能力。",
+            "id": "example-suite",
+            "name": "示例项目",
+            "order": 10,
+            "description": "由一份 Suite 描述自动生成多个 Mod 页面。",
         }
 
 
@@ -343,7 +343,9 @@ def test_suite_rejects_pages_split_across_domains() -> None:
         "order": 50,
     }
 
-    with pytest.raises(ValidationError, match="cannot split pages across investment domains"):
+    with pytest.raises(
+        ValidationError, match="cannot split pages across investment domains"
+    ):
         StoreModSuiteDescriptor.model_validate(descriptor)
 
 
@@ -355,7 +357,9 @@ def test_suite_rejects_page_moved_into_another_complete_project() -> None:
         "order": 20,
     }
 
-    with pytest.raises(ValidationError, match="cannot split pages into another project group"):
+    with pytest.raises(
+        ValidationError, match="cannot split pages into another project group"
+    ):
         StoreModSuiteDescriptor.model_validate(descriptor)
 
 
@@ -385,7 +389,8 @@ def test_suite_rejects_unsafe_project_logo(logo: dict[str, str]) -> None:
         ("mods/portfolio-suite/suite.json", "trading-risk-portfolio"),
         ("mods/orchestra-suite/suite.json", "investment-committee"),
         ("mods/calendar-effect-suite/suite.json", "tactical-timing"),
-        ("mods/deepsee-suite/suite.json", "other"),
+        ("mods/deepsee-suite/suite.json", "deepsee-suite"),
+        ("mods/creator-studio-suite/suite.json", "creator-studio-suite"),
     ],
 )
 def test_first_party_suite_remains_intact_in_one_investment_domain(
@@ -612,6 +617,176 @@ def test_store_lists_local_catalog_and_installs_descriptor_from_git(
     assert fetched_sources == [
         ("https://github.com/leecyno1/newma-dock", "daily-review/mod.json"),
         ("https://github.com/leecyno1/newma-dock", "daily-review/mod.json"),
+    ]
+
+
+def test_store_syncs_a_commit_pinned_github_catalog(tmp_path: Path) -> None:
+    store_dir = _write_store(tmp_path)
+    remote_descriptor = {**DESCRIPTOR, "version": "0.2.0"}
+    remote_catalog = json.loads((store_dir / "store.json").read_text("utf-8"))
+
+    async def fetch_snapshot(catalog):
+        assert catalog.git.ref == "main"
+        return "a" * 40, remote_catalog, {"daily-review": remote_descriptor}
+
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "store.db",
+        mod_store_dir=store_dir,
+        investment_web_url="https://research.example",
+    )
+    with TestClient(
+        create_app(settings, mod_store_snapshot_fetcher=fetch_snapshot)
+    ) as client:
+        before = client.get("/api/store/mods")
+        synced = client.post("/api/store/sync")
+        installed = client.post("/api/store/projects/daily-review/install")
+        after = client.get("/api/store/mods")
+
+    assert before.json()["catalogSource"] == "bundled"
+    assert synced.status_code == 200
+    assert synced.json()["catalogSource"] == "github"
+    assert synced.json()["commit"] == "a" * 40
+    assert synced.json()["ref"] == "main"
+    assert synced.json()["mods"][0]["version"] == "0.2.0"
+    assert installed.status_code == 201
+    assert installed.json()["action"] == "installed"
+    assert installed.json()["sourceCommit"] == "a" * 40
+    assert after.json()["mods"][0]["installState"] == "installed"
+    assert after.json()["mods"][0]["installedVersion"] == "0.2.0"
+    assert (settings.runtime_dir / "mod-store-catalog.json").is_file()
+
+
+def test_store_ignores_snapshot_missing_a_bundled_mod(tmp_path: Path) -> None:
+    store_dir = _write_store(tmp_path)
+    remote_catalog = json.loads((store_dir / "store.json").read_text("utf-8"))
+
+    async def fetch_snapshot(catalog):
+        return "c" * 40, remote_catalog, {"daily-review": DESCRIPTOR}
+
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "store.db",
+        mod_store_dir=store_dir,
+    )
+    with TestClient(
+        create_app(settings, mod_store_snapshot_fetcher=fetch_snapshot)
+    ) as client:
+        assert client.post("/api/store/sync").status_code == 200
+
+        added = {**DESCRIPTOR, "id": "creator-studio", "name": "创作工作台"}
+        added_path = store_dir / "creator-studio" / "mod.json"
+        added_path.parent.mkdir()
+        added_path.write_text(json.dumps(added, ensure_ascii=False), encoding="utf-8")
+        bundled_catalog = json.loads((store_dir / "store.json").read_text("utf-8"))
+        bundled_catalog["mods"].append(
+            {
+                "id": "creator-studio",
+                "path": "creator-studio/mod.json",
+                "defaultInstall": False,
+            }
+        )
+        (store_dir / "store.json").write_text(
+            json.dumps(bundled_catalog, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        response = client.get("/api/store/mods")
+
+    assert response.status_code == 200
+    assert response.json()["catalogSource"] == "bundled"
+    assert [item["id"] for item in response.json()["mods"]] == [
+        "daily-review",
+        "creator-studio",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_store_sync_never_uses_a_mirror_as_release_authority(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "store.db",
+        mod_store_dir=_write_store(tmp_path),
+    )
+    service = ModStoreService(settings)
+    calls: list[list[str]] = []
+
+    async def run_git(arguments, *, timeout, environment):
+        calls.append(arguments)
+        if arguments[:2] == ["init", "--bare"]:
+            return b""
+        return None
+
+    monkeypatch.setattr(service, "_run_git", run_git)
+
+    snapshot = await service._fetch_github_snapshot_from_git(service._catalog())
+    fetch_repositories = [
+        arguments[-2]
+        for arguments in calls
+        if "fetch" in arguments
+    ]
+
+    assert snapshot is None
+    assert fetch_repositories == ["https://github.com/leecyno1/newma-dock"]
+
+
+def test_store_installs_a_complete_project_in_one_request(tmp_path: Path) -> None:
+    store_dir = _write_suite_store(tmp_path)
+    remote_catalog = json.loads((store_dir / "store.json").read_text("utf-8"))
+
+    async def fetch_snapshot(catalog):
+        return "b" * 40, remote_catalog, {"example-suite": SUITE_DESCRIPTOR}
+
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "store.db",
+        mod_store_dir=store_dir,
+        investment_web_url="https://research.example",
+    )
+    with TestClient(
+        create_app(settings, mod_store_snapshot_fetcher=fetch_snapshot)
+    ) as client:
+        response = client.post("/api/store/projects/example-suite/install")
+        modules = client.get("/api/modules").json()
+
+    assert response.status_code == 201
+    assert response.json()["action"] == "installed"
+    assert response.json()["projectId"] == "example-suite"
+    assert [item["moduleId"] for item in response.json()["mods"]] == [
+        "example-overview",
+        "example-settings",
+    ]
+    assert [item["moduleId"] for item in modules] == [
+        "example-overview",
+        "example-settings",
+    ]
+
+
+def test_store_installs_a_bundled_project_without_github_sync(
+    tmp_path: Path,
+) -> None:
+    async def failed_sync(catalog):
+        raise ModStoreSourceError()
+
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "store.db",
+        mod_store_dir=_write_suite_store(tmp_path),
+        investment_web_url="https://research.example",
+    )
+    with TestClient(
+        create_app(settings, mod_store_snapshot_fetcher=failed_sync)
+    ) as client:
+        response = client.post("/api/store/projects/example-suite/install")
+
+    assert response.status_code == 201
+    assert "sourceCommit" not in response.json()
+    assert [item["moduleId"] for item in response.json()["mods"]] == [
+        "example-overview",
+        "example-settings",
     ]
 
 

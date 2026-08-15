@@ -1,0 +1,1 @@
+"""Wiki API tests."""

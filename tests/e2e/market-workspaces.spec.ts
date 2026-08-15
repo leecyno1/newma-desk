@@ -40,7 +40,7 @@ test.describe("Market workspace delivery flows", () => {
   test("shows evidence-backed events and explicit source health", async ({ page }) => {
     const errors = collectRuntimeErrors(page);
     await page.goto(`${moduleOrigin}/mods/market-daily/?workspace=event-timeline`);
-    await expect(page.getByText("事件时间轴", { exact: true })).toBeVisible();
+    await expect(page.getByText("日线时间轴", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("贵州茅台2026年半年度业绩预告", { exact: true })).toBeVisible();
     await expect(page.getByText("贵州茅台：渠道韧性与中长期现金流观察", { exact: true })).toBeVisible();
     await expect(page.getByText("贵州茅台披露最新渠道运营信息", { exact: true })).toBeVisible();

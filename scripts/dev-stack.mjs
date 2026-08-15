@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { registerStoreMods } from "./lib/mod-store.mjs";
+import { registerDefaultMods } from "./lib/mod-store.mjs";
 import {
   loadExternalModRuntimes,
   runtimeEnvironment,
@@ -163,6 +163,7 @@ function coreServices(externalRuntimeEnv = {}) {
       ],
       env: {
         ...externalRuntimeEnv,
+        NEWMA_DESK_POLICY_RSSHUB_BASE_URL: "http://127.0.0.1:1200",
         NEWMA_DESK_ENABLE_DOMAIN_SUITES: "true",
         NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME: "1",
         VIBEDESK_INTEGRATED_DOMAIN_RUNTIME: "1",
@@ -196,6 +197,24 @@ function coreServices(externalRuntimeEnv = {}) {
       probe: createHttpProbe("http://127.0.0.1:5888/"),
     },
   ];
+}
+
+function policyCollectorServices() {
+  const workspace = path.join(repoRoot, "mod-projects", "rsshub-policy");
+  const executable = path.join(workspace, "node_modules", ".bin", "tsx");
+  const routesIndex = path.join(workspace, "assets", "build", "routes.js");
+  if (!existsSync(executable) || !existsSync(routesIndex)) return [];
+  return [{
+    id: "policy-rsshub",
+    label: "Policy RSSHub Collector",
+    cwd: workspace,
+    command: executable,
+    commandArgs: ["lib/index.ts"],
+    env: { NODE_ENV: "production", PORT: "1200" },
+    criticality: SERVICE_CRITICALITY.OPTIONAL,
+    url: "http://127.0.0.1:1200/",
+    probe: createHttpProbe("http://127.0.0.1:1200/"),
+  }];
 }
 
 async function buildIntegratedFrontend(label, workspace, basePath, apiBase) {
@@ -318,7 +337,12 @@ function worldIntelServices(runtime) {
       WORLD_INTEL_DASHBOARD_HOST: "127.0.0.1",
       WORLD_INTEL_DASHBOARD_PORT: String(endpoint.port),
     },
-    criticality: SERVICE_CRITICALITY.CORE,
+    // Intelligence is a default first-party Mod, but its live data plane is
+    // not the Desk shell. A stalled collector must degrade this Mod only;
+    // Chat, Market, session/workspace state, and the Agent pane stay online.
+    criticality: endpoint.local
+      ? SERVICE_CRITICALITY.OPTIONAL
+      : SERVICE_CRITICALITY.EXTERNAL,
     url: endpoint.healthUrl,
     probe: createHttpProbe(endpoint.healthUrl, {
       expectedService: "world-intel-mcp",
@@ -500,6 +524,7 @@ const tradingWorkspace = workspaceFrom(
 const externalRuntimes = await loadExternalModRuntimes({ repoRoot });
 const externalRuntimeEnv = runtimeEnvironment(externalRuntimes);
 const core = coreServices(externalRuntimeEnv);
+const policyCollector = policyCollectorServices();
 const worldIntelRuntime = externalRuntimes.byId["world-intel"];
 const sevenCycleRuntime = externalRuntimes.byId["seven-cycle"];
 const instockRuntime = externalRuntimes.byId.instock;
@@ -546,7 +571,7 @@ for (const runtime of externalRuntimes.runtimes) {
 
 if (checkOnly) {
   const results = [];
-  for (const service of [...worldIntel, ...core, ...instock, ...orchestra, ...sevenCycle, deepsee]) {
+  for (const service of [...worldIntel, ...policyCollector, ...core, ...instock, ...orchestra, ...sevenCycle, deepsee]) {
     results.push(await statusLine(service));
   }
   const coreReady = results
@@ -584,12 +609,36 @@ if (checkOnly) {
       "Portfolio Center",
       "@newma-desk/portfolio-center",
     );
-    await ensureWorldIntelRuntime(worldIntelRuntime);
+    await buildFirstPartyModule(
+      "Creator Studio",
+      "@newma-desk/creator-studio",
+    );
+    await buildFirstPartyModule(
+      "Policy Analysis",
+      "@newma-desk/policy-analysis",
+    );
+    await buildFirstPartyModule(
+      "Capital Flow",
+      "@newma-desk/capital-flow",
+    );
+    try {
+      await ensureWorldIntelRuntime(worldIntelRuntime);
+    } catch (error) {
+      console.error(
+        `情报 Mod 运行环境未就绪，先以静态/降级状态继续启动 Desk：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     for (const service of worldIntel) {
       await supervisor.start(service);
     }
+    for (const service of policyCollector) {
+      await supervisor.start(service);
+    }
     await supervisor.start(core[0]);
-    await registerStoreMods({
+    // A fresh Desk starts with the core Global, Policy, Capital and Market projects.
+    // Existing published Mods are left untouched,
+    // so upgrades preserve each user's installed projects and ordering.
+    await registerDefaultMods({
       apiUrl: "http://127.0.0.1:8911",
       env: {
         ...process.env,
@@ -602,7 +651,7 @@ if (checkOnly) {
     for (const service of core.slice(1)) {
       await supervisor.start(service);
     }
-    console.log("\nNewma-Desk 核心已就绪：http://127.0.0.1:5888/?mod=daily-review");
+    console.log("\nNewma-Desk 核心已就绪：http://127.0.0.1:5888/?mod=global-situation");
     console.log("Research / Trading 与 World Intelligence 已作为 Newma-Desk 核心运行时加载。");
     const optionalServices = [
       ...instock,

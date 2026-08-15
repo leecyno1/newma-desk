@@ -1,16 +1,20 @@
 import {
   deskActionResultSchema,
   deskContextRequestSchema,
+  deskHandoffSchema,
   deskInitSchema,
   deskUiActionRequestSchema,
   modActionRequestSchema,
   modContextSchema,
   modHelloSchema,
+  modHandoffResultSchema,
   modUiActionResultSchema,
   modPageContextSchema,
   type DeskContextRequest,
+  type DeskHandoff,
   type DeskInit,
   type ModPageContext,
+  type WikiHandoff,
 } from "@newma-desk/contracts";
 
 export interface ModHostConfig {
@@ -26,6 +30,7 @@ export interface ModHostConfig {
     | "context"
     | "storage"
     | "theme"
+    | "handoff"
   >;
   timeoutMs?: number;
   requestTimeoutMs?: number;
@@ -120,6 +125,10 @@ export type ModUiActionHandler = (
   input: Record<string, unknown>,
 ) => unknown | Promise<unknown>;
 
+export type ModHandoffHandler = (
+  handoff: WikiHandoff,
+) => unknown | Promise<unknown>;
+
 export type ModHostConnection =
   | { embedded: false; close(): void }
   | {
@@ -128,6 +137,7 @@ export type ModHostConnection =
       subscribe(handler: (config: DeskInit) => void): () => void;
       setContextProvider(provider: ModContextProvider): () => void;
       setUiActionHandler(handler: ModUiActionHandler): () => void;
+      setHandoffHandler(handler: ModHandoffHandler): () => void;
       publishContext(context: ModPageContext): void;
       invokeAction<T = unknown>(
         actionId: string,
@@ -240,7 +250,9 @@ export function connectModHost(
     let activeConfig: DeskInit | undefined;
     let contextProvider: ModContextProvider | undefined;
     let uiActionHandler: ModUiActionHandler | undefined;
+    let handoffHandler: ModHandoffHandler | undefined;
     const queuedContextRequests: DeskContextRequest[] = [];
+    const queuedHandoffs: DeskHandoff[] = [];
     const subscriptions = new Set<(config: DeskInit) => void>();
     const pendingActions = new Map<
       string,
@@ -262,7 +274,9 @@ export function connectModHost(
       config.signal?.removeEventListener("abort", handleAbort);
       subscriptions.clear();
       queuedContextRequests.length = 0;
+      queuedHandoffs.length = 0;
       uiActionHandler = undefined;
+      handoffHandler = undefined;
       for (const pending of pendingActions.values()) {
         runtime.clearTimeout(pending.timer);
         pending.reject(new Error("Newma-Desk host connection is closed"));
@@ -299,6 +313,37 @@ export function connectModHost(
         // A failed provider must not leak application errors across origins.
       }
     };
+    const respondToHandoff = async (request: DeskHandoff) => {
+      if (!handoffHandler) {
+        queuedHandoffs.push(request);
+        return;
+      }
+      try {
+        const result = await handoffHandler(request.handoff);
+        post(modHandoffResultSchema.parse({
+          type: "vibedesk:handoff-result",
+          requestId: request.requestId,
+          instanceId: request.instanceId,
+          modId: request.modId,
+          handoffId: request.handoff.id,
+          ok: true,
+          result: result ?? {},
+        }));
+      } catch (reason) {
+        post(modHandoffResultSchema.parse({
+          type: "vibedesk:handoff-result",
+          requestId: request.requestId,
+          instanceId: request.instanceId,
+          modId: request.modId,
+          handoffId: request.handoff.id,
+          ok: false,
+          error: {
+            code: "handoff_failed",
+            message: reason instanceof Error ? reason.message : "Wiki handoff failed",
+          },
+        }));
+      }
+    };
     const connection = () => {
       if (!activeConfig) throw new Error("Newma-Desk host is not initialized");
       const initialConfig = activeConfig;
@@ -324,6 +369,15 @@ export function connectModHost(
           uiActionHandler = handler;
           return () => {
             if (uiActionHandler === handler) uiActionHandler = undefined;
+          };
+        },
+        setHandoffHandler(handler: ModHandoffHandler) {
+          if (closed) throw new Error("Newma-Desk host connection is closed");
+          handoffHandler = handler;
+          const queued = queuedHandoffs.splice(0);
+          for (const request of queued) void respondToHandoff(request);
+          return () => {
+            if (handoffHandler === handler) handoffHandler = undefined;
           };
         },
         publishContext(context: ModPageContext) {
@@ -468,6 +522,32 @@ export function connectModHost(
             },
           })),
         );
+        return;
+      }
+
+      const handoffRequest = deskHandoffSchema.safeParse(message.data);
+      if (
+        handoffRequest.success &&
+        activeConfig &&
+        handoffRequest.data.modId === activeConfig.modId &&
+        handoffRequest.data.instanceId === activeConfig.instanceId
+      ) {
+        if (!config.capabilities?.includes("handoff")) {
+          post(modHandoffResultSchema.parse({
+            type: "vibedesk:handoff-result",
+            requestId: handoffRequest.data.requestId,
+            instanceId: handoffRequest.data.instanceId,
+            modId: handoffRequest.data.modId,
+            handoffId: handoffRequest.data.handoff.id,
+            ok: false,
+            error: {
+              code: "handoff_not_supported",
+              message: "Mod did not advertise the handoff capability",
+            },
+          }));
+          return;
+        }
+        void respondToHandoff(handoffRequest.data);
         return;
       }
 
