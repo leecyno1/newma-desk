@@ -9,6 +9,8 @@ MODULE_ID_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
 CAPABILITY_PATTERN = r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$"
 ADAPTER_ID_PATTERN = r"^[a-z][a-z0-9-]{1,63}$"
 USER_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$"
+AgentProfile = Literal["deep", "batch", "edit"]
+ExecutionProfile = Literal["quick", "deep", "batch", "edit"]
 
 
 class GatewayModel(BaseModel):
@@ -25,17 +27,34 @@ class AgentTaskCreate(GatewayModel):
     user_id: str = Field(default="local-user", pattern=USER_ID_PATTERN)
     module_id: str | None = Field(default=None, pattern=MODULE_ID_PATTERN)
     capability: str | None = Field(default=None, pattern=CAPABILITY_PATTERN)
+    profile: AgentProfile = "deep"
     memory_scope: Literal["user-agent-mod", "task"] = "user-agent-mod"
     prompt: str = ""
     context: dict[str, Any] = Field(default_factory=dict)
     input: dict[str, Any] = Field(default_factory=dict)
     adapter: str | None = Field(default=None, pattern=ADAPTER_ID_PATTERN)
+    model: str | None = Field(default=None, min_length=1, max_length=128)
+    command_profile: str | None = Field(
+        default=None,
+        pattern=r"^[a-z][a-z0-9-]{1,31}$",
+    )
 
     @model_validator(mode="after")
     def require_intent(self) -> Self:
         if not self.prompt.strip() and not self.capability:
             raise ValueError("prompt or capability is required")
         return self
+
+    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        data = super().model_dump(*args, **kwargs)
+        # Keep the legacy wire shape compact; optional routing fields are sent
+        # only when a Mod explicitly selects them.
+        if self.model is None:
+            data.pop("model", None)
+        if self.command_profile is None:
+            data.pop("commandProfile", None)
+            data.pop("command_profile", None)
+        return data
 
 
 class TaskEvent(GatewayModel):
@@ -77,6 +96,10 @@ class AgentModuleSession(GatewayModel):
 class AgentPreferencesUpdate(GatewayModel):
     default_adapter: str = Field(pattern=ADAPTER_ID_PATTERN)
     module_overrides: dict[str, str] = Field(default_factory=dict)
+    profile_targets: dict[ExecutionProfile, str] = Field(default_factory=dict)
+    module_profile_overrides: dict[
+        str, dict[ExecutionProfile, str]
+    ] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_overrides(self) -> Self:
@@ -87,6 +110,17 @@ class AgentPreferencesUpdate(GatewayModel):
                 raise ValueError("module override contains an invalid module id")
             if re.fullmatch(ADAPTER_ID_PATTERN, adapter_id) is None:
                 raise ValueError("module override contains an invalid adapter id")
+        for adapter_id in self.profile_targets.values():
+            if re.fullmatch(ADAPTER_ID_PATTERN, adapter_id) is None:
+                raise ValueError("profile target contains an invalid adapter id")
+        for module_id, targets in self.module_profile_overrides.items():
+            if re.fullmatch(MODULE_ID_PATTERN, module_id) is None:
+                raise ValueError("module profile override contains an invalid module id")
+            for adapter_id in targets.values():
+                if re.fullmatch(ADAPTER_ID_PATTERN, adapter_id) is None:
+                    raise ValueError(
+                        "module profile override contains an invalid adapter id"
+                    )
         return self
 
 

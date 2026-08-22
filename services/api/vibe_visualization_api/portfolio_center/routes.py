@@ -15,6 +15,8 @@ from vibe_visualization_api.portfolio_center.models import (
     PortfolioPerformanceRequest,
     PortfolioPerformanceResult,
     PortfolioResearchCoverage,
+    StrategicAllocationRequest,
+    StrategicAllocationResult,
 )
 from vibe_visualization_api.portfolio_center.research import (
     compile_portfolio_research_coverage,
@@ -35,6 +37,19 @@ ActivityId = Annotated[
     str,
     Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$"),
 ]
+
+
+@router.post(
+    "/asset-allocation/optimize",
+    response_model=StrategicAllocationResult,
+)
+async def optimize_strategic_asset_allocation(
+    allocation: StrategicAllocationRequest,
+    request: Request,
+):
+    return await request.app.state.portfolio_center_service.strategic_allocation(
+        allocation
+    )
 
 
 @router.get("", response_model=PortfolioDashboard)

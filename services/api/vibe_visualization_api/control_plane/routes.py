@@ -581,7 +581,8 @@ async def invoke_module_action(
                     capability=capability,
                     prompt=prompt_text,
                     input=clean_input,
-                )
+                ),
+                user_id=user_id,
             )
             encoded_response = response.model_dump(mode="json")
             validate_json_contract(
@@ -619,6 +620,7 @@ async def invoke_module_action(
                     user_id=user_id,
                     module_id=module_id,
                     capability=capability,
+                    profile=str(binding.get("profile", "deep")),
                     memory_scope=str(binding.get("memoryScope", "task")),
                     prompt=prompt_text,
                     input=clean_input,

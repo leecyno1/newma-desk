@@ -1,0 +1,320 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-company-suite",
+  "name": "InStock 公司研究",
+  "description": "公司研究快照及公告、新闻、研报与资金事件证据。",
+  "version": "0.18.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": [
+    "公司",
+    "InStock"
+  ],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "instock",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "公司",
+      "groupOrder": 60,
+      "itemOrder": 100,
+      "directory": {
+        "id": "instock-company-suite",
+        "label": "公司证据",
+        "order": 10
+      },
+      "project": {
+        "id": "equity-research",
+        "name": "公司",
+        "order": 60,
+        "description": "公司基本面、财报、投资逻辑、同业、估值与公司档案。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {
+      "level": 2,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": [
+      "analysis.read"
+    ],
+    "dataServices": [],
+    "actions": {},
+    "events": {
+      "emits": [],
+      "accepts": []
+    },
+    "refresh": {
+      "mode": "manual"
+    }
+  },
+  "pages": [
+    {
+      "id": "instock-stock-research",
+      "name": "公司档案",
+      "description": "统一 CZSC 技术结构、财务估值、公告、研报、新闻和产业链引用，输出一份可审计公司研究快照。",
+      "version": "0.18.0",
+      "tags": [],
+      "route": "/mods/stock-research",
+      "navigation": {
+        "itemOrder": 10,
+        "label": "公司档案"
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 2,
+          "bridgeProtocol": "1.0"
+        },
+        "permissions": [
+          "analysis.read"
+        ],
+        "dataServices": [],
+        "wiki": {
+          "contractVersion": "1.0",
+          "subjectTypes": [
+            "security"
+          ],
+          "concepts": [
+            "equity-research",
+            "fundamentals",
+            "valuation",
+            "event-evidence"
+          ],
+          "entrypoints": [
+            {
+              "id": "research",
+              "intent": "equity.research",
+              "label": "公司档案",
+              "contextContract": "newma.wiki.subject.v1",
+              "defaults": {}
+            }
+          ]
+        },
+        "actions": {
+          "analysis.stock-research": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.stock-research"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "asOf": {
+                  "format": "date",
+                  "type": "string"
+                },
+                "bars": {
+                  "enum": [
+                    120,
+                    240,
+                    480,
+                    800
+                  ]
+                },
+                "eventFlowSnapshotId": {
+                  "maxLength": 160,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "industryChainSnapshotId": {
+                  "maxLength": 160,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "period": {
+                  "enum": [
+                    "daily",
+                    "weekly",
+                    "monthly"
+                  ]
+                },
+                "refresh": {
+                  "enum": [
+                    "0",
+                    "1"
+                  ]
+                },
+                "symbol": {
+                  "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "symbol"
+              ],
+              "type": "object"
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "data": {
+                  "type": "object"
+                },
+                "meta": {
+                  "type": "object"
+                },
+                "ok": {
+                  "const": true
+                }
+              },
+              "required": [
+                "ok",
+                "data",
+                "meta"
+              ],
+              "type": "object"
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 120
+          }
+        },
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        },
+        "refresh": {
+          "mode": "manual"
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-event-flow",
+      "name": "公司事件",
+      "description": "归并公司公告、新闻、研报、资金流、龙虎榜与大宗交易证据，统一去重、时效和异常强度。",
+      "version": "0.18.0",
+      "tags": [],
+      "route": "/mods/event-flow",
+      "navigation": {
+        "itemOrder": 20,
+        "label": "公司事件"
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 2,
+          "bridgeProtocol": "1.0"
+        },
+        "permissions": [
+          "analysis.read"
+        ],
+        "dataServices": [],
+        "actions": {
+          "analysis.event-flow": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.event-flow"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "asOf": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "symbol": {
+                      "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "symbol"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "as_of": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "events": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "maxItems": 500,
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "market": {
+                      "enum": [
+                        "CN",
+                        "HK",
+                        "US",
+                        "GLOBAL"
+                      ]
+                    },
+                    "schema_version": {
+                      "const": "instock-event-flow-packet-v1"
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "as_of",
+                    "market",
+                    "events"
+                  ]
+                }
+              ],
+              "type": "object"
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "data": {
+                  "type": "object"
+                },
+                "meta": {
+                  "type": "object"
+                },
+                "ok": {
+                  "const": true
+                }
+              },
+              "required": [
+                "ok",
+                "data",
+                "meta"
+              ],
+              "type": "object"
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 120
+          }
+        },
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        },
+        "refresh": {
+          "mode": "manual"
+        }
+      },
+      "defaultInstall": true
+    }
+  ]
+}

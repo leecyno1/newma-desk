@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,6 +41,10 @@ RETRYABLE_NODE_STATUSES = {
     "cancelled",
 }
 USABLE_ARTIFACT_STATUSES = {"created", "approved", "succeeded"}
+SESSION_EXECUTOR_IDS = {
+    "newma.control.editor-session",
+    "newma.control.capability-session",
+}
 ATTENTION_NODE_STATUSES = {
     "waiting_user",
     "changes_requested",
@@ -55,6 +60,9 @@ PUBLISH_EXECUTOR_PHASES = {
 COMMANDS = {
     "creator.node.run",
     "creator.node.retry",
+    "creator.node.rerun",
+    "creator.node.complete",
+    "creator.node.skip",
     "creator.node.cancel",
     "creator.editor.launch",
     "creator.editor.save",
@@ -267,7 +275,7 @@ class CreatorStudioService:
         stage_id = command.stage_id or str(document.get("activeStageId") or "")
         node_id = command.node_id or str(document.get("activeNodeId") or "")
         node_definition = self.registry.node(registry, stage_id, node_id)
-        state = document["nodeStates"][node_key(stage_id, node_id)]
+        state = self._node_state(document, stage_id, node_id)
         material_report = self.registry.validate_materials(
             registry,
             stage_id,
@@ -276,7 +284,13 @@ class CreatorStudioService:
             project_start=bool(state.get("allowManualBootstrap")),
         )
         if (
-            command.action_id in {"creator.node.run", "creator.node.retry"}
+            command.action_id
+            in {
+                "creator.node.run",
+                "creator.node.retry",
+                "creator.node.rerun",
+                "creator.node.approve",
+            }
             and material_report["status"] != "ready"
         ):
             raise CreatorMaterialError(material_report)
@@ -320,6 +334,16 @@ class CreatorStudioService:
                     raise CreatorCommandError(
                         "publish execution requires a fresh explicit confirmation"
                     )
+            # Merge agent CLI selection from command.input into state parameters
+            agent_cli = str(command.input.get("agent_cli") or "").strip()
+            agent_cli_bin = str(command.input.get("agent_cli_bin") or "").strip()
+            if agent_cli or agent_cli_bin:
+                merged_params = dict(state.get("parameters") or {})
+                if agent_cli:
+                    merged_params["agent_cli"] = agent_cli
+                if agent_cli_bin:
+                    merged_params["agent_cli_bin"] = agent_cli_bin
+                state["parameters"] = merged_params
             state["attempt"] = int(state.get("attempt") or 0) + 1
             requested_at = now_iso()
             job_id = f"job-{uuid4().hex[:12]}"
@@ -590,13 +614,97 @@ class CreatorStudioService:
             self._append_log(state, f"收到修改反馈：{message}")
             document["status"] = "changes_requested"
             payload = feedback
+        elif command.action_id == "creator.node.skip":
+            # 显式跳过不适用节点（如文章 run 的 video lane 节点）
+            state["status"] = "skipped"
+            state["progress"] = 100
+            self._append_log(state, "节点已跳过（不适用当前任务）。")
+            document["status"] = "pending"
+            payload = {"skipped": True}
+        elif command.action_id == "creator.node.complete":
+            # 显式收尾会话型节点：人工确认会话完成（登记产物可不齐）
+            state["status"] = "succeeded"
+            state["progress"] = 100
+            self._append_log(state, "会话已人工确认完成。")
+            document["status"] = "pending"
+            payload = {"completed": True}
+        elif command.action_id == "creator.node.rerun":
+            # 强制重跑已 succeeded 的节点：旧交付物转 superseded，节点回到 pending，
+            # 需重新 run（publish_execute 需重新走确认门禁）。
+            superseded = 0
+            for artifact in state.get("artifacts", []):
+                if artifact.get("status") in USABLE_ARTIFACT_STATUSES:
+                    artifact["status"] = "superseded"
+                    superseded += 1
+            state["status"] = "pending"
+            state["progress"] = 0
+            parameters = state.get("parameters") or {}
+            if "publishConfirmation" in parameters:
+                parameters.pop("publishConfirmation")
+                state["parameters"] = parameters
+            self._append_log(
+                state,
+                f"节点已重置重跑（{superseded} 个旧交付物转 superseded）。",
+            )
+            phase = PUBLISH_EXECUTOR_PHASES.get(
+                str(node_definition.get("executor") or "")
+            )
+            if phase and isinstance((document.get("publishState") or {}).get(phase), dict):
+                document["publishState"][phase]["nodeStatus"] = "pending"
+                document["publishState"][phase].pop("approvedAt", None)
+                document["publishState"]["updatedAt"] = now_iso()
+            document["status"] = "pending"
+            payload = {"reset": True, "supersededArtifacts": superseded}
         elif command.action_id == "creator.node.approve":
             state["status"] = "succeeded"
             state["progress"] = 100
             for artifact in state.get("artifacts", []):
                 if artifact.get("status") == "created":
                     artifact["status"] = "approved"
+                self._approve_artifact_file(artifact, command.input)
             self._append_log(state, "节点已审核通过。")
+            # review-gate 节点：联动把 media 侧阶段 gate 文件翻 approved（消除双状态轨道）
+            if str(node_definition.get("executor") or "") == "newma.control.review-gate":
+                selected_ids = [
+                    str(item).strip()
+                    for item in (command.input.get("selectedTopicIds") or [])
+                    if str(item).strip()
+                ]
+                try:
+                    gate_result = self.control_adapter.approve_gate(
+                        document["runId"], stage_id, selected_ids=selected_ids
+                    )
+                    self._append_log(
+                        state,
+                        f"阶段门禁写盘：{gate_result.get('status')} {gate_result.get('gate_file')}",
+                    )
+                    payload = {"gate": gate_result}
+                except Exception as exc:  # noqa: BLE001 - 写盘尽力而为，不阻断审批
+                    self._append_log(state, f"阶段门禁写盘失败：{exc}")
+            # 批准后自动转接：把本节点可用交付物交给下一节点。
+            # 消除 UI 直批与 Agent 推进的双路径差异（此前 UI 批准后无人做 handoff，
+            # 下一节点素材门禁不通过、运行按钮置灰）。
+            next_target = self.registry.next_node(registry, stage_id, node_id)
+            if next_target is not None:
+                next_stage_id, next_node_id = next_target
+                try:
+                    handoff_payload = self._create_handoff(
+                        document,
+                        registry,
+                        stage_id,
+                        node_id,
+                        {
+                            "targetStageId": next_stage_id,
+                            "targetNodeId": next_node_id,
+                            "artifactIds": [],
+                        },
+                    )
+                    self._append_log(
+                        state,
+                        f"已自动转接 {len(handoff_payload.get('materials', []))} 项交付物至 {next_stage_id}/{next_node_id}。",
+                    )
+                except Exception as exc:  # noqa: BLE001 - 转接尽力而为，不阻断审批
+                    self._append_log(state, f"自动转接失败：{exc}")
             document["status"] = "pending"
             phase = PUBLISH_EXECUTOR_PHASES.get(
                 str(node_definition.get("executor") or "")
@@ -645,6 +753,9 @@ class CreatorStudioService:
                 created_at=now_iso(),
             )
             self._append_log(state, f"登记交付物：{artifact_type}")
+            self._maybe_auto_complete_session_node(
+                document, registry, stage_id, node_id, state, node_definition
+            )
             payload = artifact
         elif command.action_id == "creator.handoff.create":
             payload = self._create_handoff(
@@ -655,32 +766,30 @@ class CreatorStudioService:
                 command.input,
             )
         elif command.action_id == "creator.workflow.continue":
-            state["status"] = "succeeded"
-            state["progress"] = 100
+            # 主流程推进：把 active 指针移到下一节点。纯指针操作——
+            # 不强置当前节点完成（人工确认收尾用 node.complete），
+            # 不重置下一节点状态（进度只前进不倒退），
+            # run 完成状态由 _refresh_active_pointer 统一判定。
+            if str(state.get("status") or "pending") not in FINAL_NODE_STATUSES:
+                raise CreatorCommandError(
+                    "当前节点未完成，不能推进到下一节点；执行型节点请先运行。"
+                )
             next_target = self.registry.next_node(registry, stage_id, node_id)
             if next_target is None:
-                document["status"] = "succeeded"
-                document["activeStageId"] = stage_id
-                document["activeNodeId"] = node_id
                 self._append_log(state, "主流程已完成。")
                 payload = {"completed": True}
             else:
                 next_stage_id, next_node_id = next_target
-                document["status"] = "pending"
                 document["activeStageId"] = next_stage_id
                 document["activeNodeId"] = next_node_id
-                next_state = document["nodeStates"][node_key(next_stage_id, next_node_id)]
-                if next_state["status"] in FINAL_NODE_STATUSES:
-                    next_state["status"] = "pending"
-                    next_state["progress"] = 0
+                next_state = self._node_state(document, next_stage_id, next_node_id)
                 self._append_log(
                     next_state,
                     f"由 {stage_id}/{node_id} 转接进入当前节点。",
                 )
                 payload = {"stageId": next_stage_id, "nodeId": next_node_id}
 
-        document["activeStageId"] = document.get("activeStageId") or stage_id
-        document["activeNodeId"] = document.get("activeNodeId") or node_id
+        self._refresh_active_pointer(document, registry)
         state["updatedAt"] = now_iso()
         document["updatedAt"] = now_iso()
         event = self._event(
@@ -740,7 +849,7 @@ class CreatorStudioService:
         )
 
         def mutate(document: dict[str, Any]) -> None:
-            state = document["nodeStates"][node_key(stage_id, node_id)]
+            state = self._node_state(document, stage_id, node_id)
             request = state.get("executionRequest") or {}
             if request.get("jobId") != job["jobId"]:
                 event["payload"]["ignored"] = True
@@ -809,7 +918,7 @@ class CreatorStudioService:
         )
 
         def mutate(document: dict[str, Any]) -> None:
-            state = document["nodeStates"][node_key(stage_id, node_id)]
+            state = self._node_state(document, stage_id, node_id)
             request = state.get("executionRequest") or {}
             if request.get("jobId") != job["jobId"]:
                 event["payload"]["ignored"] = True
@@ -933,6 +1042,7 @@ class CreatorStudioService:
                         "path": artifact_path,
                         "label": item.get("label") or artifact_type,
                         "status": artifact_status,
+                        "origin": str(item.get("origin") or "deliverable"),
                     },
                     created_at=finished_at,
                     producer_job_id=str(job["jobId"]),
@@ -954,6 +1064,41 @@ class CreatorStudioService:
             }[final_status]
             if stale_impacts:
                 document["status"] = "changes_requested"
+            # 执行型节点成功后自动转接：把本节点产物交给下一节点（与 approve 的
+            # 自动转接同一语义——消除「执行成功但下游素材缺失、运行置灰」的断链）。
+            # waiting_user（gate/会话）节点不在此转接：gate 等 approve 联动，
+            # 会话节点等 register 收尾。
+            if final_status == "succeeded":
+                next_target = self.registry.next_node(registry, stage_id, node_id)
+                if next_target is not None:
+                    next_stage_id, next_node_id = next_target
+                    try:
+                        handoff_payload = self._create_handoff(
+                            document,
+                            registry,
+                            stage_id,
+                            node_id,
+                            {
+                                "targetStageId": next_stage_id,
+                                "targetNodeId": next_node_id,
+                                "artifactIds": [],
+                            },
+                        )
+                        state.setdefault("logs", []).append(
+                            {
+                                "at": finished_at,
+                                "message": (
+                                    f"已自动转接 {len(handoff_payload.get('materials', []))} 项交付物至 "
+                                    f"{next_stage_id}/{next_node_id}。"
+                                ),
+                            }
+                        )
+                    except Exception as exc:  # noqa: BLE001 - 转接尽力而为，不阻断执行收尾
+                        state.setdefault("logs", []).append(
+                            {"at": finished_at, "message": f"自动转接失败：{exc}"}
+                        )
+            # 执行器异步完成也会改变节点终态分布，同步刷新 active 指针与 run 完成判断
+            self._refresh_active_pointer(document, registry)
 
         self.repository.mutate_run(
             user_id=str(job["userId"]),
@@ -1040,6 +1185,103 @@ class CreatorStudioService:
 
     def detect_capabilities(self) -> dict[str, Any]:
         return self.control_adapter.detect_capabilities()
+
+    def test_agent(self, *, agent_id: str, bin_override: str = "") -> dict[str, Any]:
+        """Run a minimal hello prompt through the specified CLI agent to verify it works."""
+        return self.control_adapter.test_agent(agent_id, bin_override)
+
+    def preview_artifact(self, path: str) -> dict[str, Any]:
+        """Safely read a file for artifact preview.
+
+        Allowed roots: user's Desktop/自媒体创作/, the media workspace root, and their subtrees.
+        Returns { path, exists, mime, encoding, content, size, truncated, error? }.
+        """
+        import base64
+        import mimetypes
+        from pathlib import Path as _Path
+
+        target = _Path(path).expanduser().resolve()
+        home = _Path.home().resolve()
+        allowed_roots = [
+            home / "Desktop" / "自媒体创作",
+            self.control_adapter.workspace,
+        ]
+        allowed = any(
+            str(target).startswith(str(root)) for root in allowed_roots if root
+        )
+        if not allowed:
+            return {
+                "path": str(target),
+                "exists": False,
+                "error": "path not in allowed artifact roots",
+            }
+        if not target.exists():
+            return {"path": str(target), "exists": False, "error": "file not found"}
+        if target.is_dir():
+            entries = [
+                {"name": p.name, "is_dir": p.is_dir(), "size": p.stat().st_size if p.is_file() else 0}
+                for p in sorted(target.iterdir())[:200]
+            ]
+            return {
+                "path": str(target),
+                "exists": True,
+                "mime": "inode/directory",
+                "encoding": "directory",
+                "entries": entries,
+                "size": len(entries),
+            }
+        size = target.stat().st_size
+        mime, _ = mimetypes.guess_type(str(target))
+        suffix = target.suffix.lower()
+        text_suffixes = {
+            ".md", ".json", ".txt", ".html", ".htm", ".yaml", ".yml",
+            ".csv", ".tsv", ".log", ".srt", ".vtt", ".py", ".js",
+            ".ts", ".tsx", ".jsx", ".css",
+        }
+        if suffix in text_suffixes or (mime and mime.startswith("text/")):
+            try:
+                content = target.read_text(encoding="utf-8", errors="replace")
+                truncated = False
+                if len(content) > 200_000:
+                    content = content[:200_000] + "\n\n... [truncated for preview] ..."
+                    truncated = True
+                return {
+                    "path": str(target),
+                    "exists": True,
+                    "mime": mime or ("application/json" if suffix == ".json" else "text/plain"),
+                    "encoding": "text",
+                    "content": content,
+                    "size": size,
+                    "truncated": truncated,
+                    "suffix": suffix,
+                }
+            except OSError as exc:
+                return {"path": str(target), "exists": True, "error": str(exc)}
+        binary_max = 4_000_000
+        if size <= binary_max and (
+            (mime and (mime.startswith("image/") or mime.startswith("video/") or mime.startswith("audio/")))
+            or suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".mp4", ".webm", ".mp3", ".wav"}
+        ):
+            data = target.read_bytes()
+            return {
+                "path": str(target),
+                "exists": True,
+                "mime": mime or "application/octet-stream",
+                "encoding": "base64",
+                "content": base64.b64encode(data).decode("ascii"),
+                "size": size,
+                "truncated": False,
+                "suffix": suffix,
+            }
+        return {
+            "path": str(target),
+            "exists": True,
+            "mime": mime or "application/octet-stream",
+            "encoding": "binary",
+            "size": size,
+            "suffix": suffix,
+            "hint": "文件过大或不支持预览，仅返回元信息",
+        }
 
     def marketplace(self) -> dict[str, Any]:
         return self.control_adapter.marketplace()
@@ -1272,6 +1514,34 @@ class CreatorStudioService:
     def marketplace_asset(self, asset_path: str) -> Path:
         return self.control_adapter.marketplace_asset(asset_path)
 
+    def _node_state(
+        self,
+        document: dict[str, Any],
+        stage_id: str,
+        node_id: str,
+    ) -> dict[str, Any]:
+        """获取节点状态；registry 后续新增的节点对旧 run 惰性创建默认 state。
+
+        避免 run 创建后 registry 插入新节点导致 snapshot/命令路径 KeyError（500）。
+        """
+        key = node_key(stage_id, node_id)
+        states = document["nodeStates"]
+        state = states.get(key)
+        if state is None:
+            state = {
+                "status": "pending",
+                "progress": 0,
+                "materials": [],
+                "artifacts": [],
+                "feedback": [],
+                "logs": [],
+                "parameters": {},
+                "attempt": 0,
+                "updatedAt": now_iso(),
+            }
+            states[key] = state
+        return state
+
     def snapshot(
         self,
         document: dict[str, Any],
@@ -1288,7 +1558,7 @@ class CreatorStudioService:
             nodes: list[dict[str, Any]] = []
             for node in stage.get("nodes", []):
                 node_id = str(node["id"])
-                state = document["nodeStates"][node_key(stage_id, node_id)]
+                state = self._node_state(document, stage_id, node_id)
                 material_report = self.registry.validate_materials(
                     registry,
                     stage_id,
@@ -1432,9 +1702,7 @@ class CreatorStudioService:
         target_stage_id = str(input_data.get("targetStageId") or "")
         target_node_id = str(input_data.get("targetNodeId") or "")
         self.registry.node(registry, target_stage_id, target_node_id)
-        source_state = document["nodeStates"][
-            node_key(source_stage_id, source_node_id)
-        ]
+        source_state = self._node_state(document, source_stage_id, source_node_id)
         requested_ids = {
             str(item) for item in input_data.get("artifactIds", []) if str(item)
         }
@@ -1443,10 +1711,12 @@ class CreatorStudioService:
             for item in source_state.get("artifacts", [])
             if (not requested_ids or str(item.get("id")) in requested_ids)
             and str(item.get("status") or "created") in USABLE_ARTIFACT_STATUSES
+            # 占位 packet（write_node_packets 自产）不是真实交付物，不参与 handoff
+            and str(item.get("origin") or "deliverable") != "packet"
         ]
         if not artifacts:
             raise CreatorCommandError("no artifacts are available for handoff")
-        target_state = document["nodeStates"][node_key(target_stage_id, target_node_id)]
+        target_state = self._node_state(document, target_stage_id, target_node_id)
         materials = [
             self.lineage.material_reference(
                 run_id=str(document["runId"]),
@@ -1518,9 +1788,113 @@ class CreatorStudioService:
         )
         return handoff
 
+    def _approve_artifact_file(
+        self,
+        artifact: dict[str, Any],
+        approve_input: dict[str, Any],
+    ) -> None:
+        """Approve 后同步 gate 产物文件（pending_review → approved，注入审定内容）。"""
+        path_text = str(artifact.get("path") or "").strip()
+        artifact_type = str(artifact.get("type") or "").strip()
+        if not path_text or not artifact_type:
+            return
+        path = Path(path_text)
+        if not path.is_file():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if not isinstance(payload, dict) or payload.get("status") != "pending_review":
+            return
+        payload["status"] = "approved"
+        payload["approved_at"] = now_iso()
+        extra = approve_input.get(artifact_type)
+        if isinstance(extra, (list, dict)) and extra:
+            payload[artifact_type] = extra
+        try:
+            path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            return
+
     @staticmethod
     def _append_log(state: dict[str, Any], message: str) -> None:
         state.setdefault("logs", []).append({"at": now_iso(), "message": message})
+
+    def _maybe_auto_complete_session_node(
+        self,
+        document: dict[str, Any],
+        registry: dict[str, Any],
+        stage_id: str,
+        node_id: str,
+        state: dict[str, Any],
+        node_definition: dict[str, Any],
+    ) -> None:
+        """会话型节点（editor/capacity session）已登记产物覆盖全部声明输出时自动完成。
+
+        自动完成与执行型 succeeded 同语义：自动把产物转接给下一节点。
+        """
+        if state.get("status") != "waiting_user":
+            return
+        executor_id = str(node_definition.get("executor") or "")
+        if executor_id not in SESSION_EXECUTOR_IDS:
+            return
+        outputs = {str(item) for item in (node_definition.get("outputs") or [])}
+        if not outputs:
+            return
+        registered = {
+            str(item.get("type"))
+            for item in state.get("artifacts", [])
+            if item.get("status") in USABLE_ARTIFACT_STATUSES
+        }
+        if outputs <= registered:
+            state["status"] = "succeeded"
+            state["progress"] = 100
+            self._append_log(state, "已登记产物覆盖全部声明输出，会话自动完成。")
+            document["status"] = "pending"
+            # 会话自动完成与执行型 succeeded 同语义：自动转接产物给下一节点
+            next_target = self.registry.next_node(registry, stage_id, node_id)
+            if next_target is not None:
+                next_stage_id, next_node_id = next_target
+                try:
+                    handoff_payload = self._create_handoff(
+                        document,
+                        registry,
+                        stage_id,
+                        node_id,
+                        {
+                            "targetStageId": next_stage_id,
+                            "targetNodeId": next_node_id,
+                            "artifactIds": [],
+                        },
+                    )
+                    self._append_log(
+                        state,
+                        f"已自动转接 {len(handoff_payload.get('materials', []))} 项交付物至 {next_stage_id}/{next_node_id}。",
+                    )
+                except Exception as exc:  # noqa: BLE001 - 转接尽力而为，不阻断自动完成
+                    self._append_log(state, f"自动转接失败：{exc}")
+
+    def _refresh_active_pointer(
+        self, document: dict[str, Any], registry: dict[str, Any]
+    ) -> None:
+        """把 activeStageId/activeNodeId 指到顺序上第一个未完成节点；全终态时保持现状。"""
+        for stage in registry.get("stages", []):
+            stage_id = str(stage.get("id") or "")
+            for node in stage.get("nodes", []):
+                node_id = str(node.get("id") or "")
+                state = (document.get("nodeStates") or {}).get(
+                    node_key(stage_id, node_id)
+                )
+                if state and state.get("status") not in FINAL_NODE_STATUSES:
+                    document["activeStageId"] = stage_id
+                    document["activeNodeId"] = node_id
+                    return
+        # 全部节点终态：run 完成
+        document["status"] = "succeeded"
 
     @staticmethod
     def _available_actions(
@@ -1580,6 +1954,8 @@ class CreatorStudioService:
                 actions.append("creator.node.run")
             if execution_allowed and status in RETRYABLE_NODE_STATUSES:
                 actions.append("creator.node.retry")
+        if status not in {"queued", "running"} and status not in FINAL_NODE_STATUSES:
+            actions.append("creator.node.skip")
         if (
             bool((node_definition.get("gate") or {}).get("required"))
             and status == "waiting_user"
@@ -1587,6 +1963,8 @@ class CreatorStudioService:
             actions.extend(
                 ["creator.node.approve", "creator.node.request-changes"]
             )
+        elif status == "waiting_user":
+            actions.append("creator.node.complete")
         if status not in {"queued", "running"} and any(
             str(item.get("status") or "created") in USABLE_ARTIFACT_STATUSES
             for item in state.get("artifacts", [])
@@ -1594,6 +1972,7 @@ class CreatorStudioService:
             actions.append("creator.handoff.create")
         if status == "succeeded":
             actions.append("creator.workflow.continue")
+            actions.append("creator.node.rerun")
         return actions
 
     @staticmethod

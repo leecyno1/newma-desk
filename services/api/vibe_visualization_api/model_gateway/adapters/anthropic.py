@@ -26,6 +26,12 @@ class AnthropicModelAdapter:
     async def capabilities(self) -> list[str]:
         return ["chat", "module.explain", "module.generate-view"]
 
+    async def describe(self) -> dict[str, object]:
+        return {
+            "name": "Anthropic",
+            "available": bool(self._settings.anthropic_api_key.get_secret_value()),
+        }
+
     async def complete(self, request: ModelResponseCreate) -> ModelResponse:
         api_key = self._settings.anthropic_api_key.get_secret_value()
         if not api_key:

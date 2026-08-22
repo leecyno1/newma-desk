@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0",
   "id": "trading-replay",
-  "name": "交易回放室",
+  "name": "复盘回放",
   "description": "隐藏未来 K 线，逐根播放历史行情并记录模拟买卖、仓位和训练盈亏。",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-dock",
  "tags": ["回放", "模拟交易", "复盘", "K线"],
@@ -12,7 +12,7 @@
   "manifest": {
     "schemaVersion": "1.1",
     "category": "market",
-    "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 40, "label": "交易回放", "directory": { "id": "market-suite", "label": "行情工具", "order": 5 }, "project": { "id": "market-surface", "name": "市场", "order": 10, "description": "股票、债券及其他交易市场的行情、看盘、扫描与回放。" }, "icon": "market" },
+    "navigation": { "groupLabel": "交易", "groupOrder": 90, "itemOrder": 30, "label": "复盘回放", "directory": { "id": "trading-replay-suite", "label": "交易复盘", "order": 20 }, "project": { "id": "trading", "name": "交易", "order": 90, "description": "战术择时、交易计划、纸面执行、复盘回放与执行记录。" }, "icon": "trading" },
     "compatibility": { "level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0" },
     "permissions": ["market.read"], "dataServices": [],
     "actions": {

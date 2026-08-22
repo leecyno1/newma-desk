@@ -25,7 +25,7 @@
     "schemaVersion": "1.1",
     "category": "decision",
     "navigation": {
-      "groupLabel": "投决会",
+      "groupLabel": "投决",
       "groupOrder": 130,
       "itemOrder": 100,
       "directory": {
@@ -35,9 +35,9 @@
       },
       "project": {
         "id": "investment-committee",
-        "name": "投决会",
+        "name": "投决",
         "order": 130,
-        "description": "研究结论收敛、投委讨论、决策记录与复核。"
+        "description": "研究结论收敛、投委讨论、决策记录、反方意见与复核。"
       },
       "icon": "module"
     },

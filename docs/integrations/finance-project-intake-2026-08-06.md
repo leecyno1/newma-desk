@@ -59,7 +59,7 @@ GitHub Stars 只表示采用度，不是安全或适配评分。准入分采用�
 | 海外面 | 空 | Global Stock Data、LLMQuant、Finance Skills、Day1Global | 报告直接在 Agent 中生成；需要持续交互工作台时再建设原生大模组 |
 | 资金面 | 空 | A Stock Data 资金/龙虎榜/两融、Trading Skills、AlphaEar 参考 | 需要 Desk 原生“资金研究”大模组，不能拆其他项目来占位 |
 | 政策面 | 空 | A Stock Data 公告新闻、LLMQuant Events/Macro、只读社交研究 | 需要 Desk 原生“政策情报”大模组，统一来源与置信度 |
-| 周期研究 | 七周期研究 | Serenity 周期阶段、LLMQuant Macro | 保留七周期完整项目，只增加事实和方法输入 |
+| 周期研究 | 周期叠加 | Serenity 周期阶段、LLMQuant Macro | 保留周期叠加完整项目，只增加事实和方法输入 |
 | 资产配置 | 空 | LLMQuant Portfolio/Risk、Anthropic 再平衡 | 需要 Desk 原生“资产配置”大模组，承载均值方差、BL 和再平衡 |
 | 战术择时 | 日历效应 | Trading Skills 行业/宽度、LLMQuant ETF、全球/A 股 Provider | 增强现有项目，不拆 Trading Skills 为多个 Mod |
 | 个股研究 | 空 | UZI、Anthropic FS、Serenity、Finance Skills | 第一阶段整体接入 UZI；其他来源作为同页 Agent/View 能力 |

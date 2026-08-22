@@ -45,7 +45,7 @@
     "dataServices": ["vibe-investment-native"],
     "wiki": {
       "contractVersion": "1.0",
-      "subjectTypes": ["security", "etf", "fund", "topic"],
+      "subjectTypes": ["security", "etf", "fund", "topic", "industry", "concept"],
       "concepts": ["news-monitor", "sentiment"],
       "entrypoints": [
         {

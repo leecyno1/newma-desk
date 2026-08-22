@@ -474,7 +474,9 @@ def test_manifest_1_1_routes_agent_action_with_declared_memory_scope(
     tmp_path: Path,
     fake_adapter: FakeAgentAdapter,
 ) -> None:
-    _publish(client, MANIFEST_V1_1)
+    manifest = json.loads(json.dumps(MANIFEST_V1_1))
+    manifest["actions"]["market.explain"]["binding"]["profile"] = "batch"
+    _publish(client, manifest)
     SnapshotStore(tmp_path, tmp_path / "actions.db").write_success(
         "market-daily",
         {
@@ -519,6 +521,7 @@ def test_manifest_1_1_routes_agent_action_with_declared_memory_scope(
     while not fake_adapter.requests and time.monotonic() < deadline:
         time.sleep(0.01)
     assert fake_adapter.requests[0].memory_scope == "user-agent-mod"
+    assert fake_adapter.requests[0].profile == "batch"
     structured = fake_adapter.requests[0].context["vibedesk"]
     assert structured["mod"] == {"id": "market-daily", "revision": 1}
     assert structured["workspace"] == {"id": "desk-1"}

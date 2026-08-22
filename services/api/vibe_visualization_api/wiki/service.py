@@ -29,11 +29,18 @@ from vibe_visualization_api.wiki.store import WikiHandoffStore, WikiSubjectStore
 INTENT_COMPLEMENTS: dict[str, set[str]] = {
     "market.overview": {
         "event.timeline",
+        "market.sentiment",
         "news.monitor",
         "technical.structure",
         "equity.research",
         "industry.chain",
         "fund.research",
+    },
+    "market.sentiment": {
+        "market.overview",
+        "technical.structure",
+        "capital.flow",
+        "news.monitor",
     },
     "event.timeline": {
         "market.overview",
@@ -47,7 +54,12 @@ INTENT_COMPLEMENTS: dict[str, set[str]] = {
         "equity.research",
         "fund.research",
     },
-    "technical.structure": {"market.overview", "event.timeline", "fund.research"},
+    "technical.structure": {
+        "market.overview",
+        "market.sentiment",
+        "event.timeline",
+        "fund.research",
+    },
     "equity.research": {
         "market.overview",
         "news.monitor",
@@ -59,6 +71,14 @@ INTENT_COMPLEMENTS: dict[str, set[str]] = {
         "event.timeline",
         "news.monitor",
         "technical.structure",
+    },
+    "policy.monitor": {
+        "market.overview",
+        "event.timeline",
+        "news.monitor",
+        "capital.flow",
+        "equity.research",
+        "industry.chain",
     },
 }
 

@@ -1,0 +1,65 @@
+{
+  "id": "fund-analysis-data",
+  "name": "基金分析数据服务",
+  "description": "向 Newma Desk 提供真实基金浏览、研究快照、比较、归因、现场分析和推荐能力。",
+  "priority": 20,
+  "baseUrl": "http://127.0.0.1:8005/api/newma-desk",
+  "healthPath": "/health",
+  "transport": "rest",
+  "capabilities": {
+    "fund.search": {
+      "method": "POST",
+      "path": "/fund-search",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "search": {"type": "string", "maxLength": 80},
+          "page": {"type": "integer", "minimum": 1},
+          "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
+          "peer_group": {"type": "string", "maxLength": 120},
+          "availability": {"enum": ["all", "classified", "evaluated"]}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object", "additionalProperties": true},
+      "permission": "research.read"
+    },
+    "fund.research.snapshot": {
+      "method": "POST",
+      "path": "/fund-research-snapshot",
+      "inputSchema": {"type": "object", "required": ["symbol"], "properties": {"symbol": {"type": "string"}}, "additionalProperties": true},
+      "outputSchema": {"type": "object", "additionalProperties": true},
+      "permission": "research.read"
+    },
+    "fund.compare": {
+      "method": "POST",
+      "path": "/fund-compare",
+      "inputSchema": {"type": "object", "required": ["windCodes"], "properties": {"windCodes": {"type": "array", "minItems": 2, "maxItems": 12, "items": {"type": "string"}}}, "additionalProperties": true},
+      "outputSchema": {"type": "object", "additionalProperties": true},
+      "permission": "research.read"
+    },
+    "fund.attribution.run": {
+      "method": "POST",
+      "path": "/fund-attribution",
+      "inputSchema": {"type": "object", "required": ["symbol"], "properties": {"symbol": {"type": "string"}}, "additionalProperties": true},
+      "outputSchema": {"type": "object", "additionalProperties": true},
+      "permission": "research.read"
+    },
+    "fund.analysis.run": {
+      "method": "POST",
+      "path": "/fund-analysis",
+      "inputSchema": {"type": "object", "required": ["windCode"], "properties": {"windCode": {"type": "string"}}, "additionalProperties": true},
+      "outputSchema": {"type": "object", "additionalProperties": true},
+      "permission": "research.local-write"
+    },
+    "fund.recommendations.list": {
+      "method": "POST",
+      "path": "/fund-recommendations",
+      "inputSchema": {"type": "object", "required": ["category"], "properties": {"category": {"type": "string"}}, "additionalProperties": true},
+      "outputSchema": {"type": "object", "additionalProperties": true},
+      "permission": "research.read"
+    }
+  },
+  "timeoutSeconds": 180,
+  "allowedHosts": ["127.0.0.1", "localhost"]
+}

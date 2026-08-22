@@ -152,6 +152,32 @@
       }
     },
     {
+      "id": "fund-analysis",
+      "label": "Fund Analysis",
+      "adapter": "fund-analysis",
+      "workspaces": {
+        "source": {
+          "env": "NEWMA_DESK_FUND_ANALYSIS_WORKSPACE",
+          "candidates": [
+            { "root": "projects", "path": "基金筛选/fund-analysis" },
+            { "root": "repo", "path": "mod-projects/fund-analysis" }
+          ]
+        }
+      },
+      "endpoints": {
+        "web": {
+          "env": "NEWMA_DESK_FUND_RESEARCH_WEB_URL",
+          "defaultOrigin": "http://127.0.0.1:3000",
+          "healthPath": "/"
+        },
+        "api": {
+          "env": "NEWMA_DESK_FUND_ANALYSIS_API_URL",
+          "defaultOrigin": "http://127.0.0.1:8005",
+          "healthPath": "/api/health"
+        }
+      }
+    },
+    {
       "id": "orchestra",
       "label": "Orchestra",
       "adapter": "orchestra",

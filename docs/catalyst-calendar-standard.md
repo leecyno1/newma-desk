@@ -15,10 +15,10 @@
 
 - 巨潮资讯预约披露：A 股定期报告首次预约、变更与实际披露日期；
 - 东方财富解禁日历：未来限售股解禁日期、类型、数量与占比；
-- Circle / 七周期研究：仅吸收通过发布门槛的方向概率和风险状态观察窗；
+- Circle / 周期叠加：仅吸收通过发布门槛的方向概率和风险状态观察窗；
 - 用户自定义：由用户填写事件、确认条件和失效条件，存入 Desk 托管存储。
 
-七周期输出必须标记为 `timePrecision = window`、`status = monitoring`。不得把方向概率改写为确定拐点，也不得在 `exactCycleStatus = blocked` 时生成精确日期结论。
+周期叠加输出必须标记为 `timePrecision = window`、`status = monitoring`。不得把方向概率改写为确定拐点，也不得在 `exactCycleStatus = blocked` 时生成精确日期结论。
 
 ## 核心字段
 

@@ -1,23 +1,3 @@
-import {
-  Activity,
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  BadgeDollarSign,
-  Banknote,
-  ChartPie,
-  CircleDollarSign,
-  Gauge,
-  Landmark,
-  Layers3,
-  LoaderCircle,
-  NotebookTabs,
-  Plus,
-  RefreshCw,
-  Settings2,
-  ShieldCheck,
-  Trash2,
-  WalletCards,
-} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -34,6 +14,24 @@ import {
 } from "@newma-desk/mod-sdk";
 
 import { portfolioClient, type ActivityInput, type PortfolioIdentity } from "./api";
+import {
+  Activity,
+  BadgeDollarSign,
+  Banknote,
+  ChartPie,
+  CircleDollarSign,
+  Gauge,
+  Landmark,
+  Layers3,
+  LoaderCircle,
+  NotebookTabs,
+  Plus,
+  RefreshCw,
+  Settings2,
+  ShieldCheck,
+  Trash2,
+  WalletCards,
+} from "./icons";
 import type {
   ActivityType,
   Market,
@@ -68,6 +66,11 @@ const WORKSPACES: Record<PortfolioWorkspace, { title: string; eyebrow: string; s
     eyebrow: "ALLOCATION STUDIO",
     subtitle: "以统一历史行情为依据，对当前持仓生成可解释、可约束的目标权重。",
   },
+  "portfolio-scenarios": {
+    title: "情景推演",
+    eyebrow: "SCENARIO ANALYSIS",
+    subtitle: "观察增长、通胀、流动性和风险冲击下的组合变化。",
+  },
   "portfolio-performance": {
     title: "绩效归因",
     eyebrow: "PERFORMANCE LEDGER",
@@ -91,6 +94,29 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
   split: "拆并股",
 };
 
+type TradingSubview = "overview" | "entry" | "ledger" | "positions" | "cash" | "execution" | "reconciliation";
+type RiskSubview = "overview" | "concentration" | "exposure" | "drawdown" | "liquidity" | "stress" | "alerts";
+
+const TRADING_TABS: Array<{ id: TradingSubview; label: string }> = [
+  { id: "overview", label: "总览" },
+  { id: "entry", label: "成交录入" },
+  { id: "ledger", label: "成交明细" },
+  { id: "positions", label: "持仓" },
+  { id: "cash", label: "资金账户" },
+  { id: "execution", label: "执行质量" },
+  { id: "reconciliation", label: "对账异常" },
+];
+
+const RISK_TABS: Array<{ id: RiskSubview; label: string }> = [
+  { id: "overview", label: "风险总览" },
+  { id: "concentration", label: "集中度" },
+  { id: "exposure", label: "市场 / 币种暴露" },
+  { id: "drawdown", label: "回撤与 VaR" },
+  { id: "liquidity", label: "流动性" },
+  { id: "stress", label: "压力测试" },
+  { id: "alerts", label: "预警规则" },
+];
+
 const OPTIMIZATION_LABELS: Record<PortfolioOptimizationObjective, { name: string; note: string }> = {
   "risk-balanced": { name: "风险均衡", note: "降低单一高波动资产对组合的支配。" },
   "minimum-volatility": { name: "最低波动", note: "寻找历史协方差下更平稳的权重组合。" },
@@ -108,6 +134,78 @@ type LinkedSecurity = {
 function workspaceFromSearch(): PortfolioWorkspace {
   const candidate = new URLSearchParams(window.location.search).get("workspace") as PortfolioWorkspace | null;
   return candidate && candidate in WORKSPACES ? candidate : "portfolio-brief";
+}
+
+function subviewFromSearch(workspace: PortfolioWorkspace): TradingSubview | RiskSubview {
+  const candidate = new URLSearchParams(window.location.search).get("view");
+  if (workspace === "portfolio-activities" && TRADING_TABS.some((item) => item.id === candidate)) return candidate as TradingSubview;
+  if (workspace === "portfolio-risk" && RISK_TABS.some((item) => item.id === candidate)) return candidate as RiskSubview;
+  return "overview";
+}
+
+function activityNotional(activity: PortfolioDashboard["activities"][number]) {
+  if (activity.type === "buy" || activity.type === "sell") {
+    return Math.abs(Number(activity.quantity || 0) * Number(activity.unitPrice || 0));
+  }
+  return Math.abs(Number(activity.amount || 0));
+}
+
+function localDateKey(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function localDateTimeInputValue() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+type ReconciliationIssue = {
+  id: string;
+  severity: "high" | "medium" | "low";
+  title: string;
+  detail: string;
+  activityId?: string;
+};
+
+function reconciliationIssues(dashboard: PortfolioDashboard): ReconciliationIssue[] {
+  const accountIds = new Set(dashboard.accounts.map((account) => account.id));
+  const issues: ReconciliationIssue[] = [];
+  dashboard.activities.forEach((activity) => {
+    const notional = activityNotional(activity);
+    if (!accountIds.has(activity.accountId)) issues.push({ id: `${activity.id}:account`, severity: "high", title: "账户不存在", detail: `${activity.accountId} 不在当前账户清单中`, activityId: activity.id });
+    if (["buy", "sell", "dividend", "split"].includes(activity.type) && (!activity.market || !activity.symbol)) issues.push({ id: `${activity.id}:security`, severity: "high", title: "证券信息不完整", detail: `${ACTIVITY_LABELS[activity.type]}缺少市场或代码`, activityId: activity.id });
+    if (["buy", "sell"].includes(activity.type) && (!activity.quantity || !activity.unitPrice)) issues.push({ id: `${activity.id}:trade`, severity: "high", title: "成交要素不完整", detail: "买卖流水缺少数量或成交价", activityId: activity.id });
+    if (activity.fee > notional && notional > 0) issues.push({ id: `${activity.id}:fee`, severity: "high", title: "费用高于成交额", detail: `${activity.currency} ${number(activity.fee)} / 成交额 ${number(notional)}`, activityId: activity.id });
+    if (["buy", "sell"].includes(activity.type) && !activity.name) issues.push({ id: `${activity.id}:name`, severity: "low", title: "标的名称缺失", detail: `${activity.market}:${activity.symbol} 仅保存了代码`, activityId: activity.id });
+  });
+  dashboard.positions.filter((position) => position.price == null).forEach((position) => issues.push({ id: `quote:${position.accountId}:${position.market}:${position.symbol}`, severity: "medium", title: "持仓缺少行情", detail: `${position.name}（${position.symbol}）当前使用成本口径` }));
+  dashboard.currencies.filter((item) => item.cash < -0.01).forEach((item) => issues.push({
+    id: `cash:${item.currency}`,
+    severity: "high",
+    title: "现金余额为负",
+    detail: `${item.currency} ${number(item.cash)}；若不是融资账户，应补录入金或核对历史成交。`,
+  }));
+  if (dashboard.currencies.length > 1) issues.push({ id: "portfolio:fx", severity: "medium", title: "跨币种尚未统一折算", detail: "组合集中度不能把 CNY、HKD、USD 名义金额直接相加，需接入汇率快照。" });
+  return issues;
+}
+
+function riskAlertRules(dashboard: PortfolioDashboard) {
+  const concentration = dashboard.analytics.concentration;
+  const issues = reconciliationIssues(dashboard);
+  const cashDeficits = dashboard.currencies.filter((item) => item.cash < -0.01);
+  const otherHighIssues = issues.filter((item) => item.severity === "high" && !item.id.startsWith("cash:"));
+  return [
+    { id: "single", label: "单一持仓超过 30%", hit: concentration.topPositionWeight > 30, value: `${number(concentration.topPositionWeight)}%` },
+    { id: "top3", label: "前三持仓超过 65%", hit: concentration.topThreeWeight > 65, value: `${number(concentration.topThreeWeight)}%` },
+    { id: "count", label: "有效持仓数低于 5", hit: concentration.positionCount > 0 && concentration.effectivePositionCount < 5, value: number(concentration.effectivePositionCount) },
+    { id: "quote", label: "存在成本口径持仓", hit: dashboard.positions.some((item) => item.price == null), value: `${dashboard.positions.filter((item) => item.price == null).length} 只` },
+    { id: "fx", label: "跨币种未统一折算", hit: dashboard.currencies.length > 1, value: `${dashboard.currencies.length} 个币种` },
+    { id: "cash", label: "现金余额为负", hit: cashDeficits.length > 0, value: cashDeficits.map((item) => `${item.currency} ${number(item.cash)}`).join(" / ") || "正常" },
+    { id: "ledger", label: "其他高优先级账本异常", hit: otherHighIssues.length > 0, value: `${otherHighIssues.length} 项` },
+  ];
 }
 
 function parentOrigin() {
@@ -154,6 +252,7 @@ function workspaceBlocks(workspace: PortfolioWorkspace) {
 
 function buildContext(
   workspace: PortfolioWorkspace,
+  subview?: TradingSubview | RiskSubview,
   dashboard?: PortfolioDashboard,
   selected?: PortfolioPosition,
   linkedSecurity?: LinkedSecurity,
@@ -181,6 +280,7 @@ function buildContext(
     } : {},
     filters: {
       workspace,
+      ...(subview ? { subview } : {}),
       valuation: dashboard?.valuationStatus || "unknown",
       ...(optimization ? {
         optimizationObjective: optimization.objective,
@@ -379,32 +479,46 @@ function ActivityForm({ dashboard, onCreated }: { dashboard: PortfolioDashboard;
   const [market, setMarket] = useState<Market>("CN");
   const [accountId, setAccountId] = useState(dashboard.accounts[0]?.id || "main");
   const [symbol, setSymbol] = useState("");
+  const [name, setName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
   const [amount, setAmount] = useState("");
   const [fee, setFee] = useState("");
   const [currency, setCurrency] = useState("CNY");
+  const [occurredAt, setOccurredAt] = useState(localDateTimeInputValue);
+  const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const identity = { userId: dashboard.userId, workspaceId: dashboard.workspaceId };
   const securityActivity = ["buy", "sell", "split", "dividend"].includes(type);
   const tradeActivity = type === "buy" || type === "sell";
+  const estimatedNotional = tradeActivity ? Number(quantity || 0) * Number(unitPrice || 0) : Number(amount || 0);
 
   const submit = async () => {
     setSaving(true); setError("");
     try {
+      const occurredDate = new Date(occurredAt);
+      if (!dashboard.accounts.some((account) => account.id === accountId)) throw new Error("请先创建可用交易账户");
+      if (!occurredAt || Number.isNaN(occurredDate.getTime())) throw new Error("请输入有效发生时间");
+      if (securityActivity && !symbol.trim()) throw new Error("请输入证券代码");
+      if ((tradeActivity || type === "split") && Number(quantity) <= 0) throw new Error(type === "split" ? "请输入有效拆并比例" : "请输入有效成交数量");
+      if (tradeActivity && Number(unitPrice) <= 0) throw new Error("请输入有效成交价");
+      if (Number(fee || 0) < 0) throw new Error("费用不能为负数");
+      if (!tradeActivity && type !== "split" && (!Number.isFinite(Number(amount)) || Number(amount) <= 0)) throw new Error("请输入大于 0 的金额");
+      if (!currency.trim()) throw new Error("请输入币种");
       const input: ActivityInput = {
         accountId,
         type,
         currency,
-        occurredAt: new Date().toISOString(),
-        ...(securityActivity ? { market, symbol: symbol.trim().toUpperCase() } : {}),
+        occurredAt: occurredDate.toISOString(),
+        ...(securityActivity ? { market, symbol: symbol.trim().toUpperCase(), ...(name.trim() ? { name: name.trim() } : {}) } : {}),
         ...(tradeActivity || type === "split" ? { quantity: Number(quantity) } : {}),
         ...(tradeActivity ? { unitPrice: Number(unitPrice), fee: Number(fee || 0) } : {}),
         ...(!tradeActivity && type !== "split" ? { amount: Number(amount) } : {}),
+        ...(note.trim() ? { note: note.trim() } : {}),
       };
       await portfolioClient(identity).createActivity(input);
-      setSymbol(""); setQuantity(""); setUnitPrice(""); setAmount(""); setFee("");
+      setSymbol(""); setName(""); setQuantity(""); setUnitPrice(""); setAmount(""); setFee(""); setNote(""); setOccurredAt(localDateTimeInputValue());
       onCreated();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败");
@@ -412,57 +526,211 @@ function ActivityForm({ dashboard, onCreated }: { dashboard: PortfolioDashboard;
   };
 
   return <section className="folio-panel journal-form">
-    <div className="panel-title"><div><span>NEW ENTRY</span><h2>记录一笔流水</h2></div><Plus size={18} /></div>
+    <div className="panel-title"><div><span>TRADE CAPTURE</span><h2>成交与资金录入</h2></div><Plus size={18} /></div>
     <div className="form-grid">
       <label><span>类型</span><select value={type} onChange={(event) => setType(event.target.value as ActivityType)}>{Object.entries(ACTIVITY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <label><span>账户</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)}>{dashboard.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+      <label><span>发生时间</span><input type="datetime-local" value={occurredAt} onChange={(event) => setOccurredAt(event.target.value)} /></label>
       {securityActivity && <label><span>市场</span><select value={market} onChange={(event) => { const next = event.target.value as Market; setMarket(next); setCurrency(next === "US" ? "USD" : next === "HK" ? "HKD" : "CNY"); }}><option>CN</option><option>HK</option><option>US</option></select></label>}
       {securityActivity && <label><span>标的</span><input value={symbol} onChange={(event) => setSymbol(event.target.value)} placeholder="600519 / 00700 / AAPL" /></label>}
+      {securityActivity && <label><span>标的名称</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="可选，便于对账" /></label>}
       {(tradeActivity || type === "split") && <label><span>{type === "split" ? "拆并比例" : "数量"}</span><input inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>}
       {tradeActivity && <label><span>成交价</span><input inputMode="decimal" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} /></label>}
       {tradeActivity && <label><span>费用</span><input inputMode="decimal" value={fee} onChange={(event) => setFee(event.target.value)} placeholder="0" /></label>}
       {!tradeActivity && type !== "split" && <label><span>金额</span><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>}
       <label><span>币种</span><input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} maxLength={12} /></label>
+      <label className="form-wide"><span>备注 / 交易计划引用</span><input value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} placeholder="可记录计划编号、成交原因或券商回单号" /></label>
     </div>
+    <div className="trade-entry-preview"><span>{tradeActivity ? "预计成交额" : "本次金额"}</span><strong>{currency} {number(estimatedNotional)}</strong><small>{tradeActivity ? `费用 ${number(Number(fee || 0))} · 合计 ${number(type === "buy" ? estimatedNotional + Number(fee || 0) : estimatedNotional - Number(fee || 0))}` : "写入后由账本派生现金与持仓"}</small></div>
     {error && <div className="inline-error">{error}</div>}
-    <button className="primary-button" onClick={submit} disabled={saving}>{saving ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}写入账本</button>
+    <button className="primary-button" onClick={submit} disabled={saving || !dashboard.accounts.length}>{saving ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}写入账本</button>
   </section>;
 }
 
 function ActivityLedger({ dashboard, onDeleted }: { dashboard: PortfolioDashboard; onDeleted(): void }) {
+  const [typeFilter, setTypeFilter] = useState<"all" | ActivityType>("all");
+  const [accountFilter, setAccountFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const remove = async (id: string) => {
     await portfolioClient({ userId: dashboard.userId, workspaceId: dashboard.workspaceId }).deleteActivity(id);
     onDeleted();
   };
+  const rows = dashboard.activities.filter((item) => {
+    if (typeFilter !== "all" && item.type !== typeFilter) return false;
+    if (accountFilter !== "all" && item.accountId !== accountFilter) return false;
+    const needle = search.trim().toLowerCase();
+    return !needle || [item.symbol, item.name, item.note, item.accountId].some((value) => value?.toLowerCase().includes(needle));
+  });
   return <section className="folio-panel ledger-panel">
-    <div className="panel-title"><div><span>LEDGER</span><h2>最近流水</h2></div><Activity size={18} /></div>
-    <div className="activity-list">{dashboard.activities.length === 0 ? <div className="empty-copy">账本是空的</div> : dashboard.activities.slice(0, 120).map((item) => (
-      <article className="activity-row" key={item.id}>
-        <div className={`activity-icon type-${item.type}`}>{item.type === "buy" || item.type === "deposit" ? <ArrowDownToLine size={16} /> : <ArrowUpFromLine size={16} />}</div>
-        <div className="activity-main"><strong>{ACTIVITY_LABELS[item.type]} · {item.name || item.symbol || item.currency}</strong><span>{formatDate(item.occurredAt)} · {item.accountId} · {item.source}</span></div>
-        <div className="activity-value"><strong>{item.quantity ? `${number(item.quantity, 6)} × ${number(item.unitPrice, 6)}` : number(item.amount)}</strong><span>{item.currency}{item.fee ? ` · 费用 ${number(item.fee)}` : ""}</span></div>
-        <button className="ghost-icon" onClick={() => void remove(item.id)} title="删除流水"><Trash2 size={14} /></button>
-      </article>
-    ))}</div>
+    <div className="panel-title"><div><span>EXECUTION LEDGER</span><h2>成交与资金明细</h2></div><Activity size={18} /></div>
+    <div className="ledger-filters">
+      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索代码、名称、备注或账户" />
+      <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as "all" | ActivityType)}><option value="all">全部类型</option>{Object.entries(ACTIVITY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+      <select value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)}><option value="all">全部账户</option>{dashboard.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select>
+      <span>{rows.length} / {dashboard.activities.length} 笔</span>
+    </div>
+    {dashboard.activities.length === 0 ? <div className="empty-copy">账本是空的</div> : <div className="table-scroll ledger-table-wrap"><table className="ledger-table">
+      <thead><tr><th>时间</th><th>类型</th><th>账户</th><th>标的 / 说明</th><th>数量</th><th>成交价</th><th>成交额</th><th>费用</th><th>来源</th><th /></tr></thead>
+      <tbody>{rows.slice(0, 300).map((item) => <tr key={item.id}>
+        <td>{formatDate(item.occurredAt)}</td>
+        <td><span className={`ledger-type type-${item.type}`}>{ACTIVITY_LABELS[item.type]}</span></td>
+        <td>{item.accountId}</td>
+        <td><strong>{item.name || item.symbol || item.currency}</strong><small>{item.symbol ? `${item.market}:${item.symbol}` : item.note || "—"}</small></td>
+        <td>{item.quantity == null ? "—" : number(item.quantity, 6)}</td>
+        <td>{item.unitPrice == null ? "—" : number(item.unitPrice, 6)}</td>
+        <td>{item.currency} {number(activityNotional(item))}</td>
+        <td>{number(item.fee)}</td>
+        <td>{item.source}</td>
+        <td><button className="ghost-icon" onClick={() => void remove(item.id)} title="删除流水"><Trash2 size={14} /></button></td>
+      </tr>)}</tbody>
+    </table>{rows.length === 0 && <div className="empty-copy">当前筛选条件没有流水</div>}</div>}
   </section>;
 }
 
-function RiskView({ dashboard }: { dashboard: PortfolioDashboard }) {
-  const concentration = dashboard.analytics.concentration;
-  return <div className="content-grid risk-grid">
-    <section className="folio-panel risk-hero">
-      <div className="panel-title"><div><span>CONCENTRATION</span><h2>组合集中度</h2></div><Gauge size={18} /></div>
-      <div className="risk-score"><strong>{number(concentration.effectivePositionCount)}</strong><span>有效持仓数</span></div>
-      <div className="risk-stat-grid">
-        <div><span>最大单一持仓</span><strong>{number(concentration.topPositionWeight)}%</strong></div>
-        <div><span>前三大持仓</span><strong>{number(concentration.topThreeWeight)}%</strong></div>
-        <div><span>HHI</span><strong>{number(concentration.herfindahlIndex, 6)}</strong></div>
-        <div><span>持仓数量</span><strong>{concentration.positionCount}</strong></div>
-      </div>
-      <p className="method-note">当前为账本集中度与暴露分析。Riskfolio 优化、CVaR 和压力测试将通过独立分析 Adapter 接入，不改变账本数据。</p>
+function WorkspaceTabs({ items, value, onChange }: { items: Array<{ id: string; label: string }>; value: string; onChange(value: string): void }) {
+  return <nav className="workspace-tabs" aria-label="工作台标签">{items.map((item) => <button key={item.id} className={value === item.id ? "active" : ""} onClick={() => onChange(item.id)}>{item.label}</button>)}</nav>;
+}
+
+function TradingOverview({ dashboard }: { dashboard: PortfolioDashboard }) {
+  const today = localDateKey(new Date().toISOString());
+  const todayRows = dashboard.activities.filter((item) => localDateKey(item.occurredAt) === today);
+  const trades = dashboard.activities.filter((item) => item.type === "buy" || item.type === "sell");
+  const issues = reconciliationIssues(dashboard);
+  return <div className="workbench-stack">
+    <section className="workbench-metrics">
+      <article><span>今日流水</span><strong>{todayRows.length}</strong><small>买卖、现金与费用</small></article>
+      <article><span>累计成交</span><strong>{trades.length}</strong><small>{dashboard.activities.length} 笔总流水</small></article>
+      <article><span>当前持仓</span><strong>{dashboard.positions.length}</strong><small>{dashboard.accounts.length} 个账户</small></article>
+      <article><span>待核对</span><strong className={issues.length ? "negative" : "positive"}>{issues.length}</strong><small>数据完整性与行情缺口</small></article>
     </section>
-    <AllocationBars title="市场暴露" items={dashboard.analytics.byMarket} />
-    <AllocationBars title="账户暴露" items={dashboard.analytics.byAccount} />
+    <CurrencyCards dashboard={dashboard} />
+    <section className="folio-panel">
+      <div className="panel-title"><div><span>RECENT EXECUTIONS</span><h2>最近成交与资金动作</h2></div><Activity size={18} /></div>
+      <div className="activity-list compact-activity-list">{dashboard.activities.slice(0, 8).map((item) => <article className="activity-row" key={item.id}>
+        <div className={`activity-icon type-${item.type}`}>{item.type === "buy" || item.type === "deposit" ? "+" : "−"}</div>
+        <div className="activity-main"><strong>{ACTIVITY_LABELS[item.type]} · {item.name || item.symbol || item.currency}</strong><span>{formatDate(item.occurredAt)} · {item.accountId}</span></div>
+        <div className="activity-value"><strong>{item.currency} {number(activityNotional(item))}</strong><span>{item.source}</span></div>
+      </article>)}</div>
+      {!dashboard.activities.length && <div className="empty-copy">尚未录入成交或资金流水</div>}
+    </section>
+  </div>;
+}
+
+function TradeReadiness({ dashboard }: { dashboard: PortfolioDashboard }) {
+  const cashDeficits = dashboard.currencies.filter((item) => item.cash < -0.01);
+  return <section className="folio-panel trade-readiness">
+    <div className="panel-title"><div><span>PRE-TRADE CHECK</span><h2>录入前检查</h2></div><ShieldCheck size={18} /></div>
+    <dl>
+      <div><dt>账户状态</dt><dd>{dashboard.accounts.length ? `${dashboard.accounts.length} 个可用` : "无可用账户"}</dd></div>
+      <div><dt>估值口径</dt><dd>{dashboard.valuationStatus === "live" ? "实时行情" : dashboard.valuationStatus === "partial" ? "部分实时" : "成本口径"}</dd></div>
+      <div><dt>账本规则</dt><dd>卖出不得超过持仓</dd></div>
+      <div><dt>跨币种</dt><dd>{dashboard.currencies.length > 1 ? "分币种核算" : "单一币种"}</dd></div>
+      <div><dt>现金状态</dt><dd>{cashDeficits.length ? cashDeficits.map((item) => `${item.currency} ${number(item.cash)} 待核对`).join(" / ") : "未发现负余额"}</dd></div>
+    </dl>
+    <div className="control-gap-list"><div><strong>尚未接入</strong><span>委托状态、订单编号、券商回单、到达价和成交基准价。</span></div><div><strong>当前保证</strong><span>每笔活动先通过账本校验，再派生现金、持仓与已实现盈亏。</span></div></div>
+  </section>;
+}
+
+function CashAccountsView({ dashboard }: { dashboard: PortfolioDashboard }) {
+  return <div className="workbench-stack"><CurrencyCards dashboard={dashboard} /><div className="content-grid">
+    <section className="folio-panel"><div className="panel-title"><div><span>ACCOUNTS</span><h2>交易账户</h2></div><Landmark size={18} /></div><div className="account-list">{dashboard.accounts.map((account) => <article key={account.id}><div><strong>{account.name}</strong><span>{account.id} · {account.platform || account.accountType}</span></div><b>{account.currency}</b></article>)}</div></section>
+    <section className="folio-panel"><div className="panel-title"><div><span>CASH MOVEMENT</span><h2>现金、收入与费用</h2></div><CircleDollarSign size={18} /></div><div className="cash-detail-list">{dashboard.currencies.map((item) => <article key={item.currency}><strong>{item.currency}</strong><span>现金 {number(item.cash)}</span><span>收入 {number(item.income)}</span><span>费用 {number(item.fees)}</span><span>已实现 {signed(item.realizedPnl)}</span></article>)}</div></section>
+  </div></div>;
+}
+
+function ExecutionQualityView({ dashboard }: { dashboard: PortfolioDashboard }) {
+  const trades = dashboard.activities.filter((item) => item.type === "buy" || item.type === "sell");
+  const groups = new Map<string, { count: number; notional: number; fees: number; named: number; noted: number }>();
+  trades.forEach((trade) => {
+    const current = groups.get(trade.currency) || { count: 0, notional: 0, fees: 0, named: 0, noted: 0 };
+    current.count += 1; current.notional += activityNotional(trade); current.fees += trade.fee; current.named += trade.name ? 1 : 0; current.noted += trade.note ? 1 : 0;
+    groups.set(trade.currency, current);
+  });
+  return <div className="workbench-stack">
+    <section className="folio-panel"><div className="panel-title"><div><span>EXECUTION QUALITY</span><h2>已具备的执行统计</h2></div><Gauge size={18} /></div><div className="execution-grid">{Array.from(groups.entries()).map(([currency, item]) => <article key={currency}><span>{currency}</span><strong>{item.count} 笔</strong><small>成交额 {number(item.notional)}</small><small>费用率 {item.notional ? number(item.fees / item.notional * 100, 4) : "—"}%</small><small>名称完整 {number(item.named / item.count * 100)}% · 备注 {number(item.noted / item.count * 100)}%</small></article>)}</div>{!groups.size && <div className="empty-copy">暂无买卖成交</div>}</section>
+    <section className="folio-panel"><div className="panel-title"><div><span>DATA GAPS</span><h2>执行质量待接字段</h2></div><Settings2 size={18} /></div><div className="control-gap-list"><div><strong>成交偏差 / 滑点</strong><span>需要到达价、决策价或 VWAP 基准，目前不能凭成交价反推。</span></div><div><strong>成交率与撤单率</strong><span>需要原始委托量、成交量、撤单状态和订单生命周期。</span></div><div><strong>券商对账</strong><span>需要订单号、成交编号、券商回单和结算日期。</span></div></div></section>
+  </div>;
+}
+
+function ReconciliationView({ dashboard }: { dashboard: PortfolioDashboard }) {
+  const issues = reconciliationIssues(dashboard);
+  return <section className="folio-panel reconciliation-panel"><div className="panel-title"><div><span>RECONCILIATION</span><h2>对账异常与数据缺口</h2></div><ShieldCheck size={18} /></div>
+    <div className="reconciliation-summary"><strong>{issues.length}</strong><span>项待处理</span><small>{issues.filter((item) => item.severity === "high").length} 项高优先级</small></div>
+    <div className="issue-list">{issues.map((issue) => <article key={issue.id} className={`severity-${issue.severity}`}><span>{issue.severity === "high" ? "高" : issue.severity === "medium" ? "中" : "低"}</span><div><strong>{issue.title}</strong><small>{issue.detail}</small></div>{issue.activityId && <code>{issue.activityId.slice(0, 8)}</code>}</article>)}</div>
+    {!issues.length && <div className="empty-copy tall">当前账本未发现明显数据异常</div>}
+  </section>;
+}
+
+function TradingWorkbench({ dashboard, view, onView, selected, onSelect, onRefresh }: { dashboard: PortfolioDashboard; view: TradingSubview; onView(view: TradingSubview): void; selected?: PortfolioPosition; onSelect(position: PortfolioPosition): void; onRefresh(): void }) {
+  return <div className="workspace-shell"><WorkspaceTabs items={TRADING_TABS} value={view} onChange={(next) => onView(next as TradingSubview)} />
+    {view === "overview" && <TradingOverview dashboard={dashboard} />}
+    {view === "entry" && <div className="journal-grid"><ActivityForm dashboard={dashboard} onCreated={onRefresh} /><TradeReadiness dashboard={dashboard} /></div>}
+    {view === "ledger" && <ActivityLedger dashboard={dashboard} onDeleted={onRefresh} />}
+    {view === "positions" && <div className="workbench-stack"><PositionsTable dashboard={dashboard} selected={selected} onSelect={onSelect} /><div className="content-grid"><AllocationBars title="市场暴露" items={dashboard.analytics.byMarket} /><AllocationBars title="账户暴露" items={dashboard.analytics.byAccount} /></div></div>}
+    {view === "cash" && <CashAccountsView dashboard={dashboard} />}
+    {view === "execution" && <ExecutionQualityView dashboard={dashboard} />}
+    {view === "reconciliation" && <ReconciliationView dashboard={dashboard} />}
+  </div>;
+}
+
+function ConcentrationView({ dashboard }: { dashboard: PortfolioDashboard }) {
+  const concentration = dashboard.analytics.concentration;
+  const byCurrency = dashboard.currencies.map((currency) => {
+    const positions = dashboard.positions.filter((position) => position.currency === currency.currency);
+    const values = positions.map((position) => ({ position, value: Math.max(0, position.marketValue ?? position.costValue) }));
+    const total = values.reduce((sum, item) => sum + item.value, 0);
+    return { currency: currency.currency, rows: values.sort((a, b) => b.value - a.value).map((item) => ({ ...item.position, weight: total ? item.value / total * 100 : 0 })) };
+  });
+  return <div className="workbench-stack"><section className="folio-panel risk-hero"><div className="panel-title"><div><span>CONCENTRATION</span><h2>组合集中度</h2></div><Gauge size={18} /></div><div className="risk-score"><strong>{number(concentration.effectivePositionCount)}</strong><span>名义有效持仓数</span></div><div className="risk-stat-grid"><div><span>最大单一持仓</span><strong>{number(concentration.topPositionWeight)}%</strong></div><div><span>前三大持仓</span><strong>{number(concentration.topThreeWeight)}%</strong></div><div><span>HHI</span><strong>{number(concentration.herfindahlIndex, 6)}</strong></div><div><span>持仓数量</span><strong>{concentration.positionCount}</strong></div></div><p className="method-note">多币种组合的上方总值仅作名义提示；正式集中度以下方分币种权重为准，待汇率快照接入后再统一折算。</p></section>
+    {byCurrency.map((group) => <section className="folio-panel" key={group.currency}><div className="panel-title"><div><span>{group.currency}</span><h2>分币种持仓权重</h2></div><span>{group.rows.length} 只</span></div><div className="allocation-list">{group.rows.map((item) => <div className="allocation-row" key={`${item.accountId}:${item.symbol}`}><div><strong>{item.name}</strong><span>{item.market}:{item.symbol}</span></div><div className="allocation-track"><i style={{ width: `${Math.max(2, item.weight)}%` }} /></div><b>{number(item.weight)}%</b></div>)}</div></section>)}
+  </div>;
+}
+
+function RiskHistoryView({ dashboard, result, onResult }: { dashboard: PortfolioDashboard; result?: PortfolioPerformanceResult; onResult(result: PortfolioPerformanceResult): void }) {
+  const currencies = Array.from(new Set(dashboard.positions.map((position) => position.currency)));
+  const [currency, setCurrency] = useState(currencies[0] || "CNY");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState("");
+  const active = result?.currency === currency ? result : undefined;
+  const run = async () => { setRunning(true); setError(""); try { onResult(await portfolioClient({ userId: dashboard.userId, workspaceId: dashboard.workspaceId }).analyzePerformance({ currency, lookbackWeeks: 156, riskFreeRatePct: 2 })); } catch (reason) { setError(reason instanceof Error ? reason.message : "风险历史分析不可用"); } finally { setRunning(false); } };
+  return <div className="workbench-stack"><section className="folio-panel risk-analysis-control"><div className="panel-title"><div><span>HISTORICAL RISK</span><h2>回撤与尾部风险</h2></div><ChartPie size={18} /></div><div className="inline-controls"><label><span>分析币种</span><select value={currency} onChange={(event) => setCurrency(event.target.value)}>{currencies.length ? currencies.map((item) => <option key={item}>{item}</option>) : <option>CNY</option>}</select></label><button className="primary-button" onClick={() => void run()} disabled={running || !currencies.length}>{running ? <LoaderCircle className="spin" size={16} /> : <Gauge size={16} />}计算 3 年历史风险</button></div>{error && <div className="inline-error">{error}</div>}<p className="method-note">按当前持仓权重和周线历史计算；不同币种分别分析，不做无汇率依据的合并。</p></section>
+    {active?.metrics ? <section className="workbench-metrics risk-history-metrics"><article><span>最大回撤</span><strong className="negative">{number(active.metrics.maxDrawdownPct)}%</strong><small>{active.metrics.maxDrawdownDurationWeeks} 周</small></article><article><span>95% VaR</span><strong>{number(active.metrics.valueAtRisk95Pct)}%</strong><small>周度历史分布</small></article><article><span>95% CVaR</span><strong>{number(active.metrics.conditionalValueAtRisk95Pct)}%</strong><small>尾部损失均值</small></article><article><span>年化波动</span><strong>{number(active.metrics.annualizedVolatilityPct)}%</strong><small>覆盖 {number(active.coverageWeightPct)}%</small></article></section> : <section className="folio-panel empty-copy tall">选择币种后生成回撤、VaR 与 CVaR</section>}
+  </div>;
+}
+
+function LiquidityRiskView({ dashboard }: { dashboard: PortfolioDashboard }) {
+  const quoted = dashboard.positions.filter((position) => position.price != null).length;
+  const rows = dashboard.positions.map((position) => ({ ...position, status: position.price == null ? "行情缺口" : position.market === "CN" ? "T+1 交易约束" : position.market === "HK" ? "港股结算" : "美股结算" }));
+  return <div className="workbench-stack"><section className="workbench-metrics"><article><span>行情覆盖</span><strong>{dashboard.positions.length ? number(quoted / dashboard.positions.length * 100) : "—"}%</strong><small>{quoted}/{dashboard.positions.length} 只</small></article><article><span>成本口径持仓</span><strong>{dashboard.positions.length - quoted}</strong><small>缺少实时估值</small></article><article><span>市场数量</span><strong>{new Set(dashboard.positions.map((item) => item.market)).size}</strong><small>结算规则需分市场</small></article><article><span>成交量覆盖</span><strong>0%</strong><small>尚未接入 ADV / 换手</small></article></section><section className="folio-panel"><div className="panel-title"><div><span>LIQUIDITY MAP</span><h2>持仓流动性检查</h2></div><Activity size={18} /></div><div className="liquidity-list">{rows.map((item) => <article key={`${item.accountId}:${item.symbol}`}><div><strong>{item.name}</strong><span>{item.market}:{item.symbol} · {item.currency}</span></div><b className={item.price == null ? "negative" : "neutral"}>{item.status}</b><small>{item.quoteAsOf ? `行情 ${formatDate(item.quoteAsOf)}` : "没有行情时间"}</small></article>)}</div><p className="method-note">正式流动性风险仍需日均成交额、盘口深度、持仓退出天数和停牌状态；当前不使用市值替代这些字段。</p></section></div>;
+}
+
+function StressTestView({ dashboard }: { dashboard: PortfolioDashboard }) {
+  const scenarios = [
+    { id: "broad", name: "全球权益回撤", note: "各市场同步下跌 10%", shocks: { CN: -10, HK: -10, US: -10 } },
+    { id: "china", name: "中国风险偏好冲击", note: "A 股 -8%，港股 -12%，美股 -2%", shocks: { CN: -8, HK: -12, US: -2 } },
+    { id: "us", name: "海外利率冲击", note: "美股 -12%，港股 -6%，A 股 -3%", shocks: { CN: -3, HK: -6, US: -12 } },
+  ];
+  const currencies = Array.from(new Set(dashboard.analytics.byMarket.map((item) => item.currency)));
+  return <section className="folio-panel"><div className="panel-title"><div><span>STRESS TEST</span><h2>确定性市场冲击</h2></div><ShieldCheck size={18} /></div><div className="stress-grid">{scenarios.map((scenario) => <article key={scenario.id}><strong>{scenario.name}</strong><span>{scenario.note}</span>{currencies.map((currency) => { const impact = dashboard.analytics.byMarket.filter((item) => item.currency === currency).reduce((sum, item) => sum + item.weight / 100 * scenario.shocks[item.key as Market], 0); return <div key={currency}><b>{currency}</b><em className="negative">{number(impact)}%</em></div>; })}</article>)}</div><p className="method-note">这是按当前市场权重做的静态一阶冲击，不包含相关性变化、波动率跳升、汇率和流动性折价。</p></section>;
+}
+
+function AlertRulesView({ dashboard }: { dashboard: PortfolioDashboard }) {
+  const rules = riskAlertRules(dashboard);
+  return <section className="folio-panel"><div className="panel-title"><div><span>ALERT RULES</span><h2>基础预警规则</h2></div><ShieldCheck size={18} /></div><div className="alert-rule-list">{rules.map((rule) => <article key={rule.id} className={rule.hit ? "is-hit" : "is-normal"}><i /><div><strong>{rule.label}</strong><span>{rule.hit ? "已触发" : "正常"}</span></div><b>{rule.value}</b></article>)}</div><p className="method-note">当前规则只读本地账本，不自动卖出、不修改持仓。阈值后续可接入用户配置和通知渠道。</p></section>;
+}
+
+function RiskView({ dashboard, view, onView, result, onResult }: { dashboard: PortfolioDashboard; view: RiskSubview; onView(view: RiskSubview): void; result?: PortfolioPerformanceResult; onResult(result: PortfolioPerformanceResult): void }) {
+  const issues = reconciliationIssues(dashboard);
+  const triggeredRules = riskAlertRules(dashboard).filter((item) => item.hit);
+  const concentration = dashboard.analytics.concentration;
+  return <div className="workspace-shell"><WorkspaceTabs items={RISK_TABS} value={view} onChange={(next) => onView(next as RiskSubview)} />
+    {view === "overview" && <div className="workbench-stack"><section className="workbench-metrics"><article><span>风险状态</span><strong className={triggeredRules.length ? "negative" : "positive"}>{triggeredRules.length ? "需关注" : "正常"}</strong><small>{triggeredRules.length} 项规则触发 · {issues.length} 项数据异常</small></article><article><span>最大持仓</span><strong>{number(concentration.topPositionWeight)}%</strong><small>阈值提示 30%</small></article><article><span>有效持仓数</span><strong>{number(concentration.effectivePositionCount)}</strong><small>实际 {concentration.positionCount} 只</small></article><article><span>估值状态</span><strong>{dashboard.valuationStatus === "live" ? "实时" : dashboard.valuationStatus === "partial" ? "部分实时" : "成本"}</strong><small>{dashboard.positions.filter((item) => item.price == null).length} 只缺行情</small></article></section><div className="content-grid risk-grid"><AllocationBars title="市场暴露" items={dashboard.analytics.byMarket} /><AllocationBars title="账户暴露" items={dashboard.analytics.byAccount} /><ReconciliationView dashboard={dashboard} /></div></div>}
+    {view === "concentration" && <ConcentrationView dashboard={dashboard} />}
+    {view === "exposure" && <div className="workbench-stack"><CurrencyCards dashboard={dashboard} /><div className="content-grid"><AllocationBars title="市场暴露（分币种）" items={dashboard.analytics.byMarket} /><AllocationBars title="账户暴露（分币种）" items={dashboard.analytics.byAccount} /></div><section className="folio-panel"><p className="method-note">币种卡片不做跨币种权重比较；汇率快照接入前，不把不同货币的名义金额相加作为真实风险贡献。</p></section></div>}
+    {view === "drawdown" && <RiskHistoryView dashboard={dashboard} result={result} onResult={onResult} />}
+    {view === "liquidity" && <LiquidityRiskView dashboard={dashboard} />}
+    {view === "stress" && <StressTestView dashboard={dashboard} />}
+    {view === "alerts" && <AlertRulesView dashboard={dashboard} />}
   </div>;
 }
 
@@ -712,6 +980,8 @@ function SettingsView({ dashboard, onRefresh }: { dashboard: PortfolioDashboard;
 
 export function PortfolioCenterApp() {
   const workspace = workspaceFromSearch();
+  const [subview, setSubview] = useState<TradingSubview | RiskSubview>(() => subviewFromSearch(workspace));
+  const embedded = window.self !== window.top;
   const config = WORKSPACES[workspace];
   const [identity, setIdentity] = useState<PortfolioIdentity | undefined>(() => (
     window.self === window.top
@@ -730,7 +1000,7 @@ export function PortfolioCenterApp() {
   const [refreshingQuotes, setRefreshingQuotes] = useState(false);
   const [error, setError] = useState("");
   const [host, setHost] = useState<EmbeddedHost>();
-  const contextRef = useRef<ModPageContext>(buildContext(workspace));
+  const contextRef = useRef<ModPageContext>(buildContext(workspace, subview));
   const identityRef = useRef<PortfolioIdentity | undefined>(identity);
   const dashboardRef = useRef(dashboard);
   const researchCoverageRef = useRef(researchCoverage);
@@ -938,8 +1208,15 @@ export function PortfolioCenterApp() {
     ));
   }, [dashboard, linkedSecurity]);
 
-  contextRef.current = buildContext(workspace, dashboard, selected, linkedSecurity, optimization, performance, researchCoverage);
-  useEffect(() => { if (host) host.publishContext(contextRef.current); }, [dashboard, host, linkedSecurity, optimization, performance, researchCoverage, selected, workspace]);
+  const changeSubview = (next: TradingSubview | RiskSubview) => {
+    setSubview(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", next);
+    window.history.replaceState({}, "", url);
+  };
+
+  contextRef.current = buildContext(workspace, subview, dashboard, selected, linkedSecurity, optimization, performance, researchCoverage);
+  useEffect(() => { if (host) host.publishContext(contextRef.current); }, [dashboard, host, linkedSecurity, optimization, performance, researchCoverage, selected, subview, workspace]);
 
   const selectPosition = (position: PortfolioPosition) => {
     setSelected(position);
@@ -959,9 +1236,9 @@ export function PortfolioCenterApp() {
     if (position) selectPosition(position);
   };
 
-  return <main className="portfolio-root">
+  return <main className="portfolio-root" data-embedded={embedded || undefined}>
     <header className="folio-header">
-      <div><span className="folio-eyebrow">{config.eyebrow}</span><h1>{config.title}</h1><p>{config.subtitle}</p></div>
+      {!embedded ? <div data-mod-page-title><span className="folio-eyebrow">{config.eyebrow}</span><h1>{config.title}</h1><p>{config.subtitle}</p></div> : null}
       <div className="header-actions">
         {linkedSecurity && <span className="linked-security-pill">联动标的 {linkedSecurity.market}:{linkedSecurity.symbol}</span>}
         <span className={`valuation-pill state-${refreshingQuotes ? "loading" : dashboard?.valuationStatus || "loading"}`}><i />{refreshingQuotes ? "行情刷新中" : dashboard?.valuationStatus === "live" ? "实时估值" : dashboard?.valuationStatus === "partial" ? "部分实时" : "成本口径"}</span>
@@ -972,8 +1249,8 @@ export function PortfolioCenterApp() {
     {error && <div className="error-banner">{error}</div>}
     {!dashboard && loading ? <div className="loading-stage"><LoaderCircle className="spin" /><span>正在整理组合账本…</span></div> : dashboard && <>
       {workspace === "portfolio-brief" && <div className="overview-stack"><CurrencyCards dashboard={dashboard} /><div className="content-grid"><PositionsTable dashboard={dashboard} selected={selected} onSelect={selectPosition} /><AllocationBars title="市场暴露" items={dashboard.analytics.byMarket} /></div><ResearchCoveragePanel coverage={researchCoverage} loading={researchCoverageLoading} selected={selected} onSelect={selectResearchPosition} /></div>}
-      {workspace === "portfolio-activities" && <div className="journal-grid"><ActivityForm dashboard={dashboard} onCreated={() => void load()} /><ActivityLedger dashboard={dashboard} onDeleted={() => void load()} /></div>}
-      {workspace === "portfolio-risk" && <RiskView dashboard={dashboard} />}
+      {workspace === "portfolio-activities" && <TradingWorkbench dashboard={dashboard} view={subview as TradingSubview} onView={changeSubview} selected={selected} onSelect={selectPosition} onRefresh={() => void load()} />}
+      {workspace === "portfolio-risk" && <RiskView dashboard={dashboard} view={subview as RiskSubview} onView={changeSubview} result={performance} onResult={setPerformance} />}
       {workspace === "portfolio-allocation" && <AllocationView dashboard={dashboard} result={optimization} onResult={setOptimization} />}
       {workspace === "portfolio-performance" && <PerformanceView dashboard={dashboard} result={performance} onResult={setPerformance} />}
       {workspace === "portfolio-settings" && <SettingsView dashboard={dashboard} onRefresh={() => void load()} />}

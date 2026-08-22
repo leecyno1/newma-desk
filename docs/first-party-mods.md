@@ -1,6 +1,6 @@
 # 官方 Mod 商店与原生 Mods 接入说明
 
-日期：2026-07-29
+更新日期：2026-08-18
 
 ## 接入原则
 
@@ -31,7 +31,7 @@ Research / Trading Mod
 
 Model Gateway 仍是另一条独立链路，不会自动串到 Agent 后面。
 
-Vibe Research 与 Vibe Trading 保留为完整源码和运行来源。Suite 页面保持不可拆分；确需迁移栏目时，页面会先从 Suite 中独立为完整 Mod，同时继续复用原运行时。一级导航固定为十四个核心栏目与“其他”，稳定栏目 ID 不随来源仓库、页面路由或服务地址改变；完整规则见 [`investment-domain-mod-standard.md`](./investment-domain-mod-standard.md)。
+Vibe Research 与 Vibe Trading 保留为完整源码和运行来源。导航描述可按业务职责拆成多个 Suite，但不会复制或拆分运行时；同一页面仍只有一个主归属。一级导航固定为 16 个投资模块，稳定栏目 ID 不随来源仓库、页面路由或服务地址改变；完整规则见 [`investment-domain-mod-standard.md`](./investment-domain-mod-standard.md)。
 
 统一目录结构：
 
@@ -60,13 +60,13 @@ mods/
 └── ...
 ```
 
-`store.json` 负责商店顺序、内置默认标记和 Git 安装源；单页 Mod 继续使用 `mod.json`，多页面项目收敛到 `suite.json`。新状态默认只注册“情报”和“市场”，其他项目由用户从商店安装；已有状态不会被默认注册重置。通过商店安装或更新时，API 会通过标准 Git 拉取优先读取 GitHub，失败后尝试 Gitee；Raw HTTP 仅作为备用，再通过控制面创建并发布 Mod 修订。
+`store.json` 负责商店顺序、内置默认标记和 Git 安装源；单页 Mod 继续使用 `mod.json`，多页面项目收敛到 `suite.json`。新状态默认注册全球专题、政策、资金和基金研究等 20 个基础 Mod；其余项目由用户从商店安装。已有状态不会被默认注册重置。通过商店安装或更新时，API 会通过标准 Git 拉取优先读取 GitHub，失败后尝试 Gitee；Raw HTTP 仅作为备用，再通过控制面创建并发布 Mod 修订。
 
-多页面项目使用 Manifest `navigation.project` 声明唯一所属栏目，用与 Suite ID 相同的 `navigation.directory.id` 声明完整项目组。页面仍按“一页一 Mod”保留独立权限、生命周期和 Agent Context，但不能跨栏目或跨项目组拆分；一级栏固定显示十四个核心栏目与“其他”，二级面板按完整项目列出原有页面和项目设置。
+多页面项目使用 Manifest `navigation.project` 声明唯一所属栏目，用与 Suite ID 相同的 `navigation.directory.id` 保存数据与 Agent 作用域。页面仍按“一页一 Mod”保留独立权限、生命周期和 Agent Context。一级栏固定显示 16 个模块；二级面板直接显示页面，不再渲染来源项目文件夹，“栏目数据与能力”固定在面板底部。
 
 新 Mod 的 Data Action 可以只声明 Capability、权限和输入输出 Schema，不再写 Provider、API 地址或密钥。省略 `binding.service` 后，Desk 会根据完整项目的 `directory.id`、当前用户与 Workspace 自动选择数据服务，并允许用户在项目设置中覆盖；单页 Mod 使用自身 ID。栏目 `project.id` 只负责导航归属，不承担项目数据作用域。
 
-Vibe Trading 页面收敛到 `trading-suite`。Vibe Research 的主要研究页面保留在 `research-suite`；新闻与舆情、催化剂日历复用同一运行时，但作为独立 Mod 进入“情报”。重复的“投研 AI 设置”和“量化 Agent”已下架，由 Desk 的 Agent 设置与右侧统一 Agent 抽屉替代。
+Vibe Trading 按量化研究和交易台拆成两个导航 Suite；Vibe Research 按公司、策略、行业和基金拆成多个导航 Suite。它们继续复用原运行时。新闻与舆情、催化剂日历复用 Research 运行时，但作为独立 Mod 进入“全球”。重复的“投研 AI 设置”和“量化 Agent”已下架，由 Desk 的 Agent 设置与右侧统一 Agent 抽屉替代。
 
 InStock 的 CZSC/轮动页面以及 Orchestra 的八个顶层工作区保留在 Mod 商店中，用户安装后继续以独立服务运行；导航、项目设置、Agent Context、数据路由和统一启动由 Desk 管理。
 
@@ -87,34 +87,26 @@ InStock 的 CZSC/轮动页面以及 Orchestra 的八个顶层工作区保留在 
 
 全球情报发布 `newma-desk.global-intelligence.v1` Agent Context，包含地图图层、筛选、选中事件、来源健康和实时事件摘要。市场 Mods 统一收发 `security.selected`，并把当前标的、筛选条件、图表状态与回放进度发布给 Desk 右侧 Agent；Desk Agent 可通过反向 UI Action 桥安全切换周期、设置指标、创建价格预警和保存布局。
 
-Deepsee 的 11 个页面作为一个完整项目进入“其他 → DeepSee”。交易行情与图表工具进入“市场”；全球情报、新闻与舆情、日线时间轴和催化剂日历进入首页“情报”。
+Deepsee 的 11 个页面进入一级模块“深瞳”。交易行情、日线时间轴与图表工具进入“市场”；全球情报、新闻与舆情和催化剂日历进入“全球”。
 
 市场终端已作为首个统一数据接口示例：嵌入 Desk 时通过宿主 Action 请求 `market.quote`、`market.ohlcv`、`market.overview` 等能力，不感知具体 Provider；独立调试时仍保留固定 `market-data` 客户端作为兼容回退。
 
 ### Vibe Research
 
-主要研究页面由 [`research-suite/suite.json`](../mods/research-suite/suite.json) 声明，再由 Suite Discovery 展开。新闻与舆情、催化剂日历继续复用 Vibe Research 运行时，但已拆为独立 Mod 并进入“情报”。
+Vibe Research 按主职责拆成公司、策略、行业和基金四个导航 Suite，再由 Suite Discovery 展开。新闻与舆情、催化剂日历和宏观观察继续复用同一运行时，但拥有独立的模块归属。
 
-| Mod | 原生路由 |
-| --- | --- |
-| 每日复盘 | `/daily-review` |
-| 宏观观察 | `/macro-monitor` |
-| 自选股 | `/watchlist` |
-| 研究机会池 | `/idea-funnel` |
-| 个股研究 | `/stock-data` |
-| 产业链研究 | `/sectors` |
-| 基金与 ETF 研究 | `/etf-research` |
-| 财报研究 | `/earnings-workbench` |
-| 同业比较 | `/peer-comparison` |
-| 预测与估值 | `/valuation-workbench` |
-| 研究备忘录 | `/research-memo` |
-| 投资逻辑 | `/thesis-tracker` |
-| 研究档案 | `/my-reports` |
-| 研究记录 | `/notes` |
+| 一级模块 | Mod | 原生路由 |
+| --- | --- | --- |
+| 全球 | 新闻与舆情 / 催化剂日历 | `/intel` / `/catalyst-calendar` |
+| 宏观 | 宏观观察 | `/macro-monitor` |
+| 策略 | 研究机会池 | `/idea-funnel` |
+| 行业 | 产业图谱 | `/sectors` |
+| 基金 | ETF 研究 | `/etf-research` |
+| 公司 | 财报、投资逻辑、同业、估值、备忘录、档案、记录 | `/earnings-workbench` 等 |
 
 催化剂日历与市场侧“日线时间轴”共享 `newma-desk.catalyst-calendar.v1` 合同。日历负责未来事件、周期观察窗、确认/失效条件和结果归档；日线时间轴负责已发生事件与历史行情叠加。详细标准见 [`catalyst-calendar-standard.md`](./catalyst-calendar-standard.md)。
 
-宏观观察使用 `newma-desk.macro-monitor.v1` 合同，把增长、价格、流动性、经济事件、来源状态和缺口统一进入 Desk Agent Context。它与七周期研究互补：宏观观察呈现可核验事实与发布日历，七周期只提供通过门槛的概率观察窗。
+宏观观察使用 `newma-desk.macro-monitor.v1` 合同，把增长、价格、流动性、经济事件、来源状态和缺口统一进入 Desk Agent Context。它与周期叠加互补：宏观观察呈现可核验事实与发布日历，周期叠加只提供通过门槛的概率观察窗。
 详细标准见 [`macro-monitor-standard.md`](./macro-monitor-standard.md)。
 
 研究机会池使用 `newma-desk.idea-funnel.v1` 合同，把市场扫描、主题、资讯、催化剂、产业链和自选线索整理为双向假设、筛选方法、优先级评分、证伪条件与研究任务，再交给投资逻辑、财报、同业、估值或研究备忘录。其“流程总览”实时汇总既有研究缓存中的复核到期、逾期任务、陈旧来源与档案缺口，不复制底层数据或新增存储。筛选结果与流程完整度始终不是投资结论。详细标准见 [`idea-funnel-standard.md`](./idea-funnel-standard.md)。
@@ -131,16 +123,16 @@ Deepsee 的 11 个页面作为一个完整项目进入“其他 → DeepSee”�
 
 ### Vibe Trading
 
-这些页面由 [`trading-suite/suite.json`](../mods/trading-suite/suite.json) 一次声明，再由 Suite Discovery 展开为独立安装项。Vibe Trading 作为完整项目整体进入“量化研究”，交易台与设置仍保留在项目内部。
+这些页面复用同一 Vibe Trading 运行时。量化页面由 [`trading-suite/suite.json`](../mods/trading-suite/suite.json) 声明，交易台由 `trading-execution-suite` 声明。
 
-| Mod | 原生路由 |
-| --- | --- |
-| 量化总览 | `/` |
-| 因子实验室 | `/alpha-zoo` |
-| 回测实验室 | `/reports` |
-| 相关性分析 | `/correlation` |
-| 交易台 | `/runtime` |
-| 量化系统设置 | `/settings` |
+| 一级模块 | Mod | 原生路由 |
+| --- | --- | --- |
+| 量化 | 量化总览 | `/` |
+| 量化 | 因子实验室 | `/alpha-zoo` |
+| 量化 | 回测实验室 | `/reports` |
+| 量化 | 相关性分析 | `/correlation` |
+| 量化 | 量化系统设置 | `/settings` |
+| 交易 | 交易台 | `/runtime` |
 
 Run Detail、因子详情、因子比较等详情页继续由 Vibe Trading 页面内部链接进入，不额外占用 Project Rail 或 Project Panel 页面列表。
 
@@ -162,7 +154,7 @@ Deepsee 在 `http://127.0.0.1:8001` 独立运行。Newma-Desk 只安装页面入
 | Deepsee 联系人评分 | `/embed/contact-management` |
 | Deepsee 设置 | `/embed/function-settings` |
 
-这些页面由 [`deepsee-suite/suite.json`](../mods/deepsee-suite/suite.json) 一次声明，Suite Discovery 自动展开为 11 个可独立安装、独立打开和独立授权的 Mods。全部页面进入其他，并由共享 `deepsee-suite` directory 聚合为一个 `DeepSee` 二级目录。
+这些页面由 [`deepsee-suite/suite.json`](../mods/deepsee-suite/suite.json) 一次声明，Suite Discovery 自动展开为 11 个可独立安装、独立打开和独立授权的 Mod，统一进入“深瞳”。
 
 ### InStock 分析
 
@@ -173,7 +165,7 @@ InStock 保持独立 Tornado 服务，默认端口为 `9988`。页面不依赖 M
 | CZSC 缠论结构 | `/mods/czsc` | `analysis.czsc` |
 | 行业与 ETF 轮动 | `/mods/rotation` | `analysis.rotation` |
 
-CZSC 缠论结构进入资金面，行业与 ETF 轮动进入战术择时；旧 `instock-suite` directory 只保留为来源内部分组兼容信息。
+CZSC 缠论结构进入“市场”，行业与 ETF 轮动进入“行业”；来源运行时与导航归属彼此独立。
 Desk 右侧 Agent 的问答与修改模式会把这两个 Mod 定位到 InStock 源码目录，而不是 Newma-Desk 根目录。
 
 ### Orchestra 投委会
@@ -191,7 +183,7 @@ Orchestra 保持前后端独立服务：前端 `3001`，API `8011`。Newma-Desk 
 | 账户与组合 | `workspace=workspace` |
 | 运行设置 | `workspace=settings` |
 
-投委讨论、历史、报告、席位、Skills 和数据工具进入投决会；账户与组合进入交易、风控与组合管理；运行设置进入其他。项目内部主导航在嵌入模式下隐藏，避免与 Newma-Desk 领域导航重复。
+Orchestra 的八个工作区统一进入“投决”，作为同一投决协作系统呈现。项目内部主导航在嵌入模式下隐藏，避免与 Newma-Desk 导航重复。
 Desk 右侧 Agent 会使用 Orchestra 前后端的共同项目目录，因此同一次 Mod 修改任务可以同时理解界面和服务端契约。
 
 ## 本地启动
@@ -257,7 +249,7 @@ services/api/.venv/bin/python -m uvicorn vibe_visualization_api.main:app \
   --app-dir services/api --host 127.0.0.1 --port 8911
 ```
 
-注册默认“情报”和“市场” Mods：
+注册默认基础 Mod：
 
 ```bash
 npm run mods:register
@@ -269,7 +261,7 @@ npm run mods:register
 npm run mods:standardize
 ```
 
-完成后默认只会出现“情报”和“市场”；已有环境中已安装的项目保持不变。`mods:standardize` 用于管理员显式补齐全部官方商店，商店继续提供 Git 来源、安装状态和更新入口。
+完成后会注册商店中标记为 `defaultInstall` 的 20 个基础 Mod；已有环境中已安装的项目保持不变。`mods:standardize` 用于管理员显式补齐全部官方商店，商店继续提供 Git 来源、安装状态和更新入口。
 
 ```bash
 VITE_API_PROXY_TARGET=http://127.0.0.1:8911 \

@@ -179,6 +179,8 @@ def test_agent_preferences_can_select_default_and_module_override(
         "userId": "local-user",
         "defaultAdapter": "fake",
         "moduleOverrides": {},
+        "profileTargets": {},
+        "moduleProfileOverrides": {},
         "updatedAt": None,
     }
 
@@ -187,6 +189,14 @@ def test_agent_preferences_can_select_default_and_module_override(
         json={
             "defaultAdapter": "fake",
             "moduleOverrides": {"market-daily": "fake"},
+            "profileTargets": {
+                "deep": "fake",
+                "batch": "fake",
+                "edit": "fake",
+            },
+            "moduleProfileOverrides": {
+                "market-daily": {"batch": "fake"},
+            },
         },
     )
 
@@ -194,10 +204,15 @@ def test_agent_preferences_can_select_default_and_module_override(
     assert updated.json()["moduleOverrides"] == {"market-daily": "fake"}
     created = client.post(
         "/api/agent/tasks",
-        json={"moduleId": "market-daily", "prompt": "hello"},
+        json={
+            "moduleId": "market-daily",
+            "profile": "batch",
+            "prompt": "hello",
+        },
     )
     assert created.status_code == 202
     assert created.json()["request"]["adapter"] == "fake"
+    assert created.json()["request"]["profile"] == "batch"
 
 
 def test_agent_preferences_reject_unknown_adapter(client: TestClient) -> None:

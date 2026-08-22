@@ -384,13 +384,24 @@ def test_suite_rejects_unsafe_project_logo(logo: dict[str, str]) -> None:
 @pytest.mark.parametrize(
     ("relative_path", "expected_domain"),
     [
-        ("mods/research-suite/suite.json", "fundamentals"),
+        ("mods/research-suite/suite.json", "equity-research"),
+        ("mods/research-strategy-suite/suite.json", "strategy-research"),
+        ("mods/research-fund-suite/suite.json", "fund-research"),
+        ("mods/professional-fund-research-suite/suite.json", "fund-research"),
+        ("mods/research-industry-suite/suite.json", "industry-research"),
+        ("mods/instock-market-suite/suite.json", "market-surface"),
+        ("mods/instock-market-analysis-suite/suite.json", "market-surface"),
+        ("mods/instock-industry-suite/suite.json", "industry-research"),
+        ("mods/instock-equity-suite/suite.json", "strategy-research"),
+        ("mods/instock-company-suite/suite.json", "equity-research"),
         ("mods/trading-suite/suite.json", "quant-research"),
-        ("mods/portfolio-suite/suite.json", "trading-risk-portfolio"),
+        ("mods/trading-execution-suite/suite.json", "trading"),
+        ("mods/portfolio-suite/suite.json", "asset-allocation"),
+        ("mods/portfolio-trading-suite/suite.json", "trading"),
+        ("mods/portfolio-risk-suite/suite.json", "risk-management"),
         ("mods/orchestra-suite/suite.json", "investment-committee"),
-        ("mods/calendar-effect-suite/suite.json", "tactical-timing"),
-        ("mods/deepsee-suite/suite.json", "deepsee-suite"),
-        ("mods/creator-studio-suite/suite.json", "creator-studio-suite"),
+        ("mods/deepsee-suite/suite.json", "deepsee"),
+        ("mods/creator-studio-suite/suite.json", "creator-studio"),
     ],
 )
 def test_first_party_suite_remains_intact_in_one_investment_domain(
@@ -417,6 +428,24 @@ def test_first_party_suite_remains_intact_in_one_investment_domain(
         == descriptor.manifest.navigation.project.name
         for descriptor, _ in expanded
     )
+
+
+def test_suite_page_actions_extend_shared_actions() -> None:
+    repository_root = Path(__file__).resolve().parents[4]
+    suite = StoreModSuiteDescriptor.model_validate_json(
+        (repository_root / "mods/creator-studio-suite/suite.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    expanded = {
+        descriptor.id: descriptor
+        for descriptor, _ in expand_mod_suite(suite)
+    }
+    brief_actions = expanded["creator-brief"].manifest.actions
+
+    assert brief_actions["creator.node.run"].binding.type == "local"
+    assert brief_actions["creator.brief.generate"].binding.type == "agent"
 
 
 @pytest.mark.asyncio
@@ -611,6 +640,11 @@ def test_store_lists_local_catalog_and_installs_descriptor_from_git(
     assert installed.json()["mod"]["manifest"]["entry"]["url"] == (
         "https://research.example/daily-review"
     )
+    assert installed.json()["mod"]["manifest"]["presentation"] == {
+        "englishName": "Daily Review",
+        "description": DESCRIPTOR["description"],
+        "titleOwner": "host",
+    }
     assert unchanged.status_code == 200
     assert unchanged.json()["action"] == "unchanged"
     assert catalog_after.json()["mods"][0]["installState"] == "installed"

@@ -2,7 +2,7 @@
 
 ## Mod Suite
 
-由同一个导入项目提供的一组相关 Mod 页面。Mod Suite 只声明一次完整项目身份、所属投资栏目、运行环境和共享能力；Suite Discovery 会把页面展开为独立 Mod，使现有权限、数据路由、Agent Context 与运行时隔离继续按页面生效，但不得改变项目边界。
+围绕同一业务能力组织的一组相关 Mod 页面。Mod Suite 只声明一次完整项目身份、所属投资栏目、运行环境和共享能力；Suite Discovery 会把页面展开为独立 Mod，使现有权限、数据路由、Agent Context 与运行时隔离继续按页面生效。同一运行时可提供多个 Suite，但同一页面只能有一个主归属。
 
 ## Navigation Descriptor
 
@@ -10,15 +10,15 @@
 
 ## Investment Column Identity
 
-由 `navigation.project` 声明、并由同一 Mod Suite 的全部展开页面继承的稳定栏目身份。其 ID 必须属于十四个核心投研栏目或 `other`；它决定一级导航归属，但不充当完整项目的设置、数据或 Agent 作用域。
+由 `navigation.project` 声明、并由同一 Mod Suite 的全部展开页面继承的稳定栏目身份。其 ID 必须属于十六个核心投研栏目或自定义项目；它决定一级导航归属，但不充当完整项目的设置、数据或 Agent 作用域。
 
 ## Complete Project Identity
 
-由 Suite ID 和同 ID 的 `navigation.directory.id` 共同声明。它代表不可拆分的完整来源项目，是项目设置、统一数据路由和 Agent Workspace 的稳定作用域。同一 Suite 的所有页面必须继承相同栏目和完整项目身份。
+由 Suite ID 和同 ID 的 `navigation.directory.id` 共同声明。它代表不可拆分的完整业务项目，是项目设置、统一数据路由和 Agent Workspace 的稳定作用域。同一 Suite 的所有页面必须继承相同栏目和完整项目身份；共享源码、端口或数据库不等于必须共用一个 Suite。
 
 ## Project Rail
 
-Newma-Desk 左侧只显示十四个核心投研栏目与“其他”的中文方形短标。选择栏目后，二级 Project Panel 按完整来源项目分组，呈现项目名称、全部页面和项目设置入口。
+Newma-Desk 左侧显示十六个核心栏目与用户自定义项目的中文方形短标。选择栏目后，二级 Project Panel 直接呈现该栏全部页面，并在底部提供栏目数据与能力设置。
 
 ## Suite Discovery
 

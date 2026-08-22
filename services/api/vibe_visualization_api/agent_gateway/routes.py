@@ -112,6 +112,7 @@ async def agent_preferences(
 @router.put("/api/agent/preferences", response_model=AgentPreferences)
 async def update_agent_preferences(
     update: AgentPreferencesUpdate,
+    request: Request,
     user_id: str = Header(
         default="local-user",
         alias="X-User-Id",
@@ -120,10 +121,22 @@ async def update_agent_preferences(
     ),
     service: AgentTaskService = Depends(get_agent_task_service),
 ) -> AgentPreferences:
+    quick_targets = [
+        update.profile_targets.get("quick"),
+        *(
+            targets.get("quick")
+            for targets in update.module_profile_overrides.values()
+        ),
+    ]
+    for adapter_id in quick_targets:
+        if adapter_id:
+            request.app.state.model_gateway_service.validate_adapter(adapter_id)
     return await service.set_preferences(
         user_id,
         update.default_adapter,
         update.module_overrides,
+        update.profile_targets,
+        update.module_profile_overrides,
     )
 
 

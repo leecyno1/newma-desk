@@ -66,7 +66,11 @@ def get_wiki_service(
     )
 
 
-@router.get("/subjects", response_model=list[WikiSubjectMatch])
+@router.get(
+    "/subjects",
+    response_model=list[WikiSubjectMatch],
+    response_model_exclude_none=True,
+)
 async def search_subjects(
     query: str = Query(min_length=1, max_length=80),
     subject_type: str | None = Query(
@@ -96,6 +100,7 @@ async def list_mod_profiles(
 @router.post(
     "/link-resolutions",
     response_model=WikiLinkResolutionResponse,
+    response_model_exclude_none=True,
 )
 async def resolve_links(
     resolution: WikiLinkResolutionRequest,

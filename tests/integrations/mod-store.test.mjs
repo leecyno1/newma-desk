@@ -89,30 +89,64 @@ test("validates the project Mod store and installs the core Desk projects", asyn
       NEWMA_DESK_SEVEN_CYCLE_WEB_URL: "https://cycle.example",
       NEWMA_DESK_INSTOCK_WEB_URL: "https://instock.example",
       NEWMA_DESK_ORCHESTRA_WEB_URL: "https://orchestra.example",
+      NEWMA_DESK_FUND_RESEARCH_WEB_URL: "https://fund.example",
     },
   });
   const defaults = store.mods.filter((mod) => mod.defaultInstall);
 
   assert.equal(store.mods.length, new Set(store.mods.map((mod) => mod.id)).size);
-  assert.ok(store.mods.length >= 42);
+  assert.ok(store.mods.length >= 93);
   assert.deepEqual(store.suites.map((suite) => suite.id), [
     "research-suite",
+    "research-strategy-suite",
+    "research-fund-suite",
+    "professional-fund-research-suite",
+    "research-industry-suite",
+    "instock-market-suite",
+    "instock-market-analysis-suite",
+    "instock-industry-suite",
+    "instock-equity-suite",
+    "instock-company-suite",
     "trading-suite",
+    "trading-execution-suite",
     "portfolio-suite",
+    "portfolio-trading-suite",
+    "portfolio-risk-suite",
     "deepsee-suite",
     "orchestra-suite",
-    "calendar-effect-suite",
     "creator-studio-suite",
   ]);
-  assert.deepEqual(store.retiredMods, ["investment-settings", "quant-agent", "event-intelligence"]);
-  assert.deepEqual(defaults.map((mod) => mod.id), ["global-situation"]);
+  assert.deepEqual(store.retiredMods, [
+    "investment-settings", "quant-agent", "event-intelligence",
+    "daily-review", "market-scanner", "stock-research",
+    "calendar-effect-overview", "calendar-effect-history",
+  ]);
+  assert.deepEqual(defaults.map((mod) => mod.id), [
+    "global-situation",
+    "fed-rates",
+    "hormuz-conflict",
+    "us-china-trade",
+    "policy-analysis",
+    "policy-calendar",
+    "policy-flow",
+    "policy-interpretation",
+    "capital-flow",
+    "capital-overview",
+    "capital-sectors",
+    "capital-cross-border",
+    "capital-liquidity",
+    "capital-etf",
+    "capital-emotion",
+    "fund-discover",
+    "fund-research-library",
+    "fund-ai-analysis",
+    "fund-recommendations",
+    "fund-attribution",
+    "fund-portfolio",
+  ]);
   assert.deepEqual(
     [...new Set(defaults.map((mod) => mod.manifest.navigation.project.id))].sort(),
-    ["global-intelligence"],
-  );
-  assert.equal(
-    store.mods.find((mod) => mod.id === "daily-review").manifest.entry.url,
-    "https://investment.example/mod-runtime/research/daily-review",
+    ["capital-flow", "fund-research", "global-intelligence", "industry-research", "policy-intelligence"],
   );
   assert.equal(
     store.mods.find((mod) => mod.id === "alpha-lab").manifest.entry.url,
@@ -176,10 +210,10 @@ test("validates the project Mod store and installs the core Desk projects", asyn
   );
   assert.equal(
     store.mods.find((mod) => mod.id === "deepsee-overview").manifest.navigation.project.id,
-    "deepsee-suite",
+    "deepsee",
   );
   for (const mod of store.mods.filter((item) => item.id.startsWith("deepsee-"))) {
-    assert.equal(mod.manifest.navigation.project.id, "deepsee-suite");
+    assert.equal(mod.manifest.navigation.project.id, "deepsee");
     assert.equal(mod.manifest.navigation.directory.id, "deepsee-suite");
     assert.equal(mod.manifest.navigation.directory.label, "DeepSee");
   }
@@ -187,78 +221,165 @@ test("validates the project Mod store and installs the core Desk projects", asyn
     store.mods.find((mod) => mod.id === "deepsee-ai-insights").manifest.permissions,
     ["deepsee.read", "deepsee.ai"],
   );
+  assert.deepEqual(
+    store.mods.find((mod) => mod.id === "deepsee-ai-insights").manifest.actions["deepsee.insights.analyze"].binding,
+    {
+      type: "agent",
+      capability: "deepsee.insights.analyze",
+      profile: "deep",
+      memoryScope: "user-agent-mod",
+    },
+  );
+  assert.deepEqual(
+    store.mods.find((mod) => mod.id === "deepsee-news").manifest.actions["deepsee.news.batch-analyze"].binding,
+    {
+      type: "agent",
+      capability: "deepsee.news.batch-analyze",
+      profile: "batch",
+      memoryScope: "task",
+    },
+  );
+  const deepseeBatchActions = [
+    ["deepsee-wechat", "deepsee.wechat.batch-summarize", 100],
+    ["deepsee-email", "deepsee.email.batch-summarize", 50],
+    ["deepsee-minutes", "deepsee.minutes.batch-summarize", 50],
+    ["deepsee-minutes", "deepsee.minutes.batch-refine", 50],
+    ["deepsee-media", "deepsee.media.batch-summarize", 10],
+    ["deepsee-official-accounts", "deepsee.official-accounts.batch-summarize", 10],
+  ];
+  for (const [modId, actionId, maxItems] of deepseeBatchActions) {
+    const action = store.mods.find((mod) => mod.id === modId).manifest.actions[actionId];
+    assert.deepEqual(action.binding, {
+      type: "agent",
+      capability: actionId,
+      profile: "batch",
+      memoryScope: "task",
+    });
+    assert.equal(action.inputSchema.properties.itemIds.maxItems, maxItems);
+  }
+  const creatorAgentActions = [
+    ["creator-workbench", "creator.intake.batch-extract", "batch", "task"],
+    ["creator-brief", "creator.brief.generate", "deep", "user-agent-mod"],
+    ["creator-draft", "creator.draft.generate", "deep", "user-agent-mod"],
+    ["creator-transwrite", "creator.transwrite.batch-generate", "batch", "task"],
+    ["creator-publish", "creator.publish.package", "batch", "task"],
+    ["creator-postmortem", "creator.postmortem.analyze", "deep", "user-agent-mod"],
+  ];
+  for (const [modId, actionId, profile, memoryScope] of creatorAgentActions) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.deepEqual(mod.manifest.actions[actionId].binding, {
+      type: "agent",
+      capability: actionId,
+      profile,
+      memoryScope,
+    });
+    assert.equal(mod.manifest.actions["creator.node.run"].binding.type, "local");
+  }
   assert.equal(
     store.mods.find((mod) => mod.id === "deepsee-settings").manifest.navigation.icon,
     "settings",
   );
-  for (const modId of [
-    "portfolio-brief",
-    "portfolio-activities",
-    "portfolio-risk",
-    "portfolio-allocation",
-    "portfolio-performance",
-    "portfolio-settings",
-  ]) {
+  for (const modId of ["portfolio-brief", "portfolio-allocation", "portfolio-scenarios", "portfolio-performance", "portfolio-settings"]) {
     const mod = store.mods.find((item) => item.id === modId);
-    assert.equal(mod.manifest.navigation.project.id, "trading-risk-portfolio");
+    assert.equal(mod.manifest.navigation.project.id, "asset-allocation");
     assert.equal(mod.manifest.navigation.directory.id, "portfolio-suite");
   }
+  assert.equal(store.mods.find((item) => item.id === "portfolio-activities").manifest.navigation.project.id, "trading");
+  assert.equal(store.mods.find((item) => item.id === "portfolio-activities").suiteId, "portfolio-trading-suite");
+  assert.equal(store.mods.find((item) => item.id === "portfolio-risk").manifest.navigation.project.id, "risk-management");
+  assert.equal(store.mods.find((item) => item.id === "portfolio-risk").suiteId, "portfolio-risk-suite");
   for (const modId of [
-    "daily-review", "macro-monitor", "watchlist", "idea-funnel",
-    "stock-research", "industry-map", "etf-research",
     "earnings-workbench", "peer-comparison", "valuation-workbench",
     "research-memo", "thesis-tracker", "research-library", "research-notes",
   ]) {
     const mod = store.mods.find((item) => item.id === modId);
     assert.equal(mod.suiteId, "research-suite");
-    assert.equal(mod.manifest.navigation.project.id, "fundamentals");
+    assert.equal(mod.manifest.navigation.project.id, "equity-research");
     assert.equal(mod.manifest.navigation.directory.id, "research-suite");
   }
+  assert.equal(store.mods.find((item) => item.id === "idea-funnel").suiteId, "research-strategy-suite");
+  assert.equal(store.mods.find((item) => item.id === "idea-funnel").manifest.navigation.project.id, "strategy-research");
+  assert.equal(store.mods.find((item) => item.id === "etf-research").suiteId, "research-fund-suite");
+  assert.equal(store.mods.find((item) => item.id === "etf-research").manifest.navigation.project.id, "fund-research");
+  for (const modId of ["industry-map"]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.suiteId, "research-industry-suite");
+    assert.equal(mod.manifest.navigation.project.id, "industry-research");
+    assert.equal(mod.manifest.navigation.directory.id, "research-industry-suite");
+  }
+  const marketWorkbench = store.mods.find((item) => item.id === "instock-market-workbench");
+  assert.equal(marketWorkbench.suiteId, "instock-market-suite");
+  assert.equal(marketWorkbench.manifest.navigation.label, "市场复盘");
+  assert.equal(marketWorkbench.manifest.navigation.project.id, "market-surface");
+  assert.equal(marketWorkbench.manifest.navigation.directory.id, "instock-market-suite");
+
+  const marketMap = store.mods.find((item) => item.id === "instock-market-map");
+  assert.equal(marketMap.suiteId, undefined);
+  assert.equal(marketMap.manifest.navigation.project.id, "market-surface");
+  assert.equal(marketMap.manifest.navigation.directory.id, "market-suite");
+  for (const modId of ["instock-rotation", "instock-industry-chain"]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.suiteId, "instock-industry-suite");
+    assert.equal(mod.manifest.navigation.project.id, "industry-research");
+    assert.equal(mod.manifest.navigation.directory.id, "instock-industry-suite");
+  }
+  for (const modId of ["instock-stock-candidates", "instock-technical-signals", "instock-strategy-validation", "instock-research-book"]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.suiteId, "instock-equity-suite");
+    assert.equal(mod.manifest.navigation.project.id, "strategy-research");
+    assert.equal(mod.manifest.navigation.directory.id, "instock-equity-suite");
+  }
+  for (const modId of ["instock-stock-research", "instock-event-flow"]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.suiteId, "instock-company-suite");
+    assert.equal(mod.manifest.navigation.project.id, "equity-research");
+  }
+  assert.equal(store.mods.find((item) => item.id === "instock-czsc").suiteId, "instock-market-analysis-suite");
+  assert.equal(store.mods.find((item) => item.id === "instock-czsc").manifest.navigation.project.id, "market-surface");
+  for (const modId of ["watchlist"]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.manifest.navigation.project.id, "strategy-research");
+    assert.equal(mod.manifest.navigation.directory.id, "strategy-watchlist-suite");
+  }
+  for (const modId of ["seven-cycle-research", "macro-monitor"]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.manifest.navigation.project.id, "fundamentals");
+    assert.equal(mod.manifest.navigation.directory.id, "macro-suite");
+  }
   for (const modId of [
-    "global-situation", "news-radar", "event-timeline", "catalyst-calendar",
+    "global-situation", "news-radar", "catalyst-calendar",
   ]) {
     const mod = store.mods.find((item) => item.id === modId);
     assert.equal(mod.manifest.navigation.project.id, "global-intelligence");
     assert.equal(mod.manifest.navigation.directory.id, "global-suite");
   }
+  assert.equal(store.mods.find((mod) => mod.id === "event-timeline").manifest.navigation.project.id, "market-surface");
   assert.equal(store.mods.find((mod) => mod.id === "policy-analysis").manifest.navigation.project.id, "policy-intelligence");
   assert.equal(store.mods.find((mod) => mod.id === "policy-analysis").manifest.navigation.directory.id, "policy-suite");
   assert.equal(store.mods.find((mod) => mod.id === "capital-flow").manifest.navigation.project.id, "capital-flow");
   assert.equal(store.mods.find((mod) => mod.id === "capital-flow").manifest.navigation.directory.id, "capital-flow-suite");
-  for (const modId of ["calendar-effect-overview", "calendar-effect-history"]) {
-    const mod = store.mods.find((item) => item.id === modId);
-    assert.equal(mod.suiteId, "calendar-effect-suite");
-    assert.equal(mod.manifest.navigation.project.id, "tactical-timing");
-  }
   for (const modId of [
     "quant-overview", "alpha-lab", "backtest-lab", "factor-correlation",
-    "trade-desk", "trading-settings",
+    "trading-settings",
   ]) {
     const mod = store.mods.find((item) => item.id === modId);
     assert.equal(mod.suiteId, "trading-suite");
     assert.equal(mod.manifest.navigation.project.id, "quant-research");
     assert.equal(mod.manifest.navigation.directory.id, "trading-suite");
   }
+  assert.equal(store.mods.find((mod) => mod.id === "trade-desk").suiteId, "trading-execution-suite");
+  assert.equal(store.mods.find((mod) => mod.id === "trade-desk").manifest.navigation.project.id, "trading");
+  for (const modId of ["fund-discover", "fund-research-library", "fund-ai-analysis", "fund-recommendations", "fund-attribution", "fund-portfolio"]) {
+    const mod = store.mods.find((item) => item.id === modId);
+    assert.equal(mod.suiteId, "professional-fund-research-suite");
+    assert.equal(mod.manifest.navigation.project.id, "fund-research");
+    assert.match(mod.manifest.entry.url, /^https:\/\/fund\.example\/mod\/fund-research\//);
+  }
   assert.equal(
     store.mods.find((mod) => mod.id === "watchlist").manifest.schemaVersion,
     "1.1",
   );
-  const stockResearch = store.mods.find((mod) => mod.id === "stock-research");
-  assert.deepEqual(stockResearch.manifest.permissions, [
-    "investment.read",
-    "storage.read",
-    "storage.write",
-  ]);
-  assert.deepEqual(stockResearch.manifest.storage, {
-    mode: "desk-managed",
-    namespaces: [{
-      id: "research-history",
-      scope: "user-workspace",
-      schemaVersion: 1,
-      quotaMb: 2,
-      maxItemKb: 64,
-    }],
-  });
+  const stockResearch = store.mods.find((mod) => mod.id === "instock-stock-research");
   assert.deepEqual(stockResearch.manifest.wiki.subjectTypes, ["security"]);
   assert.equal(stockResearch.manifest.wiki.entrypoints[0].intent, "equity.research");
   const industryMap = store.mods.find((mod) => mod.id === "industry-map");
@@ -273,18 +394,21 @@ test("validates the project Mod store and installs the core Desk projects", asyn
     "alpha-lab",
     "backtest-lab",
     "factor-correlation",
-    "trade-desk",
     "trading-settings",
   ]) {
     assert.equal(store.mods.find((mod) => mod.id === modId).manifest.schemaVersion, "1.1");
   }
   assert.equal(
     store.mods.find((mod) => mod.id === "watchlist").manifest.navigation.groupLabel,
-    "宏观面",
+    "策略",
+  );
+  assert.equal(
+    store.mods.find((mod) => mod.id === "instock-stock-research").manifest.navigation.groupLabel,
+    "公司",
   );
   assert.equal(
     store.mods.find((mod) => mod.id === "trade-desk").manifest.navigation.groupLabel,
-    "量化研究",
+    "交易",
   );
   assert.equal(
     store.mods.find((mod) => mod.id === "trading-settings").manifest.category,
@@ -663,10 +787,14 @@ test("standardizes the full store without disabling official or third-party Mods
   assert.equal(result.skipped.length, store.mods.length);
   assert.deepEqual(
     result.disabled.map((mod) => mod.moduleId),
-    ["investment-settings", "quant-agent", "event-intelligence"],
+    [
+      "investment-settings", "quant-agent", "event-intelligence",
+      "daily-review", "market-scanner", "stock-research",
+      "calendar-effect-overview", "calendar-effect-history",
+    ],
   );
   assert.equal(
     calls.filter((call) => call.init.method === "POST").length,
-    3,
+    8,
   );
 });

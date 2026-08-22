@@ -75,6 +75,7 @@ export function createHttpProbe(
   url,
   {
     expectedService,
+    expectedText,
     expectHtml = !expectedService,
     degradedStatuses = [],
     fetchImpl = globalThis.fetch,
@@ -98,6 +99,19 @@ export function createHttpProbe(
         const contentType = response.headers.get("content-type") || "";
         if (state === SERVICE_STATE.READY && !contentType.includes("text/html")) {
           return unavailable("health endpoint did not return HTML", {
+            httpStatus: response.status,
+          });
+        }
+        return {
+          state,
+          httpStatus: response.status,
+          reason: state === SERVICE_STATE.DEGRADED ? `HTTP ${response.status}` : undefined,
+        };
+      }
+      if (expectedText !== undefined) {
+        const body = (await response.text()).trim();
+        if (state === SERVICE_STATE.READY && body !== expectedText) {
+          return unavailable("health response text did not match", {
             httpStatus: response.status,
           });
         }
@@ -210,6 +224,7 @@ export class RuntimeSupervisor {
     monitorIntervalMs = 5_000,
     monitorFailureThreshold = 3,
     restartGraceMs = 1_000,
+    optionalRestartCooldownMs = 60_000,
     portReleaseTimeoutMs = 5_000,
     portPollIntervalMs = 100,
     spawnImpl = nodeSpawn,
@@ -228,6 +243,7 @@ export class RuntimeSupervisor {
     this.monitorIntervalMs = monitorIntervalMs;
     this.monitorFailureThreshold = Math.max(1, Math.floor(monitorFailureThreshold));
     this.restartGraceMs = Math.max(0, restartGraceMs);
+    this.optionalRestartCooldownMs = Math.max(0, optionalRestartCooldownMs);
     this.portReleaseTimeoutMs = Math.max(0, portReleaseTimeoutMs);
     this.portPollIntervalMs = Math.max(1, portPollIntervalMs);
     this.spawnImpl = spawnImpl;
@@ -265,6 +281,7 @@ export class RuntimeSupervisor {
       monitorInFlight: false,
       restartInFlight: false,
       coreFailureReported: false,
+      nextRestartAt: 0,
     };
     this.records.set(service.id, record);
     return record;
@@ -278,7 +295,7 @@ export class RuntimeSupervisor {
     const child = this.spawnImpl(service.command, service.commandArgs || [], {
       cwd: service.cwd,
       env: { ...process.env, ...service.env },
-      stdio: "inherit",
+      stdio: service.stdio || "inherit",
       detached: this.platform !== "win32",
     });
     record.child = child;
@@ -385,6 +402,7 @@ export class RuntimeSupervisor {
       await this.stopOwnedChild(record);
       const result = this.handleStartupFailure(service, error);
       if (service.criticality !== SERVICE_CRITICALITY.CORE && !this.shuttingDown) {
+        record.nextRestartAt = this.now() + this.optionalRestartCooldownMs;
         this.scheduleMonitor(record);
       }
       return result;
@@ -472,11 +490,19 @@ export class RuntimeSupervisor {
       record.state = result.state;
       if (result.state !== SERVICE_STATE.UNAVAILABLE) {
         record.consecutiveFailures = 0;
+        record.nextRestartAt = 0;
         record.phase = "running";
         record.coreFailureReported = false;
         if (previousState === SERVICE_STATE.UNAVAILABLE) {
           this.logger.log(`恢复 ${record.service.label}${result.reason ? `：${result.reason}` : ""}`);
         }
+        return result;
+      }
+
+      if (
+        record.service.criticality !== SERVICE_CRITICALITY.CORE
+        && record.nextRestartAt > this.now()
+      ) {
         return result;
       }
 
@@ -548,6 +574,7 @@ export class RuntimeSupervisor {
       record.phase = "running";
       record.launch = "started";
       record.consecutiveFailures = 0;
+      record.nextRestartAt = 0;
       record.coreFailureReported = false;
       const label = result.state === SERVICE_STATE.READY ? "重启就绪" : "重启后降级";
       this.logger.log(`${label} ${record.service.label}${result.reason ? `：${result.reason}` : ""}`);
@@ -569,6 +596,8 @@ export class RuntimeSupervisor {
           }
         }
       } else {
+        record.consecutiveFailures = 0;
+        record.nextRestartAt = this.now() + this.optionalRestartCooldownMs;
         this.logger.error(`可选 Mod 已降级：${record.service.label}；${failure.message}`);
       }
       return unavailable(failure.message);

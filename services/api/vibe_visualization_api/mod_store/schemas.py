@@ -32,21 +32,22 @@ SUITE_ENV_PATTERN = r"^(?:NEWMA_DESK|NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$"
 RUNTIME_ID_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
 RUNTIME_WORKSPACE_PATTERN = r"^[a-z][a-z0-9-]{1,31}$"
 INVESTMENT_DOMAIN_IDS = {
-    "market-surface",
-    "fundamentals",
     "global-intelligence",
-    "capital-flow",
-    "event-intelligence",
+    "fundamentals",
     "policy-intelligence",
-    "cycle-research",
-    "asset-allocation",
-    "tactical-timing",
+    "capital-flow",
+    "market-surface",
+    "industry-research",
     "equity-research",
     "fund-research",
-    "bond-research",
+    "asset-allocation",
+    "trading",
+    "strategy-research",
+    "risk-management",
     "quant-research",
     "investment-committee",
-    "trading-risk-portfolio",
+    "creator-studio",
+    "deepsee",
 }
 
 
@@ -546,6 +547,10 @@ def expand_mod_suite(
         merged_manifest = {
             **shared_manifest,
             **page_manifest,
+            "actions": {
+                **shared_manifest.get("actions", {}),
+                **page_manifest.get("actions", {}),
+            },
             "navigation": navigation,
         }
         merged_schema_version = merged_manifest.get("schemaVersion", "1.0")

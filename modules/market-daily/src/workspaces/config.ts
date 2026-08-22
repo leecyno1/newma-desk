@@ -2,6 +2,8 @@ import type { ModPageContext } from "@newma-desk/contracts";
 
 export type MarketWorkspaceKind =
   | "scanner"
+  | "sentiment"
+  | "technical"
   | "multi-timeframe"
   | "relative-strength"
   | "event-timeline"
@@ -20,7 +22,7 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
   scanner: {
     kind: "scanner",
     modId: "market-scanner",
-    title: "市场扫描器",
+    title: "选股扫描",
     description: "从共享自选与成交额榜中筛选量价、趋势和估值候选。",
     accent: "var(--vibe-accent)",
     blocks: [
@@ -28,10 +30,34 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
       { id: "scanner-results", type: "security-table", title: "候选标的" },
     ],
   },
+  sentiment: {
+    kind: "sentiment",
+    modId: "market-sentiment",
+    title: "情绪分析",
+    description: "用市场宽度、涨跌停、行业扩散和成交活跃度观察交易情绪。",
+    accent: "var(--vibe-accent)",
+    blocks: [
+      { id: "sentiment-score", type: "market-sentiment", title: "情绪温度" },
+      { id: "sentiment-breadth", type: "market-breadth", title: "市场宽度" },
+      { id: "sentiment-sectors", type: "sector-diffusion", title: "行业扩散" },
+    ],
+  },
+  technical: {
+    kind: "technical",
+    modId: "market-technical",
+    title: "技术分析",
+    description: "从真实 OHLCV 计算趋势、波动、量价确认、回撤和支撑阻力。",
+    accent: "var(--vibe-accent)",
+    blocks: [
+      { id: "technical-regime", type: "trend-regime", title: "趋势状态" },
+      { id: "technical-metrics", type: "technical-metrics", title: "技术指标" },
+      { id: "technical-levels", type: "support-resistance", title: "支撑阻力" },
+    ],
+  },
   "multi-timeframe": {
     kind: "multi-timeframe",
     modId: "multi-timeframe",
-    title: "多周期看盘",
+    title: "多周期分析",
     description: "日线、60 分钟、15 分钟与 5 分钟图表联动。",
     accent: "var(--vibe-accent)",
     blocks: [
@@ -42,7 +68,7 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
   "relative-strength": {
     kind: "relative-strength",
     modId: "relative-strength",
-    title: "相对强弱地图",
+    title: "强弱对比",
     description: "比较自选标的的归一化收益、趋势和阶段排名。",
     accent: "var(--vibe-accent)",
     blocks: [
@@ -64,7 +90,7 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
   "trading-replay": {
     kind: "trading-replay",
     modId: "trading-replay",
-    title: "交易回放室",
+    title: "复盘回放",
     description: "隐藏未来行情，逐根播放 K 线并记录模拟决策。",
     accent: "var(--vibe-accent)",
     blocks: [

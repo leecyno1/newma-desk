@@ -1,6 +1,6 @@
 # Newma-Desk 产品词汇与命名
 
-日期：2026-07-21
+更新日期：2026-08-18
 
 ## 产品定义
 
@@ -35,22 +35,9 @@ Newma-Desk 是一个面向人和 Agent 的可生长工作台。用户可以把�
 
 ## 默认导航
 
-| 分组 | 中文名称 | 英文名称 | 建议 ID |
-| --- | --- | --- | --- |
-| 今日 | 今日总览 | Today | `today` |
-| 今日 | 每日复盘 | Daily Review | `daily-review` |
-| 市场 | 市场行情 | Market Pulse | `market-pulse` |
-| 市场 | 自选股 | Watchlist | `watchlist` |
-| 市场 | 资讯雷达 | News Radar | `news-radar` |
-| 市场 | 持仓研报 | Portfolio Brief | `portfolio-brief` |
-| 研究 | 个股研究 | Stock Research | `stock-research` |
-| 研究 | 产业链研究 | Industry Map | `industry-map` |
-| 研究 | 研究资料库 | Research Library | `research-library` |
-| 量化 | 因子实验室 | Alpha Lab | `alpha-lab` |
-| 量化 | 回测实验室 | Backtest Lab | `backtest-lab` |
-| 交易 | 交易台 | Trade Desk | `trade-desk` |
+一级模块固定为：全球、宏观、政策、资金、市场、行业、公司、基金、配置、交易、策略、风险、量化、投决、创作、深瞳。显示名称使用两个汉字；稳定 ID 和完整能力边界见 [`investment-domain-mod-standard.md`](./investment-domain-mod-standard.md)。
 
-`Alpha Zoo` 是 Alpha Lab 内的 View；订单记录和持仓管理是 Trade Desk 内的 View，不单独占用一级导航。
+二级面板直接显示 Mod 页面，不显示来源项目文件夹。自定义项目直接进入一级列表；Desk 的 Provider、权限和 Agent 接入统一放在面板底部“栏目数据与能力”。
 
 当前示例的历史 ID 仍为 `market-daily`，但产品名称和 npm 包已经使用 Market Pulse。等数据迁移机制稳定后，再将持久化 ID 迁移为 `market-pulse`，避免现在破坏既有 Snapshot、Agent Session 和上游调用。
 

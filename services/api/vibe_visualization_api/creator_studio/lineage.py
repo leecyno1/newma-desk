@@ -114,6 +114,7 @@ class ArtifactLineage:
             "path": artifact_path,
             "label": artifact.get("label") or artifact_type,
             "status": artifact_status,
+            "origin": str(artifact.get("origin") or "deliverable"),
             "version": version,
             "contentDigest": self._content_digest(artifact_type, artifact_path),
             "parents": self._parents(state),

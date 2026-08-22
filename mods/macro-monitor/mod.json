@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1.0",
+  "id": "macro-monitor",
+  "name": "宏观观察",
+  "description": "从增长、价格、流动性、金融条件和跨资产定价识别宏观状态，连接事件日历、传导链与情景观察。",
+  "version": "0.1.0",
+  "publisher": "Newma-Desk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": ["宏观", "经济日历", "PMI", "通胀", "流动性", "经济预测"],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "vibe-research",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911",
+    "route": "/mod-runtime/research/macro-monitor"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "宏观",
+      "groupOrder": 10,
+      "itemOrder": 10,
+      "label": "宏观观察",
+      "directory": {
+        "id": "macro-suite",
+        "label": "宏观研究",
+        "order": 5
+      },
+      "project": {
+        "id": "fundamentals",
+        "name": "宏观",
+        "order": 10,
+        "description": "周期叠加、经济基本面、增长通胀、金融条件与经济预测。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {
+      "level": 3,
+      "bridgeProtocol": "1.0",
+      "sdkVersion": "^0.1.0",
+      "viewSpecVersion": "1.0"
+    },
+    "permissions": ["market.read"],
+    "dataServices": ["market-data"],
+    "actions": {},
+    "events": {
+      "emits": [],
+      "accepts": []
+    }
+  }
+}

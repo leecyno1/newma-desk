@@ -100,6 +100,20 @@ test("classifies an explicit HTTP 409 as degraded data freshness", async () => {
   });
 });
 
+test("supports plain-text health endpoints", async () => {
+  const probe = createHttpProbe("http://example.test/healthz", {
+    expectHtml: false,
+    expectedText: "ok",
+    fetchImpl: async () => new Response("ok", { status: 200 }),
+  });
+
+  assert.deepEqual(await probe(), {
+    state: SERVICE_STATE.READY,
+    httpStatus: 200,
+    reason: undefined,
+  });
+});
+
 test("requires every composite readiness check even when API health is green", async () => {
   const calls = [];
   const probe = createCompositeProbe([
@@ -237,6 +251,60 @@ test("returns a degraded result when an optional Mod cannot start", async () => 
   assert.equal(result.state, SERVICE_STATE.UNAVAILABLE);
   assert.equal(result.launch, "failed");
   assert.match(errors[0], /可选 Mod 已降级/);
+});
+
+test("cools down an optional Mod after a failed restart", async () => {
+  let clock = 0;
+  let spawnCount = 0;
+  const supervisor = new RuntimeSupervisor({
+    monitorIntervalMs: -1,
+    monitorFailureThreshold: 1,
+    optionalRestartCooldownMs: 100,
+    portReleaseTimeoutMs: 0,
+    endpointOccupied: async () => false,
+    spawnImpl: () => {
+      spawnCount += 1;
+      throw new Error("deployment metadata is missing");
+    },
+    logger: quietLogger(),
+    now: () => clock,
+  });
+  await supervisor.start(service({
+    probe: sequenceProbe(
+      SERVICE_STATE.READY,
+      SERVICE_STATE.UNAVAILABLE,
+      SERVICE_STATE.UNAVAILABLE,
+      SERVICE_STATE.UNAVAILABLE,
+    ),
+  }));
+
+  await supervisor.monitorNow("example");
+  await supervisor.monitorNow("example");
+  assert.equal(spawnCount, 1);
+
+  clock = 100;
+  await supervisor.monitorNow("example");
+  assert.equal(spawnCount, 2);
+});
+
+test("honors service stdio isolation when spawning a child", async () => {
+  let spawnOptions;
+  const supervisor = new RuntimeSupervisor({
+    optionalTimeoutMs: 10,
+    pollIntervalMs: 1,
+    monitorIntervalMs: -1,
+    platform: "win32",
+    spawnImpl: (_command, _args, options) => {
+      spawnOptions = options;
+      return fakeChild({ exitCode: 1 });
+    },
+    logger: quietLogger(),
+    sleep: async () => {},
+  });
+
+  await supervisor.start(service({ stdio: "ignore" }));
+
+  assert.equal(spawnOptions.stdio, "ignore");
 });
 
 test("rejects startup when a core service cannot start", async () => {

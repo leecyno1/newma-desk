@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "id": "seven-cycle-research",
-  "name": "七周期研究",
+  "name": "周期叠加",
   "description": "Circle 全球周期、市场曲面、资产统计与数据校准研究系统。",
   "version": "0.1.0",
   "publisher": "Newma-Desk",
@@ -17,10 +17,12 @@
   "manifest": {
     "category": "research",
     "navigation": {
-      "groupLabel": "周期研究",
-      "groupOrder": 60,
-      "itemOrder": 25,
-      "project": { "id": "cycle-research", "name": "周期研究", "order": 60, "description": "七周期及其扩展周期框架研究。" },
+      "groupLabel": "宏观",
+      "groupOrder": 10,
+      "itemOrder": 0,
+      "label": "周期叠加",
+      "directory": { "id": "macro-suite", "label": "宏观研究", "order": 5 },
+      "project": { "id": "fundamentals", "name": "宏观", "order": 10, "description": "周期叠加、经济基本面、增长通胀、金融条件与经济预测。" },
       "icon": "research"
     },
     "permissions": [],

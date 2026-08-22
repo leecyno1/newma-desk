@@ -1,6 +1,5 @@
 import {
   Bot,
-  FolderOpen,
   GripVertical,
   Palette,
   PanelLeftClose,
@@ -25,8 +24,8 @@ import {
   type SidebarModuleItem,
   type SidebarNavigationModel,
   type SidebarProjectItem,
-  type SidebarProjectSectionItem,
 } from "../lib/sidebarNavigation";
+import { sidebarGroupTone } from "../lib/sidebarGroupTheme";
 import type {
   SidebarDirectoryRef,
   SidebarNavigationPreferences,
@@ -52,6 +51,14 @@ interface SidebarProps {
 type DraggedItem =
   | { type: "module"; id: string; projectId: string }
   | { type: "project"; id: string };
+
+const MOBILE_NAVIGATION_QUERY = "(max-width: 720px)";
+
+function isMobileNavigationViewport() {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia(MOBILE_NAVIGATION_QUERY).matches;
+}
 
 function ProjectMark({
   project,
@@ -166,8 +173,21 @@ export function Sidebar({
     [projects, suiteSettingsDirectoryId],
   );
   const [activeProjectId, setActiveProjectId] = useState<string>();
-  const [navigationCollapsed, setNavigationCollapsed] = useState(false);
+  const [navigationCollapsed, setNavigationCollapsed] = useState(
+    () => isMobileNavigationViewport(),
+  );
   const [dragged, setDragged] = useState<DraggedItem>();
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(MOBILE_NAVIGATION_QUERY);
+    const collapseOnMobile = (event: MediaQueryListEvent | MediaQueryList) => {
+      if (event.matches) setNavigationCollapsed(true);
+    };
+    collapseOnMobile(media);
+    media.addEventListener("change", collapseOnMobile);
+    return () => media.removeEventListener("change", collapseOnMobile);
+  }, []);
 
   useEffect(() => {
     const requestedProjectId = settingsProject?.id ?? selectedItem?.projectId;
@@ -184,13 +204,16 @@ export function Sidebar({
     ? navigation.projectsById.get(activeProjectId)
     : undefined;
   const showProjectDataSettings = Boolean(
-    activeProject && (
-      activeProject.modules.length > 0 || activeProject.sections.length !== 1
-    ),
+    activeProject &&
+    (activeProject.modules.length > 0 || activeProject.sections.length > 0),
   );
 
   const collapseNavigation = () => setNavigationCollapsed(true);
   const expandNavigation = () => setNavigationCollapsed(false);
+  const selectModule = (module: StoredMod) => {
+    onSelect(module);
+    if (isMobileNavigationViewport()) collapseNavigation();
+  };
 
   const activateProject = (project: SidebarProjectItem) => {
     setActiveProjectId(project.id);
@@ -279,7 +302,7 @@ export function Sidebar({
       item={item}
       index={Math.max(0, project.settingsDirectory.modules.findIndex((member) => member.module.moduleId === item.module.moduleId))}
       selected={item.module.moduleId === selectedId}
-      onSelect={() => onSelect(item.module)}
+      onSelect={() => selectModule(item.module)}
       onPin={() => onNavigationPreferencesChange(
         toggleSidebarModulePinned(preferences, item.module.moduleId),
       )}
@@ -292,46 +315,6 @@ export function Sidebar({
         item.module.moduleId,
       )}
     />
-  );
-
-  const renderSection = (
-    section: SidebarProjectSectionItem,
-    project: SidebarProjectItem,
-  ) => (
-    <section className="project-section" aria-labelledby={`project-section-${project.id}-${section.id}`} key={section.id}>
-      <h3 id={`project-section-${project.id}-${section.id}`}>
-        <FolderOpen size={12} aria-hidden="true" />
-        <span>{section.label}</span>
-        <small>{section.modules.length}</small>
-      </h3>
-      <div
-        className="project-section-pages"
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => dropModule(event, project, section)}
-      >
-        {section.modules.map((item) => renderModule(item, project, section))}
-        {section.settingsModule ? (
-          <button
-            type="button"
-            className="secondary-settings-button project-section-settings"
-            aria-current={section.settingsModule.module.moduleId === selectedId ? "page" : undefined}
-            onClick={() => onSelect(section.settingsModule!.module)}
-          >
-            <Settings size={12} aria-hidden="true" />
-            模组设置
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="secondary-settings-button project-section-settings"
-          aria-current={suiteSettingsDirectoryId === section.id ? "page" : undefined}
-          onClick={() => onOpenSuiteSettings(section)}
-        >
-          <Settings size={12} aria-hidden="true" />
-          栏目数据与能力
-        </button>
-      </div>
-    </section>
   );
 
   return (
@@ -375,6 +358,7 @@ export function Sidebar({
                 <button
                   type="button"
                   className="project-rail-button"
+                  data-tone={sidebarGroupTone(project.name)}
                   disabled={loading}
                   aria-label={`${project.name} 项目`}
                   aria-expanded={project.id === activeProject?.id}
@@ -438,11 +422,9 @@ export function Sidebar({
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => dropModule(event, activeProject, null)}
             >
-              {activeProject.sections.length > 0 && activeProject.modules.length > 0 ? (
-                <h3 className="project-page-heading">项目页面</h3>
-              ) : null}
-              {activeProject.modules.map((item) => renderModule(item, activeProject, null))}
-              {activeProject.sections.map((section) => renderSection(section, activeProject))}
+              {activeProject.settingsDirectory.modules.map((item) => (
+                renderModule(item, activeProject, item.directory)
+              ))}
               {activeProject.modules.length === 0 && activeProject.sections.length === 0 ? (
                 <div className="project-panel-no-pages">
                   <strong>暂无页面</strong>
@@ -458,7 +440,7 @@ export function Sidebar({
                     type="button"
                     className="secondary-settings-button"
                     aria-current={activeProject.settingsModule.module.moduleId === selectedId ? "page" : undefined}
-                    onClick={() => onSelect(activeProject.settingsModule!.module)}
+                    onClick={() => selectModule(activeProject.settingsModule!.module)}
                   >
                     <Settings size={14} aria-hidden="true" />
                     模组设置
@@ -472,7 +454,7 @@ export function Sidebar({
                     onClick={() => onOpenSuiteSettings(activeProject.settingsDirectory)}
                   >
                     <Settings size={14} aria-hidden="true" />
-                    项目数据与能力
+                    栏目数据与能力
                   </button>
                 ) : null}
                 <small>模组设置管理业务参数；数据与能力管理 Desk 接入。页面仅可在项目内排序。</small>

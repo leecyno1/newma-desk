@@ -1,17 +1,17 @@
 {
   "schemaVersion": "1.1",
   "id": "market-daily",
-  "name": "市场终端",
-  "version": "0.4.0",
+  "name": "行情",
+  "version": "0.4.1",
   "category": "market",
   "navigation": {
     "groupLabel": "市场",
     "groupOrder": 10,
     "itemOrder": 5,
-    "label": "终端",
+    "label": "行情",
     "directory": {
       "id": "market-suite",
-      "label": "行情工具",
+      "label": "市场工具",
       "order": 5
     },
     "icon": "market"

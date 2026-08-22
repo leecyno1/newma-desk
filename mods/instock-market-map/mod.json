@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-market-map",
+  "name": "大盘云图",
+  "description": "按申万一级行业与个股展示 A 股涨跌、规模和成交结构。",
+  "version": "0.18.1",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["大盘云图", "市场热力图", "申万一级行业", "个股", "Top100", "多榜Top500"],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "instock",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988",
+    "route": "/mods/market-map"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "market",
+    "navigation": {
+      "groupLabel": "市场",
+      "groupOrder": 40,
+      "itemOrder": 10,
+      "label": "大盘云图",
+      "directory": {
+        "id": "market-suite",
+        "label": "市场工具",
+        "order": 5
+      },
+      "project": {
+        "id": "market-surface",
+        "name": "市场",
+        "order": 40,
+        "description": "行情、市场复盘、云图、技术结构、强弱、宽度与情绪。"
+      },
+      "icon": "market"
+    },
+    "compatibility": {
+      "level": 2,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": ["analysis.read"],
+    "dataServices": [],
+    "actions": {
+      "analysis.market-map": {
+        "binding": {"type": "data", "capability": "analysis.market-map"},
+        "execution": "request",
+        "permission": "analysis.read",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "capacity": {"enum": [100, 500]},
+            "refresh": {"enum": ["0", "1"]}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "required": ["ok", "data", "meta"],
+          "properties": {
+            "ok": {"const": true},
+            "data": {"type": "object"},
+            "meta": {"type": "object"}
+          }
+        },
+        "confirmation": "none",
+        "timeoutSeconds": 90
+      }
+    },
+    "events": {
+      "emits": ["security.selected"],
+      "accepts": []
+    },
+    "refresh": {"mode": "manual"}
+  }
+}

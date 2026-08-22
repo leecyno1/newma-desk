@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 
 from vibe_visualization_api.model_gateway.models import (
     ModelResponse,
@@ -24,6 +24,12 @@ async def model_providers(
 @router.post("/api/model/responses", response_model=ModelResponse)
 async def create_model_response(
     response_request: ModelResponseCreate,
+    user_id: str = Header(
+        default="local-user",
+        alias="X-User-Id",
+        min_length=1,
+        max_length=128,
+    ),
     service: ModelGatewayService = Depends(get_model_gateway_service),
 ) -> ModelResponse:
-    return await service.create_response(response_request)
+    return await service.create_response(response_request, user_id=user_id)

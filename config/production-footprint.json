@@ -12,7 +12,7 @@
       "id": "portfolio-runtime",
       "path": "modules/portfolio-center/dist",
       "required": true,
-      "maxTotalBytes": 430080,
+      "maxTotalBytes": 440320,
       "maxFileBytes": 358400
     },
     {

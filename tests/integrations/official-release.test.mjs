@@ -26,7 +26,29 @@ test("current official Mods only use registered data capabilities", async () => 
   const mods = selectReleaseCertificationMods(store);
   const services = await loadReleaseDataServices();
 
-  assert.deepEqual(mods.map((mod) => mod.id), ["global-situation"]);
+  assert.deepEqual(mods.map((mod) => mod.id), [
+    "global-situation",
+    "fed-rates",
+    "hormuz-conflict",
+    "us-china-trade",
+    "policy-analysis",
+    "policy-calendar",
+    "policy-flow",
+    "policy-interpretation",
+    "capital-flow",
+    "capital-overview",
+    "capital-sectors",
+    "capital-cross-border",
+    "capital-liquidity",
+    "capital-etf",
+    "capital-emotion",
+    "fund-discover",
+    "fund-research-library",
+    "fund-ai-analysis",
+    "fund-recommendations",
+    "fund-attribution",
+    "fund-portfolio",
+  ]);
   assert.deepEqual(checkReleaseModDataContracts(mods, services), []);
 });
 

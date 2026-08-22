@@ -4,6 +4,13 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
+
+from vibe_visualization_api.portfolio_center.asset_allocation import (
+    build_strategic_allocation,
+    fetch_cycle_views,
+)
+
 from vibe_visualization_api.portfolio_center.models import (
     AllocationSlice,
     ConcentrationSummary,
@@ -24,6 +31,8 @@ from vibe_visualization_api.portfolio_center.models import (
     PortfolioOptimizationRequest,
     PortfolioOptimizationResult,
     PortfolioPosition,
+    StrategicAllocationRequest,
+    StrategicAllocationResult,
 )
 from vibe_visualization_api.portfolio_center.history import (
     NullPortfolioHistoryProvider,
@@ -53,11 +62,31 @@ class PortfolioCenterService:
         quote_provider: PortfolioQuoteProvider | None = None,
         history_provider: PortfolioHistoryProvider | None = None,
         legacy_portfolio_path: Path | None = None,
+        cycle_base_url: str = "http://127.0.0.1:4174",
+        cycle_client: httpx.AsyncClient | None = None,
     ):
         self._store = store
         self._quote_provider = quote_provider or NullPortfolioQuoteProvider()
         self._history_provider = history_provider or NullPortfolioHistoryProvider()
         self._legacy_portfolio_path = legacy_portfolio_path
+        self._cycle_base_url = cycle_base_url
+        self._cycle_client = cycle_client
+
+    async def strategic_allocation(
+        self,
+        request: StrategicAllocationRequest,
+    ) -> StrategicAllocationResult:
+        try:
+            cycle_rows = await fetch_cycle_views(
+                self._cycle_base_url,
+                request.horizon_months,
+                client=self._cycle_client,
+            )
+        except (httpx.HTTPError, ValueError):
+            result = build_strategic_allocation(request, [])
+            result.warnings.append("周期模块暂时不可用，当前结果仅使用长期均衡先验。")
+            return result
+        return build_strategic_allocation(request, cycle_rows)
 
     def create_account(
         self,

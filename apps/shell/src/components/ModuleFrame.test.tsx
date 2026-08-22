@@ -151,6 +151,29 @@ describe("ModFrame event boundary", () => {
     eventBus.close();
   });
 
+  it("renders the host-owned Chinese, English, and explanatory title", async () => {
+    const eventBus = new ShellEventBus();
+    render(
+      <ModFrame
+        manifest={{
+          ...connectedManifest,
+          presentation: {
+            englishName: "Market Daily",
+            description: "统一查看行情、盘口与技术指标。",
+            titleOwner: "host",
+          },
+        }}
+        eventBus={eventBus}
+        theme="light"
+      />,
+    );
+
+    expect(screen.getByRole("heading", { level: 1, name: "市场行情" })).toBeVisible();
+    expect(screen.getByText("Market Daily")).toBeVisible();
+    expect(screen.getByText("统一查看行情、盘口与技术指标。")).toBeVisible();
+    eventBus.close();
+  });
+
   it("accepts an initial context request for an embedded first-party workspace", async () => {
     const eventBus = new ShellEventBus();
     const frameHandle = createRef<ModFrameHandle>();
@@ -311,6 +334,16 @@ describe("ModFrame event boundary", () => {
     expect(screen.getByRole("status")).toHaveTextContent("正在加载 Mod");
     fireEvent.load(frame);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    eventBus.close();
+  });
+
+  it("allows a user-clicked embedded link to open a Desk-level settings page", () => {
+    const eventBus = new ShellEventBus();
+    render(<ModFrame manifest={manifest} eventBus={eventBus} theme="light" />);
+    expect(screen.getByTitle("市场行情")).toHaveAttribute(
+      "sandbox",
+      expect.stringContaining("allow-top-navigation-by-user-activation"),
+    );
     eventBus.close();
   });
 
@@ -488,7 +521,7 @@ describe("ModFrame event boundary", () => {
     frameHandle.current?.reload();
 
     expect(frame.src).toBe(
-      "http://127.0.0.1:5891/modules/market-daily/",
+      "http://127.0.0.1:5891/modules/market-daily/?__newma_mod_version=0.1.0",
     );
     eventBus.close();
   });

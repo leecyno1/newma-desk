@@ -223,6 +223,12 @@ class ModuleNavigation(ApiModel):
     project: ModuleNavigationProject | None = None
 
 
+class ModulePresentation(ApiModel):
+    english_name: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=240)
+    title_owner: Literal["host"]
+
+
 class ModuleCompatibility(ApiModel):
     level: Literal[1, 2, 3]
     bridge_protocol: Literal["1.0"]
@@ -279,6 +285,7 @@ ModuleStorage = Annotated[
 class AgentActionBinding(ApiModel):
     type: Literal["agent"]
     capability: str | None = Field(default=None, pattern=MODULE_CAPABILITY_PATTERN)
+    profile: Literal["deep", "batch", "edit"] | None = None
     memory_scope: Literal[
         "user-agent-mod",
         "task",
@@ -288,6 +295,7 @@ class AgentActionBinding(ApiModel):
 class ModelActionBinding(ApiModel):
     type: Literal["model"]
     capability: str | None = Field(default=None, pattern=MODULE_CAPABILITY_PATTERN)
+    profile: Literal["quick"] | None = None
 
 
 class DataActionBinding(ApiModel):
@@ -448,6 +456,7 @@ class ModuleManifest(ApiModel):
     name: str = Field(min_length=1, max_length=80)
     version: str = Field(pattern=MODULE_VERSION_PATTERN)
     category: str = Field(pattern=MODULE_CATEGORY_PATTERN)
+    presentation: ModulePresentation | None = None
     navigation: ModuleNavigation | None = None
     entry: ModuleEntry
     icon: str | None = None
@@ -476,6 +485,7 @@ class ModuleManifest(ApiModel):
 
     @field_validator(
         "icon",
+        "presentation",
         "navigation",
         "compatibility",
         "storage",

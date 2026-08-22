@@ -15,7 +15,8 @@ import {
 } from "./lib/mod-runtime-certification.mjs";
 
 const DEFAULT_SHELL_ORIGIN = "http://127.0.0.1:5888";
-const DEFAULT_TIMEOUT_MS = 20_000;
+// Dev-mode Next runtimes may compile the first requested route on demand.
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 function optionValue(args, name) {
   const prefix = `--${name}=`;

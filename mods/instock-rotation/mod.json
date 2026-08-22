@@ -16,24 +16,24 @@
   },
   "manifest": {
     "schemaVersion": "1.1",
-    "category": "quant",
+    "category": "research",
     "navigation": {
-      "groupLabel": "量化研究",
-      "groupOrder": 120,
-      "itemOrder": 70,
-      "label": "行业轮动",
+      "groupLabel": "行业",
+      "groupOrder": 50,
+      "itemOrder": 20,
+      "label": "行业与 ETF 轮动",
       "directory": {
-        "id": "instock-suite",
-        "label": "InStock 分析",
-        "order": 60
+        "id": "instock-industry-suite",
+        "label": "行业与产业链",
+        "order": 10
       },
       "project": {
-        "id": "quant-research",
-        "name": "量化研究",
-        "order": 120,
-        "description": "因子、策略、回测、相关性与量化实验。"
+        "id": "industry-research",
+        "name": "行业",
+        "order": 50,
+        "description": "产业链、行业比较、景气选择、资金扩散与行业 ETF 轮动。"
       },
-      "icon": "quant"
+      "icon": "research"
     },
     "compatibility": {
       "level": 2,

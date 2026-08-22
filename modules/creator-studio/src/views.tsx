@@ -29,6 +29,7 @@ import type {
   CapabilityDetection,
   CreatorMarketplace,
   CreatorRegistry,
+  CreatorRunSummary,
   CreatorSnapshot,
   MarketplaceCompatibility,
   MarketplaceItem,
@@ -37,6 +38,7 @@ import type {
   SnapshotNode,
   SnapshotStage,
 } from "./types";
+import type { DeskAgentPreferences } from "./api";
 
 export type ActionDispatcher = (
   actionId: string,
@@ -75,16 +77,41 @@ export function DashboardView({
   selectedNode,
   onCreate,
   dispatch,
+  runs = [],
+  onSelectRun,
 }: {
   snapshot?: CreatorSnapshot;
   selectedStage?: SnapshotStage;
   selectedNode?: SnapshotNode;
   onCreate(): void;
   dispatch: ActionDispatcher;
+  runs?: CreatorRunSummary[];
+  onSelectRun?(runId: string): void;
 }) {
   if (!snapshot) return <EmptyStudio onCreate={onCreate} />;
   return (
     <div className="dashboard-view">
+      <section className="runs-overview">
+        <div className="section-heading">
+          <div><span>TASK BOARD</span><h2>任务总览</h2></div>
+          <small>{runs.length} 个任务{onSelectRun ? " · 点击切换" : ""}</small>
+        </div>
+        <div className="runs-grid">
+          {runs.map((run) => (
+            <button
+              key={run.runId}
+              className={"run-card" + (run.runId === snapshot.run.runId ? " active" : "")}
+              onClick={() => onSelectRun?.(run.runId)}
+            >
+              <strong>{run.title}</strong>
+              <span className="run-card-meta">
+                <StatusPill status={run.status} />
+                <small>{run.activeStageId ? "当前：" + run.activeStageId : "未开始"}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
       <section className="run-hero">
         <div className="run-hero-copy">
           <span className="eyebrow">LIVE PRODUCTION MAP</span>
@@ -172,7 +199,7 @@ export function DashboardView({
                 <button className="secondary-button" disabled={!canRunAction(selectedNode, "creator.workflow.continue")} onClick={() => void dispatch("creator.workflow.continue", {
                   stageId: selectedStage?.id,
                   nodeId: selectedNode.id,
-                })}>完成并继续<ArrowRight size={15} /></button>
+                })}>下一节点<ArrowRight size={15} /></button>
               </div>
             </>
           ) : <p className="quiet-card">点击流程图中的节点查看状态。</p>}
@@ -187,7 +214,19 @@ export function DashboardView({
             {snapshot.notifications.length === 0 ? <p className="quiet-card">当前没有待处理提醒。</p> : snapshot.notifications.slice(-8).reverse().map((item) => (
               <button
                 key={item.id}
-                onClick={() => void dispatch("creator.node.select", { stageId: item.stageId, nodeId: item.nodeId })}
+                onClick={() => {
+                  if (item.kind === "artifact") {
+                    const stage = snapshot.stages.find((s) => s.id === item.stageId);
+                    const node = stage?.nodes.find((n) => n.id === item.nodeId);
+                    const art = node?.artifacts.find((a) => (a.label && item.title.includes(a.label)) || item.title.includes(a.type));
+                    const handler = (window as unknown as { __creatorStudioOpenArtifact?: (path: string, label?: string) => void }).__creatorStudioOpenArtifact;
+                    if (art?.path && handler) {
+                      handler(art.path, art.label || art.type);
+                      return;
+                    }
+                  }
+                  void dispatch("creator.node.select", { stageId: item.stageId, nodeId: item.nodeId });
+                }}
               >
                 {item.kind === "review" ? <ClipboardCheck size={16} /> : item.kind === "artifact" ? <Box size={16} /> : <CircleAlert size={16} />}
                 <span><strong>{item.title}</strong><small>{item.stageId} / {item.nodeId}</small></span>
@@ -213,6 +252,146 @@ const WORKSPACE_TABS = [
   ["handoff", "转接下一节点"],
 ] as const;
 
+
+interface TopicCardOption {
+  topic_id?: string;
+  title?: string;
+  one_line_judgment?: string;
+  core_proposition?: string;
+  reader_payoff?: string;
+}
+
+function ReviewWorkCard({
+  snapshot,
+  stage,
+  node,
+  dispatch,
+  busy,
+  fetchPreview,
+  openArtifact,
+}: {
+  snapshot?: CreatorSnapshot;
+  stage: SnapshotStage;
+  node: SnapshotNode;
+  dispatch: ActionDispatcher;
+  busy: boolean;
+  fetchPreview?(path: string): Promise<{ content?: string }>;
+  openArtifact?(path: string, label?: string): void;
+}) {
+  const [topicCards, setTopicCards] = useState<TopicCardOption[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    setTopicCards([]);
+    setSelected([]);
+    if (stage.id === "brief" && node.id === "brief_review" && fetchPreview) {
+      // topic_cards 产自上游 topic_pool 节点，从 snapshot 跨节点取材
+      const poolNode = snapshot?.stages
+        .find((item) => item.id === "brief")
+        ?.nodes.find((item) => item.id === "topic_pool");
+      const artifact = (poolNode ?? node).artifacts.find((item) =>
+        item.type === "topic_cards" && ["created", "approved"].includes(item.status),
+      );
+      if (artifact) {
+        fetchPreview(artifact.path)
+          .then((result) => {
+            const parsed = JSON.parse(result.content || "{}") as { topic_cards?: TopicCardOption[] } | TopicCardOption[];
+            const cards = Array.isArray(parsed) ? parsed : parsed.topic_cards || [];
+            if (active) setTopicCards(cards);
+          })
+          .catch(() => undefined);
+      }
+    }
+    return () => { active = false; };
+    // 依赖不含 revision：任何命令都会 +1，若依赖它则每次命令后卡片清空重拉，
+    // 页面高度骤变会把滚动位置钳回顶部（浏览交付物时跳顶的根因之一）
+  }, [stage.id, node.id, node.artifacts.length, fetchPreview]);
+
+  if (node.status !== "waiting_user") return null;
+  // 可用性判断用 availableActions（全限定名）；actions 是展示用短名
+  const canApprove = node.availableActions.includes("creator.node.approve");
+  const canComplete = node.availableActions.includes("creator.node.complete");
+  const canRequestChanges = node.availableActions.includes("creator.node.request-changes");
+  const usableArtifacts = node.artifacts.filter((item) =>
+    ["created", "approved"].includes(item.status),
+  );
+
+  const approve = () => void dispatch("creator.node.approve", {
+    stageId: stage.id,
+    nodeId: node.id,
+    ...(selected.length ? { selectedTopicIds: selected, note: "批准所选选题：" + selected.join("、") } : {}),
+  });
+
+  return (
+    <section className="review-workcard">
+      <header className="review-workcard-header">
+        <strong>人工介入 · {node.name}</strong>
+        <StatusPill status={node.status} />
+      </header>
+      {topicCards.length > 0 ? (
+        <div className="topic-option-list">
+          <p className="review-hint">点选一个或多个选题，然后点「批准所选」：</p>
+          {topicCards.map((card) => {
+            const id = String(card.topic_id || "");
+            const active = selected.includes(id);
+            return (
+              <button
+                key={id}
+                type="button"
+                className={"topic-option" + (active ? " active" : "")}
+                onClick={() => setSelected(active ? selected.filter((item) => item !== id) : [...selected, id])}
+              >
+                <strong>{id} · {String(card.title || "")}</strong>
+                <p>{String(card.one_line_judgment || "")}</p>
+                {card.core_proposition ? <small>{String(card.core_proposition)}</small> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : usableArtifacts.length > 0 ? (
+        <div className="review-artifact-list">
+          <p className="review-hint">浏览本节点交付物（点击预览）：</p>
+          {usableArtifacts.map((artifact) => (
+            <button
+              key={artifact.id}
+              type="button"
+              className="review-artifact-chip"
+              onClick={() => openArtifact?.(artifact.path, artifact.label)}
+            ><Box size={14} />{artifact.label || artifact.type}</button>
+          ))}
+        </div>
+      ) : null}
+      <p className="review-note">
+        {node.description} 批准后流程自动进入下一节点；退回将把修改意见送回执行方。
+      </p>
+      <div className="button-row">
+        {canApprove && (
+          <button
+            className="primary-button"
+            disabled={busy}
+            onClick={approve}
+          ><Check size={15} />{selected.length ? "批准所选（" + selected.join("、") + "）" : "批准"}</button>
+        )}
+        {canComplete && (
+          <button
+            className="primary-button"
+            disabled={busy}
+            onClick={() => void dispatch("creator.node.complete", { stageId: stage.id, nodeId: node.id })}
+          ><Check size={15} />确认完成</button>
+        )}
+        {canRequestChanges && (
+          <button
+            className="danger-button"
+            disabled={busy}
+            onClick={() => void dispatch("creator.node.request-changes", { stageId: stage.id, nodeId: node.id, message: "请按反馈修改" })}
+          >退回修改</button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function WorkbenchView({
   snapshot,
   selectedStage,
@@ -220,6 +399,8 @@ export function WorkbenchView({
   dispatch,
   busy,
   onCreate,
+  fetchPreview,
+  openArtifact,
 }: {
   snapshot?: CreatorSnapshot;
   selectedStage?: SnapshotStage;
@@ -227,6 +408,8 @@ export function WorkbenchView({
   dispatch: ActionDispatcher;
   busy: boolean;
   onCreate(): void;
+  fetchPreview?(path: string): Promise<{ content?: string }>;
+  openArtifact?(path: string, label?: string): void;
 }) {
   const [tab, setTab] = useState<(typeof WORKSPACE_TABS)[number][0]>("status");
   const [materialType, setMaterialType] = useState("");
@@ -402,9 +585,19 @@ export function WorkbenchView({
                 className="secondary-button"
                 disabled={busy || !canRunAction(selectedNode, "creator.workflow.continue")}
                 onClick={() => void dispatch("creator.workflow.continue", nodeTarget)}
-              >完成并继续<ArrowRight size={15} /></button>
+              >下一节点<ArrowRight size={15} /></button>
             </div>
           </header>
+
+          <ReviewWorkCard
+            snapshot={snapshot}
+            stage={selectedStage}
+            node={selectedNode}
+            dispatch={dispatch}
+            busy={busy}
+            fetchPreview={fetchPreview}
+            openArtifact={openArtifact}
+          />
 
           <nav className="workspace-tabs">
             {WORKSPACE_TABS.filter(([id]) => id !== "publish" || selectedStage.id === "publish").map(([id, label]) => (
@@ -473,7 +666,24 @@ export function WorkbenchView({
                   <div className="section-heading compact"><div><span>ARTIFACTS</span><h3>当前产物</h3></div><Box size={18} /></div>
                   <div className="file-list">
                     {selectedNode.artifacts.length === 0 ? <p className="quiet-card">执行器尚未回写交付物，也可以人工登记。</p> : selectedNode.artifacts.map((artifact) => (
-                      <article key={artifact.id}><FileOutput size={16} /><div><strong>{artifact.label || artifact.type} · v{artifact.version || 1}</strong><small>{artifact.path}</small><small>{artifact.contentDigest?.slice(0, 12) || "未计算摘要"} · 父产物 {artifact.parents?.length || 0} · {artifact.producerJobId || artifact.editorSessionId || "人工登记"}</small></div><StatusPill status={artifact.status} /></article>
+                      <article
+                        key={artifact.id}
+                        className="artifact-clickable"
+                        onClick={() => {
+                          const handler = (window as unknown as { __creatorStudioOpenArtifact?: (path: string, label?: string) => void }).__creatorStudioOpenArtifact;
+                          if (handler && artifact.path) handler(artifact.path, artifact.label || artifact.type);
+                        }}
+                        title="点击预览"
+                        style={{ cursor: "pointer" }}
+                      >
+                        <FileOutput size={16} />
+                        <div>
+                          <strong>{artifact.label || artifact.type} · v{artifact.version || 1}</strong>
+                          <small>{artifact.path}</small>
+                          <small>{artifact.contentDigest?.slice(0, 12) || "未计算摘要"} · 父产物 {artifact.parents?.length || 0} · {artifact.producerJobId || artifact.editorSessionId || "人工登记"}</small>
+                        </div>
+                        <StatusPill status={artifact.status} />
+                      </article>
                     ))}
                   </div>
                 </section>
@@ -1000,7 +1210,7 @@ export function MarketplaceView({
   return (
     <div className="marketplace-view">
       <section className="market-hero">
-        <div><span className="eyebrow">CREATOR MARKET</span><h1>创作能力超市</h1><p>先看生产流程和效果，再判断项目、Skill 与模板是否已注册、能否运行。</p></div>
+        <div data-mod-page-title><span className="eyebrow">CREATOR MARKET</span><h1>创作能力超市</h1><p>先看生产流程和效果，再判断项目、Skill 与模板是否已注册、能否运行。</p></div>
         <div className="market-counts">
           <article><strong>{marketplace?.counts.pipelines ?? 0}</strong><span>流水线</span></article>
           <article><strong>{marketplace?.counts.projects ?? marketplace?.counts.repositories ?? 0}</strong><span>项目</span></article>
@@ -1058,20 +1268,179 @@ export function MarketplaceView({
 export function SettingsView({
   system,
   capabilities,
+  deskAgentPreferences,
+  onSyncAgent,
   busy,
   dispatch,
 }: {
   system?: Record<string, unknown>;
   capabilities?: CapabilityDetection;
+  deskAgentPreferences?: DeskAgentPreferences;
+  onSyncAgent?: (agentId: string) => Promise<void>;
   busy: boolean;
   dispatch: ActionDispatcher;
 }) {
+  const [selectedAgent, setSelectedAgent] = useState<string>(() =>
+    typeof window !== "undefined" ? localStorage.getItem("newma.creator-studio.selected-agent") || "" : ""
+  );
+  const [binOverride, setBinOverride] = useState<string>(() =>
+    typeof window !== "undefined" ? localStorage.getItem("newma.creator-studio.agent-bin-override") || "" : ""
+  );
+  const [testResults, setTestResults] = useState<Record<string, { status: string; msg: string; ms?: number }>>({});
+  const [testingId, setTestingId] = useState<string>("");
+  const [syncMessage, setSyncMessage] = useState<string>("");
+
+  const deskAdapterToCreatorAgent: Record<string, string> = {
+    "codex-cli": "codex",
+    "claude-cli": "claude",
+    "gemini-cli": "gemini",
+    "hermes-webui": "hermes",
+  };
+
+  useEffect(() => {
+    const deskAdapter = deskAgentPreferences?.profileTargets?.edit
+      || deskAgentPreferences?.defaultAdapter
+      || "";
+    const mapped = deskAdapterToCreatorAgent[deskAdapter];
+    if (!mapped || (selectedAgent && !deskAgentPreferences?.updatedAt)) return;
+    setSelectedAgent(mapped);
+    localStorage.setItem("newma.creator-studio.selected-agent", mapped);
+  }, [deskAgentPreferences, selectedAgent]);
+
+  const selectAgent = (agentId: string) => {
+    setSelectedAgent(agentId);
+    localStorage.setItem("newma.creator-studio.selected-agent", agentId);
+    setSyncMessage("");
+    if (!agentId || !onSyncAgent) return;
+    void onSyncAgent(agentId)
+      .then(() => setSyncMessage("已同步到 Desk Agent 的编码修改路由"))
+      .catch((reason) => setSyncMessage(`本地选择已保存，Desk 同步失败：${reason instanceof Error ? reason.message : "未知错误"}`));
+  };
+  const updateBinOverride = (val: string) => {
+    setBinOverride(val);
+    if (val.trim()) localStorage.setItem("newma.creator-studio.agent-bin-override", val.trim());
+    else localStorage.removeItem("newma.creator-studio.agent-bin-override");
+  };
+  const testAgent = async (agentId: string) => {
+    setTestingId(agentId);
+    try {
+      const result = await dispatch("creator.agent.test", { agentId, binOverride }) as unknown as {
+        status: string; stdout?: string; stderr?: string; duration_ms?: number;
+      };
+      const ok = result?.status === "succeeded" && (result?.stdout || "").includes("AGENT_TEST_OK");
+      setTestResults((prev) => ({
+        ...prev,
+        [agentId]: {
+          status: ok ? "ok" : "fail",
+          msg: ok ? "测试通过" : (result?.stderr?.slice(0, 100) || result?.stdout?.slice(0, 100) || "未收到预期响应"),
+          ms: result?.duration_ms,
+        },
+      }));
+    } catch (err) {
+      setTestResults((prev) => ({
+        ...prev,
+        [agentId]: { status: "fail", msg: err instanceof Error ? err.message.slice(0, 100) : "测试失败" },
+      }));
+    } finally {
+      setTestingId("");
+    }
+  };
+
+  useEffect(() => {
+    if (!capabilities && !busy) {
+      void dispatch("creator.capability.detect");
+    }
+  }, [busy, capabilities, dispatch]);
+
   return (
     <div className="settings-view">
       <section className="settings-hero">
-        <div><span className="eyebrow">PROJECT CONTROL</span><h1>Creator Studio 设置</h1><p>检查注册表、媒体工作区和本地 CLI Adapter，公开名称统一使用 Newma。</p></div>
-        <button className="primary-button" disabled={busy} onClick={() => void dispatch("creator.capability.detect")}><Gauge size={16} />检测本地能力</button>
+        <div data-mod-page-title><span className="eyebrow">PROJECT CONTROL</span><h1>Creator Studio 设置</h1><p>选择默认 Agent CLI，所有节点执行将使用您指定的本地 Agent。</p></div>
+        <button className="primary-button" disabled={busy} onClick={() => void dispatch("creator.capability.detect")}><Gauge size={16} />刷新检测</button>
       </section>
+
+      <section className="capability-board agent-selector">
+        <div className="section-heading"><div><span>DEFAULT AGENT</span><h2>选择工作流 Agent</h2></div><small>{selectedAgent ? `当前: ${selectedAgent}` : "未选择（将自动按优先级匹配）"}</small></div>
+        {deskAgentPreferences && (
+          <p className="agent-hint">Desk 当前编码路由：{deskAgentPreferences.profileTargets?.edit || deskAgentPreferences.defaultAdapter}。Creator 选择会同步到这里。</p>
+        )}
+        {syncMessage && <p className="agent-hint">{syncMessage}</p>}
+        <p className="agent-hint">点击已安装的 Agent 设为默认。所有阶段的 CLI 调用将使用所选 Agent。未选择时按 qoder-cli → claude → codex → gemini 顺序自动匹配。<br />
+          <span className="legend-inline"><span className="legend-dot legend-dot-green" /> 已安装可用</span>
+          <span className="legend-inline"><span className="legend-dot legend-dot-yellow" /> 有问题</span>
+          <span className="legend-inline"><span className="legend-dot legend-dot-red" /> 未安装</span>
+        </p>
+        <div className="capability-grid agent-grid">
+          {capabilities?.capabilities.map((item) => {
+            let status: "available" | "warning" | "unavailable";
+            if (!item.available) {
+              status = "unavailable";
+            } else if (!item.version || !item.path || item.mode === "detect_only" || item.mode === "media_runtime") {
+              status = "warning";
+            } else {
+              status = "available";
+            }
+            const canSelect = status === "available";
+            return (
+              <article
+                className={`agent-status-${status} ${status === "available" ? "available" : status === "warning" ? "warning" : "unavailable"} ${selectedAgent === item.id ? "selected-agent" : ""}`}
+                key={item.id}
+                onClick={canSelect ? () => selectAgent(item.id) : undefined}
+                style={canSelect ? { cursor: "pointer" } : undefined}
+              >
+                <div>
+                  {selectedAgent === item.id
+                    ? <Check size={16} className="status-icon status-icon-selected" />
+                    : status === "available"
+                      ? <CircleDot size={16} className="status-icon status-icon-green" />
+                      : status === "warning"
+                        ? <CircleAlert size={16} className="status-icon status-icon-yellow" />
+                        : <CircleAlert size={16} className="status-icon status-icon-red" />}
+                  <strong>{item.name}</strong>
+                </div>
+                <span>{item.mode}</span>
+                <small>{item.version || (item.available ? "已检测（信息不全）" : "未安装")}</small>
+                {item.path && <small className="agent-path">{item.path}</small>}
+                {item.stages?.length ? <div className="agent-stages">{item.stages.slice(0, 4).map((s) => <span key={s}>{s}</span>)}</div> : null}
+                {status === "available" && (
+                  <div className="agent-test-row" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className="text-button agent-test-btn"
+                      disabled={testingId === item.id}
+                      onClick={(e) => { e.stopPropagation(); void testAgent(item.id); }}
+                    >
+                      {testingId === item.id ? "测试中…" : "测试"}
+                    </button>
+                    {testResults[item.id] && (
+                      <span className={`agent-test-result agent-test-${testResults[item.id].status}`}>
+                        {testResults[item.id].status === "ok" ? "✓" : "✗"} {testResults[item.id].msg}
+                        {testResults[item.id].ms ? ` (${testResults[item.id].ms}ms)` : ""}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          }) ?? <p className="quiet-card">正在检测本地 CLI…</p>}
+        </div>
+        {selectedAgent && (
+          <button className="text-button" onClick={() => selectAgent("")}>清除选择（恢复自动匹配）</button>
+        )}
+        {selectedAgent && (
+          <div className="agent-bin-override">
+            <label>
+              <small>自定义 binary 路径（可选，覆盖自动检测）</small>
+              <input
+                type="text"
+                value={binOverride}
+                onChange={(e) => updateBinOverride(e.target.value)}
+                placeholder={`例: /usr/local/bin/${selectedAgent}`}
+              />
+            </label>
+          </div>
+        )}
+      </section>
+
       <div className="settings-grid">
         <section className="workspace-card">
           <div className="section-heading compact"><div><span>SYSTEM</span><h3>运行来源</h3></div><Database size={18} /></div>
@@ -1083,26 +1452,14 @@ export function SettingsView({
           </dl>
         </section>
         <section className="workspace-card">
-          <div className="section-heading compact"><div><span>NAMESPACE</span><h3>命名策略</h3></div><Settings2 size={18} /></div>
+          <div className="section-heading compact"><div><span>NAMESPACE</span><h3>{"命名策略"}</h3></div><Settings2 size={18} /></div>
           <div className="policy-stack">
-            <p><Check size={15} />对外 ID 使用 <strong>newma-*</strong></p>
-            <p><Check size={15} />旧 dasheng-* 仅作为运行时 locator</p>
-            <p><Check size={15} />Agent 不得绕过 Manifest Action</p>
+            <p><Check size={15} />{" "}{"对外 ID 使用"} <strong>newma-*</strong></p>
+            <p><Check size={15} />{" "}{"旧版运行时定位符已停用"}</p>
+            <p><Check size={15} />{" "}{"Agent 不得绕过 Manifest Action"}</p>
           </div>
         </section>
       </div>
-      <section className="capability-board">
-        <div className="section-heading"><div><span>LOCAL ADAPTERS</span><h2>Agent 与 CLI 能力</h2></div><small>{capabilities?.available_count ?? 0} 个可用</small></div>
-        <div className="capability-grid">
-          {capabilities?.capabilities.map((item) => (
-            <article className={item.available ? "available" : "unavailable"} key={item.id}>
-              <div>{item.available ? <CircleDot size={16} /> : <CircleAlert size={16} />}<strong>{item.name}</strong></div>
-              <span>{item.mode}</span>
-              <small>{item.version || (item.available ? "已检测" : "未安装")}</small>
-            </article>
-          )) ?? <p className="quiet-card">点击“检测本地能力”读取已注册 CLI。</p>}
-        </div>
-      </section>
     </div>
   );
 }

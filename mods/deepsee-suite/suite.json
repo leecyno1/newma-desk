@@ -21,10 +21,11 @@
     "defaultBaseUrl": "http://127.0.0.1:8001"
   },
   "manifest": {
+    "schemaVersion": "1.1",
     "category": "deepsee",
     "navigation": {
-      "groupLabel": "DeepSee",
-      "groupOrder": 160,
+      "groupLabel": "深瞳",
+      "groupOrder": 150,
       "itemOrder": 100,
       "directory": {
         "id": "deepsee-suite",
@@ -32,17 +33,21 @@
         "order": 10
       },
       "project": {
-        "id": "deepsee-suite",
-        "name": "DeepSee",
-        "order": 160,
-        "description": "DeepSee 信息流、分析、触达与设置工具。",
+        "id": "deepsee",
+        "name": "深瞳",
+        "order": 150,
+        "description": "消息、邮件、会议、自媒体与外部信息触达分析。",
         "logo": {"type": "letter", "text": "深瞳"}
       },
       "icon": "module"
     },
+    "compatibility": {
+      "level": 2,
+      "bridgeProtocol": "1.0"
+    },
     "permissions": [],
     "dataServices": [],
-    "agentCapabilities": [],
+    "actions": {},
     "events": {
       "emits": [],
       "accepts": []
@@ -90,7 +95,91 @@
         "permissions": [
           "deepsee.read",
           "deepsee.ai"
-        ]
+        ],
+        "actions": {
+          "deepsee.insights.analyze": {
+            "binding": {
+              "type": "agent",
+              "capability": "deepsee.insights.analyze",
+              "profile": "deep",
+              "memoryScope": "user-agent-mod"
+            },
+            "execution": "task",
+            "permission": "deepsee.ai",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt"],
+              "properties": {
+                "prompt": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                },
+                "topic": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "period": {
+                  "enum": ["1day", "3days", "1week", "1month"]
+                },
+                "modules": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "items": {
+                    "enum": [
+                      "market",
+                      "meetings",
+                      "newswatch",
+                      "mediawatch",
+                      "mpwatch",
+                      "minuteswatch",
+                      "counter",
+                      "contacts"
+                    ]
+                  }
+                },
+                "itemIds": {
+                  "type": "array",
+                  "maxItems": 200,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "evidence": {
+                  "type": "array",
+                  "maxItems": 80,
+                  "items": {
+                    "type": "object",
+                    "required": ["id", "text"],
+                    "properties": {
+                      "id": {"type": "string", "minLength": 1, "maxLength": 200},
+                      "type": {"type": "string", "maxLength": 40},
+                      "source": {"type": "string", "maxLength": 120},
+                      "time": {"type": "string", "maxLength": 80},
+                      "text": {"type": "string", "minLength": 1, "maxLength": 600}
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {
+                  "enum": ["queued", "running", "completed", "failed", "cancelled"]
+                }
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
       }
     },
     {
@@ -109,8 +198,54 @@
       },
       "manifest": {
         "permissions": [
-          "deepsee.read"
-        ]
+          "deepsee.read",
+          "deepsee.ai"
+        ],
+        "actions": {
+          "deepsee.news.batch-analyze": {
+            "binding": {
+              "type": "agent",
+              "capability": "deepsee.news.batch-analyze",
+              "profile": "batch",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "deepsee.ai",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt"],
+              "properties": {
+                "prompt": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120000
+                },
+                "itemIds": {
+                  "type": "array",
+                  "maxItems": 200,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {
+                  "enum": ["queued", "running", "completed", "failed", "cancelled"]
+                }
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
       }
     },
     {
@@ -129,8 +264,45 @@
       },
       "manifest": {
         "permissions": [
-          "deepsee.read"
-        ]
+          "deepsee.read",
+          "deepsee.ai"
+        ],
+        "actions": {
+          "deepsee.wechat.batch-summarize": {
+            "binding": {
+              "type": "agent",
+              "capability": "deepsee.wechat.batch-summarize",
+              "profile": "batch",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "deepsee.ai",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt", "itemIds"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "itemIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 100,
+                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
       }
     },
     {
@@ -150,8 +322,45 @@
       "manifest": {
         "permissions": [
           "deepsee.read",
-          "deepsee.write"
-        ]
+          "deepsee.write",
+          "deepsee.ai"
+        ],
+        "actions": {
+          "deepsee.email.batch-summarize": {
+            "binding": {
+              "type": "agent",
+              "capability": "deepsee.email.batch-summarize",
+              "profile": "batch",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "deepsee.ai",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt", "itemIds"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "itemIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 50,
+                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
       }
     },
     {
@@ -171,8 +380,79 @@
       "manifest": {
         "permissions": [
           "deepsee.read",
-          "deepsee.write"
-        ]
+          "deepsee.write",
+          "deepsee.ai"
+        ],
+        "actions": {
+          "deepsee.minutes.batch-summarize": {
+            "binding": {
+              "type": "agent",
+              "capability": "deepsee.minutes.batch-summarize",
+              "profile": "batch",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "deepsee.ai",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt", "itemIds"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "itemIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 50,
+                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          },
+          "deepsee.minutes.batch-refine": {
+            "binding": {
+              "type": "agent",
+              "capability": "deepsee.minutes.batch-refine",
+              "profile": "batch",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "deepsee.ai",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt", "itemIds"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "itemIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 50,
+                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
       }
     },
     {
@@ -191,8 +471,45 @@
       },
       "manifest": {
         "permissions": [
-          "deepsee.read"
-        ]
+          "deepsee.read",
+          "deepsee.ai"
+        ],
+        "actions": {
+          "deepsee.media.batch-summarize": {
+            "binding": {
+              "type": "agent",
+              "capability": "deepsee.media.batch-summarize",
+              "profile": "batch",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "deepsee.ai",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt", "itemIds"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "itemIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 10,
+                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
       }
     },
     {
@@ -211,8 +528,45 @@
       },
       "manifest": {
         "permissions": [
-          "deepsee.read"
-        ]
+          "deepsee.read",
+          "deepsee.ai"
+        ],
+        "actions": {
+          "deepsee.official-accounts.batch-summarize": {
+            "binding": {
+              "type": "agent",
+              "capability": "deepsee.official-accounts.batch-summarize",
+              "profile": "batch",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "deepsee.ai",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt", "itemIds"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "itemIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 10,
+                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
       }
     },
     {

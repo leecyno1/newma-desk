@@ -1,3 +1,5 @@
+import asyncio
+
 from vibe_visualization_api.agent_gateway.adapters.base import AgentAdapter
 
 
@@ -34,8 +36,7 @@ class AgentAdapterRegistry:
         return self._default_id
 
     async def describe(self) -> list[dict[str, object]]:
-        descriptions: list[dict[str, object]] = []
-        for adapter in self._adapters.values():
+        async def describe_one(adapter: AgentAdapter) -> dict[str, object]:
             description: dict[str, object] = {
                 "id": adapter.id,
                 "capabilities": await adapter.capabilities(),
@@ -46,5 +47,10 @@ class AgentAdapterRegistry:
                 extra = await describe()
                 if isinstance(extra, dict):
                     description.update(extra)
-            descriptions.append(description)
-        return descriptions
+            return description
+
+        return list(
+            await asyncio.gather(
+                *(describe_one(adapter) for adapter in self._adapters.values())
+            )
+        )

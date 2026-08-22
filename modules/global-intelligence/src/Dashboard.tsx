@@ -29,6 +29,7 @@ import {
   Map as MapIcon,
   Newspaper,
   Pause,
+  Plane,
   Play,
   Radio,
   Radiation,
@@ -161,6 +162,7 @@ const ROUTE_FILTERS: Array<{
   { kind: "pipeline", label: "能源", icon: Fuel },
   { kind: "cable", label: "光缆", icon: Cable },
   { kind: "shipping", label: "航运", icon: Ship },
+  { kind: "flight", label: "航空", icon: Plane },
 ];
 
 type TimeWindow = "24h" | "7d" | "all";
@@ -296,7 +298,7 @@ const SITUATION_PRESETS: SituationPreset[] = [
     label: "综合",
     description: "全域信号、全部战略通道",
     activeLayers: [...MAP_LAYER_CATEGORIES],
-    activeRouteKinds: ["pipeline", "cable", "shipping"],
+    activeRouteKinds: ["pipeline", "cable", "shipping", "flight"],
     categoryFilter: "all",
     severityFilter: "all",
     timeWindow: "24h",
@@ -308,7 +310,7 @@ const SITUATION_PRESETS: SituationPreset[] = [
     label: "冲突",
     description: "冲突、军事与航运风险",
     activeLayers: ["conflict", "military", "maritime", "nuclear", "infrastructure"],
-    activeRouteKinds: ["shipping"],
+    activeRouteKinds: ["shipping", "flight"],
     categoryFilter: "conflict",
     severityFilter: "priority",
     timeWindow: "7d",
@@ -2787,7 +2789,7 @@ export function GlobalIntelligenceDashboard({
               ) : null}
               {selectedRoute ? (
                 <dl>
-                  <div><dt>类型</dt><dd>{selectedRoute.kind === "pipeline" ? "能源管线" : selectedRoute.kind === "cable" ? "海底光缆走廊" : "航运通道"}</dd></div>
+                  <div><dt>类型</dt><dd>{selectedRoute.kind === "pipeline" ? "能源管线" : selectedRoute.kind === "cable" ? "海底光缆走廊" : selectedRoute.kind === "flight" ? "航空走廊" : selectedRoute.name.includes("油运") || selectedRoute.name.includes("成品油") || selectedRoute.name.includes("能源线") ? "油运走廊" : "航运通道"}</dd></div>
                   <div><dt>路径</dt><dd>{selectedRoute.pathType === "corridor" ? "示意走廊" : "精确线路"}</dd></div>
                   <div><dt>状态</dt><dd>{selectedRoute.status || "active"}</dd></div>
                   <div><dt>风险</dt><dd>{selectedRoute.riskScore ? `${selectedRoute.riskScore}/100` : "未发现直接影响"}</dd></div>

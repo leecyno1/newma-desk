@@ -1,0 +1,144 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-industry-suite",
+  "name": "InStock 行业",
+  "description": "统一承载申万行业与 ETF 轮动、产业链瓶颈和上市公司暴露研究。",
+  "version": "0.18.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["行业轮动", "ETF", "产业链", "供应链", "公司暴露"],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "instock",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "行业",
+      "groupOrder": 50,
+      "itemOrder": 100,
+      "directory": {
+        "id": "instock-industry-suite",
+        "label": "行业与产业链",
+        "order": 10
+      },
+      "project": {
+        "id": "industry-research",
+        "name": "行业",
+        "order": 50,
+        "description": "产业链、行业比较、景气选择、资金扩散与行业 ETF 轮动。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {
+      "level": 2,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": ["analysis.read"],
+    "dataServices": [],
+    "actions": {},
+    "events": {"emits": [], "accepts": []},
+    "refresh": {"mode": "manual"}
+  },
+  "pages": [
+    {
+      "id": "instock-rotation",
+      "name": "行业与 ETF 轮动",
+      "description": "覆盖申万 2021 版 31 个一级行业，以七因子排名和九组参数一致性观察轮动，并明示行业 ETF 代理口径。",
+      "tags": ["行业轮动", "ETF", "相对强弱", "量化"],
+      "route": "/mods/rotation",
+      "navigation": {"itemOrder": 1, "label": "行业与 ETF 轮动"},
+      "manifest": {
+        "events": {"emits": ["security.selected"], "accepts": []},
+        "actions": {
+          "analysis.rotation": {
+            "binding": {"type": "data", "capability": "analysis.rotation"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "window": {"enum": [40, 60, 120]},
+                "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+                "refresh": {"enum": ["0", "1"]},
+                "asOf": {"type": "string", "format": "date"}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 30
+          },
+          "analysis.rotation.experiment": {
+            "binding": {"type": "data", "capability": "analysis.rotation.experiment"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+                "rebalanceDays": {"enum": [5, 10, 20]},
+                "costBps": {"enum": [10, 25, 50]},
+                "refresh": {"enum": ["0", "1"]},
+                "asOf": {"type": "string", "format": "date"}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 60
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-industry-chain",
+      "name": "产业链证据",
+      "description": "沿产业链节点与关系识别供应链瓶颈，并按证据质量核验上市公司暴露。",
+      "tags": ["产业链", "供应链", "瓶颈研究", "证据研究"],
+      "route": "/mods/industry-chain",
+      "navigation": {"itemOrder": 2, "label": "产业链证据"},
+      "manifest": {
+        "events": {"emits": [], "accepts": []},
+        "actions": {
+          "analysis.industry-chain": {
+            "binding": {"type": "data", "capability": "analysis.industry-chain"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": ["schema_version", "theme", "market", "as_of", "evidence", "chain", "layers", "candidates"],
+              "properties": {
+                "schema_version": {"const": "2.0"},
+                "theme": {"type": "string", "minLength": 1, "maxLength": 160},
+                "market": {"enum": ["CN", "HK", "US", "TW", "JP", "KR", "EU", "GLOBAL"]},
+                "as_of": {"type": "string", "format": "date"},
+                "notes": {"type": "string"},
+                "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
+                "chain": {"type": "object", "required": ["nodes", "links"], "properties": {"nodes": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"type": "object"}}, "links": {"type": "array", "maxItems": 120, "items": {"type": "object"}}}, "additionalProperties": false},
+                "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
+                "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 30
+          }
+        }
+      },
+      "defaultInstall": true
+    }
+  ]
+}

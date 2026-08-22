@@ -6,20 +6,22 @@ const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const defaultRegistryPath = path.join(repoRoot, "config", "finance-project-intake.json");
 
 export const INVESTMENT_COLUMN_IDS = new Set([
-  "market-surface",
-  "fundamentals",
   "global-intelligence",
+  "fundamentals",
+  "policy-intelligence",
   "capital-flow",
-  "event-intelligence",
-  "cycle-research",
-  "asset-allocation",
-  "tactical-timing",
+  "market-surface",
+  "industry-research",
   "equity-research",
   "fund-research",
-  "bond-research",
+  "asset-allocation",
+  "trading",
+  "strategy-research",
+  "risk-management",
   "quant-research",
   "investment-committee",
-  "trading-risk-portfolio",
+  "creator-studio",
+  "deepsee",
   "other",
 ]);
 

@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-market-suite",
+  "name": "InStock 市场复盘",
+  "description": "将 A 股市场宽度、短线情绪、行业强弱、市场异动与每日复盘统一接入 Newma-Desk 市场项目。",
+  "version": "0.18.1",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["市场复盘", "每日复盘", "市场宽度", "短线情绪"],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "instock",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "market",
+    "navigation": {
+      "groupLabel": "市场",
+      "groupOrder": 40,
+      "itemOrder": 100,
+      "directory": {
+        "id": "instock-market-suite",
+        "label": "市场复盘",
+        "order": 10
+      },
+      "project": {
+        "id": "market-surface",
+        "name": "市场",
+        "order": 40,
+        "description": "行情、市场复盘、云图、技术结构、强弱、宽度与情绪。"
+      },
+      "icon": "market"
+    },
+    "compatibility": {
+      "level": 2,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": ["analysis.read"],
+    "dataServices": [],
+    "actions": {},
+    "events": {"emits": [], "accepts": []},
+    "refresh": {"mode": "manual"}
+  },
+  "pages": [
+    {
+      "id": "instock-market-workbench",
+      "name": "市场复盘",
+      "description": "统一展示市场宽度、短线情绪、行业强弱、市场异动、核心榜单与当日复盘结论。",
+      "tags": ["市场复盘", "每日复盘", "短线情绪", "行业强弱", "市场异动"],
+      "route": "/mods/market-workbench",
+      "navigation": {"itemOrder": 1, "label": "市场复盘"},
+      "manifest": {
+        "events": {"emits": ["security.selected"], "accepts": []},
+        "actions": {
+          "analysis.market-workbench": {
+            "binding": {"type": "data", "capability": "analysis.market-workbench"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "scanLimit": {"enum": [50, 100, 200]},
+                "refresh": {"enum": ["0", "1"]}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 60
+          }
+        }
+      },
+      "defaultInstall": true
+    }
+  ]
+}

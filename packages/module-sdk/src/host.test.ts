@@ -252,6 +252,7 @@ describe("connectModHost", () => {
 
     expect(lightTheme.root.dataset.theme).toBe("light");
     expect(lightTheme.root.dataset.vibedeskTheme).toBe("light");
+    expect(lightTheme.root.dataset.vibedeskEmbedded).toBe("false");
     expect(lightTheme.root.style.colorScheme).toBe("light");
 
     const darkTheme = createThemeRoot();
@@ -497,6 +498,7 @@ describe("connectModHost", () => {
 
     const resolved = await connection;
     if (!resolved.embedded) throw new Error("expected embedded connection");
+    expect(root.dataset.vibedeskEmbedded).toBe("true");
     expect(root.style.getPropertyValue("--vibe-accent")).toBe("#c89a5a");
     expect(root.style.getPropertyValue("--chart-series-1")).toBe("#70a596");
 

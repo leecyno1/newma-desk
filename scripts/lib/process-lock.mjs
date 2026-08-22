@@ -54,6 +54,14 @@ function processIdentity(pid) {
   }
 }
 
+export class ProcessLockError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ProcessLockError";
+    this.code = "ELOCKED";
+  }
+}
+
 export function inspectProcessLock(
   pidFile,
   {
@@ -104,7 +112,7 @@ export function claimProcessLock(
         return { pid, recoveredStaleLock: false };
       }
       if (existing.active) {
-        throw new Error(`${label}已运行（PID ${existing.pid}）。`);
+        throw new ProcessLockError(`${label}已运行（PID ${existing.pid}）。`);
       }
 
       try {

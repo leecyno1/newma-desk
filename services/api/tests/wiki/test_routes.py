@@ -121,6 +121,40 @@ def test_resolves_only_mods_that_accept_the_current_subject(client) -> None:
     assert links[0]["match"]["concepts"] == ["cpo"]
 
 
+def test_topic_resolution_omits_non_applicable_trading_fields(client) -> None:
+    publish(
+        client,
+        manifest(
+            "wiki-news-source",
+            "新闻与舆情",
+            subject_types=["topic"],
+            entrypoint_id="monitor",
+            intent="news.monitor",
+            label="新闻监测",
+        ),
+    )
+    response = client.post(
+        "/api/wiki/link-resolutions",
+        json={
+            "sourceModId": "wiki-news-source",
+            "context": {
+                "primarySubject": {
+                    "type": "topic",
+                    "canonicalId": "topic:news:tesla-solar-roof",
+                    "displayName": "Tesla Solar Roof",
+                },
+                "intent": "news.monitor",
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["subject"] == {
+        "type": "topic",
+        "canonicalId": "topic:news:tesla-solar-roof",
+        "displayName": "Tesla Solar Roof",
+    }
+
+
 def test_creates_scoped_handoff_and_keeps_asset_type(client) -> None:
     publish(
         client,

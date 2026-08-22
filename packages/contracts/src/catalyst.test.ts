@@ -12,7 +12,7 @@ const event = {
   status: "monitoring",
   title: "C7 1个月状态观察窗",
   summary: "风险偏好概率 80%",
-  source: { id: "seven-cycle", label: "七周期研究", url: "http://127.0.0.1:4174/cycles?cycle=C7" },
+  source: { id: "seven-cycle", label: "周期叠加", url: "http://127.0.0.1:4174/cycles?cycle=C7" },
   evidenceIds: ["seven-cycle:C7:2026-07:1m"],
   asOf: "2026-07",
   freshness: { status: "fresh", ageDays: 3 },
@@ -33,7 +33,7 @@ describe("catalyst calendar contract", () => {
       horizon: { start: "2026-08-03", end: "2026-12-31", days: 150 },
       coverage: { markets: ["CN"], symbols: ["600519"] },
       items: [event],
-      sources: [{ id: "seven-cycle", label: "七周期研究", status: "ok", count: 1, asOf: "2026-08-03" }],
+      sources: [{ id: "seven-cycle", label: "周期叠加", status: "ok", count: 1, asOf: "2026-08-03" }],
       gaps: [],
       disclaimer: "仅供研究",
     }).items).toHaveLength(1);

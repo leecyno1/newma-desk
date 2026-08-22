@@ -88,6 +88,7 @@ from vibe_visualization_api.mod_store.service import (
 from vibe_visualization_api.policy_analysis.routes import (
     router as policy_analysis_router,
 )
+from vibe_visualization_api.policy_analysis.refresher import PolicyRefreshService
 from vibe_visualization_api.capital_flow.routes import router as capital_flow_router
 from vibe_visualization_api.mod_storage.routes import router as mod_storage_router
 from vibe_visualization_api.mod_storage.store import (
@@ -160,6 +161,7 @@ from vibe_visualization_api.finance_pilots.service import (
 )
 from vibe_visualization_api.global_intel.client import GlobalIntelClient
 from vibe_visualization_api.global_intel.routes import router as global_intel_router
+from vibe_visualization_api.global_topics.routes import router as global_topics_router
 from vibe_visualization_api.scheduler.service import (
     RefreshSchedulerService,
     SchedulerLifecycle,
@@ -228,6 +230,18 @@ def create_app(
                 agent_conversation_store,
                 workspace_resolver=mod_store_service.resolve_agent_workspace,
             ),
+            LocalCliAgentAdapter(
+                "qoder",
+                app_settings,
+                agent_conversation_store,
+                workspace_resolver=mod_store_service.resolve_agent_workspace,
+            ),
+            LocalCliAgentAdapter(
+                "minimax",
+                app_settings,
+                agent_conversation_store,
+                workspace_resolver=mod_store_service.resolve_agent_workspace,
+            ),
             HermesWebUIAdapter(
                 app_settings,
                 agent_session_store,
@@ -256,6 +270,7 @@ def create_app(
         domain_suites = application.state.domain_suites
         await domain_suites.startup()
         application.state.creator_studio_service.startup()
+        application.state.policy_refresh_service.start()
         active_scheduler = application.state.scheduler_service
         if app_settings.enable_scheduler:
             if active_scheduler is None:
@@ -266,6 +281,7 @@ def create_app(
             yield
         finally:
             application.state.creator_studio_service.shutdown()
+            await application.state.policy_refresh_service.stop()
             if app_settings.enable_scheduler and active_scheduler is not None:
                 await active_scheduler.stop()
             agent_service = application.state.agent_task_service
@@ -283,6 +299,12 @@ def create_app(
     )
     application.dependency_overrides[get_settings] = lambda: app_settings
     application.state.agent_task_service = None
+    application.state.policy_refresh_service = PolicyRefreshService(
+        database_path=app_settings.database_path,
+        rsshub_base_url=app_settings.policy_rsshub_base_url,
+        timeout_seconds=app_settings.policy_collector_timeout_seconds,
+        interval_seconds=app_settings.policy_refresh_seconds,
+    )
     application.state.agent_task_service_lock = asyncio.Lock()
     application.state.domain_suites = None
     application.state.module_repository = None
@@ -329,6 +351,7 @@ def create_app(
             app_settings.runtime_dir,
             app_settings.database_path,
         ),
+        preference_store=agent_preference_store,
     )
     application.state.scheduler_service = scheduler_service
     application.state.scheduler_service_lock = asyncio.Lock()
@@ -357,6 +380,7 @@ def create_app(
             base_url_overrides={
                 "market-data": app_settings.research_base_url,
                 "instock-analysis": f"{app_settings.instock_web_url}/api/v1",
+                "fund-analysis-data": f"{app_settings.fund_analysis_api_url}/api/newma-desk",
                 "world-intel": app_settings.world_intel_url,
             },
         )
@@ -425,6 +449,7 @@ def create_app(
             resolved_data_service_client,
         ),
         legacy_portfolio_path=app_settings.legacy_portfolio_path,
+        cycle_base_url=app_settings.seven_cycle_web_url,
     )
     application.state.creator_studio_service = CreatorStudioService(
         app_settings.database_path,
@@ -469,6 +494,7 @@ def create_app(
     application.include_router(creator_studio_router)
     application.include_router(finance_pilots_router)
     application.include_router(global_intel_router)
+    application.include_router(global_topics_router)
     application.include_router(policy_analysis_router)
     application.include_router(capital_flow_router)
     application.include_router(wiki_router)

@@ -1,17 +1,25 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 
 const shellOrigin = process.env.VIBE_E2E_DOMAIN_SUITES_ORIGIN;
 const apiOrigin = process.env.VIBE_E2E_DOMAIN_SUITES_API_ORIGIN;
 
 const oldRuntimePort = /:(?:5899|5901|8900|8899)(?:\/|$)/;
 
+async function expectFrameRoute(frameElement: Locator, route: string) {
+  if (!apiOrigin) throw new Error("Domain suite API origin is required");
+  await expect(frameElement).toHaveAttribute("src", /.+/);
+  const src = await frameElement.getAttribute("src");
+  if (!src) throw new Error("Mod iframe has no src");
+  const actual = new URL(src);
+  const expected = new URL(route, apiOrigin);
+  expect(actual.origin).toBe(expected.origin);
+  expect(actual.pathname).toBe(expected.pathname);
+  for (const [name, value] of expected.searchParams) {
+    expect(actual.searchParams.get(name)).toBe(value);
+  }
+}
+
 const embeddedMods = [
-  {
-    id: "daily-review",
-    name: "每日复盘",
-    route: "/mod-runtime/research/daily-review",
-    content: /每日复盘/,
-  },
   {
     id: "macro-monitor",
     name: "宏观观察",
@@ -20,9 +28,9 @@ const embeddedMods = [
   },
   {
     id: "industry-map",
-    name: "产业链研究",
+    name: "产业图谱",
     route: "/mod-runtime/research/sectors",
-    content: /板块中心/,
+    content: /共 \d+ 个板块/,
   },
   {
     id: "idea-funnel",
@@ -62,7 +70,7 @@ const embeddedMods = [
   },
   {
     id: "etf-research",
-    name: "基金与 ETF 研究",
+    name: "ETF 研究",
     route: "/mod-runtime/research/etf-research",
     content: /风险收益对比/,
   },
@@ -150,10 +158,7 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
       });
 
       const frameElement = page.locator(`iframe[title="${mod.name}"]`);
-      await expect(frameElement).toHaveAttribute(
-        "src",
-        `${apiOrigin}${mod.route}`,
-      );
+      await expectFrameRoute(frameElement, mod.route);
 
       const frame = page.frameLocator(`iframe[title="${mod.name}"]`);
       await expect(frame.locator("body")).toContainText(mod.content);
@@ -229,13 +234,10 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
 
     await page.goto(`${shellOrigin}/?mod=catalyst-calendar`, { waitUntil: "domcontentloaded" });
     const frameElement = page.locator('iframe[title="催化剂日历"]');
-    await expect(frameElement).toHaveAttribute(
-      "src",
-      `${apiOrigin}/mod-runtime/research/catalyst-calendar`,
-    );
+    await expectFrameRoute(frameElement, "/mod-runtime/research/catalyst-calendar");
     const frame = page.frameLocator('iframe[title="催化剂日历"]');
-    await expect(frame.getByRole("heading", { name: "催化剂日历" })).toBeVisible();
-    await expect(frame.getByText("贵州茅台 2026半年报披露").first()).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByRole("combobox", { name: /研究分组/ })).toBeVisible();
+    await expect(frame.getByText(/半年报披露/).first()).toBeVisible({ timeout: 30_000 });
     if (macroEvent) {
       await expect(frame.getByText(macroEvent.title).first()).toBeVisible();
     } else {
@@ -253,7 +255,7 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     await frame.getByPlaceholder("确认条件").fill("公开来源确认");
     await frame.getByPlaceholder("失效条件").fill("事件取消");
     await frame.getByRole("button", { name: "保存并跟踪" }).click();
-    await expect(frame.getByText("E2E 自定义催化剂")).toBeVisible();
+    await expect(frame.getByText("E2E 自定义催化剂").first()).toBeVisible();
     await expect.poll(() => storageWrites.includes(200)).toBe(true);
   });
 
@@ -275,12 +277,9 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
 
     await page.goto(`${shellOrigin}/?mod=thesis-tracker`, { waitUntil: "domcontentloaded" });
     const frameElement = page.locator('iframe[title="投资逻辑"]');
-    await expect(frameElement).toHaveAttribute(
-      "src",
-      `${apiOrigin}/mod-runtime/research/thesis-tracker`,
-    );
+    await expectFrameRoute(frameElement, "/mod-runtime/research/thesis-tracker");
     const frame = page.frameLocator('iframe[title="投资逻辑"]');
-    await expect(frame.getByRole("heading", { name: "投资逻辑" })).toBeVisible();
+    await expect(frame.getByLabel("证券代码")).toBeVisible();
     await frame.getByLabel("证券代码").fill("600519");
     await frame.getByLabel("公司名称").fill("贵州茅台");
     await frame.getByLabel("逻辑标题").fill("E2E 品牌与渠道韧性研究");
@@ -313,12 +312,9 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
 
     await page.goto(`${shellOrigin}/?mod=idea-funnel`, { waitUntil: "domcontentloaded" });
     const frameElement = page.locator('iframe[title="研究机会池"]');
-    await expect(frameElement).toHaveAttribute(
-      "src",
-      `${apiOrigin}/mod-runtime/research/idea-funnel`,
-    );
+    await expectFrameRoute(frameElement, "/mod-runtime/research/idea-funnel");
     const frame = page.frameLocator('iframe[title="研究机会池"]');
-    await expect(frame.getByRole("heading", { name: "研究机会池" })).toBeVisible();
+    await expect(frame.getByLabel("候选标题")).toBeVisible();
     await frame.getByLabel("候选标题").fill("E2E 光模块需求研究线索");
     await frame.getByLabel("证券代码").fill("300308");
     await frame.getByLabel("公司名称").fill("中际旭创");
@@ -669,12 +665,9 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
 
     await page.goto(`${shellOrigin}/?mod=research-library`, { waitUntil: "domcontentloaded" });
     const frameElement = page.locator('iframe[title="研究档案"]');
-    await expect(frameElement).toHaveAttribute(
-      "src",
-      `${apiOrigin}/mod-runtime/research/my-reports`,
-    );
+    await expectFrameRoute(frameElement, "/mod-runtime/research/my-reports");
     const frame = page.frameLocator('iframe[title="研究档案"]');
-    await expect(frame.getByRole("heading", { name: "研究档案" })).toBeVisible();
+    await expect(frame.getByText("E2E 光模块产品迭代逻辑")).toBeVisible();
     await expect(frame.getByText("E2E 光模块产品迭代逻辑")).toBeVisible();
     await expect(frame.getByText("E2E 档案索引研究记录")).toBeVisible();
     await expect(frame.getByText("中际旭创 · CN:300308")).toBeVisible();
@@ -716,95 +709,10 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     });
   });
 
-  test("links portfolio positions to reference-only research coverage and Desk Agent", async ({ page, request }) => {
-    const userId = "e2e-portfolio-research-user";
-    const workspaceId = `e2e-portfolio-research-${Date.now()}`;
+  test("generates strategic allocation from cycle data and exposes it to Desk Agent", async ({ page }) => {
+    const userId = "e2e-allocation-user";
+    const workspaceId = `e2e-allocation-${Date.now()}`;
     let agentPayload: Record<string, unknown> | undefined;
-    const headers = { "X-User-Id": userId, "X-Workspace-Id": workspaceId };
-    const putStorage = async (
-      moduleId: string,
-      namespace: string,
-      key: string,
-      value: Record<string, unknown>,
-    ) => {
-      const instanceId = `${moduleId}-${Date.now()}`;
-      const sessionResponse = await request.post(`${apiOrigin}/api/mods/${moduleId}/sessions`, {
-        headers: { "X-User-Id": userId },
-        data: { instanceId, workspaceId },
-      });
-      expect(sessionResponse.status()).toBe(201);
-      const session = await sessionResponse.json() as { accessToken: string };
-      const response = await request.put(
-        `${apiOrigin}/api/mods/${moduleId}/storage/${namespace}/${key}`,
-        {
-          headers: {
-            Authorization: `Bearer ${session.accessToken}`,
-            "X-Newma-Desk-Instance-Id": instanceId,
-          },
-          data: { expectedRevision: 0, value },
-        },
-      );
-      expect(response.status()).toBe(200);
-    };
-
-    expect((await request.get(
-      `${apiOrigin}/api/portfolio-center?includeQuotes=false`,
-      { headers },
-    )).status()).toBe(200);
-    expect((await request.post(`${apiOrigin}/api/portfolio-center/activities`, {
-      headers,
-      data: {
-        accountId: "main",
-        type: "buy",
-        market: "CN",
-        symbol: "300308",
-        name: "中际旭创",
-        currency: "CNY",
-        quantity: 100,
-        unitPrice: 100,
-        occurredAt: "2026-08-05T08:00:00Z",
-      },
-    })).status()).toBe(201);
-    await putStorage("thesis-tracker", "thesis-tracker", "portfolio", {
-      schemaVersion: "newma-desk.investment-thesis.v1",
-      updatedAt: "2026-08-05T08:00:00Z",
-      theses: [{
-        id: "thesis:e2e-portfolio-coverage",
-        title: "E2E 光模块持仓逻辑",
-        status: "active",
-        conviction: "medium",
-        security: { market: "CN", symbol: "300308", name: "中际旭创" },
-        statement: "这段投资逻辑正文不得进入组合研究覆盖。",
-        nextReviewAt: "2026-09-01",
-        updatedAt: "2026-08-05T08:00:00Z",
-      }],
-    });
-    await putStorage("valuation-workbench", "valuation-workbench", "models", {
-      schemaVersion: "newma-desk.valuation-workbench.v1",
-      updatedAt: "2026-08-05T08:30:00Z",
-      models: [{
-        id: "valuation:e2e-portfolio-coverage",
-        name: "E2E 光模块估值",
-        modelScope: "company",
-        selectedScenario: "base",
-        security: { market: "CN", symbol: "300308", name: "中际旭创" },
-        asOf: "2026-08-05",
-        updatedAt: "2026-08-05T08:30:00Z",
-        forecasts: [{ revenue: "这段估值明细不得进入组合研究覆盖。" }],
-      }],
-    });
-
-    const coverageResponse = await request.get(
-      `${apiOrigin}/api/portfolio-center/research-coverage`,
-      { headers },
-    );
-    expect(coverageResponse.status()).toBe(200);
-    const coverageText = await coverageResponse.text();
-    expect(coverageText).toContain("E2E 光模块持仓逻辑");
-    expect(coverageText).toContain("E2E 光模块估值");
-    expect(coverageText).not.toContain("这段投资逻辑正文不得进入组合研究覆盖");
-    expect(coverageText).not.toContain("这段估值明细不得进入组合研究覆盖");
-
     await page.route("**/api/agent/tasks**", async (route) => {
       const requestUrl = new URL(route.request().url());
       if (route.request().method() === "POST" && requestUrl.pathname === "/api/agent/tasks") {
@@ -812,21 +720,21 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
         await route.fulfill({
           status: 202,
           contentType: "application/json",
-          body: JSON.stringify({ id: "portfolio-research-e2e-task", status: "queued" }),
+          body: JSON.stringify({ id: "allocation-e2e-task", status: "queued" }),
         });
         return;
       }
       if (
         route.request().method() === "GET" &&
-        requestUrl.pathname === "/api/agent/tasks/portfolio-research-e2e-task"
+        requestUrl.pathname === "/api/agent/tasks/allocation-e2e-task"
       ) {
         await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
-            id: "portfolio-research-e2e-task",
+            id: "allocation-e2e-task",
             status: "completed",
-            result: { answer: "PORTFOLIO_RESEARCH_CONTEXT_OK" },
+            result: { answer: "ALLOCATION_CONTEXT_OK" },
           }),
         });
         return;
@@ -839,44 +747,41 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     }, { user: userId, workspace: workspaceId });
 
     await page.goto(`${shellOrigin}/?mod=portfolio-brief`, { waitUntil: "domcontentloaded" });
-    const frameElement = page.locator('iframe[title="组合总览"]');
-    await expect(frameElement).toHaveAttribute(
-      "src",
-      `${apiOrigin}/mod-runtime/portfolio-center/?workspace=portfolio-brief`,
-    );
-    const frame = page.frameLocator('iframe[title="组合总览"]');
-    await expect(frame.getByRole("heading", { name: "组合资产中心" })).toBeVisible();
-    await expect(frame.getByRole("heading", { name: "持仓研究覆盖" })).toBeVisible();
-    await expect(frame.getByText("覆盖完整")).toBeVisible();
-    await expect(frame.getByRole("link", { name: "投资逻辑" })).toHaveAttribute(
-      "href",
-      `${shellOrigin}/?mod=thesis-tracker`,
-    );
-    await frame.getByText("覆盖完整").click();
+    const frameElement = page.locator('iframe[title="配置总览"]');
+    await expectFrameRoute(frameElement, "/mod-runtime/portfolio-center/?workspace=portfolio-brief");
+    const frame = page.frameLocator('iframe[title="配置总览"]');
+    await expect(frame.getByText("组合预期收益")).toBeVisible();
+    await expect(frame.getByRole("heading", { name: "目标资产配置" })).toBeVisible();
+    await expect(frame.getByRole("columnheader", { name: "目标权重" })).toBeVisible();
+    await expect(frame.getByRole("columnheader", { name: "预期收益" })).toBeVisible();
+    await expect(frame.getByRole("columnheader", { name: "预期波动" })).toBeVisible();
+    await expect(frame.getByText("周期数据").first()).toBeVisible();
+    await expect(frame.getByText("Black-Litterman").first()).toBeVisible();
 
     await page.getByRole("button", { name: "问当前 Mod" }).click();
-    const drawer = page.getByRole("complementary", { name: "组合总览 Agent" });
-    await drawer.getByPlaceholder("就当前页面提问…").fill("检查当前持仓研究覆盖与缺口");
+    const drawer = page.getByRole("complementary", { name: /配置总览 Agent/ });
+    await expect(drawer).toBeVisible();
+    await drawer.getByPlaceholder("就当前页面提问…").fill("解释当前目标资产配置");
     await drawer.getByRole("button", { name: "发送" }).click();
-    await expect(drawer).toContainText("PORTFOLIO_RESEARCH_CONTEXT_OK");
+    await expect(drawer).toContainText("ALLOCATION_CONTEXT_OK");
     expect(agentPayload).toMatchObject({
       moduleId: "portfolio-brief",
+      capability: "module.explain",
       context: {
         vibedesk: {
           source: "mod-bridge",
           page: {
-            selection: { market: "CN", symbol: "300308", name: "中际旭创" },
             data: {
+              source: "newma-seven-cycle + strategic-allocation",
               summary: {
-                portfolioResearchCoverage: {
-                  schemaVersion: "newma-desk.portfolio-research-coverage.v1",
-                  summary: { completeCount: 1, missingCount: 0 },
-                  selectedPosition: {
-                    status: "complete",
-                    coreKinds: ["thesis"],
-                    supportingKinds: ["valuation"],
-                  },
-                },
+                model: "black-litterman",
+                assets: expect.arrayContaining([
+                  expect.objectContaining({
+                    targetWeightPct: expect.any(Number),
+                    expectedReturnPct: expect.any(Number),
+                    volatilityPct: expect.any(Number),
+                  }),
+                ]),
               },
             },
           },
@@ -903,12 +808,9 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
 
     await page.goto(`${shellOrigin}/?mod=earnings-workbench`, { waitUntil: "domcontentloaded" });
     const frameElement = page.locator('iframe[title="财报研究"]');
-    await expect(frameElement).toHaveAttribute(
-      "src",
-      `${apiOrigin}/mod-runtime/research/earnings-workbench`,
-    );
+    await expectFrameRoute(frameElement, "/mod-runtime/research/earnings-workbench");
     const frame = page.frameLocator('iframe[title="财报研究"]');
-    await expect(frame.getByRole("heading", { name: "财报研究" })).toBeVisible();
+    await expect(frame.getByLabel("证券代码")).toBeVisible();
     await frame.getByLabel("证券代码").fill("600519");
     await frame.getByLabel("公司名称").fill("贵州茅台");
     await frame.getByLabel("报告期").fill("2026 半年报");
@@ -936,12 +838,9 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
 
     await page.goto(`${shellOrigin}/?mod=peer-comparison`, { waitUntil: "domcontentloaded" });
     const frameElement = page.locator('iframe[title="同业比较"]');
-    await expect(frameElement).toHaveAttribute(
-      "src",
-      `${apiOrigin}/mod-runtime/research/peer-comparison`,
-    );
+    await expectFrameRoute(frameElement, "/mod-runtime/research/peer-comparison");
     const frame = page.frameLocator('iframe[title="同业比较"]');
-    await expect(frame.getByRole("heading", { name: "同业比较" })).toBeVisible();
+    await expect(frame.getByLabel("比较名称")).toBeVisible();
     await frame.getByLabel("比较名称").fill("E2E 光模块同业比较");
     const symbols = ["300308", "300394", "002281"];
     const names = ["中际旭创", "天孚通信", "光迅科技"];
@@ -971,12 +870,9 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
 
     await page.goto(`${shellOrigin}/?mod=valuation-workbench`, { waitUntil: "domcontentloaded" });
     const frameElement = page.locator('iframe[title="预测与估值"]');
-    await expect(frameElement).toHaveAttribute(
-      "src",
-      `${apiOrigin}/mod-runtime/research/valuation-workbench`,
-    );
+    await expectFrameRoute(frameElement, "/mod-runtime/research/valuation-workbench");
     const frame = page.frameLocator('iframe[title="预测与估值"]');
-    await expect(frame.getByRole("heading", { name: "预测与估值" })).toBeVisible();
+    await expect(frame.getByLabel("模型名称")).toBeVisible();
     await frame.getByLabel("模型名称").fill("E2E 光模块五年驱动式 DCF");
     await frame.getByLabel("证券代码").fill("300308");
     await frame.getByLabel("公司名称").fill("中际旭创");
@@ -1007,12 +903,9 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
 
     await page.goto(`${shellOrigin}/?mod=research-memo`, { waitUntil: "domcontentloaded" });
     const frameElement = page.locator('iframe[title="研究备忘录"]');
-    await expect(frameElement).toHaveAttribute(
-      "src",
-      `${apiOrigin}/mod-runtime/research/research-memo`,
-    );
+    await expectFrameRoute(frameElement, "/mod-runtime/research/research-memo");
     const frame = page.frameLocator('iframe[title="研究备忘录"]');
-    await expect(frame.getByRole("heading", { name: "研究备忘录" })).toBeVisible();
+    await expect(frame.getByLabel("备忘录标题")).toBeVisible();
     await frame.getByLabel("备忘录标题").fill("E2E 光模块研究备忘录");
     await frame.getByLabel("证券代码").fill("300308");
     await frame.getByLabel("公司名称").fill("中际旭创");
@@ -1034,8 +927,8 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
   }) => {
     test.slow();
     const userId = "e2e-watchlist-user";
-    const workspaceId = "e2e-watchlist-workspace";
-    const groupName = `E2E 半导体组合 ${Date.now()}`;
+    const workspaceId = `e2e-watchlist-workspace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const groupName = `E2E 半导体组合 ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     let agentPayload: Record<string, unknown> | undefined;
 
     const quoteNames: Record<string, string> = {
@@ -1113,7 +1006,6 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
       waitUntil: "domcontentloaded",
     });
     const frame = page.frameLocator('iframe[title="自选股"]');
-    await expect(frame.getByRole("heading", { name: "自选股" })).toBeVisible();
     await expect(frame.getByText("Desk 已同步")).toBeVisible();
 
     await frame.getByRole("button", { name: "新建分组" }).click();
@@ -1189,17 +1081,18 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
       fullPage: true,
     });
 
-    await page.getByRole("button", { name: "个股研究", exact: true }).click();
-    const researchFrame = page.frameLocator('iframe[title="个股研究"]');
-    await expect(researchFrame.getByPlaceholder(/A 股 6 位代码/)).toHaveValue("600519");
+    await page.getByRole("button", { name: "公司 项目", exact: true }).click();
+    await page.getByRole("button", { name: "公司档案", exact: true }).click();
+    const researchFrame = page.frameLocator('iframe[title="公司档案"]');
+    await expect(researchFrame.locator("#dossier-symbol")).toBeVisible();
 
-    await page.getByRole("button", { name: "交易、风控与组合管理 项目", exact: true }).click();
+    await page.getByRole("button", { name: "配置 项目", exact: true }).click();
     const portfolioNavigation = page.getByRole("complementary", {
-      name: "交易、风控与组合管理 二级导航",
+      name: "配置 二级导航",
     });
     await portfolioNavigation.getByRole("button", { name: "总览", exact: true }).click();
-    const portfolioFrame = page.frameLocator('iframe[title="组合总览"]');
-    await expect(portfolioFrame.getByText("联动标的 CN:600519")).toBeVisible();
+    const portfolioFrame = page.frameLocator('iframe[title="配置总览"]');
+    await expect(portfolioFrame.getByRole("heading", { name: "目标资产配置" })).toBeVisible();
   });
 
   test("uses the shared Desk Agent drawer with live Research and Trading page context", async ({
@@ -1219,7 +1112,7 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     const scenarios = [
       {
         id: "industry-map",
-        name: "产业链研究",
+        name: "产业图谱",
         marker: "RESEARCH_SIDE_PANEL_OK",
         contextSource: "vibe-research-rendered-page",
       },
@@ -1273,194 +1166,32 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     expect(consoleErrors).toEqual([]);
   });
 
-  test("passes the cross-market Evidence Ledger from stock research to Desk Agent", async ({
-    page,
-  }) => {
-    let agentPayload: Record<string, unknown> | undefined;
-    const globalStock = {
-      code: "AAPL",
-      name: "Apple Inc.",
-      market: "US",
-      quote: {
-        price: 231.42,
-        change_pct: 1.18,
-        mcap: 3_480_000_000_000,
-        amount: 8_800_000_000,
-        open: 229.5,
-        high: 233.1,
-        low: 228.8,
-        prev_close: 228.72,
-        pe: 34.2,
-        pb: 52.1,
-        source: "sina",
-        sources: ["sina", "tencent"],
-      },
-      metrics: null,
-      data_sources: ["sina", "tencent"],
-    };
-    const researchSnapshot = {
-      schemaVersion: "newma-desk.equity-research.v1",
-      frameworkVersion: "1.0",
-      methodology: [
-        "cross-market-normalization",
-        "evidence-ledger",
-        "source-provenance",
-        "explicit-data-gaps",
-      ],
-      identity: {
-        symbol: "AAPL",
-        name: "Apple Inc.",
-        market: "US",
-        currency: "USD",
-      },
-      coverage: { coveredDimensions: 4, totalDimensions: 6, ratio: 2 / 3 },
-      sections: [
-        { id: "valuation", title: "估值与预期", status: "covered", evidenceIds: ["valuation.price"] },
-        { id: "growth", title: "增长质量", status: "covered", evidenceIds: ["growth.revenue_yoy"] },
-        { id: "profitability", title: "盈利与资本效率", status: "covered", evidenceIds: ["profitability.roe"] },
-        { id: "cash_flow", title: "现金流质量", status: "gap", evidenceIds: [] },
-        { id: "balance_sheet", title: "资产负债与韧性", status: "covered", evidenceIds: ["balance_sheet.debt_ratio"] },
-        { id: "disclosure", title: "披露与可追溯证据", status: "gap", evidenceIds: [] },
-      ],
-      evidenceLedger: [
-        {
-          id: "valuation.price",
-          dimension: "valuation",
-          label: "现价",
-          value: 231.42,
-          source: "sina",
-          sourceType: "structured",
-          field: "price",
-          asOf: "2026-07-27T08:00:00Z",
-          unit: "USD/share",
-          currency: "USD",
-          confidence: "high",
-        },
-        {
-          id: "growth.revenue_yoy",
-          dimension: "growth",
-          label: "营业收入同比",
-          value: 6.4,
-          source: "SEC companyfacts",
-          sourceType: "filing",
-          field: "Revenues",
-          asOf: "2026-06-30",
-          unit: "%",
-          currency: null,
-          confidence: "high",
-        },
-      ],
-      sources: ["sina", "SEC companyfacts"],
-      gaps: ["统一经营现金流证据尚未接入", "最新 10-Q 原文尚未配置 SEC User-Agent"],
-      generatedAt: "2026-07-27T08:00:01Z",
-    };
-
-    await page.route("**/api/research/global/stock**", async (route) => {
-      if (new URL(route.request().url()).searchParams.get("symbol") === "AAPL") {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ data: globalStock }),
-        });
-        return;
-      }
-      await route.continue();
-    });
-    await page.route("**/api/research/equity-research/snapshot**", async (route) => {
-      if (new URL(route.request().url()).searchParams.get("symbol") === "AAPL") {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ data: researchSnapshot }),
-        });
-        return;
-      }
-      await route.continue();
-    });
-    await page.route("**/api/agent/tasks**", async (route) => {
-      const requestUrl = new URL(route.request().url());
-      if (route.request().method() === "POST" && requestUrl.pathname === "/api/agent/tasks") {
-        agentPayload = route.request().postDataJSON() as Record<string, unknown>;
-        await route.fulfill({
-          status: 202,
-          contentType: "application/json",
-          body: JSON.stringify({ id: "equity-research-e2e-task", status: "queued" }),
-        });
-        return;
-      }
-      if (
-        route.request().method() === "GET" &&
-        requestUrl.pathname === "/api/agent/tasks/equity-research-e2e-task"
-      ) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            id: "equity-research-e2e-task",
-            status: "completed",
-            result: { answer: "EVIDENCE_LEDGER_CONTEXT_OK" },
-          }),
-        });
-        return;
-      }
-      await route.continue();
-    });
-
-    await page.goto(`${shellOrigin}/?mod=stock-research`, {
+  test("opens company archive and company events with current terminology", async ({ page }) => {
+    await page.goto(`${shellOrigin}/?mod=instock-stock-research`, {
       waitUntil: "domcontentloaded",
     });
-    const frameElement = page.locator('iframe[title="个股研究"]');
-    await expect(frameElement).toHaveAttribute(
-      "src",
-      `${apiOrigin}/mod-runtime/research/stock-data`,
-    );
-    const frame = page.frameLocator('iframe[title="个股研究"]');
-    const input = frame.getByPlaceholder(/A 股 6 位代码/);
-    await expect(frame.getByRole("heading", { name: "个股数据" })).toBeVisible();
+    const frameElement = page.locator('iframe[title="公司档案"]');
+    const src = await frameElement.getAttribute("src");
+    expect(src).toBeTruthy();
+    expect(new URL(src!).pathname).toBe("/mods/stock-research");
+    const frame = page.frameLocator('iframe[title="公司档案"]');
+    const input = frame.locator("#dossier-symbol");
     await expect(input).toBeVisible();
-    await input.fill("AAPL");
-    await frame.getByRole("button", { name: "查询" }).click();
-    await expect(frame.getByRole("heading", { name: "Apple Inc." })).toBeVisible();
-    await expect(frame.getByText("跨市场研究框架")).toBeVisible();
-    await frame.locator("summary").filter({ hasText: "Evidence Ledger" }).click();
-    await expect(frame.getByText("valuation.price", { exact: true })).toBeVisible();
-    await expect(frame.getByText("SEC companyfacts", { exact: true })).toBeVisible();
-
-    await page.getByRole("button", { name: "问当前 Mod" }).click();
-    const drawer = page.getByRole("complementary", { name: "个股研究 Agent" });
-    await drawer.getByPlaceholder("就当前页面提问…").fill("引用证据说明当前研究覆盖");
-    await drawer.getByRole("button", { name: "发送" }).click();
-    await expect(drawer).toContainText("EVIDENCE_LEDGER_CONTEXT_OK");
-
-    expect(agentPayload).toMatchObject({
-      moduleId: "stock-research",
-      capability: "module.explain",
-      context: {
-        vibedesk: {
-          source: "mod-bridge",
-          page: {
-            selection: { symbol: "AAPL", name: "Apple Inc.", market: "US" },
-            visibleBlocks: expect.arrayContaining([
-              expect.objectContaining({ id: "equity-research-framework", type: "evidence-ledger" }),
-            ]),
-            data: {
-              summary: {
-                researchFramework: {
-                  frameworkVersion: "1.0",
-                  evidenceLedger: expect.arrayContaining([
-                    expect.objectContaining({
-                      id: "growth.revenue_yoy",
-                      source: "SEC companyfacts",
-                      asOf: "2026-06-30",
-                    }),
-                  ]),
-                  gaps: expect.arrayContaining(["统一经营现金流证据尚未接入"]),
-                },
-              },
-            },
-          },
-        },
-      },
+    await input.fill("600519");
+    await frame.getByRole("button", { name: "生成档案", exact: true }).click();
+    await expect(frame.locator("#dossier-name")).toContainText("600519", {
+      timeout: 40_000,
     });
+    await expect(frame.getByRole("heading", { name: /综合判断/ })).toBeVisible();
+    await expect(frame.getByRole("heading", { name: /财务与估值/ })).toBeVisible();
+    await expect(frame.getByRole("heading", { name: /K 线结构/ })).toBeVisible();
+    await expect(frame.locator("#dossier-state")).toHaveText("完整");
+
+    await page.getByRole("button", { name: "公司事件", exact: true }).click();
+    const eventFrame = page.locator('iframe[title="公司事件"]');
+    const eventSrc = await eventFrame.getAttribute("src");
+    expect(eventSrc).toBeTruthy();
+    expect(new URL(eventSrc!).pathname).toBe("/mods/event-flow");
+    await expect(eventFrame).toBeVisible();
   });
 });

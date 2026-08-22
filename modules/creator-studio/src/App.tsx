@@ -14,9 +14,10 @@ import {
   type ModHostConnection,
 } from "@newma-desk/mod-sdk";
 
-import { creatorClient } from "./api";
+import { creatorClient, type DeskAgentPreferences } from "./api";
 import { buildCreatorContext } from "./context";
 import { CreateRunDialog } from "./CreateRunDialog";
+import { ArtifactPreviewModal } from "./ArtifactPreviewModal";
 import { formatTime, statusLabel, statusTone } from "./presenters";
 import { isCreatorStage } from "./types";
 import type {
@@ -158,11 +159,21 @@ export function CreatorStudioApp() {
   const [marketplacePresets, setMarketplacePresets] = useState<MarketplacePreset[]>([]);
   const [capabilities, setCapabilities] = useState<CapabilityDetection>();
   const [system, setSystem] = useState<Record<string, unknown>>();
+  const [deskAgentPreferences, setDeskAgentPreferences] = useState<DeskAgentPreferences>();
   const [loading, setLoading] = useState(true);
   const [marketLoading, setMarketLoading] = useState(false);
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [previewArtifact, setPreviewArtifact] = useState<{ path: string; label?: string } | null>(null);
+  useEffect(() => {
+    (window as unknown as { __creatorStudioOpenArtifact?: (path: string, label?: string) => void }).__creatorStudioOpenArtifact = (path: string, label?: string) => {
+      if (path) setPreviewArtifact({ path, label });
+    };
+    return () => {
+      delete (window as unknown as { __creatorStudioOpenArtifact?: unknown }).__creatorStudioOpenArtifact;
+    };
+  }, []);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [host, setHost] = useState<EmbeddedHost>();
   const client = useMemo(() => identity ? creatorClient(identity) : undefined, [identity]);
@@ -181,6 +192,15 @@ export function CreatorStudioApp() {
       ?? selectedStage?.nodes.find((node) => node.id === snapshot?.run.activeNodeId)
       ?? selectedStage?.nodes[0]
   ), [selectedNodeId, selectedStage, snapshot?.run.activeNodeId]);
+
+  // 稳定引用：ReviewWorkCard 的 effect 依赖 fetchPreview，内联箭头函数会导致每次渲染重跑并重置选中状态
+  const fetchArtifactPreview = useCallback(
+    (path: string) => {
+      if (!client) return Promise.reject(new Error("client 未就绪"));
+      return client.previewArtifact(path);
+    },
+    [client],
+  );
 
   const refreshRuns = useCallback(async () => {
     if (!client || !identity) return [];
@@ -286,7 +306,30 @@ export function CreatorStudioApp() {
   useEffect(() => {
     if (!client || workspace !== "settings") return;
     if (!system) void client.system().then(setSystem).catch(() => undefined);
-  }, [client, system, workspace]);
+    if (!deskAgentPreferences) {
+      void client.agentPreferences().then(setDeskAgentPreferences).catch(() => undefined);
+    }
+  }, [client, deskAgentPreferences, system, workspace]);
+
+  const syncCreatorAgent = useCallback(async (agentId: string) => {
+    const adapterMap: Record<string, string> = {
+      codex: "codex-cli",
+      claude: "claude-cli",
+      gemini: "gemini-cli",
+      hermes: "hermes-webui",
+    };
+    const adapter = adapterMap[agentId];
+    if (!adapter) throw new Error("该 CLI 暂未接入统一 Desk Agent，保留 Creator 本地选择");
+    if (!client) throw new Error("Desk Agent 服务尚未连接");
+    const current = deskAgentPreferences || await client.agentPreferences();
+    const next = await client.saveAgentPreferences({
+      defaultAdapter: current.defaultAdapter,
+      moduleOverrides: current.moduleOverrides,
+      profileTargets: { ...current.profileTargets, edit: adapter },
+      moduleProfileOverrides: current.moduleProfileOverrides,
+    });
+    setDeskAgentPreferences(next);
+  }, [client, deskAgentPreferences]);
 
   const dispatchAction = useCallback<ActionDispatcher>(async (actionId, input = {}) => {
     if (!client) throw new Error("Desk 身份尚未就绪");
@@ -330,6 +373,12 @@ export function CreatorStudioApp() {
         const result = await client.detectCapabilities();
         setCapabilities(result);
         return result;
+      }
+      if (actionId === "creator.agent.test") {
+        return await client.testAgent(
+          String(input.agentId || ""),
+          String(input.binOverride || ""),
+        );
       }
       if (actionId === "creator.marketplace.check-compatibility") {
         return await client.marketplaceCompatibility({
@@ -461,8 +510,36 @@ export function CreatorStudioApp() {
     return <div className="loading-stage"><LoaderCircle className="spin" size={22} /><span>正在连接 Creator Studio Run Control…</span></div>;
   }
 
+  const isStandalone = window.self === window.top;
+
   return (
-    <div className="creator-root">
+    <div className={isStandalone ? "creator-standalone-layout" : ""}>
+      {isStandalone && (
+        <nav className="creator-sidebar">
+          <div className="creator-sidebar-header">
+            <strong>Newma Creator Studio</strong>
+            <small>独立开发模式</small>
+          </div>
+          <ul className="creator-sidebar-nav">
+            {([
+              ["dashboard", "状态看板"],
+              ["intake", "内容采集"],
+              ["brief", "选题 Brief"],
+              ["draft", "初稿生产"],
+              ["transwrite", "多通路转写"],
+              ["publish", "发布"],
+              ["postmortem", "复盘"],
+              ["marketplace", "超市项目"],
+              ["settings", "模组设置"],
+            ] as [string, string][]).map(([key, label]) => (
+              <li key={key} className={workspace === key ? "active" : ""}>
+                <a href={`/mod-runtime/creator-studio/?workspace=${key}`}>{label}</a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
+      <div className="creator-root">
       <StudioHeader
         runs={runs}
         snapshot={snapshot}
@@ -483,6 +560,10 @@ export function CreatorStudioApp() {
             selectedNode={selectedNode}
             onCreate={() => setCreateOpen(true)}
             dispatch={dispatchAction}
+            runs={runs}
+            onSelectRun={(runId) => {
+              if (runId && runId !== currentRunId) setCurrentRunId(runId);
+            }}
           />
         )}
         {isCreatorStage(workspace) && (
@@ -494,6 +575,10 @@ export function CreatorStudioApp() {
             dispatch={dispatchAction}
             busy={Boolean(busyAction)}
             onCreate={() => setCreateOpen(true)}
+            fetchPreview={fetchArtifactPreview}
+            openArtifact={(path: string, label?: string) => {
+              if (path) setPreviewArtifact({ path, label });
+            }}
           />
         )}
         {workspace === "marketplace" && <MarketplaceView
@@ -510,6 +595,8 @@ export function CreatorStudioApp() {
           <SettingsView
             system={system}
             capabilities={capabilities}
+            deskAgentPreferences={deskAgentPreferences}
+            onSyncAgent={syncCreatorAgent}
             busy={Boolean(busyAction)}
             dispatch={dispatchAction}
           />
@@ -525,11 +612,21 @@ export function CreatorStudioApp() {
         />
       )}
 
+      {previewArtifact && client && (
+        <ArtifactPreviewModal
+          path={previewArtifact.path}
+          label={previewArtifact.label}
+          onClose={() => setPreviewArtifact(null)}
+          fetchPreview={fetchArtifactPreview}
+        />
+      )}
+
       <footer className="studio-statusbar">
         <span><i className="live-dot" />共享状态已连接</span>
         <span>{snapshot ? "Revision " + snapshot.run.revision : "等待任务"}</span>
         <span>{snapshot ? "同步 " + formatTime(snapshot.generatedAt) : "Newma-Desk Level 3 Mod"}</span>
       </footer>
+    </div>
     </div>
   );
 }

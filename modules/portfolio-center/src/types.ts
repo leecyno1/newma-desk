@@ -192,5 +192,64 @@ export type PortfolioWorkspace =
   | "portfolio-activities"
   | "portfolio-risk"
   | "portfolio-allocation"
+  | "portfolio-scenarios"
   | "portfolio-performance"
   | "portfolio-settings";
+
+export type StrategicAllocationModel =
+  | "black-litterman"
+  | "risk-parity"
+  | "minimum-volatility";
+
+export interface StrategicAllocationInput {
+  model: StrategicAllocationModel;
+  targetVolatilityPct: number;
+  horizonMonths: 1 | 3 | 6;
+  maxWeight: number;
+  riskFreeRatePct: number;
+}
+
+export interface StrategicAllocationAsset {
+  id: string;
+  name: string;
+  category: string;
+  cycleAssetId?: string | null;
+  benchmarkWeightPct: number;
+  targetWeightPct: number;
+  expectedReturnPct: number;
+  volatilityPct: number;
+  riskContributionPct: number;
+  equilibriumReturnPct: number;
+  cycleViewReturnPct?: number | null;
+  upProbabilityPct?: number | null;
+  confidencePct: number;
+  publicationStatus: string;
+  evidenceLevel: string;
+  sourceAsOf?: string | null;
+  forecastOrigin?: string | null;
+}
+
+export interface StrategicAllocationResult {
+  status: "ready" | "partial" | "prior-only";
+  model: StrategicAllocationModel;
+  method: string;
+  horizonMonths: 1 | 3 | 6;
+  targetVolatilityPct: number;
+  achievedVolatilityPct: number;
+  expectedReturnPct: number;
+  sharpe?: number | null;
+  cashWeightPct: number;
+  assets: StrategicAllocationAsset[];
+  scenarios: Array<{
+    id: string;
+    name: string;
+    description: string;
+    portfolioImpactPct: number;
+    assetImpactsPct: Record<string, number>;
+  }>;
+  insights: string[];
+  warnings: string[];
+  dataSources: string[];
+  cycleAsOf?: string | null;
+  generatedAt: string;
+}

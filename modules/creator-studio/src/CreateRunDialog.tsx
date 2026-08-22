@@ -25,7 +25,8 @@ export function CreateRunDialog({
   }): Promise<unknown>;
 }) {
   const firstStage = registry.stages[0];
-  const [title, setTitle] = useState("");
+  const todayLabel = (() => { const d = new Date(); return String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0"); })();
+  const [title, setTitle] = useState(todayLabel);
   const [stageId, setStageId] = useState(firstStage?.id ?? "");
   const selectedStage = useMemo(
     () => registry.stages.find((stage) => stage.id === stageId) ?? firstStage,
@@ -121,7 +122,7 @@ export function CreateRunDialog({
               <input
                 value={material.path}
                 onChange={(event) => updateMaterial(index, { path: event.target.value })}
-                placeholder="文件路径或 URL"
+                placeholder="链接、文字、文件路径或截图路径"
                 required={material.required}
               />
             </div>

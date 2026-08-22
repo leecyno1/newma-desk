@@ -37,6 +37,8 @@ import { MultiTimeframeWorkspace } from "./MultiTimeframeWorkspace";
 import { RelativeStrengthWorkspace } from "./RelativeStrengthWorkspace";
 import { ReplayWorkspace } from "./ReplayWorkspace";
 import { ScannerWorkspace } from "./ScannerWorkspace";
+import { SentimentWorkspace } from "./SentimentWorkspace";
+import { TechnicalAnalysisWorkspace } from "./TechnicalAnalysisWorkspace";
 import type { MarketWorkspaceConfig } from "./config";
 import {
   SecuritySearch,
@@ -128,11 +130,11 @@ export function buildWorkspacePageContext(input: {
       { id: "market.set-alert", label: "设置价格预警", available: true, inputSchema: { type: "object", required: ["direction", "price"], properties: { direction: { enum: ["above", "below"] }, price: { type: "number", exclusiveMinimum: 0 }, label: { type: "string", maxLength: 80 } }, additionalProperties: false } },
       { id: "workspace.save-layout", label: "保存当前布局", available: true, inputSchema: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, additionalProperties: false } },
     ],
-    ...(input.config.kind === "event-timeline"
+    ...(input.config.kind === "event-timeline" || input.config.kind === "technical"
       ? {
           wiki: wikiContextForSecurity({
             security: input.security,
-            intent: "event.timeline",
+            intent: input.config.kind === "technical" ? "technical.structure" : "event.timeline",
             timeframe: "daily",
           }),
         }
@@ -437,6 +439,10 @@ export function MarketWorkspaceApp({
     ? null
     : config.kind === "scanner"
     ? <ScannerWorkspace dataSource={dataSource} cacheIdentity={hostIdentity} security={security} onSelectSecurity={selectSecurity} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
+    : config.kind === "sentiment"
+      ? <SentimentWorkspace dataSource={dataSource} security={security} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
+    : config.kind === "technical"
+      ? <TechnicalAnalysisWorkspace dataSource={dataSource} security={security} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
     : config.kind === "multi-timeframe"
       ? <MultiTimeframeWorkspace action={workspaceAction} dataSource={dataSource} security={security} quote={quote} theme={theme} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
       : config.kind === "relative-strength"
@@ -452,10 +458,10 @@ export function MarketWorkspaceApp({
       style={{ "--workspace-accent": config.accent } as CSSProperties}
     >
       <header className="workspace-topbar">
-        <div className="workspace-title">
+        {!embedded ? <div className="workspace-title" data-mod-page-title>
           <strong>{config.title}</strong>
           <span>{config.description}</span>
-        </div>
+        </div> : null}
         <SecuritySearch dataSource={dataSource} onSelect={selectSecurity} />
         <button type="button" className="workspace-refresh" onClick={() => setRefreshNonce((value) => value + 1)}><RefreshCw size={14} />刷新</button>
       </header>

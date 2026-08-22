@@ -79,7 +79,19 @@ const ROUTE_COLOR: Record<GlobalIntelRoute["kind"], [number, number, number]> = 
   pipeline: [245, 190, 74],
   cable: [64, 198, 255],
   shipping: [55, 214, 161],
-  flight: [190, 103, 255],
+  flight: [98, 168, 255],
+};
+
+type RouteRenderSegment = {
+  route: GlobalIntelRoute;
+  path: Array<[number, number]>;
+};
+
+const ROUTE_DASH_PATTERN: Record<GlobalIntelRoute["kind"], [number, number]> = {
+  pipeline: [4.6, 2.8],
+  cable: [2.8, 3.4],
+  shipping: [3.8, 3.6],
+  flight: [2.2, 3.2],
 };
 
 function routeColor(
@@ -99,7 +111,10 @@ function routeColor(
   if ((route.riskScore ?? 0) > 0) {
     return theme === "dark" ? [245, 190, 74, alpha] : [168, 112, 20, alpha];
   }
-  return theme === "dark" ? [126, 145, 140, alpha] : [92, 111, 105, alpha];
+  const [red, green, blue] = ROUTE_COLOR[route.kind];
+  return theme === "dark"
+    ? [red, green, blue, alpha]
+    : [Math.round(red * 0.72), Math.round(green * 0.72), Math.round(blue * 0.72), alpha];
 }
 
 function wrappedLongitudeDelta(start: number, end: number) {
@@ -125,6 +140,57 @@ function visualRoutePath(route: GlobalIntelRoute): Array<[number, number]> {
       ];
     });
   }).concat([route.path.at(-1)!]);
+}
+
+function dashedRouteSegments(route: GlobalIntelRoute): RouteRenderSegment[] {
+  const path = route.path;
+  const [dashLength, gapLength] = ROUTE_DASH_PATTERN[route.kind];
+  const pattern = [dashLength, gapLength];
+  const segments: RouteRenderSegment[] = [];
+  let patternIndex = 0;
+  let patternOffset = 0;
+  let drawing = true;
+  let current: Array<[number, number]> = [];
+
+  const flush = () => {
+    if (current.length > 1) segments.push({ route, path: current });
+    current = [];
+  };
+
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const start = path[index]!;
+    const end = path[index + 1]!;
+    const longitudeDelta = wrappedLongitudeDelta(start[0], end[0]);
+    const latitudeDelta = end[1] - start[1];
+    const latitudeScale = Math.cos(((start[1] + end[1]) / 2) * Math.PI / 180);
+    const length = Math.hypot(longitudeDelta * latitudeScale, latitudeDelta);
+    if (length < 0.001) continue;
+    let consumed = 0;
+    while (consumed < length - 0.0001) {
+      const available = pattern[patternIndex]! - patternOffset;
+      const taken = Math.min(available, length - consumed);
+      const fromProgress = consumed / length;
+      const toProgress = (consumed + taken) / length;
+      const from: [number, number] = [start[0] + longitudeDelta * fromProgress, start[1] + latitudeDelta * fromProgress];
+      const to: [number, number] = [start[0] + longitudeDelta * toProgress, start[1] + latitudeDelta * toProgress];
+      if (drawing) {
+        if (!current.length) current.push(from);
+        current.push(to);
+      } else if (current.length) {
+        flush();
+      }
+      consumed += taken;
+      patternOffset += taken;
+      if (patternOffset >= pattern[patternIndex]! - 0.0001) {
+        patternOffset = 0;
+        patternIndex = (patternIndex + 1) % pattern.length;
+        drawing = !drawing;
+        if (!drawing) flush();
+      }
+    }
+  }
+  flush();
+  return segments;
 }
 
 function mapStyle(theme: "light" | "dark") {
@@ -351,6 +417,10 @@ export function IntelligenceMap({
     () => routes.map((route) => ({ ...route, path: visualRoutePath(route) })),
     [routes],
   );
+  const routeSegments = useMemo(
+    () => displayRoutes.flatMap((route) => dashedRouteSegments(route)),
+    [displayRoutes],
+  );
   const routeEndpoints = useMemo(() => displayRoutes.flatMap((route) => {
     const start = route.path[0];
     const end = route.path.at(-1);
@@ -390,47 +460,50 @@ export function IntelligenceMap({
         return [red, green, blue, Math.round(42 + SEVERITY_WEIGHT[cluster.primary.severity] * 82)];
       },
     });
-    const routeHalo = new PathLayer<GlobalIntelRoute>({
+    const routeHalo = new PathLayer<RouteRenderSegment>({
       id: "global-intelligence-route-halo",
-      data: displayRoutes,
+      data: routeSegments,
       visible: showRoutes,
       widthUnits: "pixels",
-      widthMinPixels: 3,
+      widthMinPixels: 1,
+      widthMaxPixels: 3,
       wrapLongitude: true,
       jointRounded: true,
       capRounded: true,
-      getPath: (route) => route.path,
-      getWidth: (route) => route.kind === "pipeline" ? 7 : 5,
-      getColor: (route) => routeColor(route, theme, (route.riskScore ?? 0) > 0 ? 58 : 14),
+      getPath: (segment) => segment.path,
+      getWidth: (segment) => segment.route.kind === "pipeline" ? 2.8 : 2.2,
+      getColor: (segment) => routeColor(segment.route, theme, (segment.route.riskScore ?? 0) > 0 ? 48 : 10),
     });
-    const routeLayer = new PathLayer<GlobalIntelRoute>({
+    const routeLayer = new PathLayer<RouteRenderSegment>({
       id: "global-intelligence-routes",
-      data: displayRoutes,
+      data: routeSegments,
       visible: showRoutes,
       pickable: true,
       widthUnits: "pixels",
-      widthMinPixels: 1,
+      widthMinPixels: 0.7,
+      widthMaxPixels: 2.2,
       wrapLongitude: true,
       jointRounded: true,
       capRounded: true,
-      getPath: (route) => route.path,
-      getWidth: (route) => (route.riskScore ?? 0) >= 70
-        ? 3.2
-        : (route.riskScore ?? 0) >= 45
-          ? 2.5
-          : route.kind === "pipeline" ? 1.6 : 1.25,
-      getColor: (route) => routeColor(route, theme, (route.riskScore ?? 0) > 0 ? 225 : theme === "dark" ? 82 : 98),
-      onHover: (info: PickingInfo<GlobalIntelRoute>) => {
-        setHovered(info.object ? {
-          title: info.object.name,
-          detail: info.object.detail,
-          meta: `${info.object.kind.toUpperCase()} · ${info.object.pathType === "corridor" ? "示意走廊" : "精确线路"} · 风险 ${info.object.riskScore ?? 0}`,
+      getPath: (segment) => segment.path,
+      getWidth: (segment) => (segment.route.riskScore ?? 0) >= 70
+        ? 1.8
+        : (segment.route.riskScore ?? 0) >= 45
+          ? 1.45
+          : segment.route.kind === "pipeline" ? 1.05 : 0.85,
+      getColor: (segment) => routeColor(segment.route, theme, (segment.route.riskScore ?? 0) > 0 ? 225 : theme === "dark" ? 100 : 112),
+      onHover: (info: PickingInfo<RouteRenderSegment>) => {
+        const route = info.object?.route;
+        setHovered(route ? {
+          title: route.name,
+          detail: route.detail,
+          meta: `${route.kind.toUpperCase()} · ${route.pathType === "corridor" ? "示意走廊" : "精确线路"} · 风险 ${route.riskScore ?? 0}`,
           x: info.x,
           y: info.y,
         } : undefined);
       },
-      onClick: (info: PickingInfo<GlobalIntelRoute>) => {
-        if (info.object) onRouteSelectRef.current(info.object);
+      onClick: (info: PickingInfo<RouteRenderSegment>) => {
+        if (info.object) onRouteSelectRef.current(info.object.route);
       },
     });
     const routeEndpointLayer = new ScatterplotLayer<(typeof routeEndpoints)[number]>({
@@ -582,7 +655,7 @@ export function IntelligenceMap({
       ...(focusRing ? [focusRing] : []),
       ...(focusLabel ? [focusLabel] : []),
     ];
-  }, [clusters, displayRoutes, focusLocation, mode, routeEndpoints, selectedPointId, selectedRegion, showRoutes, theme, watchedRegions]);
+  }, [clusters, focusLocation, mode, routeEndpoints, routeSegments, selectedPointId, selectedRegion, showRoutes, theme, watchedRegions]);
 
   useEffect(() => {
     overlayRef.current?.setProps({ layers });
@@ -626,12 +699,12 @@ export function IntelligenceMap({
       </div>
       {showRoutes ? (
         <div className="intel-route-legend" aria-label="战略通道图例">
-          {(["pipeline", "cable", "shipping"] as const).map((kind) => {
+          {(["pipeline", "cable", "shipping", "flight"] as const).map((kind) => {
             const count = routes.filter((route) => route.kind === kind).length;
             if (!count) return null;
             return (
               <span key={kind} style={{ "--route-color": `rgb(${ROUTE_COLOR[kind].join(" ")})` } as CSSProperties}>
-                <i />{kind === "pipeline" ? "能源" : kind === "cable" ? "光缆" : "航运"} {count}
+                <i />{kind === "pipeline" ? "能源" : kind === "cable" ? "光缆" : kind === "shipping" ? "航运 / 油运" : "航空"} {count}
               </span>
             );
           })}

@@ -28,7 +28,7 @@ class CreatorControlAdapter:
     def _invoke(
         self,
         command: str,
-        *,
+        *command_args: str,
         payload: dict[str, Any] | None = None,
         timeout: int = 30,
         allow_failure: bool = False,
@@ -38,7 +38,7 @@ class CreatorControlAdapter:
                 f"Creator Studio control adapter unavailable: {self.script}"
             )
         result = subprocess.run(
-            [str(self.python), str(self.script), command],
+            [str(self.python), str(self.script), command, *command_args],
             cwd=self.workspace,
             input=json.dumps(payload, ensure_ascii=False) if payload is not None else None,
             capture_output=True,
@@ -60,6 +60,43 @@ class CreatorControlAdapter:
 
     def detect_capabilities(self) -> dict[str, Any]:
         return self._invoke("detect-capabilities", timeout=20)
+
+    def approve_gate(
+        self, run_id: str, stage: str, selected_ids: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Review gate approve 联动：把 media 侧阶段 gate 文件状态翻 approved。
+
+        gate 文件缺失（missing）属正常业务结果，不视为失败。
+        selected_ids 非空时写入选题 gate（selected_topics.json）的选择结果。
+        """
+        args = ["--run-id", run_id, "--stage", stage]
+        if selected_ids:
+            args += ["--selected-ids", ",".join(selected_ids)]
+        return self._invoke(
+            "approve-gate",
+            *args,
+            timeout=20,
+            allow_failure=True,
+        )
+
+    def test_agent(self, agent_id: str, bin_override: str = "") -> dict[str, Any]:
+        """Invoke a short hello prompt via the specified agent to verify it works."""
+        args = [
+            "--agent", agent_id,
+            "--prompt", "Reply with exactly: AGENT_TEST_OK",
+            "--timeout", "30",
+            "--workdir", str(self.workspace),
+        ]
+        if bin_override.strip():
+            args.extend(["--bin-override", bin_override.strip()])
+        # A failed CLI check is a usable result for the settings page; it should
+        # not turn into a transport-level HTTP 500/503.
+        return self._invoke(
+            "invoke-cli",
+            *args,
+            timeout=45,
+            allow_failure=True,
+        )
 
     def marketplace(self) -> dict[str, Any]:
         return self._invoke("marketplace", timeout=30)

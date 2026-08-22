@@ -63,12 +63,14 @@ class CreatorExecutionRuntime:
             return
         self._started = True
         for job in self.repository.list_incomplete_jobs():
-            if job.get("status") == "running":
-                self._finish_interrupted(job)
-            elif job.get("cancelRequested"):
+            if job.get("cancelRequested"):
                 self._finish_cancelled(job)
             else:
-                self.dispatch(job)
+                # 重启后未完成执行一律显式中断（含尚未开始排队的）：
+                # 1) 避免重启自动重跑有副作用的 job（如发布执行）——
+                #    重试需重新走 confirm 门禁；
+                # 2) 恢复写入只收尾一次，不再触发 started+finished 双写。
+                self._finish_interrupted(job, queued=job.get("status") != "running")
 
     def dispatch(self, job: dict[str, Any]) -> None:
         key = self._key(job)
@@ -224,16 +226,24 @@ class CreatorExecutionRuntime:
         self.repository.update_job(job)
         self.on_finished(job)
 
-    def _finish_interrupted(self, job: dict[str, Any]) -> None:
+    def _finish_interrupted(self, job: dict[str, Any], *, queued: bool = False) -> None:
         timestamp = now_iso()
         job.update(
             {
                 "status": "failed",
                 "progress": 0,
-                "error": "Creator Runtime 重启，原执行已中断，请重试。",
+                "error": (
+                    "Creator Runtime 重启，排队中的执行已取消，请重新发起。"
+                    if queued
+                    else "Creator Runtime 重启，原执行已中断，请重试。"
+                ),
                 "result": {
                     "status": "failed",
-                    "error": "Creator Runtime restarted during execution",
+                    "error": (
+                        "Creator Runtime restarted before execution started"
+                        if queued
+                        else "Creator Runtime restarted during execution"
+                    ),
                 },
                 "finishedAt": timestamp,
                 "updatedAt": timestamp,

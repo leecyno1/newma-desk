@@ -1,0 +1,644 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-equity-suite",
+  "name": "InStock 策略",
+  "description": "综合选股、条件筛选、策略验证与观察组合。",
+  "version": "0.18.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": [
+    "策略",
+    "A股候选",
+    "港股候选",
+    "技术指标",
+    "经典策略",
+    "CZSC",
+    "个股研究",
+    "事件证据"
+  ],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "instock",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "策略",
+      "groupOrder": 100,
+      "itemOrder": 100,
+      "directory": {
+        "id": "instock-equity-suite",
+        "label": "InStock 策略",
+        "order": 10
+      },
+      "project": {
+        "id": "strategy-research",
+        "name": "策略",
+        "order": 100,
+        "description": "研究线索、条件筛选、策略验证、候选池与观察组合。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {
+      "level": 2,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": [
+      "analysis.read"
+    ],
+    "dataServices": [],
+    "actions": {},
+    "events": {
+      "emits": [],
+      "accepts": []
+    },
+    "refresh": {
+      "mode": "manual"
+    }
+  },
+  "pages": [
+    {
+      "id": "instock-stock-candidates",
+      "name": "综合选股",
+      "description": "从 Desk 的 A 股、港股宽覆盖截面中分层预筛，再用财务质量、成长与估值研究快照重排。",
+      "tags": [
+        "A股",
+        "综合选股",
+        "因子",
+        "候选池",
+        "基本面",
+        "成长",
+        "量化"
+      ],
+      "route": "/mods/stock-candidates",
+      "navigation": {
+        "itemOrder": 10,
+        "label": "综合选股"
+      },
+      "manifest": {
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": []
+        },
+        "actions": {
+          "analysis.stock-candidates": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.stock-candidates"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "market": {
+                  "enum": [
+                    "CN",
+                    "HK",
+                    "CN_HK"
+                  ]
+                },
+                "universeMode": {
+                  "enum": [
+                    "broad",
+                    "quick"
+                  ]
+                },
+                "universeSize": {
+                  "enum": [
+                    30,
+                    50,
+                    100,
+                    200
+                  ]
+                },
+                "outputSize": {
+                  "enum": [
+                    10,
+                    20,
+                    30
+                  ]
+                },
+                "bars": {
+                  "enum": [
+                    120,
+                    240
+                  ]
+                },
+                "profile": {
+                  "enum": [
+                    "balanced",
+                    "trend",
+                    "value",
+                    "defensive"
+                  ]
+                },
+                "industries": {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "minAmount": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minMarketCap": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "maxMarketCap": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "maxPE": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "maxPB": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minTurnover": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "maxTurnover": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minVolumeRatio": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "maxVolumeRatio": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minMomentum20": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "maxVolatility": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minROE": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minRevenueGrowth": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minNetProfitGrowth": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "maxValuationPercentile": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "requiredSignals": {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "eventFlowSnapshotId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "refresh": {
+                  "enum": [
+                    "0",
+                    "1"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": [
+                "ok",
+                "data",
+                "meta"
+              ],
+              "properties": {
+                "ok": {
+                  "const": true
+                },
+                "data": {
+                  "type": "object"
+                },
+                "meta": {
+                  "type": "object"
+                }
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 120
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-technical-signals",
+      "name": "策略筛选",
+      "description": "按市场条件、基本面、技术方向、K 线形态和 10 个原 InStock 经典策略执行硬筛选。",
+      "tags": [
+        "硬条件选股",
+        "基本面",
+        "技术指标",
+        "K线形态",
+        "经典策略"
+      ],
+      "route": "/mods/technical-signals",
+      "navigation": {
+        "itemOrder": 20,
+        "label": "策略筛选"
+      },
+      "manifest": {
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        },
+        "actions": {
+          "analysis.technical-signals": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.technical-signals"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "market": {
+                  "enum": [
+                    "CN",
+                    "HK",
+                    "CN_HK"
+                  ]
+                },
+                "universeMode": {
+                  "enum": [
+                    "broad",
+                    "quick"
+                  ]
+                },
+                "universeSize": {
+                  "enum": [
+                    30,
+                    50,
+                    100,
+                    200
+                  ]
+                },
+                "bars": {
+                  "enum": [
+                    120,
+                    260
+                  ]
+                },
+                "bias": {
+                  "enum": [
+                    "all",
+                    "bullish",
+                    "neutral",
+                    "bearish"
+                  ]
+                },
+                "requiredStrategies": {
+                  "type": [
+                    "string",
+                    "array"
+                  ]
+                },
+                "requiredPatterns": {
+                  "type": [
+                    "string",
+                    "array"
+                  ]
+                },
+                "industries": {
+                  "type": [
+                    "string",
+                    "array"
+                  ]
+                },
+                "minTechnicalScore": {
+                  "type": "number"
+                },
+                "minAmount": {
+                  "type": "number"
+                },
+                "minMarketCap": {
+                  "type": "number"
+                },
+                "maxMarketCap": {
+                  "type": "number"
+                },
+                "maxPE": {
+                  "type": "number"
+                },
+                "maxPB": {
+                  "type": "number"
+                },
+                "minROE": {
+                  "type": "number"
+                },
+                "minRevenueGrowth": {
+                  "type": "number"
+                },
+                "minNetProfitGrowth": {
+                  "type": "number"
+                },
+                "minTurnover": {
+                  "type": "number"
+                },
+                "maxTurnover": {
+                  "type": "number"
+                },
+                "minVolumeRatio": {
+                  "type": "number"
+                },
+                "maxVolumeRatio": {
+                  "type": "number"
+                },
+                "maxWorkers": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "refresh": {
+                  "enum": [
+                    "0",
+                    "1"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": [
+                "ok",
+                "data",
+                "meta"
+              ],
+              "properties": {
+                "ok": {
+                  "const": true
+                },
+                "data": {
+                  "type": "object"
+                },
+                "meta": {
+                  "type": "object"
+                }
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 120
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-strategy-validation",
+      "name": "筛选策略验证",
+      "description": "统一选股、CZSC 与轮动研究信号的点时验证语义，固定下一交易日开盘执行、成本和样本外切分。",
+      "tags": [
+        "策略验证",
+        "样本外",
+        "回撤",
+        "成本",
+        "点时数据"
+      ],
+      "route": "/mods/strategy-validation",
+      "navigation": {
+        "itemOrder": 30,
+        "label": "筛选策略验证"
+      },
+      "manifest": {
+        "events": {
+          "emits": [],
+          "accepts": []
+        },
+        "actions": {
+          "analysis.strategy-validation": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.strategy-validation"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": [
+                "schema_version",
+                "strategy",
+                "as_of",
+                "benchmark",
+                "holding_period_sessions",
+                "cost_bps_per_side",
+                "signals"
+              ],
+              "properties": {
+                "schema_version": {
+                  "const": "instock-strategy-validation-packet-v1"
+                },
+                "strategy": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "source_module"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "source_module": {
+                      "enum": [
+                        "stock-candidates",
+                        "czsc",
+                        "rotation"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "as_of": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "benchmark": {
+                  "type": "string",
+                  "pattern": "^[0-9]{6}$"
+                },
+                "holding_period_sessions": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 60
+                },
+                "cost_bps_per_side": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "signals": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 200,
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": [
+                "ok",
+                "data",
+                "meta"
+              ],
+              "properties": {
+                "ok": {
+                  "const": true
+                },
+                "data": {
+                  "type": "object"
+                },
+                "meta": {
+                  "type": "object"
+                }
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 120
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-research-book",
+      "name": "选股观察组合",
+      "description": "汇总观察理由、证伪条件、Snapshot 引用、行业暴露与风险，不包含持久化和交易。",
+      "tags": [
+        "研究组合",
+        "观察列表",
+        "证伪条件",
+        "风险暴露",
+        "Snapshot"
+      ],
+      "route": "/mods/research-book",
+      "navigation": {
+        "itemOrder": 40,
+        "label": "选股观察组合"
+      },
+      "manifest": {
+        "events": {
+          "emits": [
+            "security.selected"
+          ],
+          "accepts": [
+            "security.selected"
+          ]
+        },
+        "actions": {
+          "analysis.research-book": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.research-book"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": [
+                "schema_version",
+                "name",
+                "as_of",
+                "items"
+              ],
+              "properties": {
+                "schema_version": {
+                  "const": "instock-research-book-packet-v1"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "as_of": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "items": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 100,
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": [
+                "ok",
+                "data",
+                "meta"
+              ],
+              "properties": {
+                "ok": {
+                  "const": true
+                },
+                "data": {
+                  "type": "object"
+                },
+                "meta": {
+                  "type": "object"
+                }
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 120
+          }
+        }
+      },
+      "defaultInstall": true
+    }
+  ]
+}

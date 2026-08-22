@@ -413,6 +413,24 @@ function logIgnoredMessage(reason: string) {
   }
 }
 
+const ENGLISH_TITLE_TOKENS: Record<string, string> = {
+  ai: "AI",
+  cn: "CN",
+  czsc: "CZSC",
+  etf: "ETF",
+  hk: "HK",
+  llm: "LLM",
+  newma: "Newma",
+  us: "US",
+};
+
+function fallbackEnglishName(modId: string) {
+  return modId
+    .split("-")
+    .map((token) => ENGLISH_TITLE_TOKENS[token] ?? `${token[0]?.toUpperCase() ?? ""}${token.slice(1)}`)
+    .join(" ");
+}
+
 function FrameToolbar({
   manifest,
   copilotOpen,
@@ -439,11 +457,19 @@ function FrameToolbar({
   const showWiki = Boolean(
     wikiSubjectName || wikiLinks.length || wikiLoading || wikiError,
   );
+  const englishName = manifest.presentation?.englishName ?? fallbackEnglishName(manifest.id);
+  const description = manifest.presentation?.description
+    ?? manifest.navigation?.project?.description
+    ?? `在 Newma-Desk 中查看并操作${manifest.name}。`;
   return (
     <header className="frame-toolbar">
       <div className="frame-toolbar-title">
-        <strong>{manifest.name}</strong>
-        <span>{manifest.version}</span>
+        <div className="frame-toolbar-heading">
+          <h1>{manifest.name}</h1>
+          <span className="frame-toolbar-english">{englishName}</span>
+          <span className="frame-toolbar-version">{manifest.version}</span>
+        </div>
+        <p>{description}</p>
       </div>
       {showWiki ? (
         <nav className="frame-wiki-links" aria-label="关联研究 Mod">
@@ -541,14 +567,21 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   const resolution = useMemo(() => {
     if (embeddedMarket) return { src: embeddedMarket.src, error: undefined };
     try {
-      return { src: resolveModUrl(manifest.entry), error: undefined };
+      const src = new URL(resolveModUrl(manifest.entry));
+      if (
+        manifest.entry.type !== "external" ||
+        src.pathname.startsWith("/mod-runtime/")
+      ) {
+        src.searchParams.set("__newma_mod_version", manifest.version);
+      }
+      return { src: src.toString(), error: undefined };
     } catch (error) {
       return {
         src: undefined,
         error: error instanceof Error ? error.message : "Mod 地址配置无效",
       };
     }
-  }, [embeddedMarket, manifest.entry]);
+  }, [embeddedMarket, manifest.entry, manifest.version]);
   const [frameState, setFrameState] = useState<"loading" | "ready" | "error">(
     "loading",
   );
@@ -1313,7 +1346,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
           )}
         >
           {embeddedMarket.kind === "intelligence" && EmbeddedIntelligenceFrame ? (
-            <EmbeddedIntelligenceFrame hostConnection={hostConnection} />
+            <EmbeddedIntelligenceFrame hostConnection={hostConnection} search={embeddedMarket.search} />
           ) : (
             <EmbeddedMarketFrame
               search={embeddedMarket.search}
@@ -1368,7 +1401,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         src={resolution.src}
         onLoad={() => setFrameState("ready")}
         onError={() => setFrameState("error")}
-        sandbox="allow-scripts allow-forms allow-downloads allow-popups allow-same-origin"
+        sandbox="allow-scripts allow-forms allow-downloads allow-popups allow-top-navigation-by-user-activation allow-same-origin"
         referrerPolicy="no-referrer"
         allow="clipboard-read; clipboard-write; fullscreen"
       />

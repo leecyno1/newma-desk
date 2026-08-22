@@ -1,13 +1,13 @@
 # Newma-Desk Mod Suite 接入标准
 
-Mod Suite 用一份 `suite.json` 描述一个完整接入 Desk 的项目及其全部页面。Suite Discovery 会把每个页面编译成独立 Mod Manifest，因此页面仍然拥有独立权限、Agent Context、数据路由与运行状态，但安装、导航和归属始终保持为一个完整项目。
+Mod Suite 用一份 `suite.json` 描述一组同属一个业务职责和数据作用域的页面。Suite Discovery 会把每个页面编译成独立 Mod Manifest，因此页面仍然拥有独立权限、Agent Context、数据路由与运行状态。同一来源运行时可以提供多个 Suite，但同一页面只能属于一个 Suite。
 
 导航固定为两层：
 
-1. 一级栏目栏显示十四个核心投资栏目与“其他”的中文方形短标。
-2. 二级栏目面板显示完整项目分组；每个项目分组保留项目名称、原有页面、子模块标签和项目设置入口。
+1. 一级栏目栏显示 16 个核心投资模块，以及用户安装的自定义项目。
+2. 二级栏目面板直接显示该模块的页面，不显示来源项目文件夹；“栏目数据与能力”固定在面板底部。
 
-完整项目不能被拆分。同一个项目的研究页、交易页和设置页不得因为 `category`、页面用途或内部标签不同而分散到多个栏目；需要归类时选择最主要的栏目，无法判断时整套放入“其他”。
+同一个 Suite 不能跨模块拆分。若同一来源运行时同时包含公司研究、策略筛选和基金研究等独立职责，应声明多个 Suite 并继续复用运行时，而不是把全部页面塞入一个模块。非投研项目可用 Suite ID 作为自定义一级项目 ID。
 
 ## 最小描述
 
@@ -28,8 +28,8 @@ Mod Suite 用一份 `suite.json` 描述一个完整接入 Desk 的项目及其�
   "manifest": {
     "category": "research",
     "navigation": {
-      "groupLabel": "宏观面",
-      "groupOrder": 20,
+      "groupLabel": "宏观",
+      "groupOrder": 10,
       "itemOrder": 100,
       "directory": {
         "id": "example-suite",
@@ -38,9 +38,9 @@ Mod Suite 用一份 `suite.json` 描述一个完整接入 Desk 的项目及其�
       },
       "project": {
         "id": "fundamentals",
-        "name": "宏观面",
-        "order": 20,
-        "description": "经济数据、宏观指标、行业、产业链与宏观事件。"
+        "name": "宏观",
+        "order": 10,
+        "description": "周期叠加、经济基本面、增长通胀、金融条件与经济预测。"
       },
       "icon": "research"
     },
@@ -75,20 +75,20 @@ Mod Suite 用一份 `suite.json` 描述一个完整接入 Desk 的项目及其�
 
 ## 栏目身份接口
 
-Suite 的共享 Manifest 使用 `navigation.project` 声明稳定的一级栏目身份。该 ID 必须来自十四大核心栏目或 `other`；页面不得覆盖：
+Suite 的共享 Manifest 使用 `navigation.project` 声明稳定的一级模块身份。该 ID 必须来自 16 个核心模块，或与 Suite ID 相同以表示自定义项目；页面不得覆盖：
 
 ```json
 {
   "id": "equity-research",
-  "name": "个股研究",
-  "order": 90,
-  "description": "选股、公司基本面、量化选股、财报、同业与估值研究。"
+  "name": "公司",
+  "order": 60,
+  "description": "公司基本面、财报、投资逻辑、同业、估值与研究档案。"
 }
 ```
 
 | 字段 | 约束 | 用途 |
 | --- | --- | --- |
-| `id` | 十四个核心栏目 ID 之一或 `other` | 跨页面、跨版本稳定的栏目键 |
+| `id` | 16 个核心模块 ID 之一，或与 Suite ID 相同 | 跨页面、跨版本稳定的模块键 |
 | `name` | 1–80 字符 | 一级栏目名称与二级面板标题 |
 | `order` | 非负整数 | 一级栏目默认排序 |
 | `description` | 可选，1–240 字符 | 栏目说明与空状态提示 |
@@ -119,11 +119,11 @@ Suite 的共享 Manifest 使用 `navigation.project` 声明稳定的一级栏目
 - 新项目 SHOULD 省略 `logo`；该字段不得作为项目辨识、排序或路由依据。
 - 兼容读取不代表展示承诺，未来主版本可以正式移除旧 Logo 声明。
 
-`navigation.project` 对普通单页 Mod 保持可选。完整 Suite 必须显式选择栏目；仅为旧 Suite 兼容时，未声明栏目会整套落入 `other`，不会按页面自动分流。
+`navigation.project` 对普通单页 Mod 保持可选。完整 Suite 必须显式选择模块；旧 Suite 未声明时按自身 Suite ID 形成自定义一级项目，不再落入“其他”。
 
 ### 栏目内完整项目
 
-`navigation.directory` 是栏目内的完整项目身份，不是可选的页面分类。`directory.id` 必须等于 Suite ID，`directory.label` 显示项目名称。项目原有页面直接列在该分组内；内部更细的页面层级继续由项目自身 UI 承载。
+`navigation.directory` 是数据路由、项目设置和 Agent Workspace 使用的稳定项目身份，不是可见文件夹。`directory.id` 必须等于 Suite ID；二级面板直接列出页面，内部更细的层级继续由项目自身 UI 承载。
 
 旧 Manifest 把 `groupLabel + directory` 当作一级/二级导航时，Desk 可以兼容读取；新 Suite 必须同时输出栏目 `navigation.project` 和完整项目 `navigation.directory`。Preference Overlay 只能保存排序、冻结和栏目标题覆盖，不能把页面重新分组到其他项目。
 
@@ -134,14 +134,14 @@ Suite 的共享 Manifest 使用 `navigation.project` 声明稳定的一级栏目
 - `pages[].manifest` 覆盖共享 Manifest 中的权限、数据服务、Actions、事件或刷新策略。
 - 所有页面强制继承 Suite 的 `project`、`directory`、`groupLabel` 和 `groupOrder`；任何不同覆盖都会使 Suite 校验失败。
 - 页面只声明自身 `itemOrder`、`label`、`icon`、`role` 和差异化能力字段。
-- `navigation.role = "settings"` 的页面自动进入对应完整项目分组的设置区，不会被提升为整个栏目的设置。
+- `navigation.role = "settings"` 只标识业务项目自身的设置页；Desk 的 Provider、权限与 Agent 接入统一由底部“栏目数据与能力”管理。
 - `category`、`groupLabel` 和页面 `icon` 仍用于能力分类、兼容旧客户端或页面语义，不改变一级栏目归属。
 - 商店目录通过 `suites` 注册描述文件；Suite Discovery 对外仍输出普通 Mod 列表。
 
 ## 接入要求
 
 - 完整项目使用一个稳定的栏目 `project.id`；来源项目改名或换服务时不得随意修改栏目归属。
-- 来源项目身份由 Suite ID、同 ID 的 directory、运行描述和 Agent Workspace 共同保存，不得拆成多个 Suite 规避整体接入规则。
+- 同一来源运行时可以按独立业务职责声明多个 Suite；同一页面不得重复出现在多个 Suite。
 - 项目原有路由或标签逐项映射为 `pages[]`，不要把多个页面压成一个设置首页。
 - 页面 `itemOrder` 在项目内保持唯一且留出间隔，建议 `10`、`20`、`30`。
 - 项目设置作为同一 Suite 的普通页面声明，并标记 `navigation.role = "settings"`。

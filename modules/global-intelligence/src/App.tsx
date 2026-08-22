@@ -8,6 +8,7 @@ import {
 } from "@newma-desk/mod-sdk";
 
 import { GlobalIntelligenceDashboard } from "./Dashboard";
+import { GlobalTopicDashboard, type GlobalTopicId } from "./TopicDashboard";
 import {
   createGlobalIntelDataSource,
   type GlobalIntelDataSource,
@@ -68,12 +69,16 @@ export function GlobalIntelligenceApp({
   dataSource: providedDataSource,
   gatewayBaseUrl = window.location.origin,
   embedded = false,
+  topicId: providedTopicId,
 }: {
   hostConnection?: EmbeddedHost;
   dataSource?: GlobalIntelDataSource;
   gatewayBaseUrl?: string;
   embedded?: boolean;
+  topicId?: GlobalTopicId;
 }) {
+  const topicId = providedTopicId ?? (new URLSearchParams(window.location.search).get("topic") as GlobalTopicId | null);
+  const runtimeModId = topicId === "fed-rates" ? "fed-rates" : topicId === "hormuz" ? "hormuz-conflict" : topicId === "us-china-trade" ? "us-china-trade" : "global-situation";
   const [hostConnection, setHostConnection] = useState(providedHostConnection);
   const [gatewayOrigin, setGatewayOrigin] = useState(gatewayBaseUrl);
   const [theme, setTheme] = useState<"light" | "dark">(
@@ -101,8 +106,9 @@ export function GlobalIntelligenceApp({
   );
 
   useEffect(() => {
-    document.title = "全球情报 · Newma-Desk";
-  }, []);
+    const topicTitle = topicId === "fed-rates" ? "联储加息" : topicId === "hormuz" ? "美伊战争" : topicId === "us-china-trade" ? "中美贸易" : "全球情报";
+    document.title = topicTitle + " · Newma-Desk";
+  }, [topicId]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -116,7 +122,7 @@ export function GlobalIntelligenceApp({
     let unsubscribe: () => void = () => undefined;
     let removeContextProvider: () => void = () => undefined;
     void connectModHost({
-      modId: "global-situation",
+      modId: runtimeModId,
       parentOrigin: parentOrigin(),
       sdkVersion: "0.1.0",
       capabilities: ["actions", "data", "context", "theme"],
@@ -144,7 +150,7 @@ export function GlobalIntelligenceApp({
       removeContextProvider();
       close();
     };
-  }, [embedded, providedHostConnection]);
+  }, [embedded, providedHostConnection, runtimeModId]);
 
   useEffect(() => {
     if (!providedHostConnection) return;
@@ -199,7 +205,9 @@ export function GlobalIntelligenceApp({
           <button type="button" onClick={() => setRefreshNonce((value) => value + 1)}><RefreshCw size={14} />刷新情报</button>
         </header>
       ) : null}
-      <GlobalIntelligenceDashboard
+      {topicId ? (
+        <GlobalTopicDashboard topicId={topicId} refreshNonce={refreshNonce} embedded={embedded} onContextChange={setDashboardState} />
+      ) : <GlobalIntelligenceDashboard
         key={cacheIdentity ? `${cacheIdentity.userId}:${cacheIdentity.workspaceId}` : "pending-host"}
         dataSource={dataSource}
         theme={theme}
@@ -207,7 +215,7 @@ export function GlobalIntelligenceApp({
         cacheIdentity={cacheIdentity}
         onRefresh={() => setRefreshNonce((value) => value + 1)}
         onContextChange={setDashboardState}
-      />
+      />}
       {!embedded ? (
         <footer className="global-intelligence-statusbar">
           <span><i />GLOBAL-SITUATION</span>

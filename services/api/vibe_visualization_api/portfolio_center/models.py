@@ -376,3 +376,60 @@ class PortfolioPerformanceResult(PortfolioModel):
     missing_assets: list[PortfolioOptimizationGap]
     warnings: list[str]
     generated_at: datetime
+
+
+class StrategicAllocationRequest(PortfolioModel):
+    model: Literal["black-litterman", "risk-parity", "minimum-volatility"] = (
+        "black-litterman"
+    )
+    target_volatility_pct: float = Field(default=10, ge=3, le=30)
+    horizon_months: Literal[1, 3, 6] = 6
+    max_weight: float = Field(default=0.35, ge=0.15, le=0.6)
+    risk_free_rate_pct: float = Field(default=1.5, ge=-2, le=15)
+
+
+class StrategicAllocationAsset(PortfolioModel):
+    id: str
+    name: str
+    category: str
+    cycle_asset_id: str | None = None
+    benchmark_weight_pct: float
+    target_weight_pct: float
+    expected_return_pct: float
+    volatility_pct: float
+    risk_contribution_pct: float
+    equilibrium_return_pct: float
+    cycle_view_return_pct: float | None = None
+    up_probability_pct: float | None = None
+    confidence_pct: float
+    publication_status: str
+    evidence_level: str
+    source_as_of: str | None = None
+    forecast_origin: str | None = None
+
+
+class StrategicAllocationScenario(PortfolioModel):
+    id: str
+    name: str
+    description: str
+    portfolio_impact_pct: float
+    asset_impacts_pct: dict[str, float]
+
+
+class StrategicAllocationResult(PortfolioModel):
+    status: Literal["ready", "partial", "prior-only"]
+    model: Literal["black-litterman", "risk-parity", "minimum-volatility"]
+    method: str
+    horizon_months: Literal[1, 3, 6]
+    target_volatility_pct: float
+    achieved_volatility_pct: float
+    expected_return_pct: float
+    sharpe: float | None = None
+    cash_weight_pct: float
+    assets: list[StrategicAllocationAsset]
+    scenarios: list[StrategicAllocationScenario]
+    insights: list[str]
+    warnings: list[str]
+    data_sources: list[str]
+    cycle_as_of: str | None = None
+    generated_at: datetime

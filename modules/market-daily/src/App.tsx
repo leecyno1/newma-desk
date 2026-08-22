@@ -97,6 +97,7 @@ export interface MarketTerminalAppProps {
   fetch?: GatewayFetch;
   gatewayBaseUrl?: string;
   hostConnection?: EmbeddedHost;
+  embedded?: boolean;
 }
 
 function configuredOrigin(name: "gateway" | "parent") {
@@ -187,7 +188,7 @@ export function buildMarketPageContext(input: {
   alerts?: PriceAlert[];
 }): ModPageContext {
   return {
-    view: { id: MOD_ID, title: "市场终端" },
+    view: { id: MOD_ID, title: "行情" },
     visibleBlocks: [
       { id: "terminal-watchlist", type: "watchlist", title: "自选与分组" },
       { id: "terminal-chart", type: "klinechart", title: "K 线与指标" },
@@ -221,7 +222,7 @@ export function buildMarketPageContext(input: {
       },
     },
     actions: [
-      { id: "market.refresh", label: "刷新终端数据", available: true, inputSchema: { type: "object", additionalProperties: false } },
+      { id: "market.refresh", label: "刷新行情数据", available: true, inputSchema: { type: "object", additionalProperties: false } },
       { id: "market.set-timeframe", label: "切换 K 线周期", available: true, inputSchema: { type: "object", required: ["timeframe"], properties: { timeframe: { enum: ["1m", "5m", "15m", "30m", "60m", "1d", "1w", "1M"] } }, additionalProperties: false } },
       { id: "chart.set-indicator", label: "设置图表指标", available: true, inputSchema: { type: "object", required: ["position", "indicator"], properties: { position: { enum: ["primary", "secondary"] }, indicator: { enum: ["MA", "EMA", "BOLL", "VOL", "MACD", "RSI", "KDJ"] } }, additionalProperties: false } },
       { id: "market.set-alert", label: "设置价格预警", available: true, inputSchema: { type: "object", required: ["direction", "price"], properties: { direction: { enum: ["above", "below"] }, price: { type: "number", exclusiveMinimum: 0 }, label: { type: "string", maxLength: 80 } }, additionalProperties: false } },
@@ -260,7 +261,9 @@ export function MarketTerminalApp({
   fetch: providedFetch,
   gatewayBaseUrl,
   hostConnection: providedHostConnection,
+  embedded: embeddedProp,
 }: MarketTerminalAppProps) {
+  const embedded = embeddedProp ?? window.self !== window.top;
   const theme = useDeskTheme();
   const fetcher = useMemo(
     () => providedFetch ?? globalThis.fetch.bind(globalThis),
@@ -583,7 +586,7 @@ export function MarketTerminalApp({
   useEffect(() => hostConnection?.setHandoffHandler((handoff) => {
     const next = securityFromWikiHandoff(handoff);
     if (next.assetType === "fund") {
-      throw new Error("市场终端暂不支持开放式基金交接");
+      throw new Error("行情暂不支持开放式基金交接");
     }
     selectSecurity(next, false);
     const requestedPeriod = handoff.parameters.period;
@@ -758,14 +761,14 @@ export function MarketTerminalApp({
       }
       const layout = {
         id: globalThis.crypto?.randomUUID?.() ?? `layout-${Date.now()}`,
-        name: typeof input.name === "string" && input.name.trim() ? input.name.trim().slice(0, 80) : "市场终端布局",
+        name: typeof input.name === "string" && input.name.trim() ? input.name.trim().slice(0, 80) : "行情布局",
         savedAt: new Date().toISOString(),
         ...layoutStateRef.current,
       };
       window.localStorage.setItem(key, JSON.stringify([layout, ...layouts].slice(0, 20)));
       return { layout };
     }
-    throw new Error(`市场终端不支持动作 ${actionId}`);
+    throw new Error(`行情不支持动作 ${actionId}`);
   }, [createAlert, refreshAll, security]);
 
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
@@ -857,15 +860,15 @@ export function MarketTerminalApp({
   })));
 
   return (
-    <div className="terminal-root">
+    <div className="terminal-root" data-embedded={embedded || undefined}>
       <header className="terminal-topbar">
-        <div className="terminal-brand">
+        {!embedded ? <div className="terminal-brand" data-mod-page-title>
           <span className="terminal-brand-mark"><Activity size={15} /></span>
           <div>
-            <strong>市场终端</strong>
+            <strong>行情</strong>
             <span>KLineChart · Newma-Desk Data</span>
           </div>
-        </div>
+        </div> : null}
 
         <div className="symbol-search-wrap">
           <div className="symbol-search">
@@ -918,7 +921,7 @@ export function MarketTerminalApp({
             onToggle={(alert) => updateAlert(alert.id, { enabled: !alert.enabled })}
             onDelete={(alert) => deleteAlert(alert.id)}
           />
-          <button type="button" className="icon-button" onClick={refreshAll} aria-label="刷新终端"><RefreshCw size={15} /></button>
+          <button type="button" className="icon-button" onClick={refreshAll} aria-label="刷新行情"><RefreshCw size={15} /></button>
           <button type="button" className="icon-button" onClick={requestFullscreen} aria-label="全屏"><Expand size={15} /></button>
         </div>
       </header>

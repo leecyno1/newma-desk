@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0",
+  "id": "research-industry-suite",
+  "name": "Vibe 产业研究",
+  "description": "将产业链研究转为可沉淀、可复用的结构化图谱。",
+  "version": "0.4.0",
+  "publisher": "Newma-Desk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": ["产业链", "行业", "图谱", "Archify"],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "vibe-research",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "行业",
+      "groupOrder": 50,
+      "itemOrder": 100,
+      "directory": {
+        "id": "research-industry-suite",
+        "label": "产业图谱",
+        "order": 5
+      },
+      "project": {
+        "id": "industry-research",
+        "name": "行业",
+        "order": 50,
+        "description": "产业链、行业比较、景气选择、资金扩散与行业 ETF 轮动。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {
+      "level": 1,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": [],
+    "dataServices": [],
+    "actions": {},
+    "events": {"emits": [], "accepts": []}
+  },
+  "pages": [
+    {
+      "id": "industry-map",
+      "name": "产业图谱",
+      "description": "将 Agent 产业链研究转换为可固化的结构化节点、关系和 Archify 交互图谱。",
+      "version": "0.4.0",
+      "tags": ["产业链", "研究", "公司", "Archify", "Artifact"],
+      "route": "/mod-runtime/research/sectors",
+      "navigation": {"itemOrder": 1, "label": "产业图谱"},
+      "manifest": {
+        "compatibility": {
+          "level": 3,
+          "bridgeProtocol": "1.0",
+          "sdkVersion": "^0.1.0",
+          "viewSpecVersion": "1.0"
+        },
+        "permissions": ["investment.read"],
+        "dataServices": ["vibe-investment-native"],
+        "wiki": {
+          "contractVersion": "1.0",
+          "subjectTypes": ["security", "industry", "concept"],
+          "concepts": ["industry-chain", "sector-research"],
+          "entrypoints": [
+            {
+              "id": "chain",
+              "intent": "industry.chain",
+              "label": "产业图谱",
+              "contextContract": "newma.wiki.subject.v1",
+              "defaults": {}
+            }
+          ]
+        }
+      },
+      "defaultInstall": true
+    }
+  ]
+}

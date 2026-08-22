@@ -34,8 +34,8 @@ Newma-Desk 可以把一次需求固化为长期可用的 `Mod`：每个 Mod 都�
 - Desk UI 提供统一的指标、表格、ECharts、Markdown、筛选器和操作按钮样式。
 - ViewSpec 使用 `data-vibe-*` 语义结构，让 Agent 直接读取 HTML 和结构化数据。
 - Model Gateway：传统一次性模型调用，支持 OpenAI-compatible、本地兼容模型和 Anthropic/Claude。
-- Agent Gateway：可直接调用本机 Codex CLI、Claude Code、Gemini CLI，也可接入 Hermes WebUI；按“用户 + Agent + Mod”保留长期上下文。
-- 项目内 `mods/` 是官方商店目录；`mod-projects/` 内置 Vibe Research 和 Vibe Trading。两套业务工程对应的 17 个 Mods 默认启用并注册到侧边栏。
+- Agent Gateway：可直接调用本机 Codex CLI、Claude Code、Gemini CLI、Qoder CLI、MiniMax CLI，也可接入 Hermes WebUI；按“用户 + Agent + Mod”保留长期上下文。
+- 项目内 `mods/` 是官方商店目录；当前共 95 个 Mod，按 16 个一级投资模块统一归类。Research、Trading 等运行时可以复用，但导航归属与运行端口解耦。
 - 侧边栏按 Mod 分类显示固定语义色；用户自定义分类会根据分类名称自动获得稳定颜色。
 - Deepsee 作为独立服务运行；Newma-Desk 商店中的 11 个 Deepsee Mods 直接加载其 `/embed/*` 页面，不复制后端、SQLite 或业务源码。
 
@@ -60,40 +60,15 @@ Mod -> Model Gateway -> Model
 Mod -> Agent Gateway -> Agent Runtime -> Memory / Skills / Tools
 ```
 
-## 默认 Mod 命名
+## 一级投资模块
 
 ```text
-今日
-├── Today                 今日总览
-└── Daily Review          每日复盘
-
-情报（默认）
-├── Global Intelligence   全球情报
-├── News & Sentiment      新闻与舆情
-├── Security Timeline     个股事件轴
-└── Catalyst Calendar     催化剂日历
-
-市场
-├── Market Pulse          市场行情
-├── Market Scanner        市场扫描器
-├── Multi-timeframe       多周期看盘
-├── Relative Strength     相对强弱
-└── Trading Replay        交易回放
-
-研究
-├── Macro Monitor         宏观观察
-├── Stock Research        个股研究
-├── Industry Map          产业链研究
-├── Thesis Tracker        投资逻辑
-└── Research Library      研究资料库
-
-量化
-├── Alpha Lab             因子实验室 / Alpha Zoo
-└── Backtest Lab          回测实验室 / 回测报告
-
-交易
-└── Trade Desk            交易台
+全球 · 宏观 · 政策 · 资金 · 市场
+行业 · 公司 · 基金 · 配置 · 交易
+策略 · 风险 · 量化 · 投决 · 创作 · 深瞳
 ```
+
+能力边界、现有 Mod 和迭代优先级见 [投资体系能力地图](docs/investment-system-capability-map.md)。
 
 ## 官方 Mod 商店
 
@@ -106,7 +81,7 @@ Mod -> Agent Gateway -> Agent Runtime -> Memory / Skills / Tools
 
 GitHub `leecyno1/newma-dock` 是 Newma 四端 Mods 的唯一发布源。桌面、WebUI、iOS 和 Android 只能从该仓库的明确 commit 读取 `mods/store.json` 与 Manifest；本地未提交文件和 Gitee 镜像不能成为发布基线。每月检查只生成变更与兼容风险报告，不自动合并、部署或重启服务。
 
-新环境默认只注册“情报”和“市场”两个项目；其他项目保留在 Mod 商店，由用户自行安装：
+新环境默认注册全球专题、政策、资金和基金研究等 20 个基础 Mod；其余 Mod 保留在商店，由用户自行安装：
 
 ```bash
 npm run mods:check
@@ -224,8 +199,9 @@ npm run dev -w @newma-desk/market-daily -- \
 
 打开 Newma-Desk 后，点击侧边栏底部的“Agent 设置”：
 
-- 自动发现本机已安装的 Codex CLI、Claude Code 和 Gemini CLI。
-- 选择一个全局默认 Agent，或给某个 Mod 单独指定 Agent。
+- 自动发现本机已安装的 Codex CLI、Claude Code、Gemini CLI、Qoder CLI 和 MiniMax CLI。
+- 全局设置只管理 CLI 发现、路径、命令档位和任务路由；Mod 设置只选择 Agent、模型和档位，不保存路径或密钥。
+- Deepsee 的批量摘要可单独选择 CLI 和模型；默认使用无记忆 `batch` 任务，失败回退兼容 AI。
 - 点击“测试”会走完整的 Desk → Agent Gateway → 本机 CLI 链路。
 - 本机 CLI 使用各自已有的登录态，不在网页里保存订阅账号或 API Key。
 

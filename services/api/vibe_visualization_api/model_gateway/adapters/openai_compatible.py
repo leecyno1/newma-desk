@@ -31,6 +31,13 @@ class OpenAICompatibleModelAdapter:
     async def capabilities(self) -> list[str]:
         return ["chat", "module.explain", "module.generate-view"]
 
+    async def describe(self) -> dict[str, object]:
+        api_key = self._settings.openai_api_key.get_secret_value()
+        return {
+            "name": "快速模型",
+            "available": not self._settings.openai_api_key_required or bool(api_key),
+        }
+
     async def complete(self, request: ModelResponseCreate) -> ModelResponse:
         api_key = self._settings.openai_api_key.get_secret_value()
         if self._settings.openai_api_key_required and not api_key:

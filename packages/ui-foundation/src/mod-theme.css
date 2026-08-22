@@ -191,3 +191,8 @@ html .panel-primary > .panel-heading {
   border-color: var(--vibe-accent) !important;
   color: var(--vibe-accent-contrast) !important;
 }
+
+/* The Desk owns the primary title. Standalone Mods keep their own identity. */
+:root[data-vibedesk-embedded="true"] [data-mod-page-title] {
+  display: none !important;
+}

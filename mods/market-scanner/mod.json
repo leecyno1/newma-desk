@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0",
   "id": "market-scanner",
-  "name": "市场扫描器",
+  "name": "选股扫描",
   "description": "基于共享行情与自选标的筛选趋势、量能和估值候选，并将结果交给 Desk Agent 继续分析。",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-dock",
  "tags": ["行情", "选股", "扫描", "量价"],
@@ -12,7 +12,7 @@
   "manifest": {
     "schemaVersion": "1.1",
     "category": "market",
-    "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 10, "label": "扫描器", "directory": { "id": "market-suite", "label": "行情工具", "order": 5 }, "project": { "id": "market-surface", "name": "市场", "order": 10, "description": "股票、债券及其他交易市场的行情、看盘、扫描与回放。" }, "icon": "market" },
+    "navigation": { "groupLabel": "策略", "groupOrder": 100, "itemOrder": 0, "label": "选股扫描", "directory": { "id": "strategy-suite", "label": "策略研究", "order": 5 }, "project": { "id": "strategy-research", "name": "策略", "order": 100, "description": "研究线索、条件筛选、策略验证、候选池与观察组合。" }, "icon": "research" },
     "compatibility": { "level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0" },
     "permissions": ["market.read"],
     "dataServices": [],

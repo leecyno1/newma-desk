@@ -15,7 +15,7 @@ test.describe("Market workspace delivery flows", () => {
   test("saves and restores a composable scanner expression", async ({ page }) => {
     const errors = collectRuntimeErrors(page);
     await page.goto(`${moduleOrigin}/mods/market-daily/?workspace=scanner`);
-    await expect(page.getByText("市场扫描器", { exact: true })).toBeVisible();
+    await expect(page.getByText("选股扫描", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "增加条件" }).click();
     await page.getByLabel("条件字段").selectOption("volumeRatio");
@@ -62,7 +62,7 @@ test.describe("Market workspace delivery flows", () => {
   test("persists a replay Artifact and exposes its safe rendered view", async ({ page, request }) => {
     const errors = collectRuntimeErrors(page);
     await page.goto(`${moduleOrigin}/mods/market-daily/?workspace=trading-replay`);
-    await expect(page.getByText("交易回放室", { exact: true })).toBeVisible();
+    await expect(page.getByText("复盘回放", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "模拟买入" }).click();
     await page.getByRole("button", { name: "沉淀回放" }).click();
 

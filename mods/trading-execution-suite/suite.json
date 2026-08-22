@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0",
+  "id": "trading-execution-suite",
+  "name": "Vibe 交易台",
+  "description": "策略运行、纸面执行与交易状态观察。",
+  "version": "0.1.0",
+  "publisher": "Newma-Desk",
+  "upstream": "https://github.com/HKUDS/Vibe-Trading",
+  "tags": [
+    "交易",
+    "Vibe Trading"
+  ],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "vibe-trading",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_TRADING_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "quant",
+    "navigation": {
+      "groupLabel": "交易",
+      "groupOrder": 90,
+      "itemOrder": 100,
+      "directory": {
+        "id": "trading-execution-suite",
+        "label": "交易执行",
+        "order": 10
+      },
+      "project": {
+        "id": "trading",
+        "name": "交易",
+        "order": 90,
+        "description": "战术择时、交易计划、纸面执行、复盘回放与执行记录。"
+      },
+      "icon": "trading"
+    },
+    "compatibility": {
+      "level": 1,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": [],
+    "dataServices": [],
+    "actions": {},
+    "events": {
+      "emits": [],
+      "accepts": []
+    }
+  },
+  "pages": [
+    {
+      "id": "trade-desk",
+      "name": "交易台",
+      "description": "查看策略运行、交易任务和执行状态；真实交易仍由独立确认链路控制。",
+      "tags": [
+        "交易",
+        "运行",
+        "策略"
+      ],
+      "route": "/mod-runtime/trading/runtime",
+      "navigation": {
+        "itemOrder": 10,
+        "icon": "trading"
+      },
+      "manifest": {
+        "category": "trading",
+        "permissions": [
+          "trading.read",
+          "trading.runtime"
+        ],
+        "dataServices": [
+          "vibe-trading-native"
+        ]
+      },
+      "defaultInstall": true
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+{
+  "schemaVersion": "1.0",
+  "id": "portfolio-risk-suite",
+  "name": "组合风险中心",
+  "description": "组合集中度、暴露、相关性、回撤与压力测试。",
+  "version": "0.1.0",
+  "publisher": "Newma-Desk",
+  "upstream": "https://github.com/ghostfolio/ghostfolio",
+  "tags": [
+    "风险",
+    "组合",
+    "Portfolio"
+  ],
+  "agentWorkspace": {
+    "type": "desk"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "market",
+    "navigation": {
+      "groupLabel": "风险",
+      "groupOrder": 110,
+      "itemOrder": 30,
+      "directory": {
+        "id": "portfolio-risk-suite",
+        "label": "组合风险",
+        "order": 10
+      },
+      "project": {
+        "id": "risk-management",
+        "name": "风险",
+        "order": 110,
+        "description": "集中度、暴露、相关性、回撤、压力测试与风险贡献。"
+      },
+      "icon": "trading"
+    },
+    "compatibility": {
+      "level": 3,
+      "bridgeProtocol": "1.0",
+      "sdkVersion": "^0.1.0",
+      "viewSpecVersion": "1.0"
+    },
+    "permissions": [
+      "portfolio.read",
+      "portfolio.local-write"
+    ],
+    "dataServices": [
+      "market-data"
+    ],
+    "actions": {
+      "portfolio.refresh": {
+        "binding": {
+          "type": "local"
+        },
+        "execution": "request",
+        "permission": "portfolio.read",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "confirmation": "none"
+      },
+      "portfolio.import-legacy": {
+        "binding": {
+          "type": "local"
+        },
+        "execution": "request",
+        "permission": "portfolio.local-write",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "confirmation": "user"
+      },
+      "portfolio.optimize": {
+        "binding": {
+          "type": "local"
+        },
+        "execution": "request",
+        "permission": "portfolio.read",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "confirmation": "none"
+      },
+      "portfolio.analyze-performance": {
+        "binding": {
+          "type": "local"
+        },
+        "execution": "request",
+        "permission": "portfolio.read",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "confirmation": "none"
+      }
+    },
+    "events": {
+      "emits": [
+        "security.selected"
+      ],
+      "accepts": [
+        "security.selected"
+      ]
+    },
+    "refresh": {
+      "mode": "manual"
+    }
+  },
+  "pages": [
+    {
+      "id": "portfolio-risk",
+      "name": "组合风控",
+      "description": "查看集中度、市场暴露、账户暴露与后续组合优化入口。",
+      "tags": [
+        "风控",
+        "集中度",
+        "配置"
+      ],
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk",
+      "navigation": {
+        "itemOrder": 10,
+        "label": "风控"
+      }
+    }
+  ]
+}

@@ -52,7 +52,7 @@ Desk 侧采用 Numa Desktop 当前的 Verdigris 设计体系，Numa 后续不要
 
 ## 3. MODS 项目导航接口
 
-Desk 的一级菜单固定为十四个核心投研栏目，并保留“其他”作为非投研工具和暂未归类项目的兜底。二级面板按完整来源项目分组，再显示该项目的全部页面。Numa 未来读取 MODS 时必须复用该模型，不能重新硬编码一套导航，也不能按页面用途拆分完整项目。
+Desk 的一级菜单固定为 16 个核心投资模块，并允许自定义项目直接进入一级列表。二级面板直接显示页面，不显示来源文件夹；“栏目数据与能力”固定在底部。Numa 未来读取 MODS 时必须复用同一份 Navigation Compiler 结果，不能重新硬编码导航。
 
 页面 Manifest 使用：
 
@@ -61,16 +61,16 @@ Desk 的一级菜单固定为十四个核心投研栏目，并保留“其他”
   "navigation": {
     "project": {
       "id": "fundamentals",
-      "name": "宏观面",
-      "order": 20,
-      "description": "经济数据、行业、产业链与宏观研究"
+      "name": "宏观",
+      "order": 10,
+      "description": "周期叠加、经济基本面、增长通胀、金融条件与经济预测"
     },
     "directory": {
-      "id": "research-suite",
-      "label": "Vibe Research",
+      "id": "macro-observation-suite",
+      "label": "宏观观察",
       "order": 10
     },
-    "label": "个股研究",
+    "label": "宏观观察",
     "itemOrder": 10,
     "role": "page"
   }
@@ -79,7 +79,7 @@ Desk 的一级菜单固定为十四个核心投研栏目，并保留“其他”
 
 一级栏目标志由宿主根据有效栏目标题自动生成中文短标。用户改名后，一级栏、二级标题与标志同步更新，但跨 Desk / Numa 的路由和会话交接始终使用稳定的 `project.id`。栏目内的完整项目身份使用稳定的 `navigation.directory.id`，显示名称使用 `navigation.directory.label`。
 
-Suite Discovery 在展开页面时必须把同一个 `navigation.project` 和 `navigation.directory` 保留到每个页面。`navigation.project` 只能选择十四个核心投研栏目之一或“其他”；`navigation.directory.id` 必须等于 Suite ID，代表不可拆分的完整项目。旧 Suite 未声明栏目时整套落入“其他”，不能把兄弟页面分别归入不同栏目或项目组。
+Suite Discovery 在展开页面时必须把同一个 `navigation.project` 和 `navigation.directory` 保留到每个页面。`navigation.project` 选择 16 个核心模块之一，或使用 Suite ID 创建自定义一级项目；`navigation.directory.id` 必须等于 Suite ID。一个来源运行时可提供多个业务 Suite，但同一页面不得重复归类。
 
 ## 4. 会话交接协议
 

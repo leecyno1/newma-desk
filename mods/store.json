@@ -17,12 +17,32 @@
   "retiredMods": [
     "investment-settings",
     "quant-agent",
-    "event-intelligence"
+    "event-intelligence",
+    "daily-review",
+    "market-scanner",
+    "stock-research",
+    "calendar-effect-overview",
+    "calendar-effect-history"
   ],
   "mods": [
     {
       "id": "global-situation",
       "path": "global-situation/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "fed-rates",
+      "path": "fed-rates/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "hormuz-conflict",
+      "path": "hormuz-conflict/mod.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "us-china-trade",
+      "path": "us-china-trade/mod.json",
       "defaultInstall": true
     },
     {
@@ -33,13 +53,22 @@
     {
       "id": "policy-analysis",
       "path": "policy-analysis/mod.json",
-      "defaultInstall": false
+      "defaultInstall": true
     },
+    {"id": "policy-calendar", "path": "policy-calendar/mod.json", "defaultInstall": true},
+    {"id": "policy-flow", "path": "policy-flow/mod.json", "defaultInstall": true},
+    {"id": "policy-interpretation", "path": "policy-interpretation/mod.json", "defaultInstall": true},
     {
       "id": "capital-flow",
       "path": "capital-flow/mod.json",
-      "defaultInstall": false
+      "defaultInstall": true
     },
+    {"id": "capital-overview", "path": "capital-overview/mod.json", "defaultInstall": true},
+    {"id": "capital-sectors", "path": "capital-sectors/mod.json", "defaultInstall": true},
+    {"id": "capital-cross-border", "path": "capital-cross-border/mod.json", "defaultInstall": true},
+    {"id": "capital-liquidity", "path": "capital-liquidity/mod.json", "defaultInstall": true},
+    {"id": "capital-etf", "path": "capital-etf/mod.json", "defaultInstall": true},
+    {"id": "capital-emotion", "path": "capital-emotion/mod.json", "defaultInstall": true},
     {
       "id": "catalyst-calendar",
       "path": "catalyst-calendar/mod.json",
@@ -51,8 +80,23 @@
       "defaultInstall": false
     },
     {
-      "id": "market-scanner",
-      "path": "market-scanner/mod.json",
+      "id": "instock-market-map",
+      "path": "instock-market-map/mod.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "watchlist",
+      "path": "watchlist/mod.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "market-sentiment",
+      "path": "market-sentiment/mod.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "market-technical",
+      "path": "market-technical/mod.json",
       "defaultInstall": false
     },
     {
@@ -63,6 +107,11 @@
     {
       "id": "relative-strength",
       "path": "relative-strength/mod.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "macro-monitor",
+      "path": "macro-monitor/mod.json",
       "defaultInstall": false
     },
     {
@@ -78,14 +127,6 @@
     {
       "id": "seven-cycle-research",
       "path": "seven-cycle-research/mod.json"
-    },
-    {
-      "id": "instock-czsc",
-      "path": "instock-czsc/mod.json"
-    },
-    {
-      "id": "instock-rotation",
-      "path": "instock-rotation/mod.json"
     }
   ],
   "suites": [
@@ -95,13 +136,73 @@
       "defaultInstall": false
     },
     {
+      "id": "research-strategy-suite",
+      "path": "research-strategy-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "research-fund-suite",
+      "path": "research-fund-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "professional-fund-research-suite",
+      "path": "professional-fund-research-suite/suite.json",
+      "defaultInstall": true
+    },
+    {
+      "id": "research-industry-suite",
+      "path": "research-industry-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "instock-market-suite",
+      "path": "instock-market-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "instock-market-analysis-suite",
+      "path": "instock-market-analysis-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "instock-industry-suite",
+      "path": "instock-industry-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "instock-equity-suite",
+      "path": "instock-equity-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "instock-company-suite",
+      "path": "instock-company-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
       "id": "trading-suite",
       "path": "trading-suite/suite.json",
       "defaultInstall": false
     },
     {
+      "id": "trading-execution-suite",
+      "path": "trading-execution-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
       "id": "portfolio-suite",
       "path": "portfolio-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "portfolio-trading-suite",
+      "path": "portfolio-trading-suite/suite.json",
+      "defaultInstall": false
+    },
+    {
+      "id": "portfolio-risk-suite",
+      "path": "portfolio-risk-suite/suite.json",
       "defaultInstall": false
     },
     {
@@ -112,11 +213,6 @@
     {
       "id": "orchestra-suite",
       "path": "orchestra-suite/suite.json",
-      "defaultInstall": false
-    },
-    {
-      "id": "calendar-effect-suite",
-      "path": "calendar-effect-suite/suite.json",
       "defaultInstall": false
     },
     {

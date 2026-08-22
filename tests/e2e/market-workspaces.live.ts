@@ -8,7 +8,7 @@ function embeddedWorkspace(page: Page, modId: string) {
 }
 
 function workspaceTitle(page: Page, modId: string) {
-  return embeddedWorkspace(page, modId).locator(".workspace-title strong");
+  return embeddedWorkspace(page, modId).locator(".frame-toolbar-heading h1");
 }
 
 function collectConsoleErrors(page: Page) {
@@ -34,7 +34,7 @@ test.describe("Newma-Desk chart workspace Mods", () => {
     await expect(intelligenceProject).toHaveAttribute("aria-current", "page");
     const intelligenceSecondary = page.getByRole("complementary", { name: "全球 二级导航" });
     await expect(intelligenceSecondary).toBeVisible();
-    for (const label of ["全球情报", "新闻与舆情", "日线时间轴", "催化剂日历"]) {
+    for (const label of ["全球情报", "新闻与舆情", "催化剂日历", "联储加息", "美伊战争", "中美贸易"]) {
       await expect(intelligenceSecondary.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
     const globalSituation = embeddedWorkspace(page, "global-situation");
@@ -94,8 +94,9 @@ test.describe("Newma-Desk chart workspace Mods", () => {
     await navigation.getByRole("button", { name: "市场 项目", exact: true }).click();
     const marketSecondary = page.getByRole("complementary", { name: "市场 二级导航" });
     await expect(marketSecondary).toBeVisible();
-    await expect(marketSecondary.locator(".module-button")).toHaveCount(5);
-    await expect(marketSecondary.locator(".module-button").first()).toHaveText("终端");
+    await expect(marketSecondary.locator(".module-button")).toHaveCount(9);
+    await expect(marketSecondary.locator(".module-button").first()).toHaveText("行情");
+    await expect(marketSecondary.getByRole("button", { name: "日线时间轴", exact: true })).toBeVisible();
     await expect(marketSecondary.getByRole("button", { name: "全球情报", exact: true })).toHaveCount(0);
     await expect(embeddedWorkspace(page, "market-daily")).toHaveAttribute("data-vibedesk-frame-state", "ready");
     await page.screenshot({
@@ -109,11 +110,12 @@ test.describe("Newma-Desk chart workspace Mods", () => {
   test("grants every embedded workspace the market data actions it uses", async ({ page }) => {
     const errors = collectConsoleErrors(page);
     const workspaces = [
-      ["market-scanner", "市场扫描器"],
-      ["multi-timeframe", "多周期看盘"],
-      ["relative-strength", "相对强弱地图"],
+      ["market-sentiment", "情绪分析"],
+      ["market-technical", "技术分析"],
+      ["multi-timeframe", "多周期分析"],
+      ["relative-strength", "强弱对比"],
       ["event-timeline", "日线时间轴"],
-      ["trading-replay", "交易回放室"],
+      ["trading-replay", "复盘回放"],
     ] as const;
 
     for (const [modId, title] of workspaces) {
@@ -128,26 +130,33 @@ test.describe("Newma-Desk chart workspace Mods", () => {
     expect(errors).toEqual([]);
   });
 
-  test("renders all five shared-runtime workspaces with working primary interactions", async ({ page }) => {
+  test("renders current shared-runtime workspaces with working primary interactions", async ({ page }) => {
     const errors = collectConsoleErrors(page);
 
-    await page.goto(`${shellOrigin}/?mod=market-scanner`);
-    const scanner = embeddedWorkspace(page, "market-scanner");
-    await expect(scanner.getByText("市场扫描器", { exact: true })).toBeVisible();
-    await expect(scanner.getByRole("table")).toBeVisible();
-    await scanner.getByRole("button", { name: /趋势走强/ }).click();
-    await expect(scanner.getByText(/个候选/).first()).toBeVisible();
+    await page.goto(`${shellOrigin}/?mod=market-sentiment`);
+    const sentiment = embeddedWorkspace(page, "market-sentiment");
+    await expect(sentiment.getByText("情绪分析", { exact: true }).first()).toBeVisible();
+    await expect(sentiment.getByText("市场宽度", { exact: true })).toBeVisible();
+    await sentiment.getByRole("button", { name: "中芯国际", exact: true }).click();
+    await expect(sentiment.locator(".workspace-current-security")).toContainText("688981");
+
+    await page.goto(`${shellOrigin}/?mod=market-technical`);
+    const technical = embeddedWorkspace(page, "market-technical");
+    await expect(technical.getByText("技术分析", { exact: true }).first()).toBeVisible();
+    await expect(technical.getByText("趋势与波动", { exact: true })).toBeVisible();
+    await technical.getByRole("button", { name: "中际旭创", exact: true }).click();
+    await expect(technical.locator(".workspace-current-security")).toContainText("300308");
 
     await page.goto(`${shellOrigin}/?mod=multi-timeframe`);
     const multiTimeframe = embeddedWorkspace(page, "multi-timeframe");
-    await expect(multiTimeframe.getByText("多周期看盘", { exact: true })).toBeVisible();
+    await expect(multiTimeframe.getByText("多周期分析", { exact: true }).first()).toBeVisible();
     await expect(multiTimeframe.locator('[aria-label$="K 线图"]')).toHaveCount(4);
     await multiTimeframe.getByRole("button", { name: "MACD" }).click();
     await expect(multiTimeframe.getByRole("button", { name: "MACD" })).toHaveAttribute("aria-pressed", "true");
 
     await page.goto(`${shellOrigin}/?mod=relative-strength`);
     const relativeStrength = embeddedWorkspace(page, "relative-strength");
-    await expect(workspaceTitle(page, "relative-strength")).toHaveText("相对强弱地图");
+    await expect(workspaceTitle(page, "relative-strength")).toHaveText("强弱对比");
     await expect(relativeStrength.getByRole("img", { name: "相对强弱走势" })).toBeVisible();
     await expect(relativeStrength.getByText("阶段排名", { exact: true })).toBeVisible();
 
@@ -159,7 +168,7 @@ test.describe("Newma-Desk chart workspace Mods", () => {
 
     await page.goto(`${shellOrigin}/?mod=trading-replay`);
     const tradingReplay = embeddedWorkspace(page, "trading-replay");
-    await expect(workspaceTitle(page, "trading-replay")).toHaveText("交易回放室");
+    await expect(workspaceTitle(page, "trading-replay")).toHaveText("复盘回放");
     await expect(tradingReplay.getByText(/未来数据已隐藏/)).toBeVisible();
     await tradingReplay.getByRole("button", { name: "模拟买入" }).click();
     await expect(tradingReplay.getByText("决策次数").locator("..")).toContainText("1");
@@ -240,10 +249,10 @@ test.describe("Newma-Desk chart workspace Mods", () => {
 
   test("replays security selection into another Mod and persists structured Agent context", async ({ page, request }) => {
     const errors = collectConsoleErrors(page);
-    await page.goto(`${shellOrigin}/?mod=market-scanner`);
-    const scanner = embeddedWorkspace(page, "market-scanner");
-    await expect(scanner.getByText("市场扫描器", { exact: true })).toBeVisible();
-    await scanner.locator("button.scanner-row").filter({ hasText: "688981" }).click();
+    await page.goto(`${shellOrigin}/?mod=market-sentiment`);
+    const sentiment = embeddedWorkspace(page, "market-sentiment");
+    await expect(sentiment.getByText("情绪分析", { exact: true }).first()).toBeVisible();
+    await sentiment.getByRole("button", { name: "中芯国际", exact: true }).click();
 
     await page
       .locator('[data-module-id="multi-timeframe"] .module-button')
@@ -251,7 +260,7 @@ test.describe("Newma-Desk chart workspace Mods", () => {
     const multi = embeddedWorkspace(page, "multi-timeframe");
     await expect(multi.getByText("中芯国际", { exact: true }).first()).toBeVisible();
     await page.getByRole("button", { name: "问当前 Mod" }).click();
-    await expect(page.getByRole("complementary", { name: "多周期看盘 Agent" })).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "多周期分析 Agent" })).toBeVisible();
 
     await expect.poll(async () => {
       return page.evaluate(() => ({
@@ -278,7 +287,7 @@ test.describe("Newma-Desk chart workspace Mods", () => {
       return body?.context?.selection;
     }).toMatchObject({ symbol: "688981", name: "中芯国际", market: "CN" });
     expect(saved).toBeDefined();
-    expect(saved?.context.view).toEqual({ id: "multi-timeframe", title: "多周期看盘" });
+    expect(saved?.context.view).toEqual({ id: "multi-timeframe", title: "多周期分析" });
     expect(saved?.context.selection).toMatchObject({ symbol: "688981", name: "中芯国际", market: "CN" });
     expect(saved?.context.filters).toMatchObject({ workspace: "multi-timeframe" });
     expect(saved?.context.visibleBlocks).toEqual(expect.arrayContaining([
@@ -287,13 +296,13 @@ test.describe("Newma-Desk chart workspace Mods", () => {
     expect(errors).toEqual([]);
   });
 
-  test("keeps the scanner usable at a narrow viewport", async ({ page }) => {
+  test("keeps market sentiment usable at a narrow viewport", async ({ page }) => {
     const errors = collectConsoleErrors(page);
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`${shellOrigin}/?mod=market-scanner`);
-    const scanner = embeddedWorkspace(page, "market-scanner");
-    await expect(scanner.getByText("市场扫描器", { exact: true })).toBeVisible();
-    await expect(scanner.getByRole("table")).toBeVisible();
+    await page.goto(`${shellOrigin}/?mod=market-sentiment`);
+    const sentiment = embeddedWorkspace(page, "market-sentiment");
+    await expect(sentiment.getByText("情绪分析", { exact: true }).first()).toBeVisible();
+    await expect(sentiment.getByText("市场宽度", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     expect(errors).toEqual([]);
   });

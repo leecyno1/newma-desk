@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0",
   "id": "research-suite",
-  "name": "Vibe Research",
-  "description": "Vibe Research 的内置投研页面集合，由 Newma-Desk 统一挂载并按页面展开为独立 Mod。",
-  "version": "0.3.0",
+  "name": "Vibe 公司研究",
+  "description": "Vibe Research 的公司研究流程，覆盖财报、逻辑、同业、估值与研究沉淀。",
+  "version": "0.4.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": [
@@ -24,19 +24,19 @@
     "schemaVersion": "1.1",
     "category": "research",
     "navigation": {
-      "groupLabel": "宏观面",
-      "groupOrder": 20,
+      "groupLabel": "公司",
+      "groupOrder": 60,
       "itemOrder": 100,
       "directory": {
         "id": "research-suite",
-        "label": "Vibe Research",
-        "order": 10
+        "label": "公司研究",
+        "order": 5
       },
       "project": {
-        "id": "fundamentals",
-        "name": "宏观面",
-        "order": 20,
-        "description": "经济数据、宏观指标、行业、产业链与宏观事件。"
+        "id": "equity-research",
+        "name": "公司",
+        "order": 60,
+        "description": "公司基本面、财报、投资逻辑、同业、估值与研究档案。"
       },
       "icon": "research"
     },
@@ -53,325 +53,6 @@
     }
   },
   "pages": [
-    {
-      "id": "daily-review",
-      "name": "每日复盘",
-      "description": "汇总每日市场变化、重点信息和复盘结论，形成可持续更新的投研页面。",
-      "tags": [
-        "投研",
-        "复盘",
-        "每日"
-      ],
-      "route": "/mod-runtime/research/daily-review",
-      "navigation": {
-        "itemOrder": 10,
-        "icon": "today"
-      },
-      "manifest": {
-        "category": "today",
-        "permissions": [
-          "investment.read"
-        ],
-        "dataServices": [
-          "vibe-investment-native"
-        ]
-      },
-      "defaultInstall": true
-    },
-    {
-      "id": "macro-monitor",
-      "name": "宏观观察",
-      "description": "统一查看增长、价格、流动性核心指标和未来经济事件，显式记录来源、新鲜度、置信度与数据缺口。",
-      "version": "0.1.0",
-      "tags": [
-        "宏观",
-        "经济日历",
-        "PMI",
-        "通胀",
-        "流动性"
-      ],
-      "route": "/mod-runtime/research/macro-monitor",
-      "navigation": {
-        "itemOrder": 15
-      },
-      "manifest": {
-        "compatibility": {
-          "level": 3,
-          "bridgeProtocol": "1.0",
-          "sdkVersion": "^0.1.0",
-          "viewSpecVersion": "1.0"
-        },
-        "permissions": [
-          "market.read"
-        ],
-        "dataServices": [
-          "market-data"
-        ]
-      },
-      "defaultInstall": true
-    },
-    {
-      "id": "watchlist",
-      "name": "自选股",
-      "description": "维护个人关注股票列表，并集中查看行情、变化和后续研究入口。",
-      "version": "0.2.0",
-      "tags": [
-        "自选股",
-        "行情",
-        "列表"
-      ],
-      "route": "/mod-runtime/research/watchlist",
-      "navigation": {
-        "itemOrder": 30,
-        "icon": "market"
-      },
-      "manifest": {
-        "category": "market",
-        "compatibility": {
-          "level": 3,
-          "bridgeProtocol": "1.0",
-          "sdkVersion": "^0.1.0",
-          "viewSpecVersion": "1.0"
-        },
-        "permissions": [
-          "market.read",
-          "investment.local-write"
-        ],
-        "dataServices": [
-          "market-data"
-        ],
-        "actions": {},
-        "events": {
-          "emits": [
-            "security.selected"
-          ],
-          "accepts": [
-            "security.selected"
-          ]
-        }
-      },
-      "defaultInstall": true
-    },
-    {
-      "id": "idea-funnel",
-      "name": "研究机会池",
-      "description": "把市场扫描、主题、新闻、催化剂、产业链和自选线索转成双向假设、研究任务与深度研究交接，并汇总复核到期、陈旧来源和档案缺口。",
-      "version": "0.1.0",
-      "tags": [
-        "Idea Generation",
-        "研究机会",
-        "筛选",
-        "研究队列",
-        "研究流程",
-        "反方证据"
-      ],
-      "route": "/mod-runtime/research/idea-funnel",
-      "navigation": {
-        "itemOrder": 35
-      },
-      "manifest": {
-        "compatibility": {
-          "level": 3,
-          "bridgeProtocol": "1.0",
-          "sdkVersion": "^0.1.0",
-          "viewSpecVersion": "1.0"
-        },
-        "permissions": [
-          "market.read",
-          "storage.read",
-          "storage.write"
-        ],
-        "dataServices": [
-          "market-data"
-        ],
-        "storage": {
-          "mode": "desk-managed",
-          "namespaces": [
-            {
-              "id": "idea-funnel",
-              "scope": "user-workspace",
-              "schemaVersion": 1,
-              "quotaMb": 4,
-              "maxItemKb": 256
-            }
-          ]
-        },
-        "events": {
-          "emits": [
-            "security.selected"
-          ],
-          "accepts": [
-            "security.selected"
-          ]
-        }
-      },
-      "defaultInstall": true
-    },
-    {
-      "id": "stock-research",
-      "name": "个股研究",
-      "description": "按股票查看行情、估值、研报和新闻，并连接统一 Agent 继续分析。",
-      "version": "0.3.0",
-      "tags": [
-        "个股",
-        "研报",
-        "估值"
-      ],
-      "route": "/mod-runtime/research/stock-data",
-      "navigation": {
-        "itemOrder": 40
-      },
-      "manifest": {
-        "compatibility": {
-          "level": 3,
-          "bridgeProtocol": "1.0",
-          "sdkVersion": "^0.1.0",
-          "viewSpecVersion": "1.0"
-        },
-        "permissions": [
-          "investment.read",
-          "storage.read",
-          "storage.write"
-        ],
-        "dataServices": [
-          "market-data"
-        ],
-        "wiki": {
-          "contractVersion": "1.0",
-          "subjectTypes": ["security"],
-          "concepts": ["equity-research", "fundamentals", "valuation"],
-          "entrypoints": [
-            {
-              "id": "research",
-              "intent": "equity.research",
-              "label": "个股研究",
-              "contextContract": "newma.wiki.subject.v1",
-              "defaults": {}
-            }
-          ]
-        },
-        "storage": {
-          "mode": "desk-managed",
-          "namespaces": [
-            {
-              "id": "research-history",
-              "scope": "user-workspace",
-              "schemaVersion": 1,
-              "quotaMb": 2,
-              "maxItemKb": 64
-            }
-          ]
-        },
-        "events": {
-          "emits": [
-            "security.selected"
-          ],
-          "accepts": [
-            "security.selected"
-          ]
-        }
-      },
-      "defaultInstall": true
-    },
-    {
-      "id": "industry-map",
-      "name": "产业链研究",
-      "description": "将 Agent 产业链研究转换为可固化的结构化节点、关系和 Archify 交互图谱。",
-      "version": "0.3.0",
-      "tags": [
-        "产业链",
-        "研究",
-        "公司",
-        "Archify",
-        "Artifact"
-      ],
-      "route": "/mod-runtime/research/sectors",
-      "navigation": {
-        "itemOrder": 50
-      },
-      "manifest": {
-        "compatibility": {
-          "level": 3,
-          "bridgeProtocol": "1.0",
-          "sdkVersion": "^0.1.0",
-          "viewSpecVersion": "1.0"
-        },
-        "permissions": [
-          "investment.read"
-        ],
-        "dataServices": [
-          "vibe-investment-native"
-        ],
-        "wiki": {
-          "contractVersion": "1.0",
-          "subjectTypes": ["security", "industry", "concept"],
-          "concepts": ["industry-chain", "sector-research"],
-          "entrypoints": [
-            {
-              "id": "chain",
-              "intent": "industry.chain",
-              "label": "产业链研究",
-              "contextContract": "newma.wiki.subject.v1",
-              "defaults": {}
-            }
-          ]
-        }
-      },
-      "defaultInstall": true
-    },
-    {
-      "id": "etf-research",
-      "name": "基金与 ETF 研究",
-      "description": "比较 ETF 与场内基金的历史收益、波动、回撤和相关性，并为费率、跟踪误差、持仓穿透与组合适配建立统一证据入口。",
-      "version": "0.2.0",
-      "tags": [
-        "基金",
-        "ETF",
-        "风险收益",
-        "资产配置"
-      ],
-      "route": "/mod-runtime/research/etf-research",
-      "navigation": {
-        "itemOrder": 60
-      },
-      "manifest": {
-        "compatibility": {
-          "level": 3,
-          "bridgeProtocol": "1.0",
-          "sdkVersion": "^0.1.0",
-          "viewSpecVersion": "1.0"
-        },
-        "permissions": [
-          "market.read"
-        ],
-        "dataServices": [
-          "market-data"
-        ],
-        "wiki": {
-          "contractVersion": "1.0",
-          "subjectTypes": ["etf", "fund"],
-          "concepts": ["fund-research", "asset-allocation", "risk-return"],
-          "entrypoints": [
-            {
-              "id": "research",
-              "intent": "fund.research",
-              "label": "基金与 ETF 研究",
-              "contextContract": "newma.wiki.subject.v1",
-              "defaults": {}
-            }
-          ]
-        },
-        "events": {
-          "emits": [
-            "security.selected"
-          ],
-          "accepts": [
-            "security.selected"
-          ]
-        }
-      },
-      "defaultInstall": true
-    },
     {
       "id": "earnings-workbench",
       "name": "财报研究",

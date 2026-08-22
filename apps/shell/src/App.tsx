@@ -1,5 +1,7 @@
 import { AlertTriangle, Boxes, Eye, LoaderCircle, RotateCw } from "lucide-react";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -32,7 +34,6 @@ import {
   ModFrame,
   type ModFrameHandle,
 } from "./components/ModuleFrame";
-import { AgentSettings } from "./components/AgentSettings";
 import { InterfaceSettings } from "./components/InterfaceSettings";
 import { ModStore } from "./components/ModStore";
 import { Sidebar } from "./components/Sidebar";
@@ -66,6 +67,11 @@ const RETIRED_MOD_ALIASES: Readonly<Record<string, string>> = {
 };
 const PREVIEW_PATTERN = /^([a-z][a-z0-9-]{2,63})@([1-9]\d*)$/;
 const HANDOFF_PATTERN = /^hf_[A-Za-z0-9_-]{8,120}$/;
+
+const AgentSettings = lazy(async () => {
+  const module = await import("./components/AgentSettings");
+  return { default: module.AgentSettings };
+});
 
 type ShellView = "mod" | "agent-settings" | "interface-settings" | "store" | "suite-settings";
 const DIRECTORY_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
@@ -264,6 +270,17 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
   const wikiContextKeyRef = useRef("");
   const deliveringHandoffRef = useRef<string | undefined>(undefined);
   const resolvedTheme = resolveTheme(themeMode, prefersDark);
+
+  useEffect(() => {
+    if (embedded) return;
+    if (activeView === "agent-settings") {
+      document.title = "Agent 设置 · Newma-Desk";
+    } else if (activeView === "interface-settings") {
+      document.title = "界面设置 · Newma-Desk";
+    } else if (activeView === "store") {
+      document.title = "Mod 商店 · Newma-Desk";
+    }
+  }, [activeView, embedded]);
 
   useEffect(() => {
     if (!embedded || !newmaHostIdentity) return;
@@ -873,7 +890,16 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
           </div>
         ) : null}
         {activeView === "agent-settings" ? (
-          <AgentSettings modules={modules} userId={identity.userId} />
+          <Suspense
+            fallback={(
+              <div className="content-state" role="status">
+                <LoaderCircle className="spin" size={24} aria-hidden="true" />
+                正在加载 Agent 设置…
+              </div>
+            )}
+          >
+            <AgentSettings modules={modules} userId={identity.userId} />
+          </Suspense>
         ) : activeView === "suite-settings" && activeSuite ? (
           <SuiteSettings
             suiteId={activeSuite.id}

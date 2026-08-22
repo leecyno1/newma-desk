@@ -45,6 +45,7 @@ export default function EmbeddedMarketFrame({
       hostConnection={hostConnection}
       bridge={bridge}
       dataSource={dataSource}
+      embedded
     />
   );
 }

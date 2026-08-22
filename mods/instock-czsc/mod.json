@@ -16,24 +16,24 @@
   },
   "manifest": {
     "schemaVersion": "1.1",
-    "category": "quant",
+    "category": "market",
     "navigation": {
-      "groupLabel": "量化研究",
-      "groupOrder": 120,
-      "itemOrder": 60,
-      "label": "CZSC 结构",
+      "groupLabel": "市场",
+      "groupOrder": 40,
+      "itemOrder": 70,
+      "label": "缠论结构分析",
       "directory": {
-        "id": "instock-suite",
-        "label": "InStock 分析",
-        "order": 60
+        "id": "instock-market-analysis-suite",
+        "label": "市场结构",
+        "order": 10
       },
       "project": {
-        "id": "quant-research",
-        "name": "量化研究",
-        "order": 120,
-        "description": "因子、策略、回测、相关性与量化实验。"
+        "id": "market-surface",
+        "name": "市场",
+        "order": 40,
+        "description": "行情、市场复盘、云图、技术结构、强弱、宽度与情绪。"
       },
-      "icon": "quant"
+      "icon": "market"
     },
     "compatibility": {
       "level": 2,

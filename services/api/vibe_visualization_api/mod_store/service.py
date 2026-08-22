@@ -49,6 +49,26 @@ from vibe_visualization_api.mod_store.schemas import (
 MAX_DESCRIPTOR_BYTES = 256 * 1024
 MAX_CATALOG_BYTES = 512 * 1024
 GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+ENGLISH_TITLE_TOKENS = {
+    "ai": "AI",
+    "cn": "CN",
+    "czsc": "CZSC",
+    "etf": "ETF",
+    "h": "H",
+    "hk": "HK",
+    "hkex": "HKEX",
+    "llm": "LLM",
+    "newma": "Newma",
+    "rss": "RSS",
+    "us": "US",
+}
+
+
+def _english_mod_name(mod_id: str) -> str:
+    return " ".join(
+        ENGLISH_TITLE_TOKENS.get(token, token.capitalize())
+        for token in mod_id.split("-")
+    )
 
 
 class ModStoreError(Exception):
@@ -685,6 +705,11 @@ class ModStoreService:
             "id": descriptor.id,
             "name": descriptor.name,
             "version": descriptor.version,
+            "presentation": {
+                "englishName": _english_mod_name(descriptor.id),
+                "description": descriptor.description,
+                "titleOwner": "host",
+            },
             **descriptor.manifest.model_dump(
                 by_alias=True,
                 exclude={"schema_version"},

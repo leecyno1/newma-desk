@@ -116,6 +116,18 @@ describe("moduleManifestSchema", () => {
     expect(moduleManifestSchema.parse(valid)).not.toHaveProperty("navigation");
   });
 
+  it("preserves host-owned presentation metadata", () => {
+    const presentation = {
+      englishName: "Market Daily",
+      description: "统一查看行情、盘口与技术指标。",
+      titleOwner: "host" as const,
+    };
+
+    expect(moduleManifestSchema.parse({ ...valid, presentation })).toMatchObject({
+      presentation,
+    });
+  });
+
   it.each([
     { type: "icon", name: "trading" },
     { type: "letter", text: "VT" },
@@ -378,6 +390,44 @@ describe("moduleManifestSchema", () => {
     expect(parsed.actions["market.quote"]).toEqual({
       ...unified.actions["market.quote"],
       confirmation: "none",
+    });
+  });
+
+  it("accepts explicit execution profiles for model and Agent actions", () => {
+    const parsed = moduleManifestSchema.parse({
+      ...connected,
+      actions: {
+        ...connected.actions,
+        "research.batch": {
+          binding: {
+            type: "agent",
+            capability: "research.batch",
+            memoryScope: "task",
+            profile: "batch",
+          },
+          execution: "task",
+          permission: "research.read",
+        },
+        "research.quick": {
+          binding: {
+            type: "model",
+            capability: "research.quick",
+            profile: "quick",
+          },
+          execution: "request",
+          permission: "research.read",
+        },
+      },
+    });
+
+    if (parsed.schemaVersion !== "1.1") throw new Error("expected Manifest 1.1");
+    expect(parsed.actions["research.batch"]!.binding).toMatchObject({
+      type: "agent",
+      profile: "batch",
+    });
+    expect(parsed.actions["research.quick"]!.binding).toMatchObject({
+      type: "model",
+      profile: "quick",
     });
   });
 

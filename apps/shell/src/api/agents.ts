@@ -6,15 +6,34 @@ export interface AgentAdapterDescription {
   description?: string;
   kind?: string;
   available?: boolean;
+  executable?: string | null;
+  models?: string[];
+  modelSource?: "cli" | "registry" | "none" | "unavailable" | string;
+  version?: string | null;
+  commandProfiles?: string[];
+  commandProfileDetails?: Record<
+    string,
+    { label?: string; description?: string }
+  >;
+  binaryCandidates?: string[];
+  supportsWrite?: boolean;
   supportsMemory?: boolean;
   capabilities: string[];
   default: boolean;
 }
 
+export type AgentProfile = "deep" | "batch" | "edit";
+export type ExecutionProfile = "quick" | AgentProfile;
+
 export interface AgentPreferences {
   userId: string;
   defaultAdapter: string;
   moduleOverrides: Record<string, string>;
+  profileTargets: Partial<Record<ExecutionProfile, string>>;
+  moduleProfileOverrides: Record<
+    string,
+    Partial<Record<ExecutionProfile, string>>
+  >;
   updatedAt: string | null;
 }
 
@@ -37,7 +56,10 @@ export interface AgentTask {
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
   request?: {
     adapter?: string | null;
+    model?: string | null;
+    commandProfile?: string | null;
     moduleId?: string | null;
+    profile?: AgentProfile;
     memoryScope?: "user-agent-mod" | "task";
     [key: string]: unknown;
   };
@@ -56,11 +78,14 @@ export interface AgentTask {
 export interface AgentTaskCreateInput {
   moduleId: string;
   capability?: string;
+  profile?: AgentProfile;
   memoryScope?: "user-agent-mod" | "task";
   prompt: string;
   context?: Record<string, unknown>;
   input?: Record<string, unknown>;
   adapter?: string;
+  model?: string;
+  commandProfile?: string;
 }
 
 export interface AgentRequestIdentity {
@@ -118,7 +143,13 @@ export async function loadAgentSettings(userId: string): Promise<{
 
 export function saveAgentPreferences(
   userId: string,
-  preferences: Pick<AgentPreferences, "defaultAdapter" | "moduleOverrides">,
+  preferences: Pick<
+    AgentPreferences,
+    | "defaultAdapter"
+    | "moduleOverrides"
+    | "profileTargets"
+    | "moduleProfileOverrides"
+  >,
 ): Promise<AgentPreferences> {
   return request<AgentPreferences>("/api/agent/preferences", {
     method: "PUT",

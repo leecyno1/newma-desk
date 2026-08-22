@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0",
   "id": "policy-analysis",
-  "name": "政策分析",
-  "description": "跟踪历史、当前与未来政策发布日程，以可解释规则评估政策量级并保留一手官方来源。",
-  "version": "0.1.0",
+  "name": "政策渠道",
+  "description": "管理政策官方来源、采集状态与数据证据。",
+  "version": "0.3.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/DIYgod/RSSHub",
   "tags": ["政策", "政策日历", "宏观", "监管", "RSSHub"],
@@ -12,22 +12,22 @@
     "type": "external",
     "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
     "defaultBaseUrl": "http://127.0.0.1:8911",
-    "route": "/mod-runtime/policy-analysis/"
+    "route": "/mod-runtime/policy-analysis/?view=sources&mod=policy-analysis"
   },
   "manifest": {
     "schemaVersion": "1.1",
     "category": "event",
     "navigation": {
       "groupLabel": "政策",
-      "groupOrder": 5,
-      "itemOrder": 0,
-      "label": "政策分析",
-      "directory": {"id": "policy-suite", "label": "政策工具", "order": 5},
+      "groupOrder": 20,
+      "itemOrder": 3,
+      "label": "政策渠道",
+      "directory": {"id": "policy-suite", "label": "政策研究", "order": 5},
       "project": {
         "id": "policy-intelligence",
         "name": "政策",
-        "order": 5,
-        "description": "跟踪政策发布、政策量级、执行进度及市场影响。"
+        "order": 20,
+        "description": "政策日历、政策流、政策量级、历史对比与影响解读。"
       },
       "icon": "research"
     },
@@ -41,8 +41,8 @@
     "dataServices": [],
     "wiki": {
       "contractVersion": "1.0",
-      "subjectTypes": ["topic", "security", "etf", "fund"],
-      "concepts": ["policy-monitor", "policy-calendar"],
+      "subjectTypes": ["topic", "security", "etf", "fund", "industry", "concept"],
+      "concepts": ["policy-monitor", "policy-calendar", "policy-lifecycle", "policy-impact"],
       "entrypoints": [{
         "id": "policy",
         "intent": "policy.monitor",

@@ -20,6 +20,7 @@ import {
 } from "./lib/runtime-supervisor.mjs";
 import {
   claimProcessLock,
+  ProcessLockError,
   releaseProcessLock,
 } from "./lib/process-lock.mjs";
 
@@ -109,7 +110,9 @@ function createDomainSuitesProbe() {
   return async () => {
     try {
       const response = await fetch(domainSuitesUrl, {
-        signal: AbortSignal.timeout(1_500),
+        // API 繁忙（快照生成/SQLite 写/恢复任务）时短暂无响应属正常，
+        // 1.5s 会误判 UNAVAILABLE 并叠加成核心重启/停机，放宽到 5s。
+        signal: AbortSignal.timeout(5_000),
         headers: { Accept: "application/json" },
       });
       if (!response.ok) {
@@ -210,10 +213,21 @@ function policyCollectorServices() {
     cwd: workspace,
     command: executable,
     commandArgs: ["lib/index.ts"],
-    env: { NODE_ENV: "production", PORT: "1200" },
+    // The optional collector must not inherit the Desk terminal.
+    // A closed terminal can emit EIO into its logger.
+    stdio: "ignore",
+    env: {
+      NODE_ENV: "production",
+      PORT: "1200",
+      LOGGER_LEVEL: "warn",
+      NO_LOGFILES: "true",
+    },
     criticality: SERVICE_CRITICALITY.OPTIONAL,
-    url: "http://127.0.0.1:1200/",
-    probe: createHttpProbe("http://127.0.0.1:1200/"),
+    url: "http://127.0.0.1:1200/healthz",
+    probe: createHttpProbe("http://127.0.0.1:1200/healthz", {
+      expectHtml: false,
+      expectedText: "ok",
+    }),
   }];
 }
 
@@ -424,7 +438,67 @@ function instockServices(runtime) {
       url: endpoint.healthUrl,
       probe: createHttpProbe(endpoint.healthUrl, {
         expectedService: "instock-analysis",
+        // InStock uses one Tornado loop; a live market request can briefly
+        // delay the otherwise lightweight health handler.
+        timeoutMs: 5_000,
       }),
+    },
+  ];
+}
+
+function fundAnalysisServices(runtime) {
+  if (!runtime) return [];
+  const workspace = runtime.workspaces.source.path;
+  const webEndpoint = runtime.endpoints.web;
+  const apiEndpoint = runtime.endpoints.api;
+  return [
+    {
+      id: "fund-analysis-api",
+      label: "Fund Analysis API",
+      cwd: workspace,
+      ...(workspace && apiEndpoint.local
+        ? {
+            command: "bash",
+            commandArgs: ["backend/scripts/start_backend.sh"],
+          }
+        : {}),
+      env: {
+        PYTHONUNBUFFERED: "1",
+        HOST: "127.0.0.1",
+        PORT: String(apiEndpoint.port),
+      },
+      criticality: apiEndpoint.local
+        ? SERVICE_CRITICALITY.OPTIONAL
+        : SERVICE_CRITICALITY.EXTERNAL,
+      url: apiEndpoint.healthUrl,
+      probe: createHttpProbe(apiEndpoint.healthUrl, {
+        expectedService: "fund-analysis-api",
+      }),
+    },
+    {
+      id: "fund-analysis-web",
+      label: "Fund Analysis Web",
+      cwd: workspace,
+      ...(workspace && webEndpoint.local
+        ? {
+            command: path.join(workspace, "node_modules", ".bin", "next"),
+            commandArgs: [
+              "dev", "--hostname", "127.0.0.1",
+              "--port", String(webEndpoint.port),
+            ],
+          }
+        : {}),
+      env: {
+        BACKEND_API_URL: apiEndpoint.origin,
+        NEXT_PUBLIC_BACKEND_API_URL: apiEndpoint.origin,
+      },
+      criticality: webEndpoint.local
+        ? SERVICE_CRITICALITY.OPTIONAL
+        : SERVICE_CRITICALITY.EXTERNAL,
+      url: webEndpoint.healthUrl,
+      // Next dev may compile a route on first request; allow cold starts and
+      // concurrent release checks without classifying a healthy service as down.
+      probe: createHttpProbe(webEndpoint.healthUrl, { timeoutMs: 15_000 }),
     },
   ];
 }
@@ -528,11 +602,13 @@ const policyCollector = policyCollectorServices();
 const worldIntelRuntime = externalRuntimes.byId["world-intel"];
 const sevenCycleRuntime = externalRuntimes.byId["seven-cycle"];
 const instockRuntime = externalRuntimes.byId.instock;
+const fundAnalysisRuntime = externalRuntimes.byId["fund-analysis"];
 const orchestraRuntime = externalRuntimes.byId.orchestra;
 const deepseeRuntime = externalRuntimes.byId.deepsee;
 const worldIntel = worldIntelServices(worldIntelRuntime);
 const sevenCycle = sevenCycleServices(sevenCycleRuntime);
 const instock = instockServices(instockRuntime);
+const fundAnalysis = fundAnalysisServices(fundAnalysisRuntime);
 const orchestra = orchestraServices(orchestraRuntime);
 const deepsee = {
   id: "deepsee",
@@ -571,7 +647,7 @@ for (const runtime of externalRuntimes.runtimes) {
 
 if (checkOnly) {
   const results = [];
-  for (const service of [...worldIntel, ...policyCollector, ...core, ...instock, ...orchestra, ...sevenCycle, deepsee]) {
+  for (const service of [...worldIntel, ...policyCollector, ...core, ...instock, ...fundAnalysis, ...orchestra, ...sevenCycle, deepsee]) {
     results.push(await statusLine(service));
   }
   const coreReady = results
@@ -655,6 +731,7 @@ if (checkOnly) {
     console.log("Research / Trading 与 World Intelligence 已作为 Newma-Desk 核心运行时加载。");
     const optionalServices = [
       ...instock,
+      ...fundAnalysis,
       ...orchestra,
       ...sevenCycle,
     ];
@@ -679,6 +756,9 @@ if (checkOnly) {
     });
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
-    await shutdown(1);
+    // A launch agent may race with an already running stack. Treat the
+    // duplicate as a clean no-op; otherwise KeepAlive repeatedly respawns the
+    // loser and floods the runtime log every few seconds.
+    await shutdown(error instanceof ProcessLockError ? 0 : 1);
   }
 }

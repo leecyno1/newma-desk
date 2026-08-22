@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   claimProcessLock,
   inspectProcessLock,
+  ProcessLockError,
   releaseProcessLock,
 } from "../../scripts/lib/process-lock.mjs";
 
@@ -52,7 +53,9 @@ test("rejects a second live stack", () => {
         getIdentity: (pid) => `process-${pid}`,
         label: "Newma-Desk 统一启动器",
       }),
-      /已运行（PID 1234）/,
+      (error) => error instanceof ProcessLockError
+        && error.code === "ELOCKED"
+        && /已运行（PID 1234）/.test(error.message),
     );
     assert.equal(storedPid(pidFile), 1234);
   });

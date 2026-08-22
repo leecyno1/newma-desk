@@ -167,8 +167,6 @@ test("the current store keeps legacy Mods compatible and validates declared leve
   assert.equal(results.find((result) => result.id === "idea-funnel").level, 3);
   assert.equal(results.find((result) => result.id === "research-library").level, 3);
   assert.equal(results.find((result) => result.id === "research-notes").level, 3);
-  assert.equal(results.find((result) => result.id === "daily-review").level, 1);
-  assert.equal(results.find((result) => result.id === "stock-research").level, 3);
   assert.equal(results.find((result) => result.id === "industry-map").level, 3);
   assert.equal(results.find((result) => result.id === "news-radar").level, 3);
   assert.equal(results.find((result) => result.id === "capital-flow").level, 3);
@@ -185,21 +183,61 @@ test("the current store keeps legacy Mods compatible and validates declared leve
     "portfolio-activities",
     "portfolio-risk",
     "portfolio-allocation",
+    "portfolio-scenarios",
     "portfolio-performance",
     "portfolio-settings",
   ];
   assert.ok(portfolioIds.every((id) => results.find((result) => result.id === id)?.level === 3));
   const chartWorkspaceIds = [
     "global-situation",
-    "market-scanner",
+    "fed-rates",
+    "hormuz-conflict",
+    "us-china-trade",
+    "policy-calendar",
+    "policy-flow",
+    "policy-interpretation",
+    "capital-overview",
+    "capital-sectors",
+    "capital-cross-border",
+    "capital-liquidity",
+    "capital-etf",
+    "capital-emotion",
+    "market-sentiment",
+    "market-technical",
     "multi-timeframe",
     "relative-strength",
     "event-timeline",
     "trading-replay",
   ];
   assert.ok(chartWorkspaceIds.every((id) => results.find((result) => result.id === id)?.level === 3));
-  assert.equal(results.find((result) => result.id === "instock-czsc").level, 2);
-  assert.equal(results.find((result) => result.id === "instock-rotation").level, 2);
+  const instockSuiteIds = [
+    "instock-market-workbench",
+    "instock-market-map",
+    "instock-rotation",
+    "instock-stock-candidates",
+    "instock-technical-signals",
+    "instock-stock-research",
+    "instock-czsc",
+    "instock-event-flow",
+    "instock-industry-chain",
+    "instock-strategy-validation",
+    "instock-research-book",
+  ];
+  assert.ok(instockSuiteIds.every((id) => results.find((result) => result.id === id)?.level === 2));
+  const deepseeIds = [
+    "deepsee-overview",
+    "deepsee-ai-insights",
+    "deepsee-news",
+    "deepsee-wechat",
+    "deepsee-email",
+    "deepsee-minutes",
+    "deepsee-media",
+    "deepsee-official-accounts",
+    "deepsee-campaigns",
+    "deepsee-contacts",
+    "deepsee-settings",
+  ];
+  assert.ok(deepseeIds.every((id) => results.find((result) => result.id === id)?.level === 2));
   const orchestraIds = [
     "orchestra-committee",
     "orchestra-history",
@@ -220,8 +258,6 @@ test("the current store keeps legacy Mods compatible and validates declared leve
     "trading-settings",
   ];
   assert.ok(tradingSuiteIds.every((id) => results.find((result) => result.id === id)?.level === 1));
-  const calendarEffectIds = ["calendar-effect-overview", "calendar-effect-history"];
-  assert.ok(calendarEffectIds.every((id) => results.find((result) => result.id === id)?.level === 1));
   const creatorStudioIds = [
     "creator-dashboard",
     "creator-workbench",
@@ -234,6 +270,15 @@ test("the current store keeps legacy Mods compatible and validates declared leve
     "creator-settings",
   ];
   assert.ok(creatorStudioIds.every((id) => results.find((result) => result.id === id)?.level === 3));
+  const fundResearchIds = [
+    "fund-discover",
+    "fund-research-library",
+    "fund-ai-analysis",
+    "fund-recommendations",
+    "fund-attribution",
+    "fund-portfolio",
+  ];
+  assert.ok(fundResearchIds.every((id) => results.find((result) => result.id === id)?.level === 3));
   assert.ok(
     results
       .filter((result) => ![
@@ -253,17 +298,15 @@ test("the current store keeps legacy Mods compatible and validates declared leve
         "research-memo",
         "macro-monitor",
         "thesis-tracker",
-        "daily-review",
-        "stock-research",
         "industry-map",
         ...portfolioIds,
         ...chartWorkspaceIds,
-        "instock-czsc",
-        "instock-rotation",
+        ...instockSuiteIds,
+        ...deepseeIds,
         ...orchestraIds,
         ...tradingSuiteIds,
-        ...calendarEffectIds,
         ...creatorStudioIds,
+        ...fundResearchIds,
       ].includes(result.id))
       .every((result) => result.level === 0),
   );

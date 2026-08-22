@@ -40,10 +40,16 @@ test("Newma-Desk embeds the demo Mod with its isolation contract", async ({
   ).toBeVisible();
   await expect(frame.getByText("Mode: embedded", { exact: true })).toBeVisible();
 
-  await expect(page.getByRole("link", { name: "独立打开" })).toHaveAttribute(
-    "href",
-    demoModuleUrl,
+  const standaloneHref = await page
+    .getByRole("link", { name: "独立打开" })
+    .getAttribute("href");
+  expect(standaloneHref).toBeTruthy();
+  const standaloneUrl = new URL(standaloneHref!);
+  const expectedDemoUrl = new URL(demoModuleUrl);
+  expect(`${standaloneUrl.origin}${standaloneUrl.pathname}`).toBe(
+    `${expectedDemoUrl.origin}${expectedDemoUrl.pathname}`,
   );
+  expect(standaloneUrl.searchParams.get("__newma_mod_version")).toBe("0.1.0");
 
   const sandbox =
     (await frameElement.getAttribute("sandbox"))?.split(/\s+/) ?? [];
@@ -147,7 +153,7 @@ test("embedded market pages return their current context to the Newma host", asy
     modId: "market-daily",
     workspaceId: "newma-mod-market-surface-context",
     context: {
-      view: { id: "market-daily", title: "市场终端" },
+      view: { id: "market-daily", title: "行情" },
       selection: { symbol: "600519", name: "贵州茅台", market: "CN" },
       filters: { timeframe: "1d", primaryIndicator: "MA", secondaryIndicator: "VOL" },
     },

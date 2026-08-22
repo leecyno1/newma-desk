@@ -243,6 +243,7 @@ class Settings(BaseSettings):
     model_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
     agent_default_adapter: str = "codex-cli"
     agent_timeout_seconds: float = Field(default=300.0, gt=0, le=900)
+    agent_batch_concurrency: int = Field(default=3, ge=1, le=16)
     enable_domain_suites: bool = False
     domain_suite_workspace_venvs: bool = False
     workspace_root: Path = Path(".")
@@ -258,6 +259,7 @@ class Settings(BaseSettings):
     capital_flow_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     policy_rsshub_base_url: str = ""
     policy_collector_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
+    policy_refresh_seconds: float = Field(default=14400, ge=300, le=86400)
     external_finance_pilot_descriptor: Path = Field(
         default_factory=_default_external_finance_pilot_descriptor
     )
@@ -272,6 +274,9 @@ class Settings(BaseSettings):
     )
     instock_workspace: Path = Field(
         default_factory=lambda: resolve_runtime_workspace("instock", "source")
+    )
+    fund_analysis_workspace: Path = Field(
+        default_factory=lambda: resolve_runtime_workspace("fund-analysis", "source")
     )
     orchestra_frontend_workspace: Path = Field(
         default_factory=lambda: resolve_runtime_workspace("orchestra", "frontend")
@@ -294,6 +299,12 @@ class Settings(BaseSettings):
     )
     instock_web_url: str = Field(
         default_factory=lambda: resolve_runtime_origin("instock", "web")
+    )
+    fund_research_web_url: str = Field(
+        default_factory=lambda: resolve_runtime_origin("fund-analysis", "web")
+    )
+    fund_analysis_api_url: str = Field(
+        default_factory=lambda: resolve_runtime_origin("fund-analysis", "api")
     )
     orchestra_web_url: str = Field(
         default_factory=lambda: resolve_runtime_origin("orchestra", "web")
@@ -441,6 +452,8 @@ class Settings(BaseSettings):
         "seven_cycle_web_url",
         "deepsee_web_url",
         "instock_web_url",
+        "fund_research_web_url",
+        "fund_analysis_api_url",
         "orchestra_web_url",
         "orchestra_api_url",
         "world_intel_url",

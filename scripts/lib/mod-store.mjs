@@ -24,22 +24,43 @@ const NAVIGATION_ICONS = new Set([
   "module",
 ]);
 const INVESTMENT_DOMAIN_IDS = new Set([
-  "market-surface",
-  "fundamentals",
   "global-intelligence",
-  "capital-flow",
-  "event-intelligence",
+  "fundamentals",
   "policy-intelligence",
-  "cycle-research",
-  "asset-allocation",
-  "tactical-timing",
+  "capital-flow",
+  "market-surface",
+  "industry-research",
   "equity-research",
   "fund-research",
-  "bond-research",
+  "asset-allocation",
+  "trading",
+  "strategy-research",
+  "risk-management",
   "quant-research",
   "investment-committee",
-  "trading-risk-portfolio",
+  "creator-studio",
+  "deepsee",
 ]);
+const ENGLISH_TITLE_TOKENS = new Map([
+  ["ai", "AI"],
+  ["cn", "CN"],
+  ["czsc", "CZSC"],
+  ["etf", "ETF"],
+  ["h", "H"],
+  ["hk", "HK"],
+  ["hkex", "HKEX"],
+  ["llm", "LLM"],
+  ["newma", "Newma"],
+  ["rss", "RSS"],
+  ["us", "US"],
+]);
+
+function englishModName(modId) {
+  return modId
+    .split("-")
+    .map((token) => ENGLISH_TITLE_TOKENS.get(token) || `${token[0].toUpperCase()}${token.slice(1)}`)
+    .join(" ");
+}
 
 function assertObject(value, label) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -581,6 +602,10 @@ function suitePageDescriptors(descriptor) {
     const mergedManifest = {
       ...template,
       ...pageManifest,
+      actions: {
+        ...(template.actions || {}),
+        ...(pageManifest.actions || {}),
+      },
       navigation: mergedNavigation,
     };
     const mergedSchemaVersion = mergedManifest.schemaVersion || "1.0";
@@ -655,6 +680,11 @@ function manifestFromDescriptor(descriptor, env) {
     name: assertString(descriptor.name, `${id}.name`),
     version,
     category,
+    presentation: {
+      englishName: englishModName(id),
+      description: boundedString(descriptor.description, `${id}.description`, 240),
+      titleOwner: "host",
+    },
     ...(template.navigation
       ? { navigation: navigationValue(template.navigation, `${id}.manifest.navigation`) }
       : {}),

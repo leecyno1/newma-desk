@@ -59,7 +59,11 @@ function dataSource(): MarketDataSource {
       asOf: "2026-07-24T10:00:00+08:00",
       hasMore: false,
     })),
-    overview: vi.fn(async () => ({})),
+    overview: vi.fn(async () => ({
+      sentiment: { up: 3200, down: 1600, flat: 100, zt: 72, dt: 12, breadth: "偏强" },
+      sectors: [{ name: "通信", pct: 2.3, net: 1_200_000_000 }],
+      updated: "2026-08-16 14:30",
+    })),
     indices: vi.fn(async () => []),
     globalIndices: vi.fn(async () => []),
     turnoverTop: vi.fn(async () => []),
@@ -101,7 +105,7 @@ describe("market chart workspaces", () => {
 
   it("resolves each store workspace from its query parameter", () => {
     expect(marketWorkspaceFromSearch("?workspace=scanner")?.modId).toBe("market-scanner");
-    expect(marketWorkspaceFromSearch("?workspace=trading-replay")?.title).toBe("交易回放室");
+    expect(marketWorkspaceFromSearch("?workspace=trading-replay")?.title).toBe("复盘回放");
     expect(marketWorkspaceFromSearch("?workspace=missing")).toBeUndefined();
   });
 
@@ -126,6 +130,24 @@ describe("market chart workspaces", () => {
     expect(await screen.findAllByTestId("workspace-kline")).toHaveLength(4);
     await userEvent.click(screen.getByRole("button", { name: "MACD" }));
     expect(screen.getByRole("button", { name: "MACD" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("renders market sentiment from the shared market overview", async () => {
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES.sentiment} bridge={bridge("market-sentiment")} dataSource={dataSource()} alertClient={null} />);
+
+    expect(await screen.findByText("市场情绪温度")).toBeVisible();
+    expect(screen.getByText(/偏强/)).toBeVisible();
+    expect(screen.getByText("通信")).toBeVisible();
+    expect(screen.getByText("涨停 / 跌停")).toBeVisible();
+  });
+
+  it("computes technical structure from daily OHLCV", async () => {
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES.technical} bridge={bridge("market-technical")} dataSource={dataSource()} alertClient={null} />);
+
+    expect(await screen.findByText("技术结构")).toBeVisible();
+    expect(screen.getByText("上行趋势")).toBeVisible();
+    expect(screen.getByText("MA20")).toBeVisible();
+    expect(screen.getByText(/完整分型、笔、中枢请通过 CZSC/)).toBeVisible();
   });
 
   it("switches the daily timeline to the ETF event composition", async () => {
@@ -247,7 +269,7 @@ describe("market chart workspaces", () => {
       workspaceState: { timeframe: "1d", ranking: [{ label: "贵州茅台", returnPct: 8.2 }] },
     });
 
-    expect(context.view).toEqual({ id: "relative-strength", title: "相对强弱地图" });
+    expect(context.view).toEqual({ id: "relative-strength", title: "强弱对比" });
     expect(context.selection).toMatchObject({ symbol: "600519", market: "CN" });
     expect(context.filters).toMatchObject({ workspace: "relative-strength", timeframe: "1d" });
     expect(context.data.summary).toMatchObject({ workspace: { timeframe: "1d" } });

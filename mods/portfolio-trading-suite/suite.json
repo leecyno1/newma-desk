@@ -1,0 +1,150 @@
+{
+  "schemaVersion": "1.0",
+  "id": "portfolio-trading-suite",
+  "name": "组合交易记录",
+  "description": "组合层交易活动与执行记录。",
+  "version": "0.1.0",
+  "publisher": "Newma-Desk",
+  "upstream": "https://github.com/ghostfolio/ghostfolio",
+  "tags": [
+    "交易",
+    "组合",
+    "Portfolio"
+  ],
+  "agentWorkspace": {
+    "type": "desk"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "market",
+    "navigation": {
+      "groupLabel": "交易",
+      "groupOrder": 90,
+      "itemOrder": 30,
+      "directory": {
+        "id": "portfolio-trading-suite",
+        "label": "交易记录",
+        "order": 10
+      },
+      "project": {
+        "id": "trading",
+        "name": "交易",
+        "order": 90,
+        "description": "战术择时、交易计划、纸面执行、复盘回放与执行记录。"
+      },
+      "icon": "trading"
+    },
+    "compatibility": {
+      "level": 3,
+      "bridgeProtocol": "1.0",
+      "sdkVersion": "^0.1.0",
+      "viewSpecVersion": "1.0"
+    },
+    "permissions": [
+      "portfolio.read",
+      "portfolio.local-write"
+    ],
+    "dataServices": [
+      "market-data"
+    ],
+    "actions": {
+      "portfolio.refresh": {
+        "binding": {
+          "type": "local"
+        },
+        "execution": "request",
+        "permission": "portfolio.read",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "confirmation": "none"
+      },
+      "portfolio.import-legacy": {
+        "binding": {
+          "type": "local"
+        },
+        "execution": "request",
+        "permission": "portfolio.local-write",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "confirmation": "user"
+      },
+      "portfolio.optimize": {
+        "binding": {
+          "type": "local"
+        },
+        "execution": "request",
+        "permission": "portfolio.read",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "confirmation": "none"
+      },
+      "portfolio.analyze-performance": {
+        "binding": {
+          "type": "local"
+        },
+        "execution": "request",
+        "permission": "portfolio.read",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "confirmation": "none"
+      }
+    },
+    "events": {
+      "emits": [
+        "security.selected"
+      ],
+      "accepts": [
+        "security.selected"
+      ]
+    },
+    "refresh": {
+      "mode": "manual"
+    }
+  },
+  "pages": [
+    {
+      "id": "portfolio-activities",
+      "name": "交易流水",
+      "description": "录入买卖、现金、分红、费用和拆并股流水，由账本派生持仓。",
+      "tags": [
+        "交易",
+        "流水",
+        "账本"
+      ],
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-activities",
+      "navigation": {
+        "itemOrder": 20,
+        "label": "流水"
+      }
+    }
+  ]
+}

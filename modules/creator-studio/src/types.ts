@@ -403,6 +403,7 @@ export interface CapabilityDetection {
     mode: string;
     available: boolean;
     version?: string;
+    path?: string;
     stages: string[];
   }>;
 }

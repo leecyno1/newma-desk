@@ -27,7 +27,7 @@ const marketManifest = {
   entry: marketPackage.runtime.entry,
 };
 
-test("Market Terminal works directly, embedded, responsive, and with Desk Copilot context", async ({
+test("Market quote workspace works directly, embedded, responsive, and with Desk Copilot context", async ({
   page,
   request,
 }) => {
@@ -79,7 +79,7 @@ test("Market Terminal works directly, embedded, responsive, and with Desk Copilo
   );
 
   await page.goto(`${moduleOrigin}/mods/market-daily/`);
-  await expect(page.getByText("市场终端", { exact: true })).toBeVisible();
+  await expect(page.getByText("行情", { exact: true })).toBeVisible();
   await expect(page.getByText("1,488.00", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("卖1", { exact: true })).toBeVisible();
   await expect(page.getByText("3120", { exact: true })).toBeVisible();
@@ -88,7 +88,7 @@ test("Market Terminal works directly, embedded, responsive, and with Desk Copilo
 
   await page.emulateMedia({ colorScheme: "dark" });
   await page.reload();
-  await expect(page.getByText("市场终端", { exact: true })).toBeVisible();
+  await expect(page.getByText("行情", { exact: true })).toBeVisible();
   const darkBackground = await page.locator("body").evaluate(
     (element) => getComputedStyle(element).backgroundColor,
   );
@@ -107,7 +107,7 @@ test("Market Terminal works directly, embedded, responsive, and with Desk Copilo
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${shellOrigin}/?mod=market-daily`);
   await expect(
-    page.getByRole("button", { name: "终端", exact: true }),
+    page.getByRole("button", { name: "行情", exact: true }),
   ).toBeVisible();
   const market = page.locator('[data-vibedesk-mod-id="market-daily"]');
   await expect(market).toHaveAttribute("data-vibedesk-frame-state", "ready");
@@ -122,7 +122,7 @@ test("Market Terminal works directly, embedded, responsive, and with Desk Copilo
   );
 
   await page.getByRole("button", { name: "问当前 Mod" }).click();
-  const copilot = page.getByLabel("市场终端 Agent");
+  const copilot = page.getByLabel("行情 Agent");
   await expect(copilot).toBeVisible();
   await copilot.getByPlaceholder("就当前页面提问…").fill("解释当前走势");
   await copilot.getByRole("button", { name: "发送" }).click();

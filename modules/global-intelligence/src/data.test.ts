@@ -1089,6 +1089,18 @@ describe("global intelligence normalization", () => {
         name: "欧亚主航线",
         exposure: expect.objectContaining({ marketSignals: expect.arrayContaining(["集运运价"]) }),
       }),
+      expect.objectContaining({
+        kind: "shipping",
+        name: "海湾—东亚原油油运线",
+        pathType: "corridor",
+        exposure: expect.objectContaining({ commodities: expect.arrayContaining(["原油"]) }),
+      }),
+      expect.objectContaining({
+        kind: "flight",
+        name: "欧洲—海湾—亚洲航空走廊",
+        pathType: "corridor",
+        exposure: expect.objectContaining({ industries: expect.arrayContaining(["航空公司", "机场"]) }),
+      }),
     ]));
   });
 

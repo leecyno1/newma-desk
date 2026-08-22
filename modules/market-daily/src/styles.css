@@ -82,6 +82,10 @@ select:focus-visible {
   background: var(--terminal-panel);
 }
 
+.terminal-root[data-embedded="true"] .terminal-topbar {
+  grid-template-columns: minmax(280px, 540px) 1fr;
+}
+
 .terminal-brand,
 .quote-identity,
 .quote-price,

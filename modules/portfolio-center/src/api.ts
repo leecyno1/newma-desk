@@ -8,6 +8,8 @@ import type {
   PortfolioOptimizationResult,
   PortfolioPerformanceInput,
   PortfolioPerformanceResult,
+  StrategicAllocationInput,
+  StrategicAllocationResult,
 } from "./types";
 import type { PortfolioResearchCoverage } from "@newma-desk/contracts";
 
@@ -47,6 +49,16 @@ async function payload<T>(response: Response): Promise<T> {
 
 export function portfolioClient(identity: PortfolioIdentity) {
   return {
+    strategicAllocation: async (input: StrategicAllocationInput, options: { signal?: AbortSignal } = {}) =>
+      payload<StrategicAllocationResult>(await fetch(
+        "/api/portfolio-center/asset-allocation/optimize",
+        {
+          method: "POST",
+          headers: headers(identity, true),
+          body: JSON.stringify(input),
+          signal: options.signal,
+        },
+      )),
     dashboard: async (options: { includeQuotes?: boolean; signal?: AbortSignal } = {}) => {
       const query = options.includeQuotes === false ? "?includeQuotes=false" : "";
       return payload<PortfolioDashboard>(await fetch(`/api/portfolio-center${query}`, {

@@ -405,6 +405,20 @@ def mount_domain_suites(
         trading_api_key = _set_trading_api_key(
             settings.trading_api_key.get_secret_value()
         )
+        # The Trading app is loaded in-process, so its path-safety defaults can
+        # resolve against the Desk process instead of the Trading workspace.
+        # Explicitly register the workspace run root before importing it; this
+        # keeps integrated quick backtests subject to the same sandbox as the
+        # standalone service.
+        configured_run_roots = [
+            item.strip()
+            for item in os.environ.get("VIBE_TRADING_ALLOWED_RUN_ROOTS", "").split(",")
+            if item.strip()
+        ]
+        trading_run_root = str((trading_root / "agent" / "runs").resolve())
+        os.environ["VIBE_TRADING_ALLOWED_RUN_ROOTS"] = ",".join(
+            dict.fromkeys([trading_run_root, *configured_run_roots])
+        )
         if settings.domain_suite_workspace_venvs:
             logger.warning(
                 "Using Trading workspace .venv compatibility mode; "

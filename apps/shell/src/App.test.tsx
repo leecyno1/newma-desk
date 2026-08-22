@@ -608,7 +608,12 @@ describe("App", () => {
               kind: "local-cli",
               available: true,
               supportsMemory: true,
-              capabilities: ["chat"],
+              capabilities: [
+                "chat",
+                "module.explain",
+                "module.analyze",
+                "module.edit",
+              ],
               default: true,
             },
             {
@@ -618,7 +623,12 @@ describe("App", () => {
               kind: "local-cli",
               available: true,
               supportsMemory: true,
-              capabilities: ["chat"],
+              capabilities: [
+                "chat",
+                "module.explain",
+                "module.analyze",
+                "module.edit",
+              ],
               default: false,
             },
           ],
@@ -630,7 +640,22 @@ describe("App", () => {
           userId: "local-user",
           defaultAdapter: "codex-cli",
           moduleOverrides: {},
+          profileTargets: {},
+          moduleProfileOverrides: {},
           updatedAt: null,
+        }),
+      ),
+      http.get("/api/model/providers", () =>
+        HttpResponse.json({
+          providers: [
+            {
+              id: "openai-compatible",
+              name: "快速模型",
+              available: true,
+              capabilities: ["chat", "module.explain"],
+              default: true,
+            },
+          ],
         }),
       ),
       http.put("/api/agent/preferences", async ({ request }) => {
@@ -650,10 +675,14 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Agent 设置" }),
     ).toBeVisible();
-    await userEvent.click(
-      screen.getByRole("button", { name: /Claude Code/ }),
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "深度研究执行器" }),
+      "claude-cli",
     );
-    await userEvent.selectOptions(screen.getByRole("combobox"), "claude-cli");
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "市场行情深度研究执行器" }),
+      "claude-cli",
+    );
     await userEvent.click(
       screen.getByRole("button", { name: "保存设置" }),
     );
@@ -661,12 +690,158 @@ describe("App", () => {
     await waitFor(() =>
       expect(savedBody).toEqual({
         defaultAdapter: "claude-cli",
-        moduleOverrides: { "market-daily": "claude-cli" },
+        moduleOverrides: {},
+        profileTargets: {
+          quick: "openai-compatible",
+          deep: "claude-cli",
+          batch: "codex-cli",
+          edit: "codex-cli",
+        },
+        moduleProfileOverrides: {
+          "market-daily": { deep: "claude-cli" },
+        },
       }),
     );
     expect(
       screen.getByText(/Agent 选择已保存/),
     ).toBeVisible();
+  });
+
+  it("saves a batch-only CLI override for a Deepsee Mod", async () => {
+    let savedBody: unknown;
+    const deepseeWechat: StoredMod = {
+      moduleId: "deepsee-wechat",
+      revision: 1,
+      status: "published",
+      manifest: {
+        schemaVersion: "1.1",
+        id: "deepsee-wechat",
+        name: "Deepsee 微信",
+        version: "0.1.0",
+        category: "deepsee",
+        entry: { type: "static", url: "/modules/deepsee-wechat/" },
+        compatibility: { level: 2, bridgeProtocol: "1.0" },
+        permissions: ["deepsee.ai"],
+        dataServices: [],
+        actions: {
+          "deepsee.wechat.batch-analyze": {
+            binding: {
+              type: "agent",
+              capability: "deepsee.wechat.batch-analyze",
+              profile: "batch",
+              memoryScope: "task",
+            },
+            execution: "task",
+            permission: "deepsee.ai",
+            confirmation: "none",
+          },
+        },
+        events: { emits: [], accepts: [] },
+      },
+      createdAt: "2026-08-20T00:00:00Z",
+    };
+    serveRegistry([deepseeWechat]);
+    server.use(
+      http.get("/api/capabilities", () =>
+        HttpResponse.json({
+          adapters: [
+            {
+              id: "codex-cli",
+              name: "Codex CLI",
+              kind: "local-cli",
+              available: true,
+              supportsMemory: true,
+              capabilities: [
+                "chat",
+                "module.explain",
+                "module.analyze",
+                "module.edit",
+              ],
+              default: true,
+            },
+            {
+              id: "minimax-cli",
+              name: "MiniMax CLI",
+              kind: "local-cli",
+              available: true,
+              supportsMemory: false,
+              capabilities: ["module.analyze"],
+              default: false,
+            },
+          ],
+          moduleActions: [],
+        }),
+      ),
+      http.get("/api/agent/preferences", () =>
+        HttpResponse.json({
+          userId: "local-user",
+          defaultAdapter: "codex-cli",
+          moduleOverrides: {},
+          profileTargets: {
+            quick: "openai-compatible",
+            deep: "codex-cli",
+            batch: "codex-cli",
+            edit: "codex-cli",
+          },
+          moduleProfileOverrides: {},
+          updatedAt: null,
+        }),
+      ),
+      http.get("/api/model/providers", () =>
+        HttpResponse.json({
+          providers: [
+            {
+              id: "openai-compatible",
+              name: "快速模型",
+              available: true,
+              capabilities: ["chat", "module.explain"],
+              default: true,
+            },
+          ],
+        }),
+      ),
+      http.put("/api/agent/preferences", async ({ request }) => {
+        savedBody = await request.json();
+        return HttpResponse.json({
+          userId: "local-user",
+          ...(savedBody as object),
+          updatedAt: "2026-08-20T00:00:00Z",
+        });
+      }),
+    );
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Agent 设置" }),
+    );
+    await userEvent.selectOptions(
+      await screen.findByRole("combobox", {
+        name: "Deepsee 微信批量处理执行器",
+      }),
+      "minimax-cli",
+    );
+    expect(
+      screen.queryByRole("combobox", {
+        name: "Deepsee 微信深度研究执行器",
+      }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() =>
+      expect(savedBody).toEqual({
+        defaultAdapter: "codex-cli",
+        moduleOverrides: {},
+        profileTargets: {
+          quick: "openai-compatible",
+          deep: "codex-cli",
+          batch: "codex-cli",
+          edit: "codex-cli",
+        },
+        moduleProfileOverrides: {
+          "deepsee-wechat": { batch: "minimax-cli" },
+        },
+      }),
+    );
   });
 
   it("uses Mod navigation metadata for the Newma-Desk sidebar", async () => {
@@ -941,7 +1116,7 @@ describe("App", () => {
     expect(deepseeProject).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("adds project settings to every secondary directory and saves unified data routing", async () => {
+  it("keeps project data settings below flat secondary modules", async () => {
     let savedBody: unknown;
     const terminal: StoredMod = {
       moduleId: "market-terminal",
@@ -1030,23 +1205,23 @@ describe("App", () => {
           },
         ],
       })),
-      http.get("/api/data-services/preferences/market-suite", () =>
+      http.get("/api/data-services/preferences/market-surface", () =>
         HttpResponse.json({
           userId: "local-user",
           workspaceId: "local-workspace",
-          suiteId: "market-suite",
+          suiteId: "market-surface",
           capabilityServices: {},
           updatedAt: null,
         }),
       ),
       http.put(
-        "/api/data-services/preferences/market-suite",
+        "/api/data-services/preferences/market-surface",
         async ({ request }) => {
           savedBody = await request.json();
           return HttpResponse.json({
             userId: "local-user",
             workspaceId: "local-workspace",
-            suiteId: "market-suite",
+            suiteId: "market-surface",
             ...(savedBody as object),
             updatedAt: "2026-07-24T00:00:00Z",
           });
@@ -1058,16 +1233,17 @@ describe("App", () => {
     const secondary = await screen.findByRole("complementary", {
       name: "市场面 二级导航",
     });
-    expect(within(secondary).getByRole("heading", { name: /行情工具/ })).toBeVisible();
+    expect(within(secondary).queryByRole("heading", { name: /行情工具/ })).not.toBeInTheDocument();
+    expect(within(secondary).getByRole("button", { name: "终端" })).toBeVisible();
     await userEvent.click(
       within(secondary).getByRole("button", { name: "栏目数据与能力" }),
     );
 
     expect(
-      await screen.findByRole("heading", { name: "行情工具 · 数据与能力" }),
+      await screen.findByRole("heading", { name: "市场面 · 数据与能力" }),
     ).toBeVisible();
     expect(window.location.search).toContain("view=suite-settings");
-    expect(window.location.search).toContain("directory=market-suite");
+    expect(window.location.search).toContain("directory=market-surface");
     expect(
       screen.getByRole("complementary", { name: "市场面 二级导航" }),
     ).toBeVisible();
@@ -1150,11 +1326,11 @@ describe("App", () => {
     const frame = screen.getByTitle("市场行情");
     expect(frame).toHaveAttribute(
       "src",
-      "http://127.0.0.1:5891/modules/market-daily/",
+      "http://127.0.0.1:5891/modules/market-daily/?__newma_mod_version=0.1.0",
     );
     expect(frame).toHaveAttribute(
       "sandbox",
-      "allow-scripts allow-forms allow-downloads allow-popups allow-same-origin",
+      "allow-scripts allow-forms allow-downloads allow-popups allow-top-navigation-by-user-activation allow-same-origin",
     );
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
     expect(frame).toHaveAttribute(

@@ -7,12 +7,14 @@ import {
   ExternalLink,
   FileText,
   History,
+  ListChecks,
   LoaderCircle,
   MessageSquareText,
   Network,
   Send,
   Settings2,
   Square,
+  Zap,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -23,8 +25,15 @@ import {
   getAgentTask,
   loadAgentSettings,
   type AgentArtifact,
+  type AgentAdapterDescription,
+  type AgentPreferences,
+  type AgentProfile,
   type AgentTask,
 } from "../api/agents";
+import {
+  createModelResponse,
+  loadModelProviders,
+} from "../api/models";
 import type { StoredMod } from "../api/modules";
 import { type ModCopilotMode } from "../lib/modCopilotPrompts";
 import {
@@ -39,6 +48,7 @@ import {
 } from "../lib/numaHandoff";
 
 type ContextState = "idle" | "syncing" | "ready" | "fallback";
+type CopilotRouteMode = "quick" | "research" | "batch" | "edit";
 
 interface ConversationMessage {
   id: string;
@@ -281,6 +291,44 @@ function contextLabel(state: ContextState): string {
   return "发送时同步页面";
 }
 
+function routedAgentAdapter(
+  adapters: AgentAdapterDescription[],
+  preferredId: string | undefined,
+  mode: Exclude<CopilotRouteMode, "quick">,
+): AgentAdapterDescription | undefined {
+  const capability =
+    mode === "edit"
+      ? "module.edit"
+      : mode === "batch"
+        ? "module.analyze"
+        : "module.explain";
+  const available = adapters.filter(
+    (adapter) =>
+      adapter.available !== false && adapter.capabilities.includes(capability),
+  );
+  const kind = mode === "research" ? "agent-gateway" : "local-cli";
+  return (
+    available.find((adapter) => adapter.id === preferredId) ??
+    available.find((adapter) => adapter.kind === kind) ??
+    (mode === "research"
+      ? available.find((adapter) => adapter.id === preferredId) ?? available[0]
+      : undefined)
+  );
+}
+
+function profileTarget(
+  preferences: AgentPreferences | undefined,
+  moduleId: string,
+  profile: "quick" | AgentProfile,
+): string | undefined {
+  return (
+    preferences?.moduleProfileOverrides?.[moduleId]?.[profile] ??
+    (profile === "deep" ? preferences?.moduleOverrides?.[moduleId] : undefined) ??
+    preferences?.profileTargets?.[profile] ??
+    (profile === "quick" ? undefined : preferences?.defaultAdapter)
+  );
+}
+
 function messagePreview(content: string): string {
   const preview = content.split("\n").slice(0, 9).join("\n").slice(0, 900).trimEnd();
   return preview === content ? content : preview + "…";
@@ -436,7 +484,7 @@ export function ModCopilot({
     Record<string, ConversationMessage[]>
   >({});
   const [modeByModule, setModeByModule] = useState<
-    Record<string, ModCopilotMode>
+    Record<string, CopilotRouteMode>
   >({});
   const [inputByModule, setInputByModule] = useState<Record<string, string>>(
     {},
@@ -447,6 +495,19 @@ export function ModCopilot({
   >({});
   const [agentByModule, setAgentByModule] = useState<
     Record<string, AgentRuntimeState>
+  >({});
+  const [agentAdapters, setAgentAdapters] = useState<AgentAdapterDescription[]>([]);
+  const [agentPreferences, setAgentPreferences] = useState<AgentPreferences>();
+  const [modelProviders, setModelProviders] = useState<
+    Awaited<ReturnType<typeof loadModelProviders>>
+  >([]);
+  const [modelRuntime, setModelRuntime] = useState<AgentRuntimeState>({
+    label: "正在读取快速模型…",
+    available: false,
+    loading: true,
+  });
+  const [modelRunningByModule, setModelRunningByModule] = useState<
+    Record<string, boolean>
   >({});
   const [sessionByModule, setSessionByModule] = useState<
     Record<string, ModCopilotSessionMetadata>
@@ -459,11 +520,13 @@ export function ModCopilot({
   const projectId = moduleProjectId(module);
   const currentSessionKey = sessionStateKey(moduleId, workspaceId);
   const messages = messagesByModule[currentSessionKey] ?? [];
-  const mode = modeByModule[moduleId] ?? "ask";
+  const mode = modeByModule[moduleId] ?? "research";
+  const promptMode: ModCopilotMode = mode === "edit" ? "edit" : "ask";
   const input = inputByModule[moduleId] ?? "";
   const activeTaskId = taskByModule[moduleId];
   const contextState = contextByModule[moduleId] ?? "idle";
-  const busy = Boolean(activeTaskId) || contextState === "syncing";
+  const modelRunning = modelRunningByModule[moduleId] ?? false;
+  const busy = Boolean(activeTaskId) || contextState === "syncing" || modelRunning;
   const sessionMetadata = sessionByModule[currentSessionKey];
 
   useEffect(() => {
@@ -552,14 +615,15 @@ export function ModCopilot({
     void loadAgentSettings(userId).then(
       ({ adapters, preferences }) => {
         if (!active) return;
-        const selectedId =
-          preferences.moduleOverrides[moduleId] || preferences.defaultAdapter;
+        setAgentAdapters(adapters);
+        setAgentPreferences(preferences);
+        const selectedId = profileTarget(preferences, moduleId, "deep");
         const selected = adapters.find((adapter) => adapter.id === selectedId);
         setAgentByModule((current) => ({
           ...current,
           [moduleId]: {
             id: selected?.id || selectedId,
-            label: selected?.name || selected?.id || selectedId,
+            label: selected?.name || selected?.id || selectedId || "Agent 未配置",
             available: selected ? selected.available !== false : false,
             loading: false,
           },
@@ -567,6 +631,8 @@ export function ModCopilot({
       },
       () => {
         if (!active) return;
+        setAgentAdapters([]);
+        setAgentPreferences(undefined);
         setAgentByModule((current) => ({
           ...current,
           [moduleId]: {
@@ -575,6 +641,39 @@ export function ModCopilot({
             loading: false,
           },
         }));
+      },
+    );
+    setModelRuntime({
+      label: "正在读取快速模型…",
+      available: false,
+      loading: true,
+    });
+    void loadModelProviders().then(
+      (providers) => {
+        if (!active) return;
+        setModelProviders(providers);
+        const selected =
+          providers.find(
+            (provider) => provider.default && provider.available !== false,
+          ) ??
+          providers.find((provider) => provider.available !== false) ??
+          providers.find((provider) => provider.default) ??
+          providers[0];
+        setModelRuntime({
+          id: selected?.id,
+          label: selected?.name || selected?.id || "快速模型",
+          available: selected ? selected.available !== false : false,
+          loading: false,
+        });
+      },
+      () => {
+        if (!active) return;
+        setModelProviders([]);
+        setModelRuntime({
+          label: "快速模型不可用",
+          available: false,
+          loading: false,
+        });
       },
     );
     return () => {
@@ -781,14 +880,22 @@ export function ModCopilot({
     if (!prompt || busy) return;
     const targetModule = module;
     const targetModuleId = targetModule.moduleId;
-    const targetMode = mode;
+    const targetRouteMode = mode;
+    const targetPromptMode: ModCopilotMode =
+      targetRouteMode === "edit" ? "edit" : "ask";
     setInputByModule((current) => ({ ...current, [targetModuleId]: "" }));
     appendMessage(targetModuleId, {
       id: messageId(),
       role: "user",
       content: prompt,
-      mode: targetMode,
+      mode: targetPromptMode,
     });
+    if (targetRouteMode === "quick") {
+      setModelRunningByModule((current) => ({
+        ...current,
+        [targetModuleId]: true,
+      }));
+    }
     setContextByModule((current) => ({
       ...current,
       [targetModuleId]: "syncing",
@@ -801,27 +908,62 @@ export function ModCopilot({
         ...current,
         [targetModuleId]: pageContext ? "ready" : "fallback",
       }));
+      const context = {
+        vibedesk: {
+          mode: targetPromptMode,
+          source: pageContext ? "mod-bridge" : "manifest-fallback",
+          mod: {
+            id: targetModuleId,
+            name: targetModule.manifest.name,
+            version: targetModule.manifest.version,
+            revision: targetModule.revision,
+            manifest: targetModule.manifest,
+          },
+          page: pageContext ?? fallbackPageContext(targetModule),
+        },
+      };
+      if (targetRouteMode === "quick") {
+        const response = await createModelResponse({
+          moduleId: targetModuleId,
+          capability: "module.explain",
+          prompt,
+          context,
+        }, { userId });
+        appendMessage(targetModuleId, {
+          id: messageId(),
+          role: "assistant",
+          content: response.answer,
+        });
+        return;
+      }
+      const adapter = routedAgentAdapter(
+        agentAdapters,
+        agentByModule[targetModuleId]?.id,
+        targetRouteMode,
+      );
+      if (!adapter) {
+        throw new Error(
+          targetRouteMode === "edit"
+            ? "没有可用的本地 CLI，请先安装并登录"
+            : "没有可用的研究 Agent，请先连接 Hermes 或配置 Agent",
+        );
+      }
       const task = await createAgentTask(
         { userId, workspaceId },
         {
           moduleId: targetModuleId,
-          capability: targetMode === "edit" ? "module.edit" : "module.explain",
-          memoryScope: "user-agent-mod",
+          capability:
+            targetRouteMode === "edit"
+              ? "module.edit"
+              : targetRouteMode === "batch"
+                ? "module.analyze"
+                : "module.explain",
+          profile:
+            targetRouteMode === "research" ? "deep" : targetRouteMode,
+          memoryScope:
+            targetRouteMode === "batch" ? "task" : "user-agent-mod",
           prompt,
-          context: {
-            vibedesk: {
-              mode: targetMode,
-              source: pageContext ? "mod-bridge" : "manifest-fallback",
-              mod: {
-                id: targetModuleId,
-                name: targetModule.manifest.name,
-                version: targetModule.manifest.version,
-                revision: targetModule.revision,
-                manifest: targetModule.manifest,
-              },
-              page: pageContext ?? fallbackPageContext(targetModule),
-            },
-          },
+          context,
         },
       );
       if (!mountedRef.current) return;
@@ -829,15 +971,15 @@ export function ModCopilot({
         ...current,
         [targetModuleId]: task.id,
       }));
-      taskModesRef.current.set(task.id, targetMode);
+      taskModesRef.current.set(task.id, targetPromptMode);
       persistSession(targetModule, {
-        mode: targetMode,
+        mode: targetPromptMode,
         status: task.status,
         taskId: task.id,
         adapterId:
           (typeof task.request?.adapter === "string"
             ? task.request.adapter
-            : undefined) ?? agentByModule[targetModuleId]?.id,
+            : undefined) ?? adapter.id,
         lastPrompt: prompt,
       });
       void pollTask(targetModule, task.id);
@@ -851,6 +993,13 @@ export function ModCopilot({
         role: "system",
         content: reason instanceof Error ? reason.message : "Agent 请求失败。",
       });
+    } finally {
+      if (targetRouteMode === "quick") {
+        setModelRunningByModule((current) => ({
+          ...current,
+          [targetModuleId]: false,
+        }));
+      }
     }
   };
 
@@ -860,7 +1009,7 @@ export function ModCopilot({
     try {
       await cancelAgentTask(taskId);
       persistSession(module, {
-        mode: taskModesRef.current.get(taskId) ?? mode,
+        mode: taskModesRef.current.get(taskId) ?? promptMode,
         status: "cancelled",
         taskId,
       });
@@ -878,12 +1027,61 @@ export function ModCopilot({
     }
   };
 
-  const agentState = agentByModule[moduleId] ?? {
+  const configuredAgentState = agentByModule[moduleId] ?? {
     label: "发送时选择 Agent",
     available: true,
     loading: true,
   };
-  const suggestionGroups = module.copilotPrompts?.[mode] ?? [];
+  const routedAdapter =
+    mode === "quick"
+      ? undefined
+      : routedAgentAdapter(
+          agentAdapters,
+          profileTarget(
+            agentPreferences,
+            moduleId,
+            mode === "research" ? "deep" : mode,
+          ) ?? configuredAgentState.id,
+          mode,
+        );
+  const preferredModelId = profileTarget(agentPreferences, moduleId, "quick");
+  const selectedModel =
+    modelProviders.find(
+      (provider) =>
+        provider.id === preferredModelId && provider.available !== false,
+    ) ??
+    modelProviders.find(
+      (provider) => provider.default && provider.available !== false,
+    ) ??
+    modelProviders.find((provider) => provider.available !== false);
+  const quickRuntimeState = modelRuntime.loading
+    ? modelRuntime
+    : selectedModel
+      ? {
+          id: selectedModel.id,
+          label: selectedModel.name || selectedModel.id,
+          available: true,
+          loading: false,
+        }
+      : modelRuntime;
+  const runtimeState: AgentRuntimeState =
+    mode === "quick"
+      ? quickRuntimeState
+      : configuredAgentState.loading
+        ? configuredAgentState
+        : routedAdapter
+          ? {
+              id: routedAdapter.id,
+              label: routedAdapter.name || routedAdapter.id,
+              available: true,
+              loading: false,
+            }
+          : {
+              label: mode === "edit" ? "本地 CLI 不可用" : "研究 Agent 不可用",
+              available: false,
+              loading: false,
+            };
+  const suggestionGroups = module.copilotPrompts?.[promptMode] ?? [];
   const handoffUrl = sessionMetadata?.upstreamSessionId
     ? buildNumaHandoffUrl({
         numaAgentUrl,
@@ -909,7 +1107,7 @@ export function ModCopilot({
           <span>当前 Mod</span>
           <strong>{module.manifest.name}</strong>
           <small data-context-state={contextState}>
-            {contextLabel(contextState)} · {agentState.label}
+            {contextLabel(contextState)} · {runtimeState.label}
           </small>
         </div>
         <div className="mod-copilot-header-actions">
@@ -931,13 +1129,36 @@ export function ModCopilot({
       <div className="mod-copilot-modes" aria-label="Agent 模式">
         <button
           type="button"
-          aria-pressed={mode === "ask"}
+          aria-pressed={mode === "quick"}
           onClick={() =>
-            setModeByModule((current) => ({ ...current, [moduleId]: "ask" }))
+            setModeByModule((current) => ({ ...current, [moduleId]: "quick" }))
+          }
+        >
+          <Zap size={14} aria-hidden="true" />
+          快速
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === "research"}
+          onClick={() =>
+            setModeByModule((current) => ({
+              ...current,
+              [moduleId]: "research",
+            }))
           }
         >
           <MessageSquareText size={14} aria-hidden="true" />
-          提问
+          研究
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === "batch"}
+          onClick={() =>
+            setModeByModule((current) => ({ ...current, [moduleId]: "batch" }))
+          }
+        >
+          <ListChecks size={14} aria-hidden="true" />
+          批量
         </button>
         <button
           type="button"
@@ -958,10 +1179,12 @@ export function ModCopilot({
         </div>
       ) : null}
 
-      {!agentState.loading && !agentState.available ? (
+      {!runtimeState.loading && !runtimeState.available ? (
         <div className="mod-copilot-warning">
           <CircleAlert size={14} aria-hidden="true" />
-          当前 Agent 不可用，请先在 Newma-Desk 的 Agent 设置中完成安装或登录。
+          {mode === "quick"
+            ? "快速模型未配置，请使用研究模式或完成模型设置。"
+            : "当前执行入口不可用，请先在 Agent 设置中完成安装或连接。"}
         </div>
       ) : null}
 
@@ -969,7 +1192,13 @@ export function ModCopilot({
         {messages.length === 0 ? (
           <div className="mod-copilot-empty">
             <Bot size={22} aria-hidden="true" />
-            <strong>针对当前 Mod 提问</strong>
+            <strong>
+              {mode === "edit"
+                ? "修改当前 Mod"
+                : mode === "batch"
+                  ? "批量处理当前 Mod"
+                  : "针对当前 Mod 提问"}
+            </strong>
             <span>发送时同步当前页面，并按需补充长期行情、财务或消息。</span>
             {suggestionGroups.map((group) => (
               <div
@@ -1024,7 +1253,11 @@ export function ModCopilot({
         {busy ? (
           <div className="mod-copilot-running" role="status">
             <LoaderCircle className="spin" size={15} aria-hidden="true" />
-            {activeTaskId ? "Agent 正在处理当前 Mod…" : "正在同步当前页面…"}
+            {modelRunning
+              ? "快速模型正在回答…"
+              : activeTaskId
+                ? "Agent 正在处理当前 Mod…"
+                : "正在同步当前页面…"}
           </div>
         ) : null}
       </div>
@@ -1046,7 +1279,13 @@ export function ModCopilot({
             }
           }}
           placeholder={
-            mode === "edit" ? "描述要修改的功能或问题…" : "就当前页面提问…"
+            mode === "edit"
+              ? "描述要修改的功能或问题…"
+              : mode === "batch"
+                ? "描述要批量处理的内容…"
+              : mode === "quick"
+                ? "快速询问当前页面…"
+                : "就当前页面提问…"
           }
           disabled={busy}
         />
@@ -1081,7 +1320,7 @@ export function ModCopilot({
               type="button"
               className="copilot-send"
               onClick={() => void send()}
-              disabled={!input.trim() || busy || !agentState.available}
+              disabled={!input.trim() || busy || !runtimeState.available}
             >
               <Send size={14} aria-hidden="true" />
               发送

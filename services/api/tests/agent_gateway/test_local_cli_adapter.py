@@ -309,6 +309,53 @@ def test_write_access_requires_explicit_edit_mode(tmp_path: Path) -> None:
     )
 
 
+def test_qoder_and_minimax_use_their_installed_binary_names_and_batch_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("qodercli", "mmx"):
+        executable = tmp_path / name
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        executable.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("NEWMA_DESK_AGENT_MINIMAX_BASE_URL", "https://api.minimaxi.com")
+    settings = Settings(workspace_root=tmp_path, _env_file=None)
+    store = AgentConversationStore(tmp_path / "gateway.db")
+    qoder = LocalCliAgentAdapter("qoder", settings, store)
+    minimax = LocalCliAgentAdapter("minimax", settings, store)
+
+    assert qoder._executable() == str(tmp_path / "qodercli")
+    assert minimax._executable() == str(tmp_path / "mmx")
+    qoder_command = qoder._command(
+        str(tmp_path / "qodercli"),
+        tmp_path,
+        "prompt",
+        tmp_path / "answer",
+        False,
+        "batch",
+        "cheap-model",
+    )
+    minimax_command = minimax._command(
+        str(tmp_path / "mmx"),
+        tmp_path,
+        "prompt",
+        tmp_path / "answer",
+        False,
+        "batch",
+        "MiniMax-M3",
+    )
+
+    assert qoder_command[:2] == [str(tmp_path / "qodercli"), "--print"]
+    assert "--no-session-persistence" in qoder_command
+    assert qoder_command[-3:] == ["--model", "cheap-model", "prompt"]
+    assert minimax_command[:3] == [
+        str(tmp_path / "mmx"),
+        "--base-url",
+        "https://api.minimaxi.com",
+    ]
+    assert minimax_command[-2:] == ["--model", "MiniMax-M3"]
+
+
 def test_finance_mod_prompt_requires_global_stock_data_skill(tmp_path: Path) -> None:
     investment = tmp_path / "vibe-research"
     trading = tmp_path / "vibe-trading"

@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0",
   "id": "multi-timeframe",
-  "name": "多周期看盘",
+  "name": "多周期分析",
   "description": "日线、60 分钟、15 分钟和 5 分钟 K 线联动，统一指标、复权和 Agent 上下文。",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-dock",
  "tags": ["K线", "多周期", "技术分析", "联动"],
@@ -12,7 +12,7 @@
   "manifest": {
     "schemaVersion": "1.1",
     "category": "market",
-    "navigation": { "groupLabel": "市场", "groupOrder": 10, "itemOrder": 20, "label": "多周期", "directory": { "id": "market-suite", "label": "行情工具", "order": 5 }, "project": { "id": "market-surface", "name": "市场", "order": 10, "description": "股票、债券及其他交易市场的行情、看盘、扫描与回放。" }, "icon": "market" },
+    "navigation": { "groupLabel": "市场", "groupOrder": 40, "itemOrder": 50, "label": "多周期分析", "directory": { "id": "market-suite", "label": "市场工具", "order": 5 }, "project": { "id": "market-surface", "name": "市场", "order": 40, "description": "行情、市场复盘、云图、技术结构、强弱、宽度与情绪。" }, "icon": "market" },
     "compatibility": { "level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0" },
     "permissions": ["market.read"], "dataServices": [],
     "actions": {

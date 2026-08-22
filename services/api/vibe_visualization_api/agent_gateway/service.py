@@ -77,9 +77,10 @@ class AgentTaskService:
         adapter_id = request.adapter
         if adapter_id is None and self._preference_store is not None:
             adapter_id = await run_in_threadpool(
-                self._preference_store.resolve,
+                self._preference_store.resolve_profile,
                 request.user_id,
                 request.module_id,
+                request.profile,
                 self._registry.default_id,
             )
         adapter = self._registry.get(adapter_id)
@@ -186,10 +187,19 @@ class AgentTaskService:
         user_id: str,
         default_adapter: str,
         module_overrides: dict[str, str],
+        profile_targets: dict[str, str],
+        module_profile_overrides: dict[str, dict[str, str]],
     ):
         self._registry.get(default_adapter)
         for adapter_id in module_overrides.values():
             self._registry.get(adapter_id)
+        for profile, adapter_id in profile_targets.items():
+            if profile != "quick":
+                self._registry.get(adapter_id)
+        for targets in module_profile_overrides.values():
+            for profile, adapter_id in targets.items():
+                if profile != "quick":
+                    self._registry.get(adapter_id)
         if self._preference_store is None:
             raise RuntimeError("Agent preferences are unavailable")
         return await run_in_threadpool(
@@ -197,6 +207,8 @@ class AgentTaskService:
             user_id,
             default_adapter,
             module_overrides,
+            profile_targets,
+            module_profile_overrides,
         )
 
     async def cancel(self, task_id: str) -> AgentTask:

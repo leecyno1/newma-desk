@@ -30,6 +30,8 @@ def test_model_gateway_discovers_and_invokes_selected_model(tmp_path: Path) -> N
     assert providers.json()["providers"] == [
         {
             "id": "fake-model",
+            "name": "Fake Model",
+            "available": True,
             "capabilities": ["chat", "module.explain"],
             "default": True,
         }
@@ -42,3 +44,41 @@ def test_model_gateway_discovers_and_invokes_selected_model(tmp_path: Path) -> N
     }
     assert adapter.requests[0].prompt == "hello"
     assert database_path.exists() is False
+
+
+def test_quick_profile_selects_the_users_model_provider(tmp_path: Path) -> None:
+    default_adapter = FakeModelAdapter()
+    default_adapter.id = "default-model"
+    quick_adapter = FakeModelAdapter()
+    quick_adapter.id = "quick-model"
+    application = create_app(
+        Settings(
+            runtime_dir=tmp_path,
+            database_path=tmp_path / "profiles.db",
+            model_default_adapter=default_adapter.id,
+        ),
+        model_adapters=[default_adapter, quick_adapter],
+    )
+
+    with TestClient(application) as client:
+        saved = client.put(
+            "/api/agent/preferences",
+            headers={"X-User-Id": "alice"},
+            json={
+                "defaultAdapter": "codex-cli",
+                "moduleOverrides": {},
+                "profileTargets": {"quick": "quick-model"},
+                "moduleProfileOverrides": {},
+            },
+        )
+        response = client.post(
+            "/api/model/responses",
+            headers={"X-User-Id": "alice"},
+            json={"moduleId": "market-daily", "prompt": "快速解释"},
+        )
+
+    assert saved.status_code == 200
+    assert response.status_code == 200
+    assert response.json()["adapter"] == "quick-model"
+    assert default_adapter.requests == []
+    assert quick_adapter.requests[0].prompt == "快速解释"

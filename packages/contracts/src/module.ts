@@ -138,6 +138,7 @@ const agentActionBindingSchema = z
   .object({
     type: z.literal("agent"),
     capability: capabilityIdSchema.optional(),
+    profile: z.enum(["deep", "batch", "edit"]).optional(),
     memoryScope: z.enum([
       "user-agent-mod",
       "task",
@@ -149,6 +150,7 @@ const modelActionBindingSchema = z
   .object({
     type: z.literal("model"),
     capability: capabilityIdSchema.optional(),
+    profile: z.literal("quick").optional(),
   })
   .strict();
 
@@ -256,12 +258,21 @@ export const modNavigationSchema = z
   })
   .strict();
 
+export const modPresentationSchema = z
+  .object({
+    englishName: z.string().min(1).max(80),
+    description: z.string().min(1).max(240),
+    titleOwner: z.literal("host"),
+  })
+  .strict();
+
 const modManifestV1Schema = z.object({
   schemaVersion: z.literal("1.0"),
   id: z.string().regex(/^[a-z][a-z0-9-]{2,63}$/),
   name: z.string().min(1).max(80),
   version: z.string().regex(/^\d+\.\d+\.\d+$/),
   category: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/),
+  presentation: modPresentationSchema.optional(),
   navigation: modNavigationSchema.optional(),
   entry: modEntrySchema,
   icon: z.string().optional(),
@@ -285,6 +296,7 @@ const modManifestV1_1Schema = z
     name: z.string().min(1).max(80),
     version: z.string().regex(/^\d+\.\d+\.\d+$/),
     category: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/),
+    presentation: modPresentationSchema.optional(),
     navigation: modNavigationSchema.optional(),
     entry: modEntrySchema,
     icon: z.string().optional(),
@@ -399,6 +411,7 @@ export type ModStorage = z.infer<typeof modStorageSchema>;
 export type ModStorageNamespace = z.infer<typeof modStorageNamespaceSchema>;
 export type ModActionBinding = z.infer<typeof modActionBindingSchema>;
 export type ModAction = z.infer<typeof modActionSchema>;
+export type ModPresentation = z.infer<typeof modPresentationSchema>;
 export type ModProjectLogo = z.infer<typeof modProjectLogoSchema>;
 export type ModNavigationProject = z.infer<
   typeof modNavigationProjectSchema

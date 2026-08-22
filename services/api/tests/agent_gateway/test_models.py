@@ -39,12 +39,39 @@ def test_agent_task_accepts_and_serializes_camel_case_module_id() -> None:
         "userId": "local-user",
         "moduleId": "market-daily",
         "capability": None,
+        "profile": "deep",
         "memoryScope": "user-agent-mod",
         "prompt": "解释异动",
         "context": {},
         "input": {},
         "adapter": None,
     }
+
+
+def test_agent_task_accepts_routable_profiles_and_rejects_quick_model_profile() -> None:
+    assert AgentTaskCreate(prompt="分析", profile="batch").profile == "batch"
+    assert AgentTaskCreate(prompt="修改", profile="edit").profile == "edit"
+
+    with pytest.raises(ValidationError):
+        AgentTaskCreate(prompt="快速回答", profile="quick")
+
+
+def test_agent_task_serializes_explicit_cli_model_and_command_profile() -> None:
+    request = AgentTaskCreate.model_validate(
+        {
+            "moduleId": "deepsee-news",
+            "adapter": "minimax-cli",
+            "model": "MiniMax-M3",
+            "profile": "batch",
+            "commandProfile": "batch",
+            "memoryScope": "task",
+            "prompt": "归纳消息",
+        }
+    )
+
+    payload = request.model_dump(mode="json")
+    assert payload["model"] == "MiniMax-M3"
+    assert payload["commandProfile"] == "batch"
 
 
 def test_agent_task_rejects_unknown_fields() -> None:

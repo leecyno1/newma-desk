@@ -13,6 +13,9 @@ class FakeModelAdapter:
     async def capabilities(self) -> list[str]:
         return ["chat", "module.explain"]
 
+    async def describe(self) -> dict[str, object]:
+        return {"name": "Fake Model", "available": True}
+
     async def complete(self, request: ModelResponseCreate) -> ModelResponse:
         self.requests.append(request)
         return ModelResponse(

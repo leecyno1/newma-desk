@@ -192,20 +192,20 @@ Git 商店 MVP 推荐在 Manifest 和 `data-service.json` 中使用内联 Draft 
 
 ### 5.1 项目与页面导航合同
 
-导入多页面项目时，每个可独立授权、独立运行、独立提供 Agent Context 的页面仍然编译为一个独立 Mod，但完整来源项目必须作为一个 Suite 整体进入 Desk。`navigation.project` 选择十四个核心栏目之一或“其他”，`navigation.directory` 标识栏目内的完整项目；所有兄弟页面继承相同值。不能丢失上游页面，也不能按页面业务分类把同一项目拆散到多个栏目。
+导入多页面项目时，每个可独立授权、独立运行、独立提供 Agent Context 的页面仍然编译为一个独立 Mod。`navigation.project` 选择 16 个核心模块之一，或使用 Suite ID 创建自定义一级项目；`navigation.directory` 保存 Suite 的数据与 Agent 作用域。同一来源运行时可以按独立业务职责声明多个 Suite，但同一页面只能有一个主归属。
 
 ```json
 {
   "navigation": {
-    "groupLabel": "宏观面",
-    "groupOrder": 20,
+    "groupLabel": "宏观",
+    "groupOrder": 10,
     "itemOrder": 20,
     "label": "扫描器",
     "project": {
       "id": "fundamentals",
-      "name": "宏观面",
-      "order": 20,
-      "description": "经济数据、宏观指标、行业、产业链与宏观事件。"
+      "name": "宏观",
+      "order": 10,
+      "description": "周期叠加、经济基本面、增长通胀、金融条件与经济预测。"
     },
     "directory": {
       "id": "example-research-suite",
@@ -219,25 +219,25 @@ Git 商店 MVP 推荐在 Manifest 和 `data-service.json` 中使用内联 Draft 
 
 字段约束：
 
-- `project.id`：稳定栏目 ID，必须属于十四个核心栏目或 `other`。
+- `project.id`：稳定模块 ID，必须属于 16 个核心模块，或与 Suite ID 相同。
 - `project.name`、`project.description`：一级栏目身份。
 - `project.order`：栏目的固定默认顺序。
 - `project.logo`：仅用于旧版 Manifest 兼容读取；当前 Desk 的一级标志不会使用或展示它，新项目应该省略。
 - `itemOrder`：页面在项目或项目内 section 中的默认顺序。
 - `label`：导航中的紧凑页面名称；省略时使用 Mod `name`。
-- `directory`：完整项目在栏目内的固定分组，Suite 不得省略。
-- `directory.id`：必须等于 Suite ID；`label` 是项目名，`order` 是栏目内项目顺序。
+- `directory`：Suite 的数据、设置与 Agent 作用域，Suite 不得省略；不作为二级导航文件夹显示。
+- `directory.id`：必须等于 Suite ID；`label` 是项目名，`order` 仅用于稳定默认顺序。
 - `groupLabel`、`groupOrder`：仅供旧客户端和业务分类兼容；新导航不得用它们覆盖 `project` 归属。
 
-一级标志统一由宿主根据栏目名称生成 1–2 个汉字，例如 `市场面 → 市场`、`宏观面 → 宏观`。英文自定义栏目标题通过受控词典转换；无法识别时回退默认栏目名、稳定 `project.id` 和业务图标语义，最终结果不得包含拉丁字母。一级栏和设置预览必须共享同一算法，导入项目不得通过图片、图标或自定义字符覆盖它。
+一级标志统一由宿主根据模块名称生成 1–2 个汉字。英文自定义项目标题通过受控词典转换；无法识别时回退稳定 `project.id` 和业务图标语义。一级栏和设置预览必须共享同一算法，导入项目不得通过图片、图标或自定义字符覆盖它。
 
-`navigation.project` 对旧的普通单页 Mod 保持可选，Desk 可暂时以 Mod 自身身份兼容显示；所有新 Mod 必须选择正式栏目。旧 Suite 未声明栏目时，Suite Compiler 将整套项目放入 `other`，不会按页面猜测归属。`navigation.directory` 对完整 Suite 是必填项目身份，不是可选页面分类。
+`navigation.project` 对旧的普通单页 Mod 保持可选，Desk 可暂时以 Mod 自身身份兼容显示；所有新 Mod 必须选择正式模块。旧 Suite 未声明模块时，Suite Compiler 使用 Suite ID 创建自定义一级项目，不按页面猜测归属。
 
-Desk 中的用户配置优先于 Manifest 默认值，并只保存在本地 Workspace：用户可以重排栏目、完整项目和项目内页面，也可以冻结、隐藏或修改栏目标题；这些操作不得修改上游 Manifest。标题覆盖会同步用于栏目标志的无障碍名称、二级面板标题和自动中文短标，但不会改变 `project.id`。页面或项目冻结后进入稳定区域并禁止拖拽，取消冻结后才可再次移动；页面不能被拖出所属完整项目。导入器必须保持 Suite ID 和页面 ID 稳定，不能使用随机值或随显示文案变化的值。
+Desk 中的用户配置优先于 Manifest 默认值，并只保存在本地 Workspace：用户可以重排模块内页面，也可以冻结、隐藏或修改标题；这些操作不得修改上游 Manifest。页面不能被拖出所属一级模块。导入器必须保持 Suite ID 和页面 ID 稳定，不能使用随机值或随显示文案变化的值。
 
-每个完整项目由 Desk 提供项目设置入口，或由 Suite 中 `navigation.role = "settings"` 的真实设置页承载。其作用域是 `用户 + Workspace + directory.id`，至少包含：项目页面清单、统一数据 Provider 路由和 Agent 设置入口。栏目 `project.id` 不能作为此作用域，否则同一栏目下的多个完整项目会错误共享配置。
+Desk 在二级面板底部统一提供“栏目数据与能力”，管理 Provider、权限和 Agent 接入。Suite 中 `navigation.role = "settings"` 的页面只管理自身业务参数。数据作用域仍是 `用户 + Workspace + directory.id`，不能用一级 `project.id` 代替。
 
-推荐的项目接入流程是：完整盘点上游路由 → 选择一个主要投资栏目 → 以原项目为单位定义 Suite 和同 ID directory → 每个原有路由生成一个页面 Manifest → 运行完整性与兼容性检查 → 整套注册到商店。这样上游不需要实现 Newma-Desk 侧边栏组件，也不会在接入过程中被拆散。
+推荐的接入流程是：盘点上游路由 → 按独立业务职责划分 Suite → 为每个 Suite 选择一级模块和同 ID directory → 每个路由只生成一个页面 Manifest → 运行完整性与兼容性检查 → 注册到商店。运行时无需因导航归类而拆分。
 
 ## 6. Action Binding
 
@@ -377,6 +377,14 @@ const host = await connectModHost({
 ```
 
 主题自动适配只作用于 Mod 自己的文档。Desk 不得尝试直接改写跨域 iframe DOM，也不得用 CSS filter 强制染色。导入的第三方页面如果不消费桥接消息，必须通过 Newma 控制的 Wrapper 接入，并在 `css-vars`、`class-toggle` 或 `postMessage` 三种转发方式中选择一种；完全不协作的外部页面只能统一 Wrapper 外壳，不能承诺其内部颜色自动替换。
+
+### 7.1.1 页面标题归属
+
+- Desk 外框架是主标题的唯一拥有者，统一展示中文名、英文名和一句话解释。
+- Mod Manifest 由商店自动生成 `presentation.englishName`、`presentation.description` 和 `presentation.titleOwner = "host"`。
+- Mod 独立打开时可以显示自身标题；内嵌 Desk 时不得再次渲染同级页面标题。
+- Mod 自身的主标题容器必须标记 `data-mod-page-title`。SDK 在握手后设置 `html[data-vibedesk-embedded="true"]`，主题模板会自动隐藏该容器。
+- 搜索、刷新、状态和筛选等操作不得放入 `data-mod-page-title`，以免内嵌后丢失功能。
 
 发布前 SHOULD 运行 `npm run mods:theme:check`；外部项目可以把前端绝对路径作为参数传入。服务启动后 SHOULD 再运行 `npm run mods:theme:audit`，在与系统主题相反的 Desk 浅色 / 深色环境中逐页检查主题握手、语义变量、大面积蓝白主体和控件颜色。运行态中确属数据系列的例外只能在最小 DOM 子树使用 `data-newma-theme-allow` 或 `.newma-theme-allow` 标记。两类检查都不能代替对金融涨跌色、告警色和图表系列色的人工语义审查。
 

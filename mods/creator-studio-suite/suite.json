@@ -20,8 +20,8 @@
     "schemaVersion": "1.1",
     "category": "creator",
     "navigation": {
-      "groupLabel": "Newma Creator Studio",
-      "groupOrder": 150,
+      "groupLabel": "创作",
+      "groupOrder": 140,
       "itemOrder": 10,
       "directory": {
         "id": "creator-studio-suite",
@@ -29,10 +29,10 @@
         "order": 10
       },
       "project": {
-        "id": "creator-studio-suite",
-        "name": "Newma Creator Studio",
-        "order": 150,
-        "description": "从内容采集、Brief、初稿、转写、发布到复盘的完整自媒体创作控制台。",
+        "id": "creator-studio",
+        "name": "创作",
+        "order": 140,
+        "description": "内容采集、研究转写、多媒体生产、发布与传播复盘。",
         "logo": {"type": "letter", "text": "创作"}
       },
       "icon": "module"
@@ -314,42 +314,252 @@
       "name": "内容采集",
       "description": "配置来源、采集入库、清洗归一并完成采集审核。",
       "route": "/mod-runtime/creator-studio/?workspace=intake",
-      "navigation": {"itemOrder": 20, "label": "内容采集"}
+      "navigation": {"itemOrder": 20, "label": "内容采集"},
+      "manifest": {
+        "actions": {
+          "creator.intake.batch-extract": {
+            "binding": {
+              "type": "agent",
+              "capability": "creator.intake.batch-extract",
+              "profile": "batch",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "creator.execute",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "runId": {"type": "string", "maxLength": 128},
+                "nodeId": {"type": "string", "maxLength": 128},
+                "artifactIds": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 128}}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
+      }
     },
     {
       "id": "creator-brief",
       "name": "选题 Brief",
       "description": "归并事件、形成选题池、研究 Brief 并完成选题审核。",
       "route": "/mod-runtime/creator-studio/?workspace=brief",
-      "navigation": {"itemOrder": 30, "label": "选题 Brief"}
+      "navigation": {"itemOrder": 30, "label": "选题 Brief"},
+      "manifest": {
+        "actions": {
+          "creator.brief.generate": {
+            "binding": {
+              "type": "agent",
+              "capability": "creator.brief.generate",
+              "profile": "deep",
+              "memoryScope": "user-agent-mod"
+            },
+            "execution": "task",
+            "permission": "creator.execute",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "runId": {"type": "string", "maxLength": 128},
+                "nodeId": {"type": "string", "maxLength": 128},
+                "artifactIds": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 128}}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
+      }
     },
     {
       "id": "creator-draft",
       "name": "初稿生产",
       "description": "建立证据底稿、文章结构、长文、图表与配图。",
       "route": "/mod-runtime/creator-studio/?workspace=draft",
-      "navigation": {"itemOrder": 40, "label": "初稿生产"}
+      "navigation": {"itemOrder": 40, "label": "初稿生产"},
+      "manifest": {
+        "actions": {
+          "creator.draft.generate": {
+            "binding": {
+              "type": "agent",
+              "capability": "creator.draft.generate",
+              "profile": "deep",
+              "memoryScope": "user-agent-mod"
+            },
+            "execution": "task",
+            "permission": "creator.execute",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "runId": {"type": "string", "maxLength": 128},
+                "nodeId": {"type": "string", "maxLength": 128},
+                "artifactIds": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 128}}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
+      }
     },
     {
       "id": "creator-transwrite",
       "name": "多通路转写",
       "description": "完成剧本重写、导演分镜、素材生产、剪辑、渲染与成片审核。",
       "route": "/mod-runtime/creator-studio/?workspace=transwrite",
-      "navigation": {"itemOrder": 50, "label": "多通路转写"}
+      "navigation": {"itemOrder": 50, "label": "多通路转写"},
+      "manifest": {
+        "actions": {
+          "creator.transwrite.batch-generate": {
+            "binding": {
+              "type": "agent",
+              "capability": "creator.transwrite.batch-generate",
+              "profile": "batch",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "creator.execute",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "runId": {"type": "string", "maxLength": 128},
+                "nodeId": {"type": "string", "maxLength": 128},
+                "artifactIds": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 128}}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
+      }
     },
     {
       "id": "creator-publish",
       "name": "发布",
       "description": "完成渠道包装、账号路由、发布预检、执行与回执验真。",
       "route": "/mod-runtime/creator-studio/?workspace=publish",
-      "navigation": {"itemOrder": 60, "label": "发布"}
+      "navigation": {"itemOrder": 60, "label": "发布"},
+      "manifest": {
+        "actions": {
+          "creator.publish.package": {
+            "binding": {
+              "type": "agent",
+              "capability": "creator.publish.package",
+              "profile": "batch",
+              "memoryScope": "task"
+            },
+            "execution": "task",
+            "permission": "creator.execute",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "runId": {"type": "string", "maxLength": 128},
+                "nodeId": {"type": "string", "maxLength": 128},
+                "artifactIds": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 128}}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
+      }
     },
     {
       "id": "creator-postmortem",
       "name": "复盘",
       "description": "回收数据、分析效果、回写知识并创建下一轮任务。",
       "route": "/mod-runtime/creator-studio/?workspace=postmortem",
-      "navigation": {"itemOrder": 70, "label": "复盘"}
+      "navigation": {"itemOrder": 70, "label": "复盘"},
+      "manifest": {
+        "actions": {
+          "creator.postmortem.analyze": {
+            "binding": {
+              "type": "agent",
+              "capability": "creator.postmortem.analyze",
+              "profile": "deep",
+              "memoryScope": "user-agent-mod"
+            },
+            "execution": "task",
+            "permission": "creator.execute",
+            "inputSchema": {
+              "type": "object",
+              "required": ["prompt"],
+              "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
+                "runId": {"type": "string", "maxLength": 128},
+                "nodeId": {"type": "string", "maxLength": 128},
+                "artifactIds": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 128}}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 300
+          }
+        }
+      }
     },
     {
       "id": "creator-marketplace",

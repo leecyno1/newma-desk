@@ -7,6 +7,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    build: {
+      target: "es2022",
+      modulePreload: { polyfill: false },
+    },
     optimizeDeps: {
       // MapLibre owns a dedicated module worker. Keeping it out of Vite's
       // dependency pre-bundle prevents a stale optimized worker URL from

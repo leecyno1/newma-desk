@@ -71,6 +71,28 @@
       },
       "permission": "market.read"
     },
+    "market.security-master": {
+      "method": "GET",
+      "path": "/api/market-terminal/security-master",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "market.security-master-refresh": {
+      "method": "POST",
+      "path": "/api/market-terminal/security-master/refresh",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.write"
+    },
     "market.quotes": {
       "method": "GET",
       "path": "/api/market-terminal/quotes",
@@ -237,6 +259,65 @@
         "properties": {
           "days": { "type": "integer", "minimum": 1, "maximum": 30 }
         },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "market.emotion": {
+      "method": "GET",
+      "path": "/market/emotion",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "object" } }
+      },
+      "permission": "market.read"
+    },
+    "capital.fund-flow": {
+      "method": "GET",
+      "path": "/fund-flow",
+      "inputSchema": {
+        "type": "object",
+        "required": ["code"],
+        "properties": { "code": { "type": "string", "pattern": "^[0-9]{6}$" } },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "array" } }
+      },
+      "permission": "market.read"
+    },
+    "capital.margin": {
+      "method": "GET",
+      "path": "/margin",
+      "inputSchema": {
+        "type": "object",
+        "required": ["code"],
+        "properties": { "code": { "type": "string", "pattern": "^[0-9]{6}$" } },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "type": "array" } }
+      },
+      "permission": "market.read"
+    },
+    "capital.dragon-tiger": {
+      "method": "GET",
+      "path": "/dragon-tiger",
+      "inputSchema": {
+        "type": "object",
+        "required": ["code"],
+        "properties": { "code": { "type": "string", "pattern": "^[0-9]{6}$" } },
         "additionalProperties": false
       },
       "outputSchema": {

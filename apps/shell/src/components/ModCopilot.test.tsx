@@ -23,7 +23,7 @@ function useAvailableAgent() {
             kind: "local-cli",
             available: true,
             supportsMemory: true,
-            capabilities: ["chat"],
+            capabilities: ["chat", "module.explain", "module.analyze", "module.edit"],
             default: true,
           },
         ],
@@ -35,7 +35,27 @@ function useAvailableAgent() {
         userId: "user-1",
         defaultAdapter: "codex-cli",
         moduleOverrides: {},
+        profileTargets: {
+          quick: "openai-compatible",
+          deep: "codex-cli",
+          batch: "codex-cli",
+          edit: "codex-cli",
+        },
+        moduleProfileOverrides: {},
         updatedAt: null,
+      }),
+    ),
+    http.get("/api/model/providers", () =>
+      HttpResponse.json({
+        providers: [
+          {
+            id: "openai-compatible",
+            name: "快速模型",
+            available: true,
+            capabilities: ["chat", "module.explain"],
+            default: true,
+          },
+        ],
       }),
     ),
   );
@@ -127,6 +147,79 @@ const module: StoredMod = {
 };
 
 describe("ModCopilot", () => {
+  it("uses the quick model with Mod Bridge context without creating an Agent task", async () => {
+    useAvailableAgent();
+    let modelBody: Record<string, unknown> | undefined;
+    let modelUserHeader: string | null = null;
+    let agentTaskCreated = false;
+    server.use(
+      http.post("/api/model/responses", async ({ request }) => {
+        modelBody = (await request.json()) as Record<string, unknown>;
+        modelUserHeader = request.headers.get("X-User-Id");
+        return HttpResponse.json({
+          answer: "快速结论",
+          adapter: "openai-compatible",
+          model: "fast-model",
+        });
+      }),
+      http.post("/api/agent/tasks", () => {
+        agentTaskCreated = true;
+        return HttpResponse.json(
+          { id: "unexpected-task", status: "queued", result: null, error: null },
+          { status: 202 },
+        );
+      }),
+    );
+    const requestContext = vi.fn(async () => ({
+      view: { id: "industry-map:robotics", title: "机器人产业链" },
+      visibleBlocks: [],
+      selection: { sector: "robotics" },
+      filters: {},
+      data: { freshness: "fresh" as const },
+      actions: [],
+      tasks: [],
+    }));
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-1"
+        onClose={() => undefined}
+        requestContext={requestContext}
+      />,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "快速" }),
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("快速询问当前页面…"),
+      "一句话总结",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("快速结论")).toBeVisible();
+    expect(requestContext).toHaveBeenCalledTimes(1);
+    expect(modelBody).toMatchObject({
+      moduleId: "industry-map",
+      capability: "module.explain",
+      prompt: "一句话总结",
+      context: {
+        vibedesk: {
+          mode: "ask",
+          source: "mod-bridge",
+          page: {
+            view: { title: "机器人产业链" },
+            selection: { sector: "robotics" },
+          },
+        },
+      },
+    });
+    expect(modelUserHeader).toBe("user-1");
+    expect(agentTaskCreated).toBe(false);
+  });
+
   it("sends current-page context with workspace identity and renders the answer", async () => {
     useAvailableAgent();
     let createBody: Record<string, unknown> | undefined;
@@ -200,6 +293,61 @@ describe("ModCopilot", () => {
     });
     expect(JSON.stringify(createBody)).not.toContain("agentOnlyCapabilities");
     expect(JSON.stringify(createBody)).not.toContain("optionalSecrets");
+  });
+
+  it("routes batch work as a stateless Agent profile", async () => {
+    useAvailableAgent();
+    let createBody: Record<string, unknown> | undefined;
+    server.use(
+      http.post("/api/agent/tasks", async ({ request }) => {
+        createBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            id: "task-batch",
+            status: "queued",
+            request: { adapter: "codex-cli", profile: "batch" },
+            result: null,
+            error: null,
+          },
+          { status: 202 },
+        );
+      }),
+      http.get("/api/agent/tasks/task-batch", () =>
+        HttpResponse.json({
+          id: "task-batch",
+          status: "completed",
+          request: { adapter: "codex-cli", profile: "batch" },
+          result: { answer: "批处理完成" },
+          error: null,
+        }),
+      ),
+    );
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-1"
+        onClose={() => undefined}
+        requestContext={async () => undefined}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "批量" }));
+    await userEvent.type(
+      screen.getByPlaceholderText("描述要批量处理的内容…"),
+      "批量总结当前新闻",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("批处理完成")).toBeVisible();
+    expect(createBody).toMatchObject({
+      moduleId: "industry-map",
+      capability: "module.analyze",
+      profile: "batch",
+      memoryScope: "task",
+      prompt: "批量总结当前新闻",
+    });
   });
 
   it("uses explicit edit mode and cancels the active task", async () => {

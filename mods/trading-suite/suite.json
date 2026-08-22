@@ -1,15 +1,14 @@
 {
   "schemaVersion": "1.0",
   "id": "trading-suite",
-  "name": "Vibe Trading",
-  "description": "Vibe Trading 的量化与交易页面集合，由 Newma-Desk 统一挂载并按页面展开为独立 Mod。",
+  "name": "Vibe 量化研究",
+  "description": "因子实验、策略回测、相关性分析与量化研究配置。",
   "version": "0.1.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/HKUDS/Vibe-Trading",
   "tags": [
     "量化",
-    "交易",
-    "Trading"
+    "Vibe Trading"
   ],
   "agentWorkspace": {
     "type": "runtime",
@@ -25,19 +24,19 @@
     "schemaVersion": "1.1",
     "category": "quant",
     "navigation": {
-      "groupLabel": "量化研究",
+      "groupLabel": "量化",
       "groupOrder": 120,
       "itemOrder": 100,
       "directory": {
         "id": "trading-suite",
-        "label": "Vibe Trading",
+        "label": "量化实验",
         "order": 10
       },
       "project": {
         "id": "quant-research",
-        "name": "量化研究",
+        "name": "量化",
         "order": 120,
-        "description": "因子、策略、回测、相关性与量化实验。"
+        "description": "因子、策略实验、回测、相关性分析与可复现研究账本。"
       },
       "icon": "quant"
     },
@@ -146,32 +145,6 @@
         "permissions": [
           "trading.read",
           "trading.compute"
-        ],
-        "dataServices": [
-          "vibe-trading-native"
-        ]
-      },
-      "defaultInstall": true
-    },
-    {
-      "id": "trade-desk",
-      "name": "交易台",
-      "description": "查看策略运行、交易任务和执行状态；真实交易仍由独立确认链路控制。",
-      "tags": [
-        "交易",
-        "运行",
-        "策略"
-      ],
-      "route": "/mod-runtime/trading/runtime",
-      "navigation": {
-        "itemOrder": 50,
-        "icon": "trading"
-      },
-      "manifest": {
-        "category": "trading",
-        "permissions": [
-          "trading.read",
-          "trading.runtime"
         ],
         "dataServices": [
           "vibe-trading-native"

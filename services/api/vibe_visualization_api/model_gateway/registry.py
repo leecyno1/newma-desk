@@ -29,12 +29,28 @@ class ModelAdapterRegistry:
                 f"Model adapter {resolved_id!r} is not registered"
             ) from error
 
+    @property
+    def default_id(self) -> str:
+        return self._default_id
+
     async def describe(self) -> list[dict[str, object]]:
-        return [
-            {
+        descriptions: list[dict[str, object]] = []
+        for adapter in self._adapters.values():
+            description: dict[str, object] = {
                 "id": adapter.id,
                 "capabilities": await adapter.capabilities(),
                 "default": adapter.id == self._default_id,
             }
-            for adapter in self._adapters.values()
-        ]
+            describe = getattr(adapter, "describe", None)
+            if callable(describe):
+                extra = await describe()
+                if isinstance(extra, dict):
+                    description.update(
+                        {
+                            key: extra[key]
+                            for key in ("name", "description", "available")
+                            if key in extra
+                        }
+                    )
+            descriptions.append(description)
+        return descriptions

@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from vibe_visualization_api.config import Settings
+from vibe_visualization_api.creator_studio.adapter import CreatorControlAdapter
 from vibe_visualization_api.main import create_app
 
 
@@ -207,6 +208,27 @@ def test_creator_runtime_startup_does_not_create_storage_until_used(tmp_path: Pa
     assert not database_path.exists()
 
 
+def test_creator_agent_check_passes_cli_args_without_http_error(tmp_path: Path):
+    workspace = tmp_path / "creator-workspace"
+    script = workspace / "scripts" / "newma_creator_control.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "import json, sys\n"
+        "print(json.dumps({'status': 'succeeded', 'args': sys.argv[1:]}))\n",
+        encoding="utf-8",
+    )
+
+    result = CreatorControlAdapter(workspace).test_agent(
+        "codex",
+        "/tmp/custom-codex",
+    )
+
+    assert result["status"] == "succeeded"
+    assert result["args"][0] == "invoke-cli"
+    assert "--agent" in result["args"]
+    assert "--bin-override" in result["args"]
+
+
 def test_creator_commands_share_one_workspace_scoped_run_state(tmp_path: Path):
     workspace = creator_workspace(tmp_path)
     settings = Settings(
@@ -270,7 +292,9 @@ def test_creator_commands_share_one_workspace_scoped_run_state(tmp_path: Path):
         )
         assert completed["run"]["revision"] == 4
 
-        isolated = client.get(
+        # 单机单用户模式：身份统一归一，不同 header（shell UI 随机身份）
+        # 与 Agent/CLI 直连共享同一份数据
+        shared = client.get(
             "/api/creator-studio/runs",
             headers={"X-User-Id": "alice", "X-Workspace-Id": "creator-b"},
         )
@@ -279,8 +303,8 @@ def test_creator_commands_share_one_workspace_scoped_run_state(tmp_path: Path):
             headers=headers,
         )
 
-    assert isolated.status_code == 200
-    assert isolated.json()["runs"] == []
+    assert shared.status_code == 200
+    assert [r["runId"] for r in shared.json()["runs"]] == [run_id]
     assert [event["type"] for event in events.json()["events"]] == [
         "run.created",
         "command.executed",
@@ -1330,7 +1354,11 @@ def test_artifact_versions_and_stale_state_propagate_through_handoffs(tmp_path: 
         assert stale_collect["materialValidation"]["status"] == "needs_material"
         assert stale_collect["artifacts"][0]["status"] == "stale"
         assert stale_topic["status"] == "stale"
-        assert all(item["status"] == "stale" for item in replaced["handoffs"])
+        # 自动转接（执行成功/approve 联动）与手动 handoff 并存时：
+        # 旧 handoff 可能因重复转接转 superseded，也可能因上游替换转 stale——两者都是失效态
+        assert all(
+            item["status"] in {"stale", "superseded"} for item in replaced["handoffs"]
+        )
         assert {item["nodeId"] for item in replaced["lineageState"]["affectedNodes"]} == {
             "collect",
             "topic_pool",
@@ -1357,3 +1385,762 @@ def test_artifact_versions_and_stale_state_propagate_through_handoffs(tmp_path: 
     assert refreshed_collect["materialValidation"]["status"] == "ready"
     assert refreshed_collect["materials"][0]["artifactVersion"] == 2
     assert refreshed["handoffs"][-1]["status"] == "ready"
+
+
+def test_review_gate_approval_rejects_node_with_unsatisfied_materials(tmp_path: Path):
+    workspace = creator_workspace(tmp_path)
+    registry_path = (
+        workspace / "configs" / "workflow" / "newma_creator_studio_registry.json"
+    )
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    source_node = registry["stages"][0]["nodes"][0]
+    source_node["executor"] = "newma.test.review"
+    source_node["gate"] = {"required": True, "kind": "human_review"}
+    registry_path.write_text(
+        json.dumps(registry, ensure_ascii=False), encoding="utf-8"
+    )
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=workspace,
+        creator_studio_dist=tmp_path / "missing-dist",
+    )
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+
+    with TestClient(create_app(settings)) as client:
+        client.app.state.creator_studio_service.control_adapter.run_node = (
+            lambda request, **_: {
+                "execution_id": "execution-review-materials",
+                "executor_id": "newma.test.review",
+                "status": "succeeded",
+                "progress": 100,
+                "finished_at": "2026-08-15T00:00:00+00:00",
+                "artifacts": [],
+            }
+        )
+        created = client.post(
+            "/api/creator-studio/runs",
+            headers=headers,
+            json={
+                "title": "素材失效后审批必须被拒绝",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "materials": [
+                    {
+                        "type": "source",
+                        "path": "https://example.com",
+                        "source": "manual",
+                    }
+                ],
+            },
+        ).json()
+        run_id = created["run"]["runId"]
+        client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.run",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": 1,
+            },
+        )
+        waiting = wait_for_node(
+            client,
+            headers,
+            run_id,
+            stage_id="intake",
+            node_id="source_setup",
+            statuses={"waiting_user"},
+        )
+
+        # 模拟运行后素材要求不再满足（例如上游交付物失效）。
+        stale_registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        stale_registry["stages"][0]["nodes"][0]["material_requirements"].append(
+            {
+                "type": "evidence_pack",
+                "label": "证据包",
+                "required": True,
+                "accepts": [".md"],
+                "sources": ["upstream"],
+            }
+        )
+        registry_path.write_text(
+            json.dumps(stale_registry, ensure_ascii=False), encoding="utf-8"
+        )
+
+        rejected = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.approve",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": waiting["run"]["revision"],
+            },
+        )
+        snapshot = client.get(
+            f"/api/creator-studio/runs/{run_id}", headers=headers
+        ).json()
+
+    assert rejected.status_code == 422
+    assert snapshot["stages"][0]["nodes"][0]["status"] == "waiting_user"
+
+
+def test_approve_syncs_pending_review_artifact_file_to_approved(tmp_path: Path):
+    workspace = creator_workspace(tmp_path)
+    registry_path = (
+        workspace / "configs" / "workflow" / "newma_creator_studio_registry.json"
+    )
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    source_node = registry["stages"][0]["nodes"][0]
+    source_node["executor"] = "newma.test.review"
+    source_node["gate"] = {"required": True, "kind": "human_review"}
+    registry_path.write_text(
+        json.dumps(registry, ensure_ascii=False), encoding="utf-8"
+    )
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=workspace,
+        creator_studio_dist=tmp_path / "missing-dist",
+    )
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+
+    artifact_path = tmp_path / "selected_topics.json"
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "newma.creator_node_artifact.v1",
+                "run_id": "pending",
+                "stage_id": "brief",
+                "node_id": "brief_review",
+                "artifact_type": "selected_topics",
+                "status": "pending_review",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with TestClient(create_app(settings)) as client:
+        client.app.state.creator_studio_service.control_adapter.run_node = lambda request, **_: {
+            "execution_id": "execution-review",
+            "executor_id": "newma.test.review",
+            "status": "succeeded",
+            "progress": 100,
+            "finished_at": "2026-08-15T00:00:00+00:00",
+            "artifacts": [
+                {
+                    "type": "selected_topics",
+                    "path": str(artifact_path),
+                    "status": "created",
+                }
+            ],
+        }
+        created = client.post(
+            "/api/creator-studio/runs",
+            headers=headers,
+            json={
+                "title": "审核产物回写测试",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "materials": [
+                    {
+                        "type": "source",
+                        "path": "https://example.com",
+                        "source": "manual",
+                    }
+                ],
+            },
+        ).json()
+        run_id = created["run"]["runId"]
+        client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.run",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": 1,
+            },
+        )
+        waiting = wait_for_node(
+            client,
+            headers,
+            run_id,
+            stage_id="intake",
+            node_id="source_setup",
+            statuses={"waiting_user"},
+        )
+        approved = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.approve",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": waiting["run"]["revision"],
+                "input": {
+                    "selected_topics": [
+                        {"topic_id": "topic-01", "title": "验收选题"}
+                    ]
+                },
+            },
+        ).json()
+        assert approved["stages"][0]["nodes"][0]["status"] == "succeeded"
+
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "approved"
+    assert payload["approved_at"]
+    assert payload["selected_topics"] == [
+        {"topic_id": "topic-01", "title": "验收选题"}
+    ]
+
+
+def test_rerun_resets_succeeded_node_and_supersedes_artifacts(tmp_path: Path):
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=creator_workspace(tmp_path),
+        creator_studio_dist=tmp_path / "missing-dist",
+    )
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+
+    with TestClient(create_app(settings)) as client:
+        client.app.state.creator_studio_service.control_adapter.run_node = lambda request, **_: {
+            "execution_id": "execution-rerun",
+            "executor_id": "newma.test.executor",
+            "status": "succeeded",
+            "progress": 100,
+            "finished_at": "2026-08-15T00:00:00+00:00",
+            "artifacts": [
+                {
+                    "type": "source_plan",
+                    "path": "/tmp/source_plan.json",
+                    "status": "created",
+                }
+            ],
+        }
+        created = client.post(
+            "/api/creator-studio/runs",
+            headers=headers,
+            json={
+                "title": "重跑契约测试",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "materials": [
+                    {"type": "source", "path": "https://example.com", "source": "manual"}
+                ],
+            },
+        ).json()
+        run_id = created["run"]["runId"]
+
+        executed = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.run",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": 1,
+            },
+        ).json()
+        node = executed["stages"][0]["nodes"][0]
+        if node["status"] != "succeeded":
+            # 异步执行：轮询等待 job 完成
+            for _ in range(20):
+                import time
+
+                time.sleep(0.1)
+                snap = client.get(
+                    f"/api/creator-studio/runs/{run_id}", headers=headers
+                ).json()
+                node = snap["stages"][0]["nodes"][0]
+                if node["status"] not in {"queued", "running"}:
+                    break
+        assert node["status"] == "succeeded"
+        assert "creator.node.rerun" in node["availableActions"]
+
+        rerun = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.rerun",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": node.get("revision") or snap["run"]["revision"],
+            },
+        ).json()
+        node = rerun["stages"][0]["nodes"][0]
+        assert node["status"] == "pending"
+        assert node["progress"] == 0
+        assert node["artifacts"]
+        assert all(a["status"] == "superseded" for a in node["artifacts"])
+        assert "creator.node.run" in node["availableActions"]
+        assert "creator.node.rerun" not in node["availableActions"]
+
+        rerun_again = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.rerun",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": rerun["run"]["revision"],
+            },
+        )
+        assert rerun_again.status_code == 422
+
+
+def test_review_gate_approve_writes_stage_gate_file(tmp_path: Path):
+    workspace = creator_workspace(tmp_path)
+    registry_path = (
+        workspace / "configs" / "workflow" / "newma_creator_studio_registry.json"
+    )
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    review_node = registry["stages"][0]["nodes"][0]
+    review_node["executor"] = "newma.control.review-gate"
+    review_node["gate"] = {"required": True, "kind": "human_review"}
+    registry_path.write_text(
+        json.dumps(registry, ensure_ascii=False), encoding="utf-8"
+    )
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=workspace,
+        creator_studio_dist=tmp_path / "missing-dist",
+    )
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+
+    with TestClient(create_app(settings)) as client:
+        client.app.state.creator_studio_service.control_adapter.run_node = lambda request, **_: {
+            "execution_id": "execution-gate",
+            "executor_id": "newma.control.review-gate",
+            "status": "waiting_user",
+            "progress": 60,
+            "finished_at": "2026-08-19T00:00:00+00:00",
+            "artifacts": [
+                {
+                    "type": "selected_topics",
+                    "path": "/tmp/selected_topics.json",
+                    "status": "created",
+                }
+            ],
+        }
+        gate_calls: list[tuple[str, str]] = []
+
+        def fake_approve_gate(run_id: str, stage: str, selected_ids=None) -> dict:
+            gate_calls.append((run_id, stage))
+            return {
+                "status": "succeeded",
+                "gate_file": "/tmp/selected_topics.json",
+                "stage": stage,
+                "previous_status": "pending",
+            }
+
+        client.app.state.creator_studio_service.control_adapter.approve_gate = fake_approve_gate
+
+        created = client.post(
+            "/api/creator-studio/runs",
+            headers=headers,
+            json={
+                "title": "门禁写盘测试",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "materials": [
+                    {"type": "source", "path": "https://example.com", "source": "manual"}
+                ],
+            },
+        ).json()
+        run_id = created["run"]["runId"]
+
+        executed = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.run",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": 1,
+            },
+        ).json()
+        node = next(
+            n
+            for s in executed["stages"]
+            if s["id"] == "intake"
+            for n in s["nodes"]
+            if n["id"] == "source_setup"
+        )
+        if node["status"] != "waiting_user":
+            import time
+
+            for _ in range(20):
+                time.sleep(0.1)
+                snap = client.get(
+                    f"/api/creator-studio/runs/{run_id}", headers=headers
+                ).json()
+                node = next(
+                    n
+                    for s in snap["stages"]
+                    if s["id"] == "intake"
+                    for n in s["nodes"]
+                    if n["id"] == "source_setup"
+                )
+                if node["status"] not in {"queued", "running", "pending"}:
+                    break
+        assert node["status"] == "waiting_user"
+
+        approved = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.approve",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": snap["run"]["revision"],
+            },
+        ).json()
+        assert gate_calls == [(run_id, "intake")]
+        node = next(
+            n
+            for s in approved["stages"]
+            if s["id"] == "intake"
+            for n in s["nodes"]
+            if n["id"] == "source_setup"
+        )
+        assert node["status"] == "succeeded"
+        assert any("阶段门禁写盘：succeeded" in log.get("message", "") for log in node.get("logs", []))
+
+
+def test_execution_finished_marks_run_succeeded(tmp_path: Path):
+    """executor 异步完成最后一个节点时，run 应自动收尾 succeeded（非命令路径）。"""
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=creator_workspace(tmp_path),
+        creator_studio_dist=tmp_path / "missing-dist",
+    )
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+
+    with TestClient(create_app(settings)) as client:
+        client.app.state.creator_studio_service.control_adapter.run_node = lambda request, **_: {
+            "execution_id": "execution-finish",
+            "executor_id": "newma.test.executor",
+            "status": "succeeded",
+            "progress": 100,
+            "finished_at": "2026-08-15T00:00:00+00:00",
+            "artifacts": [],
+        }
+        created = client.post(
+            "/api/creator-studio/runs",
+            headers=headers,
+            json={
+                "title": "执行完成收尾测试",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "materials": [
+                    {"type": "source", "path": "https://example.com", "source": "manual"}
+                ],
+            },
+        ).json()
+        run_id = created["run"]["runId"]
+
+        def revision() -> int:
+            snap = client.get(
+                f"/api/creator-studio/runs/{run_id}", headers=headers
+            ).json()
+            return int(snap["run"]["revision"])
+
+        def skip(stage: str, node: str) -> None:
+            client.post(
+                f"/api/creator-studio/runs/{run_id}/commands",
+                headers=headers,
+                json={
+                    "actionId": "creator.node.skip",
+                    "stageId": stage,
+                    "nodeId": node,
+                    "expectedRevision": revision(),
+                },
+            )
+
+        # 先跳过另外两个节点：source_setup 仍是唯一非终态节点
+        skip("intake", "collect")
+        skip("brief", "topic_pool")
+
+        executed = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.run",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": revision(),
+            },
+        ).json()
+        # run 命令响应时刻 source_setup 尚未终态，run 不应已完成
+        assert executed["run"]["status"] != "succeeded"
+
+        # 轮询等待 executor 异步完成：唯一可能的收尾路径是 execution.finished
+        final = executed
+        for _ in range(30):
+            if final["run"]["status"] == "succeeded":
+                break
+            import time
+
+            time.sleep(0.1)
+            final = client.get(
+                f"/api/creator-studio/runs/{run_id}", headers=headers
+            ).json()
+        assert final["run"]["status"] == "succeeded"
+        assert final["stages"][0]["nodes"][0]["status"] == "succeeded"
+
+
+def test_handoff_excludes_packet_artifacts(tmp_path: Path):
+    """rerun 后 packet 成为唯一 USABLE 产物时，handoff 不得把它转交给下游。"""
+    workspace = creator_workspace(tmp_path)
+    real_source = tmp_path / "source-plan-real.json"
+    real_source.write_text('{"kind": "deliverable"}', encoding="utf-8")
+    packet_source = tmp_path / "source-plan-packet.json"
+    packet_source.write_text('{"kind": "packet"}', encoding="utf-8")
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=workspace,
+        creator_studio_dist=tmp_path / "missing-dist",
+    )
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+
+    responses: list[dict] = [
+        {
+            "execution_id": "execution-deliverable",
+            "executor_id": "newma.test.executor",
+            "status": "succeeded",
+            "progress": 100,
+            "artifacts": [
+                {
+                    "type": "source_plan",
+                    "path": str(real_source),
+                    "status": "created",
+                    "origin": "deliverable",
+                }
+            ],
+        },
+        {
+            "execution_id": "execution-packet",
+            "executor_id": "newma.test.executor",
+            "status": "succeeded",
+            "progress": 100,
+            "artifacts": [
+                {
+                    "type": "source_plan",
+                    "path": str(packet_source),
+                    "status": "created",
+                    "origin": "packet",
+                }
+            ],
+        },
+    ]
+    calls = {"index": 0}
+
+    def fake_run_node(request, **_):
+        response = responses[min(calls["index"], len(responses) - 1)]
+        calls["index"] += 1
+        return response
+
+    with TestClient(create_app(settings)) as client:
+        client.app.state.creator_studio_service.control_adapter.run_node = fake_run_node
+        created = client.post(
+            "/api/creator-studio/runs",
+            headers=headers,
+            json={
+                "title": "packet handoff 排除测试",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "materials": [
+                    {"type": "source", "path": "https://example.com", "source": "manual"}
+                ],
+            },
+        ).json()
+        run_id = created["run"]["runId"]
+
+        def command(action: str, extra: dict | None = None) -> dict:
+            snap = client.get(
+                f"/api/creator-studio/runs/{run_id}", headers=headers
+            ).json()
+            body = {
+                "actionId": action,
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": snap["run"]["revision"],
+            }
+            if extra:
+                body["input"] = extra
+            return client.post(
+                f"/api/creator-studio/runs/{run_id}/commands",
+                headers=headers,
+                json=body,
+            )
+
+        command("creator.node.run")
+        done = wait_for_node(
+            client,
+            headers,
+            run_id,
+            stage_id="intake",
+            node_id="source_setup",
+            statuses={"succeeded"},
+        )
+        node = done["stages"][0]["nodes"][0]
+        assert node["artifacts"][0]["origin"] == "deliverable"
+
+        # rerun → 旧交付物 superseded，重新执行产出 packet（唯一 USABLE）
+        command("creator.node.rerun")
+        command("creator.node.run")
+        wait_for_node(
+            client,
+            headers,
+            run_id,
+            stage_id="intake",
+            node_id="source_setup",
+            statuses={"succeeded"},
+        )
+        snap = client.get(
+            f"/api/creator-studio/runs/{run_id}", headers=headers
+        ).json()
+        node = snap["stages"][0]["nodes"][0]
+        usable = [
+            item
+            for item in node["artifacts"]
+            if item["status"] in {"created", "approved"}
+        ]
+        assert len(usable) == 1
+        assert usable[0]["origin"] == "packet"
+
+        # handoff 全量转交：packet 被排除 → 无可用产物 → 命令被拒
+        rejected = command(
+            "creator.handoff.create",
+            {
+                "targetStageId": "intake",
+                "targetNodeId": "collect",
+            },
+        )
+        assert rejected.status_code in {400, 422}
+        assert "no artifacts are available for handoff" in rejected.json()["detail"]
+
+
+def test_continue_is_pointer_only_and_never_regresses(tmp_path: Path):
+    """continue 是纯指针推进：未完成节点被拒；已完成下一节点不被重置（进度只前进）。"""
+    workspace = creator_workspace(tmp_path)
+    registry_path = (
+        workspace / "configs" / "workflow" / "newma_creator_studio_registry.json"
+    )
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    intake_nodes = registry["stages"][0]["nodes"]
+    for node in intake_nodes[:2]:
+        node["executor"] = "newma.test.review"
+        node["gate"] = {"required": True, "kind": "human_review"}
+    registry_path.write_text(
+        json.dumps(registry, ensure_ascii=False), encoding="utf-8"
+    )
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=workspace,
+        creator_studio_dist=tmp_path / "missing-dist",
+    )
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+
+    with TestClient(create_app(settings)) as client:
+        client.app.state.creator_studio_service.control_adapter.run_node = lambda request, **_: {
+            "execution_id": "execution-review",
+            "executor_id": "newma.test.review",
+            "status": "succeeded",
+            "progress": 100,
+            "finished_at": "2026-08-15T00:00:00+00:00",
+            "artifacts": [
+                {"type": "source_plan", "path": "/tmp/source_plan.json", "status": "created"}
+            ],
+        }
+        created = client.post(
+            "/api/creator-studio/runs",
+            headers=headers,
+            json={
+                "title": "指针推进语义测试",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "materials": [
+                    {"type": "source", "path": "https://example.com", "source": "manual"}
+                ],
+            },
+        ).json()
+        run_id = created["run"]["runId"]
+
+        def run_and_approve(stage_id: str, node_id: str, expected_revision: int):
+            client.post(
+                f"/api/creator-studio/runs/{run_id}/commands",
+                headers=headers,
+                json={
+                    "actionId": "creator.node.run",
+                    "stageId": stage_id,
+                    "nodeId": node_id,
+                    "expectedRevision": expected_revision,
+                },
+            )
+            snapshot = wait_for_node(
+                client, headers, run_id,
+                stage_id=stage_id, node_id=node_id,
+                statuses={"waiting_user"},
+            )
+            return client.post(
+                f"/api/creator-studio/runs/{run_id}/commands",
+                headers=headers,
+                json={
+                    "actionId": "creator.node.approve",
+                    "stageId": stage_id,
+                    "nodeId": node_id,
+                    "expectedRevision": snapshot["run"]["revision"],
+                },
+            ).json()
+
+        approved_first = run_and_approve("intake", "source_setup", 1)
+        approved_second = run_and_approve(
+            "intake", "collect", approved_first["run"]["revision"]
+        )
+        collect = approved_second["stages"][0]["nodes"][1]
+        assert collect["status"] == "succeeded"
+
+        # 未完成节点（normalize pending）continue 被拒
+        rejected = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.workflow.continue",
+                "stageId": "intake",
+                "nodeId": "normalize",
+                "expectedRevision": approved_second["run"]["revision"],
+            },
+        )
+        assert rejected.status_code in {400, 409, 422}
+
+        # succeeded 节点 continue：active 指到 collect，且 collect 不被重置回 pending
+        continued = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.workflow.continue",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": approved_second["run"]["revision"],
+            },
+        ).json()
+        # continue 推进后 _refresh_active_pointer 把 active 指到第一个未完成节点
+        # （fixture registry 的 intake 只有 2 节点，全完成后指到 brief/topic_pool）
+        assert continued["run"]["activeNodeId"] == "topic_pool"
+        collect_after = continued["stages"][0]["nodes"][1]
+        assert collect_after["status"] == "succeeded", "已完成的下一节点被 continue 重置（进度倒退）"
+        assert collect_after["progress"] == 100
+        # approve 已自动转接：collect 收到上游交付物素材
+        collect_materials = collect_after.get("materials", [])
+        assert any(m.get("type") == "source_plan" for m in collect_materials), (
+            "approve 后未自动转接交付物（UI 直批路径与 Agent 推进不一致）"
+        )

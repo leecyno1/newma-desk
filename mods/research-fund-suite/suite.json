@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "1.0",
+  "id": "research-fund-suite",
+  "name": "Vibe 基金研究",
+  "description": "面向 ETF 与场内基金的风险收益、相关性和组合适配研究。",
+  "version": "0.4.0",
+  "publisher": "Newma-Desk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": ["基金", "ETF", "Research"],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "vibe-research",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "基金",
+      "groupOrder": 70,
+      "itemOrder": 100,
+      "directory": {"id": "research-fund-suite", "label": "ETF 研究", "order": 5},
+      "project": {
+        "id": "fund-research",
+        "name": "基金",
+        "order": 70,
+        "description": "公募基金、ETF、基金经理、同类比较、评价与业绩归因。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {"level": 1, "bridgeProtocol": "1.0"},
+    "permissions": [],
+    "dataServices": [],
+    "actions": {},
+    "events": {"emits": [], "accepts": []}
+  },
+  "pages": [
+    {
+      "id": "etf-research",
+      "name": "ETF 研究",
+      "description": "比较 ETF 与场内基金的历史收益、波动、回撤和相关性，并为费率、跟踪误差、持仓穿透与组合适配建立统一证据入口。",
+      "version": "0.2.0",
+      "tags": ["基金", "ETF", "风险收益", "资产配置"],
+      "route": "/mod-runtime/research/etf-research",
+      "navigation": {"itemOrder": 10},
+      "manifest": {
+        "compatibility": {"level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0"},
+        "permissions": ["market.read"],
+        "dataServices": ["market-data"],
+        "wiki": {
+          "contractVersion": "1.0",
+          "subjectTypes": ["etf", "fund"],
+          "concepts": ["fund-research", "asset-allocation", "risk-return"],
+          "entrypoints": [{"id": "research", "intent": "fund.research", "label": "ETF 研究", "contextContract": "newma.wiki.subject.v1", "defaults": {}}]
+        },
+        "events": {"emits": ["security.selected"], "accepts": ["security.selected"]}
+      },
+      "defaultInstall": true
+    }
+  ]
+}

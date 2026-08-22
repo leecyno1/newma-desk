@@ -34,6 +34,14 @@ from vibe_visualization_api.creator_studio.service import CreatorCommandError
 
 router = APIRouter(prefix="/api/creator-studio", tags=["creator-studio"])
 
+# Creator Studio 单机单用户模式：所有入口统一固定身份。
+# Desk shell 的身份是浏览器首次打开时随机生成并持久化的（workspaceIdentity.ts），
+# 而 Agent/CLI 直连使用 local-user/local-workspace——若按各自身份隔离，
+# Agent 推进的任务在用户 UI 中不可见（EMPTY RUNWAY）。Creator Studio 是
+# 单人创作工具，统一归一为固定身份，保证双入口共享同一份数据。
+CREATOR_USER_ID = "local-user"
+CREATOR_WORKSPACE_ID = "local-workspace"
+
 UserId = Annotated[str, Header(alias="X-User-Id", min_length=1, max_length=128)]
 WorkspaceId = Annotated[
     str,
@@ -91,8 +99,8 @@ async def list_creator_runs(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.list_runs(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
         )
     )
 
@@ -106,8 +114,8 @@ async def create_creator_run(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.create_run(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
             request=create,
         )
     )
@@ -122,8 +130,8 @@ async def get_creator_run(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.get_snapshot(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
             run_id=run_id,
         )
     )
@@ -139,8 +147,8 @@ async def execute_creator_command(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.execute_command(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
             run_id=run_id,
             command=command,
         )
@@ -157,8 +165,8 @@ async def list_creator_events(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.list_events(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
             run_id=run_id,
             after=after,
         )
@@ -174,8 +182,8 @@ async def list_creator_jobs(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.list_jobs(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
             run_id=run_id,
         )
     )
@@ -190,8 +198,8 @@ async def list_creator_editor_sessions(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.list_editor_sessions(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
             run_id=run_id,
         )
     )
@@ -200,6 +208,24 @@ async def list_creator_editor_sessions(
 @router.post("/capabilities/detect")
 async def detect_creator_capabilities(request: Request):
     return await execute(request.app.state.creator_studio_service.detect_capabilities)
+
+
+@router.post("/capabilities/test")
+async def test_creator_agent(request: Request):
+    body = await request.json()
+    return await execute(
+        lambda: request.app.state.creator_studio_service.test_agent(
+            agent_id=str(body.get("agentId") or ""),
+            bin_override=str(body.get("binOverride") or ""),
+        )
+    )
+
+
+@router.get("/artifacts/preview")
+async def preview_creator_artifact(request: Request, path: str):
+    return await execute(
+        lambda: request.app.state.creator_studio_service.preview_artifact(path)
+    )
 
 
 @router.get("/marketplace")
@@ -225,8 +251,8 @@ async def list_creator_marketplace_presets(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.list_marketplace_presets(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
         )
     )
 
@@ -240,8 +266,8 @@ async def create_creator_marketplace_preset(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.create_marketplace_preset(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
             request=create,
         )
     )
@@ -256,8 +282,8 @@ async def list_creator_marketplace_preset_versions(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.list_marketplace_preset_versions(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
             preset_id=preset_id,
         )
     )
@@ -273,8 +299,8 @@ async def update_creator_marketplace_preset(
 ):
     return await execute(
         lambda: request.app.state.creator_studio_service.update_marketplace_preset(
-            user_id=user_id,
-            workspace_id=workspace_id,
+            user_id=CREATOR_USER_ID,
+            workspace_id=CREATOR_WORKSPACE_ID,
             preset_id=preset_id,
             request=update,
         )

@@ -128,9 +128,11 @@ async function findModFrame(page, mod, timeoutMs) {
   throw new Error("Desk did not render the selected Mod frame");
 }
 
-async function inspectTheme(frame, expectedTheme) {
-  return frame.evaluate(({ theme, expectedBg }) => {
+async function inspectTheme(frame, expectedTheme, scopeSelector = null) {
+  return frame.evaluate(({ theme, expectedBg, scopeSelector: selector }) => {
     const root = document.documentElement;
+    const scope = selector ? document.querySelector(selector) : document;
+    if (!scope) throw new Error(`theme audit scope not found: ${selector}`);
     const rootStyle = getComputedStyle(root);
     const issues = [];
     const themeMarkers = [root.dataset.theme, root.dataset.vibedeskTheme].filter(Boolean);
@@ -213,7 +215,7 @@ async function inspectTheme(frame, expectedTheme) {
       }
       return false;
     };
-    const roots = [document];
+    const roots = [scope];
     const elements = [];
     while (roots.length) {
       const currentRoot = roots.shift();
@@ -273,7 +275,7 @@ async function inspectTheme(frame, expectedTheme) {
       }
     }
     return { issues, findings };
-  }, { theme: expectedTheme, expectedBg: THEME_BG[expectedTheme] });
+  }, { theme: expectedTheme, expectedBg: THEME_BG[expectedTheme], scopeSelector });
 }
 
 async function auditMod(page, mod, theme, shellOrigin, timeoutMs, settleMs) {
@@ -284,7 +286,6 @@ async function auditMod(page, mod, theme, shellOrigin, timeoutMs, settleMs) {
   if (!response?.ok()) throw new Error(`Desk navigation returned HTTP ${response?.status() ?? "unknown"}`);
   const section = await findModFrame(page, mod, timeoutMs);
   const iframe = section.locator("iframe");
-  await iframe.waitFor({ state: "visible", timeout: timeoutMs });
   await section.waitFor({ state: "visible", timeout: timeoutMs });
   await page.waitForFunction(
     (id) => [...document.querySelectorAll(".module-frame")].find(
@@ -293,10 +294,16 @@ async function auditMod(page, mod, theme, shellOrigin, timeoutMs, settleMs) {
     mod.id,
     { timeout: timeoutMs },
   );
-  const iframeHandle = await iframe.elementHandle();
-  const frame = await iframeHandle?.contentFrame();
-  if (!frame || frame.url().startsWith("chrome-error://")) throw new Error("Mod iframe is unreadable");
-  await frame.locator("body").waitFor({ state: "attached", timeout: timeoutMs });
+  let frame = page;
+  let scopeSelector = `.module-frame[data-vibedesk-mod-id="${mod.id}"]`;
+  if (await iframe.count()) {
+    await iframe.waitFor({ state: "visible", timeout: timeoutMs });
+    const iframeHandle = await iframe.elementHandle();
+    frame = await iframeHandle?.contentFrame();
+    if (!frame || frame.url().startsWith("chrome-error://")) throw new Error("Mod iframe is unreadable");
+    await frame.locator("body").waitFor({ state: "attached", timeout: timeoutMs });
+    scopeSelector = null;
+  }
   await frame.waitForFunction(
     (expected) => [document.documentElement.dataset.theme, document.documentElement.dataset.vibedeskTheme]
       .includes(expected),
@@ -304,15 +311,18 @@ async function auditMod(page, mod, theme, shellOrigin, timeoutMs, settleMs) {
     { timeout: Math.min(timeoutMs, 4_000) },
   ).catch(() => {});
   if (settleMs) await page.waitForTimeout(settleMs);
+  const nestedFrames = typeof frame.childFrames === "function"
+    ? frame.childFrames()
+    : frame.frames().filter((child) => child !== frame);
   const inspectedFrames = [
-    { label: "Mod", frame },
-    ...frame.childFrames()
+    { label: "Mod", frame, scopeSelector },
+    ...nestedFrames
       .filter((child) => new URL(child.url()).searchParams.get("newmaTheme") === "1")
-      .map((child) => ({ label: `nested artifact ${child.url()}`, frame: child })),
+      .map((child) => ({ label: `nested artifact ${child.url()}`, frame: child, scopeSelector: null })),
   ];
   const issues = [];
   for (const inspected of inspectedFrames) {
-    const result = await inspectTheme(inspected.frame, theme);
+    const result = await inspectTheme(inspected.frame, theme, inspected.scopeSelector);
     issues.push(
       ...result.issues.map((issue) => `${inspected.label}: ${issue}`),
       ...result.findings.map(({ kind, target, detail, area }) =>

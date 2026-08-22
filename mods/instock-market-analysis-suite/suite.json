@@ -1,0 +1,242 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-market-analysis-suite",
+  "name": "InStock 市场结构",
+  "description": "基于 CZSC 的分型、笔、中枢和结构信号分析。",
+  "version": "0.18.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": [
+    "市场",
+    "InStock"
+  ],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "instock",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "市场",
+      "groupOrder": 40,
+      "itemOrder": 100,
+      "directory": {
+        "id": "instock-market-analysis-suite",
+        "label": "市场结构",
+        "order": 10
+      },
+      "project": {
+        "id": "market-surface",
+        "name": "市场",
+        "order": 40,
+        "description": "行情、市场复盘、云图、技术结构、强弱、宽度与情绪。"
+      },
+      "icon": "market"
+    },
+    "compatibility": {
+      "level": 2,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": [
+      "analysis.read"
+    ],
+    "dataServices": [],
+    "actions": {},
+    "events": {
+      "emits": [],
+      "accepts": []
+    },
+    "refresh": {
+      "mode": "manual"
+    }
+  },
+  "pages": [
+    {
+      "id": "instock-czsc",
+      "name": "缠论结构分析",
+      "description": "基于官方 CZSC 的分型、笔、中枢和当前结构信号可视化，历史启发式标记与官方信号明确分层。",
+      "version": "0.18.0",
+      "tags": [],
+      "route": "/mods/czsc",
+      "navigation": {
+        "itemOrder": 70,
+        "label": "缠论结构分析"
+      },
+      "manifest": {
+        "compatibility": {
+          "level": 2,
+          "bridgeProtocol": "1.0"
+        },
+        "permissions": [
+          "analysis.read"
+        ],
+        "dataServices": [],
+        "actions": {
+          "analysis.czsc": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.czsc"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "asOf": {
+                  "format": "date",
+                  "type": "string"
+                },
+                "bars": {
+                  "enum": [
+                    120,
+                    240,
+                    480,
+                    800
+                  ]
+                },
+                "code": {
+                  "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$",
+                  "type": "string"
+                },
+                "period": {
+                  "enum": [
+                    "daily",
+                    "weekly",
+                    "monthly"
+                  ]
+                },
+                "refresh": {
+                  "enum": [
+                    "0",
+                    "1"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "data": {
+                  "type": "object"
+                },
+                "meta": {
+                  "type": "object"
+                },
+                "ok": {
+                  "const": true
+                }
+              },
+              "required": [
+                "ok",
+                "data",
+                "meta"
+              ],
+              "type": "object"
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 30
+          },
+          "analysis.czsc.scan": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.czsc.scan"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "asOf": {
+                  "format": "date",
+                  "type": "string"
+                },
+                "bars": {
+                  "enum": [
+                    120,
+                    240,
+                    480,
+                    800
+                  ]
+                },
+                "maxWorkers": {
+                  "maximum": 4,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "period": {
+                  "enum": [
+                    "daily",
+                    "weekly",
+                    "monthly"
+                  ]
+                },
+                "symbols": {
+                  "items": {
+                    "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$",
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "symbols"
+              ],
+              "type": "object"
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "data": {
+                  "required": [
+                    "scan_id",
+                    "status",
+                    "parameters",
+                    "progress"
+                  ],
+                  "type": "object"
+                },
+                "meta": {
+                  "type": "object"
+                },
+                "ok": {
+                  "const": true
+                }
+              },
+              "required": [
+                "ok",
+                "data",
+                "meta"
+              ],
+              "type": "object"
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 10
+          }
+        },
+        "events": {
+          "emits": [],
+          "accepts": [
+            "security.selected"
+          ]
+        },
+        "refresh": {
+          "mode": "manual"
+        }
+      },
+      "defaultInstall": true
+    }
+  ]
+}

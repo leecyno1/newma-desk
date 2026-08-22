@@ -1,0 +1,5 @@
+{
+  "schemaVersion": "1.0", "id": "policy-calendar", "name": "政策日历", "description": "历史、当前与未来政策发布日程。", "version": "0.1.0", "publisher": "Newma-Desk",
+  "runtime": {"type": "external", "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:8911", "route": "/mod-runtime/policy-analysis/?view=calendar&mod=policy-calendar"},
+  "manifest": {"schemaVersion": "1.1", "category": "event", "navigation": {"groupLabel": "政策", "groupOrder": 20, "itemOrder": 0, "label": "政策日历", "directory": {"id": "policy-suite", "label": "政策研究", "order": 5}, "project": {"id": "policy-intelligence", "name": "政策", "order": 20, "description": "政策日历、政策流、政策量级、历史对比与影响解读。"}, "icon": "research"}, "compatibility": {"level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0"}, "permissions": ["investment.read"], "events": {"emits": [], "accepts": []}}
+}

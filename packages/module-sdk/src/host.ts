@@ -232,6 +232,7 @@ export function connectModHost(
 
   if (runtime.window.parent === runtime.window) {
     const root = runtime.window.document?.documentElement;
+    if (root) root.dataset.vibedeskEmbedded = "false";
     if (shouldApplyAppearance && root) {
       applyDeskAppearance(
         { environment: { theme: standaloneThemeMode(root) } },
@@ -434,10 +435,12 @@ export function connectModHost(
       const init = deskInitSchema.safeParse(message.data);
       if (init.success && init.data.modId === config.modId) {
         activeConfig = init.data;
+        const root = runtime.window.document?.documentElement;
+        if (root) root.dataset.vibedeskEmbedded = "true";
         if (shouldApplyAppearance) {
           applyDeskAppearance(
             init.data,
-            runtime.window.document?.documentElement,
+            root,
           );
         }
         post({

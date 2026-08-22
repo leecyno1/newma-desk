@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "1.0",
+  "id": "research-strategy-suite",
+  "name": "Vibe 策略研究",
+  "description": "把市场、主题、新闻、催化剂与产业线索转成可验证的研究任务。",
+  "version": "0.4.0",
+  "publisher": "Newma-Desk",
+  "upstream": "https://github.com/simonlin1212/Vibe-Research",
+  "tags": ["策略", "研究机会", "Research"],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "vibe-research",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INVESTMENT_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "策略",
+      "groupOrder": 100,
+      "itemOrder": 100,
+      "directory": {"id": "research-strategy-suite", "label": "研究机会", "order": 5},
+      "project": {
+        "id": "strategy-research",
+        "name": "策略",
+        "order": 100,
+        "description": "研究线索、条件筛选、策略验证、候选池与观察组合。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {"level": 1, "bridgeProtocol": "1.0"},
+    "permissions": [],
+    "dataServices": [],
+    "actions": {},
+    "events": {"emits": [], "accepts": []}
+  },
+  "pages": [
+    {
+      "id": "idea-funnel",
+      "name": "研究机会池",
+      "description": "把市场扫描、主题、新闻、催化剂、产业链和自选线索转成双向假设、研究任务与深度研究交接，并汇总复核到期、陈旧来源和档案缺口。",
+      "version": "0.1.0",
+      "tags": ["Idea Generation", "研究机会", "筛选", "研究队列", "反方证据"],
+      "route": "/mod-runtime/research/idea-funnel",
+      "navigation": {"itemOrder": 10},
+      "manifest": {
+        "compatibility": {"level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0"},
+        "permissions": ["market.read", "storage.read", "storage.write"],
+        "dataServices": ["market-data"],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [{"id": "idea-funnel", "scope": "user-workspace", "schemaVersion": 1, "quotaMb": 4, "maxItemKb": 256}]
+        },
+        "events": {"emits": ["security.selected"], "accepts": ["security.selected"]}
+      },
+      "defaultInstall": true
+    }
+  ]
+}

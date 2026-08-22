@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Literal
@@ -24,9 +25,111 @@ from vibe_visualization_api.agent_gateway.ui_actions import (
 from vibe_visualization_api.config import Settings
 
 
-CliKind = Literal["codex", "claude", "gemini"]
+CliKind = Literal["codex", "claude", "gemini", "qoder", "minimax"]
 MAX_PROMPT_CHARS = 120_000
 WorkspaceResolver = Callable[[str], Awaitable[Path | None]]
+
+
+CLI_SPECS: dict[str, dict[str, object]] = {
+    "codex": {
+        "name": "Codex CLI",
+        "description": "使用本机 Codex 登录态，适合编码与量化工作流",
+        "binaries": ("codex",),
+        "models": ("gpt-5.6-sol", "gpt-5.6-terra"),
+        "profiles": ("quick", "batch", "deep", "edit"),
+        "profileDetails": {
+            "quick": {"label": "快速", "description": "低推理、无长期记忆"},
+            "batch": {"label": "批量", "description": "低成本批处理"},
+            "deep": {"label": "深度", "description": "高推理、保留 Mod 上下文"},
+            "edit": {"label": "修改", "description": "允许工作区写入"},
+        },
+        "modelProbe": (),
+        "write": True,
+    },
+    "claude": {
+        "name": "Claude Code",
+        "description": "使用本机 Claude Code 登录态与工具",
+        "binaries": ("claude",),
+        "models": ("claude-sonnet-4-5", "claude-opus-4-1"),
+        "profiles": ("quick", "batch", "deep", "edit"),
+        "profileDetails": {
+            "quick": {"label": "快速", "description": "低推理、无长期记忆"},
+            "batch": {"label": "批量", "description": "低成本批处理"},
+            "deep": {"label": "深度", "description": "高推理、保留 Mod 上下文"},
+            "edit": {"label": "修改", "description": "允许工作区写入"},
+        },
+        "modelProbe": (),
+        "write": True,
+    },
+    "gemini": {
+        "name": "Gemini CLI",
+        "description": "使用本机 Gemini CLI 登录态与工具",
+        "binaries": ("gemini",),
+        "models": (),
+        "profiles": ("quick", "batch", "deep", "edit"),
+        "profileDetails": {
+            "quick": {"label": "快速", "description": "低推理、无长期记忆"},
+            "batch": {"label": "批量", "description": "低成本批处理"},
+            "deep": {"label": "深度", "description": "高推理、保留 Mod 上下文"},
+            "edit": {"label": "修改", "description": "允许工作区写入"},
+        },
+        "modelProbe": (),
+        "write": True,
+    },
+    "qoder": {
+        "name": "Qoder CLI",
+        "description": "使用本机 Qoder CLI，适合批量摘要与编码任务",
+        "binaries": ("qodercli", "qoder"),
+        "models": (),
+        "profiles": ("quick", "batch", "deep", "edit"),
+        "profileDetails": {
+            "quick": {"label": "快速", "description": "单次低成本回答"},
+            "batch": {"label": "批量", "description": "无会话批处理"},
+            "deep": {"label": "深度", "description": "较高推理强度"},
+            "edit": {"label": "修改", "description": "允许工作区写入"},
+        },
+        # Qoder exposes the current account's model catalog through this
+        # command.  Keep the registry fallback empty so the UI never presents
+        # stale model names when the account changes.
+        "modelProbe": ("--list-models",),
+        "write": True,
+    },
+    "minimax": {
+        "name": "MiniMax CLI",
+        "description": "使用本机 MiniMax CLI，适合低成本批量文本任务",
+        "binaries": ("mmx", "minimax", "minimax-cli"),
+        "models": ("MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"),
+        "profiles": ("quick", "batch", "deep"),
+        "profileDetails": {
+            "quick": {"label": "快速", "description": "单次低成本回答"},
+            "batch": {"label": "批量", "description": "无会话批处理"},
+            "deep": {"label": "深度", "description": "较高输出质量"},
+        },
+        # MiniMax CLI currently has no local model-list command.  These are
+        # the stable model IDs accepted by its text endpoint; users may still
+        # enter a newer ID in the Mod override.
+        "modelProbe": (),
+        "write": False,
+    },
+}
+
+
+COMMON_CLI_PATHS = (
+    Path("~/.local/bin"),
+    Path("~/.npm-global/bin"),
+    Path("~/bin"),
+    Path("~/.qoder/bin"),
+    Path("~/.minimax/bin"),
+    Path("/opt/homebrew/bin"),
+    Path("/opt/homebrew/sbin"),
+    Path("/usr/local/bin"),
+    Path("/usr/local/sbin"),
+    Path("/usr/bin"),
+    Path("/bin"),
+)
+
+CLI_DISCOVERY_TTL_SECONDS = 60.0
+CLI_PROBE_TIMEOUT_SECONDS = 4.0
 
 
 class ModWorkspaceUnavailableError(RuntimeError):
@@ -43,35 +146,122 @@ class LocalCliAgentAdapter:
     ):
         self.kind = kind
         self.id = f"{kind}-cli"
+        self._spec = CLI_SPECS[kind]
         self._settings = settings
         self._conversation_store = conversation_store
         self._workspace_resolver = workspace_resolver
         self._active_processes: dict[str, asyncio.subprocess.Process] = {}
+        self._batch_slots = asyncio.Semaphore(max(1, settings.agent_batch_concurrency))
+        self._discovery_cache: tuple[str, float, dict[str, object]] | None = None
 
     async def capabilities(self) -> list[str]:
-        return [
+        capabilities = [
             "chat",
             "module.explain",
-            "module.edit",
             "module.generate-view",
             "module.analyze",
             "quant.research",
         ]
+        if bool(self._spec["write"]):
+            capabilities.insert(2, "module.edit")
+        return capabilities
 
     async def describe(self) -> dict[str, object]:
-        labels = {
-            "codex": ("Codex CLI", "使用本机 Codex 登录态，适合编码与量化工作流"),
-            "claude": ("Claude Code", "使用本机 Claude Code 登录态与工具"),
-            "gemini": ("Gemini CLI", "使用本机 Gemini CLI 登录态与工具"),
-        }
-        name, description = labels[self.kind]
+        executable = self._executable()
+        discovered = await self._discover(executable)
         return {
-            "name": name,
-            "description": description,
+            "name": self._spec["name"],
+            "description": self._spec["description"],
             "kind": "local-cli",
-            "available": self._executable() is not None,
-            "supportsMemory": True,
+            "available": executable is not None,
+            "executable": executable,
+            "models": discovered["models"],
+            "modelSource": discovered["modelSource"],
+            "version": discovered["version"],
+            "commandProfiles": list(self._spec["profiles"]),
+            "commandProfileDetails": self._spec["profileDetails"],
+            "binaryCandidates": list(self._spec["binaries"]),
+            "supportsMemory": self.kind != "minimax",
+            "supportsWrite": bool(self._spec["write"]),
         }
+
+    async def _discover(self, executable: str | None) -> dict[str, object]:
+        """Read lightweight CLI metadata without making task execution depend on it."""
+        if executable is None:
+            return {"models": [], "modelSource": "unavailable", "version": None}
+        now = time.monotonic()
+        cached = self._discovery_cache
+        if (
+            cached is not None
+            and cached[0] == executable
+            and now - cached[1] < CLI_DISCOVERY_TTL_SECONDS
+        ):
+            return cached[2]
+
+        version = await self._probe_text(executable, ("--version",))
+        configured_models = [str(model) for model in self._spec["models"]]
+        probe_args = tuple(str(arg) for arg in self._spec.get("modelProbe", ()))
+        discovered_models = (
+            self._parse_model_list(
+                await self._probe_text(executable, probe_args)
+            )
+            if probe_args
+            else []
+        )
+        models = list(dict.fromkeys([*discovered_models, *configured_models]))
+        result = {
+            "models": models,
+            "modelSource": (
+                "cli"
+                if discovered_models
+                else ("registry" if configured_models else "none")
+            ),
+            "version": version,
+        }
+        self._discovery_cache = (executable, now, result)
+        return result
+
+    @staticmethod
+    async def _probe_text(executable: str, args: tuple[str, ...]) -> str:
+        if not args:
+            return ""
+        process: asyncio.subprocess.Process | None = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                executable,
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "NO_COLOR": "1", "TERM": "dumb"},
+            )
+            stdout, _stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=CLI_PROBE_TIMEOUT_SECONDS,
+            )
+        except (OSError, TimeoutError):
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
+            return ""
+        if process.returncode != 0:
+            return ""
+        return stdout.decode("utf-8", errors="replace").strip()
+
+    @staticmethod
+    def _parse_model_list(raw: str) -> list[str]:
+        models: list[str] = []
+        for line in raw.splitlines():
+            value = line.strip().strip("\r")
+            if not value or value.upper() in {"MODEL", "MODELS"}:
+                continue
+            # Ignore banners, ANSI residue, and diagnostic lines. Model IDs
+            # are intentionally permissive because providers use mixed case,
+            # dots, slashes, and dashes.
+            if any(marker in value.lower() for marker in ("warning:", "error:", "usage:")):
+                continue
+            if len(value) <= 128 and "\x1b" not in value:
+                models.append(value)
+        return list(dict.fromkeys(models))
 
     async def run(
         self,
@@ -85,7 +275,7 @@ class LocalCliAgentAdapter:
         if executable is None:
             yield self._failed(
                 "cli_unavailable",
-                f"未检测到本机 {self.kind} CLI，请先安装并完成登录",
+                f"未检测到本机 {self._spec['name']}，请先安装并完成登录",
             )
             return
 
@@ -112,17 +302,21 @@ class LocalCliAgentAdapter:
         yield AdapterEvent(
             type="progress",
             data={
-                "message": f"正在调用本机 {self.kind} CLI",
+                "message": f"正在调用本机 {self._spec['name']}",
                 "agentId": self.id,
+                "model": request.model,
+                "commandProfile": request.command_profile or request.profile,
             },
         )
         try:
-            raw_answer = await self._execute(
+            raw_answer = await self._execute_with_profile(
                 task_id,
                 executable,
                 workspace,
                 prompt,
                 allow_write,
+                request.command_profile or request.profile,
+                request.model,
             )
             answer, ui_actions = extract_ui_actions(raw_answer)
             answer, artifacts = extract_artifacts(answer)
@@ -148,7 +342,7 @@ class LocalCliAgentAdapter:
         except asyncio.CancelledError:
             raise
         except TimeoutError:
-            yield self._failed("cli_timeout", f"本机 {self.kind} CLI 调用超时")
+            yield self._failed("cli_timeout", f"本机 {self._spec['name']} 调用超时")
         except RuntimeError as error:
             yield self._failed("cli_failed", str(error))
 
@@ -163,8 +357,35 @@ class LocalCliAgentAdapter:
             process.kill()
             await process.wait()
 
+    async def _execute_with_profile(
+        self,
+        task_id: str,
+        executable: str,
+        workspace: Path,
+        prompt: str,
+        allow_write: bool,
+        profile: str,
+        model: str | None,
+    ) -> str:
+        if profile != "batch":
+            return await self._execute(
+                task_id, executable, workspace, prompt, allow_write, profile, model
+            )
+        async with self._batch_slots:
+            return await self._execute(
+                task_id, executable, workspace, prompt, allow_write, profile, model
+            )
+
     def _executable(self) -> str | None:
-        return shutil.which(self.kind)
+        for candidate in self._spec["binaries"]:
+            resolved = shutil.which(str(candidate))
+            if resolved:
+                return resolved
+            for directory in COMMON_CLI_PATHS:
+                path = directory.expanduser() / str(candidate)
+                if path.is_file() and path.stat().st_mode & 0o111:
+                    return str(path)
+        return None
 
     async def _workspace_for(self, module_id: str) -> Path:
         overrides: dict[str, str] = {}
@@ -314,6 +535,8 @@ class LocalCliAgentAdapter:
         workspace: Path,
         prompt: str,
         allow_write: bool,
+        profile: str,
+        model: str | None,
     ) -> str:
         with tempfile.TemporaryDirectory(prefix="newma-desk-cli-") as temp_dir:
             output_path = Path(temp_dir) / "answer.txt"
@@ -323,6 +546,8 @@ class LocalCliAgentAdapter:
                 prompt,
                 output_path,
                 allow_write,
+                profile,
+                model,
             )
             env = {**os.environ, "NO_COLOR": "1", "TERM": "dumb"}
             process = await asyncio.create_subprocess_exec(
@@ -334,7 +559,7 @@ class LocalCliAgentAdapter:
                 env=env,
             )
             self._active_processes[task_id] = process
-            stdin_payload = prompt.encode("utf-8") if self.kind != "gemini" else None
+            stdin_payload = prompt.encode("utf-8") if self.kind == "codex" else None
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(stdin_payload),
@@ -355,11 +580,11 @@ class LocalCliAgentAdapter:
                 detail = stderr.decode("utf-8", errors="replace").strip()
                 safe_detail = detail.splitlines()[-1][:240] if detail else ""
                 raise RuntimeError(
-                    f"{self.kind} CLI 退出码 {process.returncode}"
+                    f"{self._spec['name']} 退出码 {process.returncode}"
                     + (f"：{safe_detail}" if safe_detail else "")
                 )
             if not answer:
-                raise RuntimeError(f"{self.kind} CLI 未返回有效答案")
+                raise RuntimeError(f"{self._spec['name']} 未返回有效答案")
             return answer
 
     def _command(
@@ -369,13 +594,15 @@ class LocalCliAgentAdapter:
         prompt: str,
         output_path: Path,
         allow_write: bool,
+        profile: str = "deep",
+        model: str | None = None,
     ) -> list[str]:
         if self.kind == "codex":
-            return [
+            command = [
                 executable,
                 "exec",
                 "-c",
-                'model_reasoning_effort="high"',
+                f'model_reasoning_effort="{self._reasoning_effort(profile)}"',
                 "--skip-git-repo-check",
                 "--sandbox",
                 "workspace-write" if allow_write else "read-only",
@@ -387,8 +614,11 @@ class LocalCliAgentAdapter:
                 str(output_path),
                 "-",
             ]
+            if model:
+                command[2:2] = ["--model", model]
+            return command
         if self.kind == "claude":
-            return [
+            command = [
                 executable,
                 "-p",
                 "--output-format",
@@ -398,7 +628,12 @@ class LocalCliAgentAdapter:
                 "--add-dir",
                 str(workspace),
             ]
-        return [
+            if model:
+                command[2:2] = ["--model", model]
+            command.append(prompt)
+            return command
+        if self.kind == "gemini":
+            command = [
             executable,
             "--prompt",
             prompt,
@@ -406,10 +641,70 @@ class LocalCliAgentAdapter:
             "text",
             "--approval-mode",
             "auto_edit" if allow_write else "default",
+            ]
+            if model:
+                command[1:1] = ["--model", model]
+            return command
+        if self.kind == "qoder":
+            command = [
+                executable,
+                "--print",
+                "--output-format",
+                "text",
+                "--no-session-persistence",
+                "--permission-mode",
+                "accept_edits" if allow_write else "default",
+                "--cwd",
+                str(workspace),
+            ]
+            if model:
+                command.extend(["--model", model])
+            command.append(prompt)
+            return command
+        command = [
+            executable,
+            "--base-url",
+            self._minimax_base_url(),
+            "--output",
+            "text",
+            "--non-interactive",
+            "text",
+            "chat",
+            "--message",
+            prompt,
         ]
+        if model:
+            command.extend(["--model", model])
+        return command
 
     @staticmethod
-    def _allows_write(request: AgentTaskCreate) -> bool:
+    def _minimax_base_url() -> str:
+        configured = os.environ.get("NEWMA_DESK_AGENT_MINIMAX_BASE_URL", "").strip()
+        if configured:
+            return configured.rstrip("/")
+        config_path = Path("~/.mmx/config.json").expanduser()
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            config = {}
+        base_url = str(config.get("base_url") or "").strip().rstrip("/")
+        if base_url.endswith("/v1"):
+            base_url = base_url[:-3]
+        if base_url:
+            return base_url
+        return (
+            "https://api.minimaxi.com"
+            if config.get("region") == "cn"
+            else "https://api.minimax.io"
+        )
+
+    @staticmethod
+    def _reasoning_effort(profile: str) -> str:
+        return "high" if profile in {"deep", "edit"} else "low"
+
+    def _allows_write(self, request: AgentTaskCreate) -> bool:
+        if not bool(self._spec["write"]):
+            return False
         vibedesk = request.context.get("vibedesk")
         return (
             request.capability == "module.edit"

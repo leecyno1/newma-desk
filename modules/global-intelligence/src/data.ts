@@ -130,6 +130,7 @@ export interface GlobalIntelRouteAlertState {
 const SHIPPING_CORRIDORS = [
   {
     name: "欧亚主航线",
+    detail: "集装箱与综合货运 · 欧洲—中东—东亚",
     exposure: {
       countries: ["欧洲", "中东", "东亚"],
       commodities: ["集装箱货物", "原油", "LNG"],
@@ -148,6 +149,7 @@ const SHIPPING_CORRIDORS = [
   },
   {
     name: "海湾—东亚能源航线",
+    detail: "能源综合运输 · 海湾—印度洋—东亚",
     exposure: {
       countries: ["海湾出口国", "中国", "日本", "韩国"],
       commodities: ["原油", "LNG", "成品油"],
@@ -164,6 +166,7 @@ const SHIPPING_CORRIDORS = [
   },
   {
     name: "好望角绕行线",
+    detail: "集装箱、原油与散货 · 苏伊士替代走廊",
     exposure: {
       countries: ["欧洲", "非洲南部", "东亚"],
       commodities: ["集装箱货物", "原油", "散货"],
@@ -180,6 +183,7 @@ const SHIPPING_CORRIDORS = [
   },
   {
     name: "北极航运走廊",
+    detail: "季节性能源与散货 · 北欧—俄罗斯—东北亚",
     exposure: {
       countries: ["北欧", "俄罗斯", "东北亚"],
       commodities: ["LNG", "能源设备", "散货"],
@@ -187,6 +191,117 @@ const SHIPPING_CORRIDORS = [
       marketSignals: ["航季可用性", "冰区保险成本", "运输周期"],
     },
     stops: ["Danish Straits", "Northern Sea Route", "Korea Strait"],
+  },
+  {
+    name: "海湾—东亚原油油运线",
+    detail: "原油 · 主要油轮通道 · 霍尔木兹至东亚炼厂",
+    exposure: {
+      countries: ["海湾出口国", "印度", "中国", "日本", "韩国"],
+      commodities: ["原油"],
+      industries: ["油轮航运", "炼化", "航空", "化工"],
+      marketSignals: ["布伦特原油", "油轮运价", "航运保险成本"],
+    },
+    stops: ["Strait of Hormuz", "Mumbai", "Strait of Malacca", "Ningbo", "Korea Strait"],
+  },
+  {
+    name: "西非—东亚油运线",
+    detail: "原油 · 好望角绕行 · 西非至东亚",
+    exposure: {
+      countries: ["西非产油国", "南非", "中国", "日本"],
+      commodities: ["原油"],
+      industries: ["油轮航运", "炼化", "港口"],
+      marketSignals: ["西非原油价差", "油轮运价", "运输周期"],
+    },
+    stops: ["Bonny", "Cape of Good Hope", "Lombok Strait", "Ningbo"],
+  },
+  {
+    name: "红海—欧洲成品油线",
+    detail: "成品油 · 红海—苏伊士—地中海供应链",
+    exposure: {
+      countries: ["海湾出口国", "埃及", "欧洲"],
+      commodities: ["成品油"],
+      industries: ["油轮航运", "炼化", "港口"],
+      marketSignals: ["成品油裂解价差", "苏伊士通行量", "航运保险成本"],
+    },
+    stops: ["Bab el-Mandeb", "Suez Canal", "Strait of Gibraltar", "Rotterdam"],
+  },
+  {
+    name: "俄罗斯远东能源线",
+    detail: "原油 · 俄罗斯远东至东北亚",
+    exposure: {
+      countries: ["俄罗斯", "中国", "日本", "韩国"],
+      commodities: ["原油", "成品油"],
+      industries: ["油轮航运", "炼化", "港口"],
+      marketSignals: ["乌拉尔原油价差", "东北亚炼厂利润", "油轮运价"],
+    },
+    stops: ["Kozmino", "Korea Strait", "Yokohama", "Qingdao"],
+  },
+] as const;
+
+const ROUTE_NODE_COORDINATES: Record<string, [number, number]> = {
+  "Strait of Gibraltar": [-5.6, 35.97],
+  "Suez Canal": [32.27, 30.58],
+  "Bab el-Mandeb": [43.33, 12.58],
+  "Strait of Hormuz": [56.25, 26.57],
+  "Strait of Malacca": [103.5, 1.5],
+  "Strait of Luzon": [121, 20],
+  "Taiwan Strait": [118.5, 24],
+  "Korea Strait": [129.5, 34],
+  "Cape of Good Hope": [18.47, -34.36],
+  "Mozambique Channel": [43.5, -18],
+  "Lombok Strait": [115.7, -8.5],
+  "Danish Straits": [12, 56],
+  "Northern Sea Route": [105, 75],
+  Mumbai: [72.88, 19.08],
+  Ningbo: [121.55, 29.87],
+  Bonny: [7.16, 4.45],
+  Rotterdam: [4.14, 51.95],
+  Kozmino: [133, 42.7],
+  Yokohama: [139.6, 35.45],
+  Qingdao: [120.3, 36.1],
+};
+
+const ROUTE_NODE_ALIASES: Record<string, string[]> = {
+  "Strait of Gibraltar": ["直布罗陀海峡"],
+  "Suez Canal": ["苏伊士运河"],
+  "Bab el-Mandeb": ["曼德海峡", "曼德布海峡"],
+  "Strait of Hormuz": ["霍尔木兹", "霍尔木兹海峡"],
+  "Strait of Malacca": ["马六甲", "马六甲海峡"],
+  "Strait of Luzon": ["吕宋海峡"],
+  "Taiwan Strait": ["台湾海峡"],
+  "Korea Strait": ["朝鲜海峡", "韩国海峡"],
+  "Cape of Good Hope": ["好望角"],
+  "Mozambique Channel": ["莫桑比克海峡"],
+  "Lombok Strait": ["龙目海峡"],
+};
+
+const FLIGHT_EXPOSURE: GlobalIntelRouteExposure = {
+  countries: ["北美", "欧洲", "中东", "东亚", "大洋洲"],
+  commodities: ["航空货运", "高附加值商品", "旅客流量"],
+  industries: ["航空公司", "机场", "物流", "旅游"],
+  marketSignals: ["航班量", "航空货运价格", "航油价格", "机场吞吐量"],
+};
+
+const FLIGHT_CORRIDORS = [
+  {
+    name: "北大西洋航空走廊",
+    detail: "代表性客运与货运走廊 · 北美—欧洲",
+    path: [[-73.78, 40.64], [-0.45, 51.47], [8.57, 50.03]] as Array<[number, number]>,
+  },
+  {
+    name: "欧洲—海湾—亚洲航空走廊",
+    detail: "代表性客运与货运走廊 · 欧洲—中东—东亚",
+    path: [[-0.45, 51.47], [55.36, 25.25], [103.99, 1.36], [113.92, 22.31]] as Array<[number, number]>,
+  },
+  {
+    name: "跨太平洋航空走廊",
+    detail: "代表性客运与货运走廊 · 北美—东北亚",
+    path: [[-118.4, 33.94], [139.78, 35.55], [126.44, 37.46], [121.8, 31.14]] as Array<[number, number]>,
+  },
+  {
+    name: "东亚—澳洲航空走廊",
+    detail: "代表性客运与货运走廊 · 东亚—东南亚—澳洲",
+    path: [[139.78, 35.55], [103.99, 1.36], [151.18, -33.94]] as Array<[number, number]>,
   },
 ] as const;
 
@@ -463,7 +578,7 @@ const ROUTE_RELEVANT_CATEGORIES: Record<GlobalIntelRoute["kind"], Set<GlobalInte
   pipeline: new Set(["conflict", "disaster", "infrastructure", "climate"]),
   cable: new Set(["disaster", "infrastructure", "maritime"]),
   shipping: new Set(["conflict", "maritime", "disaster", "climate", "military"]),
-  flight: new Set(["conflict", "military"]),
+  flight: new Set(["aviation", "conflict", "military", "disaster", "climate"]),
 };
 
 const ROUTE_DISTANCE_LIMIT_KM: Record<GlobalIntelRoute["kind"], number> = {
@@ -1281,7 +1396,7 @@ export function normalizeGlobalIntelRoutes(
     });
   }
 
-  const tradeRoutePoints = new Map<string, [number, number]>();
+  const tradeRoutePoints = new Map<string, [number, number]>(Object.entries(ROUTE_NODE_COORDINATES));
   for (const record of routeRecords("trade_routes", "routes")) {
     const name = stringValue(record, "name");
     const latitude = numberValue(record, "lat", "latitude");
@@ -1298,10 +1413,46 @@ export function normalizeGlobalIntelRoutes(
       id: stableId("shipping", corridor.name),
       kind: "shipping",
       name: corridor.name,
-      detail: corridor.stops.filter((name) => tradeRoutePoints.has(name)).join(" → "),
+      detail: corridor.detail,
       path,
-      keywords: [corridor.name, ...corridor.stops],
+      keywords: [
+        corridor.name,
+        corridor.detail,
+        ...corridor.stops,
+        ...corridor.stops.flatMap((stop) => ROUTE_NODE_ALIASES[stop] ?? []),
+      ],
       exposure: corridor.exposure,
+      pathType: "corridor",
+      status: "active",
+    });
+  }
+
+  for (const record of routeRecords("flight_routes", "routes")) {
+    const start = coordinatePair(record, "start");
+    const end = coordinatePair(record, "end");
+    if (!start || !end) continue;
+    const name = stringValue(record, "name") || "航空走廊";
+    routes.push({
+      id: stableId("flight", name),
+      kind: "flight",
+      name,
+      detail: stringValue(record, "detail", "route") || "航空运行代表性走廊",
+      path: [start, end],
+      keywords: [name, stringValue(record, "route")].filter(Boolean),
+      exposure: FLIGHT_EXPOSURE,
+      pathType: "corridor",
+      status: stringValue(record, "status") || "active",
+    });
+  }
+  for (const corridor of FLIGHT_CORRIDORS) {
+    routes.push({
+      id: stableId("flight", corridor.name),
+      kind: "flight",
+      name: corridor.name,
+      detail: corridor.detail,
+      path: corridor.path,
+      keywords: [corridor.name, "航空", "航班", "航空货运"],
+      exposure: FLIGHT_EXPOSURE,
       pathType: "corridor",
       status: "active",
     });
