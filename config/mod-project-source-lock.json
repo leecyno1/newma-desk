@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0",
-  "generatedAt": "2026-08-09",
+  "generatedAt": "2026-08-22",
   "workspacePolicy": {
     "gitIgnoreRules": [
       "mod-projects/*",
@@ -20,15 +20,15 @@
         "url": "https://github.com/marc-shade/world-intel-mcp.git"
       },
       "branch": {
-        "current": "main",
-        "upstream": "origin/main"
+        "current": "codex/newma-desk-release-20260822",
+        "upstream": ""
       },
-      "commit": "4528a6ed69f97ab93f91111ae814871bc1bc6a1a",
+      "commit": "0f8885db1c413bef747bbd577afb84c3d8b0be67",
       "workingTree": {
         "status": "clean",
         "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "indexSha256": "947570d06bcdb7b3e362c1b7359a776e85a7731dcf8a417958e1d6db2c971f6d",
-        "worktreeSha256": "b9ac1c4210ef77523a6710e4b0ef41c57b19146c9456f81c91b2881bbe90f5fc",
+        "indexSha256": "20c7de66e948e29392cac21b9650663fab116de4b5ada146f230e6bc3151a7b4",
+        "worktreeSha256": "d2d2d9669fb179cf622609fdd59ad0dab1b05ed67b4150c3969fbda446d341df",
         "counts": {
           "entries": 0,
           "staged": 0,
@@ -48,12 +48,12 @@
         "current": "codex/newma-desk-release-baseline-20260809",
         "upstream": "origin/main"
       },
-      "commit": "e4dc07617e9ba16067b38b860e402b4af705a6c3",
+      "commit": "b6f4896ffbde81b33b282d01b70837472ec7fc43",
       "workingTree": {
         "status": "clean",
         "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "indexSha256": "4f514ba0cdafe33631f9f956033f6d2d2a42ed882c56891098bb28e03091666d",
-        "worktreeSha256": "1dd7bf7e01480a899c1a58daba0a44e4ee883ae149ba56404f4feafdea5b7a9a",
+        "indexSha256": "3b131bcb48453d5e541da1c41e4e770d6d210e7fc4d029f400e02036fc50d091",
+        "worktreeSha256": "aac3448dd24452247346f63837e2bfd6102b188dc9096b026275c023386006f2",
         "counts": {
           "entries": 0,
           "staged": 0,
@@ -73,12 +73,12 @@
         "current": "codex/newma-desk-release-baseline-20260809",
         "upstream": "origin/main"
       },
-      "commit": "f159a41033bdb8d3b2c60260bdab9bea045c814f",
+      "commit": "b53435b1689db4643dba2e9ca1b297853a956194",
       "workingTree": {
         "status": "clean",
         "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "indexSha256": "71cda1329f68d633789cc3e0e7922b112843690d6a7ad2e142abfa0b9df5c319",
-        "worktreeSha256": "7ac2fe1bf1f3c7b490e8b1093e5e7798a98b70be6fd5413f8bfeccf2f9326ab5",
+        "indexSha256": "aed74288fdf3b4da21bd3ddea47e239c0614f33caeafd69ba4f14bf630ba9eee",
+        "worktreeSha256": "065b3099350b03a87a73fe92ef75ba3be28aae527ad449dc76da30b47d305892",
         "counts": {
           "entries": 0,
           "staged": 0,

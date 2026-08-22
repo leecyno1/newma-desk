@@ -1,6 +1,6 @@
 # Mod Project Source Lock
 
-日期：2026-08-09
+日期：2026-08-22
 
 ## 目的
 
@@ -18,20 +18,26 @@
 
 ## 当前状态
 
-两个嵌套仓库的 Newma-Desk 集成改动已经分别保存为干净的本地快照提交，source lock 现在可以稳定验证分支、提交、索引和工作树内容：
+三个内置源码仓库的 Newma-Desk 集成改动已经分别保存为干净的本地快照提交，source lock 现在可以稳定验证分支、提交、索引和工作树内容：
+
+- `world-intel-mcp`
+  - `origin`: `https://github.com/marc-shade/world-intel-mcp.git`
+  - `branch`: `codex/newma-desk-release-20260822`
+  - `commit`: `0f8885db1c413bef747bbd577afb84c3d8b0be67`
+  - `working tree`: clean
 
 - `vibe-research`
   - `origin`: `https://github.com/simonlin1212/Vibe-Research.git`
   - `branch`: `codex/newma-desk-release-baseline-20260809`
-  - `commit`: `e4dc07617e9ba16067b38b860e402b4af705a6c3`
+  - `commit`: `b6f4896ffbde81b33b282d01b70837472ec7fc43`
   - `working tree`: clean
 - `vibe-trading`
   - `origin`: `https://github.com/HKUDS/Vibe-Trading.git`
   - `branch`: `codex/newma-desk-release-baseline-20260809`
-  - `commit`: `f159a41033bdb8d3b2c60260bdab9bea045c814f`
+  - `commit`: `b53435b1689db4643dba2e9ca1b297853a956194`
   - `working tree`: clean
 
-这些提交当前只存在于迁移后的本地仓库和已校验的本地恢复介质中。overlay 状态为 `local-recovery-ready`：可以从完整 Git bundle 恢复，但尚未获得向两个外部上游推送集成分支的授权；不得把“本地可恢复”表述成“外部远端已备份”。
+这些提交当前只存在于迁移后的本地仓库和已校验的本地恢复介质中。overlay 状态为 `local-recovery-ready`：可以从完整 Git bundle 恢复，但尚未获得向外部上游推送集成分支的授权；不得把“本地可恢复”表述成“外部远端已备份”。
 
 ## 创建本地恢复介质
 
