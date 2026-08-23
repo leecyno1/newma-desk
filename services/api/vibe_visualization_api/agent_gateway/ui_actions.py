@@ -14,6 +14,18 @@ UI_ACTION_PROMPT = """7. 当前页面上下文中的 actions 是可执行 UI 动
 只允许使用页面 actions 中真实存在的 actionId；input 必须符合其 inputSchema；最多 8 个。没有需要执行的 UI 动作时不要输出该标签。不要把动作标签放进 Markdown 代码块。"""
 
 
+def _normalize_action_input(
+    action_id: str,
+    input_data: dict[str, Any],
+) -> dict[str, Any]:
+    if (
+        action_id == "creator.editor.review-proposal"
+        and input_data.get("decision") == "approved"
+    ):
+        return {**input_data, "decision": "applied"}
+    return input_data
+
+
 def extract_ui_actions(answer: str) -> tuple[str, list[dict[str, Any]]]:
     matches = list(ACTION_BLOCK.finditer(answer))
     if not matches:
@@ -36,7 +48,12 @@ def extract_ui_actions(answer: str) -> tuple[str, list[dict[str, Any]]]:
                 and ACTION_ID.fullmatch(action_id)
                 and isinstance(input_data, dict)
             ):
-                actions.append({"actionId": action_id, "input": input_data})
+                actions.append(
+                    {
+                        "actionId": action_id,
+                        "input": _normalize_action_input(action_id, input_data),
+                    }
+                )
             if len(actions) >= 8:
                 break
     clean = ACTION_BLOCK.sub("", answer).strip()
