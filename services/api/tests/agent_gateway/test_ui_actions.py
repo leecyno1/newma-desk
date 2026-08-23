@@ -19,3 +19,18 @@ def test_ui_actions_ignore_invalid_ids_and_non_object_inputs() -> None:
     )
 
     assert actions == []
+
+
+def test_openchatcut_review_action_normalizes_approved_to_applied() -> None:
+    _, actions = extract_ui_actions(
+        '<vibedesk_actions>[{"actionId":"creator.editor.review-proposal",'
+        '"input":{"decision":"approved","sessionId":"editor-1"}}]'
+        "</vibedesk_actions>"
+    )
+
+    assert actions == [
+        {
+            "actionId": "creator.editor.review-proposal",
+            "input": {"decision": "applied", "sessionId": "editor-1"},
+        }
+    ]
