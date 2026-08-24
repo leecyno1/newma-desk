@@ -10,11 +10,19 @@ from vibe_visualization_api.portfolio_center.models import (
     PortfolioActivity,
     PortfolioActivityCreate,
     PortfolioDashboard,
+    PortfolioOrder,
+    PortfolioOrderCreate,
+    PortfolioOrderUpdate,
     PortfolioOptimizationRequest,
     PortfolioOptimizationResult,
     PortfolioPerformanceRequest,
     PortfolioPerformanceResult,
     PortfolioResearchCoverage,
+    PortfolioRiskAction,
+    PortfolioRiskActionCreate,
+    PortfolioRiskActionUpdate,
+    PortfolioRiskPolicy,
+    PortfolioRiskPolicyInput,
     StrategicAllocationRequest,
     StrategicAllocationResult,
 )
@@ -34,6 +42,14 @@ WorkspaceId = Annotated[
     Header(alias="X-Workspace-Id", min_length=1, max_length=128),
 ]
 ActivityId = Annotated[
+    str,
+    Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$"),
+]
+OrderId = Annotated[
+    str,
+    Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$"),
+]
+RiskActionId = Annotated[
     str,
     Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$"),
 ]
@@ -159,6 +175,96 @@ async def create_portfolio_activity(
         user_id=user_id,
         workspace_id=workspace_id,
         activity=activity,
+    )
+
+
+@router.post(
+    "/orders",
+    response_model=PortfolioOrder,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_portfolio_order(
+    order: PortfolioOrderCreate,
+    request: Request,
+    user_id: UserId = "local-user",
+    workspace_id: WorkspaceId = "local-workspace",
+):
+    return await run_in_threadpool(
+        request.app.state.portfolio_center_service.create_order,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        order=order,
+    )
+
+
+@router.patch("/orders/{order_id}", response_model=PortfolioOrder)
+async def update_portfolio_order(
+    update: PortfolioOrderUpdate,
+    request: Request,
+    order_id: OrderId,
+    user_id: UserId = "local-user",
+    workspace_id: WorkspaceId = "local-workspace",
+):
+    return await run_in_threadpool(
+        request.app.state.portfolio_center_service.update_order,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        order_id=order_id,
+        update=update,
+    )
+
+
+@router.put("/risk-policy", response_model=PortfolioRiskPolicy)
+async def update_portfolio_risk_policy(
+    policy: PortfolioRiskPolicyInput,
+    request: Request,
+    user_id: UserId = "local-user",
+    workspace_id: WorkspaceId = "local-workspace",
+):
+    return await run_in_threadpool(
+        request.app.state.portfolio_center_service.update_risk_policy,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        policy=policy,
+    )
+
+
+@router.post(
+    "/risk-actions",
+    response_model=PortfolioRiskAction,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_portfolio_risk_action(
+    action: PortfolioRiskActionCreate,
+    request: Request,
+    user_id: UserId = "local-user",
+    workspace_id: WorkspaceId = "local-workspace",
+):
+    return await run_in_threadpool(
+        request.app.state.portfolio_center_service.create_risk_action,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        action=action,
+    )
+
+
+@router.patch(
+    "/risk-actions/{action_id}",
+    response_model=PortfolioRiskAction,
+)
+async def update_portfolio_risk_action(
+    update: PortfolioRiskActionUpdate,
+    request: Request,
+    action_id: RiskActionId,
+    user_id: UserId = "local-user",
+    workspace_id: WorkspaceId = "local-workspace",
+):
+    return await run_in_threadpool(
+        request.app.state.portfolio_center_service.update_risk_action,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        action_id=action_id,
+        update=update,
     )
 
 

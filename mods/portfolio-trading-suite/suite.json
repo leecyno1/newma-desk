@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0",
   "id": "portfolio-trading-suite",
-  "name": "组合交易记录",
-  "description": "组合层交易活动与执行记录。",
-  "version": "0.1.0",
+  "name": "交易工作台",
+  "description": "管理委托、成交、持仓、资金、费用、执行质量与对账异常。",
+  "version": "0.2.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/ghostfolio/ghostfolio",
   "tags": [
@@ -28,7 +28,7 @@
       "itemOrder": 30,
       "directory": {
         "id": "portfolio-trading-suite",
-        "label": "交易记录",
+        "label": "交易工作台",
         "order": 10
       },
       "project": {
@@ -133,17 +133,19 @@
   "pages": [
     {
       "id": "portfolio-activities",
-      "name": "交易流水",
-      "description": "录入买卖、现金、分红、费用和拆并股流水，由账本派生持仓。",
+      "name": "交易工作台",
+      "description": "覆盖委托生命周期、成交入账、持仓、资金、费用、执行质量和对账异常。",
       "tags": [
         "交易",
-        "流水",
-        "账本"
+        "委托",
+        "成交",
+        "账本",
+        "对账"
       ],
       "route": "/mod-runtime/portfolio-center/?workspace=portfolio-activities",
       "navigation": {
         "itemOrder": 20,
-        "label": "流水"
+        "label": "交易工作台"
       }
     }
   ]

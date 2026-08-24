@@ -195,7 +195,7 @@ function CalendarMonth({ month, events, selectedId, onSelect }: {
 
 function InterpretationReport({ report }: { report: PolicyInterpretation }) {
   return <div className="interpretation-report">
-    <div className="interpretation-mode"><Sparkles /><strong>{report.mode === "ai" ? "AI 模型解析" : "规则分析"}</strong><span>{report.model ?? "模型未配置，已使用可审计规则"}</span></div>
+    <div className="interpretation-mode"><Sparkles /><strong>{report.mode === "ai" ? "轻量 Agent 解读" : "规则分析"}</strong><span>{report.mode === "ai" ? `${report.adapter ?? "本地 Agent"} · ${report.model ?? "默认模型"}` : "Agent 不可用，已使用可审计规则"}</span></div>
     <section><h3><ShieldCheck />影响分析</h3><div className="analysis-columns"><div><b>事实</b>{report.impactAnalysis.facts.map((item) => <p key={item}>{item}</p>)}</div><div><b>影响推断</b>{report.impactAnalysis.inferences.map((item) => <p key={item}>{item}</p>)}</div><div><b>不确定性</b>{report.impactAnalysis.uncertainties.map((item) => <p key={item}>{item}</p>)}</div></div></section>
     <section><h3><Clock3 />同类政策历史对比推演</h3>{report.historicalComparison.matchedPolicies.length ? <div className="history-matches">{report.historicalComparison.matchedPolicies.map((item) => <span key={item.id}>{item.date} · {item.title}</span>)}</div> : <p className="muted-note">尚未识别到同系列历史政策。</p>}<div className="comparison-points"><div><b>新增</b>{report.historicalComparison.added.map((item) => <span key={item}>{item}</span>)}</div><div><b>减少</b>{report.historicalComparison.removed.map((item) => <span key={item}>{item}</span>)}</div><div><b>延续</b>{report.historicalComparison.shared.map((item) => <span key={item}>{item}</span>)}</div></div><small>{report.historicalComparison.note}</small></section>
     <section className={"transcript-status " + report.transcriptComparison.status}><h3><TextSearch />逐字稿对比</h3><strong>{report.transcriptComparison.status === "available" ? "正文对比已完成" : "缺少可比对的官方正文"}</strong><p>{report.transcriptComparison.note}</p></section>
@@ -425,8 +425,8 @@ export function PolicyAnalysisApp() {
           </section>
           <section className="interpretation-pane">
             {selected ? <>
-              <header className="interpretation-header"><div><span className={"level-tag l" + selected.level}>L{selected.level}</span><h2>{selected.title}</h2><p>{selected.institution} · {selected.date}</p></div><button type="button" onClick={() => void generateInterpretation()} disabled={interpreting}>{interpreting ? <RefreshCw className="spin" /> : <Sparkles />}{currentInterpretation ? "重新解析" : "AI 解析"}</button></header>
-              {currentInterpretation ? <InterpretationReport report={currentInterpretation} /> : <div className="interpretation-empty"><BrainCircuit /><strong>生成政策研究解读</strong><span>影响分析、同类政策历史对比推演与逐字稿对比条件检查。</span></div>}
+              <header className="interpretation-header"><div><span className={"level-tag l" + selected.level}>L{selected.level}</span><h2>{selected.title}</h2><p>{selected.institution} · {selected.date}</p></div><button type="button" onClick={() => void generateInterpretation()} disabled={interpreting}>{interpreting ? <RefreshCw className="spin" /> : <Sparkles />}{currentInterpretation ? "重新解读" : "开始解读"}</button></header>
+              {currentInterpretation ? <InterpretationReport report={currentInterpretation} /> : <div className="interpretation-empty"><BrainCircuit /><strong>使用轻量 Agent 解读</strong><span>只读取当前政策摘要和关联官方文件，输出事实、影响推断、不确定性与历史差异。</span></div>}
             </> : <div className="empty-state">选择一条已发布政策</div>}
           </section>
         </div>

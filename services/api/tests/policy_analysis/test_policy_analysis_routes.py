@@ -169,6 +169,7 @@ def test_published_policy_prefers_declared_agent_action(tmp_path):
     assert captured["request"].module_id == "policy-interpretation"
     assert captured["request"].capability == "policy.interpret"
     assert captured["request"].profile == "batch"
+    assert captured["request"].command_profile == "batch"
     assert captured["request"].memory_scope == "task"
     assert captured["workspace_id"] == "policy-workspace"
 

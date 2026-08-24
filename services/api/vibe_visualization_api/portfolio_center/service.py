@@ -22,6 +22,9 @@ from vibe_visualization_api.portfolio_center.models import (
     PortfolioActivityCreate,
     PortfolioAnalytics,
     PortfolioDashboard,
+    PortfolioOrder,
+    PortfolioOrderCreate,
+    PortfolioOrderUpdate,
     PortfolioPerformanceMetrics,
     PortfolioPerformancePoint,
     PortfolioPerformanceRequest,
@@ -31,6 +34,11 @@ from vibe_visualization_api.portfolio_center.models import (
     PortfolioOptimizationRequest,
     PortfolioOptimizationResult,
     PortfolioPosition,
+    PortfolioRiskAction,
+    PortfolioRiskActionCreate,
+    PortfolioRiskActionUpdate,
+    PortfolioRiskPolicy,
+    PortfolioRiskPolicyInput,
     StrategicAllocationRequest,
     StrategicAllocationResult,
 )
@@ -112,6 +120,13 @@ class PortfolioCenterService:
             user_id=user_id,
             workspace_id=workspace_id,
         )
+        if activity.order_id:
+            order = self._store.get_order(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                order_id=activity.order_id,
+            )
+            self._validate_order_execution(order, activity, current)
         candidate = PortfolioActivity.model_validate(
             {
                 **activity.model_dump(mode="json", by_alias=True),
@@ -120,11 +135,18 @@ class PortfolioCenterService:
             }
         )
         self._derive_positions([*current, candidate], quotes={})
-        return self._store.add_activity(
+        created = self._store.add_activity(
             user_id=user_id,
             workspace_id=workspace_id,
             activity=activity,
         )
+        if created.order_id:
+            self._sync_order_fill(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                order_id=created.order_id,
+            )
+        return created
 
     def delete_activity(
         self,
@@ -133,10 +155,173 @@ class PortfolioCenterService:
         workspace_id: str,
         activity_id: str,
     ) -> None:
+        activity = self._store.get_activity(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            activity_id=activity_id,
+        )
         self._store.delete_activity(
             user_id=user_id,
             workspace_id=workspace_id,
             activity_id=activity_id,
+        )
+        if activity.order_id:
+            self._sync_order_fill(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                order_id=activity.order_id,
+            )
+
+    def create_order(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        order: PortfolioOrderCreate,
+    ) -> PortfolioOrder:
+        return self._store.create_order(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            order=order,
+        )
+
+    def update_order(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        order_id: str,
+        update: PortfolioOrderUpdate,
+    ) -> PortfolioOrder:
+        current = self._store.get_order(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            order_id=order_id,
+        )
+        if update.filled_quantity is not None and update.filled_quantity > current.quantity:
+            raise PortfolioConflictError("order filled quantity exceeds order quantity")
+        if current.status in {"cancelled", "rejected"} and update.status in {
+            "partial",
+            "filled",
+        }:
+            raise PortfolioConflictError("closed order cannot be filled")
+        return self._store.update_order(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            order_id=order_id,
+            update=update,
+        )
+
+    def update_risk_policy(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        policy: PortfolioRiskPolicyInput,
+    ) -> PortfolioRiskPolicy:
+        return self._store.save_risk_policy(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            policy=policy,
+        )
+
+    def create_risk_action(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        action: PortfolioRiskActionCreate,
+    ) -> PortfolioRiskAction:
+        return self._store.create_risk_action(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            action=action,
+        )
+
+    def update_risk_action(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        action_id: str,
+        update: PortfolioRiskActionUpdate,
+    ) -> PortfolioRiskAction:
+        return self._store.update_risk_action(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            action_id=action_id,
+            update=update,
+        )
+
+    @staticmethod
+    def _validate_order_execution(
+        order: PortfolioOrder,
+        activity: PortfolioActivityCreate,
+        activities: list[PortfolioActivity],
+    ) -> None:
+        if activity.type not in {"buy", "sell"}:
+            raise PortfolioConflictError("only buy or sell execution can link an order")
+        if order.status in {"cancelled", "rejected"}:
+            raise PortfolioConflictError("closed order cannot receive an execution")
+        if (
+            order.account_id != activity.account_id
+            or order.side != activity.type
+            or order.market != activity.market
+            or order.symbol != activity.symbol
+            or order.currency != activity.currency
+        ):
+            raise PortfolioConflictError("execution does not match linked order")
+        filled = sum(
+            item.quantity or 0
+            for item in activities
+            if item.order_id == order.id and item.type in {"buy", "sell"}
+        )
+        if filled + (activity.quantity or 0) > order.quantity + _EPSILON:
+            raise PortfolioConflictError("execution quantity exceeds linked order")
+
+    def _sync_order_fill(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        order_id: str,
+    ) -> None:
+        order = self._store.get_order(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            order_id=order_id,
+        )
+        executions = [
+            item
+            for item in self._store.list_activities(
+                user_id=user_id,
+                workspace_id=workspace_id,
+            )
+            if item.order_id == order_id and item.type in {"buy", "sell"}
+        ]
+        filled_quantity = sum(item.quantity or 0 for item in executions)
+        notional = sum(
+            (item.quantity or 0) * (item.unit_price or 0) for item in executions
+        )
+        average_fill_price = (
+            notional / filled_quantity if filled_quantity > _EPSILON else None
+        )
+        status_value = (
+            "filled"
+            if filled_quantity >= order.quantity - _EPSILON
+            else "partial"
+            if filled_quantity > _EPSILON
+            else "submitted"
+        )
+        self._store.update_order(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            order_id=order_id,
+            update=PortfolioOrderUpdate(
+                status=status_value,
+                filledQuantity=filled_quantity,
+                averageFillPrice=average_fill_price,
+            ),
         )
 
     def import_legacy(
@@ -176,6 +361,18 @@ class PortfolioCenterService:
             user_id=user_id,
             workspace_id=workspace_id,
         )
+        orders = self._store.list_orders(
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+        risk_policy = self._store.get_risk_policy(
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+        risk_actions = self._store.list_risk_actions(
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
         identities = sorted(
             {
                 SecurityIdentity(activity.market, activity.symbol)
@@ -202,10 +399,13 @@ class PortfolioCenterService:
             userId=user_id,
             workspaceId=workspace_id,
             accounts=accounts,
+            orders=orders,
             activities=list(reversed(activities)),
             positions=positions,
             currencies=currencies,
             analytics=analytics,
+            riskPolicy=risk_policy,
+            riskActions=risk_actions,
             valuationStatus=valuation_status,
             updatedAt=datetime.now(UTC),
         )

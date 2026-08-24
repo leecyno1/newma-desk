@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -74,13 +74,19 @@ class PortfolioActivityCreate(PortfolioModel):
     occurred_at: datetime
     note: str | None = Field(default=None, max_length=500)
     source: Literal["manual", "import", "broker"] = "manual"
+    order_id: str | None = Field(default=None, max_length=64)
+    execution_id: str | None = Field(default=None, max_length=128)
+    settlement_date: date | None = None
+    decision_price: float | None = Field(default=None, ge=0)
+    arrival_price: float | None = Field(default=None, ge=0)
+    benchmark_price: float | None = Field(default=None, ge=0)
 
     @field_validator("symbol")
     @classmethod
     def normalize_symbol(cls, value: str | None) -> str | None:
         return value.strip().upper() if value else None
 
-    @field_validator("name", "note")
+    @field_validator("name", "note", "order_id", "execution_id")
     @classmethod
     def normalize_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -114,6 +120,139 @@ class PortfolioActivityCreate(PortfolioModel):
 class PortfolioActivity(PortfolioActivityCreate):
     id: str
     created_at: datetime
+
+
+class PortfolioOrderCreate(PortfolioModel):
+    account_id: str = Field(pattern=ACCOUNT_ID_PATTERN)
+    side: Literal["buy", "sell"]
+    market: Literal["CN", "HK", "US"]
+    symbol: str = Field(pattern=SYMBOL_PATTERN)
+    name: str | None = Field(default=None, max_length=160)
+    currency: str = Field(default="CNY", pattern=CURRENCY_PATTERN)
+    order_type: Literal["market", "limit", "stop", "stop-limit"] = "limit"
+    quantity: float = Field(gt=0)
+    limit_price: float | None = Field(default=None, ge=0)
+    stop_price: float | None = Field(default=None, ge=0)
+    time_in_force: Literal["day", "gtc", "ioc", "fok"] = "day"
+    status: Literal["draft", "submitted"] = "submitted"
+    submitted_at: datetime | None = None
+    expires_at: datetime | None = None
+    broker_order_id: str | None = Field(default=None, max_length=128)
+    note: str | None = Field(default=None, max_length=500)
+    source: Literal["manual", "import", "broker"] = "manual"
+
+    @field_validator("symbol", "currency")
+    @classmethod
+    def normalize_order_identifier(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @field_validator("name", "broker_order_id", "note")
+    @classmethod
+    def normalize_order_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        clean = value.strip()
+        return clean or None
+
+    @model_validator(mode="after")
+    def validate_order_shape(self) -> Self:
+        if self.order_type in {"limit", "stop-limit"} and self.limit_price is None:
+            raise ValueError("limit order requires limitPrice")
+        if self.order_type in {"stop", "stop-limit"} and self.stop_price is None:
+            raise ValueError("stop order requires stopPrice")
+        return self
+
+
+class PortfolioOrderUpdate(PortfolioModel):
+    status: Literal[
+        "draft",
+        "submitted",
+        "partial",
+        "filled",
+        "cancelled",
+        "rejected",
+    ] | None = None
+    filled_quantity: float | None = Field(default=None, ge=0)
+    average_fill_price: float | None = Field(default=None, ge=0)
+    broker_order_id: str | None = Field(default=None, max_length=128)
+    note: str | None = Field(default=None, max_length=500)
+
+    @field_validator("broker_order_id", "note")
+    @classmethod
+    def normalize_update_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        clean = value.strip()
+        return clean or None
+
+
+class PortfolioOrder(PortfolioOrderCreate):
+    id: str
+    status: Literal[
+        "draft",
+        "submitted",
+        "partial",
+        "filled",
+        "cancelled",
+        "rejected",
+    ]
+    filled_quantity: float = Field(default=0, ge=0)
+    average_fill_price: float | None = Field(default=None, ge=0)
+    created_at: datetime
+    updated_at: datetime
+
+
+class PortfolioRiskPolicyInput(PortfolioModel):
+    single_position_limit_pct: float = Field(default=30, ge=0, le=100)
+    top_three_limit_pct: float = Field(default=65, ge=0, le=100)
+    min_effective_positions: float = Field(default=5, ge=1, le=100)
+    max_drawdown_limit_pct: float = Field(default=15, ge=0, le=100)
+    var95_limit_pct: float = Field(default=5, ge=0, le=100)
+    max_unpriced_positions: int = Field(default=0, ge=0, le=10_000)
+    allow_negative_cash: bool = False
+
+
+class PortfolioRiskPolicy(PortfolioRiskPolicyInput):
+    updated_at: datetime
+
+
+class PortfolioRiskActionCreate(PortfolioModel):
+    rule_id: str = Field(min_length=1, max_length=64)
+    severity: Literal["low", "medium", "high", "critical"] = "medium"
+    title: str = Field(min_length=1, max_length=160)
+    detail: str = Field(min_length=1, max_length=1000)
+    owner: str | None = Field(default=None, max_length=80)
+    note: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("rule_id", "title", "detail", "owner", "note")
+    @classmethod
+    def normalize_risk_action_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        clean = value.strip()
+        return clean or None
+
+
+class PortfolioRiskActionUpdate(PortfolioModel):
+    status: Literal["open", "acknowledged", "resolved", "waived"] | None = None
+    owner: str | None = Field(default=None, max_length=80)
+    note: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("owner", "note")
+    @classmethod
+    def normalize_risk_action_update_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        clean = value.strip()
+        return clean or None
+
+
+class PortfolioRiskAction(PortfolioRiskActionCreate):
+    id: str
+    status: Literal["open", "acknowledged", "resolved", "waived"] = "open"
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: datetime | None = None
 
 
 class PortfolioPosition(PortfolioModel):
@@ -173,10 +312,13 @@ class PortfolioDashboard(PortfolioModel):
     user_id: str
     workspace_id: str
     accounts: list[PortfolioAccount]
+    orders: list[PortfolioOrder]
     activities: list[PortfolioActivity]
     positions: list[PortfolioPosition]
     currencies: list[CurrencySummary]
     analytics: PortfolioAnalytics
+    risk_policy: PortfolioRiskPolicy
+    risk_actions: list[PortfolioRiskAction]
     valuation_status: Literal["live", "partial", "cost-based"]
     updated_at: datetime
 

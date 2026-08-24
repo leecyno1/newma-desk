@@ -4,6 +4,9 @@ import type {
   PortfolioAccount,
   PortfolioActivity,
   PortfolioDashboard,
+  PortfolioOrder,
+  PortfolioRiskAction,
+  PortfolioRiskPolicy,
   PortfolioOptimizationInput,
   PortfolioOptimizationResult,
   PortfolioPerformanceInput,
@@ -31,7 +34,32 @@ export interface ActivityInput {
   fee?: number;
   occurredAt: string;
   note?: string;
+  orderId?: string;
+  executionId?: string;
+  settlementDate?: string;
+  decisionPrice?: number;
+  arrivalPrice?: number;
+  benchmarkPrice?: number;
 }
+
+export interface OrderInput {
+  accountId: string;
+  side: "buy" | "sell";
+  market: Market;
+  symbol: string;
+  name?: string;
+  currency: string;
+  orderType: "market" | "limit" | "stop" | "stop-limit";
+  quantity: number;
+  limitPrice?: number;
+  stopPrice?: number;
+  timeInForce: "day" | "gtc" | "ioc" | "fok";
+  status: "draft" | "submitted";
+  brokerOrderId?: string;
+  note?: string;
+}
+
+export type RiskPolicyInput = Omit<PortfolioRiskPolicy, "updatedAt">;
 
 function headers(identity: PortfolioIdentity, json = false) {
   return {
@@ -83,6 +111,36 @@ export function portfolioClient(identity: PortfolioIdentity) {
     createActivity: async (input: ActivityInput) =>
       payload<PortfolioActivity>(await fetch("/api/portfolio-center/activities", {
         method: "POST",
+        headers: headers(identity, true),
+        body: JSON.stringify(input),
+      })),
+    createOrder: async (input: OrderInput) =>
+      payload<PortfolioOrder>(await fetch("/api/portfolio-center/orders", {
+        method: "POST",
+        headers: headers(identity, true),
+        body: JSON.stringify(input),
+      })),
+    updateOrder: async (orderId: string, input: { status?: PortfolioOrder["status"]; brokerOrderId?: string; note?: string }) =>
+      payload<PortfolioOrder>(await fetch(`/api/portfolio-center/orders/${encodeURIComponent(orderId)}`, {
+        method: "PATCH",
+        headers: headers(identity, true),
+        body: JSON.stringify(input),
+      })),
+    updateRiskPolicy: async (input: RiskPolicyInput) =>
+      payload<PortfolioRiskPolicy>(await fetch("/api/portfolio-center/risk-policy", {
+        method: "PUT",
+        headers: headers(identity, true),
+        body: JSON.stringify(input),
+      })),
+    createRiskAction: async (input: { ruleId: string; severity: PortfolioRiskAction["severity"]; title: string; detail: string; owner?: string; note?: string }) =>
+      payload<PortfolioRiskAction>(await fetch("/api/portfolio-center/risk-actions", {
+        method: "POST",
+        headers: headers(identity, true),
+        body: JSON.stringify(input),
+      })),
+    updateRiskAction: async (actionId: string, input: { status?: PortfolioRiskAction["status"]; owner?: string; note?: string }) =>
+      payload<PortfolioRiskAction>(await fetch(`/api/portfolio-center/risk-actions/${encodeURIComponent(actionId)}`, {
+        method: "PATCH",
         headers: headers(identity, true),
         body: JSON.stringify(input),
       })),

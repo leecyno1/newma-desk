@@ -8,6 +8,7 @@ export type ActivityType =
   | "deposit"
   | "withdrawal"
   | "split";
+export type OrderStatus = "draft" | "submitted" | "partial" | "filled" | "cancelled" | "rejected";
 
 export interface PortfolioAccount {
   id: string;
@@ -35,7 +36,63 @@ export interface PortfolioActivity {
   occurredAt: string;
   note?: string | null;
   source: "manual" | "import" | "broker";
+  orderId?: string | null;
+  executionId?: string | null;
+  settlementDate?: string | null;
+  decisionPrice?: number | null;
+  arrivalPrice?: number | null;
+  benchmarkPrice?: number | null;
   createdAt: string;
+}
+
+export interface PortfolioOrder {
+  id: string;
+  accountId: string;
+  side: "buy" | "sell";
+  market: Market;
+  symbol: string;
+  name?: string | null;
+  currency: string;
+  orderType: "market" | "limit" | "stop" | "stop-limit";
+  quantity: number;
+  limitPrice?: number | null;
+  stopPrice?: number | null;
+  timeInForce: "day" | "gtc" | "ioc" | "fok";
+  status: OrderStatus;
+  filledQuantity: number;
+  averageFillPrice?: number | null;
+  submittedAt?: string | null;
+  expiresAt?: string | null;
+  brokerOrderId?: string | null;
+  note?: string | null;
+  source: "manual" | "import" | "broker";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PortfolioRiskPolicy {
+  singlePositionLimitPct: number;
+  topThreeLimitPct: number;
+  minEffectivePositions: number;
+  maxDrawdownLimitPct: number;
+  var95LimitPct: number;
+  maxUnpricedPositions: number;
+  allowNegativeCash: boolean;
+  updatedAt: string;
+}
+
+export interface PortfolioRiskAction {
+  id: string;
+  ruleId: string;
+  severity: "low" | "medium" | "high" | "critical";
+  status: "open" | "acknowledged" | "resolved" | "waived";
+  title: string;
+  detail: string;
+  owner?: string | null;
+  note?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string | null;
 }
 
 export interface PortfolioPosition {
@@ -79,6 +136,7 @@ export interface PortfolioDashboard {
   userId: string;
   workspaceId: string;
   accounts: PortfolioAccount[];
+  orders: PortfolioOrder[];
   activities: PortfolioActivity[];
   positions: PortfolioPosition[];
   currencies: CurrencySummary[];
@@ -95,6 +153,8 @@ export interface PortfolioDashboard {
       effectivePositionCount: number;
     };
   };
+  riskPolicy: PortfolioRiskPolicy;
+  riskActions: PortfolioRiskAction[];
   valuationStatus: "live" | "partial" | "cost-based";
   updatedAt: string;
 }

@@ -242,6 +242,7 @@ async def _agent_interpretation(
             module_id="policy-interpretation",
             capability="policy.interpret",
             profile="batch",
+            command_profile="batch",
             memory_scope="task",
             prompt=(
                 "仅根据动作输入中的官方政策摘要与历史关联文件生成政策解读。"

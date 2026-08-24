@@ -276,3 +276,119 @@ def test_portfolio_allocation_route_uses_registered_market_history(tmp_path: Pat
     assert performance.status_code == 200
     assert performance.json()["status"] == "ready"
     assert performance.json()["metrics"]["maxDrawdownPct"] <= 0
+
+
+def test_order_lifecycle_is_linked_to_execution_ledger(tmp_path: Path):
+    settings = Settings(
+        runtime_dir=tmp_path,
+        database_path=tmp_path / "newma-desk.db",
+        legacy_portfolio_path=tmp_path / "missing.json",
+    )
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/portfolio-center?includeQuotes=false").status_code == 200
+        order = client.post(
+            "/api/portfolio-center/orders",
+            json={
+                "accountId": "main",
+                "side": "buy",
+                "market": "CN",
+                "symbol": "600519",
+                "name": "贵州茅台",
+                "currency": "CNY",
+                "orderType": "limit",
+                "quantity": 10,
+                "limitPrice": 1000,
+                "timeInForce": "day",
+                "status": "submitted",
+            },
+        )
+        assert order.status_code == 201
+        order_id = order.json()["id"]
+
+        first = client.post(
+            "/api/portfolio-center/activities",
+            json={
+                "accountId": "main",
+                "type": "buy",
+                "market": "CN",
+                "symbol": "600519",
+                "name": "贵州茅台",
+                "currency": "CNY",
+                "quantity": 4,
+                "unitPrice": 998,
+                "orderId": order_id,
+                "executionId": "fill-1",
+                "decisionPrice": 1002,
+                "occurredAt": datetime(2026, 8, 24, tzinfo=UTC).isoformat(),
+            },
+        )
+        assert first.status_code == 201
+        partial = client.get("/api/portfolio-center?includeQuotes=false").json()["orders"][0]
+        assert partial["status"] == "partial"
+        assert partial["filledQuantity"] == 4
+
+        second = client.post(
+            "/api/portfolio-center/activities",
+            json={
+                "accountId": "main",
+                "type": "buy",
+                "market": "CN",
+                "symbol": "600519",
+                "currency": "CNY",
+                "quantity": 6,
+                "unitPrice": 1001,
+                "orderId": order_id,
+                "executionId": "fill-2",
+                "occurredAt": datetime(2026, 8, 24, 1, tzinfo=UTC).isoformat(),
+            },
+        )
+        assert second.status_code == 201
+        filled = client.get("/api/portfolio-center?includeQuotes=false").json()["orders"][0]
+        assert filled["status"] == "filled"
+        assert filled["filledQuantity"] == 10
+        assert filled["averageFillPrice"] == 999.8
+
+
+def test_risk_policy_and_action_log_are_workspace_state(tmp_path: Path):
+    settings = Settings(
+        runtime_dir=tmp_path,
+        database_path=tmp_path / "newma-desk.db",
+        legacy_portfolio_path=tmp_path / "missing.json",
+    )
+    with TestClient(create_app(settings)) as client:
+        policy = client.put(
+            "/api/portfolio-center/risk-policy",
+            json={
+                "singlePositionLimitPct": 25,
+                "topThreeLimitPct": 60,
+                "minEffectivePositions": 6,
+                "maxDrawdownLimitPct": 12,
+                "var95LimitPct": 4,
+                "maxUnpricedPositions": 1,
+                "allowNegativeCash": False,
+            },
+        )
+        assert policy.status_code == 200
+        assert policy.json()["singlePositionLimitPct"] == 25
+
+        action = client.post(
+            "/api/portfolio-center/risk-actions",
+            json={
+                "ruleId": "single",
+                "severity": "high",
+                "title": "单一持仓限额",
+                "detail": "当前 42%，上限 25%",
+            },
+        )
+        assert action.status_code == 201
+        action_id = action.json()["id"]
+        acknowledged = client.patch(
+            f"/api/portfolio-center/risk-actions/{action_id}",
+            json={"status": "acknowledged", "owner": "组合经理"},
+        )
+        assert acknowledged.status_code == 200
+        assert acknowledged.json()["owner"] == "组合经理"
+
+        dashboard = client.get("/api/portfolio-center?includeQuotes=false").json()
+        assert dashboard["riskPolicy"]["maxDrawdownLimitPct"] == 12
+        assert dashboard["riskActions"][0]["status"] == "acknowledged"

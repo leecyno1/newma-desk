@@ -42,6 +42,7 @@ const costDashboard: PortfolioDashboard = {
     createdAt: "2026-07-27T00:00:00Z",
     updatedAt: "2026-07-27T00:00:00Z",
   }],
+  orders: [],
   activities: [],
   positions: [{
     accountId: "main",
@@ -75,6 +76,17 @@ const costDashboard: PortfolioDashboard = {
       effectivePositionCount: 1,
     },
   },
+  riskPolicy: {
+    singlePositionLimitPct: 30,
+    topThreeLimitPct: 65,
+    minEffectivePositions: 5,
+    maxDrawdownLimitPct: 15,
+    var95LimitPct: 5,
+    maxUnpricedPositions: 0,
+    allowNegativeCash: false,
+    updatedAt: "2026-07-27T00:00:00Z",
+  },
+  riskActions: [],
   valuationStatus: "cost-based",
   updatedAt: "2026-07-27T00:00:00Z",
 };
@@ -322,11 +334,18 @@ describe("PortfolioCenterApp", () => {
     render(<PortfolioCenterApp />);
     expect(await screen.findByRole("navigation", { name: "工作台标签" })).toBeVisible();
 
+    fireEvent.click(screen.getByRole("button", { name: "委托管理" }));
+    expect(screen.getByText("新建委托")).toBeVisible();
+    expect(screen.getByText("委托簿")).toBeVisible();
+
     fireEvent.click(screen.getByRole("button", { name: "成交录入" }));
     expect(screen.getByText("成交与资金录入")).toBeVisible();
 
+    fireEvent.click(screen.getByRole("button", { name: "费用" }));
+    expect(screen.getByText("分币种费用率")).toBeVisible();
+
     fireEvent.click(screen.getByRole("button", { name: "执行质量" }));
-    expect(screen.getByText("执行质量待接字段")).toBeVisible();
+    expect(screen.getByText("执行证据覆盖")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "对账异常" }));
     expect(screen.getByText("对账异常与数据缺口")).toBeVisible();
@@ -344,14 +363,20 @@ describe("PortfolioCenterApp", () => {
     expect(await screen.findByRole("navigation", { name: "工作台标签" })).toBeVisible();
     expect(screen.getByText("需关注")).toBeVisible();
 
+    fireEvent.click(screen.getByRole("button", { name: "风险限额" }));
+    expect(screen.getByText("组合风险限额")).toBeVisible();
+
     fireEvent.click(screen.getByRole("button", { name: "压力测试" }));
     expect(screen.getByText("确定性市场冲击")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "预警规则" }));
-    expect(screen.getByText("基础预警规则")).toBeVisible();
-    expect(screen.getByText("有效持仓数低于 5")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "预警" }));
+    expect(screen.getByText("预警与限额核验")).toBeVisible();
+    expect(screen.getByText("有效持仓数")).toBeVisible();
     expect(screen.getByText("现金余额为负")).toBeVisible();
     expect(new URLSearchParams(window.location.search).get("view")).toBe("alerts");
+
+    fireEvent.click(screen.getByRole("button", { name: "处置记录" }));
+    expect(screen.getByText(/暂无处置记录/)).toBeVisible();
   });
 
   it("generates and renders a constrained allocation proposal", async () => {

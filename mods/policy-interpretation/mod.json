@@ -2,7 +2,7 @@
   "schemaVersion": "1.0",
   "id": "policy-interpretation",
   "name": "政策解读",
-  "description": "影响分析、同类政策历史对比与逐字稿对比。",
+  "description": "由轻量 Agent 完成影响分析、同类政策历史对比与逐字稿条件检查。",
   "version": "0.2.0",
   "publisher": "Newma-Desk",
   "agentWorkspace": {"type": "desk"},

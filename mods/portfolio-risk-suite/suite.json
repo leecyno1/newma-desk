@@ -2,8 +2,8 @@
   "schemaVersion": "1.0",
   "id": "portfolio-risk-suite",
   "name": "组合风险中心",
-  "description": "组合集中度、暴露、相关性、回撤与压力测试。",
-  "version": "0.1.0",
+  "description": "组合风险总览、限额、集中度、敞口、回撤、流动性、压力测试、预警与处置。",
+  "version": "0.2.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/ghostfolio/ghostfolio",
   "tags": [
@@ -35,7 +35,7 @@
         "id": "risk-management",
         "name": "风险",
         "order": 110,
-        "description": "集中度、暴露、相关性、回撤、压力测试与风险贡献。"
+        "description": "风险限额、集中度、敞口、回撤、流动性、压力测试、预警与处置。"
       },
       "icon": "trading"
     },
@@ -134,16 +134,18 @@
     {
       "id": "portfolio-risk",
       "name": "组合风控",
-      "description": "查看集中度、市场暴露、账户暴露与后续组合优化入口。",
+      "description": "管理风险限额，查看集中度、敞口、回撤、流动性和压力测试，并记录预警处置。",
       "tags": [
         "风控",
+        "风险限额",
         "集中度",
-        "配置"
+        "压力测试",
+        "处置记录"
       ],
       "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk",
       "navigation": {
         "itemOrder": 10,
-        "label": "风控"
+        "label": "组合风控"
       }
     }
   ]
