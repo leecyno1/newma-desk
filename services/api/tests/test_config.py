@@ -179,6 +179,14 @@ def test_seven_cycle_defaults_to_its_independent_local_service() -> None:
     assert "http://127.0.0.1:4174" in settings.origin_list()
 
 
+def test_crucix_is_fixed_to_the_local_read_only_runtime() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.crucix_url == "http://127.0.0.1:3117"
+    with pytest.raises(ValidationError, match="Crucix URL"):
+        Settings(crucix_url="https://crucix.example.com", _env_file=None)
+
+
 def test_research_and_trading_default_to_in_tree_mod_projects() -> None:
     settings = Settings(_env_file=None)
     project_root = Path(__file__).resolve().parents[3]

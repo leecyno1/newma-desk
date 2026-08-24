@@ -647,6 +647,7 @@ const externalRuntimeEnv = runtimeEnvironment(externalRuntimes);
 const core = coreServices(externalRuntimeEnv);
 const policyCollector = policyCollectorServices();
 const worldIntelRuntime = externalRuntimes.byId["world-intel"];
+const crucixRuntime = externalRuntimes.byId.crucix;
 const openChatCutRuntime = externalRuntimes.byId.openchatcut;
 const sevenCycleRuntime = externalRuntimes.byId["seven-cycle"];
 const instockRuntime = externalRuntimes.byId.instock;
@@ -654,6 +655,16 @@ const fundAnalysisRuntime = externalRuntimes.byId["fund-analysis"];
 const orchestraRuntime = externalRuntimes.byId.orchestra;
 const deepseeRuntime = externalRuntimes.byId.deepsee;
 const worldIntel = worldIntelServices(worldIntelRuntime);
+const crucix = {
+  id: "crucix",
+  label: "Crucix（外部只读情报源）",
+  criticality: SERVICE_CRITICALITY.EXTERNAL,
+  url: crucixRuntime.endpoints.api.healthUrl,
+  probe: createHttpProbe(crucixRuntime.endpoints.api.healthUrl, {
+    expectHtml: false,
+    timeoutMs: 5_000,
+  }),
+};
 const openChatCut = openChatCutServices(openChatCutRuntime);
 const sevenCycle = sevenCycleServices(sevenCycleRuntime);
 const instock = instockServices(instockRuntime);
@@ -696,7 +707,7 @@ for (const runtime of externalRuntimes.runtimes) {
 
 if (checkOnly) {
   const results = [];
-  for (const service of [...worldIntel, ...policyCollector, ...core, ...openChatCut, ...instock, ...fundAnalysis, ...orchestra, ...sevenCycle, deepsee]) {
+  for (const service of [...worldIntel, ...policyCollector, ...core, ...openChatCut, ...instock, ...fundAnalysis, ...orchestra, ...sevenCycle, crucix, deepsee]) {
     results.push(await statusLine(service));
   }
   const coreReady = results
@@ -788,8 +799,11 @@ if (checkOnly) {
     const optionalResults = await supervisor.startOptional(
       optionalServices,
     );
-    const externalResult = await supervisor.start(deepsee);
-    const degradedCount = [...optionalResults, externalResult]
+    const externalResults = await Promise.all([
+      supervisor.start(crucix),
+      supervisor.start(deepsee),
+    ]);
+    const degradedCount = [...optionalResults, ...externalResults]
       .filter(({ state }) => state !== SERVICE_STATE.READY)
       .length;
     if (degradedCount > 0) {

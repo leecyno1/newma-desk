@@ -1296,11 +1296,37 @@ describe("global intelligence normalization", () => {
       [...events].map((event) => Date.parse(event.timestamp)).sort((left, right) => right - left),
     );
   });
+
+  it("adds only titled Crucix news plus supply-chain and defense observations", () => {
+    const events = normalizeGlobalIntelEvents({
+      timestamp: "2026-08-24T00:00:00Z",
+      crucix_intelligence: {
+        asOf: "2026-08-24T00:10:00Z",
+        news: [
+          { title: "Shipping disruption expands", source: "GDELT", region: "Global", publishedAt: "2026-08-24T00:08:00Z" },
+          { title: "", source: "Category only" },
+        ],
+        macro: {
+          gscpi: { value: 1.4, date: "2026-08-01T00:00:00Z", interpretation: "Above normal pressure" },
+        },
+        global: {
+          defenseContracts: [{ recipient: "Example Corp", amount: 2_000_000_000, description: "Radar systems" }],
+        },
+      },
+    });
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "Shipping disruption expands", source: "Crucix / GDELT" }),
+      expect.objectContaining({ title: "全球供应链压力指数 1.40", category: "market" }),
+      expect.objectContaining({ title: "美国国防合同更新 · 1 项", category: "military" }),
+    ]));
+    expect(events.some((event) => event.title === "Category only")).toBe(false);
+  });
 });
 
 describe("createGlobalIntelDataSource", () => {
   it("uses the Newma-Desk gateway for snapshots and closes the SSE stream", async () => {
-    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
+    const fetcher = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ status: "ok" }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     }));
@@ -1321,6 +1347,11 @@ describe("createGlobalIntelDataSource", () => {
     await expect(source.staticSnapshot()).resolves.toEqual({ status: "ok" });
     expect(fetcher).toHaveBeenCalledWith(
       "https://desk.example/api/global-intel/static",
+      expect.objectContaining({ headers: { Accept: "application/json" } }),
+    );
+    await expect(source.crucixSnapshot()).resolves.toEqual({ status: "ok" });
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://desk.example/api/crucix/snapshot",
       expect.objectContaining({ headers: { Accept: "application/json" } }),
     );
 

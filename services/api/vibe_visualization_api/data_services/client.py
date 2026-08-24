@@ -95,10 +95,12 @@ class DataServiceClient:
         *,
         public_mode: bool,
         secret_resolver: Callable[[str], str | None] | None = None,
+        response_adapters: dict[str, Callable[[str, Any], Any]] | None = None,
         client: httpx.AsyncClient | None = None,
     ):
         self._public_mode = public_mode
         self._secret_resolver = secret_resolver or os.environ.get
+        self._response_adapters = response_adapters or {}
         self._client = client
 
     async def invoke(
@@ -176,6 +178,14 @@ class DataServiceClient:
             raise UpstreamServiceError(
                 "data service returned an invalid response"
             ) from error
+        adapter = self._response_adapters.get(service.id)
+        if adapter is not None:
+            try:
+                result = adapter(capability_id, result)
+            except (TypeError, ValueError) as error:
+                raise UpstreamServiceError(
+                    "data service returned an invalid response"
+                ) from error
         validate_json_contract(
             capability.output_schema,
             result,

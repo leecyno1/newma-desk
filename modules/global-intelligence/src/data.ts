@@ -871,6 +871,7 @@ export interface GlobalIntelDataSource {
   health(): Promise<Record<string, unknown>>;
   staticSnapshot(): Promise<Record<string, unknown>>;
   overview(): Promise<Record<string, unknown>>;
+  crucixSnapshot(): Promise<Record<string, unknown>>;
   subscribe(
     onPayload: (payload: Record<string, unknown>) => void,
     onStatus: (status: "connecting" | "live" | "degraded") => void,
@@ -2863,6 +2864,61 @@ export function normalizeGlobalIntelEvents(
     });
   }
 
+  const crucixSnapshot = objectValue(snapshot.crucix_intelligence);
+  const crucixTimestamp = isoTimestamp(crucixSnapshot.asOf, fallbackTimestamp);
+  for (const item of listValue(crucixSnapshot.news)) {
+    const title = stringValue(item, "title");
+    if (!title) continue;
+    const source = stringValue(item, "source") || "公开情报源";
+    const timestamp = isoTimestamp(item.publishedAt, crucixTimestamp);
+    const url = stringValue(item, "url");
+    events.push({
+      id: stableId("crucix-news", source, timestamp, title),
+      category: "news",
+      title,
+      detail: [stringValue(item, "region"), stringValue(item, "type")].filter(Boolean).join(" · ") || "Crucix 补充情报",
+      source: `Crucix / ${source}`,
+      severity: item.urgent === true ? "high" : "info",
+      timestamp,
+      ...(url ? { url } : {}),
+      recordKind: "news",
+    });
+  }
+
+  const crucixMacro = objectValue(crucixSnapshot.macro);
+  const gscpi = objectValue(crucixMacro.gscpi);
+  const gscpiValue = numberValue(gscpi, "value");
+  if (gscpiValue !== undefined) {
+    events.push({
+      id: stableId("crucix-gscpi", isoTimestamp(gscpi.date, crucixTimestamp), gscpiValue),
+      category: "market",
+      title: `全球供应链压力指数 ${gscpiValue.toFixed(2)}`,
+      detail: stringValue(gscpi, "interpretation") || "纽约联储 GSCPI 最新观测",
+      source: "Crucix / New York Fed GSCPI",
+      severity: Math.abs(gscpiValue) >= 2 ? "high" : Math.abs(gscpiValue) >= 1 ? "medium" : "info",
+      timestamp: isoTimestamp(gscpi.date, crucixTimestamp),
+      recordKind: "observation",
+    });
+  }
+
+  const defenseContracts = listValue(objectValue(crucixSnapshot.global).defenseContracts);
+  if (defenseContracts.length) {
+    const largest = [...defenseContracts].sort((left, right) => (
+      (numberValue(right, "amount") ?? 0) - (numberValue(left, "amount") ?? 0)
+    ))[0]!;
+    const amount = numberValue(largest, "amount") ?? 0;
+    events.push({
+      id: stableId("crucix-defense-contracts", crucixTimestamp, defenseContracts.length, stringValue(largest, "recipient")),
+      category: "military",
+      title: `美国国防合同更新 · ${defenseContracts.length} 项`,
+      detail: [stringValue(largest, "recipient"), amount > 0 ? compactNumber(amount) : "", stringValue(largest, "description")].filter(Boolean).join(" · "),
+      source: "Crucix / USAspending",
+      severity: amount >= 1_000_000_000 ? "medium" : "info",
+      timestamp: crucixTimestamp,
+      recordKind: "observation",
+    });
+  }
+
   for (const item of domainRecords(snapshot, "central_bank_rates", "rates")) {
     const bank = stringValue(item, "bank") || "中央银行";
     const rate = numberValue(item, "rate");
@@ -3405,6 +3461,7 @@ export function createGlobalIntelDataSource(input: {
     health: () => jsonRequest(fetcher, url("/api/global-intel/health")),
     staticSnapshot: () => jsonRequest(fetcher, url("/api/global-intel/static")),
     overview: () => jsonRequest(fetcher, url("/api/global-intel/overview")),
+    crucixSnapshot: () => jsonRequest(fetcher, url("/api/crucix/snapshot")),
     subscribe(onPayload, onStatus) {
       onStatus("connecting");
       const source = (input.eventSourceFactory ?? ((target) => new EventSource(target)))(

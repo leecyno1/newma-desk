@@ -3,7 +3,7 @@
   "id": "macro-monitor",
   "name": "宏观观察",
   "description": "从增长、价格、流动性、金融条件和跨资产定价识别宏观状态，连接事件日历、传导链与情景观察。",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": ["宏观", "经济日历", "PMI", "通胀", "流动性", "经济预测"],
@@ -46,8 +46,21 @@
       "viewSpecVersion": "1.0"
     },
     "permissions": ["market.read"],
-    "dataServices": ["market-data"],
-    "actions": {},
+    "dataServices": ["market-data", "crucix"],
+    "actions": {
+      "crucix.snapshot": {
+        "binding": {
+          "type": "data",
+          "service": "crucix",
+          "capability": "crucix.snapshot"
+        },
+        "execution": "request",
+        "permission": "market.read",
+        "inputSchema": { "type": "object", "additionalProperties": false },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none"
+      }
+    },
     "events": {
       "emits": [],
       "accepts": []

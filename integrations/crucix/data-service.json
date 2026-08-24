@@ -1,0 +1,49 @@
+{
+  "id": "crucix",
+  "name": "Crucix Intelligence",
+  "description": "受限本地 Crucix 情报源，只读接入健康状态与标准化结构化快照。",
+  "priority": 60,
+  "baseUrl": "http://127.0.0.1:3117",
+  "healthPath": "/api/health",
+  "transport": "rest",
+  "capabilities": {
+    "crucix.snapshot": {
+      "method": "GET",
+      "path": "/api/data",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["contract", "freshness", "sourceHealth", "news", "macro", "global"],
+        "properties": {
+          "contract": { "const": "newma-desk.crucix-intelligence.v1" },
+          "freshness": { "type": "object" },
+          "sourceHealth": { "type": "object" },
+          "news": { "type": "array" },
+          "macro": { "type": "object" },
+          "global": { "type": "object" }
+        },
+        "additionalProperties": true
+      },
+      "permission": "market.read"
+    },
+    "crucix.health": {
+      "method": "GET",
+      "path": "/api/health",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["contract", "status", "service", "sourceHealth"],
+        "properties": {
+          "contract": { "const": "newma-desk.crucix-health.v1" },
+          "status": { "enum": ["ok", "degraded", "starting"] },
+          "service": { "const": "crucix" },
+          "sourceHealth": { "type": "object" }
+        },
+        "additionalProperties": true
+      },
+      "permission": "market.read"
+    }
+  },
+  "timeoutSeconds": 8,
+  "allowedHosts": ["127.0.0.1"]
+}

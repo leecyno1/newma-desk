@@ -114,6 +114,28 @@
       }
     },
     {
+      "id": "crucix",
+      "label": "Crucix Intelligence Engine",
+      "adapter": "crucix",
+      "workspaces": {
+        "source": {
+          "env": "NEWMA_DESK_CRUCIX_WORKSPACE",
+          "candidates": [
+            { "root": "projects", "path": "Crucix" },
+            { "root": "projects", "path": "crucix" },
+            { "root": "repo", "path": "mod-projects/crucix" }
+          ]
+        }
+      },
+      "endpoints": {
+        "api": {
+          "env": "NEWMA_DESK_CRUCIX_URL",
+          "defaultOrigin": "http://127.0.0.1:3117",
+          "healthPath": "/api/health"
+        }
+      }
+    },
+    {
       "id": "deepsee",
       "label": "Deepsee",
       "adapter": "external-only",

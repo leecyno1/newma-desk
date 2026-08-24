@@ -287,6 +287,9 @@ class Settings(BaseSettings):
     world_intel_workspace: Path = Field(
         default_factory=lambda: resolve_runtime_workspace("world-intel", "source")
     )
+    crucix_workspace: Path = Field(
+        default_factory=lambda: resolve_runtime_workspace("crucix", "source")
+    )
     mod_workspace_overrides: str = ""
     investment_web_url: str = "http://127.0.0.1:8911"
     trading_web_url: str = "http://127.0.0.1:8911"
@@ -314,6 +317,9 @@ class Settings(BaseSettings):
     )
     world_intel_url: str = Field(
         default_factory=lambda: resolve_runtime_origin("world-intel", "api")
+    )
+    crucix_url: str = Field(
+        default_factory=lambda: resolve_runtime_origin("crucix", "api")
     )
     mod_store_dir: Path = Path("mods")
     mod_store_git_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
@@ -444,6 +450,23 @@ class Settings(BaseSettings):
         if (parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment):
             raise ValueError("Policy RSSHub base URL must be an HTTP URL")
         return value.rstrip("/")
+
+    @field_validator("crucix_url")
+    @classmethod
+    def validate_crucix_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname != "127.0.0.1"
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Crucix URL must be a 127.0.0.1 HTTP origin")
+        return f"http://{parsed.netloc}"
 
     @field_validator(
         "investment_web_url",

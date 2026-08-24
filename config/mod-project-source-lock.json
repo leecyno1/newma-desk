@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0",
-  "generatedAt": "2026-08-22",
+  "generatedAt": "2026-08-24",
   "workspacePolicy": {
     "gitIgnoreRules": [
       "mod-projects/*",
@@ -48,12 +48,12 @@
         "current": "codex/newma-desk-release-baseline-20260809",
         "upstream": "origin/main"
       },
-      "commit": "b6f4896ffbde81b33b282d01b70837472ec7fc43",
+      "commit": "6d6c2fad08a61f67faf931e444269c197a1940e9",
       "workingTree": {
         "status": "clean",
         "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "indexSha256": "3b131bcb48453d5e541da1c41e4e770d6d210e7fc4d029f400e02036fc50d091",
-        "worktreeSha256": "aac3448dd24452247346f63837e2bfd6102b188dc9096b026275c023386006f2",
+        "indexSha256": "7026f33269cbb55ec54ea18f2705fa3b5268109f87c1394ae879ac79ca8be841",
+        "worktreeSha256": "1f5ca0a577aa73d1e21923167b28c55fb84af2325dfbdd5286d28dc74f6f6e11",
         "counts": {
           "entries": 0,
           "staged": 0,

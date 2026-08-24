@@ -59,6 +59,8 @@ from vibe_visualization_api.creator_studio.routes import (
     router as creator_studio_router,
 )
 from vibe_visualization_api.creator_studio.service import CreatorStudioService
+from vibe_visualization_api.crucix.adapter import adapt_crucix_response
+from vibe_visualization_api.crucix.routes import router as crucix_router
 from vibe_visualization_api.model_gateway.adapters.base import ModelAdapter
 from vibe_visualization_api.model_gateway.adapters.anthropic import (
     AnthropicModelAdapter,
@@ -382,12 +384,14 @@ def create_app(
                 "instock-analysis": f"{app_settings.instock_web_url}/api/v1",
                 "fund-analysis-data": f"{app_settings.fund_analysis_api_url}/api/newma-desk",
                 "world-intel": app_settings.world_intel_url,
+                "crucix": app_settings.crucix_url,
             },
         )
     )
     data_service_registry = DataServiceRegistry(configured_data_services)
     resolved_data_service_client = data_service_client or DataServiceClient(
-        public_mode=app_settings.data_service_public_mode
+        public_mode=app_settings.data_service_public_mode,
+        response_adapters={"crucix": adapt_crucix_response},
     )
     application.state.data_service_registry = data_service_registry
     application.state.data_service_client = resolved_data_service_client
@@ -494,6 +498,7 @@ def create_app(
     application.include_router(creator_studio_router)
     application.include_router(finance_pilots_router)
     application.include_router(global_intel_router)
+    application.include_router(crucix_router)
     application.include_router(global_topics_router)
     application.include_router(policy_analysis_router)
     application.include_router(capital_flow_router)

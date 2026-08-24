@@ -376,6 +376,7 @@ const SOURCE_LABELS: Record<string, string> = {
   sector_heatmap: "行业热力",
   commodity_quotes: "大宗商品行情",
   macro_signals: "宏观信号",
+  crucix: "Crucix 补充情报",
   etf_flows: "ETF 行情",
   residential_natgas: "居民天然气价格",
   shipping_index: "航运压力",
@@ -678,6 +679,7 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
   const items = new Map<string, SourceHealthItem>();
   const sourceHealth = recordValue(snapshot.source_health);
   let healthy = 0;
+  let total = Object.keys(sourceHealth).length;
 
   for (const [source, raw] of Object.entries(sourceHealth)) {
     const info = recordValue(raw);
@@ -722,6 +724,34 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
     });
   }
 
+  const crucix = recordValue(snapshot.crucix_intelligence);
+  if (Object.keys(crucix).length) {
+    const crucixHealth = recordValue(crucix.sourceHealth);
+    const crucixFreshness = recordValue(crucix.freshness);
+    const failed = Number(crucixHealth.failed ?? 0);
+    const freshnessStatus = typeof crucixFreshness.status === "string"
+      ? crucixFreshness.status
+      : "unknown";
+    const status: SourceHealthItem["status"] = freshnessStatus === "stale"
+      ? "stale"
+      : freshnessStatus === "fresh" && failed === 0 ? "healthy" : "degraded";
+    const queried = Number(crucixHealth.queried ?? 0);
+    const ok = Number(crucixHealth.ok ?? 0);
+    const ageSeconds = typeof crucixFreshness.ageSeconds === "number"
+      ? crucixFreshness.ageSeconds
+      : Number.NaN;
+    items.set("crucix", {
+      id: "crucix",
+      label: sourceLabel("crucix"),
+      status,
+      statusLabel: status === "healthy" ? "正常" : status === "stale" ? "数据过期" : "部分降级",
+      reason: queried > 0 ? `${ok}/${queried} 个来源正常${failed > 0 ? `，${failed} 个失败` : ""}` : "等待 Crucix 首轮扫描",
+      ...(Number.isFinite(ageSeconds) ? { freshness: freshnessLabel(ageSeconds) } : {}),
+    });
+    total += 1;
+    if (status === "healthy") healthy += 1;
+  }
+
   for (const [domain, raw] of Object.entries(snapshot)) {
     if (domain.startsWith("_") || domain === "source_health" || domain === "cache_freshness" || domain === "cache_stats") continue;
     const info = recordValue(raw);
@@ -748,7 +778,7 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
   const cacheStats = recordValue(snapshot.cache_stats);
   return {
     healthy,
-    total: Object.keys(sourceHealth).length,
+    total,
     issueCount: sortedItems.filter((item) => item.status !== "healthy").length,
     items: sortedItems,
     cache: {
@@ -1197,7 +1227,10 @@ export function GlobalIntelligenceDashboard({
     setError("");
     setProgress({ done: 0, total: 0 });
 
-    const loadSnapshot = (request: Promise<Record<string, unknown>>) => {
+    const loadSnapshot = (
+      request: Promise<Record<string, unknown>>,
+      quiet = false,
+    ) => {
       void request.then((payload) => {
         if (!active) return;
         setSnapshot((current) => mergeSnapshot(current, payload));
@@ -1206,12 +1239,16 @@ export function GlobalIntelligenceDashboard({
         if (Number.isFinite(done) && Number.isFinite(total)) setProgress({ done, total });
         if (payload._static === true) setStatus("degraded");
       }).catch(() => {
-        if (active) setError(Object.keys(snapshot).length
+        if (active && !quiet) setError(Object.keys(snapshot).length
           ? "更新失败，当前为上次数据"
           : "全球情报静态数据暂时不可用");
       });
     };
     loadSnapshot(dataSource.staticSnapshot());
+    loadSnapshot(
+      dataSource.crucixSnapshot().then((payload) => ({ crucix_intelligence: payload })),
+      true,
+    );
 
     const close = dataSource.subscribe((payload) => {
       if (!active) return;

@@ -3,7 +3,7 @@
   "id": "global-situation",
   "name": "全球情报",
   "description": "Newma-Desk 默认首页：在综合地图中统一监控政策、冲突、灾害、军事、基础设施、新闻与市场异常信号。",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/marc-shade/world-intel-mcp",
   "tags": ["全球态势", "地图", "驾驶舱", "跨资产", "World Intelligence"],
@@ -39,7 +39,7 @@
       "viewSpecVersion": "1.0"
     },
     "permissions": ["market.read"],
-    "dataServices": ["world-intel"],
+    "dataServices": ["world-intel", "crucix"],
     "actions": {
       "global-intel.refresh": {
         "binding": { "type": "local" },
@@ -59,6 +59,30 @@
       },
       "global-intel.static-map": {
         "binding": { "type": "data" },
+        "execution": "request",
+        "permission": "market.read",
+        "inputSchema": { "type": "object", "additionalProperties": false },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none"
+      },
+      "crucix.snapshot": {
+        "binding": {
+          "type": "data",
+          "service": "crucix",
+          "capability": "crucix.snapshot"
+        },
+        "execution": "request",
+        "permission": "market.read",
+        "inputSchema": { "type": "object", "additionalProperties": false },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none"
+      },
+      "crucix.health": {
+        "binding": {
+          "type": "data",
+          "service": "crucix",
+          "capability": "crucix.health"
+        },
         "execution": "request",
         "permission": "market.read",
         "inputSchema": { "type": "object", "additionalProperties": false },
