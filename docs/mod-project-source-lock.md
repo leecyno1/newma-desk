@@ -29,7 +29,7 @@
 - `vibe-research`
   - `origin`: `https://github.com/simonlin1212/Vibe-Research.git`
   - `branch`: `codex/newma-desk-release-baseline-20260809`
-  - `commit`: `6d6c2fad08a61f67faf931e444269c197a1940e9`
+  - `commit`: `cf14f8bd7519cc786a97353c63203a60cef6dfcf`
   - `working tree`: clean
 - `vibe-trading`
   - `origin`: `https://github.com/HKUDS/Vibe-Trading.git`

@@ -48,12 +48,12 @@
         "current": "codex/newma-desk-release-baseline-20260809",
         "upstream": "origin/main"
       },
-      "commit": "6d6c2fad08a61f67faf931e444269c197a1940e9",
+      "commit": "cf14f8bd7519cc786a97353c63203a60cef6dfcf",
       "workingTree": {
         "status": "clean",
         "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "indexSha256": "7026f33269cbb55ec54ea18f2705fa3b5268109f87c1394ae879ac79ca8be841",
-        "worktreeSha256": "1f5ca0a577aa73d1e21923167b28c55fb84af2325dfbdd5286d28dc74f6f6e11",
+        "indexSha256": "358ae5ba0aa81ea680cab2b0c0d70120e55b58a0d6ddbeae00268811dfa20305",
+        "worktreeSha256": "629031cddaba6c16c9cb8fb14dd3ae6939f61d9c0eceb760187e5b940e87ec9f",
         "counts": {
           "entries": 0,
           "staged": 0,
