@@ -204,3 +204,10 @@ class CreatorControlAdapter:
             timeout=40,
             allow_failure=True,
         )
+
+    def import_editor_export(self, request: dict[str, Any]) -> dict[str, Any]:
+        return self._invoke(
+            "materialize-editor-export",
+            payload=request,
+            timeout=120,
+        )

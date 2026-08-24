@@ -68,6 +68,11 @@ interface ModCopilotProps {
   onClose: () => void;
   onEditCompleted?: () => void | Promise<void>;
   onOpenAgentSettings?: () => void;
+  prefill?: {
+    id: number;
+    prompt: string;
+    mode: "ask" | "edit";
+  };
   requestContext: () => Promise<ModPageContext | undefined>;
   invokeUiAction?: (
     actionId: string,
@@ -477,6 +482,7 @@ export function ModCopilot({
   onClose,
   onEditCompleted,
   onOpenAgentSettings,
+  prefill,
   requestContext,
   invokeUiAction,
 }: ModCopilotProps) {
@@ -541,6 +547,17 @@ export function ModCopilot({
     const list = messageListRef.current;
     if (list) list.scrollTop = list.scrollHeight;
   }, [messages.length, activeTaskId, open]);
+
+  useEffect(() => {
+    if (!prefill) return;
+    setInputByModule((current) => ({
+      ...current,
+      [moduleId]: prefill.prompt,
+    }));
+    if (prefill.mode === "edit") {
+      setModeByModule((current) => ({ ...current, [moduleId]: "edit" }));
+    }
+  }, [moduleId, prefill]);
 
   useEffect(() => {
     if (!open) return;

@@ -84,6 +84,18 @@ Workflow Node 的持久化异步执行记录。Job 保存 Run、Node、Executor�
 
 人工编辑节点的受控运行 Module。它根据 Registry 只启动白名单 Editor Adapter，记录打开、保存、关闭和输出 Artifact；HTML Anything、HTML Video、公众号预览、分镜与粗剪审核等编辑器共享同一 Interface，未注册实现必须明确显示不可用。
 
+## Collaborative Editing Session
+
+Editor Session Runtime 中允许人工时间线操作与 Desk Agent 对话操作并存的会话形态。编辑器在会话期间掌握真实时间线，Creator Run Control 掌握任务、审核和交付物；两种入口必须调用编辑器同一命令层，不能各自维护工程副本。
+
+## Edit Proposal
+
+Agent 在隔离 Draft 中生成的可审核修改集合。Proposal 保存外部编辑会话 ID、摘要、影响范围、状态和审核时间；只有编辑器确认 applied 后才能继续保存工程与回写 Artifact，rejected 或 discarded 不改变正式时间线。
+
+## Editor Project Binding
+
+Newma Editor Session 与外部编辑器真实工程之间的稳定映射。绑定保存来源 Editor Adapter、外部 Project ID 和受信启动入口；人工时间线与 Agent 必须读取同一绑定，不能根据窗口数量或工程名称重复猜测。绑定不复制外部工程内容，工程仍由来源编辑器掌握。
+
 ## Publish Execution Module
 
 发布阶段中“预检、明确确认、执行、回执验真”的深 Module。发布确认是一次性权限，进入 Creator Execution Job 队列即消费，失败重试必须重新确认；账号健康、阻塞项、平台回执和验真结果统一回写 Run 的 Publish State。
@@ -95,6 +107,10 @@ Workflow Node 的持久化异步执行记录。Job 保存 Run、Node、Executor�
 ## Creator Marketplace
 
 Creator Studio Suite 内用于测试和选择仓库、Skills、模板、流水线、编辑器和发布连接器的业务超市。选择项先经过兼容性检查和演示，再保存为版本化预设；它不替代 Newma Mod Store，也不能直接修改生产注册表。
+
+## Creator Template Lifecycle
+
+模板从“剪辑前收藏并绑定节点”，到“剪辑中随时应用”，再到“剪辑完成后把已跑通工程保存为模板”的统一生命周期。Newma 保存模板引用、来源编辑器、版本、适用节点和参数；模板内容与媒体资产继续由来源编辑器管理，避免复制出第二套模板事实源。
 
 ## Notification Inbox
 

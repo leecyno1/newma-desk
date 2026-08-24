@@ -6,6 +6,7 @@ import pytest
 from vibe_visualization_api.agent_gateway.adapters.local_cli import (
     LocalCliAgentAdapter,
     ModWorkspaceUnavailableError,
+    OpenChatCutMcpUnavailableError,
 )
 from vibe_visualization_api.agent_gateway.conversation_store import (
     AgentConversationStore,
@@ -432,3 +433,122 @@ def test_non_finance_mod_prompt_does_not_inject_market_data_policy(tmp_path: Pat
     prompt = adapter._build_prompt(request, [], tmp_path)
 
     assert "global-stock-data" not in prompt
+
+
+def _openchatcut_request() -> AgentTaskCreate:
+    return AgentTaskCreate(
+        module_id="creator-transwrite",
+        capability="module.edit",
+        prompt="按当前分镜完成粗剪",
+        context={
+            "vibedesk": {
+                "mode": "edit",
+                "page": {
+                    "selection": {
+                        "runId": "run-1",
+                        "stageId": "transwrite",
+                        "nodeId": "roughcut",
+                    },
+                    "data": {
+                        "summary": {
+                            "selectedNode": {
+                                "parameters": {},
+                                "editorSession": {
+                                    "sessionId": "editor-1",
+                                    "selectedEditorId": "openchatcut",
+                                    "externalProject": {
+                                        "projectId": "occ-project-1"
+                                    },
+                                    "collaboration": {"status": "drafting"},
+                                },
+                            }
+                        }
+                    },
+                },
+            }
+        },
+    )
+
+
+def test_openchatcut_collaboration_injects_mcp_without_leaking_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NEWMA_DESK_OPENCHATCUT_MCP_TOKEN", "top-secret-token")
+    monkeypatch.setenv(
+        "NEWMA_DESK_OPENCHATCUT_MCP_ORIGIN", "http://127.0.0.1:5199"
+    )
+    settings = Settings(workspace_root=tmp_path, _env_file=None)
+    adapter = LocalCliAgentAdapter(
+        "codex",
+        settings,
+        AgentConversationStore(tmp_path / "gateway.db"),
+    )
+    request = _openchatcut_request()
+
+    runtime = adapter._openchatcut_mcp_runtime(request)
+    assert runtime is not None
+    command = adapter._command(
+        "codex",
+        tmp_path,
+        "prompt",
+        tmp_path / "answer",
+        True,
+        openchatcut_mcp=runtime,
+    )
+    prompt = adapter._build_prompt(
+        request,
+        [],
+        tmp_path,
+        allow_write=True,
+        openchatcut_mcp=runtime,
+    )
+
+    assert "read-only" in command
+    assert any("mcp_servers.openchatcut.url" in item for item in command)
+    assert any("bearer_token_env_var" in item for item in command)
+    assert any(
+        'default_tools_approval_mode="approve"' in item for item in command
+    )
+    assert "top-secret-token" not in " ".join(command)
+    assert "begin_edit_session(approvalMode=manual)" in prompt
+    assert "target_project(projectId=occ-project-1)" in prompt
+    assert "creator.editor.review-proposal" in prompt
+    assert "decision 只能使用 applied / rejected / discarded" in prompt
+    assert "creator.editor.import-export" in prompt
+    assert "top-secret-token" not in prompt
+
+
+def test_openchatcut_collaboration_requires_a_ready_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("NEWMA_DESK_OPENCHATCUT_MCP_TOKEN", raising=False)
+    monkeypatch.delenv("OPENCHATCUT_MCP_TOKEN", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    settings = Settings(workspace_root=tmp_path, _env_file=None)
+    adapter = LocalCliAgentAdapter(
+        "codex",
+        settings,
+        AgentConversationStore(tmp_path / "gateway.db"),
+    )
+
+    with pytest.raises(OpenChatCutMcpUnavailableError):
+        adapter._openchatcut_mcp_runtime(_openchatcut_request())
+
+
+def test_cli_binary_override_prefers_current_codex_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = tmp_path / "codex-current"
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    executable.chmod(0o755)
+    monkeypatch.setenv("NEWMA_DESK_AGENT_CODEX_BIN", str(executable))
+    adapter = LocalCliAgentAdapter(
+        "codex",
+        Settings(workspace_root=tmp_path, _env_file=None),
+        AgentConversationStore(tmp_path / "gateway.db"),
+    )
+
+    assert adapter._executable() == str(executable)

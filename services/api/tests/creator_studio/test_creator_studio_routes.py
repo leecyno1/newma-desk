@@ -841,6 +841,12 @@ def test_editor_session_launch_and_save_share_creator_command_interface(tmp_path
                             "name": "分镜编辑器",
                             "kind": "internal",
                             "status": "available",
+                            "agent_bridge": {
+                                "kind": "mcp",
+                                "endpoint": "http://127.0.0.1:5199/api/external-mcp/mcp",
+                                "protocol": "openchatcut.edit-session.v1",
+                                "approval_modes": ["manual", "auto"],
+                            },
                         }
                     ],
                     "input_artifacts": [],
@@ -900,6 +906,40 @@ def test_editor_session_launch_and_save_share_creator_command_interface(tmp_path
         opened_node = opened["stages"][0]["nodes"][0]
         assert opened_node["editorSession"]["status"] == "open"
         assert opened_node["editorSession"]["launch"]["launchUrl"].endswith("/editor")
+        agent_started = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.editor.start-agent",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "input": {
+                    "editorId": "storyboard_editor",
+                    "approvalMode": "manual",
+                    "prompt": "按分镜完成粗剪",
+                },
+                "expectedRevision": opened["run"]["revision"],
+            },
+        ).json()
+        assert agent_started["stages"][0]["nodes"][0]["editorSession"]["status"] == "agent_editing"
+        reviewed = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.editor.review-proposal",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "input": {
+                    "externalEditSessionId": "occ-edit-1",
+                    "summary": "删除停顿并重排字幕",
+                    "changeCount": 3,
+                    "decision": "applied",
+                    "note": "已在编辑器审核",
+                },
+                "expectedRevision": agent_started["run"]["revision"],
+            },
+        ).json()
+        assert reviewed["stages"][0]["nodes"][0]["editorSession"]["collaboration"]["proposal"]["status"] == "applied"
         saved = client.post(
             f"/api/creator-studio/runs/{run_id}/commands",
             headers=headers,
@@ -912,18 +952,249 @@ def test_editor_session_launch_and_save_share_creator_command_interface(tmp_path
                         {"type": "source_plan", "path": "/tmp/source-plan.json"}
                     ]
                 },
-                "expectedRevision": opened["run"]["revision"],
+                "expectedRevision": reviewed["run"]["revision"],
+            },
+        ).json()
+        templated = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.editor.save-template",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "input": {
+                    "templateId": "occ-template-1",
+                    "name": "粗剪模板",
+                    "sourceAction": "manage_template.save",
+                },
+                "expectedRevision": saved["run"]["revision"],
             },
         ).json()
         sessions = client.get(
             f"/api/creator-studio/runs/{run_id}/editor-sessions",
             headers=headers,
         ).json()["sessions"]
+        presets = client.get(
+            "/api/creator-studio/marketplace/presets",
+            headers=headers,
+        ).json()["presets"]
 
-    node = saved["stages"][0]["nodes"][0]
+    node = templated["stages"][0]["nodes"][0]
     assert node["status"] == "succeeded"
     assert node["artifacts"][-1]["editorSessionId"] == "editor-session-test"
     assert sessions[0]["status"] == "saved"
+    assert sessions[0]["savedTemplates"][0]["templateId"] == "occ-template-1"
+    assert sessions[0]["savedTemplates"][0]["sourceAction"] == "manage_template.save"
+    assert presets[0]["parameters"]["templateId"] == "occ-template-1"
+    assert presets[0]["parameters"]["sourceVerification"] == "editor_returned"
+
+
+def test_openchatcut_project_binding_and_export_import(tmp_path: Path):
+    workspace = creator_workspace(tmp_path)
+    registry_path = workspace / "configs" / "workflow" / "newma_creator_studio_registry.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    source_node = registry["stages"][0]["nodes"][0]
+    source_node["editors"] = ["openchatcut"]
+    registry_path.write_text(json.dumps(registry, ensure_ascii=False), encoding="utf-8")
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=workspace,
+        creator_studio_dist=tmp_path / "missing-dist",
+    )
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+    edited_master = tmp_path / "edited-master.mp4"
+    edit_decisions = tmp_path / "edit-decisions.json"
+    timeline_exchange = tmp_path / "timeline-exchange.json"
+    edited_master.write_bytes(b"video")
+    edit_decisions.write_text("{}", encoding="utf-8")
+    timeline_exchange.write_text("{}", encoding="utf-8")
+
+    with TestClient(create_app(settings)) as client:
+        service = client.app.state.creator_studio_service
+        service.control_adapter.run_node = lambda request, **_: {
+            "execution_id": "execution-openchatcut",
+            "executor_id": "newma.test.executor",
+            "status": "waiting_user",
+            "progress": 100,
+            "artifacts": [],
+            "result": {
+                "kind": "editor_session",
+                "editor_session": {
+                    "session_id": "editor-openchatcut-test",
+                    "status": "ready",
+                    "editors": [
+                        {
+                            "id": "openchatcut",
+                            "name": "OpenChatCut",
+                            "kind": "local_web",
+                            "status": "available",
+                            "launch_url": "http://127.0.0.1:5199",
+                            "agent_bridge": {
+                                "kind": "mcp",
+                                "endpoint": "http://127.0.0.1:5199/api/external-mcp/mcp",
+                                "protocol": "openchatcut.edit-session.v1",
+                                "approval_modes": ["manual"],
+                            },
+                        }
+                    ],
+                    "input_artifacts": [],
+                    "output_contract": [
+                        "edited_master",
+                        "edit_decisions",
+                        "timeline_exchange",
+                    ],
+                },
+            },
+        }
+        service.control_adapter.launch_editor = lambda request: {
+            "status": "open",
+            "kind": "local_web",
+            "launch_url": "http://127.0.0.1:5199",
+        }
+        service.control_adapter.import_editor_export = lambda request: {
+            "status": "succeeded",
+            "render_id": "render-1",
+            "outputs": [
+                {"type": "edited_master", "path": str(edited_master)},
+                {"type": "edit_decisions", "path": str(edit_decisions)},
+                {"type": "timeline_exchange", "path": str(timeline_exchange)},
+            ],
+        }
+        created = client.post(
+            "/api/creator-studio/runs",
+            headers=headers,
+            json={
+                "title": "OpenChatCut 回写测试",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "materials": [
+                    {"type": "source", "path": "https://example.com", "source": "manual"}
+                ],
+            },
+        ).json()
+        run_id = created["run"]["runId"]
+        client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.run",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": created["run"]["revision"],
+            },
+        )
+        waiting = wait_for_node(
+            client,
+            headers,
+            run_id,
+            stage_id="intake",
+            node_id="source_setup",
+            statuses={"waiting_user"},
+        )
+        opened = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.editor.launch",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "input": {
+                    "editorId": "openchatcut",
+                    "externalProjectId": "occ-project-42",
+                },
+                "expectedRevision": waiting["run"]["revision"],
+            },
+        ).json()
+        opened_session = opened["stages"][0]["nodes"][0]["editorSession"]
+        assert opened_session["externalProject"]["projectId"] == "occ-project-42"
+        assert opened_session["launch"]["launchUrl"].endswith("#/editor/occ-project-42")
+        agent_started = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.editor.start-agent",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "input": {
+                    "editorId": "openchatcut",
+                    "externalProjectId": "occ-project-42",
+                    "prompt": "完成粗剪",
+                },
+                "expectedRevision": opened["run"]["revision"],
+            },
+        ).json()
+        started_collaboration = agent_started["stages"][0]["nodes"][0][
+            "editorSession"
+        ]["collaboration"]
+        assert started_collaboration["reviewDeadlineAt"] is None
+        submitted = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.editor.submit-proposal",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "input": {
+                    "externalProjectId": "occ-project-42",
+                    "externalEditSessionId": "occ-edit-42",
+                    "summary": "完成粗剪与字幕校正",
+                    "changeCount": 4,
+                },
+                "expectedRevision": agent_started["run"]["revision"],
+            },
+        ).json()
+        assert submitted["stages"][0]["nodes"][0]["editorSession"][
+            "collaboration"
+        ]["reviewDeadlineAt"]
+        reviewed = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.editor.review-proposal",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "input": {
+                    "externalProjectId": "occ-project-42",
+                    "externalEditSessionId": "occ-edit-42",
+                    "summary": "完成粗剪与字幕校正",
+                    "changeCount": 4,
+                    "decision": "rejected",
+                },
+                "expectedRevision": submitted["run"]["revision"],
+            },
+        ).json()
+        imported_response = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.editor.import-export",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "input": {
+                    "externalProjectId": "occ-project-42",
+                    "downloadUrl": "/media/uploads/export.mp4",
+                    "renderId": "render-1",
+                },
+                "expectedRevision": reviewed["run"]["revision"],
+            },
+        )
+        assert imported_response.status_code == 200, imported_response.text
+        imported = imported_response.json()
+        sessions = client.get(
+            f"/api/creator-studio/runs/{run_id}/editor-sessions",
+            headers=headers,
+        ).json()["sessions"]
+
+    node = imported["stages"][0]["nodes"][0]
+    assert node["status"] == "succeeded"
+    assert {item["type"] for item in node["artifacts"]} == {
+        "edited_master",
+        "edit_decisions",
+        "timeline_exchange",
+    }
+    assert sessions[0]["externalProject"]["projectId"] == "occ-project-42"
+    assert sessions[0]["outputArtifacts"][0]["type"] == "edited_master"
 
 
 def test_publish_execution_requires_fresh_confirmation_for_each_attempt(tmp_path: Path):
@@ -1701,6 +1972,16 @@ def test_review_gate_approve_writes_stage_gate_file(tmp_path: Path):
     review_node = registry["stages"][0]["nodes"][0]
     review_node["executor"] = "newma.control.review-gate"
     review_node["gate"] = {"required": True, "kind": "human_review"}
+    review_node["outputs"] = ["selected_topics"]
+    registry["stages"][0]["nodes"][1]["material_requirements"] = [
+        {
+            "type": "selected_topics",
+            "label": "已选题目",
+            "required": True,
+            "accepts": [".json"],
+            "sources": ["upstream"],
+        }
+    ]
     registry_path.write_text(
         json.dumps(registry, ensure_ascii=False), encoding="utf-8"
     )
@@ -1711,6 +1992,8 @@ def test_review_gate_approve_writes_stage_gate_file(tmp_path: Path):
         creator_studio_dist=tmp_path / "missing-dist",
     )
     headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+    gate_path = tmp_path / "selected_topics.json"
+    gate_path.write_text('{"status":"approved"}', encoding="utf-8")
 
     with TestClient(create_app(settings)) as client:
         client.app.state.creator_studio_service.control_adapter.run_node = lambda request, **_: {
@@ -1722,8 +2005,9 @@ def test_review_gate_approve_writes_stage_gate_file(tmp_path: Path):
             "artifacts": [
                 {
                     "type": "selected_topics",
-                    "path": "/tmp/selected_topics.json",
+                    "path": str(tmp_path / "selected_topics.packet.json"),
                     "status": "created",
+                    "origin": "packet",
                 }
             ],
         }
@@ -1733,7 +2017,7 @@ def test_review_gate_approve_writes_stage_gate_file(tmp_path: Path):
             gate_calls.append((run_id, stage))
             return {
                 "status": "succeeded",
-                "gate_file": "/tmp/selected_topics.json",
+                "gate_file": str(gate_path),
                 "stage": stage,
                 "previous_status": "pending",
             }
@@ -1809,6 +2093,21 @@ def test_review_gate_approve_writes_stage_gate_file(tmp_path: Path):
             if n["id"] == "source_setup"
         )
         assert node["status"] == "succeeded"
+        current_artifacts = [
+            item for item in node["artifacts"] if item["status"] == "approved"
+        ]
+        assert len(current_artifacts) == 1
+        assert current_artifacts[0]["origin"] == "deliverable"
+        assert current_artifacts[0]["path"] == str(gate_path)
+        collect = next(
+            n
+            for s in approved["stages"]
+            if s["id"] == "intake"
+            for n in s["nodes"]
+            if n["id"] == "collect"
+        )
+        assert collect["materialValidation"]["status"] == "ready"
+        assert collect["materials"][0]["type"] == "selected_topics"
         assert any("阶段门禁写盘：succeeded" in log.get("message", "") for log in node.get("logs", []))
 
 

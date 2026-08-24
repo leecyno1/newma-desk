@@ -22,6 +22,7 @@ from vibe_visualization_api.creator_studio.models import (
     MarketplacePresetCreate,
     MarketplacePresetUpdate,
 )
+from vibe_visualization_api.creator_studio.products import CreatorProductCatalog
 from vibe_visualization_api.creator_studio.registry import (
     CreatorMaterialError,
     CreatorRegistry,
@@ -65,6 +66,11 @@ COMMANDS = {
     "creator.node.skip",
     "creator.node.cancel",
     "creator.editor.launch",
+    "creator.editor.start-agent",
+    "creator.editor.submit-proposal",
+    "creator.editor.review-proposal",
+    "creator.editor.import-export",
+    "creator.editor.save-template",
     "creator.editor.save",
     "creator.editor.close",
     "creator.publish.confirm",
@@ -100,6 +106,7 @@ class CreatorStudioService:
         self.repository = CreatorRunRepository(database_path)
         self.control_adapter = CreatorControlAdapter(creator_workspace)
         self.lineage = ArtifactLineage()
+        self.products = CreatorProductCatalog()
         self.editor_sessions = EditorSessionRuntime(
             self.repository,
             self.control_adapter,
@@ -438,6 +445,9 @@ class CreatorStudioService:
                 workspace_id=workspace_id,
                 session_id=session_id,
                 editor_id=editor_id,
+                external_project_id=str(
+                    command.input.get("externalProjectId") or ""
+                ).strip(),
             )
             state["editorSession"] = self._editor_session_summary(session)
             self._append_log(
@@ -449,6 +459,260 @@ class CreatorStudioService:
                 "editorId": editor_id,
                 "status": session["status"],
                 "launch": session.get("launch"),
+                "externalProject": session.get("externalProject"),
+            }
+        elif command.action_id == "creator.editor.start-agent":
+            session_ref = state.get("editorSession") or {}
+            session_id = str(
+                command.input.get("sessionId")
+                or session_ref.get("sessionId")
+                or ""
+            ).strip()
+            editor_id = str(
+                command.input.get("editorId")
+                or session_ref.get("selectedEditorId")
+                or ""
+            ).strip()
+            if not session_id or not editor_id:
+                raise CreatorCommandError("sessionId and editorId are required")
+            if (
+                session_ref.get("status") not in {"open", "agent_editing", "waiting_review"}
+                or session_ref.get("selectedEditorId") != editor_id
+            ):
+                launched = self.editor_sessions.launch(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    session_id=session_id,
+                    editor_id=editor_id,
+                    external_project_id=str(
+                        command.input.get("externalProjectId") or ""
+                    ).strip(),
+                )
+                if launched.get("status") != "open":
+                    raise CreatorCommandError(
+                        str((launched.get("launch") or {}).get("error") or "editor launch failed")
+                    )
+            session = self.editor_sessions.start_agent(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                editor_id=editor_id,
+                approval_mode=str(command.input.get("approvalMode") or "manual"),
+                prompt=str(command.input.get("prompt") or "").strip(),
+                external_project_id=str(
+                    command.input.get("externalProjectId") or ""
+                ).strip(),
+            )
+            state["editorSession"] = self._editor_session_summary(session)
+            self._append_log(state, f"已启动 Agent 协同剪辑：{editor_id}。")
+            payload = {
+                "sessionId": session_id,
+                "editorId": editor_id,
+                "status": session["status"],
+                "collaboration": session.get("collaboration"),
+                "externalProject": session.get("externalProject"),
+            }
+        elif command.action_id == "creator.editor.submit-proposal":
+            session_ref = state.get("editorSession") or {}
+            session_id = str(command.input.get("sessionId") or session_ref.get("sessionId") or "").strip()
+            external_id = str(command.input.get("externalEditSessionId") or "").strip()
+            if not session_id or not external_id:
+                raise CreatorCommandError("sessionId and externalEditSessionId are required")
+            raw_change_count = command.input.get("changeCount")
+            change_count = int(raw_change_count) if isinstance(raw_change_count, (int, float)) else None
+            session = self.editor_sessions.submit_proposal(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                external_edit_session_id=external_id,
+                summary=str(command.input.get("summary") or "").strip(),
+                change_count=change_count,
+                external_project_id=str(
+                    command.input.get("externalProjectId") or ""
+                ).strip(),
+            )
+            state["editorSession"] = self._editor_session_summary(session)
+            self._append_log(state, "Agent 剪辑提案已提交，等待审核。")
+            payload = {
+                "sessionId": session_id,
+                "status": session["status"],
+                "proposal": (session.get("collaboration") or {}).get("proposal"),
+            }
+        elif command.action_id == "creator.editor.review-proposal":
+            session_ref = state.get("editorSession") or {}
+            session_id = str(command.input.get("sessionId") or session_ref.get("sessionId") or "").strip()
+            decision = str(command.input.get("decision") or "").strip()
+            if not session_id:
+                raise CreatorCommandError("sessionId is required")
+            raw_change_count = command.input.get("changeCount")
+            change_count = int(raw_change_count) if isinstance(raw_change_count, (int, float)) else None
+            session = self.editor_sessions.review_proposal(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                decision=decision,
+                note=str(command.input.get("note") or "").strip(),
+                external_edit_session_id=str(
+                    command.input.get("externalEditSessionId") or ""
+                ).strip(),
+                summary=str(command.input.get("summary") or "").strip(),
+                change_count=change_count,
+                external_project_id=str(
+                    command.input.get("externalProjectId") or ""
+                ).strip(),
+            )
+            state["editorSession"] = self._editor_session_summary(session)
+            if decision == "applied":
+                marketplace_binding = (state.get("parameters") or {}).get(
+                    "marketplacePreset"
+                )
+                if (
+                    isinstance(marketplace_binding, dict)
+                    and marketplace_binding.get("applicationMode")
+                    == "openchatcut_mcp"
+                ):
+                    marketplace_binding["status"] = "applied_in_editor"
+                    marketplace_binding["editorAppliedAt"] = now_iso()
+            self._append_log(state, f"Agent 剪辑提案状态已同步：{decision}。")
+            payload = {
+                "sessionId": session_id,
+                "status": session["status"],
+                "proposal": (session.get("collaboration") or {}).get("proposal"),
+            }
+        elif command.action_id == "creator.editor.save-template":
+            session_ref = state.get("editorSession") or {}
+            session_id = str(command.input.get("sessionId") or session_ref.get("sessionId") or "").strip()
+            template_id = str(command.input.get("templateId") or "").strip()
+            name = str(command.input.get("name") or "").strip()
+            mode = str(command.input.get("mode") or "project").strip()
+            source_action = str(command.input.get("sourceAction") or "").strip()
+            if not session_id or not template_id or not name or not source_action:
+                raise CreatorCommandError(
+                    "sessionId, templateId, name and sourceAction are required"
+                )
+            if mode not in {"project", "selection"}:
+                raise CreatorCommandError("template mode must be project or selection")
+            if (
+                session_ref.get("selectedEditorId") == "openchatcut"
+                and source_action != "manage_template.save"
+            ):
+                raise CreatorCommandError(
+                    "OpenChatCut template must come from manage_template.save"
+                )
+            session = self.editor_sessions.save_template(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                template_id=template_id,
+                name=name,
+                mode=mode,
+                source_action=source_action,
+            )
+            timestamp = now_iso()
+            compatibility = {
+                "schemaVersion": "newma.creator-marketplace-compatibility.v1",
+                "status": "compatible",
+                "canSave": True,
+                "canApply": True,
+                "item": {
+                    "id": "openchatcut-user-template",
+                    "kind": "template",
+                    "name": "我的 OpenChatCut 工程模板",
+                    "sourceProjectId": "openchatcut",
+                },
+                "target": {"stageId": stage_id, "nodeId": node_id, "name": node_definition.get("name")},
+                "checks": [{"id": "editor-result", "status": "pass", "label": "OpenChatCut 已返回稳定模板 ID"}],
+                "recommendedNodes": [{"stageId": stage_id, "nodeId": node_id, "label": node_definition.get("name")}],
+                "demo": {"mode": "flow", "available": True},
+            }
+            preset = self.repository.create_preset(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                document={
+                    "schemaVersion": "newma.creator-marketplace-preset.v1",
+                    "presetId": f"preset-{uuid4().hex[:12]}",
+                    "version": 1,
+                    "name": name,
+                    "itemId": "openchatcut-user-template",
+                    "itemKind": "template",
+                    "sourceProjectId": "openchatcut",
+                    "target": {"stageId": stage_id, "nodeId": node_id},
+                    "parameters": {
+                        "editorId": session.get("selectedEditorId"),
+                        "templateId": template_id,
+                        "templateMode": mode,
+                        "sourceAction": source_action,
+                        "sourceVerification": "editor_returned",
+                        "sourceRunId": run_id,
+                        "sourceEditorSessionId": session_id,
+                    },
+                    "compatibility": compatibility,
+                    "createdAt": timestamp,
+                    "updatedAt": timestamp,
+                },
+            )
+            state["editorSession"] = self._editor_session_summary(session)
+            self._append_log(state, f"已登记 OpenChatCut 模板引用：{name}。")
+            payload = {"sessionId": session_id, "templateId": template_id, "preset": preset}
+        elif command.action_id == "creator.editor.import-export":
+            session_ref = state.get("editorSession") or {}
+            session_id = str(
+                command.input.get("sessionId")
+                or session_ref.get("sessionId")
+                or ""
+            ).strip()
+            external_project_id = str(
+                command.input.get("externalProjectId")
+                or (session_ref.get("externalProject") or {}).get("projectId")
+                or ""
+            ).strip()
+            download_url = str(command.input.get("downloadUrl") or "").strip()
+            if not session_id or not external_project_id or not download_url:
+                raise CreatorCommandError(
+                    "sessionId, externalProjectId and downloadUrl are required"
+                )
+            session, import_result = self.editor_sessions.import_export(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                external_project_id=external_project_id,
+                download_url=download_url,
+                render_id=str(command.input.get("renderId") or "").strip(),
+                name=str(command.input.get("name") or "").strip(),
+            )
+            outputs = [
+                item
+                for item in import_result.get("outputs", [])
+                if isinstance(item, dict)
+            ]
+            created_at = str(session.get("savedAt") or now_iso())
+            editor_impacts: list[dict[str, str]] = []
+            for item in outputs:
+                _, impacts = self.lineage.register_artifact(
+                    document,
+                    stage_id=stage_id,
+                    node_id=node_id,
+                    artifact=item,
+                    created_at=created_at,
+                    editor_session_id=session_id,
+                )
+                editor_impacts.extend(impacts)
+            state["editorSession"] = self._editor_session_summary(session)
+            state["status"] = "succeeded"
+            state["progress"] = 100
+            document["status"] = (
+                "changes_requested" if editor_impacts else "pending"
+            )
+            self._append_log(
+                state,
+                f"OpenChatCut 导出已固化并回写 {len(outputs)} 个产物。",
+            )
+            payload = {
+                "sessionId": session_id,
+                "status": "saved",
+                "artifactCount": len(outputs),
+                "externalProjectId": external_project_id,
+                "renderId": import_result.get("render_id"),
             }
         elif command.action_id == "creator.editor.save":
             session_ref = state.get("editorSession") or {}
@@ -596,13 +860,33 @@ class CreatorStudioService:
                 "itemVersion": preset.get("itemVersion"),
                 "appliedAt": now_iso(),
             }
+            uses_openchatcut = (
+                preset.get("itemKind") == "template"
+                and preset.get("sourceProjectId") == "openchatcut"
+            )
+            if uses_openchatcut:
+                bound_at = binding.pop("appliedAt")
+                binding.update(
+                    {
+                        "applicationMode": "openchatcut_mcp",
+                        "status": "pending_editor_application",
+                        "boundAt": bound_at,
+                    }
+                )
             state["parameters"] = {
                 **state.get("parameters", {}),
                 **deepcopy(preset.get("parameters", {})),
                 "marketplacePreset": binding,
             }
             state.setdefault("presetBindings", []).append(binding)
-            self._append_log(state, f"已应用能力预设：{preset['name']}。")
+            self._append_log(
+                state,
+                (
+                    f"已绑定 OpenChatCut 模板：{preset['name']}；进入剪辑后通过 MCP 应用。"
+                    if uses_openchatcut
+                    else f"已应用能力预设：{preset['name']}。"
+                ),
+            )
             payload = {"preset": binding, "parameters": state["parameters"]}
         elif command.action_id == "creator.node.submit-feedback":
             message = str(command.input.get("message") or "").strip()
@@ -679,6 +963,30 @@ class CreatorStudioService:
                         f"阶段门禁写盘：{gate_result.get('status')} {gate_result.get('gate_file')}",
                     )
                     payload = {"gate": gate_result}
+                    gate_file = str(gate_result.get("gate_file") or "").strip()
+                    gate_type = Path(gate_file).stem if gate_file else ""
+                    if (
+                        gate_result.get("status") in {"created", "succeeded", "approved"}
+                        and gate_type in {str(item) for item in node_definition.get("outputs", [])}
+                    ):
+                        gate_artifact, _ = self.lineage.register_artifact(
+                            document,
+                            stage_id=stage_id,
+                            node_id=node_id,
+                            artifact={
+                                "type": gate_type,
+                                "path": gate_file,
+                                "label": gate_type,
+                                "status": "approved",
+                                "origin": "deliverable",
+                            },
+                            created_at=now_iso(),
+                            producer_job_id=str(
+                                (state.get("executionRequest") or {}).get("jobId") or ""
+                            ) or None,
+                        )
+                        payload["gateArtifact"] = gate_artifact
+                        self._append_log(state, f"已登记门禁交付物：{gate_type}")
                 except Exception as exc:  # noqa: BLE001 - 写盘尽力而为，不阻断审批
                     self._append_log(state, f"阶段门禁写盘失败：{exc}")
             # 批准后自动转接：把本节点可用交付物交给下一节点。
@@ -1157,8 +1465,11 @@ class CreatorStudioService:
             "status": session["status"],
             "editors": deepcopy(session.get("editors", [])),
             "selectedEditorId": session.get("selectedEditorId"),
+            "externalProject": deepcopy(session.get("externalProject")),
             "outputContract": session.get("outputContract", []),
             "outputArtifacts": deepcopy(session.get("outputArtifacts", [])),
+            "collaboration": deepcopy(session.get("collaboration")),
+            "savedTemplates": deepcopy(session.get("savedTemplates", [])),
             "launch": deepcopy(session.get("launch")),
             "createdAt": session["createdAt"],
             "updatedAt": session["updatedAt"],
@@ -1547,6 +1858,7 @@ class CreatorStudioService:
         document: dict[str, Any],
         registry: dict[str, Any],
     ) -> dict[str, Any]:
+        file_catalog = self.products.build(document, registry)
         stages: list[dict[str, Any]] = []
         graph_nodes: list[dict[str, Any]] = []
         graph_edges: list[dict[str, Any]] = []
@@ -1566,6 +1878,12 @@ class CreatorStudioService:
                     state.get("materials", []),
                     project_start=bool(state.get("allowManualBootstrap")),
                 )
+                product = self.products.resolve_node(
+                    stage_id,
+                    node,
+                    state,
+                    file_catalog,
+                )
                 row = {
                     "id": node_id,
                     "name": node.get("name"),
@@ -1582,6 +1900,7 @@ class CreatorStudioService:
                     "materials": state.get("materials", []),
                     "outputs": node.get("outputs", []),
                     "artifacts": state.get("artifacts", []),
+                    "product": product,
                     "feedback": state.get("feedback", []),
                     "logs": state.get("logs", []),
                     "parameters": state.get("parameters", {}),
@@ -1632,16 +1951,20 @@ class CreatorStudioService:
                             "nodeId": node_id,
                         }
                     )
-                for artifact in row["artifacts"][-3:]:
-                    if artifact.get("status") in {"created", "approved", "succeeded"}:
+                for artifact in row["product"]["deliverables"][-3:]:
+                    if (
+                        artifact.get("source") == "artifact"
+                        and artifact.get("status") in {"created", "approved", "succeeded"}
+                    ):
                         notifications.append(
                             {
-                                "id": f"artifact:{artifact.get('id')}",
+                                "id": f"artifact:{artifact.get('artifactId') or artifact.get('id')}",
                                 "kind": "artifact",
-                                "title": f"新交付物：{artifact.get('label') or artifact.get('type')}",
+                                "title": f"新交付：{artifact.get('label') or artifact.get('type')}",
                                 "stageId": stage_id,
                                 "nodeId": node_id,
-                                "artifactId": artifact.get("id"),
+                                "artifactId": artifact.get("artifactId"),
+                                "artifactPath": artifact.get("path"),
                             }
                         )
             statuses = [row["status"] for row in nodes]
@@ -1659,6 +1982,14 @@ class CreatorStudioService:
                     "status": stage_status,
                     "progress": stage_progress,
                     "nodes": nodes,
+                    "products": [
+                        {
+                            "nodeId": row["id"],
+                            "nodeName": row["name"],
+                            **row["product"],
+                        }
+                        for row in nodes
+                    ],
                     "laneCatalog": stage.get("lane_catalog", []),
                 }
             )
@@ -1675,6 +2006,7 @@ class CreatorStudioService:
             },
             "stages": stages,
             "graph": {"nodes": graph_nodes, "edges": graph_edges},
+            "fileCatalog": file_catalog,
             "handoffs": document.get("handoffs", []),
             "lineageState": document.get("lineageState"),
             "publishState": document.get("publishState"),
@@ -1926,9 +2258,28 @@ class CreatorStudioService:
             for item in editor_session.get("editors", [])
         ):
             actions.append("creator.editor.launch")
+        selected_editor_id = editor_session.get("selectedEditorId")
+        agent_editors = [
+            item
+            for item in editor_session.get("editors", [])
+            if isinstance(item.get("agentBridge"), dict)
+            and item.get("agentBridge", {}).get("endpoint")
+            and item.get("status") in {"available", "open"}
+        ]
+        if agent_editors and editor_status in {"ready", "open", "saved"}:
+            actions.append("creator.editor.start-agent")
+        if editor_status == "agent_editing":
+            actions.append("creator.editor.submit-proposal")
+            actions.append("creator.editor.review-proposal")
+        if editor_status == "waiting_review":
+            actions.append("creator.editor.review-proposal")
         if editor_status == "open":
             actions.append("creator.editor.save")
-        if editor_status in {"open", "saved", "blocked"}:
+        if editor_status in {"open", "saved"} and selected_editor_id == "openchatcut":
+            actions.append("creator.editor.import-export")
+        if editor_status in {"open", "saved"} and selected_editor_id:
+            actions.append("creator.editor.save-template")
+        if editor_status in {"open", "saved", "blocked", "agent_editing", "waiting_review"}:
             actions.append("creator.editor.close")
         if material_report.get("status") == "ready":
             executor_id = str(node_definition.get("executor") or "")
@@ -1963,7 +2314,10 @@ class CreatorStudioService:
             actions.extend(
                 ["creator.node.approve", "creator.node.request-changes"]
             )
-        elif status == "waiting_user":
+        elif (
+            status == "waiting_user"
+            and str(node_definition.get("executor") or "") not in SESSION_EXECUTOR_IDS
+        ):
             actions.append("creator.node.complete")
         if status not in {"queued", "running"} and any(
             str(item.get("status") or "created") in USABLE_ARTIFACT_STATUSES

@@ -141,6 +141,199 @@
         "outputSchema": {"type": "object", "additionalProperties": true},
         "confirmation": "user"
       },
+      "creator.node.cancel": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.execute",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.publish.confirm": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.execute",
+        "inputSchema": {
+          "type": "object",
+          "required": ["confirmed", "confirmationText"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "confirmed": {"const": true},
+            "confirmationText": {"const": "确认发布"},
+            "note": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.editor.launch": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["editorId"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "sessionId": {"type": "string"},
+            "editorId": {"type": "string"},
+            "externalProjectId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.editor.start-agent": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["editorId"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "sessionId": {"type": "string"},
+            "editorId": {"type": "string"},
+            "approvalMode": {"enum": ["manual", "auto"]},
+            "prompt": {"type": "string"},
+            "externalProjectId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.editor.submit-proposal": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["externalEditSessionId"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "sessionId": {"type": "string"},
+            "externalEditSessionId": {"type": "string"},
+            "externalProjectId": {"type": "string"},
+            "summary": {"type": "string"},
+            "changeCount": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.editor.review-proposal": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.review",
+        "inputSchema": {
+          "type": "object",
+          "required": ["decision"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "sessionId": {"type": "string"},
+            "externalEditSessionId": {"type": "string"},
+            "externalProjectId": {"type": "string"},
+            "summary": {"type": "string"},
+            "changeCount": {"type": "integer", "minimum": 0},
+            "decision": {"enum": ["applied", "rejected", "discarded"]},
+            "note": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.editor.import-export": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["externalProjectId", "downloadUrl"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "sessionId": {"type": "string"},
+            "externalProjectId": {"type": "string"},
+            "downloadUrl": {"type": "string"},
+            "renderId": {"type": "string"},
+            "name": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.editor.save-template": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["templateId", "name", "sourceAction"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "sessionId": {"type": "string"},
+            "templateId": {"type": "string"},
+            "name": {"type": "string"},
+            "mode": {"enum": ["project", "selection"]},
+            "sourceAction": {"const": "manage_template.save"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.editor.save": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["outputs"],
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "sessionId": {"type": "string"},
+            "outputs": {"type": "array", "items": {"type": "object"}}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "creator.editor.close": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
       "creator.node.configure": {
         "binding": {"type": "local"},
         "execution": "request",
@@ -280,6 +473,95 @@
         },
         "outputSchema": {"type": "object", "additionalProperties": true},
         "confirmation": "user"
+      },
+      "creator.marketplace.check-compatibility": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.read",
+        "inputSchema": {
+          "type": "object",
+          "required": ["itemId", "itemKind"],
+          "properties": {
+            "itemId": {"type": "string"},
+            "itemKind": {"enum": ["project", "skill", "pipeline", "template"]},
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.marketplace.save-preset": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["name", "itemId", "itemKind"],
+          "properties": {
+            "name": {"type": "string"},
+            "itemId": {"type": "string"},
+            "itemKind": {"enum": ["project", "skill", "pipeline", "template"]},
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "parameters": {"type": "object", "additionalProperties": true}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.marketplace.list-preset-versions": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.read",
+        "inputSchema": {
+          "type": "object",
+          "required": ["presetId"],
+          "properties": {"presetId": {"type": "string"}},
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.marketplace.update-preset": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["presetId", "name", "parameters", "expectedVersion"],
+          "properties": {
+            "presetId": {"type": "string"},
+            "name": {"type": "string"},
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "parameters": {"type": "object", "additionalProperties": true},
+            "expectedVersion": {"type": "integer", "minimum": 1}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "creator.marketplace.apply-preset": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "creator.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["presetId", "stageId", "nodeId"],
+          "properties": {
+            "presetId": {"type": "string"},
+            "presetVersion": {"type": "integer", "minimum": 1},
+            "stageId": {"type": "string"},
+            "nodeId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
       },
       "creator.capability.detect": {
         "binding": {"type": "local"},

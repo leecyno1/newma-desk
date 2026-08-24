@@ -48,6 +48,7 @@ export interface CreatorArtifact {
   type: string;
   path: string;
   label?: string;
+  origin?: "deliverable" | "handoff" | "system" | "packet" | "runtime" | string;
   status: string;
   version?: number;
   contentDigest?: string;
@@ -67,6 +68,50 @@ export interface CreatorArtifact {
   staleAt?: string;
   staleReason?: string;
   createdAt: string;
+}
+
+export interface CreatorProductFile {
+  id: string;
+  name: string;
+  label: string;
+  type: string;
+  path: string;
+  relativePath: string;
+  stageId?: string;
+  nodeId?: string;
+  role: "primary" | "supporting" | "system" | "raw";
+  status: string;
+  source: "artifact" | "catalog";
+  artifactId?: string;
+  version?: number;
+  mimeType?: string;
+  size?: number;
+  modifiedAt?: string;
+}
+
+export interface CreatorNodeProduct {
+  kind: string;
+  title: string;
+  summary: string;
+  interaction: {
+    mode?: "preview" | "select" | "edit" | "approve" | string;
+    minSelect?: number;
+    maxSelect?: number;
+    sourceType?: string;
+    actionLabel?: string;
+  };
+  expected: Array<{ type: string; label: string; ready: boolean }>;
+  deliverables: CreatorProductFile[];
+  supportingFiles: CreatorProductFile[];
+  availableCount: number;
+  expectedCount: number;
+  status: "ready" | "pending" | string;
+}
+
+export interface CreatorFileCatalog {
+  root?: string | null;
+  entries: CreatorProductFile[];
+  counts: Record<string, number>;
 }
 
 export interface CreatorHandoff {
@@ -96,18 +141,73 @@ export interface EditorSessionSummary {
     status: string;
     launchUrl?: string;
     artifactPath?: string;
+    projectPath?: string;
+    projectCandidates?: string[];
+    embedMode?: string;
+    agentBridge?: {
+      kind?: string;
+      endpoint?: string;
+      protocol?: string;
+      approval_modes?: string[];
+      required_tools?: string[];
+    };
+    sessionProtocol?: Record<string, unknown>;
+    templateCatalogs?: string[];
     reason?: string;
     missing?: string[];
   }>;
   selectedEditorId?: string;
+  externalProject?: {
+    editorId: string;
+    projectId: string;
+    editorUrl?: string;
+    source?: string;
+    boundAt?: string;
+    updatedAt?: string;
+  };
   outputContract: string[];
   outputArtifacts: Array<Record<string, unknown>>;
+  collaboration?: {
+    protocol?: string;
+    bridgeKind?: string;
+    endpoint?: string;
+    approvalMode?: string;
+    status?: string;
+    prompt?: string;
+    externalProjectId?: string;
+    externalEditSessionId?: string;
+    reviewTimeoutSeconds?: number;
+    reviewDeadlineAt?: string;
+    proposal?: {
+      status?: string;
+      summary?: string;
+      changeCount?: number;
+      submittedAt?: string;
+      reviewedAt?: string;
+      reviewNote?: string;
+    };
+    startedAt?: string;
+    updatedAt?: string;
+  };
+  savedTemplates?: Array<{
+    templateId: string;
+    name: string;
+    mode: string;
+    editorId?: string;
+    sourceAction?: string;
+    sourceStatus?: string;
+    savedAt: string;
+  }>;
   launch?: {
     status?: string;
     editorId?: string;
     kind?: string;
     launchUrl?: string;
     artifactPath?: string;
+    projectPath?: string;
+    embedMode?: string;
+    agentBridge?: Record<string, unknown>;
+    sessionProtocol?: Record<string, unknown>;
     error?: string;
   };
   createdAt: string;
@@ -177,6 +277,14 @@ export interface RegistryNode {
   executor?: string;
   editors?: string[];
   gate?: Record<string, unknown>;
+  product?: {
+    kind?: string;
+    title?: string;
+    summary?: string;
+    primary_outputs?: Array<string | Record<string, unknown>>;
+    supporting_outputs?: Array<string | Record<string, unknown>>;
+    interaction?: Record<string, unknown>;
+  };
 }
 
 export interface RegistryStage {
@@ -218,6 +326,7 @@ export interface SnapshotNode {
   materials: CreatorMaterial[];
   outputs: string[];
   artifacts: CreatorArtifact[];
+  product: CreatorNodeProduct;
   feedback: Array<{ id: string; message: string; createdAt: string }>;
   logs: Array<{ at: string; message: string }>;
   parameters: Record<string, unknown>;
@@ -259,6 +368,7 @@ export interface SnapshotStage {
   status: string;
   progress: number;
   nodes: SnapshotNode[];
+  products: Array<CreatorNodeProduct & { nodeId: string; nodeName: string }>;
   laneCatalog: Array<{ id: string; name: string; enabled: boolean }>;
 }
 
@@ -282,6 +392,7 @@ export interface CreatorSnapshot {
     edges: Array<{ from: string; to: string }>;
   };
   handoffs: CreatorHandoff[];
+  fileCatalog: CreatorFileCatalog;
   lineageState?: {
     lastInvalidatedAt: string;
     reason: string;
@@ -294,6 +405,8 @@ export interface CreatorSnapshot {
     title: string;
     stageId: string;
     nodeId: string;
+    artifactId?: string;
+    artifactPath?: string;
   }>;
   counters: { waitingReview: number; newArtifacts: number; blockedNodes: number };
   lastEventSequence: number;
@@ -309,6 +422,7 @@ export interface MarketplaceItem {
   subcategory?: string;
   source?: string;
   sourceProjectId?: string;
+  sourceTemplateId?: string;
   localPath?: string;
   version?: string;
   tier?: string;

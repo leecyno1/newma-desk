@@ -152,6 +152,18 @@ class ModStoreService:
             runtime_workspace_resolver or resolve_runtime_workspace
         )
         self._sync_lock = asyncio.Lock()
+        self._snapshot_cache_signature: tuple[int, int, int, int] | None = None
+        self._snapshot_cache_value: RemoteCatalogSnapshot | None = None
+        self._snapshot_cache_loaded = False
+        self._expanded_snapshot: RemoteCatalogSnapshot | None = None
+        self._expanded_snapshot_mods: list[
+            tuple[
+                StoreCatalogEntry | StoreSuiteCatalogEntry,
+                StoreModDescriptor,
+                bool,
+            ]
+        ] | None = None
+        self._expanded_snapshot_manifests: dict[str, dict[str, object]] | None = None
 
     def _catalog(self) -> StoreCatalog:
         try:
@@ -262,10 +274,36 @@ class ModStoreService:
             raise ModStoreSyncError() from error
 
     def _snapshot(self) -> RemoteCatalogSnapshot | None:
+        path = self._snapshot_path()
         try:
-            raw = json.loads(self._snapshot_path().read_text("utf-8"))
+            stat = path.stat()
+            catalog_stat = (self._store_dir / "store.json").stat()
+        except OSError:
+            self._snapshot_cache_signature = None
+            self._snapshot_cache_value = None
+            self._snapshot_cache_loaded = True
+            self._expanded_snapshot = None
+            self._expanded_snapshot_mods = None
+            self._expanded_snapshot_manifests = None
+            return None
+
+        signature = (
+            stat.st_mtime_ns,
+            stat.st_size,
+            catalog_stat.st_mtime_ns,
+            catalog_stat.st_size,
+        )
+        if (
+            self._snapshot_cache_loaded
+            and self._snapshot_cache_signature == signature
+        ):
+            return self._snapshot_cache_value
+
+        snapshot: RemoteCatalogSnapshot | None = None
+        try:
+            raw = json.loads(path.read_text("utf-8"))
             if not isinstance(raw, dict) or raw.get("schemaVersion") != "1.0":
-                return None
+                raise ValueError("Unsupported Mod catalog snapshot schema")
             commit = raw.get("commit")
             synced_at = raw.get("syncedAt")
             descriptor_rows = raw.get("descriptors")
@@ -275,7 +313,7 @@ class ModStoreService:
                 or not isinstance(synced_at, str)
                 or not isinstance(descriptor_rows, dict)
             ):
-                return None
+                raise ValueError("Invalid Mod catalog snapshot metadata")
             datetime.fromisoformat(synced_at)
             catalog = StoreCatalog.model_validate(raw.get("catalog"))
             bundled = self._catalog()
@@ -287,9 +325,9 @@ class ModStoreService:
                 if isinstance(key, str) and isinstance(value, dict)
             }
             if len(descriptors) != len(descriptor_rows):
-                return None
+                raise ValueError("Invalid Mod catalog snapshot descriptors")
             self._validate_git_descriptors(catalog, descriptors)
-            return RemoteCatalogSnapshot(
+            snapshot = RemoteCatalogSnapshot(
                 catalog=self._catalog_at_commit(catalog, commit),
                 commit=commit,
                 synced_at=synced_at,
@@ -302,7 +340,15 @@ class ModStoreService:
             ValueError,
             ModStoreError,
         ):
-            return None
+            snapshot = None
+        self._snapshot_cache_signature = signature
+        self._snapshot_cache_value = snapshot
+        self._snapshot_cache_loaded = True
+        if snapshot is None:
+            self._expanded_snapshot = None
+            self._expanded_snapshot_mods = None
+            self._expanded_snapshot_manifests = None
+        return snapshot
 
     def _write_snapshot(
         self,
@@ -332,6 +378,12 @@ class ModStoreService:
         )
         os.chmod(temp, 0o600)
         os.replace(temp, path)
+        self._snapshot_cache_signature = None
+        self._snapshot_cache_value = None
+        self._snapshot_cache_loaded = False
+        self._expanded_snapshot = None
+        self._expanded_snapshot_mods = None
+        self._expanded_snapshot_manifests = None
 
     async def _entry(
         self,
@@ -762,9 +814,21 @@ class ModStoreService:
     ]:
         snapshot = self._snapshot()
         if snapshot is not None:
+            if (
+                self._expanded_snapshot is snapshot
+                and self._expanded_snapshot_mods is not None
+            ):
+                return snapshot.catalog, self._expanded_snapshot_mods, snapshot
+            mods = await self._snapshot_mods(snapshot.catalog, snapshot.descriptors)
+            self._expanded_snapshot = snapshot
+            self._expanded_snapshot_mods = mods
+            self._expanded_snapshot_manifests = {
+                descriptor.id: self._manifest(descriptor)
+                for _, descriptor, _ in mods
+            }
             return (
                 snapshot.catalog,
-                await self._snapshot_mods(snapshot.catalog, snapshot.descriptors),
+                mods,
                 snapshot,
             )
         catalog = self._catalog()
@@ -999,7 +1063,14 @@ class ModStoreService:
         installed = {item.module_id: item for item in repository.list_installed()}
         rows: list[StoreModResponse] = []
         for entry, descriptor, default_install in catalog_mods:
-            manifest = self._manifest(descriptor)
+            manifest = (
+                self._expanded_snapshot_manifests.get(descriptor.id)
+                if snapshot is self._expanded_snapshot
+                and self._expanded_snapshot_manifests is not None
+                else None
+            )
+            if manifest is None:
+                manifest = self._manifest(descriptor)
             current = installed.get(descriptor.id)
             if current is None:
                 install_state = "available"
@@ -1133,14 +1204,22 @@ class ModStoreService:
         selected = [
             descriptor
             for _, descriptor, _ in rows
-            if (
-                descriptor.manifest.navigation.directory.id
-                if descriptor.manifest.navigation is not None
-                and descriptor.manifest.navigation.directory is not None
-                else descriptor.id
-            )
-            == project_id
+            if descriptor.manifest.navigation is not None
+            and descriptor.manifest.navigation.project is not None
+            and descriptor.manifest.navigation.project.id == project_id
         ]
+        if not selected:
+            selected = [
+                descriptor
+                for _, descriptor, _ in rows
+                if (
+                    descriptor.manifest.navigation.directory.id
+                    if descriptor.manifest.navigation is not None
+                    and descriptor.manifest.navigation.directory is not None
+                    else descriptor.id
+                )
+                == project_id
+            ]
         if not selected:
             raise ModStoreNotFoundError()
 

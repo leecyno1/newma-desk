@@ -405,9 +405,17 @@ describe("ModFrame event boundary", () => {
     );
     const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
 
-    dispatchFromFrame(frame, { type: "vibedesk:copilot-open" });
+    dispatchFromFrame(frame, {
+      type: "vibedesk:copilot-open",
+      mode: "edit",
+      prompt: "按分镜完成粗剪",
+    });
 
     expect(onRequestCopilotOpen).toHaveBeenCalledTimes(1);
+    expect(onRequestCopilotOpen).toHaveBeenCalledWith({
+      mode: "edit",
+      prompt: "按分镜完成粗剪",
+    });
     eventBus.close();
   });
 

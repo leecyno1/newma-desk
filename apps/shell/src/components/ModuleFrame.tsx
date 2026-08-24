@@ -74,7 +74,7 @@ interface ModFrameProps {
   contextSaver?: typeof saveModContext;
   copilotOpen?: boolean;
   onToggleCopilot?: () => void;
-  onRequestCopilotOpen?: () => void;
+  onRequestCopilotOpen?: (request?: CopilotOpenRequest) => void;
   onContextPublished?: (context: ModPageContext) => void;
   wikiSubjectName?: string;
   wikiLinks?: WikiLink[];
@@ -82,6 +82,11 @@ interface ModFrameProps {
   wikiActiveLinkId?: string;
   wikiError?: string;
   onOpenWikiLink?: (link: WikiLink) => void;
+}
+
+export interface CopilotOpenRequest {
+  prompt?: string;
+  mode?: "ask" | "edit";
 }
 
 function embeddedMarketMod(manifest: ModManifest) {
@@ -1014,7 +1019,11 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         typeof message.data === "object" &&
         message.data.type === "vibedesk:copilot-open"
       ) {
-        onRequestCopilotOpenRef.current?.();
+        const prompt = typeof message.data.prompt === "string"
+          ? message.data.prompt.trim().slice(0, 8_000)
+          : undefined;
+        const mode = message.data.mode === "edit" ? "edit" : "ask";
+        onRequestCopilotOpenRef.current?.({ prompt, mode });
         return;
       }
 

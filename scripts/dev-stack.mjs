@@ -29,6 +29,15 @@ const args = new Set(process.argv.slice(2));
 const checkOnly = args.has("--check");
 const strictStatus = args.has("--strict");
 
+function preferredCodexExecutable() {
+  const configured = configuredEnv("AGENT_CODEX_BIN");
+  if (configured) return configured;
+  return [
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
+    path.join(process.env.HOME || "", ".npm-global", "bin", "codex"),
+  ].find((candidate) => candidate && existsSync(candidate));
+}
+
 function configuredEnv(name) {
   const suffix = name.startsWith("NEWMA_DESK_")
     ? name.slice("NEWMA_DESK_".length)
@@ -154,6 +163,7 @@ function createApiReadinessProbe() {
 
 function coreServices(externalRuntimeEnv = {}) {
   const apiPython = pythonAt(path.join(repoRoot, "services", "api"));
+  const codexExecutable = preferredCodexExecutable();
   return [
     {
       id: "newma-desk-api",
@@ -166,6 +176,9 @@ function coreServices(externalRuntimeEnv = {}) {
       ],
       env: {
         ...externalRuntimeEnv,
+        ...(codexExecutable
+          ? { NEWMA_DESK_AGENT_CODEX_BIN: codexExecutable }
+          : {}),
         NEWMA_DESK_POLICY_RSSHUB_BASE_URL: "http://127.0.0.1:1200",
         NEWMA_DESK_ENABLE_DOMAIN_SUITES: "true",
         NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME: "1",
@@ -361,6 +374,40 @@ function worldIntelServices(runtime) {
     probe: createHttpProbe(endpoint.healthUrl, {
       expectedService: "world-intel-mcp",
     }),
+  }];
+}
+
+function openChatCutServices(runtime) {
+  if (!runtime) return [];
+  const workspace = runtime.workspaces.source.path;
+  const endpoint = runtime.endpoints.web;
+  const configuredNode = configuredEnv("OPENCHATCUT_NODE_BIN");
+  const configuredNpmCli = configuredEnv("OPENCHATCUT_NPM_CLI");
+  const node24 = configuredNode || "/opt/homebrew/opt/node@24/bin/node";
+  const npmCli = configuredNpmCli
+    || "/opt/homebrew/opt/node@24/lib/node_modules/npm/bin/npm-cli.js";
+  const pinnedNodeRuntime = existsSync(node24) && existsSync(npmCli);
+  return [{
+    id: "openchatcut-editor",
+    label: "OpenChatCut Collaborative Editor",
+    cwd: workspace,
+    ...(workspace && endpoint.local
+      ? {
+          command: pinnedNodeRuntime ? node24 : "npm",
+          commandArgs: [
+            ...(pinnedNodeRuntime ? [npmCli] : []),
+            "run", "dev:shared", "--",
+            "--host", "127.0.0.1",
+            "--port", String(endpoint.port),
+            "--strictPort",
+          ],
+        }
+      : {}),
+    criticality: endpoint.local
+      ? SERVICE_CRITICALITY.OPTIONAL
+      : SERVICE_CRITICALITY.EXTERNAL,
+    url: endpoint.healthUrl,
+    probe: createHttpProbe(endpoint.healthUrl, { timeoutMs: 15_000 }),
   }];
 }
 
@@ -600,12 +647,14 @@ const externalRuntimeEnv = runtimeEnvironment(externalRuntimes);
 const core = coreServices(externalRuntimeEnv);
 const policyCollector = policyCollectorServices();
 const worldIntelRuntime = externalRuntimes.byId["world-intel"];
+const openChatCutRuntime = externalRuntimes.byId.openchatcut;
 const sevenCycleRuntime = externalRuntimes.byId["seven-cycle"];
 const instockRuntime = externalRuntimes.byId.instock;
 const fundAnalysisRuntime = externalRuntimes.byId["fund-analysis"];
 const orchestraRuntime = externalRuntimes.byId.orchestra;
 const deepseeRuntime = externalRuntimes.byId.deepsee;
 const worldIntel = worldIntelServices(worldIntelRuntime);
+const openChatCut = openChatCutServices(openChatCutRuntime);
 const sevenCycle = sevenCycleServices(sevenCycleRuntime);
 const instock = instockServices(instockRuntime);
 const fundAnalysis = fundAnalysisServices(fundAnalysisRuntime);
@@ -647,7 +696,7 @@ for (const runtime of externalRuntimes.runtimes) {
 
 if (checkOnly) {
   const results = [];
-  for (const service of [...worldIntel, ...policyCollector, ...core, ...instock, ...fundAnalysis, ...orchestra, ...sevenCycle, deepsee]) {
+  for (const service of [...worldIntel, ...policyCollector, ...core, ...openChatCut, ...instock, ...fundAnalysis, ...orchestra, ...sevenCycle, deepsee]) {
     results.push(await statusLine(service));
   }
   const coreReady = results
@@ -730,6 +779,7 @@ if (checkOnly) {
     console.log("\nNewma-Desk 核心已就绪：http://127.0.0.1:5888/?mod=global-situation");
     console.log("Research / Trading 与 World Intelligence 已作为 Newma-Desk 核心运行时加载。");
     const optionalServices = [
+      ...openChatCut,
       ...instock,
       ...fundAnalysis,
       ...orchestra,

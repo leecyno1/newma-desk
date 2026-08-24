@@ -170,11 +170,26 @@ function resolveEndpoint(raw, label, env) {
   if (!healthPath.startsWith("/") || healthPath.startsWith("//") || healthPath.includes("..")) {
     throw new Error(`${label}.healthPath must be a safe absolute path`);
   }
+  const interfacePath = endpoint.interfacePath === undefined
+    ? undefined
+    : stringValue(endpoint.interfacePath, `${label}.interfacePath`);
+  if (
+    interfacePath !== undefined &&
+    (!interfacePath.startsWith("/") || interfacePath.startsWith("//") || interfacePath.includes(".."))
+  ) {
+    throw new Error(`${label}.interfacePath must be a safe absolute path`);
+  }
   return {
     env: configuredEnv,
     origin: parsed.origin,
     port: endpointPort(parsed),
     local: localHostname(parsed.hostname),
+    ...(interfacePath
+      ? {
+          interfacePath,
+          url: new URL(interfacePath, `${parsed.origin}/`).toString(),
+        }
+      : {}),
     healthPath,
     healthUrl: new URL(healthPath, `${parsed.origin}/`).toString(),
   };

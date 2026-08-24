@@ -32,6 +32,7 @@ import {
 import { ModCopilot } from "./components/ModCopilot";
 import {
   ModFrame,
+  type CopilotOpenRequest,
   type ModFrameHandle,
 } from "./components/ModuleFrame";
 import { InterfaceSettings } from "./components/InterfaceSettings";
@@ -252,6 +253,12 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
   const [copilotOpen, setCopilotOpen] = useState(() =>
     embedded ? false : copilotFromLocation(),
   );
+  const [copilotPrefill, setCopilotPrefill] = useState<{
+    id: number;
+    moduleId: string;
+    prompt: string;
+    mode: "ask" | "edit";
+  }>();
   const [wikiContext, setWikiContext] = useState<WikiPageContext>();
   const [wikiLinks, setWikiLinks] = useState<WikiLink[]>([]);
   const [wikiLoading, setWikiLoading] = useState(false);
@@ -946,7 +953,17 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
                 embedded ? undefined : () => changeCopilotOpen(!copilotOpen)
               }
               onRequestCopilotOpen={
-                embedded ? undefined : () => changeCopilotOpen(true)
+                embedded ? undefined : (request?: CopilotOpenRequest) => {
+                  changeCopilotOpen(true);
+                  if (request?.prompt) {
+                    setCopilotPrefill({
+                      id: Date.now(),
+                      moduleId: activeModule.moduleId,
+                      prompt: request.prompt,
+                      mode: request.mode ?? "ask",
+                    });
+                  }
+                }
               }
               onContextPublished={handleContextPublished}
               wikiSubjectName={wikiContext?.primarySubject.displayName}
@@ -965,6 +982,11 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
                 onClose={() => changeCopilotOpen(false)}
                 onEditCompleted={() => moduleFrameRef.current?.reload()}
                 onOpenAgentSettings={openAgentSettings}
+                prefill={
+                  copilotPrefill?.moduleId === activeModule.moduleId
+                    ? copilotPrefill
+                    : undefined
+                }
                 requestContext={() =>
                   moduleFrameRef.current?.requestContext("agent") ??
                   Promise.resolve(undefined)

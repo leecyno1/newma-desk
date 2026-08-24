@@ -65,6 +65,34 @@
       }
     },
     {
+      "id": "openchatcut",
+      "label": "OpenChatCut Collaborative Editor",
+      "adapter": "external-editor",
+      "workspaces": {
+        "source": {
+          "env": "NEWMA_DESK_OPENCHATCUT_WORKSPACE",
+          "candidates": [
+            { "root": "projects", "path": "公众号文章/vendor/reserved/video/openchatcut" },
+            { "root": "projects", "path": "OpenChatCut" },
+            { "root": "projects", "path": "openchatcut" }
+          ]
+        }
+      },
+      "endpoints": {
+        "web": {
+          "env": "NEWMA_DESK_OPENCHATCUT_WEB_URL",
+          "defaultOrigin": "http://127.0.0.1:5199",
+          "healthPath": "/"
+        },
+        "mcp": {
+          "env": "NEWMA_DESK_OPENCHATCUT_MCP_ORIGIN",
+          "defaultOrigin": "http://127.0.0.1:5199",
+          "interfacePath": "/api/external-mcp/mcp",
+          "healthPath": "/"
+        }
+      }
+    },
+    {
       "id": "world-intel",
       "label": "World Intelligence MCP",
       "adapter": "world-intel",

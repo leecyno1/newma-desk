@@ -123,6 +123,75 @@ describe("WorkbenchView", () => {
       },
     ));
   });
+
+  it("lets users filter and approve the system-recommended brief topics", async () => {
+    const sourceNode = {
+      id: "topic_analysis",
+      name: "选题分析与推演",
+      artifacts: [],
+      product: {
+        deliverables: [{ id: "topics", type: "topic_cards", path: "/tmp/topic_cards.json", status: "ready" }],
+      },
+    } as unknown as SnapshotNode;
+    const reviewNode = {
+      id: "brief_review",
+      name: "精选选题",
+      description: "选择希望继续深挖的题目。",
+      status: "waiting_user",
+      progress: 100,
+      materialValidation: { status: "ready", missing: [], bindings: [] },
+      materials: [],
+      outputs: ["selected_topics"],
+      artifacts: [],
+      capabilities: [],
+      editors: [],
+      actions: [],
+      parameters: {},
+      feedback: [],
+      logs: [],
+      attempt: 1,
+      availableActions: ["creator.node.approve"],
+      product: {
+        title: "精选题目确认",
+        summary: "选择题目",
+        expected: [{ type: "selected_topics", label: "已选题目", ready: false }],
+        deliverables: [],
+        supportingFiles: [],
+        availableCount: 0,
+        interaction: { mode: "select", sourceType: "topic_cards", minSelect: 3, maxSelect: 10, actionLabel: "确认所选题目" },
+      },
+    } as unknown as SnapshotNode;
+    const stage = { id: "brief", name: "选题 Brief", status: "waiting_user", progress: 60, nodes: [sourceNode, reviewNode] } as SnapshotStage;
+    const snapshot = { run: { runId: "brief-run", title: "Brief 测试" }, stages: [stage], handoffs: [], fileCatalog: { entries: [] } } as unknown as CreatorSnapshot;
+    const cards = Array.from({ length: 12 }, (_, index) => ({
+      topic_id: `T${String(index + 1).padStart(2, "0")}`,
+      title: `候选选题 ${index + 1}`,
+      one_line_judgment: `判断 ${index + 1}`,
+      score: 100 - index,
+      recommended: index < 10,
+    }));
+    const dispatch = vi.fn(async () => snapshot);
+
+    render(<WorkbenchView
+      snapshot={snapshot}
+      selectedStage={stage}
+      selectedNode={reviewNode}
+      dispatch={dispatch}
+      busy={false}
+      onCreate={vi.fn()}
+      fetchPreview={vi.fn(async () => ({ content: JSON.stringify({ topic_cards: cards }) }))}
+    />);
+
+    expect(await screen.findByText("候选选题 1")).toBeTruthy();
+    expect(screen.queryByText("候选选题 11")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "采用系统推荐" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认所选题目（10）" }));
+
+    await waitFor(() => expect(dispatch).toHaveBeenCalledWith(
+      "creator.node.approve",
+      expect.objectContaining({ selectedTopicIds: cards.slice(0, 10).map((card) => card.topic_id) }),
+    ));
+  });
 });
 
 describe("MarketplaceView", () => {
@@ -136,7 +205,7 @@ describe("MarketplaceView", () => {
     expect(screen.getAllByText("video-shotcraft").length).toBeGreaterThan(0);
     expect(screen.getAllByText("镜头配方库").length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: /组件模板/ }));
+    fireEvent.click(screen.getByRole("button", { name: /动画与剪辑组件/ }));
     expect(screen.getAllByRole("img", { name: "preview" }).length).toBeGreaterThan(0);
   });
 
@@ -192,7 +261,7 @@ describe("MarketplaceView", () => {
     fireEvent.change(screen.getByLabelText("参数值 2"), { target: { value: "60" } });
     fireEvent.click(screen.getByRole("button", { name: "检查兼容性" }));
     expect(await screen.findByText("运行环境可用")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
+    fireEvent.click(screen.getByRole("button", { name: "收藏并应用" }));
 
     await waitFor(() => expect(dispatch).toHaveBeenCalledWith(
       "creator.marketplace.save-preset",

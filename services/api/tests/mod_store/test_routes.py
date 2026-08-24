@@ -253,6 +253,45 @@ def _write_suite_store(
     return store_dir
 
 
+def _write_multi_suite_store(root: Path) -> Path:
+    store_dir = _write_suite_store(root)
+    second = json.loads(json.dumps(SUITE_DESCRIPTOR))
+    second["id"] = "research-suite"
+    second["name"] = "研究项目"
+    second["manifest"]["navigation"]["directory"] = {
+        "id": "research-suite",
+        "label": "研究工具",
+        "order": 20,
+    }
+    second["pages"] = [
+        {
+            **page,
+            "id": f"research-{index}",
+            "name": f"研究页面 {index}",
+            "route": f"/research-{index}",
+        }
+        for index, page in enumerate(second["pages"], start=1)
+    ]
+    descriptor_path = store_dir / "research-suite" / "suite.json"
+    descriptor_path.parent.mkdir(parents=True)
+    descriptor_path.write_text(
+        json.dumps(second, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    catalog = json.loads((store_dir / "store.json").read_text("utf-8"))
+    catalog["suites"].append(
+        {
+            "id": "research-suite",
+            "path": "research-suite/suite.json",
+        }
+    )
+    (store_dir / "store.json").write_text(
+        json.dumps(catalog, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return store_dir
+
+
 def _write_http_suite_store(
     root: Path,
     *,
@@ -691,6 +730,96 @@ def test_store_syncs_a_commit_pinned_github_catalog(tmp_path: Path) -> None:
     assert (settings.runtime_dir / "mod-store-catalog.json").is_file()
 
 
+def test_store_reuses_validated_snapshot_until_file_signature_changes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store_dir = _write_suite_store(tmp_path)
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "store.db",
+        mod_store_dir=store_dir,
+    )
+    service = ModStoreService(settings)
+    catalog = service._catalog()
+    service._write_snapshot(
+        catalog,
+        "a" * 40,
+        "2026-08-23T08:00:00+00:00",
+        {"example-suite": SUITE_DESCRIPTOR},
+    )
+    calls = 0
+    original = service._validate_git_descriptors
+
+    def count_validation(catalog, descriptors):
+        nonlocal calls
+        calls += 1
+        return original(catalog, descriptors)
+
+    monkeypatch.setattr(service, "_validate_git_descriptors", count_validation)
+
+    assert service._snapshot() is not None
+    assert service._snapshot() is not None
+    assert calls == 1
+
+    path = service._snapshot_path()
+    path.write_text(path.read_text("utf-8") + " ", encoding="utf-8")
+
+    assert service._snapshot() is not None
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_store_reuses_expanded_snapshot_mods_until_signature_changes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store_dir = _write_suite_store(tmp_path)
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "store.db",
+        mod_store_dir=store_dir,
+    )
+    service = ModStoreService(settings)
+    catalog = service._catalog()
+    service._write_snapshot(
+        catalog,
+        "a" * 40,
+        "2026-08-23T08:00:00+00:00",
+        {"example-suite": SUITE_DESCRIPTOR},
+    )
+    calls = 0
+    original = service._snapshot_mods
+    manifest_calls = 0
+    original_manifest = service._manifest
+
+    async def count_expansion(catalog, descriptors):
+        nonlocal calls
+        calls += 1
+        return await original(catalog, descriptors)
+
+    def count_manifest(descriptor):
+        nonlocal manifest_calls
+        manifest_calls += 1
+        return original_manifest(descriptor)
+
+    monkeypatch.setattr(service, "_snapshot_mods", count_expansion)
+    monkeypatch.setattr(service, "_manifest", count_manifest)
+    repository = ModuleRepository(settings.database_path)
+
+    await service.list(repository)
+    await service.list(repository)
+    assert calls == 1
+    assert manifest_calls == 2
+
+    path = service._snapshot_path()
+    path.write_text(path.read_text("utf-8") + " ", encoding="utf-8")
+
+    await service.list(repository)
+    assert calls == 2
+    assert manifest_calls == 4
+
+
 def test_store_ignores_snapshot_missing_a_bundled_mod(tmp_path: Path) -> None:
     store_dir = _write_store(tmp_path)
     remote_catalog = json.loads((store_dir / "store.json").read_text("utf-8"))
@@ -797,6 +926,31 @@ def test_store_installs_a_complete_project_in_one_request(tmp_path: Path) -> Non
         "example-overview",
         "example-settings",
     ]
+
+
+def test_store_installs_one_navigation_project_across_multiple_suites(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "store.db",
+        mod_store_dir=_write_multi_suite_store(tmp_path),
+        investment_web_url="https://research.example",
+    )
+    with TestClient(create_app(settings)) as client:
+        response = client.post("/api/store/projects/fundamentals/install")
+        modules = client.get("/api/modules").json()
+
+    expected_ids = [
+        "example-overview",
+        "example-settings",
+        "research-1",
+        "research-2",
+    ]
+    assert response.status_code == 201
+    assert response.json()["projectId"] == "fundamentals"
+    assert [item["moduleId"] for item in response.json()["mods"]] == expected_ids
+    assert [item["moduleId"] for item in modules] == expected_ids
 
 
 def test_store_installs_a_bundled_project_without_github_sync(

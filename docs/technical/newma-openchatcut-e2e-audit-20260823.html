@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23b9edca'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='34' font-family='serif' font-weight='700' fill='%23202522'%3EN%3C/text%3E%3C/svg%3E" />
+  <title>Newma × OpenChatCut｜协同剪辑架构验收</title>
+  <style>
+    :root {
+      --paper: #f1efe7;
+      --paper-deep: #e6e1d5;
+      --ink: #181a18;
+      --muted: #6f716b;
+      --line: #c9c4b8;
+      --green: #0a7f55;
+      --green-soft: #dcecdf;
+      --orange: #f0642a;
+      --orange-soft: #f7dfd3;
+      --blue: #245d78;
+      --dark: #202522;
+      --white: #fffdf7;
+      --shadow: 0 20px 55px rgba(35, 39, 33, .09);
+      --serif: "Iowan Old Style", "STSong", "Songti SC", "Noto Serif CJK SC", serif;
+      --sans: "Avenir Next", "DIN Alternate", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --mono: "SFMono-Regular", "Cascadia Code", "Menlo", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(25, 30, 27, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(25, 30, 27, .035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 32px 32px;
+      font-family: var(--sans);
+      line-height: 1.58;
+    }
+
+    button, a { font: inherit; }
+    a { color: inherit; }
+
+    .topbar {
+      position: sticky;
+      z-index: 30;
+      top: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 58px;
+      padding: 0 28px;
+      color: #f8f6ef;
+      background: rgba(24, 26, 24, .96);
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      backdrop-filter: blur(16px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      letter-spacing: .08em;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      color: var(--dark);
+      background: #b9edca;
+      border-radius: 50%;
+      font-family: var(--serif);
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .live-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      color: #c7f3d2;
+      border: 1px solid rgba(185, 237, 202, .35);
+      border-radius: 999px;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+    .live-pill::before {
+      width: 7px;
+      height: 7px;
+      content: "";
+      background: #7dea9c;
+      border-radius: 50%;
+      box-shadow: 0 0 0 5px rgba(125, 234, 156, .12);
+    }
+
+    .ghost-button {
+      padding: 6px 11px;
+      color: #f8f6ef;
+      background: transparent;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .ghost-button:hover { border-color: #b9edca; color: #b9edca; }
+
+    .section-nav {
+      position: sticky;
+      z-index: 20;
+      top: 58px;
+      display: flex;
+      gap: 6px;
+      padding: 10px max(20px, calc((100vw - 1180px) / 2));
+      overflow-x: auto;
+      background: rgba(241, 239, 231, .92);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(12px);
+    }
+
+    .section-nav a {
+      flex: none;
+      padding: 6px 10px;
+      color: var(--muted);
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .section-nav a:hover,
+    .section-nav a.active { color: var(--ink); background: var(--white); box-shadow: 0 0 0 1px var(--line); }
+
+    main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr);
+      gap: 44px;
+      padding: 82px 0 58px;
+      border-bottom: 2px solid var(--ink);
+    }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { width: 36px; height: 2px; content: ""; background: currentColor; }
+
+    h1 {
+      max-width: 820px;
+      margin: 22px 0 20px;
+      font-family: var(--serif);
+      font-size: clamp(46px, 6vw, 78px);
+      font-weight: 750;
+      letter-spacing: -.055em;
+      line-height: .98;
+    }
+    .hero-lead {
+      max-width: 760px;
+      margin: 0;
+      color: #444944;
+      font-family: var(--serif);
+      font-size: 20px;
+      line-height: 1.7;
+    }
+    .hero-lead strong { color: var(--green); }
+
+    .verdict {
+      position: relative;
+      align-self: end;
+      padding: 28px;
+      color: #f7f3e8;
+      background: var(--dark);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .verdict::after {
+      position: absolute;
+      right: -28px;
+      bottom: -50px;
+      width: 150px;
+      height: 150px;
+      content: "";
+      border: 28px solid rgba(185, 237, 202, .14);
+      border-radius: 50%;
+    }
+    .verdict small { display: block; color: #aeb6ad; letter-spacing: .14em; }
+    .verdict strong {
+      display: block;
+      margin: 6px 0 8px;
+      color: #b9edca;
+      font-family: var(--serif);
+      font-size: 46px;
+      line-height: 1;
+    }
+    .verdict p { position: relative; z-index: 1; margin: 0; color: #d5d9d3; font-size: 13px; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      margin: 0 0 84px;
+      background: var(--white);
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .metric { min-height: 130px; padding: 24px 20px; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+    .metric b { display: block; font-family: var(--serif); font-size: 38px; line-height: 1; }
+    .metric span { display: block; margin-top: 10px; color: var(--muted); font-size: 12px; }
+
+    section { padding: 30px 0 76px; scroll-margin-top: 120px; }
+    .section-head {
+      display: grid;
+      grid-template-columns: 120px minmax(0, 1fr);
+      gap: 28px;
+      align-items: start;
+      margin-bottom: 28px;
+      border-top: 1px solid var(--ink);
+      padding-top: 18px;
+    }
+    .section-no { color: var(--orange); font-family: var(--mono); font-weight: 800; letter-spacing: .08em; }
+    h2 { margin: 0; font-family: var(--serif); font-size: clamp(30px, 4vw, 48px); letter-spacing: -.035em; line-height: 1.08; }
+    .section-intro { max-width: 780px; margin: 12px 0 0; color: var(--muted); }
+
+    .flow-wrap { padding: 24px; background: var(--white); border: 1px solid var(--line); box-shadow: var(--shadow); overflow-x: auto; }
+    .flow-lane { display: flex; min-width: 1080px; align-items: stretch; }
+    .flow-node {
+      position: relative;
+      flex: 1;
+      min-width: 116px;
+      padding: 16px 13px 14px;
+      background: #fbfaf5;
+      border: 1px solid var(--line);
+    }
+    .flow-node + .flow-node { margin-left: 24px; }
+    .flow-node + .flow-node::before {
+      position: absolute;
+      top: 50%;
+      left: -25px;
+      width: 24px;
+      content: "";
+      border-top: 1px dashed var(--green);
+    }
+    .flow-node + .flow-node::after {
+      position: absolute;
+      top: calc(50% - 3px);
+      left: -6px;
+      content: "";
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+      border-left: 6px solid var(--green);
+    }
+    .flow-node em { display: block; color: var(--green); font-family: var(--mono); font-size: 10px; font-style: normal; font-weight: 800; }
+    .flow-node b { display: block; margin-top: 8px; font-size: 13px; line-height: 1.3; }
+    .flow-node span { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+
+    .proof-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 24px; }
+    .proof-card, .template-card, .boundary-card, .roadmap-card {
+      background: var(--white);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .proof-card { padding: 26px; }
+    .proof-card h3, .template-card h3, .boundary-card h3, .roadmap-card h3 { margin: 0; font-family: var(--serif); font-size: 25px; }
+    .proof-list { display: grid; gap: 0; margin-top: 20px; }
+    .proof-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 18px; padding: 13px 0; border-top: 1px solid var(--line); }
+    .proof-row span:first-child { color: var(--muted); font-size: 12px; }
+    code, .id-value { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+
+    .copy-line { display: flex; align-items: flex-start; gap: 8px; }
+    .copy-button {
+      flex: none;
+      padding: 2px 7px;
+      color: var(--blue);
+      background: #edf5f6;
+      border: 1px solid #bfd2d8;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 10px;
+    }
+    .copy-button.done { color: var(--green); border-color: #9bc9aa; background: var(--green-soft); }
+
+    .video-proof { padding: 12px; background: var(--dark); border: 1px solid var(--dark); box-shadow: var(--shadow); }
+    .video-placeholder { display: grid; width: 100%; aspect-ratio: 16/9; place-items: center; color: #c9cec8; background: #050605; font-size: 12px; text-align: center; }
+    .video-meta { display: flex; justify-content: space-between; gap: 12px; padding: 12px 4px 2px; color: #c9cec8; font-size: 11px; }
+    .video-meta b { color: #b9edca; }
+
+    .artifact-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .artifact {
+      position: relative;
+      min-height: 240px;
+      padding: 24px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .artifact::after {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 46px;
+      height: 46px;
+      content: "";
+      background: linear-gradient(135deg, transparent 49%, var(--paper-deep) 50%);
+    }
+    .artifact-type { color: var(--orange); font-family: var(--mono); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+    .artifact h3 { margin: 16px 0 10px; font-family: var(--serif); font-size: 26px; }
+    .artifact p { min-height: 54px; color: var(--muted); font-size: 12px; }
+    .artifact-path { display: block; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); color: #4b5450; font-family: var(--mono); font-size: 10px; overflow-wrap: anywhere; }
+    .artifact-link { display: inline-block; margin-top: 14px; color: var(--green); font-size: 12px; font-weight: 800; text-underline-offset: 3px; }
+
+    .template-card { display: grid; grid-template-columns: 1fr 1fr; margin-top: 24px; overflow: hidden; }
+    .template-card > div { padding: 28px; }
+    .template-card > div + div { color: #f7f3e8; background: var(--dark); }
+    .template-steps { display: grid; gap: 10px; margin-top: 20px; }
+    .template-step { display: flex; align-items: center; gap: 11px; font-size: 12px; }
+    .template-step i { display: grid; width: 24px; height: 24px; place-items: center; color: var(--green); background: var(--green-soft); border-radius: 50%; font-family: var(--mono); font-size: 10px; font-style: normal; font-weight: 800; }
+    .template-card .result { color: #b9edca; font-family: var(--serif); font-size: 44px; line-height: 1.05; }
+    .template-card .result-note { color: #bec5be; font-size: 12px; }
+
+    .boundary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .boundary-card { padding: 28px; }
+    .boundary-card.newma { border-top: 5px solid var(--orange); }
+    .boundary-card.openchatcut { border-top: 5px solid var(--green); }
+    .owner-list { margin: 20px 0 0; padding: 0; list-style: none; }
+    .owner-list li { position: relative; padding: 10px 0 10px 20px; border-top: 1px solid var(--line); font-size: 13px; }
+    .owner-list li::before { position: absolute; left: 0; content: "◆"; color: var(--green); font-size: 8px; top: 14px; }
+    .boundary-card.newma .owner-list li::before { color: var(--orange); }
+
+    .seams { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+    .seam { padding: 18px; background: #e8e4d9; border: 1px solid var(--line); }
+    .seam b { display: block; font-family: var(--mono); font-size: 11px; }
+    .seam span { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; }
+
+    .test-table { width: 100%; border-collapse: collapse; background: var(--white); box-shadow: var(--shadow); }
+    .test-table th, .test-table td { padding: 15px 16px; text-align: left; border: 1px solid var(--line); font-size: 12px; }
+    .test-table th { color: var(--muted); background: #e8e4d9; font-family: var(--mono); font-size: 10px; letter-spacing: .08em; }
+    .pass { display: inline-flex; align-items: center; gap: 7px; color: var(--green); font-weight: 800; }
+    .pass::before { width: 8px; height: 8px; content: ""; background: var(--green); border-radius: 50%; }
+
+    details { margin-top: 12px; background: var(--white); border: 1px solid var(--line); }
+    summary { padding: 16px 18px; cursor: pointer; font-weight: 800; font-size: 13px; }
+    details p { margin: 0; padding: 0 18px 18px; color: var(--muted); font-size: 12px; }
+
+    .roadmap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .roadmap-card { padding: 28px; }
+    .roadmap-card.p1 { border-left: 6px solid var(--orange); }
+    .roadmap-card.p2 { border-left: 6px solid var(--blue); }
+    .roadmap-card ol { margin: 18px 0 0; padding-left: 20px; }
+    .roadmap-card li { padding: 7px 0; color: #484d48; font-size: 13px; }
+
+    .final-note {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 24px;
+      align-items: center;
+      margin: 20px 0 86px;
+      padding: 30px;
+      color: #f8f6ef;
+      background: var(--dark);
+      box-shadow: var(--shadow);
+    }
+    .final-note .seal { display: grid; width: 86px; height: 86px; place-items: center; border: 2px solid #b9edca; border-radius: 50%; color: #b9edca; font-family: var(--serif); font-size: 24px; font-weight: 800; transform: rotate(-6deg); }
+    .final-note h2 { color: #b9edca; font-size: 34px; }
+    .final-note p { margin: 8px 0 0; color: #c7cdc7; }
+
+    footer { padding: 26px max(20px, calc((100vw - 1180px) / 2)); color: #9ca39b; background: var(--dark); font-family: var(--mono); font-size: 10px; }
+
+    .reveal { animation: reveal .65s both; }
+    .delay-1 { animation-delay: .08s; }
+    .delay-2 { animation-delay: .16s; }
+    @keyframes reveal { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+    @media (max-width: 900px) {
+      .hero, .proof-grid, .template-card, .boundary-grid, .roadmap-grid { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: repeat(3, 1fr); }
+      .artifact-grid { grid-template-columns: 1fr; }
+      .section-head { grid-template-columns: 74px 1fr; }
+      .seams { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      .topbar { padding: 0 14px; }
+      .brand span:last-child, .live-pill { display: none; }
+      main { width: min(100% - 24px, 1180px); }
+      .hero { padding-top: 54px; }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .section-head { grid-template-columns: 1fr; gap: 5px; }
+      .proof-row { grid-template-columns: 1fr; gap: 4px; }
+      .final-note { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      .topbar, .section-nav, .copy-button { display: none !important; }
+      body { background: white; }
+      main { width: 100%; }
+      section { break-inside: avoid; }
+      .hero { padding-top: 30px; }
+      .proof-card, .artifact, .template-card, .boundary-card, .roadmap-card, .test-table { box-shadow: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .reveal { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">N</span><span>NEWMA / ARCHITECTURE FLIGHT RECORDER</span></div>
+    <div class="top-actions">
+      <span class="live-pill">P0 CLOSED · 2026-08-23</span>
+      <button class="ghost-button" id="printButton" type="button">打印报告</button>
+    </div>
+  </header>
+
+  <nav class="section-nav" aria-label="报告章节">
+    <a href="#flow">闭环</a>
+    <a href="#evidence">实测</a>
+    <a href="#artifacts">产物</a>
+    <a href="#architecture">边界</a>
+    <a href="#tests">测试</a>
+    <a href="#roadmap">后续</a>
+  </nav>
+
+  <main>
+    <header class="hero reveal">
+      <div>
+        <div class="eyebrow">Collaborative editor runtime audit</div>
+        <h1>Newma × OpenChatCut<br />协同剪辑架构验收</h1>
+        <p class="hero-lead">人工时间线、Agent 隔离草稿、人工审批、真实导出、产物回写和模板复用，已经在<strong>同一个工程</strong>里连成一条可追溯的生产链。</p>
+      </div>
+      <aside class="verdict">
+        <small>ARCHITECTURE VERDICT</small>
+        <strong>通过</strong>
+        <p>保留 OpenChatCut 完整上游，由 Newma 通过薄 Adapter 掌握任务、审核、Artifact Lineage 与模板登记。没有复制第二套时间线核心。</p>
+      </aside>
+    </header>
+
+    <div class="metrics reveal delay-1" aria-label="关键指标">
+      <div class="metric"><b>29</b><span>Creator Studio 核心节点</span></div>
+      <div class="metric"><b>1</b><span>人工与 Agent 共用工程</span></div>
+      <div class="metric"><b>3</b><span>真实 Lineage 产物</span></div>
+      <div class="metric"><b>6s</b><span>模板回放后时间线</span></div>
+      <div class="metric"><b>151</b><span>前端聚焦测试通过</span></div>
+      <div class="metric"><b>36</b><span>API 聚焦测试通过</span></div>
+    </div>
+
+    <section id="flow">
+      <div class="section-head">
+        <div class="section-no">01 / LOOP</div>
+        <div><h2>真实生产闭环</h2><p class="section-intro">状态只有在 OpenChatCut 真实发生操作、Newma 收到真实产物后才前进。任何只改看板状态、没有时间线变化或 Artifact 的路径，都不算完成。</p></div>
+      </div>
+      <div class="flow-wrap">
+        <div class="flow-lane">
+          <div class="flow-node"><em>NEWMA</em><b>Manual Edit</b><span>创建 Editor Session</span></div>
+          <div class="flow-node"><em>PROJECT</em><b>绑定工程</b><span>稳定 Project ID</span></div>
+          <div class="flow-node"><em>AGENT</em><b>隔离 Draft</b><span>正式时间线不受污染</span></div>
+          <div class="flow-node"><em>REVIEW</em><b>人工审批</b><span>Proposal 一次原子提交</span></div>
+          <div class="flow-node"><em>RENDER</em><b>真实导出</b><span>本地 H.264 成片</span></div>
+          <div class="flow-node"><em>LINEAGE</em><b>产物回写</b><span>三项可追溯 Artifact</span></div>
+          <div class="flow-node"><em>TEMPLATE</em><b>工程保存</b><span>OpenChatCut 稳定 ID</span></div>
+          <div class="flow-node"><em>MARKET</em><b>超市登记</b><span>节点兼容与来源记录</span></div>
+          <div class="flow-node"><em>REUSE</em><b>模板应用</b><span>真实修改时间线</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="evidence">
+      <div class="section-head">
+        <div class="section-no">02 / E2E</div>
+        <div><h2>同工程实测证据</h2><p class="section-intro">本次运行从 Proposal 终态一直推进到导出、Lineage 和模板回放。下面的 ID 均来自真实运行记录。</p></div>
+      </div>
+      <div class="proof-grid">
+        <article class="proof-card">
+          <h3>运行坐标</h3>
+          <div class="proof-list">
+            <div class="proof-row"><span>Newma Run</span><div class="copy-line"><code>creator-ee69b4cf2020</code><button class="copy-button" data-copy="creator-ee69b4cf2020">复制</button></div></div>
+            <div class="proof-row"><span>工作流节点</span><code>transwrite / manual_edit</code></div>
+            <div class="proof-row"><span>OpenChatCut Project</span><div class="copy-line"><code>8ba34edb-15c0-49d1-95c0-cf618bd7132c</code><button class="copy-button" data-copy="8ba34edb-15c0-49d1-95c0-cf618bd7132c">复制</button></div></div>
+            <div class="proof-row"><span>Newma Editor Session</span><code>editor-e63eed0ad658</code></div>
+            <div class="proof-row"><span>Proposal</span><div><b class="pass">APPLIED</b><br /><small>仅在第 0 帧添加绿色项目标记“Newma E2E”</small></div></div>
+            <div class="proof-row"><span>Render ID</span><div class="copy-line"><code>23db80b0-4518-45ba-9007-d15cc1670aab</code><button class="copy-button" data-copy="23db80b0-4518-45ba-9007-d15cc1670aab">复制</button></div></div>
+            <div class="proof-row"><span>成片规格</span><code>H.264 · 1280×720 · 30fps · 3s · 402,237 bytes</code></div>
+            <div class="proof-row"><span>Run Revision</span><code>11 · manual_edit succeeded</code></div>
+          </div>
+        </article>
+        <div class="video-proof">
+          <div class="video-placeholder">实测成片保留在本地 Artifact Store，未随公开仓库发布。</div>
+          <div class="video-meta"><span>REAL EXPORT VERIFIED</span><b>渲染成功</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="artifacts">
+      <div class="section-head">
+        <div class="section-no">03 / LINEAGE</div>
+        <div><h2>三项交付物已固化</h2><p class="section-intro">OpenChatCut 临时下载地址不是交付物。Newma 已将文件复制进节点目录，并登记内容摘要、版本、来源编辑会话和创建时间。</p></div>
+      </div>
+      <div class="artifact-grid">
+        <article class="artifact">
+          <div class="artifact-type">ARTIFACT / VIDEO</div>
+          <h3>edited_master</h3>
+          <p>真实剪辑成片。后续渲染与 QC 节点从这里接手，不再依赖编辑器临时任务。</p>
+          <span class="artifact-path">…/editor_outputs/23db80b0-…-newma-e2e-export.mp4</span>
+          <span class="artifact-link">本地产物未随仓库发布</span>
+        </article>
+        <article class="artifact">
+          <div class="artifact-type">ARTIFACT / DECISION</div>
+          <h3>edit_decisions</h3>
+          <p>记录 Proposal 状态、审核意见、工程引用、Render ID 和 Newma Editor Session。</p>
+          <span class="artifact-path">…/editor_outputs/23db80b0-…-edit-decisions.json</span>
+          <span class="artifact-link">本地产物未随仓库发布</span>
+        </article>
+        <article class="artifact">
+          <div class="artifact-type">ARTIFACT / EXCHANGE</div>
+          <h3>timeline_exchange</h3>
+          <p>保存 OpenChatCut Project 引用和编辑器入口，作为跨节点、跨编辑器交换的基线。</p>
+          <span class="artifact-path">…/editor_outputs/23db80b0-…-timeline-exchange.json</span>
+          <span class="artifact-link">本地产物未随仓库发布</span>
+        </article>
+      </div>
+
+      <article class="template-card">
+        <div>
+          <h3>模板闭环</h3>
+          <div class="template-steps">
+            <div class="template-step"><i>1</i><span><code>manage_template.save</code> 返回稳定模板 ID</span></div>
+            <div class="template-step"><i>2</i><span><code>creator.editor.save-template</code> 登记来源和节点</span></div>
+            <div class="template-step"><i>3</i><span>超市生成兼容 Preset：<code>preset-ed15575664f5</code></span></div>
+            <div class="template-step"><i>4</i><span><code>list_assets → apply(append)</code> 真实回放</span></div>
+          </div>
+          <div class="proof-row"><span>Template ID</span><div class="copy-line"><code>f323a5b8-6101-4ee3-8979-dcfe35071bd2</code><button class="copy-button" data-copy="f323a5b8-6101-4ee3-8979-dcfe35071bd2">复制</button></div></div>
+        </div>
+        <div>
+          <div class="result">3 秒 → 6 秒</div>
+          <p class="result-note">同一模板再次追加后，OpenChatCut 真实时间线扩展到 6 秒。说明超市登记不是静态卡片，而是可被编辑器实际消费的稳定引用。</p>
+        </div>
+      </article>
+    </section>
+
+    <section id="architecture">
+      <div class="section-head">
+        <div class="section-no">04 / BOUNDARY</div>
+        <div><h2>事实源边界清晰</h2><p class="section-intro">整合的关键不是把两个项目揉成一个代码树，而是让每个系统只掌握自己最擅长、最稳定的事实。</p></div>
+      </div>
+      <div class="boundary-grid">
+        <article class="boundary-card newma">
+          <h3>Newma 掌握</h3>
+          <ul class="owner-list">
+            <li>任务、Stage、Node、Revision 与运行状态</li>
+            <li>Editor Session、审核终态和人工反馈</li>
+            <li>Artifact Lineage、Handoff 与下游失效传播</li>
+            <li>超市 Preset、适用节点、版本和来源登记</li>
+            <li>Desk 页面与 Agent 对话共用 Creator Command</li>
+          </ul>
+        </article>
+        <article class="boundary-card openchatcut">
+          <h3>OpenChatCut 掌握</h3>
+          <ul class="owner-list">
+            <li>真实时间线、EditorCore Command 和 Undo</li>
+            <li>Agent 隔离 Draft、Proposal 与原子提交</li>
+            <li>项目存储、模板内容和本地媒体池</li>
+            <li>人工剪辑界面、导出任务与渲染结果</li>
+            <li>MCP 会话所有权、审批与孤儿会话清理</li>
+          </ul>
+        </article>
+      </div>
+      <div class="seams">
+        <div class="seam"><b>CREATOR COMMAND</b><span>页面和 Agent 的统一操作接口</span></div>
+        <div class="seam"><b>EDITOR SESSION</b><span>屏蔽不同编辑器的会话差异</span></div>
+        <div class="seam"><b>CAPABILITY ADAPTER</b><span>屏蔽 CLI、Skill、Provider 与仓库差异</span></div>
+      </div>
+    </section>
+
+    <section id="tests">
+      <div class="section-head">
+        <div class="section-no">05 / VERIFY</div>
+        <div><h2>故障路径与生产构建</h2><p class="section-intro">本轮重点不是堆边缘测试，而是验证最容易让生产链卡死的审批、所有权、断线恢复和真实构建。</p></div>
+      </div>
+      <table class="test-table">
+        <thead><tr><th>范围</th><th>验证内容</th><th>结果</th></tr></thead>
+        <tbody>
+          <tr><td>OpenChatCut Runtime</td><td>审批恢复、运行时重建、Draft 持久化</td><td><span class="pass">通过</span></td></tr>
+          <tr><td>OpenChatCut Broker / MCP</td><td>会话所有权、编辑器替换、孤儿清理、离线 MCP</td><td><span class="pass">通过</span></td></tr>
+          <tr><td>Creator Studio UI</td><td>2 个测试文件 / 8 项</td><td><span class="pass">通过</span></td></tr>
+          <tr><td>Desk Shell</td><td>13 个测试文件 / 143 项</td><td><span class="pass">通过</span></td></tr>
+          <tr><td>Newma API</td><td>Creator Studio + Local CLI Adapter / 36 项</td><td><span class="pass">通过</span></td></tr>
+          <tr><td>Production Build</td><td>OpenChatCut、Creator Studio、Desk Shell</td><td><span class="pass">通过</span></td></tr>
+        </tbody>
+      </table>
+
+      <details>
+        <summary>审批卡在 Runtime 重建后消失</summary>
+        <p>审批请求已进入持久账本。新 Runtime 只恢复仍为 pending 的审批；allowed、denied 等历史决定绝不恢复为授权。</p>
+      </details>
+      <details>
+        <summary>旧 Runtime 清理让新 Runtime 丢失执行权</summary>
+        <p>运行所有权在重建时显式交接。旧实例退出不会再撤销新实例已接管的 Agent Run。</p>
+      </details>
+      <details>
+        <summary>MCP 异常退出留下孤儿 Draft</summary>
+        <p>孤儿清理会投递到当前工程编辑器；Broker 重启后，新连接只允许取消已无主的 Draft，不能接管或修改它。</p>
+      </details>
+    </section>
+
+    <section id="roadmap">
+      <div class="section-head">
+        <div class="section-no">06 / NEXT</div>
+        <div><h2>P0 已关闭，后续只做增益</h2><p class="section-intro">核心链路已经成立。下一阶段应提升模板发现、实时事件和多编辑器交换，不再重写已稳定的时间线能力。</p></div>
+      </div>
+      <div class="roadmap-grid">
+        <article class="roadmap-card p1">
+          <h3>P1 / 产品化</h3>
+          <ol>
+            <li>用 <code>manage_template get</code> 动态同步“我的模板”。</li>
+            <li>超市增加“当前节点推荐”和“已跑通项目”视图。</li>
+            <li>引入 OpenTimelineIO 作为跨编辑器交换契约。</li>
+            <li>增加 MCP 生命周期事件回调，实时推送等待审核状态。</li>
+          </ol>
+        </article>
+        <article class="roadmap-card p2">
+          <h3>P2 / 扩展性</h3>
+          <ol>
+            <li>评估 OpenCut 作为第二个 Editor Adapter。</li>
+            <li>把 VBench、人工裁决和风格记忆回写 Director Memory。</li>
+            <li>由后续“渲染与 QC”节点生成最终交付清单。</li>
+          </ol>
+        </article>
+      </div>
+    </section>
+
+    <div class="final-note">
+      <div class="seal">验收</div>
+      <div><h2>可以进入下一阶段</h2><p>当前架构已经同时满足人工介入、Agent 编排、真实工程一致性、可恢复审批、产物追溯和模板复用。保留完整上游 + 薄 Adapter 的路线成立。</p></div>
+    </div>
+  </main>
+
+  <footer>NEWMA CREATOR STUDIO / OPENCHATCUT INTEGRATION AUDIT / GENERATED 2026-08-23 / LOCAL E2E EVIDENCE</footer>
+
+  <script>
+    document.getElementById('printButton').addEventListener('click', () => window.print());
+
+    document.querySelectorAll('[data-copy]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(button.dataset.copy || '');
+        const previous = button.textContent;
+        button.textContent = '已复制';
+        button.classList.add('done');
+        window.setTimeout(() => {
+          button.textContent = previous;
+          button.classList.remove('done');
+        }, 1400);
+      });
+    });
+
+    const links = [...document.querySelectorAll('.section-nav a')];
+    const sections = links.map((link) => document.querySelector(link.getAttribute('href'))).filter(Boolean);
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      links.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === '#' + visible.target.id));
+    }, { rootMargin: '-28% 0px -58% 0px', threshold: [0, .2, .6] });
+    sections.forEach((section) => observer.observe(section));
+  </script>
+</body>
+</html>

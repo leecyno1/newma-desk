@@ -30,6 +30,7 @@ import type {
   CreatorWorkspace,
   Identity,
   MarketplacePreset,
+  SnapshotStage,
 } from "./types";
 import {
   DashboardView,
@@ -74,6 +75,16 @@ function parentOrigin() {
 
 function runStorageKey(identity: Identity) {
   return "newma.creator-studio.current-run." + identity.userId + "." + identity.workspaceId;
+}
+
+function preferredNode(stage: SnapshotStage | undefined, activeNodeId?: string) {
+  if (!stage) return undefined;
+  const active = stage.nodes.find((node) => node.id === activeNodeId);
+  if (active) return active;
+  return stage.nodes.find((node) => ["waiting_user", "changes_requested", "blocked", "failed"].includes(node.status))
+    ?? stage.nodes.slice().reverse().find((node) => ["running", "queued", "succeeded"].includes(node.status))
+    ?? stage.nodes.find((node) => node.status !== "skipped")
+    ?? stage.nodes[0];
 }
 
 function StudioHeader({
@@ -189,8 +200,7 @@ export function CreatorStudioApp() {
   ), [fixedStageId, selectedStageId, snapshot]);
   const selectedNode = useMemo(() => (
     selectedStage?.nodes.find((node) => node.id === selectedNodeId)
-      ?? selectedStage?.nodes.find((node) => node.id === snapshot?.run.activeNodeId)
-      ?? selectedStage?.nodes[0]
+      ?? preferredNode(selectedStage, snapshot?.run.activeNodeId)
   ), [selectedNodeId, selectedStage, snapshot?.run.activeNodeId]);
 
   // 稳定引用：ReviewWorkCard 的 effect 依赖 fetchPreview，内联箭头函数会导致每次渲染重跑并重置选中状态
@@ -226,9 +236,9 @@ export function CreatorStudioApp() {
       ? current
       : next.run.activeStageId || next.stages[0]?.id || ""));
     const activeStage = next.stages.find((stage) => stage.id === (fixedStageId || next.run.activeStageId)) ?? next.stages[0];
-    setSelectedNodeId((current) => current && next.stages.some((stage) => stage.nodes.some((node) => node.id === current))
+    setSelectedNodeId((current) => activeStage?.nodes.some((node) => node.id === current)
       ? current
-      : next.run.activeNodeId || activeStage?.nodes[0]?.id || "");
+      : preferredNode(activeStage, next.run.activeNodeId)?.id || "");
     return next;
   }, [client, currentRunId, fixedStageId]);
 
@@ -434,6 +444,10 @@ export function CreatorStudioApp() {
         expectedRevision: snapshot.run.revision,
       });
       setSnapshot(next);
+      if (actionId === "creator.editor.save-template") {
+        const presetList = await client.marketplacePresets();
+        setMarketplacePresets(presetList.presets);
+      }
       lastEventSequenceRef.current = next.lastEventSequence;
       if (actionId === "creator.workflow.continue") {
         setSelectedStageId(fixedStageId || next.run.activeStageId || stageId || "");
