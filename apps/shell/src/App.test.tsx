@@ -434,7 +434,7 @@ describe("App", () => {
         HttpResponse.json({
           id: "newma-desk-official",
           name: "Newma-Desk 官方 Mod 商店",
-          repository: "https://github.com/leecyno1/newma-dock",
+          repository: "https://github.com/leecyno1/newma-desk",
           ref: "main",
           mods: [
             {
@@ -450,7 +450,7 @@ describe("App", () => {
               installState: installed ? "installed" : "available",
               ...(installed ? { installedRevision: 2 } : {}),
               sourceUrl:
-                "https://github.com/leecyno1/newma-dock/blob/main/mods/research-suite/suite.json",
+                "https://github.com/leecyno1/newma-desk/blob/main/mods/research-suite/suite.json",
             },
           ],
         }),
@@ -462,7 +462,7 @@ describe("App", () => {
           {
             action: "installed",
             sourceUrl:
-              "https://github.com/leecyno1/newma-dock/blob/main/mods/research-suite/suite.json",
+              "https://github.com/leecyno1/newma-desk/blob/main/mods/research-suite/suite.json",
             mod: {
               ...researchModule,
               moduleId: "daily-review",

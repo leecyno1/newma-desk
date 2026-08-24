@@ -5,7 +5,7 @@
   "description": "比较多个 A/H/US 标的的归一化收益曲线和阶段排名，支持跨 Mod 标的联动。",
   "version": "0.1.1",
   "publisher": "Newma-Desk",
-  "upstream": "https://github.com/leecyno1/newma-dock",
+  "upstream": "https://github.com/leecyno1/newma-desk",
  "tags": ["相对强弱", "跨市场", "对比", "排名"],
   "agentWorkspace": { "type": "desk" },
   "runtime": { "type": "direct", "entry": { "type": "structured", "url": "/mods/market-daily/?workspace=relative-strength" } },

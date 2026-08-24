@@ -3,14 +3,14 @@
   "id": "newma-desk-official",
   "name": "Newma-Desk 官方 Mod 商店",
   "git": {
-    "repository": "https://github.com/leecyno1/newma-dock",
+    "repository": "https://github.com/leecyno1/newma-desk",
     "ref": "main",
     "pathPrefix": "mods",
     "mirrors": [
       "https://gitee.com/leecyno1/newma-dock"
     ],
     "rawBaseUrls": [
-      "https://raw.githubusercontent.com/leecyno1/newma-dock/main/mods",
+      "https://raw.githubusercontent.com/leecyno1/newma-desk/main/mods",
       "https://gitee.com/leecyno1/newma-dock/raw/main/mods"
     ]
   },

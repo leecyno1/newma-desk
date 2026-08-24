@@ -93,7 +93,7 @@ SUITE_DESCRIPTOR = {
     "description": "由一份 Suite 描述自动生成多个 Mod 页面。",
     "version": "0.1.0",
     "publisher": "Newma-Desk",
-    "upstream": "https://github.com/leecyno1/newma-dock",
+    "upstream": "https://github.com/leecyno1/newma-desk",
     "tags": ["Suite"],
     "runtime": {
         "type": "external",
@@ -190,12 +190,12 @@ def _write_store(
                 "id": "newma-desk-official",
                 "name": "Newma-Desk 官方 Mod 商店",
                 "git": {
-                    "repository": "https://github.com/leecyno1/newma-dock",
+                    "repository": "https://github.com/leecyno1/newma-desk",
                     "ref": "main",
                     "pathPrefix": "mods",
                     "mirrors": ["https://gitee.com/leecyno1/newma-dock"],
                     "rawBaseUrls": [
-                        "https://raw.githubusercontent.com/leecyno1/newma-dock/main/mods",
+                        "https://raw.githubusercontent.com/leecyno1/newma-desk/main/mods",
                         "https://gitee.com/leecyno1/newma-dock/raw/main/mods",
                     ],
                 },
@@ -231,12 +231,12 @@ def _write_suite_store(
                 "id": "newma-desk-official",
                 "name": "Newma-Desk 官方 Mod 商店",
                 "git": {
-                    "repository": "https://github.com/leecyno1/newma-dock",
+                    "repository": "https://github.com/leecyno1/newma-desk",
                     "ref": "main",
                     "pathPrefix": "mods",
                     "mirrors": [],
                     "rawBaseUrls": [
-                        "https://raw.githubusercontent.com/leecyno1/newma-dock/main/mods"
+                        "https://raw.githubusercontent.com/leecyno1/newma-desk/main/mods"
                     ],
                 },
                 "mods": [],
@@ -306,12 +306,12 @@ def _write_http_suite_store(
                 "id": "newma-desk-http-discovery",
                 "name": "Newma-Desk HTTP Discovery Store",
                 "git": {
-                    "repository": "https://github.com/leecyno1/newma-dock",
+                    "repository": "https://github.com/leecyno1/newma-desk",
                     "ref": "main",
                     "pathPrefix": "mods",
                     "mirrors": [],
                     "rawBaseUrls": [
-                        "https://raw.githubusercontent.com/leecyno1/newma-dock/main/mods"
+                        "https://raw.githubusercontent.com/leecyno1/newma-desk/main/mods"
                     ],
                 },
                 "mods": [],
@@ -688,8 +688,8 @@ def test_store_lists_local_catalog_and_installs_descriptor_from_git(
     assert unchanged.json()["action"] == "unchanged"
     assert catalog_after.json()["mods"][0]["installState"] == "installed"
     assert fetched_sources == [
-        ("https://github.com/leecyno1/newma-dock", "daily-review/mod.json"),
-        ("https://github.com/leecyno1/newma-dock", "daily-review/mod.json"),
+        ("https://github.com/leecyno1/newma-desk", "daily-review/mod.json"),
+        ("https://github.com/leecyno1/newma-desk", "daily-review/mod.json"),
     ]
 
 
@@ -893,7 +893,7 @@ async def test_store_sync_never_uses_a_mirror_as_release_authority(
     ]
 
     assert snapshot is None
-    assert fetch_repositories == ["https://github.com/leecyno1/newma-dock"]
+    assert fetch_repositories == ["https://github.com/leecyno1/newma-desk"]
 
 
 def test_store_installs_a_complete_project_in_one_request(tmp_path: Path) -> None:

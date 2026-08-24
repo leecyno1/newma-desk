@@ -5,7 +5,7 @@
   "description": "把股票、ETF 与开放式基金的日线、公开事件和异动按交易日对齐。",
   "version": "0.4.0",
   "publisher": "Newma-Desk",
-  "upstream": "https://github.com/leecyno1/newma-dock",
+  "upstream": "https://github.com/leecyno1/newma-desk",
   "tags": ["日K", "ETF", "基金", "事件", "量价", "研究沉淀"],
   "agentWorkspace": { "type": "desk" },
   "runtime": { "type": "direct", "entry": { "type": "structured", "url": "/mods/market-daily/?workspace=event-timeline" } },

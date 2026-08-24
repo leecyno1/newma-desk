@@ -5,7 +5,7 @@
   "description": "KLineChart 图表内核、统一 A/H/US 行情协议、自选分组、盘口与市场概览。模块上下文直接接入 Newma-Desk 通用 Agent 侧栏。",
   "version": "0.4.1",
   "publisher": "Newma-Desk",
-  "upstream": "https://github.com/leecyno1/newma-dock",
+  "upstream": "https://github.com/leecyno1/newma-desk",
  "tags": ["行情", "K线", "盘口", "A股", "港股", "美股"],
   "agentWorkspace": { "type": "desk" },
   "runtime": {

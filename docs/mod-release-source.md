@@ -1,10 +1,10 @@
 # Mods 发布源
 
-Newma 四端的正式 Mods 目录只以 GitHub `leecyno1/newma-dock` 为权威来源，所有同步都必须记录明确 commit。
+Newma 四端的正式 Mods 目录只以 GitHub `leecyno1/newma-desk` 为权威来源，所有同步都必须记录明确 commit。
 
 ## 规则
 
-- 唯一权威仓库：`https://github.com/leecyno1/newma-dock`
+- 唯一权威仓库：`https://github.com/leecyno1/newma-desk`
 - 正式分支：`main`
 - 正式目录：`mods/store.json` 与其引用的 `mods/*/mod.json`、`mods/*/suite.json`
 - Gitee 只作为下载镜像，不参与版本判定。

@@ -5,7 +5,7 @@
   "description": "日线、60 分钟、15 分钟和 5 分钟 K 线联动，统一指标、复权和 Agent 上下文。",
   "version": "0.1.1",
   "publisher": "Newma-Desk",
-  "upstream": "https://github.com/leecyno1/newma-dock",
+  "upstream": "https://github.com/leecyno1/newma-desk",
  "tags": ["K线", "多周期", "技术分析", "联动"],
   "agentWorkspace": { "type": "desk" },
   "runtime": { "type": "direct", "entry": { "type": "structured", "url": "/mods/market-daily/?workspace=multi-timeframe" } },

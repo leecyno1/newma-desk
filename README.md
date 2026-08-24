@@ -75,11 +75,11 @@ Mod -> Agent Gateway -> Agent Runtime -> Memory / Skills / Tools
 项目根目录的 `mods/` 是 Newma-Desk 官方商店，每个 Mod 都有独立的 `mods/<mod-id>/mod.json`。商店页面读取这个目录，并显示当前安装状态。
 
 - 商店索引：`mods/store.json`
-- GitHub 安装源：`leecyno1/newma-dock` 的 `main/mods` 目录
+- GitHub 安装源：`leecyno1/newma-desk` 的 `main/mods` 目录
 - Gitee 备用源：`leecyno1/newma-dock` 的 `main/mods` 目录
 - 上游页面仍来自 Vibe Research 和 Vibe Trading，不复制进 Newma-Desk。
 
-GitHub `leecyno1/newma-dock` 是 Newma 四端 Mods 的唯一发布源。桌面、WebUI、iOS 和 Android 只能从该仓库的明确 commit 读取 `mods/store.json` 与 Manifest；本地未提交文件和 Gitee 镜像不能成为发布基线。每月检查只生成变更与兼容风险报告，不自动合并、部署或重启服务。
+GitHub `leecyno1/newma-desk` 是 Newma 四端 Mods 的唯一发布源。桌面、WebUI、iOS 和 Android 只能从该仓库的明确 commit 读取 `mods/store.json` 与 Manifest；本地未提交文件和 Gitee 镜像不能成为发布基线。每月检查只生成变更与兼容风险报告，不自动合并、部署或重启服务。
 
 新环境默认注册全球专题、政策、资金和基金研究等 20 个基础 Mod；其余 Mod 保留在商店，由用户自行安装：
 

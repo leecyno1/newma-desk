@@ -5,7 +5,7 @@
   "description": "隐藏未来 K 线，逐根播放历史行情并记录模拟买卖、仓位和训练盈亏。",
   "version": "0.1.1",
   "publisher": "Newma-Desk",
-  "upstream": "https://github.com/leecyno1/newma-dock",
+  "upstream": "https://github.com/leecyno1/newma-desk",
  "tags": ["回放", "模拟交易", "复盘", "K线"],
   "agentWorkspace": { "type": "desk" },
   "runtime": { "type": "direct", "entry": { "type": "structured", "url": "/mods/market-daily/?workspace=trading-replay" } },
