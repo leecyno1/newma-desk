@@ -215,6 +215,11 @@
       "id": "creator-studio-suite",
       "path": "creator-studio-suite/suite.json",
       "defaultInstall": false
+    },
+    {
+      "id": "workflow-center-suite",
+      "path": "workflow-center-suite/suite.json",
+      "defaultInstall": true
     }
   ]
 }

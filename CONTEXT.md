@@ -112,6 +112,74 @@ Creator Studio Suite 内用于测试和选择仓库、Skills、模板、流水�
 
 模板从“剪辑前收藏并绑定节点”，到“剪辑中随时应用”，再到“剪辑完成后把已跑通工程保存为模板”的统一生命周期。Newma 保存模板引用、来源编辑器、版本、适用节点和参数；模板内容与媒体资产继续由来源编辑器管理，避免复制出第二套模板事实源。
 
+## Organization Workflow
+
+组织围绕一个明确目标执行的版本化协作流程。它不限定投研、投决或创作领域，由 Workflow Template、Workflow Run、Organization Workflow Node、Node Assignment、Delegation Grant、Workflow Artifact 和 Workflow Audit Ledger 共同描述；领域 Mod 只通过 Adapter 提供节点定义与执行能力。
+
+## Workflow Matrix
+
+Organization Workflow 的组织画布，由纵向 Workflow Lane 与横向 Workflow Matrix Stage 交叉形成坐标格。Matrix 负责总览、菜单和节点归类，DAG Edge 继续负责真实执行依赖；调整行列顺序只改变 A1、C4 等显示坐标，不能改变稳定 Node ID、授权、交付物谱系或审计记录。
+
+## Workflow Lane
+
+Workflow Matrix 的纵向业务域，也是工作流内部的二级模块。组织可以新增、命名和排序多个 Lane；被提升的成熟 Node 作为快捷入口显示在所属 Lane 中，但 Node 仍保留在画布原坐标。
+
+## Workflow Matrix Stage
+
+Workflow Matrix 的横向流程阶段，也是画布上方可切换的三级标签。Stage 用于按受理、执行、复核、决策、交付等阶段切换视图，不替代 DAG Edge，也不等同于 Creator Studio 的创作 Stage。
+
+## Organization
+
+拥有成员、服务器 Agent、Workflow Template、Workflow Run、授权关系和审计账本的稳定协作范围。Desk 本地模式暂以 Workspace ID 作为 Organization ID；未来组织目录 Adapter 可以替换身份来源，但不能改变工作流授权语义。
+
+## Principal
+
+可以承担责任、执行动作、审核或进行授权的组织主体。Principal 分为 human 和 server_agent；身份、责任、执行权与会话必须分开记录，切换实际执行者不能覆盖原责任人。
+
+## Server Agent Principal
+
+由组织登记的服务器 Agent 身份。它可以成为 Node Assignment 的责任人，也可以在自身权限范围内授予他人覆盖某个模板、运行、节点或职能；同一个 Agent 可以同时拥有多个 incoming 和 outgoing Delegation Grant。
+
+## Workflow Template
+
+组织可复用的工作流定义，保存有向无环节点图、职能角色、审核要求和交付物约定。Template 每次修改创建新版本；已经启动的 Workflow Run 固定引用启动时版本，不被后续编辑静默改写。
+
+## Workflow Run
+
+Workflow Template 某一版本的执行实例。Run 保存节点状态、责任快照、领取租约、数据版本、交付物版本和事件序列；并发命令必须携带 expected revision，过期命令不得覆盖当前状态。
+
+## Organization Workflow Node
+
+Organization Workflow 中最小的责任、执行、审核与交付范围。Node 可声明 task、review、gate 或 automation 类型、role key、前置节点、矩阵坐标、是否提升为 Lane 入口、是否需要审核和预期输出；Node 不依赖 Creator Studio 的创作 Stage。
+
+## Node Assignment
+
+Workflow Run 启动或运行中记录的节点责任分配。Assignment 分别保存 accountable principal 和 reviewer principal；Delegation Grant 只增加覆盖执行权，不能替换 Assignment 中的责任人。
+
+## Responsibility Snapshot
+
+一次节点动作发生时固化的责任人、实际执行者和授权来源。Workflow Audit Ledger 使用 Snapshot 解释“谁负责、谁实际做、凭什么做”，后续改派或撤销不能重写历史。
+
+## Delegation Grant
+
+Principal 把自己已有的部分动作授权给另一个 Principal 的版本化记录。Grant 支持 organization、template、run、node 和 role Scope、有效期、撤销、是否允许转授权及最大深度；子授权的 Scope、Action、期限和深度都不得超过父授权，撤销父授权必须级联使后代授权失效。
+
+## Execution Claim
+
+Principal 对 Organization Workflow Node 的短期独占领取记录。Claim 使用可到期 Lease 防止多人或多个 Agent 重复执行；Lease 到期、主动释放或节点提交后不再阻止其他已授权主体领取，Node Assignment 中的责任人保持不变。
+
+## Node Data Revision
+
+Organization Workflow Node 保存结构化输入、过程数据或阶段结论的不可覆盖版本。相同 slot key 的新写入创建新 revision，旧版本继续可审计；节点 Run revision 与数据 revision 分开记录。
+
+## Workflow Artifact
+
+Organization Workflow Node 产生的版本化交付物引用。Artifact 保存稳定 key、版本、生产者、内容或 URI、元数据和输入 Artifact ID；上游同 key 新版本替代旧版本后，仍引用旧版本的下游 Artifact 与 Node 标记为 stale。
+
+## Workflow Audit Ledger
+
+Organization Workflow 的追加式事件账本。每条事件保存组织、Run、事件类型、实际执行 Principal、accountable Principal、Delegation Grant、时间和最小载荷；它是权限调查、责任复盘与跨 Agent 协作验真的事实源。
+
 ## Notification Inbox
 
 Creator Studio Suite 的统一消息入口。它聚合待审核 Gate、新交付物、阻塞 Node、发布失败和 Handoff 就绪事件，并在顶部计数器与动态通知中投影；真实状态仍由运行事件和快照提供，通知本身不是状态源。

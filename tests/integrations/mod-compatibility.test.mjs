@@ -279,6 +279,16 @@ test("the current store keeps legacy Mods compatible and validates declared leve
     "fund-portfolio",
   ];
   assert.ok(fundResearchIds.every((id) => results.find((result) => result.id === id)?.level === 3));
+  const workflowCenterIds = [
+    "workflow-overview",
+    "workflow-designer",
+    "workflow-runs",
+    "workflow-delegations",
+    "workflow-artifacts",
+    "workflow-audit",
+    "workflow-settings",
+  ];
+  assert.ok(workflowCenterIds.every((id) => results.find((result) => result.id === id)?.level === 3));
   assert.ok(
     results
       .filter((result) => ![
@@ -307,6 +317,7 @@ test("the current store keeps legacy Mods compatible and validates declared leve
         ...tradingSuiteIds,
         ...creatorStudioIds,
         ...fundResearchIds,
+        ...workflowCenterIds,
       ].includes(result.id))
       .every((result) => result.level === 0),
   );

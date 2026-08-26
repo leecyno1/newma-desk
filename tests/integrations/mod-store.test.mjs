@@ -115,6 +115,7 @@ test("validates the project Mod store and installs the core Desk projects", asyn
     "deepsee-suite",
     "orchestra-suite",
     "creator-studio-suite",
+    "workflow-center-suite",
   ]);
   assert.deepEqual(store.retiredMods, [
     "investment-settings", "quant-agent", "event-intelligence",
@@ -143,10 +144,24 @@ test("validates the project Mod store and installs the core Desk projects", asyn
     "fund-recommendations",
     "fund-attribution",
     "fund-portfolio",
+    "workflow-overview",
+    "workflow-designer",
+    "workflow-runs",
+    "workflow-delegations",
+    "workflow-artifacts",
+    "workflow-audit",
+    "workflow-settings",
   ]);
   assert.deepEqual(
     [...new Set(defaults.map((mod) => mod.manifest.navigation.project.id))].sort(),
-    ["capital-flow", "fund-research", "global-intelligence", "industry-research", "policy-intelligence"],
+    [
+      "capital-flow",
+      "fund-research",
+      "global-intelligence",
+      "industry-research",
+      "policy-intelligence",
+      "workflow-center-suite",
+    ],
   );
   assert.equal(
     store.mods.find((mod) => mod.id === "alpha-lab").manifest.entry.url,

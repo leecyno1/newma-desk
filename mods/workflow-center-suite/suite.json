@@ -1,0 +1,206 @@
+{
+  "schemaVersion": "1.0",
+  "id": "workflow-center-suite",
+  "name": "Newma Workflow Center",
+  "description": "以纵向业务域、横向阶段和交叉节点矩阵组织协作流程，并统一职责、Agent 授权、交付物与审计。",
+  "version": "0.4.0",
+  "publisher": "Newma-Desk",
+  "upstream": null,
+  "tags": ["工作流", "组织协作", "Agent", "授权", "交付物"],
+  "agentWorkspace": {
+    "type": "desk"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_WORKFLOW_CENTER_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "workflow",
+    "navigation": {
+      "groupLabel": "工作流",
+      "groupOrder": 170,
+      "itemOrder": 10,
+      "directory": {
+        "id": "workflow-center-suite",
+        "label": "组织工作流",
+        "order": 10
+      },
+      "project": {
+        "id": "workflow-center-suite",
+        "name": "工作流",
+        "order": 170,
+        "description": "组织流程编排、多人和 Agent 协作、节点授权、交付与审计。",
+        "logo": {"type": "letter", "text": "流"}
+      },
+      "icon": "module"
+    },
+    "compatibility": {
+      "level": 3,
+      "bridgeProtocol": "1.0",
+      "sdkVersion": "^0.1.0",
+      "viewSpecVersion": "1.0"
+    },
+    "permissions": [
+      "workflow.read",
+      "workflow.write",
+      "workflow.execute",
+      "workflow.review",
+      "workflow.delegate",
+      "workflow.admin"
+    ],
+    "dataServices": [],
+    "actions": {
+      "workflow.refresh": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "workflow.read",
+        "inputSchema": {"type": "object", "additionalProperties": false},
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "workflow.run.create": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "workflow.write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["templateId", "title"],
+          "properties": {
+            "templateId": {"type": "string", "minLength": 1},
+            "title": {"type": "string", "minLength": 1, "maxLength": 180},
+            "assignments": {"type": "object", "additionalProperties": {"type": "string"}},
+            "reviewers": {"type": "object", "additionalProperties": {"type": "string"}}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "workflow.node.claim": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "workflow.execute",
+        "inputSchema": {
+          "type": "object",
+          "required": ["runId", "nodeId"],
+          "properties": {
+            "runId": {"type": "string"},
+            "nodeId": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "none"
+      },
+      "workflow.node.submit": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "workflow.execute",
+        "inputSchema": {
+          "type": "object",
+          "required": ["runId", "nodeId"],
+          "properties": {
+            "runId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "note": {"type": "string", "maxLength": 2000}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "workflow.node.review": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "workflow.review",
+        "inputSchema": {
+          "type": "object",
+          "required": ["runId", "nodeId", "decision"],
+          "properties": {
+            "runId": {"type": "string"},
+            "nodeId": {"type": "string"},
+            "decision": {"enum": ["approve", "request_changes"]},
+            "note": {"type": "string", "maxLength": 2000}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      },
+      "workflow.grant.create": {
+        "binding": {"type": "local"},
+        "execution": "request",
+        "permission": "workflow.delegate",
+        "inputSchema": {
+          "type": "object",
+          "required": ["delegatePrincipalId", "scope", "actions"],
+          "properties": {
+            "delegatePrincipalId": {"type": "string"},
+            "scope": {"type": "object", "required": ["type"], "additionalProperties": true},
+            "actions": {"type": "array", "items": {"type": "string"}},
+            "allowRedelegate": {"type": "boolean"},
+            "maxRedelegationDepth": {"type": "integer", "minimum": 0, "maximum": 8}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"type": "object", "additionalProperties": true},
+        "confirmation": "user"
+      }
+    },
+    "events": {"emits": [], "accepts": []},
+    "refresh": {"mode": "manual"}
+  },
+  "pages": [
+    {
+      "id": "workflow-overview",
+      "name": "组织工作流",
+      "description": "以横竖组织矩阵总览流程、成熟节点入口、责任分布、Agent 与授权覆盖。",
+      "route": "/mod-runtime/workflow-center/?workspace=overview",
+      "navigation": {"itemOrder": 10, "label": "工作台"}
+    },
+    {
+      "id": "workflow-designer",
+      "name": "工作流编排",
+      "description": "编排纵向业务域、横向阶段、交叉节点、DAG 依赖、职能与审核 Gate。",
+      "route": "/mod-runtime/workflow-center/?workspace=designer",
+      "navigation": {"itemOrder": 20, "label": "流程编排"}
+    },
+    {
+      "id": "workflow-runs",
+      "name": "工作流运行中心",
+      "description": "在组织矩阵中运行节点，领取职能、保存数据与交付物并推进审核。",
+      "route": "/mod-runtime/workflow-center/?workspace=runs",
+      "navigation": {"itemOrder": 30, "label": "运行中心"}
+    },
+    {
+      "id": "workflow-delegations",
+      "name": "工作流授权中心",
+      "description": "管理模板、运行、节点与职能级授权和转授权链。",
+      "route": "/mod-runtime/workflow-center/?workspace=delegations",
+      "navigation": {"itemOrder": 40, "label": "授权中心"}
+    },
+    {
+      "id": "workflow-artifacts",
+      "name": "工作流交付物",
+      "description": "查看版本化交付物、输入谱系和上游变更后的失效传播。",
+      "route": "/mod-runtime/workflow-center/?workspace=artifacts",
+      "navigation": {"itemOrder": 50, "label": "交付物"}
+    },
+    {
+      "id": "workflow-audit",
+      "name": "工作流审计账本",
+      "description": "追踪实际执行者、责任人、授权来源和状态变更。",
+      "route": "/mod-runtime/workflow-center/?workspace=audit",
+      "navigation": {"itemOrder": 60, "label": "审计账本"}
+    },
+    {
+      "id": "workflow-settings",
+      "name": "工作流组织设置",
+      "description": "登记组织成员、服务器 Agent、端点、角色与能力标签。",
+      "route": "/mod-runtime/workflow-center/?workspace=settings",
+      "navigation": {"itemOrder": 70, "label": "组织与 Agent", "icon": "settings", "role": "settings"}
+    }
+  ]
+}

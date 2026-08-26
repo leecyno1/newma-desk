@@ -193,6 +193,10 @@ def _default_creator_studio_dist() -> Path:
     return _default_project_root() / "modules" / "creator-studio" / "dist"
 
 
+def _default_workflow_center_dist() -> Path:
+    return _default_project_root() / "modules" / "workflow-center" / "dist"
+
+
 def _default_policy_analysis_dist() -> Path:
     return _default_project_root() / "modules" / "policy-analysis" / "dist"
 
@@ -254,6 +258,7 @@ class Settings(BaseSettings):
         default_factory=_default_creator_studio_workspace
     )
     creator_studio_dist: Path = Field(default_factory=_default_creator_studio_dist)
+    workflow_center_dist: Path = Field(default_factory=_default_workflow_center_dist)
     policy_analysis_dist: Path = Field(default_factory=_default_policy_analysis_dist)
     capital_flow_dist: Path = Field(default_factory=_default_capital_flow_dist)
     capital_flow_timeout_seconds: float = Field(default=15.0, gt=0, le=60)

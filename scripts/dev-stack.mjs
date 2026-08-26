@@ -750,6 +750,10 @@ if (checkOnly) {
       "@newma-desk/creator-studio",
     );
     await buildFirstPartyModule(
+      "Workflow Center",
+      "@newma-desk/workflow-center",
+    );
+    await buildFirstPartyModule(
       "Policy Analysis",
       "@newma-desk/policy-analysis",
     );

@@ -48,6 +48,13 @@ test("current official Mods only use registered data capabilities", async () => 
     "fund-recommendations",
     "fund-attribution",
     "fund-portfolio",
+    "workflow-overview",
+    "workflow-designer",
+    "workflow-runs",
+    "workflow-delegations",
+    "workflow-artifacts",
+    "workflow-audit",
+    "workflow-settings",
   ]);
   assert.deepEqual(checkReleaseModDataContracts(mods, services), []);
 });

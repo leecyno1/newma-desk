@@ -59,6 +59,10 @@ from vibe_visualization_api.creator_studio.routes import (
     router as creator_studio_router,
 )
 from vibe_visualization_api.creator_studio.service import CreatorStudioService
+from vibe_visualization_api.workflow_control.routes import (
+    router as workflow_control_router,
+)
+from vibe_visualization_api.workflow_control.service import WorkflowControlService
 from vibe_visualization_api.crucix.adapter import adapt_crucix_response
 from vibe_visualization_api.crucix.routes import router as crucix_router
 from vibe_visualization_api.model_gateway.adapters.base import ModelAdapter
@@ -459,6 +463,9 @@ def create_app(
         app_settings.database_path,
         app_settings.creator_studio_workspace,
     )
+    application.state.workflow_control_service = WorkflowControlService(
+        app_settings.database_path,
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.origin_list(),
@@ -469,6 +476,7 @@ def create_app(
             "Authorization",
             "X-User-Id",
             "X-Workspace-Id",
+            "X-Workflow-Principal-Id",
             "X-Newma-Desk-Instance-Id",
             "X-Newma-Desk-Mod-Session",
             "X-Newma-Dock-Instance-Id",
@@ -496,6 +504,7 @@ def create_app(
     application.include_router(research_archive_router)
     application.include_router(portfolio_center_router)
     application.include_router(creator_studio_router)
+    application.include_router(workflow_control_router)
     application.include_router(finance_pilots_router)
     application.include_router(global_intel_router)
     application.include_router(crucix_router)
@@ -832,6 +841,14 @@ def create_app(
             "/mod-runtime/creator-studio",
             SpaStaticFiles(directory=str(creator_studio_dist), html=True),
             name="creator-studio-mod-runtime",
+        )
+
+    workflow_center_dist = app_settings.workflow_center_dist.expanduser().resolve()
+    if workflow_center_dist.is_dir():
+        application.mount(
+            "/mod-runtime/workflow-center",
+            SpaStaticFiles(directory=str(workflow_center_dist), html=True),
+            name="workflow-center-mod-runtime",
         )
 
     policy_analysis_dist = app_settings.policy_analysis_dist.expanduser().resolve()
