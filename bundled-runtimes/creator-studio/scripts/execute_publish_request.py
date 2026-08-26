@@ -313,7 +313,7 @@ def execute_request(
             "schema_version": "1.0",
             "created_at": now_iso(),
             "mode": "execute",
-            "status": "executed_and_recorded",
+            "status": "queued_and_recorded",
             "selected_route": selected_route,
             "publish_payload": payload_report["publish_payload"],
             "external_result": result,

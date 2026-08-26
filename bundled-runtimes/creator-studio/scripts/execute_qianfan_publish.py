@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preview or execute one video publish through the local Qianfan API."""
+"""Validate or enqueue one Qianfan draft through the local Qianfan API."""
 
 from __future__ import annotations
 
@@ -53,37 +53,37 @@ def expand_api_base(raw: str) -> str:
     return raw.rstrip("/")
 
 
-def normalize_accounts(response: Any) -> list[dict[str, Any]]:
-    rows = response.get("data", response) if isinstance(response, dict) else response
-    normalized: list[dict[str, Any]] = []
-    for row in rows if isinstance(rows, list) else []:
-        if isinstance(row, list):
-            values = row + [None] * 6
-            normalized.append(
-                {"id": values[0], "type": values[1], "file_path": values[2], "name": values[3], "status": values[4]}
-            )
-        elif isinstance(row, dict):
-            normalized.append(
-                {
-                    "id": row.get("id"),
-                    "type": row.get("type") or row.get("platform_type") or row.get("platformId"),
-                    "file_path": row.get("filePath") or row.get("cookie_path") or row.get("cookiePath"),
-                    "name": row.get("userName") or row.get("name") or row.get("label") or row.get("account_name"),
-                    "status": row.get("status"),
-                }
-            )
-    return normalized
+def ledger_path_for(request_path: Path) -> Path:
+    for parent in request_path.parents:
+        if (parent / "account_routes.json").is_file():
+            return parent / "qianfan_enqueue_ledger.json"
+    return request_path.parent / "qianfan_enqueue_ledger.json"
 
 
-def resolve_account(accounts: list[dict[str, Any]], selector: dict[str, Any], platform_id: int) -> dict[str, Any] | None:
-    compatible = [row for row in accounts if str(row.get("type")) == str(platform_id)]
-    account_id = selector.get("account_id")
-    if account_id not in (None, ""):
-        return next((row for row in compatible if str(row.get("id")) == str(account_id)), None)
-    account_name = str(selector.get("account_name") or "").strip()
-    if account_name:
-        return next((row for row in compatible if account_name in {str(row.get("name") or ""), str(row.get("file_path") or "")}), None)
-    return None
+def load_ledger(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {"schema_version": "newma.qianfan_enqueue_ledger.v1", "records": {}}
+    try:
+        payload = read_json(path)
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": "newma.qianfan_enqueue_ledger.v1", "records": {}}
+    if not isinstance(payload.get("records"), dict):
+        payload["records"] = {}
+    return payload
+
+
+def idempotency_keys(request_payload: dict[str, Any], account_ids: list[Any]) -> list[str]:
+    run_id = str(request_payload.get("run_id") or "unknown-run")
+    task_id = str(request_payload.get("task_id") or request_payload.get("qianfan_draft_id") or "unknown-task")
+    revision = str(request_payload.get("content_revision") or "unversioned")
+    return [f"{run_id}:{task_id}:{account_id}:{revision}" for account_id in sorted(account_ids, key=str)]
+
+
+def validation_data(response: Any) -> dict[str, Any]:
+    if not isinstance(response, dict) or response.get("code") not in (None, 0, 200):
+        return {"valid": False, "errors": [str((response or {}).get("msg") or "草稿校验失败")], "account_ids": []}
+    data = response.get("data")
+    return data if isinstance(data, dict) else {"valid": False, "errors": ["草稿校验响应无效"], "account_ids": []}
 
 
 def build_result(
@@ -107,50 +107,120 @@ def build_result(
 
     request_path = Path(package["outputs"]["qianfan_video_request"])
     request_payload = read_json(request_path)
-    post_payload = dict(request_payload["post_video_payload"])
     api_base = expand_api_base(str(request_payload.get("api_base") or ""))
-    base.update({"platform": request_payload.get("platform"), "request": str(request_path), "api_base": api_base})
+    draft_id = request_payload.get("qianfan_draft_id")
+    base.update(
+        {
+            "platform": request_payload.get("platform"),
+            "request": str(request_path),
+            "api_base": api_base,
+            "qianfan_draft_id": draft_id,
+        }
+    )
+    if draft_id in (None, ""):
+        return {
+            **base,
+            "success": False,
+            "status": "blocked_missing_qianfan_draft",
+            "will_not_publish": True,
+            "error": "缺少 qianfan_draft_id，请先从 Newma 平台包同步千帆草稿。",
+        }
+
+    client = http_client or default_http_client
+    try:
+        validation_response = client(
+            "GET",
+            f"{api_base}/api/v2/drafts/{draft_id}/validate",
+            None,
+            min(timeout_seconds, 30),
+        )
+    except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
+        return {**base, "success": False, "status": "blocked_qianfan_api_unavailable", "will_not_publish": True, "error": str(exc)}
+
+    validation = validation_data(validation_response)
+    if validation.get("valid") is not True:
+        return {
+            **base,
+            "success": False,
+            "status": "blocked_qianfan_draft_validation",
+            "will_not_publish": True,
+            "draft_validation": validation,
+            "errors": validation.get("errors") or [],
+        }
     if not confirm_execute:
         return {
             **base,
             "success": True,
             "status": "ready_for_user_confirmation",
             "will_not_publish": True,
-            "endpoint": f"{api_base}/postVideo",
-            "account_selector": request_payload.get("account_selector"),
+            "endpoint": f"{api_base}/api/v2/drafts/batch-publish",
+            "draft_validation": validation,
         }
 
-    client = http_client or default_http_client
+    keys = idempotency_keys(request_payload, list(validation.get("account_ids") or []))
+    ledger_path = ledger_path_for(request_path)
+    ledger = load_ledger(ledger_path)
+    request_key = "|".join(keys)
+    existing = ledger["records"].get(request_key)
+    if isinstance(existing, dict):
+        return {
+            **base,
+            **existing,
+            "success": True,
+            "status": "already_queued",
+            "will_not_publish": False,
+            "idempotency_keys": keys,
+            "draft_validation": validation,
+            "ledger": str(ledger_path),
+        }
+
+    enqueue_payload = {"draft_ids": [int(draft_id)], "idempotency_keys": keys}
     try:
-        account_response = client("GET", f"{api_base}/getAccounts", None, min(timeout_seconds, 30))
-        accounts = normalize_accounts(account_response)
-        account = resolve_account(accounts, request_payload.get("account_selector") or {}, int(post_payload["type"]))
-        if not account or not account.get("file_path"):
-            return {
-                **base,
-                "success": False,
-                "status": "blocked_qianfan_account_mapping",
-                "will_not_publish": True,
-                "compatible_account_count": sum(1 for row in accounts if str(row.get("type")) == str(post_payload["type"])),
-                "error": "No exact Qianfan account mapping for this account slot. Configure qianfan_account_id or qianfan_account_name in a local account registry.",
-            }
-        post_payload["accountList"] = [account["file_path"]]
-        response = client("POST", f"{api_base}/postVideo", post_payload, timeout_seconds)
+        response = client(
+            "POST",
+            f"{api_base}/api/v2/drafts/batch-publish",
+            enqueue_payload,
+            timeout_seconds,
+        )
     except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
         return {**base, "success": False, "status": "blocked_qianfan_api_unavailable", "will_not_publish": True, "error": str(exc)}
 
     response_code = response.get("code") if isinstance(response, dict) else None
-    success = response_code in (None, 0, 200)
-    return {
+    task_ids = list(response.get("task_ids") or []) if isinstance(response, dict) else []
+    batch_ids = list(response.get("batch_ids") or []) if isinstance(response, dict) else []
+    failed = list(response.get("failed") or []) if isinstance(response, dict) else []
+    success = response_code in (None, 0, 200) and bool(task_ids) and not failed
+    result = {
         **base,
         "success": success,
-        "status": "pending_verification" if success else "failed",
+        "status": "queued_for_publish" if success else "failed",
         "will_not_publish": False,
         "verification_status": "needs_manual_verification" if success else "failed",
-        "account": request_payload.get("account_selector"),
+        "draft_validation": validation,
+        "idempotency_keys": keys,
+        "task_ids": task_ids,
+        "batch_ids": batch_ids,
+        "failed": failed,
+        "tasks_url": f"{api_base}/api/v2/tasks",
+        "history_urls": [f"{api_base}/api/v2/history/{batch_id}" for batch_id in batch_ids],
         "platform_response": response,
         "error": None if success else str(response.get("msg") or "Qianfan publish failed"),
     }
+    if success:
+        ledger["records"][request_key] = {
+            "queued_at": now_iso(),
+            "qianfan_draft_id": draft_id,
+            "task_ids": task_ids,
+            "batch_ids": batch_ids,
+            "tasks_url": result["tasks_url"],
+            "history_urls": result["history_urls"],
+            "platform_response": response,
+            "verification_status": "needs_manual_verification",
+        }
+        ledger["updated_at"] = now_iso()
+        write_json(ledger_path, ledger)
+        result["ledger"] = str(ledger_path)
+    return result
 
 
 def main() -> None:

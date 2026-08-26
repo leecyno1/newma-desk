@@ -6,6 +6,8 @@ import json
 import os
 import re
 import shutil
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -61,7 +63,22 @@ def resolve_root(row: dict[str, Any] | None) -> Path | None:
     env_name = str(row.get("default_root_env") or "")
     value = os.getenv(env_name) if env_name else None
     raw = value or _expand_env_vars(str(row.get("default_root") or ""))
-    return Path(raw).expanduser() if raw else None
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    return path if path.is_absolute() else (ROOT / path).resolve()
+
+
+def qianfan_api_reachable(api_base: str) -> bool:
+    try:
+        with urllib.request.urlopen(
+            f"{api_base.rstrip('/')}/api/v2/tasks?page=1&pageSize=1",
+            timeout=2,
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return isinstance(payload, dict) and payload.get("code") in (None, 0, 200)
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError):
+        return False
 
 
 def root_exists(rows: dict[str, dict[str, Any]], name: str) -> tuple[bool, str | None]:
@@ -290,11 +307,17 @@ def check_route(route: dict[str, Any], rows: dict[str, dict[str, Any]], request:
         exists, root = root_exists(rows, "qianfan-sync")
         root_path = Path(root).expanduser() if root else None
         backend = root_path / "backend" / "app.py" if root_path else None
+        api_base = os.getenv("QIANFAN_API_BASE", "http://127.0.0.1:5409")
+        api_ready = qianfan_api_reachable(api_base)
         check.update({
-            "available": bool(exists and backend and backend.exists()),
-            "reason": "qianfan_backend_found" if exists and backend and backend.exists() else "missing_qianfan_backend",
+            "available": bool(api_ready or (exists and backend and backend.exists())),
+            "reason": (
+                "qianfan_api_reachable"
+                if api_ready
+                else ("qianfan_backend_found" if exists and backend and backend.exists() else "missing_qianfan_backend")
+            ),
             "upstream_root": root,
-            "api_base": os.getenv("QIANFAN_API_BASE", "http://127.0.0.1:5409"),
+            "api_base": api_base,
         })
         return check
 

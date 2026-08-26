@@ -355,7 +355,10 @@ def test_publish_adapters_preflight_confirm_execute_and_verify(tmp_path, monkeyp
     channel_pack = publish_root / "channel_packs" / "wechat" / "pack.json"
     channel_pack.parent.mkdir(parents=True)
     channel_pack.write_text("{}", encoding="utf-8")
-    (publish_root / "publish_manifest.json").write_text("{}", encoding="utf-8")
+    (publish_root / "publish_manifest.json").write_text(
+        json.dumps({"publish_guard": {"passed": True, "status": "passed"}}),
+        encoding="utf-8",
+    )
     (publish_root / "publish_verification_report.json").write_text(
         json.dumps({"status": "verified"}),
         encoding="utf-8",

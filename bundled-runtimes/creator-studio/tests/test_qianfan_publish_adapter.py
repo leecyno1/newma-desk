@@ -18,6 +18,10 @@ def write_request(tmp_path: Path) -> Path:
             {
                 "schema_version": "dasheng.qianfan_video_request.v1",
                 "api_base": "${QIANFAN_API_BASE:-http://127.0.0.1:5409}",
+                "run_id": "run-1",
+                "task_id": "task-1",
+                "content_revision": "rev-1",
+                "qianfan_draft_id": 101,
                 "platform": "xiaohongshu",
                 "account_selector": {"account_name": "account-a"},
                 "post_video_payload": {
@@ -34,24 +38,24 @@ def write_request(tmp_path: Path) -> Path:
     return request
 
 
-def test_qianfan_dry_run_never_calls_local_api(tmp_path, monkeypatch):
+def test_qianfan_preview_validates_draft_without_enqueue(tmp_path, monkeypatch):
     request = write_request(tmp_path)
     monkeypatch.setattr(adapter, "build_package", lambda _: {"status": "ready", "outputs": {"qianfan_video_request": str(request)}})
 
-    called = False
+    calls = []
 
-    def fail_http(*args):
-        nonlocal called
-        called = True
-        raise AssertionError("dry-run must not call Qianfan")
+    def fake_http(method, url, payload, timeout):
+        calls.append((method, url, payload, timeout))
+        return {"code": 200, "data": {"valid": True, "errors": [], "account_ids": [7]}}
 
-    result = adapter.build_result(tmp_path / "channel_pack.json", confirm_execute=False, http_client=fail_http)
+    result = adapter.build_result(tmp_path / "channel_pack.json", confirm_execute=False, http_client=fake_http)
     assert result["status"] == "ready_for_user_confirmation"
     assert result["will_not_publish"] is True
-    assert called is False
+    assert [call[0] for call in calls] == ["GET"]
+    assert calls[0][1].endswith("/api/v2/drafts/101/validate")
 
 
-def test_qianfan_execute_resolves_named_account_and_posts_video(tmp_path, monkeypatch):
+def test_qianfan_execute_enqueues_validated_draft_once(tmp_path, monkeypatch):
     request = write_request(tmp_path)
     monkeypatch.setattr(adapter, "build_package", lambda _: {"status": "ready", "outputs": {"qianfan_video_request": str(request)}})
     calls = []
@@ -59,27 +63,33 @@ def test_qianfan_execute_resolves_named_account_and_posts_video(tmp_path, monkey
     def fake_http(method, url, payload, timeout):
         calls.append((method, url, payload, timeout))
         if method == "GET":
-            return {"data": [[7, 1, "/sessions/xhs/account-a.json", "account-a", "正常", None]]}
-        return {"code": 200, "msg": "ok"}
+            return {"code": 200, "data": {"valid": True, "errors": [], "account_ids": [7]}}
+        return {"code": 200, "task_ids": [9001], "batch_ids": [8001], "failed": []}
 
     result = adapter.build_result(tmp_path / "channel_pack.json", confirm_execute=True, http_client=fake_http)
     assert result["success"] is True
-    assert result["status"] == "pending_verification"
+    assert result["status"] == "queued_for_publish"
     assert calls[0][0] == "GET"
     assert calls[1][0] == "POST"
-    assert calls[1][2]["accountList"] == ["/sessions/xhs/account-a.json"]
+    assert calls[1][1].endswith("/api/v2/drafts/batch-publish")
+    assert calls[1][2] == {
+        "draft_ids": [101],
+        "idempotency_keys": ["run-1:task-1:7:rev-1"],
+    }
+
+    repeated = adapter.build_result(tmp_path / "channel_pack.json", confirm_execute=True, http_client=fake_http)
+    assert repeated["status"] == "already_queued"
+    assert [call[0] for call in calls] == ["GET", "POST", "GET"]
 
 
-def test_qianfan_execute_blocks_ambiguous_unmapped_slot(tmp_path, monkeypatch):
+def test_qianfan_execute_blocks_invalid_draft(tmp_path, monkeypatch):
     request = write_request(tmp_path)
-    payload = json.loads(request.read_text(encoding="utf-8"))
-    payload["account_selector"] = {"account_name": "slot-1"}
-    request.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(adapter, "build_package", lambda _: {"status": "ready", "outputs": {"qianfan_video_request": str(request)}})
 
     def fake_http(method, url, payload, timeout):
-        return {"data": [[7, 1, "/sessions/xhs/real.json", "real-account", "正常", None]]}
+        return {"code": 200, "data": {"valid": False, "errors": ["账号未绑定"], "account_ids": []}}
 
     result = adapter.build_result(tmp_path / "channel_pack.json", confirm_execute=True, http_client=fake_http)
-    assert result["status"] == "blocked_qianfan_account_mapping"
+    assert result["status"] == "blocked_qianfan_draft_validation"
     assert result["will_not_publish"] is True
+    assert result["errors"] == ["账号未绑定"]

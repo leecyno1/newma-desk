@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,6 +47,35 @@ def existing_path(value: Any) -> str | None:
 
 def mapping_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def qianfan_draft_metadata(pack: dict[str, Any], channel_pack_path: Path) -> dict[str, Any]:
+    for parent in channel_pack_path.parents:
+        routes_path = parent / "account_routes.json"
+        if not routes_path.is_file():
+            continue
+        routes = read_json(routes_path)
+        draft_payload_path = parent / "qianfan_draft_payload.json"
+        draft_payload = read_json(draft_payload_path) if draft_payload_path.is_file() else {}
+        draft_data = mapping_or_empty(draft_payload.get("draft_data"))
+        content_revision = mapping_or_empty(draft_data.get("newma")).get("content_revision")
+        if not content_revision and draft_data:
+            encoded = json.dumps(draft_data, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            content_revision = hashlib.sha256(encoded).hexdigest()[:16]
+        draft_id = routes.get("qianfan_draft_id")
+        topic_id = routes.get("topic_id") or pack.get("topic_id") or pack.get("task_id")
+        return {
+            "run_id": routes.get("run_id") or mapping_or_empty(draft_data.get("newma")).get("run_id"),
+            "task_id": f"{topic_id}:qianfan-draft-{draft_id}" if draft_id else topic_id,
+            "content_revision": content_revision or "unversioned",
+            "qianfan_draft_id": draft_id,
+        }
+    return {
+        "run_id": pack.get("run_id"),
+        "task_id": pack.get("task_id"),
+        "content_revision": pack.get("content_revision") or pack.get("revision") or "unversioned",
+        "qianfan_draft_id": pack.get("qianfan_draft_id"),
+    }
 
 
 def normalize_schedule(value: Any) -> str | None:
@@ -161,6 +191,7 @@ def build_social_auto_upload_request(pack: dict[str, Any], channel_pack_path: Pa
 
 def build_qianfan_request(pack: dict[str, Any], channel_pack_path: Path) -> dict[str, Any]:
     payload = common_payload(pack, channel_pack_path)
+    draft_metadata = qianfan_draft_metadata(pack, channel_pack_path)
     platform = VIDEO_CHANNELS.get(pack.get("channel"))
     options = payload["platform_options"]
     account_selector = {
@@ -194,6 +225,7 @@ def build_qianfan_request(pack: dict[str, Any], channel_pack_path: Path) -> dict
         "created_at": now_iso(),
         "adapter": "qianfan-local-api",
         "api_base": "${QIANFAN_API_BASE:-http://127.0.0.1:5409}",
+        **draft_metadata,
         "platform": platform,
         "status": "ready_for_local_api_dry_run",
         "account_selector": account_selector,
@@ -201,7 +233,7 @@ def build_qianfan_request(pack: dict[str, Any], channel_pack_path: Path) -> dict
         "source_channel_pack": str(channel_pack_path.resolve()),
         "safety": {
             "will_not_publish_without_confirmation": True,
-            "account_resolution": "resolve from Qianfan /getAccounts at execution time",
+            "account_resolution": "use account ids stored in the validated Qianfan draft",
             "credentials_handling": "qianfan external session only",
         },
     }

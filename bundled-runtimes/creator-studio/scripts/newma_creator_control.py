@@ -1348,6 +1348,44 @@ def execute_publish_preflight(
         {"execution_request.json"},
     )
     plans = [build_publish_execution_plan(path) for path in execution_requests]
+    previews: list[dict[str, Any]] = []
+    qianfan_validations: list[dict[str, Any]] = []
+    for path in execution_requests:
+        try:
+            preview = execute_publish_request(path, confirm_execute=False)
+        except (Exception, SystemExit) as exc:
+            preview = {
+                "status": "blocked_preflight_preview",
+                "will_not_publish": True,
+                "error": str(exc),
+            }
+        previews.append({"execution_request": str(path), "preview": preview})
+        external = preview.get("external_preview") if isinstance(preview, dict) else None
+        validation = external.get("draft_validation") if isinstance(external, dict) else None
+        if isinstance(validation, dict):
+            qianfan_validations.append(
+                {
+                    "execution_request": str(path),
+                    "status": external.get("status"),
+                    **validation,
+                }
+            )
+    deduplicated_validations: dict[tuple[Any, bool, tuple[str, ...]], dict[str, Any]] = {}
+    for row in qianfan_validations:
+        key = (
+            row.get("draft_id"),
+            row.get("valid") is True,
+            tuple(str(item) for item in row.get("errors") or []),
+        )
+        existing = deduplicated_validations.get(key)
+        if existing:
+            existing.setdefault("execution_requests", []).append(row.get("execution_request"))
+            continue
+        deduplicated_validations[key] = {
+            **row,
+            "execution_requests": [row.get("execution_request")],
+        }
+    qianfan_validations = list(deduplicated_validations.values())
     channels = sorted({str(plan.get("channel")) for plan in plans if plan.get("channel")})
     slots = sorted({str(plan.get("account_slot")) for plan in plans if plan.get("account_slot")})
     accounts = build_publish_account_report(
@@ -1358,6 +1396,9 @@ def execute_publish_preflight(
     )
     blockers: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
+    qianfan_routed = bool(plans) and all(
+        plan.get("selected_route") == "qianfan-local-api" for plan in plans
+    )
     for plan in plans:
         if plan.get("status") != "ready_for_user_confirmation":
             blockers.append(
@@ -1367,23 +1408,34 @@ def execute_publish_preflight(
                     "status": plan.get("status"),
                 }
             )
+    for row in qianfan_validations:
+        if row.get("valid") is not True:
+            blockers.append(
+                {
+                    "kind": "qianfan_draft",
+                    "executionRequests": row.get("execution_requests") or [],
+                    "status": row.get("status"),
+                    "errors": row.get("errors") or [],
+                }
+            )
     ready_account_statuses = {
         "available",
         "state_present_unverified",
         "configured_unverified",
     }
-    for account in accounts.get("accounts", []):
-        status = str(account.get("status") or "unknown")
-        issue = {
-            "kind": "account",
-            "channel": account.get("channel"),
-            "slot": account.get("slot"),
-            "status": status,
-        }
-        if status not in ready_account_statuses:
-            blockers.append(issue)
-        elif status != "available":
-            warnings.append(issue)
+    if not qianfan_routed:
+        for account in accounts.get("accounts", []):
+            status = str(account.get("status") or "unknown")
+            issue = {
+                "kind": "account",
+                "channel": account.get("channel"),
+                "slot": account.get("slot"),
+                "status": status,
+            }
+            if status not in ready_account_statuses:
+                blockers.append(issue)
+            elif status != "available":
+                warnings.append(issue)
     if not execution_requests:
         blockers.append({"kind": "input", "status": "missing_execution_request"})
     output_dir = node_execution_dir(
@@ -1400,6 +1452,8 @@ def execute_publish_preflight(
         "status": "ready_for_confirmation" if not blockers else "blocked",
         "execution_requests": [str(path) for path in execution_requests],
         "plans": plans,
+        "previews": previews,
+        "qianfan_draft_validation": qianfan_validations,
         "account_health": accounts,
         "blockers": blockers,
         "warnings": warnings,
@@ -1426,6 +1480,7 @@ def execute_publish_preflight(
             "accountHealth": accounts,
             "blockers": blockers,
             "warnings": warnings,
+            "qianfanDraftValidation": qianfan_validations,
             "report": str(report_path),
         },
     )
@@ -1481,7 +1536,8 @@ def execute_confirmed_publish(
                 "result": result,
             }
         )
-    succeeded = [row for row in rows if row.get("status") == "executed_and_recorded"]
+    completed_statuses = {"executed_and_recorded", "queued_and_recorded", "already_queued"}
+    succeeded = [row for row in rows if row.get("status") in completed_statuses]
     failed = [row for row in rows if row not in succeeded]
     output_dir = node_execution_dir(
         str(request["run_id"]),
@@ -1563,8 +1619,20 @@ def execute_publish_verify(
             root = publish_root_from_channel_pack(Path(str(channel_pack)).expanduser().resolve())
             if root:
                 publish_roots[str(root)] = root
-        if row.get("status") != "executed_and_recorded":
-            failures.append(row)
+        if row.get("status") not in {"executed_and_recorded", "queued_and_recorded", "already_queued"}:
+            failures.append({"reason": "publish_execution_incomplete", "receipt": row})
+        explicit_verification = (
+            result.get("verification_status")
+            or (result.get("external_result") or {}).get("verification_status")
+        )
+        if explicit_verification and explicit_verification != "verified":
+            failures.append(
+                {
+                    "reason": "receipt_not_verified",
+                    "verification_status": explicit_verification,
+                    "receipt": row,
+                }
+            )
 
     artifacts: list[dict[str, Any]] = []
     verification_rows: list[dict[str, Any]] = []
@@ -1573,11 +1641,28 @@ def execute_publish_verify(
         verification = root / "publish_verification_report.json"
         if manifest.exists():
             artifacts.append(execution_artifact("publish_manifest", manifest))
+            manifest_payload = read_json(manifest)
+            guard = manifest_payload.get("publish_guard") if isinstance(manifest_payload, dict) else None
+            if not isinstance(guard, dict) or guard.get("passed") is not True or guard.get("status") != "passed":
+                failures.append({"reason": "publish_guard_not_passed", "publish_root": str(root)})
+        else:
+            failures.append({"reason": "publish_manifest_missing", "publish_root": str(root)})
         if verification.exists():
             artifacts.append(
                 execution_artifact("publish_verification_report", verification)
             )
-            verification_rows.append(read_json(verification))
+            verification_payload = read_json(verification)
+            verification_rows.append(verification_payload)
+            if verification_payload.get("status") != "verified":
+                failures.append(
+                    {
+                        "reason": "receipt_not_verified",
+                        "verification_status": verification_payload.get("status"),
+                        "publish_root": str(root),
+                    }
+                )
+        else:
+            failures.append({"reason": "verification_report_missing", "publish_root": str(root)})
     if not publish_roots:
         failures.append({"status": "missing_publish_root"})
 
@@ -1614,6 +1699,7 @@ def execute_publish_verify(
             "kind": "publish_verify",
             "status": handoff["status"],
             "verificationCount": len(verification_rows),
+            "postmortemReady": not failures,
             "failures": failures,
             "postmortemHandoff": str(handoff_path),
         },
