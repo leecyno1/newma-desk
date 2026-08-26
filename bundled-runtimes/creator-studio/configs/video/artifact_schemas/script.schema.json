@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.script.v1",
+  "title": "Newma Video Script",
+  "type": "object",
+  "required": ["schema_version", "title", "lane", "segments"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "dasheng.video.script.v1"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lane": {
+      "type": "string",
+      "enum": ["talking_head_video", "explainer_html_video", "vox_explainer_video", "digital_human_video", "commercial_promo_video", "cinematic_short_drama_video"]
+    },
+    "central_question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "editorial_mode": {
+      "type": "string",
+      "enum": ["core_alignment", "paragraph_alignment"]
+    },
+    "core_claims": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "retention_plan": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "voice": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "voice_id": {
+          "type": "string"
+        },
+        "speed": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 2
+        }
+      },
+      "additionalProperties": true
+    },
+    "commercial": {
+      "type": "object",
+      "required": ["mode", "brand", "product", "audience", "objective", "duration_sec", "aspect", "cta"],
+      "properties": {
+        "mode": {"type": "string", "enum": ["brand_film", "product_promo", "launch_trailer", "performance_ad"]},
+        "brand": {"type": "string", "minLength": 1},
+        "product": {"type": "string", "minLength": 1},
+        "audience": {"type": "string", "minLength": 1},
+        "objective": {"type": "string", "minLength": 1},
+        "duration_sec": {"type": "number", "minimum": 6, "maximum": 120},
+        "aspect": {"type": "string", "enum": ["9:16", "16:9", "1:1", "4:5"]},
+        "cta": {"type": "string", "minLength": 1},
+        "offer": {"type": "string"},
+        "disclaimer": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "presenter_source": {
+      "type": "object",
+      "properties": {
+        "kind": {"type": "string", "enum": ["human_video", "digital_human"]},
+        "engine": {"type": "string"},
+        "mode": {"type": "string", "enum": ["single_presenter", "dual_interview"]},
+        "presenters": {"type": "array", "items": {"type": "object"}},
+        "portrait": {"type": "string"},
+        "consent_status": {"type": "string", "enum": ["confirmed", "not_required", "not_confirmed"]}
+      },
+      "additionalProperties": true
+    },
+    "segments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "text", "beat_class"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "beat_class": {
+            "type": "string",
+            "enum": ["hook", "creator_intro", "claim", "evidence_data", "evidence_document", "logic_chain", "audience_interaction", "retention_bridge", "objection", "counterargument", "chapter", "recap", "conclusion", "audience_pain", "product_promise", "feature_benefit", "proof", "offer", "brand_memory", "cta", "disclaimer"]
+          },
+          "narrative_role": {
+            "type": "string"
+          },
+          "viewer_prompt": {
+            "type": "string"
+          },
+          "retention_function": {
+            "type": "string"
+          },
+          "source_claim_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "start_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "end_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "lane": {
+            "const": "vox_explainer_video"
+          }
+        }
+      },
+      "then": {
+        "required": ["central_question", "editorial_mode", "core_claims", "retention_plan"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "lane": {
+            "const": "commercial_promo_video"
+          }
+        }
+      },
+      "then": {
+        "required": ["commercial", "core_claims", "retention_plan"]
+      }
+    }
+  ],
+  "additionalProperties": true
+}

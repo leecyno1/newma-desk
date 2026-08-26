@@ -1,0 +1,46 @@
+{
+  "name": "dasheng-video-roughcut",
+  "version": "0.1.0",
+  "stage": "video",
+  "description": "真人口播粗剪：FunASR/FFmpeg 基准链路，以及现有剪映生产链路。",
+  "runner": "python",
+  "entry": "../../scripts/video_roughcut_funasr.py",
+  "inputs": {
+    "required": [
+      "speaker video"
+    ],
+    "optional": [
+      "hotwords",
+      "agent_plan.json",
+      "jianying_draft"
+    ]
+  },
+  "outputs": [
+    "roughcut_manifest.json",
+    "review page",
+    "roughcut mp4",
+    "roughcut srt",
+    "jianying first-pass export",
+    "jianying final export",
+    "jianying operation log"
+  ],
+  "hitl": true,
+  "routes": {
+    "default": "jianying_replay",
+    "jianying": {
+      "enabled": true,
+      "status": "production_default",
+      "automation": "record_and_replay",
+      "mandatory_steps": [
+        "import_source",
+        "smart_roughcut",
+        "smart_talking_head_cut",
+        "review_deletions",
+        "export_fragmented_timeline",
+        "reimport_flattened_video",
+        "beauty_filter_audio_polish",
+        "final_export"
+      ]
+    }
+  }
+}

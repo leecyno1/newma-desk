@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "professional-fund-research/fund-research-context.json",
+  "type": "object",
+  "required": ["view", "visibleBlocks", "selection", "filters", "data", "actions", "tasks"],
+  "properties": {
+    "view": {
+      "type": "object",
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 }
+      },
+      "additionalProperties": false
+    },
+    "visibleBlocks": { "type": "array" },
+    "selection": { "type": "object" },
+    "filters": { "type": "object" },
+    "data": { "type": "object" },
+    "actions": { "type": "array" },
+    "tasks": { "type": "array" }
+  },
+  "additionalProperties": false
+}

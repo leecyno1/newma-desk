@@ -1,0 +1,32 @@
+name: release-check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  release-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Python dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+      - name: Run release check
+        env:
+          DATABASE_URL: sqlite:///./data/ci-release-check.db
+          CHATLOG_HTTP_BASE: http://127.0.0.1:5030
+          API_AUTH_REQUIRED: "false"
+        run: bash scripts/release_check.sh

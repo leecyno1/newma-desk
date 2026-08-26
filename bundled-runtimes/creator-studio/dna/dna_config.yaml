@@ -1,0 +1,89 @@
+# DNA配置文件
+# 定义默认风格、结构、视觉方案和质量标准
+
+project:
+  name: "大声自媒体创作工作台"
+  version: "2.0.0"
+  description: "高度自动化的6环节自媒体创作系统"
+
+# 默认风格配置
+default_style:
+  primary: "normal"      # 默认风格
+  fallback: "academic"   # 备用风格
+  auto_select: true      # 是否自动选择风格
+
+# 默认结构配置
+default_structure:
+  template: "PCIS"       # 默认结构模板
+  h2_count: 3           # 默认h2数量
+  word_count: 1200      # 默认字数
+  auto_select: true      # 是否自动选择结构
+
+# 视觉默认配置
+visual_defaults:
+  image_style: "flat_illustration"
+  color_palette: "professional"
+  cover_template: "template_cover_1"
+  image_per_h2: 1       # 每个h2配图数量
+  chart_generation: true # 是否自动生成图表
+  # 账号 DNA 绑定（v2，2026-08-21 用户定调）：说明图角色与风格按公众号账号路由
+  # 单一事实源：dna/account_dna.yaml；风格模板：configs/image_generation/explain_illustration_styles.yaml
+  # skill：skills/dasheng-account-illustrations/
+  # 路由：slot-1 默丘利Lab=墨丘利神（希腊神话简笔画）| slot-3 牛马进化论=仅开篇牛人+马人粗糙手绘
+  #       | slot-2 墨丘利实验室=原版小黑（科研风）
+  account_bound_illustrations: true
+  account_dna_file: "dna/account_dna.yaml"
+  # 数据图不参与账号风格绑定（永远 matplotlib 严谨风）
+
+# 质量阈值
+quality_thresholds:
+  draft_min_score: 7.0      # Draft最低分
+  rewrite_min_score: 8.0    # Rewrite最低分
+  publish_min_score: 8.5    # Publish最低分
+  auto_retry: true          # 不达标自动重试
+  max_retry: 3              # 最大重试次数
+
+# AI能力配置
+ai_capabilities:
+  reasoning_model: "claude-opus-4-6"
+  writing_model: "claude-sonnet-4-6"
+  image_model: "dall-e-3"
+  video_script_model: "claude-sonnet-4-6"
+  max_tokens: 4096
+  temperature: 0.7
+
+# 自动化配置
+automation:
+  intake_auto: true
+  brief_auto: false      # Brief需要人工确认
+  draft_auto: true
+  transwrite_auto: true
+  publish_auto: true
+  postmortem_auto: true
+
+# HITL检查点
+hitl_gates:
+  - stage: "brief"
+    gate_type: "selection"
+    description: "编辑确认选题"
+
+# 平台配置
+platforms:
+  wechat:
+    enabled: true
+    word_count_hot: 1300
+    word_count_normal: 1000
+  xiaohongshu:
+    enabled: true
+    word_count_hot: 900
+    word_count_normal: 650
+  douyin:
+    enabled: false
+    word_count_hot: 500
+
+# DNA进化配置
+evolution:
+  enabled: true
+  learning_rate: 0.1
+  min_samples: 5        # 最少样本数
+  update_frequency: "weekly"

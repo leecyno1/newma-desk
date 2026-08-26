@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-rotation",
+  "name": "行业与 ETF 轮动",
+  "description": "覆盖申万2021版31个一级行业，以七因子排名和9模型参数一致性辅助观察，并明示行业ETF代理口径。",
+  "version": "0.17.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["行业轮动", "ETF", "相对强弱", "量化"],
+  "agentWorkspace": {"type": "runtime", "runtimeId": "instock", "workspaceName": "source"},
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988",
+    "route": "/mods/rotation"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "quant",
+    "navigation": {
+      "groupLabel": "量化研究",
+      "groupOrder": 120,
+      "itemOrder": 3,
+      "label": "行业与 ETF 轮动",
+      "directory": {
+        "id": "instock-suite",
+        "label": "InStock 分析",
+        "order": 20
+      },
+      "project": {
+        "id": "quant-research",
+        "name": "量化研究",
+        "order": 120,
+        "description": "因子、策略、回测、相关性与量化实验。"
+      },
+      "icon": "quant"
+    },
+    "compatibility": {"level": 2, "bridgeProtocol": "1.0"},
+    "permissions": ["analysis.read"],
+    "dataServices": [],
+    "actions": {
+      "analysis.rotation": {
+        "binding": {"type": "data", "capability": "analysis.rotation"},
+        "execution": "request",
+        "permission": "analysis.read",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "window": {"enum": [40, 60, 120]},
+            "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+            "refresh": {"enum": ["0", "1"]},
+            "asOf": {"type": "string", "format": "date"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "required": ["ok", "data", "meta"],
+          "properties": {
+            "ok": {"const": true},
+            "data": {"type": "object"},
+            "meta": {"type": "object"}
+          }
+        },
+        "confirmation": "none",
+        "timeoutSeconds": 30
+      },
+      "analysis.rotation.experiment": {
+        "binding": {"type": "data", "capability": "analysis.rotation.experiment"},
+        "execution": "request",
+        "permission": "analysis.read",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+            "rebalanceDays": {"enum": [5, 10, 20]},
+            "costBps": {"enum": [10, 25, 50]},
+            "refresh": {"enum": ["0", "1"]},
+            "asOf": {"type": "string", "format": "date"}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "required": ["ok", "data", "meta"],
+          "properties": {
+            "ok": {"const": true},
+            "data": {"type": "object"},
+            "meta": {"type": "object"}
+          }
+        },
+        "confirmation": "none",
+        "timeoutSeconds": 60
+      }
+    },
+    "events": {"emits": ["security.selected"], "accepts": []},
+    "refresh": {"mode": "manual"}
+  }
+}

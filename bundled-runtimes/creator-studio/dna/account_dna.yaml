@@ -1,0 +1,146 @@
+# 账号 DNA 档案：3 个公众号的平台定位与视觉/文字规范
+# 用途：transwrite/publish 全环节按账号路由——文章生成时插图风格、角色系统、语气全部由此档案驱动
+# 绑定：configs/publish/account_registry.json 的 slot ↔ 本档案的 account_id 一一对应
+# 更新：2026-08-24 用户定调（牛马账号开篇漫画与正文写作规则）
+
+version: "2.3"
+
+accounts:
+  - account_id: slot-1
+    name: 默丘利Lab
+    group: invest-market（投资市场组）
+    positioning: 投资市场：行情复盘/资产配置/仓位策略
+    character_system:
+      primary: 胖版墨丘利神（默认角色）+ 胖版奥林匹斯固定角色组
+      design: |
+        所有神话角色统一使用胖版 Q 萌造型：大圆头、圆滚短身、短手短腿、柔和轮廓，
+        表情可爱但不幼稚。每个角色必须保留可识别的神话标志物。
+        画风仍是精美希腊陶罐画变体：干净黑色线条、米白底、赭红与爱琴海蓝强调色，
+        禁止 3D 玩偶、糖果渐变和无特征的通用萌系人物。
+      fixed_cast:
+        - id: mercury
+          name: 墨丘利（Hermes/Mercury）
+          symbol: 带翼头盔、翅凉鞋、双蛇杖
+          duty: 信息传导、交易、价格发现、资金流动
+        - id: zeus
+          name: 宙斯（Zeus）
+          symbol: 闪电、王冠、云层
+          duty: 主权、央行、监管、最高决策与系统性冲击
+        - id: athena
+          name: 雅典娜（Athena）
+          symbol: 头盔、盾牌、猫头鹰
+          duty: 理性研究、策略、资产配置与风险管理
+        - id: poseidon
+          name: 波塞冬（Poseidon）
+          symbol: 三叉戟、海浪
+          duty: 流动性、波动、大宗商品与周期起伏
+        - id: hades
+          name: 哈迪斯（Hades）
+          symbol: 黑色王冠、地下门、账本
+          duty: 债务、信用风险、隐性负债与尾部风险
+        - id: hephaestus
+          name: 赫菲斯托斯（Hephaestus）
+          symbol: 铁锤、熔炉、齿轮
+          duty: 制造业、基础设施、产能与资本开支
+        - id: apollo
+          name: 阿波罗（Apollo）
+          symbol: 太阳、金色琴弦、光芒
+          duty: 技术创新、增长、生产率与乐观预期
+        - id: ares
+          name: 阿瑞斯（Ares）
+          symbol: 短矛、红缨头盔
+          duty: 商业竞争、价格战、地缘冲突与军备赛
+      casting_rules:
+        default_character: mercury
+        max_characters_per_scene: 3
+        rule: 按段落的核心机制选择对应角色；单机制用单角色，对立关系用两角色，系统关系最多三角色。
+        continuity: 同一角色的体型、神话标志物、配色和脸部比例必须跨图一致。
+      semantics: 用固定神话角色将抽象的资金、政策、风险、周期、产业与竞争机制角色化
+    illustration_style:
+      visual_language: 胖版 Q 萌希腊神话角色 + 精美陶罐画线条
+      composition: 按文章段落的财经机制选角，每图一个叙事节拍；可单角色、双角色对手戏或最多三人的系统关系图
+      color: 米白底 + 墨黑线条 + 赭红/爱琴海蓝双强调色（希腊陶器配色系）
+      text_annotation: 简洁标注（少量中文+可选希腊式花体英文小注）
+    article_tone: 克制、经典、市场视角；数据严谨（投资市场读者）
+    hashtags_default: "#投资市场 #宏观 #资产配置"
+
+  - account_id: slot-3
+    name: Newma牛马进化论
+    group: ai-tech（AI 科技组）
+    positioning: AI 科技：AI 生态/芯片半导体/技术趋势
+    character_system:
+      primary: 牛人 + 马人（仅用于开篇手绘漫画）
+      design: |
+        牛人：参考《牛来》形象体系（Desktop/临时/nulai_0819 的火箭牛/老牛票）——
+        粗制滥造美学的卡通牛头人身，歪歪扭扭线条，土黄+大红主色。
+        马人：同体系的卡通马头人身，线条同样故意笨拙，荧光绿+黑主色。
+        两者像小学生手工报里的角色：不精致是刻意的，粗糙本身就是表达。
+      semantics: |
+        每篇文章开篇固定一张牛人+马人的手绘漫画，只允许一轮简短对话，
+        用一句疑问和一句回答概括全文核心矛盾。正文禁止继续使用人物对话，
+        也不再用牛马角色承担数据、机制或章节说明。
+    illustration_style:
+      visual_language: 儿童手绘，尽可能粗糙，浓烈手绘感
+      quality_directive: |
+        故意粗制滥造：歪歪扭扭的线条、廉价感配色（荧光绿+土黄+大红），
+        像小学生手工报——图的粗糙与内容的严谨形成反差萌，图本身就是一层调侃
+      composition: 开篇单幅对话漫画；牛人提出读者最直观的疑问，马人给出全文中心判断
+      logic_directive: 对话控制在一问一答，文字手写但必须准确、短促、易读
+      color: 荧光绿 + 土黄 + 大红 + 黑（廉价感配色，禁止精美渐变）
+    writing_dna:
+      opening: 开篇漫画后直接陈述事件、关键价格或数据，不重复漫画对白
+      structure: 全文只设 3—5 个一级章节，优先使用三段论、四段论或五段论
+      body: 每章围绕一个问题推进，按事实、数据、机制、判断组织；正文禁用牛马对话
+      voice: AI 科技账号语言，简洁、平实、直接；少比喻、少套话、少口号
+      layout: 极简极客风；多用可核验超链接、加粗、红蓝重点标注、数据表和图表
+      evidence: 外部事实首次出现时给来源；厂商直连价与聚合平台价必须分开；媒体口径与审计数据必须分开
+      visual: 数据问题优先用真实图表、官方截图和技术架构图；牛马手绘只出现在开篇
+      captions: 所有图片和图表说明统一使用 12px 小字，无大色块背景
+      forbidden: ["正文牛马对话", "超过5个一级章节", "把配置文件或中间件当用户交付物", "冗长书面化概括"]
+    article_tone: 简洁、平实、切中重点；技术乐观但保持商业与生态判断
+    hashtags_default: "#AI科技 #人工智能 #芯片"
+
+  - account_id: slot-2
+    name: 墨丘利实验室
+    group: fin-business（财经商业组）
+    positioning: 财经商业与市场研究：从当天事件切入，用数据拆机制，最后落到市场判断与组合动作
+    character_system:
+      primary: 原版小黑（上游 helloianneo/ian-xiaohei-illustrations 的原始角色体系，非柠檬人）
+      design: |
+        原版小黑：黑色简笔小人——圆头黑色剪影身体、细线四肢、白底黑线的极简系统操作员。
+        与柠檬人的区别：无黄色身体、无叶子，是纯粹的黑色小人（ian-xiaohei 上游原生形态）。
+        认真、严肃、执行具体动作（操作仪器/搬运数据/核对报表/调节阀门）。
+        黑金版使用深色实验室背景、暖金线稿和米白仪表面板；小黑必须有浅色轮廓或眼睛，不能淹没在黑底中。
+      semantics: 小黑必须承担核心动作；每图只解释一个财经机制，不能只站在图旁边做装饰
+    illustration_style:
+      visual_language: 小黑黑金实验室手绘（科学仪器、阀门、天平、储备罐、研究台）
+      composition: 单概念单图、一图一动作；先定义机制，再安排小黑动作，最后补少量环境证据
+      color: 黑曜石黑 #090909 + 暖金 #D4AF37 + 淡金 #F2D98B + 米白 #F6F0E2；深红仅作警示点
+      text_annotation: AI 原图尽量无文字；标题、图注与“墨丘利实验室”水印由确定性排版层添加
+      forbidden: PPT 卡片、正式流程图、商业矢量插画、3D 玩偶、黄色柠檬人、无动作站桩角色
+    chart_system:
+      engine: Meta Pilot Lab
+      renderer: newma.meta-pilot-lab.local-v1
+      visual: 黑金财经编辑图表；深色底、金色主数据、米白正文、红色风险提示
+      rules: 数据源与统计口径必须显示在图下方；不同单位不得伪装在同一数轴；每张图只回答一个问题
+      watermark: 墨丘利实验室
+      caption: 所有图注使用 12px 小字，不加大色块背景
+    writing_dna:
+      source_corpus: 2026-08-24 用户提供的 11 篇“表舅是养基大户”公众号样本
+      headline: 短标题，优先使用事件、情绪或疑问；避免论文式长标题
+      opening: 从当天新闻、行情异动或生活化体感直接进入，前 3 段必须出现事件和作者判断
+      transition: 常用“说回市场”“先说几个结论”“再看一组数据”，不用制作说明腔
+      body: 用 1、2、3 连续推进；每节依次回答发生了什么、关键数字、为什么、对市场有什么影响
+      paragraphs: 短段落，通常 1—3 句；约每 400—700 字插入一张真实新闻图、官方图表或品牌数据图
+      voice: 第一人称、直接与读者说话、允许少量吐槽和提问；结论先行，机制随后
+      ending: 必须给市场方向、触发条件、失效条件和组合动作，不能停在宏观叙事
+      forbidden_phrases: ["不是……而是……", "先把……说清楚", "值得注意的是", "总而言之", "这意味着", "本质上"]
+      evidence: 外部事实首次出现时标注来源；引用用斜体；核心结论红色加粗，重要数据蓝色加粗
+    article_tone: 像熟悉市场的研究员和读者聊天；数据严谨、判断直接、少量吐槽，不写学术论文腔
+    hashtags_default: "#黄金 #宏观 #资产配置 #墨丘利实验室"
+
+routing:
+  article_build: 按 channel_pack 的 account_slot（或 --account 参数）读取对应账号 DNA，插图意图与风格全部从档案拉取
+  illustration: 说明图按账号 character_system + illustration_style 生成；角色必须承担核心动作
+  chart: 数据图按账号 chart_system 路由；底层数据保持可核验，视觉与水印随账号变化
+  publish: account_registry.json 的 slot 路由与本档案 account_id 一致

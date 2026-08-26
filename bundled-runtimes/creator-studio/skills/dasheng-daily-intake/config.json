@@ -1,0 +1,117 @@
+{
+  "name": "dasheng-daily-intake",
+  "version": "4.3.0",
+  "description": "Stage 1 Intake - Newma 自媒体工作流的 Intake 环节：执行 canonical Stage 1 采集",
+  "stage": "intake",
+  "stage_number": 1,
+  "runner": "python",
+  "upstream_gate": null,
+  "output_gate": "intake_manifest.json",
+  "hitl": false,
+  "trigger": {
+    "cron": "0 10 * * *",
+    "keyword": "daily intake"
+  },
+  "aliases": [
+    "intake",
+    "caiji",
+    "dasheng-caiji",
+    "Newma 采集",
+    "第一环节"
+  ],
+  "dependencies": {
+    "python": ">=3.10",
+    "packages": ["requests", "beautifulsoup4"]
+  },
+  "inputs": {
+    "required": [],
+    "optional": [
+      "DASHENG_LOCAL_CHAT_INTAKE_BASE",
+      "DASHENG_LOCAL_CHAT_LIMIT",
+      "DASHENG_LOCAL_MP_LIMIT",
+      "DASHENG_LOCAL_MEDIA_LIMIT"
+    ]
+  },
+  "outputs": {
+    "documents": [
+      "notes/01_内容采集_报告.md",
+      "notes/01_内容采集_底稿.md"
+    ],
+    "manifests": [
+      "intake_manifest.json",
+      "raw/intake_records.json",
+      "raw/local_messages.json",
+      "raw/local_mp_articles.json",
+      "raw/local_media_items.json",
+      "raw/merged_news_items.json",
+      "entity_rankings.json",
+      "event_clusters.json",
+      "source_quality_report.json",
+      "channel_top10.json",
+      "channel_tasks.json",
+      "brief_input.json"
+    ],
+    "gates": [
+      "intake_manifest.json"
+    ]
+  },
+  "quality_requirements": {
+    "real_titles_only": true,
+    "real_links_only": true,
+    "wechat_min_valid_items": 8
+  },
+  "metadata": {
+    "runner": {
+      "script": "${OPENCLAW_WORKSPACE}/scripts/run_stage1_intake.py",
+      "stage_root": "${DASHENG_OUTPUT_ROOT:-~/Desktop/自媒体创作}/01_内容采集",
+      "manifest": "intake_manifest.json"
+    },
+    "data_sources": [
+      "0913-wechat-messages-api",
+      "0913-mp-articles-api",
+      "0913-media-items-api",
+      "0913-newsfeed-api",
+      "merged-news-pool",
+      "reddit-rss",
+      "hacker-news",
+      "ai-hot-aggregate",
+      "public-news-radar"
+    ],
+    "output": {
+      "stage_dir": "${DASHENG_OUTPUT_ROOT:-~/Desktop/自媒体创作}/{run_id}/01_采集",
+      "report": "notes/01_内容采集_报告.md",
+      "draft": "notes/01_内容采集_底稿.md",
+      "records": "raw/intake_records.json",
+      "handoff": [
+        "ai_hot_topics.json",
+        "channel_top10.json",
+        "event_clusters.json",
+        "brief_input.json",
+        "intake_manifest.json"
+      ]
+    },
+    "requirements": {
+      "real_titles_only": true,
+      "real_links_only": true,
+      "x_wb_quota": 100,
+      "other_platform_quota": 50,
+      "wechat_slow_source": true,
+      "ai_hot_topics_limit": 10,
+      "ai_hot_priority_bias": "high",
+      "required_local_attempts": [
+        "/api/messages",
+        "/api/mp/articles",
+        "/api/media/items"
+      ],
+      "local_failures_must_be_reported": true,
+      "loopback_proxy_bypass": true,
+      "merge_news_sources": true,
+      "news_dedupe_keys": [
+        "source_id+item_id",
+        "canonical_url",
+        "normalized_title",
+        "near_title"
+      ]
+    }
+  }
+}

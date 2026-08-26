@@ -1,0 +1,192 @@
+schema_version: dasheng.video.pipeline.v1
+id: digital_human
+lane: digital_human_video
+director_id: digital_human_director
+standard_flow_ref: configs/video/director_registry.json#standard_flow
+title: AI 数字人口播与访谈流水线
+orchestrator_skill: dasheng-digital-human-talking-head
+default_output_stage: video
+default_format:
+  aspect_ratio: "9:16"
+  width: 1080
+  height: 1920
+  fps: 30
+  alternate_profiles: ["16:9", "1:1", "4:5"]
+supported_modes: [single_presenter, dual_interview]
+external_output_policy:
+  required_root: "~/Desktop/自媒体创作"
+  forbid_paths: ["skills/", ".codex/skills/", "node_modules/"]
+human_approval_default: true
+style_reference:
+  primary: 授权肖像驱动的稳定数字人口播或双人访谈
+  principle: 每个人物源独立生成，嘴部和眼部动作以各自音频驱动，再由 Remotion 按说话轮次合成。
+stages:
+  - name: intake
+    canonical_stage: intake
+    description: 接收授权肖像、角色设定、主音频或双人分轨音频、字幕、文章证据和 AI 披露要求。
+    skill: dasheng-digital-human-talking-head
+    required_artifacts_in: [brief]
+    produces: [review]
+    tools_available: [digital_human_preflight, image2]
+    checkpoint_required: true
+    review_focus:
+      - 单人必须有一套授权肖像和声音；双人必须分别确认两套授权。
+      - 双人模式锁定 speaker_id、姓名标签、声音和轮次。
+    success_criteria:
+      - portrait and voice consent confirmed
+      - single_presenter or dual_interview mode is explicit
+      - source images and audio are technically usable
+  - name: script_rewrite
+    canonical_stage: script_rewrite
+    description: 将文章重写成自然口播；双人模式拆成明确轮次、追问、回应、打断边界和每位说话人的字幕标签。
+    skill: dasheng-digital-human-talking-head
+    required_artifacts_in: [brief, review]
+    produces: [script]
+    tools_available: [digital_human_dialogue_router, mmx_cli]
+    checkpoint_required: true
+    review_focus:
+      - 对话像真实访谈，不把同一篇文章机械拆成两个人轮流朗读。
+      - 每个 turn 只能有一个 active_speaker，并保留证据编号。
+    success_criteria:
+      - schema-valid script artifact
+      - speaker turns and labels are complete
+      - hook, creator identity and retention beats are present
+  - name: presenter_generation
+    canonical_stage: asset_build
+    description: 用 imagegen 建立角色参考图，通过 omni（Gemini 图生视频）生成口型、眨眼、呼吸和轻微头部动作；双人分别生成并分别质检。【2026-08-22 用户裁决：Luma 路线上一版已废弃，禁止再用 luma_dream_machine】
+    skill: dasheng-digital-human-talking-head
+    required_artifacts_in: [script]
+    produces: [presenter_source_manifest, digital_human_job, review]
+    tools_available:
+      - image2
+      - build_digital_human_job
+      - omni_video_bridge
+      - render_joyvasa_digital_human
+      - digital_human_dialogue_router
+      - digital_human_qc
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 每个人先做 6-10 秒短样，再进入长段生成。
+      - 检查身份、头颈、嘴部、牙齿、舌头、眼睛、眨眼、背景和手部稳定性。
+      - 生成视频必须静音；MiniMax 音频是最终母带。
+    success_criteria:
+      - schema-valid presenter_source_manifest artifact
+      - schema-valid digital_human_job artifact
+      - every presenter short sample and source QC pass
+  - name: scene_plan
+    canonical_stage: scene_plan
+    description: 制定单人、交替近景、双人全景、分屏、证据全屏、人物标签、字幕和花字分镜。
+    skill: dasheng-video-director
+    required_artifacts_in: [script, presenter_source_manifest]
+    produces: [scene_plan, tool_routing_plan, review]
+    tools_available:
+      - video_director_tool_router
+      - video_director_timeline
+      - build_video_director_storyboard
+      - digital_human_dialogue_router
+      - build_storyboard_template_review_table
+    checkpoint_required: true
+    review_focus:
+      - 双人模式按 active_speaker 切换全景、近景和分屏，不允许两张嘴同时无意义动作。
+      - 人物姓名标签跟随人物，字幕明确区分说话人。
+      - 数字人只承担主持和表达，数据与事实仍用真实证据画面。
+    success_criteria:
+      - schema-valid scene_plan artifact
+      - storyboard review approved
+      - every dialogue turn maps to one active presenter source
+  - name: claim_evidence
+    canonical_stage: scene_plan
+    description: 对口播中的事实、数据、因果和推演建立命题证据台账。
+    skill: dasheng-video-director
+    required_artifacts_in: [scene_plan]
+    produces: [claim_evidence_ledger, spoken_revision_sheet, review]
+    tools_available: [video_claim_evidence_ledger, video_finance_evidence, video_official_evidence, video_model_evidence]
+    checkpoint_required: true
+    review_focus:
+      - 数字人画面不是事实证据。
+      - 证据冲突时修订台词和音频，不得靠画面掩盖。
+    success_criteria:
+      - schema-valid claim_evidence_ledger artifact
+      - claim_evidence_gate status is pass
+      - spoken_revision_sheet pending_count is 0
+  - name: asset_build
+    canonical_stage: asset_build
+    description: 下载真实资料，生成图表、HTML/GSAP/Lottie 动画、B-roll、贴纸、人物名牌和机构说明标签。
+    skill: dasheng-html-video-bridge
+    required_artifacts_in: [scene_plan, claim_evidence_ledger]
+    produces: [asset_manifest, renderer_asset_gate]
+    tools_available:
+      - media_downloader
+      - render_html_anything_scene_pack_animated
+      - build_remotion_renderer_pack
+      - text_to_lottie_local
+      - dasheng-video-broll-generator
+    checkpoint_required: true
+    review_focus:
+      - 事实素材保留来源，生成画面只做机制解释或转场。
+      - 贴纸、字幕和双人名牌不得互相遮挡。
+    success_criteria:
+      - schema-valid asset_manifest artifact
+      - renderer_asset_gate status is pass
+  - name: edit_composite
+    canonical_stage: edit_composite
+    description: 将一个或两个人物源、独立音轨、字幕、人物标签、证据、B-roll 和动画合成到 Remotion 主时间轴。
+    skill: dasheng-video-talking-head
+    required_artifacts_in: [scene_plan, asset_manifest, presenter_source_manifest]
+    produces: [edit_decisions]
+    tools_available:
+      - digital_human_dialogue_router
+      - convert_director_storyboard_to_video_timeline
+      - build_remotion_renderer_pack
+      - align_video_subtitles_to_asr
+      - video_driver_rules
+    checkpoint_required: true
+    review_focus:
+      - 单人音频挂载一次；双人按 turn 依次挂载各自母带，禁止源视频重复出声。
+      - 非 active_speaker 只允许自然待机、轻微眨眼和呼吸。
+    success_criteria:
+      - schema-valid edit_decisions artifact
+      - dialogue audio and active-speaker video are frame-aligned
+      - presenter source videos are silent visual layers
+  - name: render
+    canonical_stage: render
+    description: 渲染数字人评审版和正式版，并输出逐人、逐轮次和全片接触表。
+    skill: dasheng-video-talking-head
+    required_artifacts_in: [edit_decisions, asset_manifest, renderer_asset_gate]
+    produces: [review]
+    tools_available: [build_remotion_renderer_pack, video_renderer_contract_gate]
+    checkpoint_required: true
+    review_focus:
+      - 检查人物切换、口型边界、双人分屏和音轨交接。
+      - AI 披露标识按平台要求可见但不干扰内容。
+    success_criteria:
+      - renderer contract gate status is pass
+      - review render and contact sheet are available
+  - name: qc_delivery
+    canonical_stage: qc_delivery
+    description: 执行身份、口型、眼睛、背景、字幕、响度、闪屏、披露和最终文件绑定检查。
+    skill: dasheng-digital-human-talking-head
+    required_artifacts_in: [edit_decisions, asset_manifest, renderer_asset_gate, review]
+    produces: [render_report, review]
+    tools_available: [digital_human_qc, build_video_review_suite_strict, video_render_qc, dasheng_ffmpeg_toolkit, video_final_delivery]
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 双人逐人检查身份和口型，逐轮次检查 active_speaker 与声音一致。
+      - 最终交付必须包含 AI 生成披露。
+    success_criteria:
+      - schema-valid render_report artifact
+      - all presenter QC reports pass
+      - video_qc_report status is pass
+      - final delivery manifest points to the exact QC-passed video hash
+fail_conditions:
+  - portrait or voice consent is missing
+  - public figure likeness is used to fabricate speech
+  - full generation starts before every presenter short sample is approved
+  - dual interview is generated as one uncontrolled two-person lip-sync shot
+  - identity, mouth, eyes, neck, hands or background visibly drift
+  - generated presenter video contains audible narration
+  - active speaker, subtitle label and audible voice disagree
+  - AI disclosure is missing
+  - final media is written under the skills directory

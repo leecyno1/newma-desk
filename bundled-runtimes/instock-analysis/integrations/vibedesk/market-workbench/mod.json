@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-market-workbench",
+  "name": "市场概览",
+  "description": "市场宽度、行业强弱和五类 A 股实时榜单统一终端。",
+  "version": "0.17.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["市场总览", "每日行情", "行业强弱", "涨跌榜", "成交榜"],
+  "agentWorkspace": {"type": "runtime", "runtimeId": "instock", "workspaceName": "source"},
+  "runtime": {"type": "external", "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:9988", "route": "/mods/market-workbench"},
+  "manifest": {
+    "schemaVersion": "1.1", "category": "quant",
+    "navigation": {"groupLabel": "量化研究", "groupOrder": 120, "itemOrder": 1, "label": "市场概览", "directory": {"id": "instock-suite", "label": "InStock 分析", "order": 20}, "project": {"id": "quant-research", "name": "量化研究", "order": 120, "description": "市场、选股、技术、结构、轮动与验证。"}, "icon": "quant"},
+    "compatibility": {"level": 2, "bridgeProtocol": "1.0"}, "permissions": ["analysis.read"], "dataServices": [],
+    "actions": {"analysis.market-workbench": {"binding": {"type": "data", "capability": "analysis.market-workbench"}, "execution": "request", "permission": "analysis.read", "inputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"scanLimit": {"enum": [50, 100, 200]}, "refresh": {"enum": ["0", "1"]}}, "additionalProperties": false}, "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}}, "confirmation": "none", "timeoutSeconds": 60}},
+    "events": {"emits": ["security.selected"], "accepts": []}, "refresh": {"mode": "manual"}
+  }
+}

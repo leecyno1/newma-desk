@@ -1,0 +1,33 @@
+{
+  "name": "@newma-desk/crucix",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Local intelligence engine - 27 OSINT sources, live dashboard, public demo at crucix.live, auto-refresh, optional LLM layer.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --trace-warnings server.mjs",
+    "sweep": "node apis/briefing.mjs",
+    "inject": "node dashboard/inject.mjs",
+    "brief": "node apis/briefing.mjs",
+    "brief:save": "node apis/save-briefing.mjs",
+    "diag": "node diag.mjs",
+    "clean": "node scripts/clean.mjs",
+    "fresh-start": "npm run clean && npm start"
+  },
+  "keywords": [
+    "osint",
+    "intelligence",
+    "dashboard",
+    "geopolitical"
+  ],
+  "author": "Crucix",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

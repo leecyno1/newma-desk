@@ -1,0 +1,27 @@
+{
+  "version": "1.0",
+  "title": "基金选择助手",
+  "blocks": [
+    {
+      "id": "fund-selection-capabilities",
+      "type": "table",
+      "title": "可用能力",
+      "rowsPath": "capabilities",
+      "columns": [
+        { "key": "name", "label": "功能", "format": "text" },
+        { "key": "purpose", "label": "用途", "format": "text" },
+        { "key": "evidence", "label": "主要证据", "format": "text" }
+      ],
+      "emptyText": "当前没有可用能力"
+    },
+    {
+      "id": "fund-selection-actions",
+      "type": "actions",
+      "items": [
+        { "id": "fund-search", "label": "搜索基金", "capability": "fund.search" },
+        { "id": "fund-snapshot", "label": "读取研究快照", "capability": "fund.research.snapshot" },
+        { "id": "fund-analysis", "label": "现场分析", "capability": "fund.analysis.run" }
+      ]
+    }
+  ]
+}

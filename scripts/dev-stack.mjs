@@ -76,7 +76,7 @@ const sevenCycleHealthTimeoutMs = Number(
 );
 const repairSevenCycleCatalogOnStart = configuredBoolean(
   "SEVEN_CYCLE_REPAIR_CATALOG_ON_START",
-  true,
+  false,
 );
 const pidFile = configuredEnv("STACK_PID_FILE")
   || path.join(repoRoot, "runtime", "newma-desk-stack.pid");
@@ -186,8 +186,6 @@ function coreServices(externalRuntimeEnv = {}) {
         // Local compatibility only. Production installs one pinned dependency
         // set into the API image and never mixes nested virtual environments.
         NEWMA_DESK_DOMAIN_SUITE_WORKSPACE_VENVS: "true",
-        NEWMA_DESK_INVESTMENT_WORKSPACE: path.join(repoRoot, "mod-projects", "vibe-research"),
-        NEWMA_DESK_TRADING_WORKSPACE: path.join(repoRoot, "mod-projects", "vibe-trading"),
         NEWMA_DESK_INVESTMENT_WEB_URL: "http://127.0.0.1:8911",
         NEWMA_DESK_TRADING_WEB_URL: "http://127.0.0.1:8911",
         NEWMA_DESK_RESEARCH_BASE_URL: "http://127.0.0.1:8911/api/research",
@@ -216,7 +214,7 @@ function coreServices(externalRuntimeEnv = {}) {
 }
 
 function policyCollectorServices() {
-  const workspace = path.join(repoRoot, "mod-projects", "rsshub-policy");
+  const workspace = path.join(repoRoot, "bundled-runtimes", "rsshub-policy");
   const executable = path.join(workspace, "node_modules", ".bin", "tsx");
   const routesIndex = path.join(workspace, "assets", "build", "routes.js");
   if (!existsSync(executable) || !existsSync(routesIndex)) return [];
@@ -373,6 +371,38 @@ function worldIntelServices(runtime) {
     url: endpoint.healthUrl,
     probe: createHttpProbe(endpoint.healthUrl, {
       expectedService: "world-intel-mcp",
+    }),
+  }];
+}
+
+function crucixServices(runtime) {
+  if (!runtime) return [];
+  const workspace = runtime.workspaces.source.path;
+  const endpoint = runtime.endpoints.api;
+  const managedLocally = Boolean(workspace && endpoint.local);
+  return [{
+    id: "crucix",
+    label: "Crucix 全球情报引擎",
+    cwd: workspace,
+    ...(managedLocally
+      ? {
+          command: "node",
+          commandArgs: ["server.mjs"],
+        }
+      : {}),
+    env: {
+      HOST: "127.0.0.1",
+      PORT: String(endpoint.port),
+      PUBLIC_URL: endpoint.origin,
+      AUTO_OPEN_DASHBOARD: "false",
+    },
+    criticality: managedLocally
+      ? SERVICE_CRITICALITY.OPTIONAL
+      : SERVICE_CRITICALITY.EXTERNAL,
+    url: endpoint.healthUrl,
+    probe: createHttpProbe(endpoint.healthUrl, {
+      expectHtml: false,
+      timeoutMs: 5_000,
     }),
   }];
 }
@@ -571,8 +601,8 @@ function orchestraServices(runtime) {
         PYTHONUNBUFFERED: "1",
         ORCHESTRA_API_HOST: "127.0.0.1",
         ORCHESTRA_API_PORT: String(apiEndpoint.port),
-        ...(frontendWorkspace
-          ? { ORCHESTRA_PROJECT_ROOT: path.dirname(frontendWorkspace) }
+        ...(backendWorkspace
+          ? { ORCHESTRA_PROJECT_ROOT: backendWorkspace }
           : {}),
       },
       criticality: apiEndpoint.local
@@ -610,6 +640,38 @@ function orchestraServices(runtime) {
   ];
 }
 
+function deepseeServices(runtime) {
+  if (!runtime) return [];
+  const workspace = runtime.workspaces.source.path;
+  const endpoint = runtime.endpoints.web;
+  return [{
+    id: "deepsee",
+    label: "Deepsee",
+    cwd: workspace,
+    ...(workspace && endpoint.local
+      ? {
+          command: pythonAt(workspace),
+          commandArgs: [
+            "-m", "uvicorn", "app.main:app",
+            "--host", "127.0.0.1", "--port", String(endpoint.port),
+          ],
+        }
+      : {}),
+    env: {
+      PYTHONUNBUFFERED: "1",
+      HOST: "127.0.0.1",
+      PORT: String(endpoint.port),
+    },
+    criticality: endpoint.local
+      ? SERVICE_CRITICALITY.OPTIONAL
+      : SERVICE_CRITICALITY.EXTERNAL,
+    url: endpoint.healthUrl,
+    probe: createHttpProbe(endpoint.healthUrl, {
+      expectedService: "deepsee",
+    }),
+  }];
+}
+
 async function statusLine(service) {
   const result = await probeService(service);
   const prefix = {
@@ -636,11 +698,11 @@ async function shutdown(exitCode = 0) {
 
 const researchWorkspace = workspaceFrom(
   "NEWMA_DESK_INVESTMENT_WORKSPACE",
-  ["mod-projects/vibe-research"],
+  ["bundled-runtimes/vibe-research", "mod-projects/vibe-research"],
 );
 const tradingWorkspace = workspaceFrom(
   "NEWMA_DESK_TRADING_WORKSPACE",
-  ["mod-projects/vibe-trading"],
+  ["bundled-runtimes/vibe-trading", "mod-projects/vibe-trading"],
 );
 const externalRuntimes = await loadExternalModRuntimes({ repoRoot });
 const externalRuntimeEnv = runtimeEnvironment(externalRuntimes);
@@ -655,30 +717,13 @@ const fundAnalysisRuntime = externalRuntimes.byId["fund-analysis"];
 const orchestraRuntime = externalRuntimes.byId.orchestra;
 const deepseeRuntime = externalRuntimes.byId.deepsee;
 const worldIntel = worldIntelServices(worldIntelRuntime);
-const crucix = {
-  id: "crucix",
-  label: "Crucix（外部只读情报源）",
-  criticality: SERVICE_CRITICALITY.EXTERNAL,
-  url: crucixRuntime.endpoints.api.healthUrl,
-  probe: createHttpProbe(crucixRuntime.endpoints.api.healthUrl, {
-    expectHtml: false,
-    timeoutMs: 5_000,
-  }),
-};
+const crucix = crucixServices(crucixRuntime);
 const openChatCut = openChatCutServices(openChatCutRuntime);
 const sevenCycle = sevenCycleServices(sevenCycleRuntime);
 const instock = instockServices(instockRuntime);
 const fundAnalysis = fundAnalysisServices(fundAnalysisRuntime);
 const orchestra = orchestraServices(orchestraRuntime);
-const deepsee = {
-  id: "deepsee",
-  label: "Deepsee（独立服务）",
-  criticality: SERVICE_CRITICALITY.EXTERNAL,
-  url: deepseeRuntime.endpoints.web.healthUrl,
-  probe: createHttpProbe(deepseeRuntime.endpoints.web.healthUrl, {
-    expectedService: "deepsee",
-  }),
-};
+const deepsee = deepseeServices(deepseeRuntime);
 const supervisor = new RuntimeSupervisor({
   coreTimeoutMs: startupTimeoutMs,
   optionalTimeoutMs: optionalStartupTimeoutMs,
@@ -707,7 +752,7 @@ for (const runtime of externalRuntimes.runtimes) {
 
 if (checkOnly) {
   const results = [];
-  for (const service of [...worldIntel, ...policyCollector, ...core, ...openChatCut, ...instock, ...fundAnalysis, ...orchestra, ...sevenCycle, crucix, deepsee]) {
+  for (const service of [...worldIntel, ...crucix, ...policyCollector, ...core, ...openChatCut, ...instock, ...fundAnalysis, ...orchestra, ...sevenCycle, ...deepsee]) {
     results.push(await statusLine(service));
   }
   const coreReady = results
@@ -771,6 +816,9 @@ if (checkOnly) {
     for (const service of worldIntel) {
       await supervisor.start(service);
     }
+    for (const service of crucix) {
+      await supervisor.start(service);
+    }
     for (const service of policyCollector) {
       await supervisor.start(service);
     }
@@ -792,22 +840,19 @@ if (checkOnly) {
       await supervisor.start(service);
     }
     console.log("\nNewma-Desk 核心已就绪：http://127.0.0.1:5888/?mod=global-situation");
-    console.log("Research / Trading 与 World Intelligence 已作为 Newma-Desk 核心运行时加载。");
+    console.log("Research / Trading、World Intelligence 与 Crucix 已由 Newma-Desk 统一加载。");
     const optionalServices = [
       ...openChatCut,
       ...instock,
       ...fundAnalysis,
       ...orchestra,
       ...sevenCycle,
+      ...deepsee,
     ];
     const optionalResults = await supervisor.startOptional(
       optionalServices,
     );
-    const externalResults = await Promise.all([
-      supervisor.start(crucix),
-      supervisor.start(deepsee),
-    ]);
-    const degradedCount = [...optionalResults, ...externalResults]
+    const degradedCount = optionalResults
       .filter(({ state }) => state !== SERVICE_STATE.READY)
       .length;
     if (degradedCount > 0) {
@@ -815,7 +860,7 @@ if (checkOnly) {
     } else {
       console.log("可选 Mod 状态：全部就绪。");
     }
-    console.log("按 Ctrl+C 可停止本次启动的服务；Deepsee 等独立服务不会被关闭。");
+    console.log("按 Ctrl+C 可停止本次启动的服务。");
     await new Promise(() => {
       // Node 25 exits with code 13 for an unsettled top-level await when no
       // child process or other active handle exists. This interval keeps the

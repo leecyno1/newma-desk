@@ -1,0 +1,66 @@
+{
+  "name": "dasheng-stage-rewrite-v3",
+  "version": "3.0.0",
+  "description": "Stage 5 Rewrite v3 - 渠道改写（集成增强质量评分和锚点映射）",
+  "stage": "rewrite",
+  "stage_number": 5,
+  "runner": "node",
+  "entry": "index.js",
+  "upstream_gate": "final_structure_snapshot.json",
+  "output_gate": "rewrite_manifest.json",
+  "hitl": true,
+  "trigger": "manual",
+  "dependencies": {
+    "python": ">=3.10",
+    "node": ">=18.0.0",
+    "anthropic": ">=0.18.0"
+  },
+  "inputs": {
+    "required": [
+      "draft_manifest.json",
+      "final_structure_snapshot.json"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "documents": [
+      "<topic>__rewrite_bundle.md",
+      "<topic>__wechat_luxun_hot.md",
+      "<topic>__wechat_lemon_normal.md",
+      "<topic>__xhs_video_luxun_hot.md",
+      "<topic>__xhs_video_lemon_normal.md"
+    ],
+    "manifests": [
+      "rewrite_manifest.json",
+      "meta.json"
+    ]
+  },
+  "quality_requirements": {
+    "min_quality_score": 8.0,
+    "word_count_deviation": "±15%",
+    "anchor_preservation_rate": "≥80%",
+    "structure_inheritance": "Must inherit from final_structure_snapshot.json"
+  },
+  "versions": {
+    "wechat_hot": {
+      "platform": "wechat",
+      "tone": "hot",
+      "word_count": 1300
+    },
+    "wechat_normal": {
+      "platform": "wechat",
+      "tone": "normal",
+      "word_count": 1000
+    },
+    "xiaohongshu_hot": {
+      "platform": "xiaohongshu",
+      "tone": "hot",
+      "word_count": 900
+    },
+    "xiaohongshu_normal": {
+      "platform": "xiaohongshu",
+      "tone": "normal",
+      "word_count": 650
+    }
+  }
+}

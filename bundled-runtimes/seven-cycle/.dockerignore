@@ -1,0 +1,14 @@
+.git
+.venv
+.venv2
+.worktrees
+.acceptance-*
+.pytest_cache
+.ruff_cache
+__pycache__
+output
+data
+*.pptx
+*.pdf
+*.rar
+.DS_Store

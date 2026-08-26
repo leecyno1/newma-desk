@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.tool_routing_plan.v1",
+  "title": "Newma Video Tool Routing Plan",
+  "type": "object",
+  "required": ["schema_version", "lane", "registry_summary", "stage_routes", "scene_routes"],
+  "properties": {
+    "schema_version": {"const": "dasheng.video.tool_routing_plan.v1"},
+    "created_at": {"type": "string"},
+    "lane": {"enum": ["talking_head_video", "explainer_html_video", "vox_explainer_video", "digital_human_video", "commercial_promo_video", "cinematic_short_drama_video", "style_training"]},
+    "director_profile": {
+      "type": "object",
+      "required": ["id", "lane", "pipeline_id", "status", "execution_enabled", "stage_capabilities"],
+      "properties": {
+        "id": {"type": "string"},
+        "lane": {"type": "string"},
+        "pipeline_id": {"type": "string"},
+        "status": {"type": "string"},
+        "execution_enabled": {"type": "boolean"},
+        "stage_capabilities": {"type": "object"},
+        "core_tools": {"type": "array", "items": {"type": "string"}},
+        "reserve_tools": {"type": "array", "items": {"type": "string"}},
+        "hard_gates": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "registry_summary": {
+      "type": "object",
+      "required": ["tools", "skills", "projects", "rejected_projects"],
+      "properties": {
+        "tools": {"type": "integer", "minimum": 1},
+        "skills": {"type": "integer", "minimum": 1},
+        "projects": {"type": "integer", "minimum": 1},
+        "rejected_projects": {"type": "integer", "minimum": 0},
+        "upstream_records": {"type": "integer", "minimum": 0},
+        "directors": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": true
+    },
+    "stage_routes": {"type": "object"},
+    "scene_routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scene_id", "required_capabilities", "capability_routes", "primary_stack", "fallback_stack"],
+        "properties": {
+          "scene_id": {"type": ["string", "null"]},
+          "required_capabilities": {"type": "array", "items": {"type": "string"}},
+          "capability_routes": {"type": "array"},
+          "primary_stack": {"type": "array"},
+          "fallback_stack": {"type": "array"},
+          "unresolved_capabilities": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

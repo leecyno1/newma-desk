@@ -1,0 +1,42 @@
+{
+  "name": "bilibili-upload-bridge",
+  "version": "0.1.0",
+  "type": "publish_bridge",
+  "description": "Bridge Newma Bilibili channel packs to external Bilibili upload tools.",
+  "external_dependencies": [
+    {
+      "name": "biliup-rs",
+      "repo": "https://github.com/biliup/biliup-rs.git",
+      "default_root": "${BILIUP_RS_ROOT:-vendor/reserved/publish/biliup-rs}",
+      "version_locked": false,
+      "role": "primary"
+    },
+    {
+      "name": "social-auto-upload",
+      "repo": "https://github.com/dreammis/social-auto-upload.git",
+      "default_root": "${SOCIAL_AUTO_UPLOAD_ROOT:-vendor/publish/social-auto-upload}",
+      "version_locked": false,
+      "role": "fallback"
+    }
+  ],
+  "upstream_registry": "configs/publish/upstream_repos.json",
+  "inputs": {
+    "required": [
+      "channel_pack.json",
+      "final MP4"
+    ],
+    "optional": [
+      "cover image",
+      "SRT subtitle",
+      "tags",
+      "scheduled_at"
+    ]
+  },
+  "outputs": [
+    "bilibili submission package",
+    "execution_request.json",
+    "platform response",
+    "verification_request.json",
+    "manual package fallback"
+  ]
+}

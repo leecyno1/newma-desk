@@ -1,0 +1,37 @@
+# ── 私有内部文档（框架公开·交付私有：绝不进公开仓库） ──────────────
+# 这三份是内部开发/商业规划文档，含变现策略、alpha「留手」打法、私有母体路径。
+# 只有 README.md 是对外说明文档。发布前务必 `git status` 确认看不到它们。
+VibeResearch-开发日志.md
+VibeResearch-方案定稿.md
+VibeResearch-专业化建议.md
+
+# ── 私有数据（持仓 / 关注股 / 缓存：只存本地、不上传） ──────────────
+**/.cache/
+my-watchlist.json
+portfolio.json
+public/user-data/
+
+# ── 密钥 / 环境（绝不进仓库） ──────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.secret
+
+# ── 依赖 / 构建产物 ───────────────────────────────────────────────
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/.pytest_cache/
+*.pyc
+dist/
+build/
+frontend/tsconfig.tsbuildinfo
+
+# ── 编辑器 / 系统 / 工具 ──────────────────────────────────────────
+**/.claude/
+.DS_Store
+*.log
+.vscode/
+.idea/

@@ -1,0 +1,116 @@
+{% extends "layout/mod.html" %}
+
+{% block main_content %}
+<link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
+<style>
+    :root { --validation-accent: var(--instock-accent); --validation-soft: color-mix(in srgb, var(--validation-accent) 12%, transparent); }
+    .validation-shell { min-height: 100%; padding: 20px; color: var(--instock-text); background: var(--instock-bg); }
+    .validation-panel { border: 1px solid var(--instock-border); border-radius: 13px; background: var(--instock-surface); box-shadow: var(--instock-shadow); }
+    .validation-hero { padding: 22px 24px; border-top: 4px solid var(--validation-accent); }
+    .validation-kicker { color: var(--validation-accent); font-family: var(--instock-font-mono); font-size: 10px; font-weight: 800; letter-spacing: .17em; text-transform: uppercase; }
+    .validation-title { margin: 7px 0 0; font-size: 27px; letter-spacing: -.035em; }
+    .validation-copy { max-width: 860px; margin: 7px 0 0; color: var(--instock-text-muted); font-size: 12px; line-height: 1.7; }
+    .validation-grid { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 13px; margin-top: 13px; }
+    .validation-form { padding: 16px; }
+    .validation-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .validation-field label { display: block; margin-bottom: 5px; color: var(--instock-text-muted); font-size: 10px; font-weight: 800; }
+    .validation-field input, .validation-field select, .validation-field textarea { width: 100%; border: 1px solid var(--instock-border-strong); border-radius: 7px; color: var(--instock-text); background: var(--instock-surface-raised); }
+    .validation-field input, .validation-field select { height: 35px; padding: 0 9px; }
+    .validation-wide { grid-column: 1 / -1; }
+    .validation-signal-editor { grid-column: 1 / -1; padding: 11px; border: 1px solid var(--instock-border); border-radius: 8px; background: var(--instock-surface-muted); }
+    .validation-signal-editor h2 { margin: 0 0 9px; font-size: 11px; }
+    .validation-signal-fields { display: grid; grid-template-columns: 140px minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+    .validation-add, .validation-remove { height: 35px; padding: 0 11px; border: 1px solid var(--validation-accent); border-radius: 7px; color: var(--validation-accent); background: var(--validation-soft); font-size: 9px; font-weight: 900; }
+    .validation-remove { height: 29px; border-color: var(--instock-border-strong); color: var(--instock-text-muted); background: var(--instock-surface-raised); }
+    .validation-signal-list { display: grid; gap: 7px; margin-top: 10px; }
+    .validation-signal-row { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--instock-border); border-radius: 7px; background: var(--instock-surface-raised); font-size: 9px; }
+    .validation-signal-row b { font-family: var(--instock-font-mono); }
+    .validation-run { width: 100%; height: 38px; margin-top: 12px; border: 0; border-radius: 7px; color: white; background: var(--validation-accent); font-size: 11px; font-weight: 900; }
+    .validation-run:disabled { opacity: .55; }
+    .validation-note, .validation-meta { margin: 9px 0 0; color: var(--instock-text-muted); font-size: 9px; line-height: 1.65; }
+    .validation-alert { display: none; margin-top: 12px; padding: 11px; border: 1px solid var(--instock-error-border); border-radius: 8px; color: var(--instock-error-text); background: var(--instock-error-bg); font-size: 10px; }
+    .validation-results { padding: 16px; }
+    .validation-status { padding: 13px; border-left: 3px solid var(--validation-accent); background: var(--validation-soft); font-size: 12px; line-height: 1.6; }
+    .validation-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-top: 12px; }
+    .validation-stat { padding: 12px; border: 1px solid var(--instock-border); border-radius: 8px; background: var(--instock-surface-raised); }
+    .validation-stat span { color: var(--instock-text-muted); font-size: 9px; }
+    .validation-stat strong { display: block; margin-top: 7px; font-family: var(--instock-font-mono); font-size: 16px; }
+    .validation-section { margin-top: 14px; }
+    .validation-section h2 { margin: 0 0 9px; font-size: 12px; }
+    .validation-table-wrap { overflow-x: auto; }
+    .validation-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    .validation-table th, .validation-table td { padding: 8px; border-bottom: 1px solid var(--instock-border); text-align: left; white-space: nowrap; }
+    .validation-table th { color: var(--instock-text-muted); font-size: 9px; }
+    @media (max-width: 860px) { .validation-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 560px) { .validation-shell { padding: 11px; } .validation-hero { padding: 17px; } .validation-fields, .validation-stats { grid-template-columns: 1fr 1fr; } .validation-signal-fields { grid-template-columns: 1fr; } .validation-add { width: 100%; } }
+</style>
+
+<main class="validation-shell">
+    <section class="validation-panel validation-hero">
+        <div class="validation-kicker">Strategy Validation / point-in-time</div>
+        <h1 class="validation-title">策略验证</h1>
+        <p class="validation-copy">统一验证 A 股候选、CZSC 与轮动产生的历史决策：当日收盘形成信号，下一交易日开盘执行，计入双边成本，并按时间切分训练区间与样本外区间。</p>
+    </section>
+    <section class="validation-grid">
+        <article class="validation-panel validation-form">
+            <div class="validation-fields">
+                <div class="validation-field"><label for="validation-source">信号来源</label><select id="validation-source"><option value="stock-candidates">A 股候选</option><option value="czsc">CZSC</option><option value="rotation">行业轮动</option></select></div>
+                <div class="validation-field"><label for="validation-benchmark">比较基准</label><input id="validation-benchmark" value="510300" maxlength="6"></div>
+                <div class="validation-field"><label for="validation-asof">截止日</label><input id="validation-asof" type="date"></div>
+                <div class="validation-field"><label for="validation-holding">持有交易日</label><select id="validation-holding"><option value="5">5 日</option><option value="10" selected>10 日</option><option value="20">20 日</option></select></div>
+                <div class="validation-field"><label for="validation-cost">单边成本</label><select id="validation-cost"><option value="10">10 bps</option><option value="25" selected>25 bps</option><option value="50">50 bps</option></select></div>
+                <section class="validation-signal-editor">
+                    <h2>添加历史决策</h2>
+                    <div class="validation-signal-fields">
+                        <div class="validation-field"><label for="validation-signal-date">决策日期</label><input id="validation-signal-date" type="date"></div>
+                        <div class="validation-field"><label for="validation-signal-symbols">当时选中的股票</label><input id="validation-signal-symbols" placeholder="例如：300502,000001"></div>
+                        <button id="validation-add-signal" class="validation-add" type="button">加入记录</button>
+                    </div>
+                    <div id="validation-signal-list" class="validation-signal-list"></div>
+                </section>
+            </div>
+            <button id="validation-run" class="validation-run" type="button">运行验证</button>
+            <p class="validation-note">至少加入 2 条历史决策。它们必须是当时真实记录的结果，本模块不会用今天的信息反推过去。</p>
+            <div id="validation-alert" class="validation-alert" role="alert"></div>
+        </article>
+        <article class="validation-panel validation-results">
+            <div id="validation-status" class="validation-status">等待输入历史决策。</div>
+            <div class="validation-stats">
+                <div class="validation-stat"><span>有效覆盖</span><strong id="validation-coverage">--</strong></div>
+                <div class="validation-stat"><span>样本外收益</span><strong id="validation-return">--</strong></div>
+                <div class="validation-stat"><span>样本外回撤</span><strong id="validation-drawdown">--</strong></div>
+                <div class="validation-stat"><span>样本外超额</span><strong id="validation-excess">--</strong></div>
+            </div>
+            <section class="validation-section"><h2>执行记录</h2><div class="validation-table-wrap"><table class="validation-table"><thead><tr><th>决策日</th><th>开仓</th><th>平仓</th><th>标的</th><th>净收益</th><th>基准</th></tr></thead><tbody id="validation-trades"></tbody></table></div></section>
+            <p id="validation-meta" class="validation-meta">数据仅通过 Desk market.ohlcv 获取。</p>
+        </article>
+    </section>
+</main>
+
+<script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script>
+(function () {
+    const bridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+    const actionId = 'analysis.strategy-validation';
+    const button = document.getElementById('validation-run');
+    const addButton = document.getElementById('validation-add-signal');
+    const alertBox = document.getElementById('validation-alert');
+    const signals = [];
+    let result = null;
+    document.getElementById('validation-asof').value = new Date().toISOString().slice(0, 10);
+    function normalizedSymbols() { const values = document.getElementById('validation-signal-symbols').value.split(/[,，\s]+/).map(item => item.trim().toUpperCase().split('.')[0]).filter(Boolean); if (!values.length || values.some(code => !/^\d{6}$/.test(code))) throw new Error('请输入一个或多个 6 位股票代码'); return [...new Set(values)]; }
+    function renderSignals() { const root = document.getElementById('validation-signal-list'); root.replaceChildren(); signals.forEach((signal, index) => { const row = document.createElement('div'); row.className = 'validation-signal-row'; const date = document.createElement('b'); date.textContent = signal.decision_date; const symbols = document.createElement('span'); symbols.textContent = signal.symbols.join('、'); const remove = document.createElement('button'); remove.className = 'validation-remove'; remove.type = 'button'; remove.textContent = '移除'; remove.addEventListener('click', () => { signals.splice(index, 1); renderSignals(); publish(); }); row.append(date, symbols, remove); root.appendChild(row); }); }
+    function addSignal() { const decisionDate = document.getElementById('validation-signal-date').value; if (!decisionDate) throw new Error('请选择决策日期'); if (signals.some(item => item.decision_date === decisionDate)) throw new Error('该日期已经存在'); signals.push({decision_date: decisionDate, symbols: normalizedSymbols()}); signals.sort((a, b) => a.decision_date.localeCompare(b.decision_date)); document.getElementById('validation-signal-symbols').value = ''; renderSignals(); publish(); }
+    function packet() { if (signals.length < 2) throw new Error('至少加入 2 条历史决策'); return {schema_version: 'instock-strategy-validation-packet-v1', strategy: {id: `page-${document.getElementById('validation-source').value}`, name: '页面策略验证', source_module: document.getElementById('validation-source').value}, as_of: document.getElementById('validation-asof').value, benchmark: document.getElementById('validation-benchmark').value.trim(), holding_period_sessions: Number(document.getElementById('validation-holding').value), cost_bps_per_side: Number(document.getElementById('validation-cost').value), signals}; }
+    async function request(input) { if (bridge && bridge.whenReady) await bridge.whenReady(); if (bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)) return bridge.invokeAction(actionId, input); const response = await fetch('/api/v1/strategy-validations', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input)}); const body = await response.json(); if (!response.ok) throw new Error(body && body.error && body.error.message || '策略验证失败'); return body; }
+    function setText(id, value) { document.getElementById(id).textContent = value; }
+    function render(payload, source) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-strategy-validation') throw new Error('返回结果缺少策略验证引擎标识'); result = data; const oos = data.out_of_sample || {}; setText('validation-status', data.verdict === 'evidence_sufficient' ? '样本外证据达到基础门槛，仍需结合策略来源继续核验。' : '样本外证据不足，当前结果只用于发现问题。'); setText('validation-coverage', `${data.coverage.executed_signals}/${data.coverage.input_signals}`); setText('validation-return', `${Number(oos.total_return_pct || 0).toFixed(2)}%`); setText('validation-drawdown', `${Number(oos.max_drawdown_pct || 0).toFixed(2)}%`); setText('validation-excess', `${Number(oos.excess_return_pct || 0).toFixed(2)}%`); const tbody = document.getElementById('validation-trades'); tbody.replaceChildren(); (data.trades || []).slice(-30).forEach(item => { const row = document.createElement('tr'); [item.decision_date, item.entry_date, item.exit_date, item.symbols.join(','), `${Number(item.net_return_pct).toFixed(2)}%`, `${Number(item.benchmark_return_pct).toFixed(2)}%`].forEach(value => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); }); tbody.appendChild(row); }); setText('validation-meta', `${source === 'history' ? '历史版本 · ' : ''}${data.data_source} · ${data.snapshot.snapshot_id} · ${data.limitations.join(' / ')}`); publish(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
+    function context() { return {view: {id: 'strategy-validation', title: '策略验证'}, visibleBlocks: [{id: 'out-of-sample', type: 'strategy-validation', title: '样本外结果'}], data: result ? {strategy: result.strategy, verdict: result.verdict, coverage: result.coverage, outOfSample: result.out_of_sample, snapshot: result.snapshot, limitations: result.limitations} : {draftSignalCount: signals.length}, actions: [{id: actionId, label: '运行策略验证', available: Boolean(bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId))}]}; }
+    function publish() { if (!bridge) return; bridge.setContextProvider && bridge.setContextProvider(context); bridge.publishContext && bridge.publishContext(); }
+    addButton.addEventListener('click', () => { alertBox.style.display = 'none'; try { addSignal(); } catch (error) { alertBox.textContent = error.message || String(error); alertBox.style.display = 'block'; } });
+    button.addEventListener('click', async () => { alertBox.style.display = 'none'; button.disabled = true; button.textContent = '验证中…'; try { render(await request(packet())); } catch (error) { alertBox.textContent = error && error.message ? error.message : String(error); alertBox.style.display = 'block'; } finally { button.disabled = false; button.textContent = '运行验证'; } });
+    document.addEventListener('instock:history-selected', event => render(event.detail.payload, event.detail.view_source || 'history'));
+    publish();
+})();
+</script>
+{% end %}

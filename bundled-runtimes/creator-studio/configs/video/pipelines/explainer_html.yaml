@@ -1,0 +1,197 @@
+schema_version: dasheng.video.pipeline.v1
+id: explainer_html
+lane: explainer_html_video
+director_id: faceless_explainer_director
+standard_flow_ref: configs/video/director_registry.json#standard_flow
+title: 无真人 HTML 科普导演流水线
+orchestrator_skill: dasheng-video-explainer-html
+standard_flow_mapping:
+  intake: [intake]
+  script_rewrite: [intake]
+  scene_plan: [scene_plan, claim_evidence]
+  asset_build: [asset_build]
+  edit_composite: [asset_build, render_qc]
+  render: [render_qc]
+  qc_delivery: [render_qc]
+default_output_stage: video
+default_format:
+  aspect_ratio: "16:9"
+  width: 1920
+  height: 1080
+  fps: 30
+  alternate_profiles:
+    - "1:1"
+    - "9:16"
+external_output_policy:
+  required_root: "~/Desktop/自媒体创作"
+  forbid_paths:
+    - "skills/"
+    - ".codex/skills/"
+    - "node_modules/"
+human_approval_default: true
+style_reference:
+  primary: 巫师财经类资料纪录片
+  principle: 旁白是时间轴，画面承担主播；每个画面必须推进调查、证据或情绪。
+stages:
+  - name: intake
+    description: 接收公众号 HTML 草稿，抽取标题、章节、表格、图片、图表和来源。
+    skill: dasheng-video-explainer-html
+    required_artifacts_in:
+      - brief
+    produces:
+      - script
+    tools_available:
+      - video_explainer_storyboard
+      - build_html_anything_template_router
+    checkpoint_required: false
+    review_focus:
+      - HTML 文章是唯一事实源，不新建第二条事实链。
+      - 口播稿要像投资人聊天，不要朗读式 AI 腔。
+    success_criteria:
+      - schema-valid script artifact
+      - source article sections and evidence refs preserved
+  - name: scene_plan
+    description: 建立 storyboard 和模板分配表，渲染前先给用户审核。
+    skill: dasheng-video-director
+    required_artifacts_in:
+      - script
+    produces:
+      - scene_plan
+      - review
+      - tool_routing_plan
+    tools_available:
+      - video_director_tool_router
+      - video_explainer_storyboard
+      - build_storyboard_template_review_table
+      - extract_template_preview_frames
+      - validate_storyboard_review_gate
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 每个分镜显示模板截图或明确“暂无模板截图”占位。
+      - 读取 Draft illustration intents；原文比喻和举例优先转成柠檬人 setup-action-result 漫画分镜。
+      - 模板要真实调用不同 renderer/component，不准只换模板标题。
+      - 证据场景每 20-35 秒出现一次，章节卡每 45-90 秒出现一次。
+      - 原文图表必须 100% 入账：原图证据停留、单次动态重绘、完整读图停留。
+      - 原图必须下载并记录内在宽高、比例、来源与完整性；存在原图 URL 时禁止拿文章页面截屏充当图表源。
+      - 原始图表先完整 contain 读图，再做局部放大；局部裁切不能替代完整图，也不能裁掉坐标轴、图例或关键标签。
+      - 原文列出 N 点时，口播、总览、逐点分镜、回顾和渲染必须保持同一个 N；模板容量不足不能静默减项。
+      - 真实产业/场景 B-roll 通过 media-downloader 实际下载后才能标记为可执行，并记录来源、时间段、本地路径、用途和权利复核状态。
+      - 真实世界题材的开头优先采用“实际视频底层 + 动画标题 + 大纲/问题地图 + 互动数据或规则层 + 字幕”的复合镜头，不默认使用纯静态标题卡。
+      - 4-6 分钟视频在分镜批准前目标下载 10-18 个候选、保留 6-12 个可用本地片段，覆盖至少 4 类视觉对象和 2 个来源；达不到时必须记录检索、可用性或版权原因。
+      - 真实视频目标覆盖约 20%-35% 成片视觉时长、分布在 6-12 个窗口，并贯穿开头、正文、章节桥接和回顾；禁止只在少数分镜象征性插入。
+      - 允许同一真实素材家族跨不同类型分镜形成连续环境，但必须更换时间段、裁切、遮罩、速度或叠加语法，不能机械重放同一镜头处理。
+      - 真实 B-roll 默认为情境素材；半导体工厂画面不能直接证明获配、估值、锁定规则或基金收益。
+      - 分镜时长按信息量分配，复杂图表 8-15 秒，简单转场 2-4 秒；禁止同一布局反复进出。
+      - 总提纲项目数必须与最终渲染完全一致，禁止模板容量导致内容截断。
+      - 商业飞轮、客户漏斗、估值瀑布、证明阶梯、产业链地图和投资闸门分别使用对应视觉语法。
+    success_criteria:
+      - schema-valid scene_plan artifact
+      - storyboard review decision approved
+      - no more than two consecutive scenes use same template family
+  - name: claim_evidence
+    description: 将分镜归并为核心命题，区分直接证据、情境素材、测算和作者判断。
+    skill: dasheng-video-director
+    required_artifacts_in:
+      - scene_plan
+    produces:
+      - claim_evidence_ledger
+      - spoken_revision_sheet
+      - review
+    tools_available:
+      - video_claim_evidence_ledger
+      - video_finance_evidence
+      - video_official_evidence
+      - video_model_evidence
+    checkpoint_required: true
+    review_focus:
+      - 每个分镜只能绑定一个核心命题。
+      - 财务数字、估值比较、因果和历史判断必须有可定位证据。
+      - 新闻、访谈和工厂素材必须标明 direct_evidence 或 context，不能混用。
+      - 证据与口播冲突时先修改口播，不得靠降低命题类型绕过。
+    success_criteria:
+      - schema-valid claim_evidence_ledger artifact
+      - claim_evidence_gate status is pass
+      - spoken_revision_sheet pending_count is 0
+  - name: asset_build
+    description: 生成每个分镜的 HTML/GSAP/Lottie 场景、TTS、BGM 和字幕。
+    skill: dasheng-html-video-bridge
+    required_artifacts_in:
+      - scene_plan
+      - claim_evidence_ledger
+    produces:
+      - asset_manifest
+      - renderer_asset_gate
+    tools_available:
+      - render_html_anything_timeline_pack
+      - render_html_anything_scene_pack_animated
+      - ensure_video_external_deps
+      - mmx_cli
+      - dasheng-lemon-illustrations
+      - media_downloader
+    checkpoint_required: true
+    review_focus:
+      - 生产视频必须录制 live HTML 动画，不能 PNG 拼接或 FFmpeg zoompan。
+      - 真实视频可以作为全屏、背景、分屏或遮罩底层，与 HTML Video、Remotion 动态图表、标题、大纲、时间轴和字幕同镜头合成。
+      - asset manifest 必须登记候选池规模、可用片段数、视觉类别、来源数量、预计真实视频覆盖时长和权利复核状态。
+      - 正式配音和配乐默认以 mmx_cli 为主路由；macOS say 只能用于烟测，不得进入评审版或正式版。
+      - 音频产物必须记录 provider、model、voice、speed 和真实音频时长；字幕必须来自供应商时间戳或强制对齐。
+      - 抽象机制、流程和情绪转折默认使用柠檬人插画；原文图表、表格和真实证据不得被卡通替代。
+      - 柠檬人生成图只作为分层素材，角色、道具、路径和批注至少有一层语义动效。
+      - 字幕必须覆盖完整 voiceover，时间以音频或对齐结果为准。
+      - 年份、百分比、数量等字幕优先使用阿拉伯数字。
+    success_criteria:
+      - schema-valid asset_manifest artifact
+      - renderer_asset_gate status is pass
+      - each scene has live motion behavior
+      - captions are full-length and audio-aligned
+      - production narration provider is minimax_cli unless the user explicitly overrides it
+  - name: render_qc
+    description: 渲染终片，生成 QC 报告、接触表和复盘意见。
+    skill: dasheng-video-explainer-html
+    required_artifacts_in:
+      - scene_plan
+      - asset_manifest
+      - renderer_asset_gate
+    produces:
+      - render_report
+      - review
+    tools_available:
+      - render_html_anything_scene_pack_animated
+      - build_remotion_renderer_pack
+      - build_video_review_suite_strict
+      - align_video_subtitles_to_asr
+      - video_render_qc
+      - video_renderer_contract_gate
+      - video_final_delivery
+    checkpoint_required: true
+    review_focus:
+      - 没有穿模、遮挡、模板重复、假图表、字幕错位。
+      - 每个分镜回答“这段画面证明什么”。
+      - 失败项必须进入第二轮、第三轮导演修正。
+      - BGM 正文、章节、结论具有克制的层级变化，最终视频时长自动对齐分镜计划。
+    success_criteria:
+      - schema-valid render_report artifact
+      - video_qc_report status is pass
+      - renderer contract gate status is pass
+      - final delivery manifest points to the exact QC-passed video hash
+      - final video uses live HTML scenes under a visible Remotion master timeline
+fail_conditions:
+  - raw storyboard rendered directly without template review gate
+  - static screenshot or PNG stitching used as final animation
+  - decorative chart replaces article/verified data
+  - source article chart is silently omitted from storyboard or final render
+  - original source chart asset exists but a cropped page screenshot is used instead
+  - source chart has no full contain reading state before detail magnification
+  - enumerated source content changes cardinality across script, storyboard, renderer, or recap
+  - real topical broll is declared without a downloaded local asset and provenance manifest
+  - real-world topic uses a static title-only opening while suitable downloaded footage exists and no editorial exception is documented
+  - real-world topic has only isolated token broll inserts without a footage-pool plan or documented availability/rights limitation
+  - contextual broll is presented as direct financial or regulatory evidence
+  - the same scene layout repeatedly enters and exits instead of using internal micro-shots
+  - captions generated by proportional text timing and delivered as final
+  - claim/evidence ledger not approved before asset generation
+  - final delivery manifest points to a different file, duration, or hash than the QC report
+  - Remotion is used only as an empty wrapper instead of the visible master timeline
+  - template diversity is title-only
+  - final media written under skills directory

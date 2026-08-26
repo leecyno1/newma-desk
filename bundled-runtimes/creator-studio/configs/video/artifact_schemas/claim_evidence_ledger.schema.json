@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.claim_evidence_ledger.v1",
+  "title": "Newma Video Claim Evidence Ledger",
+  "type": "object",
+  "required": ["schema_version", "lane", "source_scene_plan", "target_claim_range", "claims"],
+  "properties": {
+    "schema_version": {
+      "const": "dasheng.video.claim_evidence_ledger.v1"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "lane": {
+      "type": "string",
+      "enum": ["talking_head_video", "explainer_html_video", "vox_explainer_video", "digital_human_video", "commercial_promo_video", "cinematic_short_drama_video"]
+    },
+    "source_scene_plan": {
+      "type": "string"
+    },
+    "target_claim_range": {
+      "type": "object",
+      "required": ["minimum", "maximum"],
+      "properties": {
+        "minimum": {"type": "integer", "minimum": 1},
+        "maximum": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "order",
+          "title",
+          "claim_text",
+          "claim_type",
+          "scene_ids",
+          "time_range",
+          "evidence_requirements",
+          "evidence_items",
+          "evidence_status",
+          "disclosure_label",
+          "evidence_gaps"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "order": {"type": "integer", "minimum": 1},
+          "title": {"type": "string", "minLength": 1},
+          "claim_text": {"type": "string", "minLength": 1},
+          "claim_type": {
+            "type": "string",
+            "enum": ["fact", "comparison", "causal", "historical", "assumption", "forecast", "rumor", "opinion", "recommendation"]
+          },
+          "scene_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "time_range": {
+            "type": "object",
+            "required": ["start_sec", "end_sec"],
+            "properties": {
+              "start_sec": {"type": ["number", "null"], "minimum": 0},
+              "end_sec": {"type": ["number", "null"], "minimum": 0}
+            },
+            "additionalProperties": false
+          },
+          "spoken_excerpts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["scene_id", "text"],
+              "properties": {
+                "scene_id": {"type": ["string", "null"]},
+                "text": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "evidence_requirements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "description", "required"],
+              "properties": {
+                "id": {"type": "string"},
+                "description": {"type": "string"},
+                "required": {"type": "boolean"}
+              },
+              "additionalProperties": true
+            }
+          },
+          "evidence_items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["scene_id", "relation", "authenticity"],
+              "properties": {
+                "scene_id": {"type": ["string", "null"]},
+                "asset_id": {"type": ["string", "null"]},
+                "relation": {"type": "string", "enum": ["direct", "context", "illustrative", "assumption"]},
+                "verdict": {"type": "string", "enum": ["supports", "contradicts", "mixed", "neutral"]},
+                "authenticity": {"type": "string"},
+                "source_locator": {"type": ["object", "null"]},
+                "confidence": {"type": "string"},
+                "claim_text": {"type": "string"}
+              },
+              "additionalProperties": true
+            }
+          },
+          "evidence_status": {
+            "type": "string",
+            "enum": ["directly_proven", "context_only", "assumption", "missing_evidence"]
+          },
+          "spoken_revision_requirements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "scene_id", "action", "applied"],
+              "properties": {
+                "id": {"type": "string"},
+                "scene_id": {"type": "string"},
+                "action": {
+                  "type": "string",
+                  "enum": ["replace", "overdub", "rerecord", "remove", "cut", "exclude", "disclose"]
+                },
+                "replacement_text": {"type": "string"},
+                "reason": {"type": "string"},
+                "status": {"type": "string"},
+                "applied": {"type": "boolean"}
+              },
+              "additionalProperties": true
+            }
+          },
+          "disclosure_label": {"type": "string"},
+          "evidence_gaps": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "director_note": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "gate_status": {
+      "type": "string",
+      "enum": ["pass", "fail"]
+    }
+  },
+  "additionalProperties": true
+}

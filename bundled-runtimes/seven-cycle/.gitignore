@@ -1,0 +1,72 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+.venv/
+.venv*/
+**/venv/
+**/.venv/
+**/node_modules/
+**/.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+
+# Local browser/design sessions
+.playwright-cli/
+.superpowers/
+.worktrees/
+.acceptance-*/
+
+# Superseded standalone frontend repository kept locally for reference
+cycle_forecast_system_frontend/
+
+# Generated and raw research data
+/data/
+/inputs/
+/products/
+/catalogs/
+/output/*
+!/output/seven_cycle_retest_summary_2026-07-19.md
+!/output/c4_c5_phase_display_prototype_2026-07-19.json
+!/output/c4_pseudo_realtime_prototype_2026-07-19.json
+!/output/c4_forecast_prototype_2026-07-19.json
+!/output/c4_asset_statistics_prototype_2026-07-19.json
+!/output/c2_c3_long_panel_research.json
+!/output/c2_c3_historical_mapping.json
+
+# Local databases, logs and caches
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.duckdb
+*.log
+*.pack
+
+# Portable read-only seed used by Newma-Desk. Catalogs remain generated locally.
+!/products/
+!/products/circle/
+!/products/circle/latest.json
+!/products/circle/runs/
+!/products/circle/runs/2026-08-14-7180d6f1dc9e-20baa334825c/
+!/products/circle/runs/2026-08-14-7180d6f1dc9e-20baa334825c/**
+
+# Private conversations and local reports
+USER_CHAT_HISTORY.md
+pastchat.md
+
+# Large local source documents and archives
+*.ppt
+*.pptx
+*.pdf
+*.rar
+*.zip

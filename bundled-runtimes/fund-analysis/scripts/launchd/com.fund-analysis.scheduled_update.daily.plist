@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd 参考模板：把 scheduled_update.sh 挂到 macOS 定时任务。
+  用法：
+    cp scripts/launchd/com.fund-analysis.scheduled_update.daily.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.fund-analysis.scheduled_update.daily.plist
+
+  修改 WorkingDirectory 为本地实际路径。默认工作日 18:15 收盘后触发 daily bucket。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fund-analysis.scheduled_update.daily</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>scripts/scheduled_update.sh</string>
+    <string>--bucket</string>
+    <string>daily</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/absolute/path/to/fund-analysis</string>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Weekday</key><integer>1</integer>
+      <key>Hour</key><integer>18</integer>
+      <key>Minute</key><integer>15</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key><integer>2</integer>
+      <key>Hour</key><integer>18</integer>
+      <key>Minute</key><integer>15</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key><integer>3</integer>
+      <key>Hour</key><integer>18</integer>
+      <key>Minute</key><integer>15</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key><integer>4</integer>
+      <key>Hour</key><integer>18</integer>
+      <key>Minute</key><integer>15</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key><integer>5</integer>
+      <key>Hour</key><integer>18</integer>
+      <key>Minute</key><integer>15</integer>
+    </dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/fund-analysis.scheduled_update.daily.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/fund-analysis.scheduled_update.daily.stderr.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

@@ -1,0 +1,162 @@
+{
+  "schema_version": "1.0",
+  "policy": {
+    "default_action": "keep_local_untracked",
+    "promotion_rule": "Only track a candidate after it has a concrete Newma stage caller, a reviewed SKILL.md, no generated media/cache files, and an upstream or origin note.",
+    "bulk_vendor_rule": "Do not bulk-add downloaded third-party skills into this repository."
+  },
+  "priority_candidates": [
+    {
+      "name": "a-stock-data",
+      "local_path": "skills/a-stock-data",
+      "category": "finance_data",
+      "recommended_status": "candidate_for_draft_data",
+      "reason": "Useful A-share data source for draft evidence, charts, and market tables."
+    },
+    {
+      "name": "yfinance-data",
+      "local_path": "skills/yfinance-data",
+      "category": "finance_data",
+      "recommended_status": "candidate_for_draft_data",
+      "reason": "Useful Yahoo Finance wrapper for US/global market data, but should be routed through finance-data-router before promotion."
+    },
+    {
+      "name": "tushare-openclaw-skill",
+      "local_path": "skills/tushare-openclaw-skill",
+      "category": "finance_data",
+      "recommended_status": "candidate_for_draft_data",
+      "reason": "Useful China market API skill when a Tushare token is available; keep as optional provider."
+    },
+    {
+      "name": "html-anything",
+      "local_path": "skills/html-anything",
+      "category": "html_generation",
+      "recommended_status": "external_dependency",
+      "reason": "Useful upstream editor skill, but Newma should call it through dasheng-html-anything-bridge rather than vendoring the full skill."
+    },
+    {
+      "name": "media-downloader",
+      "local_path": "skills/media-downloader",
+      "category": "media_assets",
+      "recommended_status": "candidate_for_transwrite_video",
+      "reason": "Useful for video/image素材检索, but must be constrained to write outputs outside skills and repo root."
+    },
+    {
+      "name": "gemini-image-service",
+      "local_path": "skills/gemini-image-service",
+      "category": "image_generation",
+      "recommended_status": "candidate_for_cover_and_illustration",
+      "reason": "Useful optional image provider; promote only if provider config is moved to local env templates."
+    },
+    {
+      "name": "agent-browser",
+      "local_path": "skills/agent-browser",
+      "category": "browser_automation",
+      "recommended_status": "candidate_for_publish_fallback",
+      "reason": "Potential browser fallback for platform publishing, but overlaps with existing Chrome/Playwright tooling."
+    },
+    {
+      "name": "baoyu-diagram",
+      "local_path": "host-skill:baoyu-diagram",
+      "category": "illustration_structure",
+      "recommended_status": "registered_transwrite_article_build",
+      "reason": "SVG 结构类说明图（产业链/架构/流程/时序）——与账号角色插图互补，三分法之结构图",
+      "reviewed_at": "2026-08-21"
+    },
+    {
+      "name": "drafter-diagram",
+      "local_path": "host-skill:drafter-diagram",
+      "category": "illustration_structure",
+      "recommended_status": "registered_transwrite_article_build",
+      "reason": "工程蓝图风结构图备选（科技类选题变体），与 baoyu-diagram 同路由",
+      "reviewed_at": "2026-08-21"
+    },
+    {
+      "name": "content-research-writer",
+      "local_path": "host-skill:content-research-writer",
+      "category": "writing_method",
+      "recommended_status": "registered_draft_article_draft",
+      "reason": "research→引用→hook→outline 迭代写作方法，深度选题的骨架前流程",
+      "reviewed_at": "2026-08-21"
+    },
+    {
+      "name": "image-enhancer",
+      "local_path": "host-skill:image-enhancer",
+      "category": "image_postprocess",
+      "recommended_status": "registered_transwrite_visual_package",
+      "reason": "ImageGen 出图后的分辨率/清晰度增强（封面与插图缩略图质量保障）",
+      "reviewed_at": "2026-08-21"
+    },
+    {
+      "name": "market-research-reports",
+      "local_path": "host-skill:market-research-reports",
+      "category": "deep_report",
+      "recommended_status": "registered_draft_deep_mode",
+      "reason": "McKinsey 风格市场研究报告（重武器，行业深度选题时启用）",
+      "reviewed_at": "2026-08-21"
+    },
+    {
+      "name": "theme-factory",
+      "local_path": "host-skill:theme-factory",
+      "category": "layout_theme",
+      "recommended_status": "deferred_transwrite_layout",
+      "reason": "排版主题扩展（品牌样式定型后备选）",
+      "reviewed_at": "2026-08-21"
+    },
+    {
+      "name": "analytics-data-analysis",
+      "local_path": "host-skill:analytics-data-analysis",
+      "category": "data_analysis",
+      "recommended_status": "deferred_draft_evidence",
+      "reason": "Jupyter 分析最佳实践（已有 dasheng-finance-data 专门化）",
+      "reviewed_at": "2026-08-21"
+    },
+    {
+      "name": "cloudflare-deploy",
+      "local_path": "host-skill:cloudflare-deploy",
+      "category": "publish_infra",
+      "recommended_status": "deferred_publish_infra",
+      "reason": "发布面板/内容站上线部署时启用",
+      "reviewed_at": "2026-08-21"
+    }
+  ],
+  "bulk_candidate_groups": [
+    {
+      "pattern": "skills/anthropic-fs-*",
+      "category": "financial_services_examples",
+      "recommended_status": "reference_only",
+      "reason": "Large set of financial-service example skills. Keep local for reference; promote only if a concrete workflow depends on one."
+    },
+    {
+      "pattern": "skills/llmquant-*",
+      "category": "quant_finance",
+      "recommended_status": "reference_or_router_input",
+      "reason": "Potential finance-data-router inputs; avoid direct stage coupling until provider quality is tested."
+    },
+    {
+      "pattern": "skills/alphaear-*",
+      "category": "market_intelligence",
+      "recommended_status": "reference_or_router_input",
+      "reason": "Market intelligence skills that may overlap with existing draft/news/data skills."
+    },
+    {
+      "pattern": "skills/edge-*",
+      "category": "strategy_pipeline",
+      "recommended_status": "reference_only",
+      "reason": "Strategy ideation pipeline skills; not currently part of Newma media production stages."
+    },
+    {
+      "pattern": "skills/skill-*",
+      "category": "skill_governance",
+      "recommended_status": "reference_only",
+      "reason": "Skill authoring/audit helpers; useful for local maintenance but not runtime dependencies."
+    }
+  ],
+  "local_generated": [
+    {
+      "path": ".qoder/",
+      "recommended_status": "ignore",
+      "reason": "Generated local repo wiki; should not be mixed into source control unless explicitly curated."
+    }
+  ]
+}

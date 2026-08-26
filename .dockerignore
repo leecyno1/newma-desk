@@ -1,6 +1,7 @@
 .git
 .worktrees
 legacy-workspace
+bundled-runtimes
 node_modules
 **/node_modules
 .venv

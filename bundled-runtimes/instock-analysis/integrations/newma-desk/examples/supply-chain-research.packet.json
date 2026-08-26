@@ -1,0 +1,79 @@
+{
+  "schema_version": "2.0",
+  "theme": "接口示例：某关键部件扩产瓶颈（非真实研究结论）",
+  "market": "CN",
+  "as_of": "2026-08-08",
+  "notes": "仅用于验证 Action 与页面适配器，不代表任何公司、行业或投资判断。",
+  "evidence": [
+    {
+      "id": "example-demand",
+      "claim": "示例需求证据，真实运行时必须替换为宿主可追溯材料",
+      "strength": "medium",
+      "source_type": "contract_example",
+      "source_ref": "newma://examples/supply-chain/example-demand",
+      "observed_at": "2026-08-08"
+    },
+    {
+      "id": "example-company",
+      "claim": "示例公司暴露证据，真实运行时必须替换为宿主可追溯材料",
+      "strength": "medium",
+      "source_type": "contract_example",
+      "source_ref": "newma://examples/supply-chain/example-company",
+      "observed_at": "2026-08-08"
+    }
+  ],
+  "chain": {
+    "nodes": [
+      {
+        "id": "example-layer",
+        "name": "示例稀缺层",
+        "stage": "midstream",
+        "role": "用于演示产业链节点，不描述真实供需关系",
+        "evidence_ids": ["example-demand"]
+      }
+    ],
+    "links": []
+  },
+  "layers": [
+    {
+      "id": "example-layer",
+      "node_id": "example-layer",
+      "name": "示例稀缺层",
+      "constraint": "用于演示字段结构，不描述真实供需关系",
+      "ratings": {
+        "demand_pressure": 3,
+        "chokepoint_severity": 3,
+        "supplier_concentration": 3,
+        "expansion_difficulty": 3,
+        "substitution_difficulty": 3
+      },
+      "evidence_ids": ["example-demand"]
+    }
+  ],
+  "candidates": [
+    {
+      "symbol": "EXAMPLE.CN",
+      "name": "示例候选（非证券）",
+      "market": "CN",
+      "layer_id": "example-layer",
+      "ratings": {
+        "exposure_purity": 3,
+        "valuation_disconnect": 3,
+        "catalyst_timing": 3,
+        "financial_resilience": 3
+      },
+      "penalties": {
+        "dilution_financing": 0,
+        "governance": 0,
+        "geopolitics": 0,
+        "liquidity": 0,
+        "hype_risk": 0,
+        "accounting_quality": 0,
+        "cyclicality": 0,
+        "alternative_design_risk": 0
+      },
+      "evidence_ids": ["example-company"],
+      "invalidation": ["真实研究中必须提供可观察、可证伪的条件"]
+    }
+  ]
+}

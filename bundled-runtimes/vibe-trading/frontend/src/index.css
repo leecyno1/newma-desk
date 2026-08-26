@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root[data-vibedesk-embedded="true"] [data-mod-page-title] {
+  display: none !important;
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+
+    /* Newma light: warm paper, verdigris ink and restrained brass. */
+    --background: 42 44% 92%;
+    --foreground: 159 36% 14%;
+    --card: 40 60% 96%;
+    --card-foreground: 159 36% 14%;
+    --popover: 39 100% 97%;
+    --popover-foreground: 159 36% 14%;
+    --primary: 34 54% 43%;
+    --primary-foreground: 159 36% 14%;
+    --muted: 39 38% 87%;
+    --muted-foreground: 150 7% 43%;
+    --destructive: 0 73% 42%;
+    --destructive-foreground: 39 100% 97%;
+    --border: 37 27% 79%;
+    --radius: 0.5rem;
+
+    /* Financial red/green remain semantic; brand interactions stay brass. */
+    --success: 142 76% 36%;
+    --danger: 0 73% 42%;
+    --warning: 36 91% 33%;
+    --info: 157 19% 30%;
+    --financial-positive: #dc2626;
+    --financial-negative: #16a34a;
+
+    /* Newma chart palette: brass, verdigris, copper, olive and sage. */
+    --chart-grid: 39 38% 87%;
+    --chart-text: 150 7% 43%;
+    --chart-axis: 38 23% 65%;
+    --chart-tooltip-bg: #fffaf1;
+    --chart-tooltip-border: #b9aa90;
+    --chart-tooltip-text: #173128;
+    --chart-series-1: #a87432;
+    --chart-series-2: #3f7667;
+    --chart-series-3: #8f6b50;
+    --chart-series-4: #77825c;
+    --chart-series-5: #a45e52;
+    --chart-series-6: #66766e;
+    --chart-series-7: #c88964;
+    --chart-compare-a: #a87432;
+    --chart-compare-b: #3f7667;
+    --chart-correlation-negative-strong: #315a4a;
+    --chart-correlation-negative: #779489;
+    --chart-correlation-neutral: #f4efe3;
+    --chart-correlation-positive: #d7b27d;
+    --chart-correlation-positive-strong: #9a5d25;
+  }
+
+  :root.dark,
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+
+    /* Newma dark: verdigris surfaces, warm white type and muted brass. */
+    --background: 158 21% 7%;
+    --foreground: 41 48% 91%;
+    --card: 153 20% 11%;
+    --card-foreground: 41 48% 91%;
+    --popover: 150 21% 13%;
+    --popover-foreground: 41 48% 91%;
+    --primary: 35 50% 57%;
+    --primary-foreground: 158 21% 7%;
+    --muted: 153 23% 9%;
+    --muted-foreground: 108 9% 68%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 41 48% 91%;
+    --border: 148 15% 19%;
+
+    --success: 142 71% 45%;
+    --danger: 0 62% 50%;
+    --warning: 35 56% 67%;
+    --info: 108 9% 68%;
+    --financial-positive: #f87171;
+    --financial-negative: #4ade80;
+
+    --chart-grid: 153 23% 9%;
+    --chart-text: 108 9% 68%;
+    --chart-axis: 141 12% 28%;
+    --chart-tooltip-bg: #1a2821;
+    --chart-tooltip-border: #405146;
+    --chart-tooltip-text: #f3ecdd;
+    --chart-series-1: #c89a5a;
+    --chart-series-2: #70a596;
+    --chart-series-3: #b67b64;
+    --chart-series-4: #9da96f;
+    --chart-series-5: #cf756b;
+    --chart-series-6: #78847a;
+    --chart-series-7: #dab47d;
+    --chart-compare-a: #c89a5a;
+    --chart-compare-b: #70a596;
+    --chart-correlation-negative-strong: #5d8d79;
+    --chart-correlation-negative: #8cad9f;
+    --chart-correlation-neutral: #1a2821;
+    --chart-correlation-positive: #aa8654;
+    --chart-correlation-positive-strong: #dda759;
+  }
+
+  * { @apply border-border; }
+  html { background: hsl(var(--background)); }
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(940px 560px at 5% -14%, hsl(var(--primary) / 0.08), transparent 64%),
+      radial-gradient(820px 620px at 106% 112%, hsl(var(--info) / 0.05), transparent 58%);
+    background-attachment: fixed;
+  }
+
+  :root.dark body,
+  :root[data-theme="dark"] body {
+    background-image:
+      radial-gradient(1000px 620px at 8% -12%, hsl(var(--primary) / 0.09), transparent 62%),
+      radial-gradient(900px 700px at 106% 112%, hsl(var(--info) / 0.055), transparent 56%);
+  }
+
+  /* Keep Tailwind Typography on the same Newma tokens in both modes. */
+  .prose {
+    --tw-prose-body: hsl(var(--foreground));
+    --tw-prose-headings: hsl(var(--foreground));
+    --tw-prose-lead: hsl(var(--muted-foreground));
+    --tw-prose-links: hsl(var(--primary));
+    --tw-prose-bold: hsl(var(--foreground));
+    --tw-prose-counters: hsl(var(--muted-foreground));
+    --tw-prose-bullets: hsl(var(--primary));
+    --tw-prose-hr: hsl(var(--border));
+    --tw-prose-quotes: hsl(var(--foreground));
+    --tw-prose-quote-borders: hsl(var(--primary));
+    --tw-prose-captions: hsl(var(--muted-foreground));
+    --tw-prose-code: hsl(var(--foreground));
+    --tw-prose-pre-code: hsl(var(--card-foreground));
+    --tw-prose-pre-bg: hsl(var(--card));
+    --tw-prose-th-borders: hsl(var(--border));
+    --tw-prose-td-borders: hsl(var(--border));
+  }
+
+  /* Prose table enhancements */
+  .prose table { border-collapse: collapse; width: 100%; }
+  .prose th, .prose td { border: 1px solid hsl(var(--border)); }
+  .prose tbody tr:nth-child(even) { background: hsl(var(--muted) / 0.3); }
+
+  /* Smooth scrollbar for webkit */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+}
+
+/* Streaming pulse-slide animation for the "running" bar */
+@keyframes pulse-slide {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(200%); }
+  100% { transform: translateX(-100%); }
+}
+
+/* RTL: mirror directional icons (chevrons, arrows) automatically */
+[dir="rtl"] .rtl\:flip-x { transform: scaleX(-1); }

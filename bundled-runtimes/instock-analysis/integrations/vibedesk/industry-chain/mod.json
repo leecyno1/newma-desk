@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-industry-chain",
+  "name": "产业链研究",
+  "description": "沿产业链节点与关系识别供应链瓶颈，并按证据质量核验上市公司暴露。",
+  "version": "0.17.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["产业链", "供应链", "瓶颈研究", "证据研究"],
+  "agentWorkspace": {"type": "runtime", "runtimeId": "instock", "workspaceName": "source"},
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988",
+    "route": "/mods/industry-chain"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "量化研究",
+      "groupOrder": 120,
+      "itemOrder": 9,
+      "label": "产业链研究",
+      "directory": {
+        "id": "instock-suite",
+        "label": "InStock 分析",
+        "order": 20
+      },
+      "project": {
+        "id": "quant-research",
+        "name": "量化研究",
+        "order": 120,
+        "description": "产业链节点、供应链瓶颈与证据优先级。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {"level": 2, "bridgeProtocol": "1.0"},
+    "permissions": ["analysis.read"],
+    "dataServices": [],
+    "actions": {
+      "analysis.industry-chain": {
+        "binding": {"type": "data", "capability": "analysis.industry-chain"},
+        "execution": "request",
+        "permission": "analysis.read",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "required": ["schema_version", "theme", "market", "as_of", "evidence", "chain", "layers", "candidates"],
+          "properties": {
+            "schema_version": {"const": "2.0"},
+            "theme": {"type": "string", "minLength": 1, "maxLength": 160},
+            "market": {"enum": ["CN", "HK", "US", "TW", "JP", "KR", "EU", "GLOBAL"]},
+            "as_of": {"type": "string", "format": "date"},
+            "notes": {"type": "string"},
+            "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
+            "chain": {"type": "object", "required": ["nodes", "links"], "properties": {"nodes": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"type": "object"}}, "links": {"type": "array", "maxItems": 120, "items": {"type": "object"}}}, "additionalProperties": false},
+            "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
+            "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "required": ["ok", "data", "meta"],
+          "properties": {
+            "ok": {"const": true},
+            "data": {"type": "object"},
+            "meta": {"type": "object"}
+          }
+        },
+        "confirmation": "none",
+        "timeoutSeconds": 30
+      }
+    },
+    "events": {"emits": [], "accepts": []},
+    "refresh": {"mode": "manual"}
+  }
+}

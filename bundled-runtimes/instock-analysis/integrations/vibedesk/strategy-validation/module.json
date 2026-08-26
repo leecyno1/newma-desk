@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "1.1",
+  "id": "instock-strategy-validation",
+  "name": "策略验证",
+  "version": "0.17.0",
+  "category": "quant",
+  "navigation": {
+    "groupLabel": "量化研究", "groupOrder": 120, "itemOrder": 10, "label": "策略验证",
+    "directory": {"id": "instock-suite", "label": "InStock 分析", "order": 20},
+    "project": {"id": "quant-research", "name": "量化研究", "order": 120, "description": "A 股候选、单股研究、结构、轮动与验证。"},
+    "icon": "quant"
+  },
+  "entry": {"type": "external", "url": "http://127.0.0.1:9988/mods/strategy-validation"},
+  "compatibility": {"level": 2, "bridgeProtocol": "1.0"},
+  "permissions": ["analysis.read"],
+  "dataServices": [],
+  "actions": {
+    "analysis.strategy-validation": {
+      "binding": {"type": "data", "capability": "analysis.strategy-validation"},
+      "execution": "request",
+      "permission": "analysis.read",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["schema_version", "strategy", "as_of", "benchmark", "holding_period_sessions", "cost_bps_per_side", "signals"],
+        "properties": {
+          "schema_version": {"const": "instock-strategy-validation-packet-v1"},
+          "strategy": {"type": "object", "required": ["id", "source_module"], "properties": {"id": {"type": "string", "minLength": 1}, "name": {"type": "string"}, "source_module": {"enum": ["stock-candidates", "czsc", "rotation"]}}, "additionalProperties": false},
+          "as_of": {"type": "string", "format": "date"},
+          "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+          "holding_period_sessions": {"type": "integer", "minimum": 1, "maximum": 60},
+          "cost_bps_per_side": {"type": "integer", "minimum": 0, "maximum": 100},
+          "signals": {"type": "array", "minItems": 2, "maxItems": 200, "items": {"type": "object"}}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+      "confirmation": "none",
+      "timeoutSeconds": 120
+    }
+  },
+  "events": {"emits": [], "accepts": []},
+  "refresh": {"mode": "manual"}
+}

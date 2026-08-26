@@ -1,0 +1,19 @@
+# Feishu API Configuration Template
+# Copy this file to ~/clawd/configs/feishu_api.conf and fill in your credentials
+
+# Feishu App Credentials
+APP_ID="your_app_id_here"
+APP_SECRET="your_app_secret_here"
+TENANT_KEY="your_tenant_key_here"
+
+# Feishu Group/Chat IDs
+# Format: chat_xxxxxxxxxxxxxxxx
+CHAT_ID="your_chat_id_here"
+
+# Optional: Webhook URLs for notifications
+WEBHOOK_URL="your_webhook_url_here"
+
+# Usage:
+# 1. Copy this file to ~/clawd/configs/feishu_api.conf
+# 2. Replace all placeholder values with your actual credentials
+# 3. Ensure the file has proper permissions: chmod 600 ~/clawd/configs/feishu_api.conf

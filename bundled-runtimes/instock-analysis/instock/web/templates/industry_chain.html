@@ -1,0 +1,377 @@
+{% extends "layout/mod.html" %}
+
+{% block main_content %}
+<script>
+if (window.location.protocol === 'file:') {
+    window.location.replace('http://127.0.0.1:9988/mods/industry-chain/' + window.location.search);
+}
+</script>
+<link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
+<style>
+    :root { --chain-bg: var(--instock-bg); --chain-surface: var(--instock-surface); --chain-raised: var(--instock-surface-raised); --chain-muted: var(--instock-text-muted); --chain-soft: var(--instock-text-soft); --chain-text: var(--instock-text); --chain-border: var(--instock-border); --chain-strong: var(--instock-border-strong); --chain-accent: #c8873d; --chain-accent-soft: color-mix(in srgb, var(--chain-accent) 18%, transparent); --chain-positive: var(--instock-positive); --chain-negative: var(--instock-negative); }
+    .chain-shell { min-height: 100%; padding: 22px; color: var(--chain-text); background: var(--chain-bg); background-image: linear-gradient(var(--chain-accent-soft) 1px, transparent 1px), linear-gradient(90deg, var(--chain-accent-soft) 1px, transparent 1px); background-size: 38px 38px; }
+    .chain-panel { border: 1px solid var(--chain-border); border-radius: 14px; background: color-mix(in srgb, var(--chain-surface) 94%, transparent); box-shadow: var(--instock-shadow); }
+    .chain-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; padding: 22px 24px 19px; border-top: 3px solid var(--chain-accent); }
+    .chain-kicker { display: flex; gap: 9px; align-items: center; color: var(--chain-accent); font-family: var(--instock-font-mono); font-size: 10px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    .chain-kicker::before { width: 26px; height: 1px; background: var(--chain-accent); content: ''; }
+    .chain-title { margin: 8px 0 0; font-size: 25px; letter-spacing: -.03em; }
+    .chain-subtitle { max-width: 760px; margin: 7px 0 0; color: var(--chain-muted); font-size: 12px; line-height: 1.7; }
+    .chain-hero-mark { display: grid; width: 86px; height: 86px; place-items: center; border: 1px solid var(--chain-accent); border-radius: 50%; color: var(--chain-accent); background: var(--chain-accent-soft); font-family: var(--instock-font-mono); font-size: 24px; font-weight: 800; box-shadow: 0 0 0 10px color-mix(in srgb, var(--chain-accent) 5%, transparent); }
+    .chain-form { display: grid; grid-template-columns: minmax(260px, 1.5fr) 120px 150px auto; gap: 9px; align-items: end; grid-column: 1 / -1; margin-top: 10px; }
+    .chain-field label { display: block; margin-bottom: 5px; color: var(--chain-soft); font-size: 11px; font-weight: 700; }
+    .chain-field .form-control { min-width: 190px; height: 36px; border: 1px solid var(--chain-strong); border-radius: 8px; color: var(--chain-text); background: var(--chain-raised); box-shadow: none; font-size: 12px; }
+    .chain-field .form-control:focus { border-color: var(--chain-accent); box-shadow: 0 0 0 2px var(--chain-accent-soft); }
+    .chain-button { display: inline-flex; min-height: 36px; padding: 0 15px; border: 0; border-radius: 8px; align-items: center; justify-content: center; color: #fff; background: var(--chain-accent); font-size: 12px; font-weight: 800; cursor: pointer; }
+    .chain-button:disabled { opacity: .55; cursor: wait; }
+    .chain-secondary { color: var(--chain-accent); border: 1px solid var(--chain-accent); background: transparent; }
+    .chain-meta { margin-left: auto; padding-bottom: 8px; color: var(--chain-muted); font-family: var(--instock-font-mono); font-size: 10px; }
+    .chain-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .chain-flow-step { position: relative; min-height: 74px; padding: 11px 12px; border: 1px solid var(--chain-border); border-radius: 10px; background: var(--chain-surface); }
+    .chain-flow-step::after { position: absolute; top: 50%; right: -9px; width: 9px; height: 1px; background: var(--chain-strong); content: ''; }
+    .chain-flow-step:last-child::after { display: none; }
+    .chain-flow-step span { display: block; color: var(--chain-muted); font-family: var(--instock-font-mono); font-size: 9px; }
+    .chain-flow-step strong { display: block; margin-top: 5px; color: var(--chain-soft); font-size: 12px; }
+    .chain-flow-step small { display: block; margin-top: 3px; color: var(--chain-muted); font-size: 10px; }
+    .chain-flow-step.is-active { border-color: var(--chain-accent); background: var(--chain-accent-soft); }
+    .chain-flow-step.is-active strong { color: var(--chain-accent); }
+    .chain-flow-step.is-complete { border-color: color-mix(in srgb, var(--chain-positive) 50%, var(--chain-border)); }
+    .chain-flow-step.is-complete strong { color: var(--chain-positive); }
+    .chain-import { grid-column: 1 / -1; border-top: 1px solid var(--chain-border); padding-top: 8px; }
+    .chain-import summary { width: fit-content; color: var(--chain-muted); font-size: 11px; cursor: pointer; }
+    .chain-import-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; margin-top: 8px; align-items: end; }
+    .chain-import textarea { width: 100%; min-height: 94px; resize: vertical; border: 1px solid var(--chain-strong); border-radius: 8px; padding: 9px 10px; color: var(--chain-text); background: var(--chain-raised); font-family: var(--instock-font-mono); font-size: 10px; line-height: 1.55; }
+    .chain-alert { display: none; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--instock-error-border); border-radius: 10px; color: var(--instock-error-text); background: var(--instock-error-bg); font-size: 12px; line-height: 1.6; }
+    .chain-alert strong { display: block; color: var(--chain-text); font-size: 14px; }
+    .chain-alert p { margin: 3px 0 0; color: var(--chain-soft); }
+    .chain-alert-actions { display: flex; gap: 8px; align-items: center; margin-top: 9px; }
+    .chain-retry { min-height: 29px; padding: 0 10px; border: 1px solid var(--instock-error-border); border-radius: 7px; color: var(--instock-error-text); background: var(--chain-raised); font-size: 11px; font-weight: 800; }
+    .chain-state { display: none; margin-top: 12px; padding: 12px 14px; border-left: 3px solid var(--chain-accent); color: var(--chain-soft); background: var(--chain-accent-soft); font-size: 12px; line-height: 1.6; }
+    .chain-stats { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+    .chain-stat { min-height: 82px; padding: 13px 14px; }
+    .chain-stat span { display: block; color: var(--chain-muted); font-size: 10px; }
+    .chain-stat strong { display: block; margin-top: 8px; overflow: hidden; color: var(--chain-text); font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+    .chain-stat:first-child strong { color: var(--chain-accent); font-size: 19px; }
+    .chain-workbench { display: grid; grid-template-columns: minmax(0, 1.28fr) minmax(320px, .72fr); gap: 14px; margin-top: 14px; }
+    .chain-section-title { display: flex; min-height: 47px; margin: 0; padding: 0 16px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--chain-border); font-size: 14px; }
+    .chain-section-title span { color: var(--chain-muted); font-size: 10px; font-weight: 500; }
+    .chain-map { padding: 15px; }
+    .chain-map-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .chain-stage { min-height: 280px; padding: 11px; border: 1px solid var(--chain-border); border-radius: 10px; background: var(--chain-raised); }
+    .chain-stage[data-stage="upstream"] { border-top: 3px solid #8b6a49; }
+    .chain-stage[data-stage="midstream"] { border-top: 3px solid var(--chain-accent); }
+    .chain-stage[data-stage="downstream"] { border-top: 3px solid var(--chain-positive); }
+    .chain-stage[data-stage="infrastructure"] { border-top: 3px solid var(--instock-accent); }
+    .chain-stage-head { display: flex; justify-content: space-between; align-items: baseline; color: var(--chain-soft); font-size: 11px; font-weight: 800; }
+    .chain-stage-head span { color: var(--chain-muted); font-family: var(--instock-font-mono); font-size: 9px; }
+    .chain-node-list { display: grid; gap: 8px; margin-top: 11px; }
+    .chain-node { position: relative; padding: 10px 10px 9px; border: 1px solid var(--chain-border); border-radius: 8px; background: var(--chain-surface); }
+    .chain-node::after { position: absolute; top: 50%; right: -11px; width: 10px; height: 1px; background: var(--chain-strong); content: ''; }
+    .chain-stage:last-child .chain-node::after { display: none; }
+    .chain-node-head { display: flex; gap: 8px; justify-content: space-between; align-items: baseline; }
+    .chain-node strong { color: var(--chain-text); font-size: 12px; }
+    .chain-node-score { color: var(--chain-accent); font-family: var(--instock-font-mono); font-size: 12px; font-weight: 800; }
+    .chain-node p { margin: 5px 0 0; color: var(--chain-muted); font-size: 10px; line-height: 1.55; }
+    .chain-node-fact { display: inline-block; margin-top: 7px; padding: 3px 6px; border: 1px solid var(--chain-border); border-radius: 999px; color: var(--chain-muted); font-family: var(--instock-font-mono); font-size: 9px; }
+    .chain-empty { padding: 30px 12px; color: var(--chain-muted); text-align: center; font-size: 11px; }
+    .chain-critical { overflow: hidden; }
+    .chain-critical-list { display: grid; gap: 8px; padding: 13px; }
+    .chain-critical-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 54px; gap: 9px; align-items: center; padding: 10px; border: 1px solid var(--chain-border); border-radius: 8px; background: var(--chain-raised); }
+    .chain-rank { display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid var(--chain-strong); border-radius: 50%; color: var(--chain-muted); font-family: var(--instock-font-mono); font-size: 10px; }
+    .chain-critical-row strong { display: block; color: var(--chain-text); font-size: 12px; }
+    .chain-critical-row span { display: block; margin-top: 3px; color: var(--chain-muted); font-size: 10px; }
+    .chain-critical-score { color: var(--chain-accent); font-family: var(--instock-font-mono); font-size: 14px; font-weight: 800; text-align: right; }
+    .chain-layer-list { display: grid; gap: 8px; padding: 13px; }
+    .chain-layer { padding: 10px; border: 1px solid var(--chain-border); border-radius: 8px; background: var(--chain-raised); }
+    .chain-layer-head { display: flex; justify-content: space-between; color: var(--chain-text); font-size: 11px; font-weight: 800; }
+    .chain-layer-head span { color: var(--chain-accent); font-family: var(--instock-font-mono); }
+    .chain-layer p { margin: 5px 0 0; color: var(--chain-muted); font-size: 10px; line-height: 1.55; }
+    .chain-layer-meter { height: 4px; margin-top: 8px; overflow: hidden; border-radius: 99px; background: var(--chain-border); }
+    .chain-layer-meter span { display: block; height: 100%; background: linear-gradient(90deg, var(--chain-accent), var(--chain-positive)); }
+    .chain-candidates { margin-top: 14px; overflow: hidden; }
+    .chain-candidate-list { display: grid; gap: 9px; padding: 13px; }
+    .chain-candidate { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--chain-border); border-radius: 9px; background: var(--chain-raised); }
+    .chain-candidate-rank { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 50%; color: var(--chain-muted); background: var(--chain-border); font-family: var(--instock-font-mono); font-size: 10px; }
+    .chain-candidate strong { display: block; color: var(--chain-text); font-size: 12px; }
+    .chain-candidate span { display: block; margin-top: 3px; color: var(--chain-muted); font-size: 10px; }
+    .chain-candidate-score { color: var(--chain-accent); font-family: var(--instock-font-mono); font-size: 17px; font-weight: 800; }
+    .chain-candidate details { grid-column: 2 / -1; padding-top: 8px; border-top: 1px dashed var(--chain-border); color: var(--chain-muted); font-size: 10px; line-height: 1.6; }
+    .chain-candidate summary { cursor: pointer; color: var(--chain-soft); font-weight: 700; }
+    .chain-candidate-action { grid-column: 2 / -1; display: inline-flex; width: fit-content; min-height: 31px; padding: 0 10px; align-items: center; border: 1px solid var(--chain-accent); border-radius: 7px; color: var(--chain-accent); background: color-mix(in srgb, var(--chain-accent) 10%, transparent); font-size: 9px; font-weight: 900; text-decoration: none; }
+    .chain-candidate-action:hover, .chain-candidate-action:focus { color: var(--chain-panel); background: var(--chain-accent); text-decoration: none; }
+    .chain-footnote { margin: 12px 2px 0; color: var(--chain-muted); font-size: 10px; line-height: 1.7; }
+    @media (max-width: 980px) { .chain-stats { grid-template-columns: repeat(3, 1fr); } .chain-stat:first-child { grid-column: 1 / -1; } .chain-workbench { grid-template-columns: 1fr; } }
+    @media (max-width: 860px) { .chain-form { grid-template-columns: 1fr 1fr; } .chain-field:first-child { grid-column: 1 / -1; } .chain-flow { grid-template-columns: repeat(2, 1fr); } .chain-flow-step:nth-child(2)::after { display: none; } }
+    @media (max-width: 680px) { .chain-shell { padding: 12px; } .chain-hero { grid-template-columns: 1fr; padding: 18px; } .chain-hero-mark { display: none; } .chain-form { display: grid; grid-template-columns: 1fr; } .chain-field:first-child { grid-column: auto; } .chain-field .form-control, .chain-button { width: 100%; } .chain-meta { margin-left: 0; } .chain-flow { grid-template-columns: 1fr; } .chain-flow-step::after { display: none; } .chain-import-row { grid-template-columns: 1fr; } .chain-stats { grid-template-columns: repeat(2, 1fr); } .chain-stat:first-child { grid-column: 1 / -1; } .chain-map-grid { grid-template-columns: 1fr; } .chain-stage { min-height: auto; } .chain-node::after { display: none; } .chain-candidate { grid-template-columns: 30px minmax(0, 1fr); } .chain-candidate-score { grid-column: 2; text-align: left; } }
+</style>
+
+<main class="chain-shell">
+    <section class="chain-panel chain-hero">
+        <div>
+            <div class="chain-kicker">Industry chain / evidence docket</div>
+            <h1 class="chain-title">产业链研究</h1>
+            <p class="chain-subtitle">输入主题后，简单 Agent 只采集公开事实、来源链接和时间；InStock 再校验引用、截止日与产业链关系，最后生成瓶颈层和研究候选。行情涨幅不会被当作产业关系证据。</p>
+        </div>
+        <div class="chain-hero-mark" aria-hidden="true">↗</div>
+        <div class="chain-form">
+            <div class="chain-field"><label for="chain-theme-input">研究主题</label><input id="chain-theme-input" class="form-control" type="text" maxlength="160" placeholder="例如：人形机器人减速器产业链"></div>
+            <div class="chain-field"><label for="chain-market-input">市场</label><select id="chain-market-input" class="form-control"><option value="CN">A 股</option><option value="HK">港股</option><option value="US">美股</option><option value="GLOBAL">全球</option></select></div>
+            <div class="chain-field"><label for="chain-date-input">研究截止日</label><input id="chain-date-input" class="form-control" type="date"></div>
+            <button id="chain-run" class="chain-button" type="button">采集并校验证据</button>
+            <details class="chain-import">
+                <summary>已有结构化研究包？直接导入</summary>
+                <div class="chain-import-row"><textarea id="chain-packet-input" placeholder="粘贴产业链研究包 JSON"></textarea><button id="chain-import" class="chain-button chain-secondary" type="button">导入并校验</button></div>
+            </details>
+            <span id="chain-meta" class="chain-meta">请输入主题开始研究</span>
+        </div>
+        <div class="chain-flow" aria-label="产业链研究流程">
+            <div id="chain-step-input" class="chain-flow-step is-active"><span>STEP 01</span><strong>定义主题</strong><small>主题、市场与截止日</small></div>
+            <div id="chain-step-agent" class="chain-flow-step"><span>STEP 02</span><strong>采集事实与来源</strong><small>简单 Agent · 不选股、不评分</small></div>
+            <div id="chain-step-validate" class="chain-flow-step"><span>STEP 03</span><strong>确定性校验</strong><small>Schema、引用、截止日、关系</small></div>
+            <div id="chain-step-result" class="chain-flow-step"><span>STEP 04</span><strong>形成研究交接</strong><small>瓶颈层 → 候选 → 股票研究</small></div>
+        </div>
+    </section>
+    <div id="chain-alert" class="chain-alert" role="alert"></div>
+    <div id="chain-state" class="chain-state"></div>
+
+    <section class="chain-stats">
+        <div class="chain-panel chain-stat"><span>研究主题</span><strong id="stat-chain-theme">尚未开始</strong></div>
+        <div class="chain-panel chain-stat"><span>关键节点</span><strong id="stat-chain-node">--</strong></div>
+        <div class="chain-panel chain-stat"><span>瓶颈层</span><strong id="stat-chain-layer">--</strong></div>
+        <div class="chain-panel chain-stat"><span>候选公司</span><strong id="stat-chain-candidate">--</strong></div>
+        <div class="chain-panel chain-stat"><span>证据覆盖</span><strong id="stat-chain-evidence">--</strong></div>
+    </section>
+
+    <section class="chain-workbench">
+        <article class="chain-panel">
+            <h2 class="chain-section-title">产业链结构 <span>节点与关系 · 点时快照</span></h2>
+            <div class="chain-map"><div id="chain-map-grid" class="chain-map-grid"></div></div>
+        </article>
+        <aside class="chain-panel chain-critical">
+            <h2 class="chain-section-title">关键节点 <span>瓶颈强度 × 关系关键性</span></h2>
+            <div id="chain-critical-list" class="chain-critical-list"></div>
+        </aside>
+    </section>
+
+    <section class="chain-panel chain-workbench" style="display:grid;">
+        <article>
+            <h2 class="chain-section-title">瓶颈层排序 <span>约束强度 × 证据质量</span></h2>
+            <div id="chain-layer-list" class="chain-layer-list"></div>
+        </article>
+        <article class="chain-candidates">
+            <h2 class="chain-section-title">候选公司 <span>研究优先级，不是交易信号</span></h2>
+            <div id="chain-candidate-list" class="chain-candidate-list"></div>
+        </article>
+    </section>
+    <p id="chain-footnote" class="chain-footnote">链路边界：Agent 采集事实与来源；确定性引擎校验研究包并排序；候选只代表下一步研究优先级。没有可核验来源时不生成候选。</p>
+</main>
+
+<script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script>
+(function () {
+    const state = {data: null, running: false, lastPacket: null, activeStep: 'input'};
+    const bridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+    const actionId = 'analysis.industry-chain';
+    const alertBox = document.getElementById('chain-alert');
+    const stateBox = document.getElementById('chain-state');
+    const meta = document.getElementById('chain-meta');
+    const runButton = document.getElementById('chain-run');
+    const importButton = document.getElementById('chain-import');
+    const themeInput = document.getElementById('chain-theme-input');
+    const marketInput = document.getElementById('chain-market-input');
+    const dateInput = document.getElementById('chain-date-input');
+    const packetInput = document.getElementById('chain-packet-input');
+    const flowSteps = ['input', 'agent', 'validate', 'result'];
+
+    function setText(id, value) { document.getElementById(id).textContent = value == null || value === '' ? '--' : String(value); }
+    function errorMessage(body, fallback) { return body && body.error && typeof body.error === 'object' ? body.error.message || fallback : (body && body.error) || fallback; }
+    function requestDraft() { return {theme: themeInput.value.trim(), market: marketInput.value, asOf: dateInput.value}; }
+    function setFlow(step, message) {
+        state.activeStep = step;
+        const activeIndex = flowSteps.indexOf(step);
+        flowSteps.forEach((name, index) => {
+            const element = document.getElementById(`chain-step-${name}`);
+            element.classList.toggle('is-active', index === activeIndex);
+            element.classList.toggle('is-complete', index < activeIndex || (step === 'result' && index === activeIndex));
+        });
+        if (message) meta.textContent = message;
+        publishContext();
+    }
+    function resetView() {
+        clearView();
+        document.getElementById('chain-map-grid').innerHTML = '<div class="chain-empty">输入主题后生成产业链节点与关系</div>';
+        document.getElementById('chain-critical-list').innerHTML = '<div class="chain-empty">完成证据校验后显示关键节点</div>';
+        document.getElementById('chain-layer-list').innerHTML = '<div class="chain-empty">完成证据校验后显示瓶颈层</div>';
+        document.getElementById('chain-candidate-list').innerHTML = '<div class="chain-empty">没有可核验证据时不生成候选公司</div>';
+    }
+    function publishContext() {
+        if (!bridge || !bridge.publishContext) return;
+        const data = state.data || {};
+        const summary = data.summary || {};
+        const draft = requestDraft();
+        bridge.setContextProvider && bridge.setContextProvider(() => ({
+            view: {id: 'industry-chain-research', title: '产业链研究'},
+            visibleBlocks: [
+                {id: 'chain-workflow', type: 'research-workflow', title: '证据采集与校验流程'},
+                {id: 'chain-map', type: 'research-evidence', title: '产业链结构'},
+                {id: 'chain-critical', type: 'research-evidence', title: '关键节点'},
+                {id: 'chain-bottlenecks', type: 'research-evidence', title: '瓶颈层排序'},
+                {id: 'chain-candidates', type: 'research-evidence', title: '候选公司'},
+            ],
+            filters: {theme: draft.theme, market: draft.market, asOf: draft.asOf},
+            data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, summary, snapshot: data.snapshot, limitations: data.limitations || [], workflow: {step: state.activeStep}} : {request: draft, workflow: {step: state.activeStep}},
+            actions: [{id: actionId, label: '校验产业链研究包', available: Boolean(bridge.canInvokeAction && bridge.canInvokeAction(actionId)), inputSchema: {type: 'object', required: ['schema_version', 'theme', 'market', 'as_of', 'evidence', 'chain', 'layers', 'candidates']}}],
+        }));
+        bridge.publishContext();
+    }
+    async function request(packet) {
+        if (bridge && bridge.whenReady) await bridge.whenReady();
+        if (bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)) return bridge.invokeAction(actionId, packet);
+        const response = await fetch('/api/v1/industry-chain/research', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(packet)});
+        const body = await response.json();
+        if (!response.ok) throw new Error(errorMessage(body, '产业链研究请求失败'));
+        return body;
+    }
+    function unwrap(payload) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-industry-chain-research') throw new Error('产业链研究结果缺少受支持的 engine 标识'); return data; }
+    function clearView() {
+        ['stat-chain-theme', 'stat-chain-node', 'stat-chain-layer', 'stat-chain-candidate', 'stat-chain-evidence'].forEach(id => setText(id, null));
+        ['chain-map-grid', 'chain-critical-list', 'chain-layer-list', 'chain-candidate-list'].forEach(id => document.getElementById(id).replaceChildren());
+    }
+    function showError(error) { alertBox.replaceChildren(); const title = document.createElement('strong'); title.textContent = '产业链研究未完成'; const copy = document.createElement('p'); copy.textContent = error && error.message ? error.message : String(error); const actions = document.createElement('div'); actions.className = 'chain-alert-actions'; const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'chain-retry'; retry.textContent = state.lastPacket ? '重新校验' : '重新采集'; retry.onclick = () => state.lastPacket ? load(state.lastPacket, 'retry') : collect(); actions.appendChild(retry); alertBox.append(title, copy, actions); alertBox.style.display = 'block'; }
+    function nodeCard(node) { const card = document.createElement('div'); card.className = 'chain-node'; const head = document.createElement('div'); head.className = 'chain-node-head'; const title = document.createElement('strong'); title.textContent = node.name; const score = document.createElement('span'); score.className = 'chain-node-score'; score.textContent = Number(node.criticality_score || 0).toFixed(1); head.append(title, score); const copy = document.createElement('p'); copy.textContent = node.role || ''; const fact = document.createElement('span'); fact.className = 'chain-node-fact'; fact.textContent = `${node.layer_count || 0} 个瓶颈层 · ${node.evidence_summary ? node.evidence_summary.total : 0} 条证据`; card.append(head, copy, fact); return card; }
+    function renderMap(data) { const grid = document.getElementById('chain-map-grid'); grid.replaceChildren(); const stages = {upstream: '上游供给', midstream: '中游制造', downstream: '下游应用', infrastructure: '基础设施'}; const nodes = (data.chain && data.chain.nodes) || []; Object.entries(stages).forEach(([stage, label]) => { const col = document.createElement('section'); col.className = 'chain-stage'; col.dataset.stage = stage; const head = document.createElement('div'); head.className = 'chain-stage-head'; const title = document.createElement('strong'); title.textContent = label; const count = document.createElement('span'); count.textContent = `${nodes.filter(node => node.stage === stage).length} nodes`; head.append(title, count); const list = document.createElement('div'); list.className = 'chain-node-list'; const matches = nodes.filter(node => node.stage === stage); if (!matches.length) { const empty = document.createElement('div'); empty.className = 'chain-empty'; empty.textContent = '暂无节点'; list.appendChild(empty); } else matches.forEach(node => list.appendChild(nodeCard(node))); col.append(head, list); grid.appendChild(col); }); }
+    function renderCritical(data) { const root = document.getElementById('chain-critical-list'); root.replaceChildren(); ((data.chain && data.chain.critical_nodes) || []).slice(0, 8).forEach((node, index) => { const row = document.createElement('div'); row.className = 'chain-critical-row'; const rank = document.createElement('span'); rank.className = 'chain-rank'; rank.textContent = index + 1; const copy = document.createElement('div'); const title = document.createElement('strong'); title.textContent = node.name; const detail = document.createElement('span'); detail.textContent = `${node.stage} · 关系 ${Number(node.relationship_score || 0).toFixed(0)} · 证据 ${Number(node.evidence_summary && node.evidence_summary.score || 0).toFixed(0)}`; copy.append(title, detail); const score = document.createElement('b'); score.className = 'chain-critical-score'; score.textContent = Number(node.criticality_score || 0).toFixed(1); row.append(rank, copy, score); root.appendChild(row); }); if (!root.children.length) root.innerHTML = '<div class="chain-empty">等待节点证据</div>'; }
+    function renderLayers(data) { const root = document.getElementById('chain-layer-list'); root.replaceChildren(); (data.layers || []).forEach(layer => { const row = document.createElement('div'); row.className = 'chain-layer'; const head = document.createElement('div'); head.className = 'chain-layer-head'; const title = document.createElement('strong'); title.textContent = `${layer.rank}. ${layer.name}`; const score = document.createElement('span'); score.textContent = Number(layer.priority_score || 0).toFixed(1); head.append(title, score); const copy = document.createElement('p'); copy.textContent = layer.constraint; const meter = document.createElement('div'); meter.className = 'chain-layer-meter'; const fill = document.createElement('span'); fill.style.width = `${Math.max(0, Math.min(100, Number(layer.priority_score || 0)))}%`; meter.appendChild(fill); row.append(head, copy, meter); root.appendChild(row); }); if (!root.children.length) root.innerHTML = '<div class="chain-empty">等待瓶颈层证据</div>'; }
+    function renderCandidates(data) { const root = document.getElementById('chain-candidate-list'); root.replaceChildren(); const layerNames = Object.fromEntries((data.layers || []).map(layer => [layer.id, layer.name])); (data.candidates || []).slice(0, 20).forEach(candidate => { const row = document.createElement('article'); row.className = 'chain-candidate'; const rank = document.createElement('span'); rank.className = 'chain-candidate-rank'; rank.textContent = candidate.rank; const copy = document.createElement('div'); const title = document.createElement('strong'); title.textContent = `${candidate.name} · ${candidate.symbol}`; const detail = document.createElement('span'); detail.textContent = `${candidate.market} · ${candidate.research_priority} · ${candidate.confidence} 置信`; copy.append(title, detail); const score = document.createElement('b'); score.className = 'chain-candidate-score'; score.textContent = Number(candidate.priority_score || 0).toFixed(1); const details = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = '查看证据与证伪条件'; const list = document.createElement('div'); list.textContent = `证据 ${candidate.evidence_summary ? candidate.evidence_summary.total : 0} 条 · ${((candidate.invalidation || []).join('；'))}`; details.append(summary, list); const action = document.createElement('a'); action.className = 'chain-candidate-action'; const params = new URLSearchParams({symbol: candidate.symbol, industry: layerNames[candidate.layer_id] || '', period: 'daily', bars: '240', sourceModule: 'instock-industry-chain', sourceSnapshotId: data.snapshot.snapshot_id, industryChainSnapshotId: data.snapshot.snapshot_id, ...(data.as_of ? {asOf: data.as_of} : {})}); action.href = `/mods/stock-research?${params.toString()}`; action.target = '_blank'; action.rel = 'noopener'; action.textContent = '带产业链证据进入股票研究'; row.append(rank, copy, score, details, action); root.appendChild(row); }); if (!root.children.length) root.innerHTML = '<div class="chain-empty">证据校验通过后才会显示候选公司</div>'; }
+    function render(payload, source) { const data = unwrap(payload); state.data = data; alertBox.style.display = 'none'; stateBox.style.display = 'block'; stateBox.textContent = `${source === 'history' ? '历史版本 · ' : ''}${data.data_state === 'complete' ? '证据完整' : '部分证据'} · ${data.summary.chain_node_count} 个节点 · ${data.summary.chain_link_count} 条关系 · 截止 ${data.as_of}`; setText('stat-chain-theme', data.theme); setText('stat-chain-node', data.summary.top_chain_node); setText('stat-chain-layer', data.summary.top_layer); setText('stat-chain-candidate', `${data.summary.candidate_count} 家`); setText('stat-chain-evidence', `${data.summary.evidence_count} 条`); renderMap(data); renderCritical(data); renderLayers(data); renderCandidates(data); document.getElementById('chain-footnote').textContent = `${(data.limitations || []).length ? '限制：' + data.limitations.join('；') : '未触发证据降级'} · 研究优先级不是收益预测或交易建议`; setFlow('result', `${source === 'history' ? '历史版本 · ' : ''}校验完成 · Snapshot ${data.snapshot.snapshot_id}`); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
+    async function load(packet, source) { if (state.running) return; if (!packet) { showError(new Error('没有收到可校验的产业链研究包。')); return; } state.running = true; state.lastPacket = packet; alertBox.style.display = 'none'; setFlow('validate', '正在校验证据引用、产业关系和评分范围…'); try { render(await request(packet), source || 'packet'); } catch (error) { resetView(); showError(error); meta.textContent = '研究包校验失败'; } finally { state.running = false; } }
+
+    function parseAgentPacket(answer) {
+        if (answer && typeof answer === 'object') return answer.packet && typeof answer.packet === 'object' ? answer.packet : answer;
+        let candidate = String(answer || '').trim();
+        candidate = candidate.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+        const start = candidate.indexOf('{');
+        const end = candidate.lastIndexOf('}');
+        if (start >= 0 && end > start) candidate = candidate.slice(start, end + 1);
+        const parsed = JSON.parse(candidate);
+        return parsed && typeof parsed.packet === 'object' ? parsed.packet : parsed;
+    }
+    function normalizeAgentPacket(packet) {
+        if (!packet || typeof packet !== 'object') return packet;
+        const normalized = {...packet};
+        if (Array.isArray(normalized.notes)) normalized.notes = normalized.notes.filter(Boolean).map(String).join('；');
+        const evidence = Array.isArray(normalized.evidence) ? normalized.evidence : [];
+        const evidenceIds = new Set(evidence.map(item => item && item.id).filter(Boolean));
+        const supportedEvidenceIds = item => Array.isArray(item && item.evidence_ids)
+            ? [...new Set(item.evidence_ids.filter(id => evidenceIds.has(id)))] : [];
+        const nodes = Array.isArray(normalized.chain && normalized.chain.nodes)
+            ? normalized.chain.nodes.map(item => ({...item, evidence_ids: supportedEvidenceIds(item)})).filter(item => item.evidence_ids.length)
+            : [];
+        const nodeIds = new Set(nodes.map(item => item.id));
+        const links = Array.isArray(normalized.chain && normalized.chain.links)
+            ? normalized.chain.links.map(item => ({...item, evidence_ids: supportedEvidenceIds(item)})).filter(item => item.evidence_ids.length && nodeIds.has(item.source) && nodeIds.has(item.target))
+            : [];
+        normalized.chain = {...(normalized.chain || {}), nodes, links};
+        const layers = Array.isArray(normalized.layers)
+            ? normalized.layers.map(item => ({...item, evidence_ids: supportedEvidenceIds(item)})).filter(item => item.evidence_ids.length && nodeIds.has(item.node_id))
+            : [];
+        const layerIds = new Set(layers.map(item => item.id));
+        normalized.layers = layers;
+        normalized.candidates = Array.isArray(normalized.candidates) ? normalized.candidates
+            .map(item => ({
+                ...item,
+                evidence_ids: supportedEvidenceIds(item),
+                invalidation: typeof item.invalidation === 'string' ? [item.invalidation] : item.invalidation,
+            }))
+            .filter(item => item.evidence_ids.length && layerIds.has(item.layer_id)) : [];
+        return normalized;
+    }
+    function gatewayDetails() {
+        const config = bridge && bridge.config;
+        const gateway = config && config.gateways && config.gateways.agent;
+        if (!gateway) throw new Error('请从 Newma-Desk 内打开产业链研究，或导入已有研究包。');
+        return {
+            base: String(gateway).replace(/\/$/, ''),
+            headers: {
+                'Content-Type': 'application/json',
+                'X-User-Id': config.user && config.user.id || 'local-user',
+                'X-Workspace-Id': config.workspace && config.workspace.id || 'local-workspace',
+            },
+        };
+    }
+    async function collectPacket(draft) {
+        if (bridge && bridge.whenReady) await bridge.whenReady();
+        const gateway = gatewayDetails();
+        const prompt = [
+            '你是产业链证据采集 Agent。不要修改文件，不要执行交易。',
+            '围绕输入主题检索和组织截至指定日期可核验的公开资料，只返回一个 JSON 对象，不要 Markdown 代码块。',
+            'JSON 必须符合 schema_version=2.0：包含 theme、market、as_of、notes、evidence、chain、layers、candidates。',
+            'notes 必须是单个字符串，不是数组。所有 evidence_ids 必须至少包含 1 个已定义 evidence id；没有直接证据的节点、关系、层或候选不要输出。',
+            'evidence 每项包含 id、claim、strength(strong|medium|weak|unverified)、source_type、source_ref、observed_at；source_ref 必须是可追溯 URL 或明确官方文件引用。',
+            'chain.nodes 每项包含 id、name、stage(upstream|midstream|downstream|infrastructure)、role、evidence_ids；chain.links 每项包含 source、target、relation、criticality(0-5)、evidence_ids。',
+            'layers 每项包含 id、node_id、name、constraint、ratings(demand_pressure,chokepoint_severity,supplier_concentration,expansion_difficulty,substitution_difficulty，均为0-5)、evidence_ids。',
+            'candidates 只列有证券代码且能被证据直接支持的公司；每项包含 symbol、name、market、layer_id、ratings(exposure_purity,valuation_disconnect,catalyst_timing,financial_resilience)、penalties(dilution_financing,governance,geopolitics,liquidity,hype_risk,accounting_quality,cyclicality,alternative_design_risk)、evidence_ids、invalidation；invalidation 必须是 1 至 8 条字符串数组。',
+            '不要用股价涨幅替代产业链关系。没有足够证据时减少节点和候选，不得编造来源、公司或数字。id 只能用小写字母、数字、连字符或下划线。',
+            '控制规模：证据不超过 40 条、节点不超过 16 个、候选不超过 12 家。',
+        ].join('\n');
+        const createdResponse = await fetch(`${gateway.base}/tasks`, {method: 'POST', headers: gateway.headers, body: JSON.stringify({moduleId: 'instock-industry-chain', capability: 'industry-chain.collect', profile: 'batch', memoryScope: 'task', prompt, input: {theme: draft.theme, market: draft.market, as_of: draft.asOf}})});
+        const created = await createdResponse.json();
+        if (!createdResponse.ok) throw new Error(created.detail || '产业链 Agent 启动失败');
+        const deadline = Date.now() + 180000;
+        while (Date.now() < deadline) {
+            await new Promise(resolve => window.setTimeout(resolve, 700));
+            const response = await fetch(`${gateway.base}/tasks/${encodeURIComponent(created.id)}`, {headers: gateway.headers});
+            const task = await response.json();
+            if (!response.ok) throw new Error(task.detail || '读取产业链 Agent 状态失败');
+            if (task.status === 'completed') {
+                const result = task.result || {};
+                return normalizeAgentPacket(parseAgentPacket(result.answer || result.message || result));
+            }
+            if (task.status === 'failed' || task.status === 'cancelled') throw new Error(task.error || '产业链 Agent 未能完成采集');
+        }
+        await fetch(`${gateway.base}/tasks/${encodeURIComponent(created.id)}/cancel`, {method: 'POST', headers: gateway.headers}).catch(() => undefined);
+        throw new Error('产业链 Agent 采集超时，请缩小研究主题后重试。');
+    }
+    async function collect() {
+        if (state.running) return;
+        const draft = requestDraft();
+        if (!draft.theme) { themeInput.focus(); showError(new Error('请先输入明确的产业链主题。')); return; }
+        if (!draft.asOf) { dateInput.focus(); showError(new Error('请选择研究截止日。')); return; }
+        state.running = true; state.lastPacket = null; state.data = null; runButton.disabled = true; importButton.disabled = true; alertBox.style.display = 'none'; stateBox.style.display = 'none'; resetView(); setText('stat-chain-theme', draft.theme); setFlow('agent', '简单 Agent 正在采集公开证据…');
+        try {
+            const packet = await collectPacket(draft);
+            state.lastPacket = packet;
+            packetInput.value = JSON.stringify(packet, null, 2);
+            state.running = false;
+            await load(packet, 'agent');
+        } catch (error) {
+            state.running = false;
+            showError(error);
+            meta.textContent = '证据采集未完成';
+        } finally { runButton.disabled = false; importButton.disabled = false; }
+    }
+    function importPacket() {
+        try {
+            const packet = normalizeAgentPacket(parseAgentPacket(packetInput.value));
+            const draft = requestDraft();
+            if (!themeInput.value.trim() && packet.theme) themeInput.value = packet.theme;
+            if (packet.market) marketInput.value = packet.market;
+            if (!draft.asOf && packet.as_of) dateInput.value = packet.as_of;
+            void load(packet, 'import');
+        } catch (error) { showError(new Error(`研究包不是有效 JSON：${error && error.message ? error.message : error}`)); }
+    }
+    window.InStockIndustryChainResearch = Object.freeze({analyze: load, load, collect, acceptActionResult: payload => render(payload, 'action'), clear: () => { state.data = null; state.lastPacket = null; resetView(); alertBox.style.display = 'none'; stateBox.style.display = 'none'; setFlow('input', '请输入主题开始研究'); }});
+    document.addEventListener('instock:industry-chain-result', event => { try { render(event.detail); } catch (error) { showError(error); } });
+    document.addEventListener('instock:history-selected', event => { try { render(event.detail.payload, event.detail.view_source || 'history'); } catch (error) { showError(error); } });
+    runButton.addEventListener('click', () => void collect());
+    importButton.addEventListener('click', importPacket);
+    [themeInput, marketInput, dateInput].forEach(element => element.addEventListener('change', publishContext));
+    themeInput.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); void collect(); } });
+    const query = new URLSearchParams(window.location.search);
+    themeInput.value = query.get('theme') || query.get('industry') || '';
+    if (['CN', 'HK', 'US', 'GLOBAL'].includes(query.get('market'))) marketInput.value = query.get('market');
+    dateInput.value = /^\d{4}-\d{2}-\d{2}$/.test(query.get('asOf') || '') ? query.get('asOf') : new Date().toISOString().slice(0, 10);
+    resetView();
+    publishContext();
+})();
+</script>
+{% end %}

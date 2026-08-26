@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.render_report.v1",
+  "title": "Newma Video Render Report",
+  "type": "object",
+  "required": ["schema_version", "status", "final_video", "duration_sec", "outputs"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "dasheng.video.render_report.v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "warn", "fail"]
+    },
+    "final_video": {
+      "type": "string"
+    },
+    "duration_sec": {
+      "type": "number",
+      "minimum": 0
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "path"],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": true
+}

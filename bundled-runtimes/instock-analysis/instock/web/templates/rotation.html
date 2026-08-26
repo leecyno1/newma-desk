@@ -1,0 +1,1604 @@
+{% extends "layout/mod.html" %}
+
+{% block main_content %}
+<script>
+if (window.location.protocol === 'file:') {
+    window.location.replace('http://127.0.0.1:9988/mods/rotation/' + window.location.search);
+}
+</script>
+<link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
+<style>
+    :root {
+        --rotation-bg: var(--instock-bg);
+        --rotation-surface: var(--instock-surface);
+        --rotation-surface-muted: var(--instock-surface-muted);
+        --rotation-surface-raised: var(--instock-surface-raised);
+        --rotation-text: var(--instock-text);
+        --rotation-text-soft: var(--instock-text-soft);
+        --rotation-muted: var(--instock-text-muted);
+        --rotation-border: var(--instock-border);
+        --rotation-border-strong: var(--instock-border-strong);
+        --rotation-primary: var(--instock-accent);
+        --rotation-primary-dark: var(--instock-accent-hover);
+        --rotation-up: var(--instock-positive);
+        --rotation-down: var(--instock-negative);
+        --rotation-warn: var(--instock-warning);
+        --rotation-radius: 12px;
+    }
+    .rotation-shell { min-height: 100%; padding: 22px; background: var(--rotation-bg); color: var(--rotation-text); }
+    .rotation-panel { background: var(--rotation-surface); border: 1px solid var(--rotation-border); border-radius: var(--rotation-radius); box-shadow: var(--instock-shadow); }
+    .rotation-hero { padding: 18px 20px; margin-bottom: 14px; }
+    .rotation-title { margin: 0; font-size: 22px; line-height: 1.3; font-weight: 700; letter-spacing: -.02em; }
+    .rotation-subtitle { margin: 5px 0 0; color: var(--rotation-muted); font-size: 13px; }
+    .rotation-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 16px; }
+    .rotation-field label { display: block; margin: 0 0 5px; color: var(--rotation-text-soft); font-size: 12px; font-weight: 500; }
+    .rotation-field .form-control { height: 38px; min-width: 150px; border: 1px solid var(--rotation-border-strong); border-radius: 8px; background: var(--rotation-surface-raised); color: var(--rotation-text); box-shadow: none; font-size: 13px; }
+    .rotation-field .form-control:focus { border-color: var(--rotation-primary); box-shadow: 0 0 0 2px var(--instock-accent-soft); }
+    .rotation-field .benchmark-input { min-width: 190px; }
+    .rotation-submit { height: 38px; padding: 0 18px; border: 0; border-radius: 8px; background: var(--rotation-primary); color: var(--instock-accent-contrast); font-size: 13px; font-weight: 600; }
+    .rotation-submit:hover, .rotation-submit:focus { background: var(--rotation-primary-dark); color: var(--instock-accent-contrast); }
+    .rotation-submit[disabled] { opacity: .62; cursor: wait; }
+    .rotation-meta { margin-left: auto; padding-bottom: 9px; color: var(--rotation-muted); font-size: 12px; }
+    .rotation-message { display: none; margin: 0 0 14px; padding: 11px 14px; border: 1px solid; border-radius: 10px; font-size: 13px; line-height: 1.55; }
+    .rotation-message.error { color: var(--instock-error-text); background: var(--instock-error-bg); border-color: var(--instock-error-border); }
+    .rotation-message.warning { color: var(--instock-warning-text); background: var(--instock-warning-bg); border-color: var(--instock-warning-border); }
+    .rotation-error-title { display: block; color: var(--rotation-text); font-size: 14px; }
+    .rotation-error-copy { margin: 3px 0 0; color: var(--rotation-text-soft); }
+    .rotation-error-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 9px; }
+    .rotation-error-capability { padding: 3px 7px; border: 1px solid var(--instock-error-border); border-radius: 999px; color: var(--rotation-muted); background: var(--rotation-surface-raised); font-family: var(--instock-font-mono); font-size: 10px; }
+    .rotation-error-retry { min-height: 30px; padding: 0 11px; border: 1px solid var(--instock-error-border); border-radius: 7px; color: var(--instock-error-text); background: var(--rotation-surface-raised); font-size: 11px; font-weight: 700; }
+    .rotation-error-detail { margin-top: 8px; color: var(--rotation-muted); font-size: 10px; }
+    .rotation-error-detail summary { cursor: pointer; }
+    .rotation-error-detail code { display: block; max-height: 96px; margin-top: 5px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+    .rotation-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .rotation-stat { min-height: 80px; padding: 13px 15px; }
+    .rotation-stat span { display: block; color: var(--rotation-muted); font-size: 12px; }
+    .rotation-stat strong { display: block; margin-top: 7px; overflow: hidden; color: var(--rotation-text); font-size: 18px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+    .rotation-stat small { display: block; margin-top: 4px; color: var(--rotation-muted); font-size: 10px; line-height: 1.35; }
+    .rotation-market-signals { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: -4px 0 14px; padding: 10px 12px; }
+    .rotation-market-signals strong { margin-right: 2px; color: var(--rotation-text-soft); font-size: 11px; }
+    .rotation-market-signals span { padding: 5px 8px; border: 1px solid var(--rotation-border); border-radius: 999px; color: var(--rotation-muted); background: var(--rotation-surface-muted); font-size: 10px; font-weight: 700; }
+    .rotation-market-signals .confirmed { color: var(--rotation-up); }
+    .rotation-market-signals .hot { color: var(--rotation-warn); }
+    .rotation-market-signals .avoid { color: var(--rotation-down); }
+    .rotation-main-grid { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(300px, .85fr); gap: 14px; margin-bottom: 14px; }
+    .rotation-panel-title { display: flex; align-items: center; justify-content: space-between; min-height: 46px; margin: 0; padding: 0 16px; border-bottom: 1px solid var(--rotation-border); font-size: 14px; font-weight: 700; }
+    .rotation-panel-note { color: var(--rotation-muted); font-size: 11px; font-weight: 400; }
+    #rotation-chart { height: 365px; }
+    .rotation-insight { padding: 16px; }
+    .rotation-headline { margin-bottom: 14px; font-size: 16px; font-weight: 700; line-height: 1.55; }
+    .rotation-confirmation { display: flex; flex-wrap: wrap; gap: 7px; margin: -3px 0 2px; }
+    .rotation-confirmation span { padding: 5px 8px; border: 1px solid var(--rotation-border); border-radius: 999px; color: var(--rotation-muted); background: var(--rotation-surface-muted); font-size: 10px; font-weight: 700; }
+    .rotation-confirmation span[data-tone="leading"] { color: var(--rotation-up); border-color: color-mix(in srgb, var(--rotation-up) 35%, var(--rotation-border)); }
+    .rotation-confirmation span[data-tone="strong"] { color: var(--rotation-primary-dark); border-color: var(--instock-accent-soft); }
+    .rotation-confirmation span[data-tone="hot"] { color: var(--rotation-warn); border-color: color-mix(in srgb, var(--rotation-warn) 42%, var(--rotation-border)); }
+    .rotation-confirmation span[data-tone="avoid"] { color: var(--rotation-down); border-color: color-mix(in srgb, var(--rotation-down) 35%, var(--rotation-border)); }
+    .rotation-section { margin-top: 16px; }
+    .rotation-section:first-child { margin-top: 0; }
+    .rotation-section h4 { margin: 0 0 8px; color: var(--rotation-muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; }
+    .rotation-list { margin: 0; padding-left: 18px; color: var(--rotation-text-soft); font-size: 12px; line-height: 1.75; }
+    .rotation-factor { display: grid; grid-template-columns: 82px minmax(0, 1fr) 42px; gap: 8px; align-items: center; margin: 8px 0; color: var(--rotation-text-soft); font-size: 12px; }
+    .rotation-factor-track { height: 6px; overflow: hidden; background: var(--rotation-surface-muted); border-radius: 999px; }
+    .rotation-factor-fill { display: block; height: 100%; background: var(--rotation-primary); border-radius: inherit; }
+    .rotation-factor.risk .rotation-factor-fill { background: var(--rotation-warn); }
+    .rotation-factor b { text-align: right; color: var(--rotation-text); font-family: var(--instock-font-mono); font-size: 11px; }
+    .rotation-czsc-link { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; margin-top: 14px; padding: 0 12px; border: 1px solid var(--instock-accent-soft); border-radius: 8px; color: var(--rotation-primary); font-size: 12px; font-weight: 600; text-decoration: none; }
+    .rotation-czsc-link:hover, .rotation-czsc-link:focus { background: var(--instock-accent-surface); color: var(--rotation-primary-dark); text-decoration: none; }
+    .rotation-czsc-link[aria-disabled="true"] { pointer-events: none; opacity: .55; }
+    .rotation-history-panel { margin-bottom: 14px; overflow: hidden; }
+    #rotation-history-chart { height: 300px; }
+    .rotation-table-panel { overflow: hidden; }
+    .rotation-table-wrap { overflow-x: auto; }
+    .rotation-table { width: 100%; margin: 0; border-collapse: collapse; }
+    .rotation-table th { padding: 10px 11px; border-bottom: 1px solid var(--rotation-border); background: var(--rotation-surface-muted); color: var(--rotation-muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .rotation-table td { padding: 11px; border-bottom: 1px solid var(--rotation-border); color: var(--rotation-text-soft); font-size: 12px; vertical-align: middle; white-space: nowrap; }
+    .rotation-table tbody tr { cursor: pointer; transition: background-color .16s ease; }
+    .rotation-table tbody tr:hover { background: var(--instock-surface-hover); }
+    .rotation-table tbody tr.selected { background: var(--instock-surface-selected); box-shadow: inset 3px 0 0 var(--rotation-primary); }
+    .rotation-table tbody tr:last-child td { border-bottom: 0; }
+    .rotation-module-link { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 14px; padding: 14px 16px; }
+    .rotation-module-link strong { display: block; color: var(--rotation-text); font-size: 13px; }
+    .rotation-module-link span { display: block; margin-top: 3px; color: var(--rotation-muted); font-size: 11px; line-height: 1.5; }
+    .rotation-module-link a { flex: 0 0 auto; min-height: 32px; padding: 7px 11px; border: 1px solid var(--instock-accent-soft); border-radius: 7px; color: var(--rotation-primary); font-size: 11px; font-weight: 700; text-decoration: none; }
+    .rotation-module-link a:hover, .rotation-module-link a:focus { background: var(--instock-accent-surface); color: var(--rotation-primary-dark); text-decoration: none; }
+    .rotation-sort { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
+    .rotation-sort.active { color: var(--rotation-primary-dark); }
+    .rotation-code { color: var(--rotation-text); font-family: var(--instock-font-mono); font-weight: 700; }
+    .rotation-row-select { display: block; width: 100%; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; text-align: left; }
+    .rotation-row-select:focus-visible { outline: 2px solid var(--rotation-primary); outline-offset: 3px; border-radius: 4px; }
+    .rotation-name { display: block; margin-top: 2px; color: var(--rotation-muted); font-family: inherit; font-weight: 400; }
+    .rotation-signal-source { display: block; margin-top: 4px; color: var(--rotation-muted); font-family: inherit; font-size: 10px; font-weight: 400; line-height: 1.45; white-space: normal; }
+    .rotation-proxy { display: inline-block; margin-left: 5px; padding: 1px 5px; border: 1px solid var(--rotation-border); border-radius: 999px; color: var(--rotation-warn); font-size: 10px; line-height: 1.4; vertical-align: 1px; }
+    .rotation-score { color: var(--rotation-text); font-size: 14px; font-weight: 700; }
+    .rotation-up { color: var(--rotation-up); font-weight: 600; }
+    .rotation-down { color: var(--rotation-down); font-weight: 600; }
+    .rotation-state { font-weight: 700; }
+    .rotation-state.leading { color: var(--rotation-up); }
+    .rotation-state.strong { color: var(--rotation-primary-dark); }
+    .rotation-state.hot { color: var(--rotation-warn); }
+    .rotation-state.neutral { color: var(--rotation-muted); }
+    .rotation-state.avoid { color: var(--rotation-down); }
+    .rotation-mobile-list { display: none; }
+    .rotation-empty { padding: 28px; color: var(--rotation-muted); text-align: center; }
+    .rotation-experiment-panel { position: relative; margin-top: 14px; overflow: hidden; }
+    .rotation-experiment-panel::before { position: absolute; z-index: 0; top: -88px; right: -64px; width: 220px; height: 220px; border: 1px solid var(--instock-accent-soft); border-radius: 50%; content: ''; opacity: .55; pointer-events: none; }
+    .rotation-experiment-header { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; padding: 19px 20px 16px; border-bottom: 1px solid var(--rotation-border); background: linear-gradient(110deg, var(--rotation-surface) 0%, var(--rotation-surface) 70%, var(--instock-accent-surface) 100%); }
+    .rotation-experiment-kicker { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 7px; color: var(--rotation-primary-dark); font-size: 10px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    .rotation-experiment-kicker::before { width: 20px; height: 1px; background: var(--rotation-primary); content: ''; }
+    .rotation-experiment-title { margin: 0; color: var(--rotation-text); font-size: 18px; font-weight: 750; letter-spacing: -.015em; }
+    .rotation-experiment-copy { max-width: 760px; margin: 6px 0 0; color: var(--rotation-muted); font-size: 12px; line-height: 1.65; }
+    .rotation-experiment-form { display: flex; flex-wrap: wrap; gap: 9px; align-items: flex-end; justify-content: flex-end; }
+    .rotation-experiment-field label { display: block; margin: 0 0 5px; color: var(--rotation-muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; }
+    .rotation-experiment-field .form-control { width: 118px; height: 36px; border: 1px solid var(--rotation-border-strong); border-radius: 8px; background: var(--rotation-surface-raised); color: var(--rotation-text); box-shadow: none; font-size: 12px; }
+    .rotation-experiment-run { height: 36px; padding: 0 15px; border: 1px solid var(--rotation-primary); border-radius: 8px; background: transparent; color: var(--rotation-primary-dark); font-size: 12px; font-weight: 750; white-space: nowrap; }
+    .rotation-experiment-run:hover, .rotation-experiment-run:focus { background: var(--rotation-primary); color: var(--instock-accent-contrast); }
+    .rotation-experiment-run[disabled] { opacity: .58; cursor: wait; }
+    .rotation-experiment-message { display: none; margin: 14px 16px 0; padding: 10px 12px; border: 1px solid; border-radius: 8px; font-size: 12px; line-height: 1.55; }
+    .rotation-experiment-message.error { color: var(--instock-error-text); background: var(--instock-error-bg); border-color: var(--instock-error-border); }
+    .rotation-experiment-placeholder { position: relative; z-index: 1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; padding: 24px 20px; }
+    .rotation-experiment-placeholder i { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid var(--instock-accent-soft); border-radius: 50%; color: var(--rotation-primary); background: var(--instock-accent-surface); font-size: 16px; }
+    .rotation-experiment-placeholder strong { display: block; color: var(--rotation-text-soft); font-size: 13px; }
+    .rotation-experiment-placeholder span { display: block; margin-top: 4px; color: var(--rotation-muted); font-size: 11px; line-height: 1.55; }
+    .rotation-experiment-results { position: relative; z-index: 1; display: none; padding: 16px; }
+    .rotation-experiment-verdict { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; margin-bottom: 14px; }
+    .rotation-verdict-stamp { display: flex; min-height: 124px; padding: 16px; border: 1px solid var(--rotation-border-strong); border-radius: 10px; background: var(--rotation-surface-muted); flex-direction: column; justify-content: space-between; }
+    .rotation-verdict-stamp small { color: var(--rotation-muted); font-size: 10px; font-weight: 750; letter-spacing: .1em; }
+    .rotation-verdict-stamp strong { color: var(--rotation-warn); font-size: 22px; line-height: 1.15; }
+    .rotation-verdict-stamp[data-state="promising"] strong { color: var(--rotation-up); }
+    .rotation-verdict-stamp[data-state="fragile"] strong { color: var(--rotation-down); }
+    .rotation-verdict-stamp span { color: var(--rotation-muted); font-family: var(--instock-font-mono); font-size: 10px; }
+    .rotation-experiment-reasons { padding: 15px 16px; border: 1px solid var(--rotation-border); border-radius: 10px; background: var(--rotation-surface-raised); }
+    .rotation-experiment-reasons h3 { margin: 0 0 7px; color: var(--rotation-text); font-size: 13px; }
+    .rotation-experiment-reasons .rotation-list { font-size: 11px; }
+    .rotation-experiment-facts { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+    .rotation-experiment-fact { padding: 5px 8px; border: 1px solid var(--rotation-border); border-radius: 999px; color: var(--rotation-muted); background: var(--rotation-surface-muted); font-family: var(--instock-font-mono); font-size: 10px; }
+    .rotation-experiment-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+    .rotation-experiment-metric { min-height: 74px; padding: 11px 12px; border: 1px solid var(--rotation-border); border-radius: 9px; background: var(--rotation-surface-raised); }
+    .rotation-experiment-metric span { display: block; color: var(--rotation-muted); font-size: 10px; line-height: 1.35; }
+    .rotation-experiment-metric strong { display: block; margin-top: 7px; color: var(--rotation-text); font-family: var(--instock-font-mono); font-size: 16px; }
+    .rotation-experiment-metric strong.up { color: var(--rotation-up); }
+    .rotation-experiment-metric strong.down { color: var(--rotation-down); }
+    .rotation-experiment-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .8fr); gap: 12px; }
+    .rotation-experiment-card { min-width: 0; overflow: hidden; border: 1px solid var(--rotation-border); border-radius: 10px; background: var(--rotation-surface-raised); }
+    .rotation-experiment-card h3 { display: flex; min-height: 40px; margin: 0; padding: 0 13px; border-bottom: 1px solid var(--rotation-border); align-items: center; justify-content: space-between; color: var(--rotation-text-soft); font-size: 12px; font-weight: 700; }
+    .rotation-experiment-card h3 span { color: var(--rotation-muted); font-size: 9px; font-weight: 500; }
+    #rotation-experiment-chart { height: 286px; }
+    .rotation-stress-list { display: grid; gap: 9px; padding: 13px; }
+    .rotation-stress-row { display: grid; grid-template-columns: 54px minmax(0, 1fr) 68px; gap: 9px; align-items: center; }
+    .rotation-stress-row span { color: var(--rotation-muted); font-family: var(--instock-font-mono); font-size: 10px; }
+    .rotation-stress-track { position: relative; height: 7px; overflow: hidden; border-radius: 99px; background: var(--rotation-surface-muted); }
+    .rotation-stress-fill { position: absolute; inset: 0 auto 0 50%; border-radius: inherit; background: var(--rotation-up); }
+    .rotation-stress-fill.negative { right: 50%; left: auto; background: var(--rotation-down); }
+    .rotation-stress-row b { color: var(--rotation-text); font-family: var(--instock-font-mono); font-size: 11px; text-align: right; }
+    .rotation-experiment-method { margin: 0 13px 13px; padding: 11px 12px; border-left: 2px solid var(--rotation-primary); color: var(--rotation-muted); background: var(--rotation-surface-muted); font-size: 10px; line-height: 1.65; }
+    .rotation-parameter-card { grid-column: 1 / -1; }
+    .rotation-parameter-wrap { overflow-x: auto; }
+    .rotation-parameter-table { width: 100%; border-collapse: collapse; }
+    .rotation-parameter-table th, .rotation-parameter-table td { padding: 9px 10px; border-bottom: 1px solid var(--rotation-border); text-align: right; white-space: nowrap; }
+    .rotation-parameter-table th { color: var(--rotation-muted); background: var(--rotation-surface-muted); font-size: 10px; font-weight: 650; }
+    .rotation-parameter-table td { color: var(--rotation-text-soft); font-family: var(--instock-font-mono); font-size: 10px; }
+    .rotation-parameter-table th:first-child, .rotation-parameter-table td:first-child { text-align: left; }
+    .rotation-parameter-table tbody tr.selected { background: var(--instock-surface-selected); box-shadow: inset 3px 0 0 var(--rotation-primary); }
+    .rotation-parameter-table tbody tr:last-child td { border-bottom: 0; }
+    .rotation-experiment-footnote { margin: 12px 1px 0; color: var(--rotation-muted); font-size: 10px; line-height: 1.6; }
+    @media (max-width: 1180px) {
+        .rotation-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .rotation-main-grid { grid-template-columns: 1fr; }
+        #rotation-chart { height: 380px; }
+        .rotation-experiment-header { grid-template-columns: 1fr; }
+        .rotation-experiment-form { justify-content: flex-start; }
+        .rotation-experiment-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .rotation-experiment-grid { grid-template-columns: 1fr; }
+        .rotation-parameter-card { grid-column: auto; }
+    }
+    @media (max-width: 760px) {
+        .rotation-shell { padding: 12px; }
+        .rotation-hero { padding: 16px; }
+        .rotation-title { font-size: 20px; }
+        .rotation-form { display: grid; grid-template-columns: 1fr 1fr; }
+        .rotation-field, .rotation-field .form-control, .rotation-field .benchmark-input { width: 100%; min-width: 0; }
+        .rotation-submit { width: 100%; }
+        .rotation-meta { grid-column: 1 / -1; width: 100%; margin-left: 0; padding: 0; }
+        .rotation-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .rotation-stat { min-height: 72px; padding: 12px; }
+        .rotation-stat strong { font-size: 16px; white-space: normal; }
+        #rotation-chart { height: 420px; }
+        #rotation-history-chart { height: 320px; }
+        .rotation-table-wrap { display: none; }
+        .rotation-mobile-list { display: block; }
+        .rotation-mobile-row { display: block; width: 100%; padding: 14px 15px; border: 0; border-bottom: 1px solid var(--rotation-border); color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+        .rotation-mobile-row.selected { background: var(--instock-surface-selected); box-shadow: inset 3px 0 0 var(--rotation-primary); }
+        .rotation-mobile-row:last-child { border-bottom: 0; }
+        .rotation-mobile-head { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; }
+        .rotation-mobile-symbol { min-width: 0; color: var(--rotation-text); font-size: 13px; font-weight: 700; }
+        .rotation-mobile-symbol span { margin-left: 6px; color: var(--rotation-muted); font-weight: 400; }
+        .rotation-mobile-score { flex: 0 0 auto; color: var(--rotation-text); font-size: 17px; font-weight: 700; }
+        .rotation-mobile-detail { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; color: var(--rotation-muted); font-size: 11px; }
+        .rotation-mobile-detail b { display: block; margin-top: 3px; color: var(--rotation-text-soft); font-size: 12px; }
+        .rotation-experiment-header { padding: 16px; }
+        .rotation-experiment-form { display: grid; grid-template-columns: 1fr 1fr; }
+        .rotation-experiment-field .form-control { width: 100%; }
+        .rotation-experiment-run { grid-column: 1 / -1; width: 100%; }
+        .rotation-experiment-verdict { grid-template-columns: 1fr; }
+        .rotation-verdict-stamp { min-height: 104px; }
+        .rotation-experiment-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        #rotation-experiment-chart { height: 300px; }
+    }
+    @media (max-width: 460px) {
+        .rotation-form { grid-template-columns: 1fr; }
+        .rotation-meta { grid-column: auto; }
+        #rotation-chart { height: 385px; }
+        #rotation-history-chart { height: 300px; }
+        .rotation-experiment-form { grid-template-columns: 1fr; }
+        .rotation-experiment-run { grid-column: auto; }
+        .rotation-experiment-results { padding: 12px; }
+        .rotation-experiment-metrics { gap: 6px; }
+        .rotation-experiment-metric { min-height: 68px; padding: 9px; }
+        .rotation-experiment-metric strong { font-size: 14px; }
+        #rotation-experiment-chart { height: 270px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .rotation-table tbody tr { transition: none; }
+    }
+</style>
+
+<main class="rotation-shell">
+    <section class="rotation-panel rotation-hero">
+        <h1 class="rotation-title">行业与ETF轮动</h1>
+        <p class="rotation-subtitle">申万2021版 31 个一级行业 · 七因子排序，行业宽度与资金只作确认</p>
+        <form id="rotation-form" class="rotation-form">
+            <div class="rotation-field">
+                <label for="rotation-window">分析周期</label>
+                <select id="rotation-window" class="form-control">
+                    <option value="40">近40日</option>
+                    <option value="60" selected>近60日</option>
+                    <option value="120">近120日</option>
+                </select>
+            </div>
+            <div class="rotation-field">
+                <label for="rotation-benchmark">基准</label>
+                <input id="rotation-benchmark" class="form-control benchmark-input" value="510300" maxlength="6" inputmode="numeric" aria-describedby="benchmark-hint">
+            </div>
+            <div class="rotation-field">
+                <label for="rotation-as-of">历史截止日（可选）</label>
+                <input id="rotation-as-of" class="form-control" type="date">
+            </div>
+            <button id="rotation-submit" class="rotation-submit" type="submit"><i class="fa fa-refresh" aria-hidden="true"></i> 更新轮动</button>
+            <span id="rotation-meta" class="rotation-meta">数据源 vibedesk · 日线 · 等待加载</span>
+        </form>
+    </section>
+
+    <div id="rotation-error" class="rotation-message error" role="alert"></div>
+    <div id="rotation-warning" class="rotation-message warning"></div>
+
+    <section id="rotation-stats" class="rotation-stats" aria-label="轮动摘要">
+        <div class="rotation-panel rotation-stat"><span>市场风格</span><strong id="stat-style">--</strong></div>
+        <div class="rotation-panel rotation-stat"><span>领先行业</span><strong id="stat-industry">--</strong></div>
+        <div class="rotation-panel rotation-stat"><span>当日领先 ETF</span><strong id="stat-etf">--</strong></div>
+        <div class="rotation-panel rotation-stat"><span>参数一致</span><strong id="stat-risk">--</strong></div>
+        <div class="rotation-panel rotation-stat"><span>影子策略</span><strong id="stat-shadow">--</strong><small id="stat-shadow-note">仅最新交易日推进</small></div>
+    </section>
+    <section class="rotation-panel rotation-market-signals" aria-label="轮动信号分布">
+        <strong>全市场确认分布</strong>
+        <span id="rotation-confirmed-count" class="confirmed">强确认 --</span>
+        <span id="rotation-overheated-count" class="hot">过热 --</span>
+        <span id="rotation-avoid-count" class="avoid">弱势回避 --</span>
+        <span id="rotation-neutral-count">其他 --</span>
+    </section>
+
+    <section class="rotation-main-grid">
+        <div class="rotation-panel">
+            <h2 class="rotation-panel-title">行业强弱排名 <span class="rotation-panel-note">9组参数投票确认方向，ETF量价负责执行</span></h2>
+            <div id="rotation-chart" role="img" aria-label="行业综合强弱横向排名图"></div>
+        </div>
+        <aside class="rotation-panel">
+            <h2 class="rotation-panel-title">轮动解读 <span id="selected-etf-label" class="rotation-panel-note">选择 ETF 查看拆解</span></h2>
+            <div class="rotation-insight">
+                <div id="rotation-headline" class="rotation-headline">正在提取行情并计算轮动排序…</div>
+                <div class="rotation-confirmation" aria-label="轮动确认">
+                    <span id="rotation-signal-tag" data-tone="neutral">轮动 --</span>
+                    <span id="rotation-trend-tag" data-tone="neutral">趋势 --</span>
+                    <span id="rotation-persistence-tag" data-tone="neutral">持续 --</span>
+                    <span id="rotation-risk-tag" data-tone="neutral">风险 --</span>
+                    <span id="rotation-flow-tag" data-tone="neutral">资金确认 --</span>
+                    <span id="rotation-consensus-tag" data-tone="neutral">模型票 --</span>
+                    <span id="rotation-shadow-tag" data-tone="neutral">影子持仓 --</span>
+                </div>
+                <a id="rotation-czsc-link" class="rotation-czsc-link" href="/mods/czsc" target="_blank" rel="noopener">
+                    <i class="fa fa-line-chart" aria-hidden="true"></i><span>用 CZSC 查看结构</span>
+                </a>
+                <a id="rotation-candidate-link" class="rotation-czsc-link" href="/mods/stock-candidates" target="_blank" rel="noopener">
+                    <i class="fa fa-filter" aria-hidden="true"></i><span>筛选该行业 A 股</span>
+                </a>
+                <div class="rotation-section">
+                    <h4>因子贡献</h4>
+                    <div id="rotation-factors"></div>
+                </div>
+                <div class="rotation-section">
+                    <h4>核心证据</h4>
+                    <ul id="rotation-evidence" class="rotation-list"></ul>
+                </div>
+                <div class="rotation-section">
+                    <h4>风险提示</h4>
+                    <ul id="rotation-risks" class="rotation-list"></ul>
+                </div>
+            </div>
+        </aside>
+    </section>
+
+    <section class="rotation-panel rotation-history-panel">
+        <h2 class="rotation-panel-title">近20日轮动轨迹 <span id="rotation-history-note" class="rotation-panel-note">回放当时可见的行业指数信号与ETF成交数据</span></h2>
+        <div id="rotation-history-chart" role="img" aria-label="近20个交易日行业ETF综合分轨迹"></div>
+    </section>
+
+    <section class="rotation-panel rotation-table-panel">
+        <h2 class="rotation-panel-title">ETF候选池 <span id="rotation-count" class="rotation-panel-note">--</span></h2>
+        <div class="rotation-table-wrap">
+            <table class="rotation-table">
+                <thead>
+                    <tr>
+                        <th><button class="rotation-sort" data-sort="rank">排名</button></th>
+                        <th>ETF</th>
+                        <th>行业</th>
+                        <th><button class="rotation-sort active" data-sort="total_score">综合分 ↓</button></th>
+                        <th><button class="rotation-sort" data-sort="parameter_vote_count">模型票</button></th>
+                        <th><button class="rotation-sort" data-sort="momentum_20d">20日动量</button></th>
+                        <th><button class="rotation-sort" data-sort="relative_20d">相对强弱</button></th>
+                        <th><button class="rotation-sort" data-sort="persistence_score">持续度</button></th>
+                        <th><button class="rotation-sort" data-sort="volume_ratio">量能比</button></th>
+                        <th><button class="rotation-sort" data-sort="crowding">拥挤/反转</button></th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody id="rotation-rows"></tbody>
+            </table>
+        </div>
+        <div id="rotation-mobile-list" class="rotation-mobile-list"></div>
+    </section>
+
+    <section class="rotation-panel rotation-module-link" aria-label="产业链研究模块">
+        <div>
+            <strong>产业链研究已独立为 Module</strong>
+            <span>供应链瓶颈、产业链节点与证据排序不再混入轮动页。</span>
+        </div>
+        <a href="/mods/industry-chain">打开产业链研究</a>
+    </section>
+
+    <section class="rotation-panel rotation-experiment-panel" aria-labelledby="rotation-experiment-title">
+        <header class="rotation-experiment-header">
+            <div>
+                <div class="rotation-experiment-kicker">Robustness docket</div>
+                <h2 id="rotation-experiment-title" class="rotation-experiment-title">轮动稳健性实验</h2>
+                <p class="rotation-experiment-copy">用当日收盘前可见的七因子排名、下一交易日开盘执行对应 ETF，按时间切分训练与样本外区间；同时检查 Rank IC、Top3 收益差和 5/10/20 日信号衰减。</p>
+            </div>
+            <form id="rotation-experiment-form" class="rotation-experiment-form">
+                <div class="rotation-experiment-field">
+                    <label for="rotation-rebalance-days">再平衡周期</label>
+                    <select id="rotation-rebalance-days" class="form-control">
+                        <option value="5">5 交易日</option>
+                        <option value="10" selected>10 交易日</option>
+                        <option value="20">20 交易日</option>
+                    </select>
+                </div>
+                <div class="rotation-experiment-field">
+                    <label for="rotation-cost-bps">单边成本</label>
+                    <select id="rotation-cost-bps" class="form-control">
+                        <option value="10">10 bps</option>
+                        <option value="25" selected>25 bps</option>
+                        <option value="50">50 bps</option>
+                    </select>
+                </div>
+                <button id="rotation-experiment-run" class="rotation-experiment-run" type="submit"><i class="fa fa-flask" aria-hidden="true"></i> 运行实验</button>
+            </form>
+        </header>
+        <div id="rotation-experiment-error" class="rotation-experiment-message error" role="alert"></div>
+        <div id="rotation-experiment-placeholder" class="rotation-experiment-placeholder">
+            <i class="fa fa-hourglass-half" aria-hidden="true"></i>
+            <div><strong>等待手动验证</strong><span>将测试 9 组参数，并对入选组合追加 3 组确认层过滤对照。</span></div>
+        </div>
+        <div id="rotation-experiment-results" class="rotation-experiment-results">
+            <div class="rotation-experiment-verdict">
+                <div id="rotation-verdict-stamp" class="rotation-verdict-stamp" data-state="insufficient_evidence">
+                    <small>OUT-OF-SAMPLE VERDICT</small>
+                    <strong id="rotation-verdict-label">--</strong>
+                    <span id="rotation-verdict-id">--</span>
+                </div>
+                <div class="rotation-experiment-reasons">
+                    <h3>为什么得到这个结论</h3>
+                    <ul id="rotation-verdict-reasons" class="rotation-list"></ul>
+                    <div id="rotation-experiment-facts" class="rotation-experiment-facts"></div>
+                </div>
+            </div>
+            <div id="rotation-experiment-metrics" class="rotation-experiment-metrics"></div>
+            <div class="rotation-experiment-grid">
+                <article class="rotation-experiment-card">
+                    <h3>样本外权益曲线 <span>策略 / 基准 / ETF 等权</span></h3>
+                    <div id="rotation-experiment-chart" role="img" aria-label="轮动策略样本外权益曲线"></div>
+                </article>
+                <article class="rotation-experiment-card">
+                    <h3>摩擦压力 <span>相对基准超额收益</span></h3>
+                    <div id="rotation-stress-list" class="rotation-stress-list"></div>
+                    <p class="rotation-experiment-method">仅在实际更换 ETF 时收取买入与卖出双边成本；当前持仓仍在前三且落后不足 5 分时继续持有。</p>
+                </article>
+                <article class="rotation-experiment-card rotation-parameter-card">
+                    <h3>参数平台 <span>训练段选择，样本外只负责检验</span></h3>
+                    <div class="rotation-parameter-wrap">
+                        <table class="rotation-parameter-table">
+                            <thead><tr><th>组合</th><th>训练评分</th><th>样本外交易</th><th>样本外收益</th><th>基准收益</th><th>超额</th><th>最大回撤</th><th>Sharpe</th><th>IR</th></tr></thead>
+                            <tbody id="rotation-parameter-rows"></tbody>
+                        </table>
+                    </div>
+                </article>
+                <article class="rotation-experiment-card rotation-parameter-card">
+                    <h3>确认层对照 <span>训练段选执行方式，样本外只验证</span></h3>
+                    <div class="rotation-parameter-wrap">
+                        <table class="rotation-parameter-table">
+                            <thead><tr><th>执行方式</th><th>训练评分</th><th>样本外收益</th><th>超额</th><th>相对原始</th><th>最大回撤</th><th>换手率</th><th>在场率</th><th>50bps超额</th></tr></thead>
+                            <tbody id="rotation-confirmation-rows"></tbody>
+                        </table>
+                    </div>
+                    <p id="rotation-confirmation-verdict" class="rotation-experiment-method"></p>
+                </article>
+                <article class="rotation-experiment-card rotation-parameter-card">
+                    <h3>预测指示诊断 <span>样本外 Rank IC / Top3 命中 / 收益差</span></h3>
+                    <div class="rotation-parameter-wrap">
+                        <table class="rotation-parameter-table">
+                            <thead><tr><th>未来周期</th><th>样本数</th><th>Rank IC</th><th>IC为正</th><th>Top3-后3</th><th>Top3跑赢基准</th><th>榜首跑赢基准</th></tr></thead>
+                            <tbody id="rotation-prediction-rows"></tbody>
+                        </table>
+                    </div>
+                    <p id="rotation-prediction-verdict" class="rotation-experiment-method"></p>
+                </article>
+                <article class="rotation-experiment-card rotation-parameter-card">
+                    <h3>七因子有效性 <span>固定10日主周期 · 单因子与去除因子对照</span></h3>
+                    <div class="rotation-parameter-wrap">
+                        <table class="rotation-parameter-table">
+                            <thead><tr><th>因子</th><th>有效权重</th><th>训练 IC</th><th>样本外 IC</th><th>样本外命中（含重叠）</th><th>加入后命中变化</th><th>结论</th></tr></thead>
+                            <tbody id="rotation-factor-effect-rows"></tbody>
+                        </table>
+                    </div>
+                    <p id="rotation-factor-effect-verdict" class="rotation-experiment-method"></p>
+                </article>
+                <article class="rotation-experiment-card rotation-parameter-card">
+                    <h3>参数一致性验证 <span>3组权重 × 3组窗口 · 区分状态化与当日静态口径</span></h3>
+                    <div class="rotation-parameter-wrap">
+                        <table class="rotation-parameter-table">
+                            <thead><tr><th>口径</th><th>训练样本</th><th>训练命中</th><th>样本外样本</th><th>样本外命中</th><th>命中变化</th><th>样本外超额</th><th>最大回撤</th></tr></thead>
+                            <tbody id="rotation-ensemble-rows"></tbody>
+                        </table>
+                    </div>
+                    <p id="rotation-ensemble-verdict" class="rotation-experiment-method"></p>
+                </article>
+            </div>
+            <p id="rotation-experiment-footnote" class="rotation-experiment-footnote"></p>
+        </div>
+    </section>
+</main>
+
+<script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script src="{{ static_url('js/echarts.min-6.1.0.js') }}"></script>
+<script>
+(function () {
+    const state = { data: null, experiment: null, selectedCode: null, sortKey: 'total_score', sortDirection: -1 };
+    const form = document.getElementById('rotation-form');
+    const submit = document.getElementById('rotation-submit');
+    const errorBox = document.getElementById('rotation-error');
+    const warningBox = document.getElementById('rotation-warning');
+    const meta = document.getElementById('rotation-meta');
+    const experimentForm = document.getElementById('rotation-experiment-form');
+    const experimentRun = document.getElementById('rotation-experiment-run');
+    const experimentError = document.getElementById('rotation-experiment-error');
+    const experimentPlaceholder = document.getElementById('rotation-experiment-placeholder');
+    const experimentResults = document.getElementById('rotation-experiment-results');
+    const deskBridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+    const analysisActionId = 'analysis.rotation';
+    const experimentActionId = 'analysis.rotation.experiment';
+    let chart = null;
+    let historyChart = null;
+    let experimentChart = null;
+    let analysisRunning = false;
+    let experimentRunning = false;
+
+    function selectedRow() {
+        return ((state.data && state.data.etfs) || []).find(row => row.code === state.selectedCode) || null;
+    }
+    function buildContext() {
+        const payload = state.data || {};
+        const summary = payload.summary || {};
+        const snapshot = payload.snapshot || null;
+        const selected = selectedRow();
+        const experiment = state.experiment || null;
+        const experimentSummary = experiment ? experiment.summary || {} : {};
+        const experimentQuality = experiment ? experiment.data_quality || {} : {};
+        const experimentVerdict = experiment ? experiment.verdict || {} : {};
+        const confirmationComparison = experiment ? experiment.confirmation_comparison || {} : {};
+        const confirmationVerdict = confirmationComparison.verdict || {};
+        return {
+            view: {id: 'sector-etf-rotation', title: '行业与 ETF 轮动'},
+            visibleBlocks: [
+                {id: 'industry-ranking', type: 'chart', title: '行业强弱排名'},
+                {id: 'rotation-history', type: 'chart', title: '近20日轮动轨迹'},
+                {id: 'etf-candidates', type: 'table', title: 'ETF 候选池'},
+                ...(experiment ? [{id: 'rotation-robustness', type: 'research-evidence', title: '轮动稳健性实验'}] : []),
+            ],
+            selection: selected ? {symbol: selected.code, market: 'CN', name: selected.name, industry: selected.industry} : {},
+            filters: {
+                window: Number(document.getElementById('rotation-window').value),
+                benchmark: document.getElementById('rotation-benchmark').value.trim(),
+                asOf: document.getElementById('rotation-as-of').value || null,
+            },
+            data: {
+                asOf: payload.as_of,
+                source: payload.data_source || 'newma-desk',
+                freshness: snapshot ? snapshot.freshness.state : 'unknown',
+                snapshot,
+                summary: {
+                    dataState: payload.data_state || 'unknown',
+                    leadingIndustry: summary.leading_industry || null,
+                    leadingEtf: summary.leading_etf || null,
+                    marketStyle: summary.market_style || null,
+                    marketBreadth: summary.market_breadth || null,
+                    marketUpRatio: summary.market_up_ratio || 0,
+                    riskTemperature: summary.risk_temperature || null,
+                    rotationEnvironment: summary.rotation_environment || null,
+                    leaderSignal: summary.leader_signal || null,
+                    leaderPersistenceScore: summary.leader_persistence_score || 0,
+                    signalDistribution: summary.signal_distribution || {},
+                    candidateCount: payload.successful_count || 0,
+                    staleCount: payload.stale_count || 0,
+                    signalState: payload.signal_state || 'unknown',
+                    indexSignalCount: payload.index_signal_count || 0,
+                    signalFallbackCount: payload.signal_fallback_count || 0,
+                    staticConsensus: payload.parameter_consensus || {},
+                    shadowStrategy: (payload.parameter_consensus || {}).shadow_state || {},
+                },
+                selectedRotation: selected ? {
+                    symbol: selected.code,
+                    rank: selected.rank,
+                    totalScore: selected.total_score,
+                    rotationSignal: selected.rotation_signal,
+                    confirmationLevel: selected.confirmation_level,
+                    persistenceScore: selected.persistence_score,
+                    top3Days20d: selected.top3_days_20d,
+                    rankChange5d: selected.rank_change_5d,
+                    trendState: selected.trend_state,
+                    riskState: selected.risk_state,
+                    overheated: selected.overheated,
+                    sectorFundFlow: selected.sector_fund_flow || null,
+                    signalCode: selected.signal_code,
+                    signalName: selected.signal_name,
+                    signalMode: selected.signal_mode,
+                    parameterVoteCount: selected.parameter_vote_count || 0,
+                    shadowVoteCount: selected.shadow_vote_count || 0,
+                    shadowConsensusWinner: Boolean(selected.shadow_consensus_winner),
+                } : null,
+                robustnessExperiment: experiment ? {
+                    asOf: experiment.as_of,
+                    snapshot: experiment.snapshot || null,
+                    verdict: experimentVerdict.state || null,
+                    verdictLabel: experimentVerdict.label || null,
+                    coverageYears: experimentQuality.coverage_years || 0,
+                    selectedVariant: experimentSummary.selected_variant_id || null,
+                    outOfSampleTrades: experimentSummary.oos_trades || 0,
+                    outOfSampleReturnPct: experimentSummary.oos_return_pct || 0,
+                    outOfSampleBenchmarkReturnPct: experimentSummary.oos_benchmark_return_pct || 0,
+                    outOfSampleExcessReturnPct: experimentSummary.oos_excess_return_pct || 0,
+                    outOfSampleMaxDrawdownPct: experimentSummary.oos_max_drawdown_pct || 0,
+                    positiveVariantSharePct: experimentSummary.positive_variant_share_pct || 0,
+                    selectedConfirmationPolicy: experimentSummary.selected_confirmation_policy || null,
+                    selectedConfirmationLabel: experimentSummary.selected_confirmation_label || null,
+                    confirmationOutOfSampleExcessReturnPct: experimentSummary.confirmation_oos_excess_return_pct || 0,
+                    confirmationExcessDeltaPct: experimentSummary.confirmation_oos_excess_delta_pct || 0,
+                    confirmationVerdict: confirmationVerdict.state || null,
+                    limitations: experiment.limitations || [],
+                } : null,
+            },
+            actions: [
+                {
+                    id: analysisActionId,
+                    label: '更新行业与 ETF 轮动',
+                    available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(analysisActionId)),
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            window: {enum: [40, 60, 120]},
+                            benchmark: {type: 'string'},
+                            refresh: {enum: ['0', '1']},
+                            asOf: {type: ['string', 'null'], format: 'date'},
+                        },
+                    },
+                },
+                {
+                    id: experimentActionId,
+                    label: '运行轮动稳健性实验',
+                    available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(experimentActionId)),
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            benchmark: {type: 'string'},
+                            rebalanceDays: {enum: [5, 10, 20]},
+                            costBps: {enum: [10, 25, 50]},
+                            refresh: {enum: ['0', '1']},
+                            asOf: {type: ['string', 'null'], format: 'date'},
+                        },
+                    },
+                },
+            ],
+            tasks: [
+                ...(analysisRunning ? [{id: 'rotation-analysis-load', status: 'running', actionId: analysisActionId}] : []),
+                ...(experimentRunning ? [{id: 'rotation-experiment-load', status: 'running', actionId: experimentActionId}] : []),
+            ],
+        };
+    }
+    function publishContext() {
+        if (deskBridge) deskBridge.publishContext();
+    }
+    function errorMessage(body, fallback) {
+        if (body && typeof body.error === 'object') return body.error.message || fallback;
+        return (body && body.error) || fallback;
+    }
+    function responseError(body, fallback) {
+        const error = new Error(errorMessage(body, fallback));
+        error.code = body && body.error && typeof body.error === 'object' ? body.error.code : '';
+        error.requestId = body && body.meta ? body.meta.request_id : '';
+        return error;
+    }
+
+    async function requestAnalysis(input) {
+        if (deskBridge && deskBridge.whenReady) await deskBridge.whenReady();
+        if (deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(analysisActionId)) {
+            return deskBridge.invokeAction(analysisActionId, input);
+        }
+        const query = new URLSearchParams();
+        Object.entries(input).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+        });
+        const response = await fetch('/api/v1/rotations/snapshots?' + query.toString());
+        const body = await response.json();
+        if (!response.ok) throw responseError(body, '轮动分析请求失败');
+        return body;
+    }
+
+    async function requestExperiment(input) {
+        if (deskBridge && deskBridge.whenReady) await deskBridge.whenReady();
+        if (deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(experimentActionId)) {
+            return deskBridge.invokeAction(experimentActionId, input);
+        }
+        const query = new URLSearchParams();
+        Object.entries(input).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+        });
+        const response = await fetch('/api/v1/rotations/experiments?' + query.toString());
+        const body = await response.json();
+        if (!response.ok) throw new Error(errorMessage(body, '稳健性实验请求失败'));
+        return body;
+    }
+
+    function setText(id, value) {
+        document.getElementById(id).textContent = value == null || value === '' ? '--' : String(value);
+    }
+    function signed(value, suffix) {
+        const number = Number(value || 0);
+        return `${number > 0 ? '+' : ''}${number.toFixed(2)}${suffix || ''}`;
+    }
+    function movementClass(value) { return Number(value) >= 0 ? 'rotation-up' : 'rotation-down'; }
+    function regimeClass(value) {
+        if (['leading', 'strong', 'hot', 'neutral', 'avoid'].includes(value)) return value;
+        return { '领先': 'leading', '转强': 'strong', '中性': 'neutral', '回避': 'avoid' }[value] || 'neutral';
+    }
+    function setConfirmationTag(id, label, value, tone) {
+        const node = document.getElementById(id);
+        node.textContent = `${label} ${value == null || value === '' ? '--' : value}`;
+        node.dataset.tone = tone || 'neutral';
+    }
+    function shadowLifecycleLabel(value) {
+        return {
+            bootstrap: '初始化',
+            same_day: '已记录',
+            holding: '持有',
+            rebalanced: '再平衡',
+            reinitialized_after_gap: '断档重置',
+            historical_disabled: '历史不回填',
+            unavailable: '不可用',
+        }[value] || '不可用';
+    }
+    function fundFlowConfirmationText(fundFlow) {
+        const flow = fundFlow || {};
+        const persistence = flow.persistence || {};
+        if (flow.state !== 'available') return '暂无';
+        if (persistence.state !== 'available') return `${signed(flow.net, '亿元')} · 积累中`;
+        if (persistence.direction === 'mixed') return `${persistence.label} ${persistence.observed_days}日`;
+        const directionalDays = persistence.direction === 'outflow'
+            ? persistence.outflow_days : persistence.inflow_days;
+        return `${persistence.label} ${directionalDays}/${persistence.observed_days}日`;
+    }
+    function replaceList(id, values) {
+        const root = document.getElementById(id); root.replaceChildren();
+        (values || []).forEach(value => {
+            const item = document.createElement('li'); item.textContent = value; root.appendChild(item);
+        });
+    }
+    function showError(error) {
+        const raw = error && error.message ? error.message : String(error || '轮动分析请求失败');
+        const isDeskFailure = error && error.code === 'market_data_unavailable'
+            || /Newma-Desk|market\.ohlcv|Failed to fetch|fetch failed/i.test(raw);
+        const title = document.createElement('strong');
+        title.className = 'rotation-error-title';
+        title.textContent = isDeskFailure ? 'Desk 市场数据上游不可用' : '轮动分析未完成';
+        const copy = document.createElement('p');
+        copy.className = 'rotation-error-copy';
+        copy.textContent = isDeskFailure
+            ? '轮动引擎没有拿到基准、行业指数和 ETF 日线，因此本次不生成排名。Desk 数据恢复后可直接重试。'
+            : raw;
+        errorBox.replaceChildren(title, copy);
+        if (isDeskFailure) {
+            const actions = document.createElement('div');
+            actions.className = 'rotation-error-actions';
+            const capability = document.createElement('span');
+            capability.className = 'rotation-error-capability';
+            capability.textContent = '数据能力 market.ohlcv';
+            const retry = document.createElement('button');
+            retry.type = 'button'; retry.className = 'rotation-error-retry'; retry.textContent = '重新提取数据';
+            retry.addEventListener('click', () => load(true));
+            actions.append(capability, retry);
+            const detail = document.createElement('details');
+            detail.className = 'rotation-error-detail';
+            const summary = document.createElement('summary'); summary.textContent = '查看技术详情';
+            const code = document.createElement('code'); code.textContent = raw;
+            detail.append(summary, code);
+            errorBox.append(actions, detail);
+        }
+        errorBox.style.display = 'block';
+    }
+    function clearMessages() {
+        errorBox.style.display = 'none'; warningBox.style.display = 'none';
+    }
+    function renderAnalysisFailure() {
+        state.data = null;
+        state.selectedCode = null;
+        ['stat-style', 'stat-industry', 'stat-etf', 'stat-risk'].forEach(id => setText(id, null));
+        setText('rotation-confirmed-count', '强确认 --');
+        setText('rotation-overheated-count', '过热 --');
+        setText('rotation-avoid-count', '弱势回避 --');
+        setText('rotation-neutral-count', '其他 --');
+        setText('rotation-count', '等待 Desk 数据');
+        if (chart) chart.clear();
+        if (historyChart) historyChart.clear();
+        renderSelected(null, false);
+        setText('rotation-headline', '等待 Desk 市场数据恢复');
+        replaceList('rotation-evidence', ['market.ohlcv 未返回有效日线，本次没有使用本地或第三方数据兜底。']);
+        replaceList('rotation-risks', ['当前页面未生成任何行业强弱、ETF 排名或交易结论。']);
+        const tbody = document.getElementById('rotation-rows'); tbody.replaceChildren();
+        const row = document.createElement('tr');
+        const item = document.createElement('td'); item.colSpan = 10; item.className = 'rotation-empty'; item.textContent = 'Desk 数据恢复后重新提取';
+        row.appendChild(item); tbody.appendChild(row);
+        const mobile = document.getElementById('rotation-mobile-list'); mobile.replaceChildren();
+        const mobileItem = document.createElement('div'); mobileItem.className = 'rotation-empty'; mobileItem.textContent = 'Desk 数据恢复后重新提取';
+        mobile.appendChild(mobileItem);
+    }
+    function cssToken(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+    function chartColors() {
+        return {
+            surface: cssToken('--instock-surface'),
+            surfaceMuted: cssToken('--instock-surface-muted'),
+            surfaceRaised: cssToken('--instock-surface-raised'),
+            border: cssToken('--instock-border'),
+            borderStrong: cssToken('--instock-border-strong'),
+            text: cssToken('--instock-text'),
+            textSoft: cssToken('--instock-text-soft'),
+            muted: cssToken('--instock-text-muted'),
+            faint: cssToken('--instock-text-faint'),
+            accent: cssToken('--instock-accent'),
+            accentSoft: cssToken('--instock-accent-soft'),
+            zone: cssToken('--instock-chart-zone'),
+            grid: cssToken('--instock-chart-grid'),
+            positive: cssToken('--instock-positive'),
+            negative: cssToken('--instock-negative'),
+            warning: cssToken('--instock-warning'),
+        };
+    }
+    function factorRow(label, value, risk) {
+        const row = document.createElement('div'); row.className = `rotation-factor${risk ? ' risk' : ''}`;
+        const name = document.createElement('span'); name.textContent = label;
+        const track = document.createElement('span'); track.className = 'rotation-factor-track';
+        const fill = document.createElement('span'); fill.className = 'rotation-factor-fill'; fill.style.width = `${Math.max(0, Math.min(100, Number(value || 0)))}%`;
+        const score = document.createElement('b'); score.textContent = Number(value || 0).toFixed(1);
+        track.appendChild(fill); row.append(name, track, score); return row;
+    }
+    function renderSelected(row, emitSelection) {
+        const czscLink = document.getElementById('rotation-czsc-link');
+        const candidateLink = document.getElementById('rotation-candidate-link');
+        const root = document.getElementById('rotation-factors');
+        if (!row) {
+            state.selectedCode = null;
+            setText('selected-etf-label', '暂无可用 ETF');
+            setText('rotation-headline', '暂无可用 ETF');
+            replaceList('rotation-evidence', []);
+            replaceList('rotation-risks', ['当前筛选条件下没有足够行情生成轮动解读。']);
+            setConfirmationTag('rotation-signal-tag', '轮动', null, 'neutral');
+            setConfirmationTag('rotation-trend-tag', '趋势', null, 'neutral');
+            setConfirmationTag('rotation-persistence-tag', '持续', null, 'neutral');
+            setConfirmationTag('rotation-risk-tag', '风险', null, 'neutral');
+            setConfirmationTag('rotation-flow-tag', '资金确认', null, 'neutral');
+            setConfirmationTag('rotation-consensus-tag', '模型票', null, 'neutral');
+            setConfirmationTag('rotation-shadow-tag', '影子持仓', null, 'neutral');
+            czscLink.removeAttribute('href');
+            czscLink.setAttribute('aria-disabled', 'true');
+            czscLink.tabIndex = -1;
+            czscLink.querySelector('span').textContent = '暂无可分析 ETF';
+            candidateLink.removeAttribute('href');
+            candidateLink.setAttribute('aria-disabled', 'true');
+            candidateLink.tabIndex = -1;
+            candidateLink.querySelector('span').textContent = '暂无行业可筛选';
+            const empty = document.createElement('div');
+            empty.className = 'rotation-empty';
+            empty.textContent = '当前筛选条件下暂无可用候选';
+            root.replaceChildren(empty);
+            renderRows();
+            publishContext();
+            return;
+        }
+        state.selectedCode = row.code;
+        const signalLabel = row.signal_mode === 'etf_fallback'
+            ? `ETF信号回退 ${row.code}`
+            : `${row.signal_name || row.name} ${row.signal_code || row.code}`;
+        setText('selected-etf-label', `信号：${signalLabel} · 执行：${row.name} ${row.code}${row.proxy_type !== 'direct' ? '（代理）' : ''}`);
+        const insight = row.insight || (state.data && state.data.insight) || {};
+        setText('rotation-headline', insight.headline);
+        replaceList('rotation-evidence', insight.evidence);
+        replaceList('rotation-risks', insight.risks);
+        setConfirmationTag('rotation-signal-tag', '轮动', row.rotation_signal, row.signal_tone);
+        setConfirmationTag(
+            'rotation-trend-tag', '趋势', row.trend_state,
+            row.trend_state === '多头' ? 'leading' : row.trend_state === '修复' ? 'strong' : row.trend_state === '空头' ? 'avoid' : 'neutral'
+        );
+        setConfirmationTag(
+            'rotation-persistence-tag', '持续', `${Number(row.persistence_score || 0).toFixed(0)}分`,
+            Number(row.persistence_score || 0) >= 70 ? 'leading' : Number(row.persistence_score || 0) >= 40 ? 'strong' : 'neutral'
+        );
+        setConfirmationTag('rotation-risk-tag', '风险', row.risk_state, row.overheated ? 'hot' : row.risk_state === '偏热' ? 'strong' : 'neutral');
+        const fundFlow = row.sector_fund_flow || {};
+        const flowPersistence = fundFlow.persistence || {};
+        setConfirmationTag(
+            'rotation-flow-tag',
+            '资金确认',
+            fundFlowConfirmationText(fundFlow),
+            flowPersistence.direction === 'inflow' ? 'leading'
+                : flowPersistence.direction === 'outflow' ? 'avoid'
+                    : fundFlow.direction === 'inflow' ? 'strong'
+                        : fundFlow.direction === 'outflow' ? 'avoid' : 'neutral'
+        );
+        const consensusCount = Number(row.parameter_vote_count || 0);
+        const consensusModels = Number((state.data && state.data.parameter_consensus && state.data.parameter_consensus.model_count) || 0);
+        const consensusThreshold = Number((state.data && state.data.parameter_consensus && state.data.parameter_consensus.majority_threshold) || 0);
+        setConfirmationTag(
+            'rotation-consensus-tag',
+            '模型票',
+            `${consensusCount}/${consensusModels || 9} · ${row.parameter_consensus_label || '参数分歧'}`,
+            consensusCount >= consensusThreshold && consensusThreshold > 0 ? 'leading' : consensusCount > 0 ? 'strong' : 'neutral',
+        );
+        const shadow = (state.data && state.data.parameter_consensus && state.data.parameter_consensus.shadow_state) || {};
+        const shadowWinner = shadow.winner || {};
+        const shadowCount = Number(row.shadow_vote_count || 0);
+        const shadowModels = Number(shadow.model_count || 0);
+        const isShadowWinner = row.code === shadowWinner.code;
+        setConfirmationTag(
+            'rotation-shadow-tag',
+            '影子持仓',
+            `${shadowCount}/${shadowModels || 0} · ${isShadowWinner ? shadowLifecycleLabel(shadow.lifecycle_state) : '非主仓'}`,
+            isShadowWinner ? 'leading' : shadowCount > 0 ? 'strong' : 'neutral',
+        );
+        const czscParams = new URLSearchParams({code: row.code, period: 'daily', bars: '480', assetType: 'etf', sourceModule: 'instock-rotation', ...(state.data && state.data.snapshot ? {sourceSnapshotId: state.data.snapshot.snapshot_id} : {})});
+        const asOf = document.getElementById('rotation-as-of').value;
+        if (asOf) czscParams.set('asOf', asOf);
+        czscLink.href = `/mods/czsc?${czscParams.toString()}`;
+        czscLink.removeAttribute('aria-disabled');
+        czscLink.tabIndex = 0;
+        czscLink.querySelector('span').textContent = `用 CZSC 查看 ${row.name} 结构`;
+        const candidateParams = new URLSearchParams({industries: row.industry, sourceModule: 'instock-rotation', ...(state.data && state.data.snapshot ? {sourceSnapshotId: state.data.snapshot.snapshot_id} : {})});
+        candidateLink.href = `/mods/stock-candidates?${candidateParams.toString()}`;
+        candidateLink.removeAttribute('aria-disabled');
+        candidateLink.tabIndex = 0;
+        candidateLink.querySelector('span').textContent = `筛选 ${row.industry} A 股`;
+        root.replaceChildren();
+        if (emitSelection && deskBridge && deskBridge.emit) {
+            deskBridge.emit('security.selected', {
+                symbol: row.code,
+                name: row.name,
+                market: 'CN',
+                assetType: 'etf',
+                asOf: (state.data && state.data.requested_as_of) || null,
+                snapshotId: state.data && state.data.snapshot ? state.data.snapshot.snapshot_id : null,
+            });
+        }
+        const factors = row.factor_scores || {};
+        const availability = row.factor_availability || {};
+        [
+            ['动量', factors.momentum], ['相对强弱', factors.relative_strength], ['趋势', factors.trend],
+            ['成交连续性', factors.volume_continuity], ['拥挤/条件反转', factors.crowding_reversal],
+            [availability.valuation ? '估值分位' : '估值分位（待数据）', factors.valuation],
+            [availability.fundamental_quality ? '基本面质量' : '基本面（待数据）', factors.fundamental_quality],
+        ].forEach(item => root.appendChild(factorRow(item[0], item[1], item[2])));
+        renderRows();
+        publishContext();
+    }
+    function sortedRows() {
+        const rows = [...((state.data && state.data.etfs) || [])];
+        return rows.sort((left, right) => {
+            const key = state.sortKey === 'crowding' ? 'crowding_score' : state.sortKey;
+            const leftValue = key === 'crowding_score' ? left.factor_scores.crowding_reversal : left[key];
+            const rightValue = key === 'crowding_score' ? right.factor_scores.crowding_reversal : right[key];
+            return (Number(leftValue) - Number(rightValue)) * state.sortDirection;
+        });
+    }
+    function cell(text, className) {
+        const node = document.createElement('td'); node.textContent = text; if (className) node.className = className; return node;
+    }
+    function renderRows() {
+        if (!state.data) return;
+        const rows = sortedRows();
+        const tbody = document.getElementById('rotation-rows'); tbody.replaceChildren();
+        const mobile = document.getElementById('rotation-mobile-list'); mobile.replaceChildren();
+        if (!rows.length) {
+            const emptyRow = document.createElement('tr');
+            const emptyCell = document.createElement('td');
+            emptyCell.colSpan = 11;
+            emptyCell.className = 'rotation-empty';
+            emptyCell.textContent = '当前筛选条件下暂无可用候选';
+            emptyRow.appendChild(emptyCell);
+            tbody.appendChild(emptyRow);
+            const mobileEmpty = document.createElement('div');
+            mobileEmpty.className = 'rotation-empty';
+            mobileEmpty.textContent = '当前筛选条件下暂无可用候选';
+            mobile.appendChild(mobileEmpty);
+            return;
+        }
+        rows.forEach(row => {
+            const tr = document.createElement('tr'); tr.dataset.code = row.code;
+            if (row.code === state.selectedCode) tr.className = 'selected';
+            tr.appendChild(cell(row.rank));
+            const symbol = cell('', 'rotation-code');
+            const selectButton = document.createElement('button');
+            selectButton.type = 'button';
+            selectButton.className = 'rotation-row-select';
+            selectButton.setAttribute('aria-label', `选择 ${row.name} ${row.code}`);
+            const code = document.createElement('span'); code.textContent = row.code;
+            const name = document.createElement('span'); name.className = 'rotation-name'; name.textContent = row.name;
+            const signal = document.createElement('span');
+            signal.className = 'rotation-signal-source';
+            signal.textContent = row.signal_mode === 'etf_fallback'
+                ? '信号：ETF回退'
+                : `信号：${row.signal_name || row.signal_code}`;
+            selectButton.append(code, name, signal);
+            selectButton.addEventListener('click', event => { event.stopPropagation(); renderSelected(row, true); });
+            symbol.appendChild(selectButton); tr.appendChild(symbol);
+            const industry = cell(row.industry);
+            if (row.proxy_type !== 'direct') {
+                const proxy = document.createElement('span'); proxy.className = 'rotation-proxy'; proxy.textContent = '代理';
+                industry.appendChild(proxy); industry.title = row.proxy_note || '交易代理口径';
+            }
+            tr.appendChild(industry);
+            tr.appendChild(cell(Number(row.total_score).toFixed(2), 'rotation-score'));
+            tr.appendChild(cell(`${Number(row.parameter_vote_count || 0)}/${Number((state.data.parameter_consensus || {}).model_count || 9)}`, row.parameter_consensus_winner ? 'rotation-up' : ''));
+            tr.appendChild(cell(signed(row.momentum_20d, '%'), movementClass(row.momentum_20d)));
+            tr.appendChild(cell(signed(row.relative_20d, '%'), movementClass(row.relative_20d)));
+            tr.appendChild(cell(Number(row.persistence_score || 0).toFixed(0)));
+            tr.appendChild(cell(`${Number(row.volume_ratio).toFixed(2)}x`));
+            tr.appendChild(cell(Number(row.factor_scores.crowding_reversal || 0).toFixed(1)));
+            tr.appendChild(cell(row.rotation_signal || row.regime, `rotation-state ${regimeClass(row.signal_tone || row.regime)}`));
+            tr.addEventListener('click', () => renderSelected(row, true)); tbody.appendChild(tr);
+
+            const mobileRow = document.createElement('button'); mobileRow.type = 'button'; mobileRow.className = `rotation-mobile-row${row.code === state.selectedCode ? ' selected' : ''}`;
+            mobileRow.setAttribute('aria-label', `选择 ${row.name} ${row.code}`);
+            const head = document.createElement('div'); head.className = 'rotation-mobile-head';
+            const mobileSymbol = document.createElement('div'); mobileSymbol.className = 'rotation-mobile-symbol'; mobileSymbol.textContent = `${row.rank}. ${row.code}`;
+            const mobileName = document.createElement('span'); mobileName.textContent = row.name; mobileSymbol.appendChild(mobileName);
+            const mobileScore = document.createElement('div'); mobileScore.className = 'rotation-mobile-score'; mobileScore.textContent = Number(row.total_score).toFixed(1);
+            head.append(mobileSymbol, mobileScore);
+            const detail = document.createElement('div'); detail.className = 'rotation-mobile-detail';
+            const fundFlow = row.sector_fund_flow || {};
+            const fundFlowText = fundFlowConfirmationText(fundFlow);
+            [[`${row.industry}${row.proxy_type !== 'direct' ? '（代理）' : ''}`, row.rotation_signal || row.regime], ['模型票', `${Number(row.parameter_vote_count || 0)}/${Number((state.data.parameter_consensus || {}).model_count || 9)} · ${row.parameter_consensus_label || '参数分歧'}`], ['价格信号', row.signal_mode === 'etf_fallback' ? 'ETF回退' : (row.signal_name || row.signal_code)], ['20日动量', signed(row.momentum_20d, '%')], ['持续度', `${Number(row.persistence_score || 0).toFixed(0)}分`], ['资金确认', fundFlowText]].forEach(item => {
+                const part = document.createElement('span'); part.textContent = item[0]; const strong = document.createElement('b'); strong.textContent = item[1]; part.appendChild(strong); detail.appendChild(part);
+            });
+            mobileRow.append(head, detail); mobileRow.addEventListener('click', () => renderSelected(row, true)); mobile.appendChild(mobileRow);
+        });
+    }
+    function renderChart(rankings) {
+        if (!chart) chart = echarts.init(document.getElementById('rotation-chart'));
+        const mobile = window.matchMedia('(max-width: 460px)').matches;
+        const ordered = [...rankings].slice(0, mobile ? 8 : 10).reverse();
+        const colors = chartColors();
+        chart.setOption({
+            backgroundColor: 'transparent',
+            textStyle: {color: colors.textSoft},
+            animationDuration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450,
+            grid: { left: mobile ? 82 : 105, right: mobile ? 34 : 52, top: 20, bottom: 28 },
+            tooltip: {
+                trigger: 'axis',
+                confine: true,
+                backgroundColor: colors.surfaceRaised,
+                borderColor: colors.borderStrong,
+                textStyle: {color: colors.text},
+                axisPointer: { type: 'shadow', shadowStyle: {color: colors.zone} },
+                formatter: params => {
+                    const item = ordered[params[0].dataIndex];
+                    const proxy = item.proxy_type !== 'direct' ? `<br>口径：${item.proxy_note || '交易代理'}` : '';
+                    const signal = item.signal_mode === 'etf_fallback' ? 'ETF信号回退' : `${item.signal_name} ${item.signal_code}`;
+                    return `${item.industry}<br>信号：${signal}<br>执行：${item.etf_name} ${item.etf_code}<br>综合分：${Number(item.score).toFixed(2)}<br>模型票：${Number(item.parameter_vote_count || 0)}/${Number((state.data.parameter_consensus || {}).model_count || 9)}<br>20日动量：${signed(item.momentum_20d, '%')}<br>当日行业：${signed(item.industry_day_change, '%')}${proxy}`;
+                },
+            },
+            xAxis: {
+                type: 'value', min: 0, max: 100,
+                axisLine: {lineStyle: {color: colors.borderStrong}},
+                axisLabel: { color: colors.faint, fontSize: 10 },
+                splitLine: { lineStyle: { color: colors.grid } },
+            },
+            yAxis: {
+                type: 'category', data: ordered.map(item => item.industry),
+                axisTick: { show: false }, axisLine: { show: false },
+                axisLabel: { color: colors.textSoft, fontSize: mobile ? 10 : 11, width: mobile ? 70 : 92, overflow: 'truncate' },
+            },
+            series: [{
+                type: 'bar', barWidth: mobile ? 15 : 18, data: ordered.map(item => ({
+                    value: item.score,
+                    itemStyle: { color: item.signal_tone === 'leading' ? colors.positive : item.signal_tone === 'avoid' ? colors.negative : item.signal_tone === 'hot' ? colors.warning : colors.accent, borderRadius: [0, 4, 4, 0] },
+                })),
+                label: { show: true, position: 'right', color: colors.textSoft, fontSize: 10, formatter: value => Number(value.value).toFixed(1) },
+            }],
+        }, true);
+    }
+    function renderHistory(payload) {
+        if (!historyChart) historyChart = echarts.init(document.getElementById('rotation-history-chart'));
+        const history = payload.rotation_history || [];
+        const topRows = (payload.etfs || []).slice(0, 5);
+        const mobile = window.matchMedia('(max-width: 460px)').matches;
+        const colors = chartColors();
+        const palette = [colors.positive, colors.accent, colors.negative, colors.warning, colors.muted];
+        const dates = history.map(point => point.date.slice(5));
+        const series = topRows.map((row, index) => ({
+            name: row.industry,
+            type: 'line',
+            smooth: 0.2,
+            showSymbol: history.length <= 12,
+            symbolSize: 5,
+            lineStyle: { width: index === 0 ? 2.5 : 1.8, color: palette[index] },
+            itemStyle: { color: palette[index] },
+            emphasis: { focus: 'series' },
+            data: history.map(point => {
+                const match = (point.rankings || []).find(item => item.code === row.code);
+                return match ? match.score : null;
+            }),
+        }));
+        historyChart.setOption({
+            backgroundColor: 'transparent',
+            textStyle: {color: colors.textSoft},
+            animationDuration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450,
+            color: palette,
+            grid: { left: mobile ? 38 : 48, right: 22, top: mobile ? 64 : 54, bottom: 34 },
+            legend: { type: 'scroll', top: 15, left: 16, right: 16, itemWidth: 18, itemHeight: 8, inactiveColor: colors.faint, textStyle: { color: colors.textSoft, fontSize: mobile ? 10 : 11 } },
+            tooltip: { trigger: 'axis', confine: true, backgroundColor: colors.surfaceRaised, borderColor: colors.borderStrong, textStyle: {color: colors.text}, axisPointer: {lineStyle: {color: colors.accent}}, valueFormatter: value => value == null ? '--' : Number(value).toFixed(2) },
+            xAxis: { type: 'category', boundaryGap: false, data: dates, axisLine: { lineStyle: { color: colors.borderStrong } }, axisLabel: { color: colors.faint, fontSize: 10, interval: mobile ? 3 : 1 } },
+            yAxis: { type: 'value', min: 0, max: 100, axisLabel: { color: colors.faint, fontSize: 10 }, splitLine: { lineStyle: { color: colors.grid } } },
+            series,
+        }, true);
+        const summary = payload.summary || {};
+        setText('rotation-history-note', `近${summary.history_days || 0}日切换 ${summary.rotation_changes_20d || 0} 次 · 当前领先 ${summary.leader_streak_days || 0} 日`);
+    }
+    function experimentMetric(label, value, tone) {
+        const item = document.createElement('div'); item.className = 'rotation-experiment-metric';
+        const caption = document.createElement('span'); caption.textContent = label;
+        const number = document.createElement('strong'); number.textContent = value; if (tone) number.className = tone;
+        item.append(caption, number); return item;
+    }
+    function renderExperimentChart(payload) {
+        if (!experimentChart) experimentChart = echarts.init(document.getElementById('rotation-experiment-chart'));
+        const curve = payload.equity_curve || [];
+        const colors = chartColors();
+        const mobile = window.matchMedia('(max-width: 460px)').matches;
+        experimentChart.setOption({
+            backgroundColor: 'transparent',
+            textStyle: {color: colors.textSoft},
+            animationDuration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 520,
+            color: [colors.positive, colors.accent, colors.muted],
+            grid: {left: mobile ? 40 : 48, right: 18, top: 48, bottom: 34},
+            legend: {top: 13, left: 14, itemWidth: 17, itemHeight: 7, textStyle: {color: colors.textSoft, fontSize: 10}},
+            tooltip: {
+                trigger: 'axis', confine: true,
+                backgroundColor: colors.surfaceRaised, borderColor: colors.borderStrong,
+                textStyle: {color: colors.text}, axisPointer: {lineStyle: {color: colors.accent}},
+                valueFormatter: value => value == null ? '--' : Number(value).toFixed(4),
+            },
+            xAxis: {
+                type: 'category', boundaryGap: false, data: curve.map(point => point.date.slice(5)),
+                axisLine: {lineStyle: {color: colors.borderStrong}},
+                axisLabel: {color: colors.faint, fontSize: 9, interval: mobile ? 4 : 2},
+            },
+            yAxis: {
+                type: 'value', scale: true,
+                axisLabel: {color: colors.faint, fontSize: 9, formatter: value => Number(value).toFixed(2)},
+                splitLine: {lineStyle: {color: colors.grid}},
+            },
+            series: [
+                {name: '轮动策略', type: 'line', smooth: .18, showSymbol: false, lineStyle: {width: 2.4}, data: curve.map(point => point.strategy)},
+                {name: '基准', type: 'line', smooth: .18, showSymbol: false, lineStyle: {width: 1.7}, data: curve.map(point => point.benchmark)},
+                {name: 'ETF等权', type: 'line', smooth: .18, showSymbol: false, lineStyle: {width: 1.4, type: 'dashed'}, data: curve.map(point => point.equal_weight)},
+            ],
+        }, true);
+    }
+    function renderStressTests(rows) {
+        const root = document.getElementById('rotation-stress-list'); root.replaceChildren();
+        const maximum = Math.max(1, ...(rows || []).map(row => Math.abs(Number(row.excess_return_pct || 0))));
+        (rows || []).forEach(row => {
+            const excess = Number(row.excess_return_pct || 0);
+            const item = document.createElement('div'); item.className = 'rotation-stress-row';
+            const cost = document.createElement('span'); cost.textContent = `${row.cost_bps} bps`;
+            const track = document.createElement('div'); track.className = 'rotation-stress-track';
+            const fill = document.createElement('div'); fill.className = `rotation-stress-fill${excess < 0 ? ' negative' : ''}`;
+            fill.style.width = `${Math.min(50, Math.abs(excess) / maximum * 50)}%`;
+            const value = document.createElement('b'); value.textContent = signed(excess, '%');
+            track.appendChild(fill); item.append(cost, track, value); root.appendChild(item);
+        });
+    }
+    function renderParameterSurface(payload) {
+        const root = document.getElementById('rotation-parameter-rows'); root.replaceChildren();
+        const selectedId = (payload.selected_variant || {}).id;
+        const profileLabels = {balanced: '均衡', momentum: '动量', defensive: '防御'};
+        (payload.parameter_surface || []).forEach(row => {
+            const oos = row.out_of_sample || {};
+            const tr = document.createElement('tr'); if (row.id === selectedId) tr.className = 'selected';
+            [
+                `${profileLabels[row.profile] || row.profile} · ${row.window}日${row.id === selectedId ? ' ★' : ''}`,
+                Number(row.selection_score || 0).toFixed(2),
+                String(oos.trades || 0),
+                signed(oos.total_return_pct, '%'),
+                signed(oos.benchmark_return_pct, '%'),
+                signed(oos.excess_return_pct, '%'),
+                `-${Number(oos.max_drawdown_pct || 0).toFixed(2)}%`,
+                Number(oos.sharpe || 0).toFixed(2),
+                Number(oos.information_ratio || 0).toFixed(2),
+            ].forEach(value => { const td = document.createElement('td'); td.textContent = value; tr.appendChild(td); });
+            root.appendChild(tr);
+        });
+    }
+    function renderConfirmationComparison(payload) {
+        const comparison = payload.confirmation_comparison || {};
+        const selected = comparison.selected_policy || {};
+        const verdict = comparison.verdict || {};
+        const observation = comparison.oos_observation || {};
+        const root = document.getElementById('rotation-confirmation-rows'); root.replaceChildren();
+        (comparison.policies || []).forEach(row => {
+            const oos = row.out_of_sample || {};
+            const delta = row.delta_vs_raw || {};
+            const stressed = (row.cost_sensitivity || []).find(item => Number(item.cost_bps) === 50) || {};
+            const tr = document.createElement('tr'); if (row.id === selected.id) tr.className = 'selected';
+            [
+                `${row.label || row.id}${row.id === selected.id ? ' ★' : ''}`,
+                Number(row.selection_score || 0).toFixed(2),
+                signed(oos.total_return_pct, '%'),
+                signed(oos.excess_return_pct, '%'),
+                signed(delta.excess_return_pct, '%'),
+                `-${Number(oos.max_drawdown_pct || 0).toFixed(2)}%`,
+                `${Number(oos.turnover_rate_pct || 0).toFixed(0)}%`,
+                `${Number(oos.invested_rate_pct || 0).toFixed(0)}%`,
+                signed(stressed.excess_return_pct, '%'),
+            ].forEach(value => { const td = document.createElement('td'); td.textContent = value; tr.appendChild(td); });
+            root.appendChild(tr);
+        });
+        const delta = Number(verdict.oos_excess_delta_pct || 0);
+        const drawdown = Number(verdict.oos_drawdown_improvement_pct || 0);
+        const observationText = observation.policy_id && observation.policy_id !== selected.id
+            ? ` 样本外 ${observation.policy_label} 相对原始 ${signed(observation.excess_delta_vs_raw_pct, '%')}，仅作事后观察，不据此切换策略。`
+            : '';
+        setText(
+            'rotation-confirmation-verdict',
+            `${verdict.label || '等待确认层结论'}；样本外相对原始超额 ${signed(delta, '%')}，回撤改善 ${signed(drawdown, '%')}。${observationText}`,
+        );
+    }
+    function renderPredictionDiagnostics(payload) {
+        const diagnostics = payload.prediction_diagnostics || {};
+        const verdict = diagnostics.verdict || {};
+        const confidence = diagnostics.confidence_diagnostics || {};
+        const root = document.getElementById('rotation-prediction-rows');
+        root.replaceChildren();
+        (((diagnostics.out_of_sample || {}).horizons) || []).forEach(row => {
+            const tr = document.createElement('tr');
+            if (Number(row.horizon_sessions) === Number(diagnostics.primary_horizon_sessions)) tr.className = 'selected';
+            const isPrimary = Number(row.horizon_sessions) === Number(diagnostics.primary_horizon_sessions);
+            const isObservedBest = Number(row.horizon_sessions) === Number(diagnostics.best_observed_horizon_sessions);
+            [
+                `${row.horizon_sessions}日${isPrimary ? ' 主' : ''}${isObservedBest ? ' ★' : ''}`,
+                `${row.samples || 0} / 有效${row.effective_non_overlapping_samples || 0}`,
+                Number(row.rank_ic_mean || 0).toFixed(3),
+                `${Number(row.rank_ic_positive_rate_pct || 0).toFixed(0)}%`,
+                signed(row.top3_minus_bottom3_mean_pct, '%'),
+                `${Number(row.top3_beat_benchmark_rate_pct || 0).toFixed(0)}%`,
+                `${Number(row.leader_beat_benchmark_rate_pct || 0).toFixed(0)}%`,
+            ].forEach(value => { const td = document.createElement('td'); td.textContent = value; tr.appendChild(td); });
+            root.appendChild(tr);
+        });
+        const reasons = (verdict.reasons || []).join('；');
+        const primary = (((diagnostics.out_of_sample || {}).horizons) || []).find(
+            row => Number(row.horizon_sessions) === Number(diagnostics.primary_horizon_sessions)
+        ) || {};
+        const phaseRange = primary.non_overlapping_top3_beat_benchmark_rate_range_pct || [0, 0];
+        const wilson = primary.top3_beat_benchmark_wilson_95_pct || [0, 0];
+        setText(
+            'rotation-prediction-verdict',
+            `${verdict.label || '等待预测诊断'}。${reasons} 主周期不重叠采样相位命中 ${Number(phaseRange[0] || 0).toFixed(1)}%–${Number(phaseRange[1] || 0).toFixed(1)}%，95%保守区间 ${Number(wilson[0] || 0).toFixed(1)}%–${Number(wilson[1] || 0).toFixed(1)}%。${diagnostics.note ? ` ${diagnostics.note}` : ''}${confidence.verdict ? ` 因子共识过滤：${confidence.verdict.label}，未通过前不进入正式信号。` : ''}`,
+        );
+    }
+    function renderFactorEffectiveness(payload) {
+        const diagnostics = payload.prediction_diagnostics || {};
+        const effectiveness = diagnostics.factor_effectiveness || {};
+        const labels = {
+            momentum: '动量', relative_strength: '相对强弱', trend: '趋势质量',
+            volume_continuity: '成交连续性', crowding_reversal: '拥挤/反转',
+            valuation: '估值分位', fundamental_quality: '基本面质量',
+        };
+        const root = document.getElementById('rotation-factor-effect-rows');
+        root.replaceChildren();
+        (effectiveness.factors || []).forEach(row => {
+            const tr = document.createElement('tr');
+            const oos = row.out_of_sample || {};
+            const leaveOneOut = row.leave_one_out || {};
+            [
+                labels[row.factor] || row.factor,
+                row.active ? `${(Number(row.effective_weight || 0) * 100).toFixed(1)}%` : '--',
+                row.active ? Number((row.train || {}).rank_ic_mean || 0).toFixed(3) : '--',
+                row.active ? Number(oos.rank_ic_mean || 0).toFixed(3) : '--',
+                row.active ? `${Number(oos.top3_beat_benchmark_rate_pct || 0).toFixed(1)}%` : '--',
+                row.active ? signed(leaveOneOut.top3_hit_contribution_oos_pct, '%') : '--',
+                row.label || '--',
+            ].forEach(value => { const td = document.createElement('td'); td.textContent = value; tr.appendChild(td); });
+            root.appendChild(tr);
+        });
+        const active = (effectiveness.factors || []).filter(row => row.active);
+        const stable = active.filter(row => row.state === 'stable_positive').length;
+        setText(
+            'rotation-factor-effect-verdict',
+            `当前历史实测 ${active.length}/7 个因子，跨训练与样本外稳定为正 ${stable} 个。估值和基本面缺少行业级点时历史，不参与回测；本表只诊断，不按样本外结果重新调权。`,
+        );
+    }
+    function renderParameterEnsemble(payload) {
+        const ensemble = payload.parameter_ensemble || {};
+        const train = ensemble.train || {};
+        const oos = ensemble.out_of_sample || {};
+        const trainHigh = train.high_confidence || {};
+        const oosHigh = oos.high_confidence || {};
+        const trainBase = train.selected_variant_baseline || {};
+        const oosBase = oos.selected_variant_baseline || {};
+        const strategy = oos.strategy || {};
+        const online = ensemble.online_current_leader || {};
+        const onlineTrain = online.train || {};
+        const onlineOos = online.out_of_sample || {};
+        const onlineTrainHigh = onlineTrain.high_consensus || {};
+        const onlineOosHigh = onlineOos.high_consensus || {};
+        const onlineStrategy = onlineOos.strategy || {};
+        const selected = payload.selected_variant || {};
+        const selectedOos = selected.out_of_sample || {};
+        const root = document.getElementById('rotation-ensemble-rows');
+        root.replaceChildren();
+        [
+            [
+                `单模型 ${selected.id || '--'}`,
+                String(trainBase.samples || 0),
+                `${Number(trainBase.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
+                String(oosBase.samples || 0),
+                `${Number(oosBase.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
+                '--',
+                signed(selectedOos.excess_return_pct, '%'),
+                `-${Number(selectedOos.max_drawdown_pct || 0).toFixed(2)}%`,
+            ],
+            [
+                `持仓缓冲集成 ≥${ensemble.majority_threshold || 5}/${ensemble.variant_count || 9}`,
+                String(trainHigh.samples || 0),
+                `${Number(trainHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
+                String(oosHigh.samples || 0),
+                `${Number(oosHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
+                signed(oos.high_confidence_hit_delta_pct, '%'),
+                signed(strategy.excess_return_pct, '%'),
+                `-${Number(strategy.max_drawdown_pct || 0).toFixed(2)}%`,
+            ],
+            [
+                `当日静态投票 ≥${ensemble.majority_threshold || 5}/${ensemble.variant_count || 9}`,
+                String(onlineTrainHigh.samples || 0),
+                `${Number(onlineTrainHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
+                String(onlineOosHigh.samples || 0),
+                `${Number(onlineOosHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
+                signed(onlineOos.high_consensus_hit_delta_pct, '%'),
+                signed(onlineStrategy.excess_return_pct, '%'),
+                `-${Number(onlineStrategy.max_drawdown_pct || 0).toFixed(2)}%`,
+            ],
+        ].forEach((values, index) => {
+            const tr = document.createElement('tr');
+            if (index === 2) tr.className = 'selected';
+            values.forEach(value => { const td = document.createElement('td'); td.textContent = value; tr.appendChild(td); });
+            root.appendChild(tr);
+        });
+        const verdict = ensemble.verdict || {};
+        const interval = oosHigh.gross_beat_benchmark_wilson_95_pct || [0, 0];
+        const onlineInterval = onlineOosHigh.gross_beat_benchmark_wilson_95_pct || [0, 0];
+        setText(
+            'rotation-ensemble-verdict',
+            `${verdict.label || '等待参数集成结论'}。持仓缓冲影子信号 ${oosHigh.samples || 0} 次、命中 ${Number(oosHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%（95%区间 ${Number(interval[0] || 0).toFixed(1)}%–${Number(interval[1] || 0).toFixed(1)}%）；与当前页面一致的当日静态投票为 ${Number(onlineOosHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%（${onlineOosHigh.samples || 0} 次，95%区间 ${Number(onlineInterval[0] || 0).toFixed(1)}%–${Number(onlineInterval[1] || 0).toFixed(1)}%），因此页面只显示参数一致性，不称预测强信号。`,
+        );
+    }
+    function renderExperiment(payload, source) {
+        state.experiment = payload;
+        experimentError.style.display = 'none';
+        experimentPlaceholder.style.display = 'none';
+        experimentResults.style.display = 'block';
+        const verdict = payload.verdict || {};
+        const quality = payload.data_quality || {};
+        const summary = payload.summary || {};
+        const selected = payload.selected_variant || {};
+        const oos = selected.out_of_sample || {};
+        const stamp = document.getElementById('rotation-verdict-stamp'); stamp.dataset.state = verdict.state || 'insufficient_evidence';
+        setText('rotation-verdict-label', verdict.label);
+        setText('rotation-verdict-id', `${summary.selected_variant_id || '--'} · ${payload.as_of || '--'}`);
+        replaceList('rotation-verdict-reasons', verdict.reasons || []);
+        const facts = document.getElementById('rotation-experiment-facts'); facts.replaceChildren();
+        [
+            `覆盖 ${Number(quality.coverage_years || 0).toFixed(1)} 年`,
+            `样本外 ${summary.oos_trades || 0} 笔`,
+            summary.candidate_state === 'qualified' ? '训练门槛通过' : '仅诊断候选',
+            `参数平台 ${Number(summary.positive_variant_share_pct || 0).toFixed(0)}%`,
+            `样本外分段正超额 ${Number(summary.oos_positive_block_share_pct || 0).toFixed(0)}%`,
+            `确认执行 ${summary.selected_confirmation_label || '--'}`,
+            `预测诊断 ${summary.prediction_label || '--'}`,
+            `线上同口径 ${Number(summary.online_consensus_oos_hit_rate_pct || 0).toFixed(1)}% · ${summary.online_consensus_oos_samples || 0}次`,
+            `状态化影子 ${Number(summary.ensemble_high_confidence_oos_hit_rate_pct || 0).toFixed(1)}% · ${summary.ensemble_high_confidence_oos_samples || 0}次`,
+            `历史实测 ${quality.active_factor_count || 0}/${quality.configured_factor_count || 7} 因子`,
+            `${quality.successful_symbols || 0}/${quality.universe_size || 0} 标的 · ETF覆盖 ${Number(quality.universe_coverage_pct || 0).toFixed(1)}%`,
+            `指数信号 ${quality.index_signal_count || 0} / ETF代理 ${quality.signal_fallback_count || 0} · 有效信号覆盖 ${Number(quality.effective_signal_coverage_pct || 0).toFixed(1)}%`,
+            payload.cache_hit ? '15分钟缓存' : '实时重算',
+        ].forEach(value => { const item = document.createElement('span'); item.className = 'rotation-experiment-fact'; item.textContent = value; facts.appendChild(item); });
+        const metrics = document.getElementById('rotation-experiment-metrics'); metrics.replaceChildren();
+        [
+            ['样本外策略收益', signed(oos.total_return_pct, '%'), Number(oos.total_return_pct) >= 0 ? 'up' : 'down'],
+            ['同期基准收益', signed(oos.benchmark_return_pct, '%'), Number(oos.benchmark_return_pct) >= 0 ? 'up' : 'down'],
+            ['相对基准超额', signed(oos.excess_return_pct, '%'), Number(oos.excess_return_pct) >= 0 ? 'up' : 'down'],
+            ['最大回撤', `-${Number(oos.max_drawdown_pct || 0).toFixed(2)}%`, 'down'],
+            ['Sharpe', Number(oos.sharpe || 0).toFixed(2), ''],
+            ['Information Ratio', Number(oos.information_ratio || 0).toFixed(2), ''],
+        ].forEach(row => metrics.appendChild(experimentMetric(row[0], row[1], row[2])));
+        renderExperimentChart(payload);
+        renderStressTests(payload.stress_tests || []);
+        renderParameterSurface(payload);
+        renderConfirmationComparison(payload);
+        renderPredictionDiagnostics(payload);
+        renderFactorEffectiveness(payload);
+        renderParameterEnsemble(payload);
+        const limitationLabels = {
+            fixed_current_etf_universe_has_survivorship_bias: '固定使用当前 ETF 池，存在幸存者偏差',
+            historical_industry_breadth_is_confirmation_only: '行业宽度仅作当日确认，不进入历史评分',
+            historical_valuation_and_fundamentals_unavailable_excluded: '估值与基本面缺少行业点时历史，回测中剔除并重算有效权重',
+            maximum_800_recent_bars_from_current_desk_interface: 'Desk 当前最多提供最近 800 根日线',
+            development_holdout_has_been_reused_not_blind: '开发样本外已参与本轮迭代，不能再视为全新盲测',
+            prediction_samples_overlap_by_horizon_effective_count_reported: '5日步进的预测样本存在重叠，页面同时报告非重叠有效样本数',
+            stateful_buffered_ensemble_is_not_the_same_as_online_current_leader_vote: '带持仓缓冲的状态化集成与页面当日静态投票不是同一信号口径',
+            signals_use_close_and_execute_at_next_session_open: '收盘产生信号，下一交易日开盘执行',
+            industry_index_signals_use_close_and_etfs_execute_at_next_session_open: '申万行业指数收盘产生信号，下一交易日开盘执行 ETF',
+            same_industry_etf_proxy_used_when_index_unavailable: 'Desk 暂无行业指数历史行情，使用已配置的同行业 ETF 价格代理',
+            round_trip_cost_is_charged_when_selected_etf_changes: '仅在实际更换 ETF 时收取完整双边成本',
+            results_are_research_evidence_not_live_trading_advice: '结果仅是研究证据，不构成实盘建议',
+        };
+        document.getElementById('rotation-experiment-footnote').textContent = (payload.limitations || []).map(item => limitationLabels[item] || item).join('；') + '。';
+        publishContext();
+        window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source);
+    }
+    function resetExperiment(message) {
+        state.experiment = null;
+        experimentError.style.display = 'none';
+        experimentResults.style.display = 'none';
+        experimentPlaceholder.style.display = 'grid';
+        const title = experimentPlaceholder.querySelector('strong');
+        const detail = experimentPlaceholder.querySelector('span');
+        title.textContent = message ? '轮动条件已变化' : '等待手动验证';
+        detail.textContent = message || '将测试 9 组参数，并对入选组合追加 3 组确认层过滤对照。';
+        publishContext();
+    }
+    function render(payload, source) {
+        state.data = payload;
+        const summary = payload.summary || {};
+        const consensus = payload.parameter_consensus || {};
+        const consensusWinner = consensus.winner || {};
+        const shadow = consensus.shadow_state || {};
+        const shadowWinner = shadow.winner || {};
+        const hasStrictConsensus = consensus.state === 'strict_majority' && consensusWinner.code;
+        setText('stat-style', summary.market_style);
+        setText('stat-industry', summary.leading_industry);
+        setText('stat-etf', summary.leading_etf);
+        setText('stat-risk', `${summary.consensus_label || '参数分歧'} ${consensusWinner.votes || 0}/${consensus.model_count || 0}`);
+        document.getElementById('stat-risk').title = `${consensusWinner.name || '暂无共识'} · ${summary.rotation_environment || summary.risk_temperature || '--'}`;
+        const shadowLifecycle = shadowLifecycleLabel(shadow.lifecycle_state);
+        setText(
+            'stat-shadow',
+            shadowWinner.name
+                ? `${shadowWinner.name} · ${shadowLifecycle}`
+                : shadowLifecycle,
+        );
+        setText(
+            'stat-shadow-note',
+            ['historical_disabled', 'unavailable'].includes(shadow.lifecycle_state)
+                ? '仅最新交易日推进'
+                : `距下次再平衡 ${Number(shadow.next_rebalance_in_sessions || 0)} 个交易日`,
+        );
+        document.getElementById('stat-shadow').title = shadowWinner.code
+            ? `${shadowWinner.code} · ${shadowWinner.votes || 0}/${shadow.model_count || 0} 模型持有 · 距下次再平衡 ${shadow.next_rebalance_in_sessions || 0} 个交易日`
+            : '影子策略只在最新交易日推进，历史回放不回填状态';
+        const distribution = summary.signal_distribution || {};
+        const candidateCount = Number(distribution.candidate_count || payload.successful_count || 0);
+        const confirmedCount = Number(distribution.confirmed_count || 0);
+        const overheatedCount = Number(distribution.overheated_count || 0);
+        const avoidCount = Number(distribution.avoid_count || 0);
+        setText('rotation-confirmed-count', `强确认 ${confirmedCount}`);
+        setText('rotation-overheated-count', `过热 ${overheatedCount}`);
+        setText('rotation-avoid-count', `弱势回避 ${avoidCount}`);
+        setText('rotation-neutral-count', `其他 ${Math.max(candidateCount - confirmedCount - overheatedCount - avoidCount, 0)}`);
+        setText('rotation-headline', (payload.insight || {}).headline);
+        replaceList('rotation-evidence', (payload.insight || {}).evidence);
+        replaceList('rotation-risks', (payload.insight || {}).risks);
+        const factorModel = payload.factor_model || {};
+        setText('rotation-count', `${payload.successful_count}/${payload.universe_size} 个候选 · 因子 ${factorModel.active_factor_count || 0}/${factorModel.configured_factor_count || 7} · 参数一致 ${consensusWinner.votes || 0}/${consensus.model_count || 0} · 影子持仓 ${shadowWinner.votes || 0}/${shadow.model_count || 0} · 指数信号 ${payload.index_signal_count || 0} · ETF信号代理 ${payload.signal_fallback_count || 0} · 代理口径 ${payload.proxy_count || 0} · 更新至 ${payload.as_of}`);
+        const snapshot = payload.snapshot || {};
+        const provenance = snapshot.provenance || {};
+        const sourceNames = {
+            'newma-desk': 'Newma-Desk',
+            tencent: '腾讯行情',
+            yahoo: 'Yahoo Finance',
+        };
+        const providerLabel = sourceNames[payload.data_source] || payload.data_source || '未知数据边界';
+        const upstreamLabel = sourceNames[provenance.upstream_source] || provenance.upstream_source || '';
+        const sourceLabel = upstreamLabel ? `${providerLabel} / ${upstreamLabel}` : providerLabel;
+        const adjustValue = provenance.adjust || payload.adjust;
+        const adjustLabel = {qfq: '前复权', hfq: '后复权', none: '不复权'}[adjustValue]
+            || (adjustValue && adjustValue !== 'unknown' ? adjustValue : '复权待确认');
+        const replay = provenance.as_of_mode === 'client_filter' ? ' · 历史窗口过滤' : '';
+        const coverage = snapshot.data_window && snapshot.data_window.coverage === 'partial' ? ' · 窗口不完整' : '';
+        const breadthLabel = payload.market_breadth && payload.market_breadth.state === 'available'
+            ? ` · 市场宽度 ${payload.market_breadth.breadth}`
+            : '';
+        const signalStateLabel = payload.signal_state === 'complete' ? '指数信号完整'
+            : payload.signal_state === 'partial' ? '部分使用ETF信号代理'
+            : payload.signal_state === 'fallback' ? 'ETF信号代理模式' : '信号状态未知';
+        const factorLabel = ` · 七因子启用 ${factorModel.active_factor_count || 0}/${factorModel.configured_factor_count || 7}`;
+        meta.textContent = `${source === 'history' ? '历史版本 · ' : ''}${sourceLabel} · 日线 · ETF${adjustLabel} · ${signalStateLabel}${factorLabel}${breadthLabel} · ${payload.cache_hit ? '缓存' : '实时计算'} · 更新至 ${payload.as_of}${replay}${coverage}`;
+        meta.title = [
+            `统一数据边界：${providerLabel}`,
+            upstreamLabel ? `实际上游：${upstreamLabel}` : '',
+            provenance.upstream_as_of ? `来源响应时间：${provenance.upstream_as_of}` : '',
+            provenance.market ? `市场：${provenance.market}` : '',
+            provenance.timeframe ? `周期：${provenance.timeframe}` : '',
+            `复权：${adjustLabel}`,
+            payload.market_breadth && payload.market_breadth.state === 'available'
+                ? `市场宽度：${payload.market_breadth.breadth}（上涨 ${payload.market_breadth.up} / 下跌 ${payload.market_breadth.down}）`
+                : '',
+        ].filter(Boolean).join('\n');
+        if ((payload.warnings || []).length) {
+            warningBox.textContent = payload.warnings.join('；'); warningBox.style.display = 'block';
+        }
+        renderChart(payload.industry_rankings || []);
+        renderHistory(payload);
+        const selected = (payload.etfs || []).find(row => row.code === state.selectedCode)
+            || (hasStrictConsensus ? (payload.etfs || []).find(row => row.code === consensusWinner.code) : null)
+            || (payload.etfs || [])[0];
+        renderSelected(selected, false);
+        window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source);
+    }
+    async function load(refresh) {
+        analysisRunning = true; publishContext();
+        clearMessages(); submit.disabled = true; submit.innerHTML = '<i class="fa fa-circle-o-notch fa-spin" aria-hidden="true"></i> 正在计算';
+        meta.textContent = '数据源 Newma-Desk · 正在提取日线与行业广度…';
+        try {
+            const query = new URLSearchParams({
+                window: document.getElementById('rotation-window').value,
+                benchmark: document.getElementById('rotation-benchmark').value.trim(),
+                refresh: refresh ? '1' : '0',
+            });
+            const asOf = document.getElementById('rotation-as-of').value;
+            if (asOf) query.set('asOf', asOf);
+            window.history.replaceState(null, '', window.location.pathname + '?' + query.toString());
+            const body = await requestAnalysis({
+                window: Number(query.get('window')),
+                benchmark: query.get('benchmark'),
+                refresh: query.get('refresh'),
+                asOf: query.get('asOf') || undefined,
+            });
+            if (!body || !body.ok) throw new Error(errorMessage(body, '轮动分析请求失败'));
+            if (state.experiment) {
+                const parameters = ((((state.experiment || {}).snapshot || {}).input || {}).parameters || {});
+                const experimentAsOf = parameters.asOf || null;
+                const requestedAsOf = query.get('asOf') || null;
+                if (parameters.benchmark !== query.get('benchmark') || experimentAsOf !== requestedAsOf) {
+                    resetExperiment('基准或历史截止日已变化，请重新运行稳健性实验。');
+                }
+            }
+            render(body.data);
+        } catch (error) {
+            showError(error);
+            renderAnalysisFailure();
+            meta.textContent = 'Desk 数据不可用 · market.ohlcv';
+        } finally {
+            analysisRunning = false; publishContext();
+            submit.disabled = false; submit.innerHTML = '<i class="fa fa-refresh" aria-hidden="true"></i> 更新轮动';
+        }
+    }
+    async function loadExperiment() {
+        experimentRunning = true; publishContext();
+        experimentError.style.display = 'none';
+        experimentRun.disabled = true;
+        experimentRun.innerHTML = '<i class="fa fa-circle-o-notch fa-spin" aria-hidden="true"></i> 正在验证';
+        if (!state.experiment) {
+            experimentPlaceholder.style.display = 'grid';
+            experimentPlaceholder.querySelector('strong').textContent = '正在提取 800 根历史数据';
+            experimentPlaceholder.querySelector('span').textContent = '首次运行通常需要约半分钟；完成后结果在服务端缓存 15 分钟。';
+        }
+        try {
+            const benchmark = document.getElementById('rotation-benchmark').value.trim();
+            const asOf = document.getElementById('rotation-as-of').value || undefined;
+            const body = await requestExperiment({
+                benchmark,
+                rebalanceDays: Number(document.getElementById('rotation-rebalance-days').value),
+                costBps: Number(document.getElementById('rotation-cost-bps').value),
+                refresh: '0',
+                asOf,
+            });
+            if (!body || !body.ok) throw new Error(errorMessage(body, '稳健性实验请求失败'));
+            renderExperiment(body.data);
+        } catch (error) {
+            experimentError.textContent = error.message || String(error);
+            experimentError.style.display = 'block';
+            if (!state.experiment) {
+                experimentPlaceholder.style.display = 'grid';
+                experimentPlaceholder.querySelector('strong').textContent = '实验未完成';
+                experimentPlaceholder.querySelector('span').textContent = '请检查 Desk 数据服务与参数后重试；普通轮动排名不受影响。';
+            }
+        } finally {
+            experimentRunning = false; publishContext();
+            experimentRun.disabled = false;
+            experimentRun.innerHTML = '<i class="fa fa-flask" aria-hidden="true"></i> 运行实验';
+        }
+    }
+
+    document.querySelectorAll('.rotation-sort').forEach(button => button.addEventListener('click', () => {
+        const key = button.dataset.sort;
+        if (state.sortKey === key) state.sortDirection *= -1; else { state.sortKey = key; state.sortDirection = key === 'rank' ? 1 : -1; }
+        document.querySelectorAll('.rotation-sort').forEach(item => { item.classList.remove('active'); item.textContent = item.textContent.replace(/ [↑↓]$/, ''); });
+        button.classList.add('active'); button.textContent += state.sortDirection === 1 ? ' ↑' : ' ↓'; renderRows();
+    }));
+    form.addEventListener('submit', event => { event.preventDefault(); load(true); });
+    experimentForm.addEventListener('submit', event => { event.preventDefault(); loadExperiment(); });
+    document.addEventListener('instock:history-selected', event => {
+        const source = event.detail.view_source || 'history';
+        if (event.detail.record_type === 'experiment') renderExperiment(event.detail.payload, source);
+        else render(event.detail.payload, source);
+    });
+    if (deskBridge) deskBridge.setContextProvider(buildContext);
+    const pageParams = new URLSearchParams(window.location.search);
+    const pageWindow = (pageParams.get('window') || '').trim();
+    const pageBenchmark = (pageParams.get('benchmark') || '').trim();
+    const pageAsOf = (pageParams.get('asOf') || pageParams.get('as_of') || '').trim();
+    if (['40', '60', '120'].includes(pageWindow)) document.getElementById('rotation-window').value = pageWindow;
+    if (/^\d{6}$/.test(pageBenchmark)) document.getElementById('rotation-benchmark').value = pageBenchmark;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(pageAsOf)) document.getElementById('rotation-as-of').value = pageAsOf;
+    document.getElementById('rotation-as-of').max = new Date().toISOString().slice(0, 10);
+    document.addEventListener('instock:themechange', () => {
+        if (state.data) {
+            renderChart(state.data.industry_rankings || []);
+            renderHistory(state.data);
+        }
+        if (state.experiment) renderExperimentChart(state.experiment);
+    });
+    window.addEventListener('resize', () => {
+        if (chart) { chart.resize(); renderChart((state.data && state.data.industry_rankings) || []); }
+        if (historyChart && state.data) { historyChart.resize(); renderHistory(state.data); }
+        if (experimentChart && state.experiment) { experimentChart.resize(); renderExperimentChart(state.experiment); }
+    });
+    load(false);
+})();
+</script>
+{% end %}

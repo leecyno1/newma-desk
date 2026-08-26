@@ -1,0 +1,209 @@
+{
+  "schemaVersion": "1.0",
+  "id": "professional-fund-research-suite",
+  "name": "基金选择助手",
+  "description": "独立运行的基金浏览、评价、调研、归因、候选推荐和组合配置项目，可作为一个完整项目接入 Newma Desk。",
+  "version": "0.6.0",
+  "publisher": "leecyno1",
+  "upstream": "https://github.com/leecyno1/fund-analysis",
+  "tags": ["基金浏览", "基金评价", "基金分类", "业绩归因", "基金推荐", "基金组合"],
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_FUND_RESEARCH_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:3000"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "基金研究",
+      "groupOrder": 100,
+      "itemOrder": 100,
+      "directory": {
+        "id": "professional-fund-research-suite",
+        "label": "基金选择助手",
+        "order": 10
+      },
+      "project": {
+        "id": "fund-research",
+        "name": "基金研究",
+        "order": 100,
+        "description": "公募基金、ETF、基金经理与产品比较研究。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {
+      "level": 3,
+      "bridgeProtocol": "1.0",
+      "sdkVersion": "fund-analysis-desk-adapter-0.1.0",
+      "viewSpecVersion": "1.0"
+    },
+    "permissions": ["research.read", "research.local-write"],
+    "dataServices": ["fund-analysis-data"],
+    "storage": {
+      "mode": "dedicated",
+      "adapter": "fund-analysis-postgres"
+    },
+    "actions": {
+      "fund.search": {
+        "binding": { "type": "data", "service": "fund-analysis-data", "capability": "fund.search" },
+        "execution": "request",
+        "permission": "research.read",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "search": { "type": "string", "maxLength": 80 },
+            "page": { "type": "integer", "minimum": 1 },
+            "page_size": { "type": "integer", "minimum": 1, "maximum": 100 }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none",
+        "timeoutSeconds": 30
+      },
+      "fund.research.snapshot": {
+        "binding": { "type": "data", "service": "fund-analysis-data", "capability": "fund.research.snapshot" },
+        "execution": "request",
+        "permission": "research.read",
+        "inputSchema": {
+          "type": "object",
+          "required": ["symbol"],
+          "properties": { "symbol": { "type": "string", "maxLength": 24 } },
+          "additionalProperties": false
+        },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none",
+        "timeoutSeconds": 60
+      },
+      "fund.compare": {
+        "binding": { "type": "data", "service": "fund-analysis-data", "capability": "fund.compare" },
+        "execution": "request",
+        "permission": "research.read",
+        "inputSchema": {
+          "type": "object",
+          "required": ["windCodes"],
+          "properties": {
+            "windCodes": {
+              "type": "array",
+              "items": { "type": "string", "maxLength": 24 },
+              "minItems": 2,
+              "maxItems": 12
+            },
+            "window": { "enum": ["1y", "3y", "5y"] }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none",
+        "timeoutSeconds": 60
+      },
+      "fund.attribution.run": {
+        "binding": { "type": "data", "service": "fund-analysis-data", "capability": "fund.attribution.run" },
+        "execution": "request",
+        "permission": "research.read",
+        "inputSchema": {
+          "type": "object",
+          "required": ["symbol"],
+          "properties": {
+            "symbol": { "type": "string", "maxLength": 24 },
+            "quarter": { "type": "string", "maxLength": 8 }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none",
+        "timeoutSeconds": 120
+      },
+      "fund.analysis.run": {
+        "binding": { "type": "data", "service": "fund-analysis-data", "capability": "fund.analysis.run" },
+        "execution": "request",
+        "permission": "research.local-write",
+        "inputSchema": {
+          "type": "object",
+          "required": ["windCode"],
+          "properties": {
+            "windCode": { "type": "string", "maxLength": 24 },
+            "question": { "type": "string", "maxLength": 1000 }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "user",
+        "timeoutSeconds": 180
+      },
+      "fund.recommendations.list": {
+        "binding": { "type": "data", "service": "fund-analysis-data", "capability": "fund.recommendations.list" },
+        "execution": "request",
+        "permission": "research.read",
+        "inputSchema": {
+          "type": "object",
+          "required": ["category"],
+          "properties": {
+            "category": { "type": "string", "maxLength": 120 },
+            "style": { "type": "string", "maxLength": 80 }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": { "type": "object", "additionalProperties": true },
+        "confirmation": "none",
+        "timeoutSeconds": 120
+      }
+    },
+    "events": {
+      "emits": ["security.selected"],
+      "accepts": ["security.selected"]
+    },
+    "refresh": { "mode": "manual" }
+  },
+  "pages": [
+    {
+      "id": "fund-discover",
+      "name": "找基金",
+      "description": "搜索基金，查看净值、指标、基金详情并进入多基金比较。",
+      "tags": ["基金浏览", "净值", "比较"],
+      "route": "/mod/fund-research/discover",
+      "navigation": { "itemOrder": 10, "label": "找基金" }
+    },
+    {
+      "id": "fund-research-library",
+      "name": "调研库",
+      "description": "连接本地调研纪要，按基金经理归类并确认基金分类和风格标签。",
+      "tags": ["调研纪要", "基金经理", "风格标签"],
+      "route": "/mod/fund-research/research",
+      "navigation": { "itemOrder": 20, "label": "调研库" }
+    },
+    {
+      "id": "fund-ai-analysis",
+      "name": "AI 分析",
+      "description": "按需运行基金评价，使用研究快照和业绩归因证据并保存分析历史。",
+      "tags": ["基金评价", "AI 分析", "历史记录"],
+      "route": "/mod/fund-research/analysis",
+      "navigation": { "itemOrder": 30, "label": "AI 分析" }
+    },
+    {
+      "id": "fund-recommendations",
+      "name": "基金推荐",
+      "description": "按基金类别和风格标签返回不超过十只真实候选基金。",
+      "tags": ["基金推荐", "同类评价", "风格标签"],
+      "route": "/mod/fund-research/recommendations",
+      "navigation": { "itemOrder": 40, "label": "基金推荐" }
+    },
+    {
+      "id": "fund-attribution",
+      "name": "业绩归因",
+      "description": "查看 Barra 风格与风险暴露、Brinson 配置与选择效应及证据覆盖。",
+      "tags": ["Barra", "Brinson", "业绩归因"],
+      "route": "/mod/fund-research/advanced",
+      "navigation": { "itemOrder": 50, "label": "业绩归因" }
+    },
+    {
+      "id": "fund-portfolio",
+      "name": "基金组合",
+      "description": "设置组合目标权重，分析基金重叠、风格暴露、历史回测、偏离监控和交易清单。",
+      "tags": ["基金组合", "资产配置", "回测", "风险监控"],
+      "route": "/mod/fund-research/portfolio",
+      "navigation": { "itemOrder": 60, "label": "基金组合" }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "professional-fund-research/fund-decision-record.json",
+  "type": "object",
+  "required": ["subjectId", "asOf", "methodologyVersion", "disposition", "thesis", "counterThesis", "confidence", "gates", "pillars", "reversalConditions"],
+  "properties": {
+    "subjectId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "asOf": { "type": "string" },
+    "methodologyVersion": { "type": "string" },
+    "disposition": { "enum": ["blocked", "evidence-repair", "watchlist", "due-diligence-ready", "monitoring-required"] },
+    "thesis": { "type": "string", "minLength": 1 },
+    "counterThesis": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "enum": ["high", "medium", "low", "unknown"] },
+    "gates": { "type": "array" },
+    "pillars": { "type": "array" },
+    "reversalConditions": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

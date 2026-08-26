@@ -1,0 +1,254 @@
+{
+  "version_definitions": [
+    {
+      "id": "wechat_hot",
+      "platform": "wechat",
+      "tone": "hot",
+      "name": "微信公众号 - 热点版",
+      "description": "高热度、易转发的WeChat版本",
+      "word_count": {
+        "target": 1300,
+        "min": 1100,
+        "max": 1500
+      },
+      "required_anchors": ["image", "link"],
+      "emoji_count": {
+        "min": 4,
+        "max": 6
+      },
+      "bold_keywords_per_para": {
+        "min": 1,
+        "max": 3
+      },
+      "engagement_markers": [
+        "惊人", "必读", "深度", "独家", "首次", "突然", "紧急"
+      ],
+      "hook_requirement": true,
+      "hook_signals": ["冲突", "数据", "反常"],
+      "hook_position": "first_100_chars",
+      "call_to_action": "点在看",
+      "paragraph_length": {
+        "target": 200,
+        "min": 150,
+        "max": 250
+      },
+      "quality_threshold": 8.0
+    },
+    {
+      "id": "wechat_normal",
+      "platform": "wechat",
+      "tone": "normal",
+      "name": "微信公众号 - 常规版",
+      "description": "深度分析、专业解读的WeChat版本",
+      "word_count": {
+        "target": 1000,
+        "min": 800,
+        "max": 1200
+      },
+      "required_anchors": ["image"],
+      "bold_keywords_per_para": {
+        "min": 1,
+        "max": 2
+      },
+      "structure_words": [
+        "首先", "其次", "最后",
+        "一方面", "另一方面",
+        "虽然", "但同时", "固然", "不过"
+      ],
+      "structure_words_min": 2,
+      "paragraph_length": {
+        "target": 220,
+        "min": 180,
+        "max": 280
+      },
+      "tone_style": "academic_but_accessible",
+      "call_to_action": null,
+      "quality_threshold": 7.5
+    },
+    {
+      "id": "xiaohongshu_hot",
+      "platform": "xiaohongshu",
+      "tone": "hot",
+      "name": "小红书 - 热点版",
+      "description": "高热度、易推荐的XHS版本",
+      "word_count": {
+        "target": 900,
+        "min": 750,
+        "max": 1050
+      },
+      "title_requirements": {
+        "min_length": 20,
+        "max_length": 35,
+        "must_include": ["冲击词", "数据", "感叹"],
+        "examples": [
+          "AI vs 华尔街：新模型引发紧急会议，金融业面临重塑",
+          "稳定币牌照落地！传统巨头纷纷入场，加密市场迎新格局"
+        ]
+      },
+      "required_anchors": ["image"],
+      "image_count_min": 3,
+      "paragraph_length": {
+        "target": 120,
+        "min": 80,
+        "max": 150
+      },
+      "emoji_count": {
+        "min": 4,
+        "max": 6
+      },
+      "hashtag_count": {
+        "min": 3,
+        "max": 5
+      },
+      "visual_words": [
+        "暴露", "内卷", "逆袭", "翻盘", "突破",
+        "打破", "颠覆", "瓦解", "重塑", "洗牌"
+      ],
+      "visual_words_min_density": 3,
+      "hook_requirement": true,
+      "hook_position": "first_paragraph",
+      "quality_threshold": 8.0
+    },
+    {
+      "id": "xiaohongshu_normal",
+      "platform": "xiaohongshu",
+      "tone": "normal",
+      "name": "小红书 - 常规版",
+      "description": "实用、有见地的XHS版本",
+      "word_count": {
+        "target": 650,
+        "min": 500,
+        "max": 800
+      },
+      "title_requirements": {
+        "min_length": 15,
+        "max_length": 25,
+        "style": "direct_and_clear"
+      },
+      "required_anchors": ["image"],
+      "image_count_min": 2,
+      "paragraph_length": {
+        "target": 100,
+        "min": 70,
+        "max": 140
+      },
+      "emoji_count": {
+        "min": 0,
+        "max": 2
+      },
+      "hashtag_count": {
+        "min": 0,
+        "max": 3
+      },
+      "tone_style": "practical_and_insightful",
+      "quality_threshold": 7.5
+    },
+    {
+      "id": "douyin_hot",
+      "platform": "douyin",
+      "tone": "hot",
+      "name": "抖音 - 爆款版",
+      "description": "极致短文、高转化的Douyin版本",
+      "word_count": {
+        "target": 150,
+        "min": 80,
+        "max": 220
+      },
+      "title_requirements": {
+        "style": "hook_first",
+        "examples": [
+          "你不知道的真相...",
+          "震撼！...",
+          "原来..."
+        ]
+      },
+      "required_anchors": ["image", "video_hook"],
+      "hook_requirement": true,
+      "hook_position": "first_sentence",
+      "first_sentence_max_chars": 30,
+      "paragraph_length": {
+        "target": 40,
+        "min": 20,
+        "max": 80
+      },
+      "emoji_density_high": true,
+      "call_to_action": "评论你的看法",
+      "quality_threshold": 8.0,
+      "note": "抖音版本极度压缩，需要在最短篇幅内传递最大信息量"
+    }
+  ],
+  "platform_definitions": [
+    {
+      "platform": "wechat",
+      "name": "微信公众号",
+      "max_word_count": 1500,
+      "supports_rich_media": true,
+      "media_types": ["image", "link", "embed"],
+      "formatting_support": ["bold", "italic", "strikethrough", "heading"],
+      "primary_audience": "知识精英、决策者、意见领袖",
+      "reading_scenario": "碎片化、高频次打开",
+      "sharing_incentive": "转发、在看、评论"
+    },
+    {
+      "platform": "xiaohongshu",
+      "name": "小红书",
+      "max_word_count": 1050,
+      "supports_rich_media": true,
+      "media_types": ["image", "video"],
+      "formatting_support": ["bold", "hashtag"],
+      "primary_audience": "年轻、追求实用、视觉导向",
+      "reading_scenario": "快速浏览、视觉驱动",
+      "sharing_incentive": "赞、收藏、分享",
+      "key_feature": "视觉优先，标题极为关键"
+    },
+    {
+      "platform": "douyin",
+      "name": "抖音",
+      "max_word_count": 220,
+      "supports_rich_media": true,
+      "media_types": ["video", "image"],
+      "formatting_support": ["emoji", "hashtag"],
+      "primary_audience": "年轻、快速获取信息、被动刷屏",
+      "reading_scenario": "超快速扫一眼、3秒决策",
+      "sharing_incentive": "转发、点赞、评论",
+      "key_feature": "极度短文、Hook至上"
+    }
+  ],
+  "tone_definitions": [
+    {
+      "tone": "hot",
+      "name": "流量增强版",
+      "goal": "最大化传播力、话题性、转发率",
+      "audience_psychology": "猎奇、对比、新鲜感",
+      "keywords": ["冲突", "反转", "突破", "风险", "机会"],
+      "sentence_style": "短句配合长句，形成节奏感",
+      "opening_strategy": "必须包含冲突/数据/反常",
+      "closing_strategy": "转发激励或反思问题",
+      "forbidden_words": ["据悉", "有报道", "听说", "好像"],
+      "required_elements": ["强动词", "数据对比", "call_to_action"]
+    },
+    {
+      "tone": "normal",
+      "name": "常规专业版",
+      "goal": "信息传递准确、逻辑严密、建立信任",
+      "audience_psychology": "理性分析、求知、决策参考",
+      "keywords": ["深度", "平衡", "证据", "权衡", "结论"],
+      "sentence_style": "学术但可读，避免生硬",
+      "opening_strategy": "问题 + 为什么重要 + 本文切角",
+      "closing_strategy": "总结 + 隐含意义 + 前景思考",
+      "forbidden_words": ["让我们来看", "据说", "好像"],
+      "required_elements": ["权衡表述", "充分论据", "逻辑严密"]
+    },
+    {
+      "tone": "viral",
+      "name": "病毒式版本",
+      "goal": "极限吸引眼球、制造话题、引发讨论",
+      "audience_psychology": "惊讶、愤怒、热血",
+      "keywords": ["黑天鹅", "系统性风险", "颠覆", "末世感"],
+      "sentence_style": "极短极锐、一句一个点",
+      "opening_strategy": "首句必须是最大冲击点",
+      "closing_strategy": "开放式问题，引发评论战",
+      "required_elements": ["极端对比", "数据冲击", "反直觉"]
+    }
+  ]
+}

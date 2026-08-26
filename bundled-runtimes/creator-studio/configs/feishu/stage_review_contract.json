@@ -1,0 +1,58 @@
+{
+  "root_folder_name": "自媒体创作协作",
+  "root_folder_url": "https://ccnokd2fmz4u.feishu.cn/drive/folder/SpRqfe0VKlTUWzd313KczxKHngd",
+  "root_folder_type": "drive_folder_user_specified",
+  "date_folder_pattern": "YYYY-MM-DD",
+  "review_group_name": "自媒体 SOP 创作群",
+  "stage_docs": {
+    "intake": [
+      "01_内容采集_底稿",
+      "01_内容采集_报告"
+    ],
+    "brief": [
+      "02_编辑Brief库",
+      "02_编辑Brief_报告"
+    ],
+    "draft": [
+      "03_标准初稿",
+      "03_初稿_报告"
+    ],
+    "material": [
+      "04_MaterialPack",
+      "04_Material_报告"
+    ],
+    "rewrite": [
+      "05_改写稿",
+      "05_改写_报告"
+    ],
+    "publish": [
+      "06_发布包",
+      "06_发布计划"
+    ],
+    "postmortem": [
+      "07_复盘报告",
+      "07_L1回写建议"
+    ]
+  },
+  "material_folder": {
+    "upload_required": true,
+    "name_pattern": "YYYY-MM-DD_素材包"
+  },
+  "rewrite_refill": {
+    "enabled": true,
+    "target_stage": "draft",
+    "fill_types": [
+      "chart",
+      "table",
+      "image",
+      "infographic"
+    ],
+    "pending_marker": "待替换 / 待确认",
+    "clear_before_refill": true,
+    "clear_headings": [
+      "素材回填区",
+      "视频素材链接"
+    ],
+    "table_max_preview_rows": 12
+  }
+}

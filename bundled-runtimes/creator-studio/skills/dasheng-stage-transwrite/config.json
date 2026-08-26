@@ -1,0 +1,132 @@
+{
+  "name": "dasheng-stage-transwrite",
+  "version": "1.0.0",
+  "description": "Stage 4 Transwrite - 渠道转写生产，生成公众号、无头口播、VOX、真人口播、AI 数字人、广告宣传片、电影短剧规划和播客生产包",
+  "stage": "transwrite",
+  "stage_number": 4,
+  "runner": "python",
+  "entry": "scripts/build_stage4_transwrite.py",
+  "upstream_gate": "final_structure_snapshot.json",
+  "output_gate": "transwrite_manifest.json",
+  "hitl": true,
+  "trigger": "manual",
+  "inputs": {
+    "required": [
+      "draft_manifest.json",
+      "final_structure_snapshot.json",
+      "transwrite_decision.json"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "documents": [
+      "04_转写计划.md"
+    ],
+    "manifests": [
+      "transwrite_manifest.json",
+      "wechat_article_manifest.json",
+      "talking_head_video_manifest.json",
+      "explainer_html_video_manifest.json",
+      "vox_explainer_video_manifest.json",
+      "digital_human_video_manifest.json",
+      "commercial_promo_video_manifest.json",
+      "cinematic_short_drama_video_manifest.json",
+      "podcast_manifest.json",
+      "illustration_intents.json"
+    ],
+    "video_lane_files": [
+      "explainer_html_video/video_storyboard.json",
+      "explainer_html_video/voiceover_script.md",
+      "explainer_html_video/render_plan.json",
+      "explainer_html_video/video_production_contract.json",
+      "explainer_html_video/delivery/final_delivery_manifest.template.json",
+      "vox_explainer_video/video_storyboard.json",
+      "vox_explainer_video/voiceover_script.md",
+      "vox_explainer_video/render_plan.json",
+      "vox_explainer_video/video_production_contract.json",
+      "vox_explainer_video/delivery/final_delivery_manifest.template.json",
+      "talking_head_video/video_storyboard.json",
+      "talking_head_video/presenter_source_manifest.json",
+      "talking_head_video/talking_head_script.md",
+      "talking_head_video/html_overlay.html",
+      "talking_head_video/render_plan.json",
+      "talking_head_video/html_video_project_vars.json",
+      "talking_head_video/html_video_project_plan.json",
+      "talking_head_video/html_video_commands.sh",
+      "digital_human_video/video_storyboard.json",
+      "digital_human_video/presenter_source_manifest.json",
+      "digital_human_video/digital_human_script.md",
+      "digital_human_video/render_plan.json",
+      "digital_human_video/video_production_contract.json",
+      "digital_human_video/delivery/final_delivery_manifest.template.json",
+      "commercial_promo_video/video_storyboard.json",
+      "commercial_promo_video/commercial_script.md",
+      "commercial_promo_video/render_plan.json",
+      "commercial_promo_video/video_production_contract.json",
+      "commercial_promo_video/director_scene_plan/commercial_brief.normalized.json",
+      "commercial_promo_video/director_scene_plan/script.json",
+      "commercial_promo_video/director_scene_plan/scene_plan.json",
+      "commercial_promo_video/director_scene_plan/brand_brief_gate.json",
+      "commercial_promo_video/delivery/final_delivery_manifest.template.json",
+      "cinematic_short_drama_video/cinematic_screenplay.md",
+      "cinematic_short_drama_video/video_storyboard.json",
+      "cinematic_short_drama_video/cinematic_short_drama_video_manifest.json"
+    ]
+  },
+  "lanes": [
+    "wechat_article",
+    "talking_head_video",
+    "vox_explainer_video",
+    "explainer_html_video",
+    "digital_human_video",
+    "cinematic_short_drama_video",
+    "commercial_promo_video",
+    "podcast"
+  ],
+  "lane_defaults": {
+    "explainer_html_video": {
+      "aspect_ratio": "16:9",
+      "master_timeline": "remotion",
+      "scene_renderer": "html-video",
+      "alternate_profiles": ["1:1", "9:16"]
+    },
+    "vox_explainer_video": {
+      "aspect_ratio": "16:9",
+      "master_timeline": "remotion",
+      "scene_renderer": "html-video",
+      "pipeline": "vox_explainer",
+      "alternate_profiles": ["1:1", "9:16"]
+    },
+    "talking_head_video": {
+      "aspect_ratio": "9:16",
+      "master_timeline": "remotion",
+      "presenter_source": "approved_human_video",
+      "pipeline": "talking_head",
+      "alternate_profiles": ["16:9", "1:1", "4:5"]
+    },
+    "digital_human_video": {
+      "aspect_ratio": "9:16",
+      "master_timeline": "remotion",
+      "presenter_source": "single_or_dual_independent_generated_sources",
+      "pipeline": "digital_human",
+      "alternate_profiles": ["16:9", "1:1", "4:5"]
+    },
+    "commercial_promo_video": {
+      "aspect_ratio": "9:16",
+      "master_timeline": "remotion",
+      "scene_renderer": "html-video",
+      "pipeline": "commercial_promo",
+      "durations_sec": [15, 30, 60],
+      "alternate_profiles": ["16:9", "1:1", "4:5"]
+    },
+    "cinematic_short_drama_video": {
+      "enabled_by_default": false,
+      "pipeline": "cinematic_short_drama",
+      "activation": "Explicit user approval after provider, budget, rights and safety preflight"
+    },
+    "podcast": {
+      "enabled_by_default": false,
+      "activation": "Require podcast in lanes and podcast.enabled=true in transwrite_decision.json"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "dasheng-video-omni-browser",
+  "version": "0.2.0",
+  "lane": "vox_explainer_video",
+  "packet_entry": "scripts/video_vox_omni_pack.py",
+  "provider": "google_gemini_omni_signed_in_chrome",
+  "default_clip_seconds": 10,
+  "default_aspect_ratio": "16:9",
+  "fallbacks": ["video_vox_mmx_generate", "seedance2-skill", "remotion-video-toolkit"]
+}

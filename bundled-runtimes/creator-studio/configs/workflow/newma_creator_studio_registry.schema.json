@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "newma.creator_studio_registry.v1",
+  "title": "Newma Creator Studio Registry",
+  "type": "object",
+  "required": ["schema_version", "product", "navigation", "stages", "execution_adapters", "capability_adapters", "marketplace"],
+  "properties": {
+    "schema_version": {"const": "newma.creator_studio_registry.v1"},
+    "updated_at": {"type": "string"},
+    "product": {
+      "type": "object",
+      "required": ["id", "name", "namespace"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "namespace": {"const": "newma"}
+      },
+      "additionalProperties": true
+    },
+    "navigation": {
+      "type": "object",
+      "required": ["default_view", "stage_axis", "node_axis"],
+      "properties": {
+        "default_view": {"const": "dashboard"},
+        "stage_axis": {"const": "vertical"},
+        "node_axis": {"const": "horizontal"}
+      },
+      "additionalProperties": true
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": ["order", "id", "name", "entry_skill", "nodes"],
+        "properties": {
+          "order": {"type": "integer", "minimum": 1, "maximum": 6},
+          "id": {"enum": ["intake", "brief", "draft", "transwrite", "publish", "postmortem"]},
+          "name": {"type": "string", "minLength": 1},
+          "entry_skill": {"type": "string", "pattern": "^newma-"},
+          "nodes": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "material_requirements", "outputs", "executor", "actions", "capabilities"],
+              "properties": {
+                "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+                "name": {"type": "string", "minLength": 1},
+                "material_requirements": {"type": "array"},
+                "outputs": {"type": "array"},
+                "executor": {"type": "string", "pattern": "^newma\\."},
+                "actions": {"type": "array"},
+                "capabilities": {"type": "array"},
+                "product": {
+                  "type": "object",
+                  "required": ["title", "primary_outputs"],
+                  "properties": {
+                    "kind": {"type": "string"},
+                    "title": {"type": "string", "minLength": 1},
+                    "summary": {"type": "string"},
+                    "primary_outputs": {"type": "array"},
+                    "supporting_outputs": {"type": "array"},
+                    "interaction": {"type": "object"}
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "execution_adapters": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^newma\\."},
+          "kind": {
+            "enum": [
+              "package",
+              "review_gate",
+              "editor_session",
+              "capability_session",
+              "publish_confirmation",
+              "route_select",
+              "mainline_stage",
+              "video_director"
+              ,"publish_preflight"
+              ,"publish_execute"
+              ,"publish_verify"
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "capability_adapters": {"type": "array"},
+    "editor_adapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "kind"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "name": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["internal", "artifact_preview", "local_web", "publish_console", "unavailable"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "marketplace": {"type": "object"},
+    "notifications": {"type": "object"}
+  },
+  "additionalProperties": true
+}

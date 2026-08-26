@@ -1,0 +1,4 @@
+interface:
+  display_name: "Newma Caption Motion"
+  short_description: "Build subtitle-driven motion graphics for video timelines"
+  default_prompt: "Turn timed captions into readable, evidence-safe HyperFrames or Remotion motion graphics."

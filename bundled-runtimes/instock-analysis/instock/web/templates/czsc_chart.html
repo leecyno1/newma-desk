@@ -1,0 +1,1017 @@
+{% extends "layout/mod.html" %}
+
+{% block main_content %}
+<link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
+<style>
+    .czsc-shell { min-height: 100%; padding: 22px; background: var(--instock-bg); color: var(--instock-text); }
+    .czsc-hero, .czsc-panel, .czsc-stat { background: var(--instock-surface); border: 1px solid var(--instock-border); border-radius: 12px; box-shadow: var(--instock-shadow); }
+    .czsc-hero { padding: 18px 20px; margin-bottom: 14px; }
+    .czsc-title { margin: 0; color: var(--instock-text); font-size: 22px; font-weight: 700; }
+    .czsc-subtitle { margin: 5px 0 0; color: var(--instock-text-muted); }
+    .czsc-form { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+    .czsc-form label { display: block; margin-bottom: 5px; color: var(--instock-text-soft); font-size: 12px; }
+    .czsc-form .form-control { height: 38px; min-width: 130px; border: 1px solid var(--instock-border-strong); border-radius: 8px; background: var(--instock-surface-raised); color: var(--instock-text); box-shadow: none; }
+    .czsc-form .form-control:focus { border-color: var(--instock-accent); box-shadow: 0 0 0 2px var(--instock-accent-soft); }
+    .czsc-form .code-input { min-width: 220px; }
+    .czsc-form .btn { height: 38px; border-radius: 8px; padding: 0 18px; }
+    .czsc-form .btn-primary { border-color: var(--instock-accent); background: var(--instock-accent); color: var(--instock-accent-contrast); font-weight: 600; }
+    .czsc-form .btn-primary:hover, .czsc-form .btn-primary:focus { border-color: var(--instock-accent-hover); background: var(--instock-accent-hover); color: var(--instock-accent-contrast); }
+    .czsc-research-link { display: none; height: 38px; padding: 0 16px; align-items: center; border: 1px solid var(--instock-accent); border-radius: 8px; color: var(--instock-accent); background: var(--instock-accent-surface); font-size: 12px; font-weight: 700; text-decoration: none; }
+    .czsc-research-link:hover, .czsc-research-link:focus { color: var(--instock-accent-contrast); background: var(--instock-accent); text-decoration: none; }
+    .czsc-meta { margin-left: auto; color: var(--instock-text-muted); font-size: 12px; padding-bottom: 9px; }
+    .czsc-alert { display: none; margin-bottom: 14px; border-radius: 10px; background: var(--instock-error-bg); border-color: var(--instock-error-border); color: var(--instock-error-text); }
+    .czsc-scan-panel { margin-bottom: 14px; }
+    .czsc-scan-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 16px 18px; border-bottom: 1px solid var(--instock-border); }
+    .czsc-scan-heading h2 { margin: 0; color: var(--instock-text); font-size: 16px; font-weight: 700; }
+    .czsc-scan-heading p { margin: 5px 0 0; color: var(--instock-text-muted); font-size: 12px; line-height: 1.55; }
+    .czsc-scan-badge { flex: 0 0 auto; padding: 5px 9px; border: 1px solid var(--instock-accent-soft); border-radius: 999px; background: var(--instock-accent-surface); color: var(--instock-accent); font-family: var(--instock-font-mono); font-size: 11px; }
+    .czsc-scan-form { display: grid; grid-template-columns: minmax(260px, 1fr) repeat(4, minmax(110px, 150px)); gap: 10px; padding: 16px 18px 12px; align-items: end; }
+    .czsc-scan-form label { display: block; margin-bottom: 5px; color: var(--instock-text-soft); font-size: 12px; }
+    .czsc-scan-form .form-control { width: 100%; border: 1px solid var(--instock-border-strong); border-radius: 8px; background: var(--instock-surface-raised); color: var(--instock-text); box-shadow: none; }
+    .czsc-scan-form select.form-control, .czsc-scan-form input.form-control { height: 38px; }
+    .czsc-scan-form textarea.form-control { min-height: 76px; resize: vertical; line-height: 1.55; }
+    .czsc-scan-form .form-control:focus { border-color: var(--instock-accent); box-shadow: 0 0 0 2px var(--instock-accent-soft); }
+    .czsc-scan-actions { display: flex; align-items: center; gap: 8px; padding: 0 18px 16px; }
+    .czsc-scan-actions .btn { min-height: 36px; border-radius: 8px; }
+    .czsc-scan-actions .btn-primary { border-color: var(--instock-accent); background: var(--instock-accent); color: var(--instock-accent-contrast); font-weight: 600; }
+    .czsc-scan-actions .btn-primary:hover, .czsc-scan-actions .btn-primary:focus { border-color: var(--instock-accent-hover); background: var(--instock-accent-hover); color: var(--instock-accent-contrast); }
+    .czsc-scan-actions .btn-default { border-color: var(--instock-border-strong); background: var(--instock-surface-raised); color: var(--instock-text-soft); }
+    .czsc-scan-actions .btn[disabled] { opacity: .48; }
+    .czsc-scan-hint { margin-left: auto; color: var(--instock-text-muted); font-size: 11px; }
+    .czsc-scan-state { display: none; padding: 14px 18px 16px; border-top: 1px solid var(--instock-border); background: var(--instock-surface-muted); }
+    .czsc-scan-summary { display: flex; align-items: center; gap: 10px; color: var(--instock-text-soft); font-size: 12px; }
+    .czsc-scan-summary strong { color: var(--instock-text); }
+    .czsc-scan-summary .scan-counts { margin-left: auto; font-family: var(--instock-font-mono); color: var(--instock-text-muted); }
+    .czsc-scan-progress { height: 7px; margin-top: 10px; overflow: hidden; border-radius: 999px; background: var(--instock-border); }
+    .czsc-scan-progress span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--instock-accent); transition: width .22s ease; }
+    .czsc-scan-error { display: none; margin: 10px 18px 0; padding: 10px 12px; border: 1px solid var(--instock-error-border); border-radius: 8px; background: var(--instock-error-bg); color: var(--instock-error-text); font-size: 12px; }
+    .czsc-scan-results { display: none; border-top: 1px solid var(--instock-border); }
+    .czsc-scan-results .table-responsive { margin: 0; border: 0; }
+    .czsc-scan-results .table { margin: 0; min-width: 860px; }
+    .czsc-scan-results .table > thead > tr > th { border-color: var(--instock-border); background: var(--instock-surface-muted); color: var(--instock-text-muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .czsc-scan-results .table > tbody > tr > td { border-color: var(--instock-border); color: var(--instock-text-soft); vertical-align: middle; }
+    .czsc-scan-results .table > tbody > tr:hover > td { background: var(--instock-surface-hover); }
+    .czsc-scan-score { color: var(--instock-accent); font-family: var(--instock-font-mono); font-size: 14px; font-weight: 700; }
+    .czsc-scan-open { border: 1px solid var(--instock-accent-soft); border-radius: 7px; background: var(--instock-accent-surface); color: var(--instock-accent); font-size: 12px; font-weight: 600; }
+    .czsc-scan-open:hover, .czsc-scan-open:focus { border-color: var(--instock-accent); background: var(--instock-accent); color: var(--instock-accent-contrast); }
+    .czsc-scan-footnote { padding: 10px 18px; color: var(--instock-text-muted); font-size: 11px; line-height: 1.6; }
+    .czsc-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .czsc-stat { padding: 13px 14px; }
+    .czsc-stat span { display: block; color: var(--instock-text-muted); font-size: 12px; }
+    .czsc-stat strong { display: block; margin-top: 5px; font-size: 18px; color: var(--instock-text); }
+    .czsc-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; }
+    .czsc-panel { overflow: hidden; }
+    .czsc-panel-title { padding: 13px 16px; margin: 0; border-bottom: 1px solid var(--instock-border); color: var(--instock-text); font-size: 14px; font-weight: 700; }
+    #czsc-chart { height: 610px; }
+    .czsc-insight { padding: 16px; }
+    .czsc-headline { font-size: 16px; font-weight: 700; line-height: 1.55; margin-bottom: 14px; }
+    .czsc-section { margin-top: 16px; }
+    .czsc-section h4 { margin: 0 0 8px; font-size: 12px; color: var(--instock-text-muted); text-transform: uppercase; letter-spacing: .06em; }
+    .czsc-list { margin: 0; padding-left: 18px; color: var(--instock-text-soft); line-height: 1.75; }
+    .czsc-level { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed var(--instock-border); color: var(--instock-text-soft); }
+    .czsc-level:last-child { border-bottom: 0; }
+    .czsc-level b { color: var(--instock-text); font-family: var(--instock-font-mono); }
+    .czsc-signals { margin-top: 14px; }
+    .czsc-signals .table { margin-bottom: 0; }
+    .czsc-signals .table > thead > tr > th { border-color: var(--instock-border); background: var(--instock-surface-muted); color: var(--instock-text-muted); font-size: 12px; font-weight: 600; }
+    .czsc-signals .table > tbody > tr > td { border-color: var(--instock-border); background: transparent; color: var(--instock-text-soft); }
+    .czsc-signals .table-hover > tbody > tr:hover > td { background: var(--instock-surface-hover); }
+    .czsc-signals .text-muted { color: var(--instock-text-muted); }
+    .czsc-buy { color: var(--instock-positive); font-weight: 700; }
+    .czsc-sell { color: var(--instock-negative); font-weight: 700; }
+    .czsc-loading { display: none; color: var(--instock-accent); padding-bottom: 9px; }
+    @media (max-width: 1180px) {
+        .czsc-scan-form { grid-template-columns: minmax(260px, 1fr) repeat(2, minmax(130px, 1fr)); }
+        .czsc-scan-symbols { grid-row: span 2; }
+        .czsc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .czsc-grid { grid-template-columns: 1fr; }
+        #czsc-chart { height: 560px; }
+    }
+    @media (max-width: 680px) {
+        .czsc-shell { padding: 12px; }
+        .czsc-scan-heading { display: block; padding: 14px; }
+        .czsc-scan-badge { display: inline-block; margin-top: 10px; }
+        .czsc-scan-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 14px; }
+        .czsc-scan-symbols { grid-column: 1 / -1; grid-row: auto; }
+        .czsc-scan-asof { grid-column: 1 / -1; }
+        .czsc-scan-actions { flex-wrap: wrap; padding: 0 14px 14px; }
+        .czsc-scan-actions .btn { flex: 1 1 120px; }
+        .czsc-scan-hint { flex-basis: 100%; margin-left: 0; }
+        .czsc-scan-state { padding: 12px 14px 14px; }
+        .czsc-scan-summary { flex-wrap: wrap; }
+        .czsc-scan-summary .scan-counts { flex-basis: 100%; margin-left: 0; }
+        .czsc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .czsc-form > div, .czsc-form .form-control, .czsc-form .code-input, .czsc-form .btn { width: 100%; }
+        .czsc-meta { width: 100%; margin-left: 0; }
+        #czsc-chart { height: 480px; }
+    }
+    @media (max-width: 380px) {
+        .czsc-scan-form { grid-template-columns: 1fr; }
+        .czsc-scan-symbols, .czsc-scan-asof { grid-column: auto; }
+    }
+</style>
+
+<div class="czsc-shell">
+    <section class="czsc-hero">
+        <h1 class="czsc-title">缠论结构分析</h1>
+        <p class="czsc-subtitle">CZSC 官方结构与当前信号 · 项目启发式历史标记分层展示</p>
+        <form id="czsc-form" class="czsc-form">
+            <div>
+                <label for="stock-code">股票代码</label>
+                <input id="stock-code" class="form-control code-input" value="300502" maxlength="9" placeholder="例如 300502">
+            </div>
+            <div>
+                <label for="period">分析周期</label>
+                <select id="period" class="form-control">
+                    <option value="daily">日线</option>
+                    <option value="weekly">周线</option>
+                    <option value="monthly">月线</option>
+                </select>
+            </div>
+            <div>
+                <label for="bars">K 线数量</label>
+                <select id="bars" class="form-control">
+                    <option value="120">120 根</option>
+                    <option value="240">240 根</option>
+                    <option value="480" selected>480 根</option>
+                    <option value="800">800 根</option>
+                </select>
+            </div>
+            <div>
+                <label for="as-of">历史截止日（可选）</label>
+                <input id="as-of" class="form-control" type="date">
+            </div>
+            <button class="btn btn-primary" type="submit"><i class="fa fa-line-chart"></i> 开始分析</button>
+            <a id="czsc-research-link" class="czsc-research-link" href="/mods/stock-research" target="_blank" rel="noopener"><i class="fa fa-file-text-o"></i>&nbsp; 进入公司档案</a>
+            <span id="loading" class="czsc-loading"><i class="fa fa-circle-o-notch fa-spin"></i> 正在提取行情并计算结构…</span>
+            <span id="data-meta" class="czsc-meta">等待加载</span>
+        </form>
+    </section>
+
+    <div id="error-box" class="alert alert-danger czsc-alert"></div>
+
+    <section class="czsc-panel czsc-scan-panel" aria-labelledby="czsc-scan-title">
+        <div class="czsc-scan-heading">
+            <div>
+                <h2 id="czsc-scan-title">批量结构雷达</h2>
+                <p>最多 20 个标的，按结构稳定性、偏向、趋势强度与信号生成项目候选分；候选分不是 CZSC 官方交易信号。</p>
+            </div>
+            <span class="czsc-scan-badge">instock-czsc-candidate-score-v1</span>
+        </div>
+        <form id="czsc-scan-form">
+            <div class="czsc-scan-form">
+                <div class="czsc-scan-symbols">
+                    <label for="scan-symbols">股票 / ETF 代码</label>
+                    <textarea id="scan-symbols" class="form-control" maxlength="240" placeholder="换行或逗号分隔，例如：&#10;300502, 512800&#10;510300"></textarea>
+                </div>
+                <div>
+                    <label for="scan-period">分析周期</label>
+                    <select id="scan-period" class="form-control">
+                        <option value="daily">日线</option>
+                        <option value="weekly">周线</option>
+                        <option value="monthly">月线</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="scan-bars">K 线数量</label>
+                    <select id="scan-bars" class="form-control">
+                        <option value="120">120 根</option>
+                        <option value="240" selected>240 根</option>
+                        <option value="480">480 根</option>
+                        <option value="800">800 根</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="scan-workers">并发数</label>
+                    <select id="scan-workers" class="form-control">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4" selected>4</option>
+                    </select>
+                </div>
+                <div class="czsc-scan-asof">
+                    <label for="scan-as-of">历史截止日（可选）</label>
+                    <input id="scan-as-of" class="form-control" type="date">
+                </div>
+            </div>
+            <div class="czsc-scan-actions">
+                <button id="scan-start" class="btn btn-primary" type="submit"><i class="fa fa-crosshairs"></i> 开始扫描</button>
+                <button id="scan-cancel" class="btn btn-default" type="button" disabled><i class="fa fa-stop-circle-o"></i> 取消任务</button>
+                <span class="czsc-scan-hint">任务保存在当前服务进程内，服务重启后失效</span>
+            </div>
+        </form>
+        <div id="scan-error" class="czsc-scan-error" role="alert"></div>
+        <div id="scan-state" class="czsc-scan-state" aria-live="polite">
+            <div class="czsc-scan-summary">
+                <strong id="scan-status">等待开始</strong>
+                <span id="scan-current">--</span>
+                <span id="scan-counts" class="scan-counts">0 / 0 · 成功 0 · 失败 0</span>
+            </div>
+            <div class="czsc-scan-progress" aria-hidden="true"><span id="scan-progress-bar"></span></div>
+        </div>
+        <div id="scan-results" class="czsc-scan-results">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead><tr><th>#</th><th>代码</th><th>候选分</th><th>偏向</th><th>趋势</th><th>最新信号</th><th>稳定性</th><th>数据截止</th><th>操作</th></tr></thead>
+                    <tbody id="scan-rows"></tbody>
+                </table>
+            </div>
+            <div id="scan-footnote" class="czsc-scan-footnote"></div>
+        </div>
+    </section>
+
+    <section id="stats" class="czsc-stats" style="display:none;">
+        <div class="czsc-stat"><span>结构趋势</span><strong id="stat-trend">--</strong></div>
+        <div class="czsc-stat"><span>趋势强度</span><strong id="stat-strength">--</strong></div>
+        <div class="czsc-stat"><span>分型</span><strong id="stat-fx">--</strong></div>
+        <div class="czsc-stat"><span>笔</span><strong id="stat-bi">--</strong></div>
+        <div class="czsc-stat"><span>中枢</span><strong id="stat-zs">--</strong></div>
+        <div class="czsc-stat"><span>最新信号</span><strong id="stat-signal">--</strong></div>
+        <div class="czsc-stat"><span>结构稳定性</span><strong id="stat-stability">--</strong></div>
+        <div class="czsc-stat"><span>最近结构变化</span><strong id="stat-change">--</strong></div>
+    </section>
+
+    <div id="result" style="display:none;">
+        <div class="czsc-grid">
+            <section class="czsc-panel">
+                <h3 class="czsc-panel-title">结构图</h3>
+                <div id="czsc-chart"></div>
+            </section>
+            <aside class="czsc-panel">
+                <h3 class="czsc-panel-title">结构解读</h3>
+                <div class="czsc-insight">
+                    <div id="headline" class="czsc-headline"></div>
+                    <div class="czsc-section"><h4>结构证据</h4><ul id="evidence" class="czsc-list"></ul></div>
+                    <div class="czsc-section"><h4>关键价位</h4><div id="levels"></div></div>
+                    <div class="czsc-section"><h4>风险提示</h4><ul id="risks" class="czsc-list"></ul></div>
+                </div>
+            </aside>
+        </div>
+
+        <section class="czsc-panel czsc-signals">
+            <h3 class="czsc-panel-title">近期结构信号</h3>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead><tr><th>日期</th><th>类型</th><th>周期</th><th>价格</th><th>评分</th><th>结构依据</th></tr></thead>
+                    <tbody id="signal-rows"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script src="{{ static_url('js/echarts.min-6.1.0.js') }}"></script>
+<script>
+(function () {
+    const form = document.getElementById('czsc-form');
+    const loading = document.getElementById('loading');
+    const errorBox = document.getElementById('error-box');
+    const stats = document.getElementById('stats');
+    const resultBox = document.getElementById('result');
+    const meta = document.getElementById('data-meta');
+    const scanForm = document.getElementById('czsc-scan-form');
+    const scanStart = document.getElementById('scan-start');
+    const scanCancel = document.getElementById('scan-cancel');
+    const scanError = document.getElementById('scan-error');
+    const scanState = document.getElementById('scan-state');
+    const scanResults = document.getElementById('scan-results');
+    const researchLink = document.getElementById('czsc-research-link');
+    const deskBridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+    const analysisActionId = 'analysis.czsc';
+    const scanActionId = 'analysis.czsc.scan';
+    const terminalScanStatuses = new Set(['completed', 'cancelled', 'failed']);
+    let chart = null;
+    let currentPayload = null;
+    let currentAssetType = 'stock';
+    let currentDisplayName = '';
+    let analysisRunning = false;
+    let loadGeneration = 0;
+    let currentScan = null;
+    let scanPollTimer = null;
+    let scanGeneration = 0;
+
+    function buildContext() {
+        const summary = (currentPayload && currentPayload.summary) || {};
+        const structure = (currentPayload && currentPayload.structure) || {};
+        const snapshot = (currentPayload && currentPayload.snapshot) || null;
+        const structureEvidence = (currentPayload && currentPayload.evidence) || {};
+        const officialSignals = (structure.official_signals || []).filter(item => item.active).map(item => item.signal);
+        const scanProgress = (currentScan && currentScan.progress) || {};
+        const scanResult = (currentScan && currentScan.result) || {};
+        const scanSummary = (scanResult && scanResult.summary) || {};
+        const tasks = [];
+        if (analysisRunning) tasks.push({id: 'czsc-analysis-load', status: 'running', actionId: analysisActionId});
+        if (currentScan && !terminalScanStatuses.has(currentScan.status)) {
+            tasks.push({
+                id: currentScan.scan_id,
+                status: currentScan.status,
+                actionId: scanActionId,
+                progress: {
+                    total: scanProgress.total || 0,
+                    completed: scanProgress.completed || 0,
+                    succeeded: scanProgress.succeeded || 0,
+                    failed: scanProgress.failed || 0,
+                    cancelRequested: Boolean(scanProgress.cancel_requested),
+                },
+            });
+        }
+        const code = document.getElementById('stock-code').value.trim().toUpperCase();
+        const subjectType = currentAssetType === 'etf' ? 'etf' : 'security';
+        return {
+            view: {id: 'czsc-analysis', title: '缠论结构分析'},
+            visibleBlocks: [
+                {id: 'structure-chart', type: 'chart', title: 'CZSC 结构图'},
+                {id: 'structure-insight', type: 'summary', title: '结构解读'},
+                {id: 'structure-signals', type: 'table', title: '近期结构信号'},
+            ],
+            selection: {
+                symbol: code,
+                market: 'CN',
+            },
+            filters: {
+                period: document.getElementById('period').value,
+                bars: Number(document.getElementById('bars').value),
+                asOf: document.getElementById('as-of').value || null,
+            },
+            data: {
+                asOf: currentPayload ? currentPayload.end_date : undefined,
+                source: currentPayload ? currentPayload.data_source : 'newma-desk',
+                freshness: snapshot ? snapshot.freshness.state : 'unknown',
+                summary: {
+                    engine: currentPayload ? currentPayload.engine : {name: 'czsc'},
+                    trend: summary.trend || 'unknown',
+                    trendStrength: summary.trend_strength || 0,
+                    latestClose: currentPayload ? currentPayload.latest_close : null,
+                    officialSignals,
+                    signalSource: summary.signal_source || 'none',
+                    actualBars: currentPayload ? currentPayload.actual_bars : 0,
+                    conclusionState: currentPayload ? currentPayload.conclusion_state : 'unknown',
+                    structureStability: structureEvidence.structure_stability || null,
+                    latestStructureChange: structureEvidence.latest_structure_change || null,
+                    inputQuality: structureEvidence.input_quality || null,
+                    snapshotId: snapshot ? snapshot.snapshot_id : null,
+                    batchScan: currentScan ? {
+                        scanId: currentScan.scan_id,
+                        status: currentScan.status,
+                        parameters: currentScan.parameters,
+                        progress: {
+                            total: scanProgress.total || 0,
+                            completed: scanProgress.completed || 0,
+                            succeeded: scanProgress.succeeded || 0,
+                            failed: scanProgress.failed || 0,
+                            cancelRequested: Boolean(scanProgress.cancel_requested),
+                        },
+                        resultSummary: scanSummary,
+                        rankingMethod: scanResult.ranking_method || null,
+                        generatedAt: scanResult.generated_at || null,
+                    } : null,
+                },
+            },
+            actions: [
+                {
+                    id: analysisActionId,
+                    label: '运行 CZSC 结构分析',
+                    available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(analysisActionId)),
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            code: {type: 'string'},
+                            period: {enum: ['daily', 'weekly', 'monthly']},
+                            bars: {enum: [120, 240, 480, 800]},
+                            asOf: {type: ['string', 'null'], format: 'date'},
+                            refresh: {enum: ['0', '1']},
+                        },
+                    },
+                },
+                {
+                    id: scanActionId,
+                    label: '创建 CZSC 批量扫描',
+                    available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(scanActionId)),
+                    inputSchema: {
+                        type: 'object',
+                        required: ['symbols'],
+                        properties: {
+                            symbols: {type: 'array', minItems: 1, maxItems: 20, items: {type: 'string'}},
+                            period: {enum: ['daily', 'weekly', 'monthly']},
+                            bars: {enum: [120, 240, 480, 800]},
+                            maxWorkers: {type: 'integer', minimum: 1, maximum: 4},
+                            asOf: {type: ['string', 'null'], format: 'date'},
+                        },
+                    },
+                },
+            ],
+            wiki: {
+                primarySubject: {
+                    type: subjectType,
+                    canonicalId: `${subjectType}:CN:${code}`,
+                    displayName: currentDisplayName || code,
+                    market: 'CN',
+                    symbol: code,
+                    assetType: subjectType === 'etf' ? 'etf' : 'stock',
+                },
+                relatedSubjects: [],
+                conceptIds: ['concept:technical-analysis', 'concept:czsc'],
+                intent: 'technical.structure',
+                timeframe: document.getElementById('period').value,
+                ...(snapshot && snapshot.snapshot_id ? {snapshotId: snapshot.snapshot_id} : {}),
+            },
+            tasks,
+        };
+    }
+
+    function publishContext() {
+        if (deskBridge) deskBridge.publishContext();
+    }
+
+    function errorMessage(body, fallback) {
+        if (body && typeof body.error === 'object') return body.error.message || fallback;
+        return (body && body.error) || fallback;
+    }
+
+    async function requestAnalysis(input) {
+        if (deskBridge && deskBridge.whenReady) await deskBridge.whenReady();
+        if (deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(analysisActionId)) {
+            return deskBridge.invokeAction(analysisActionId, input);
+        }
+        const query = new URLSearchParams({
+            code: input.code,
+            period: input.period,
+            bars: String(input.bars),
+        });
+        if (input.asOf) query.set('asOf', input.asOf);
+        if (input.refresh) query.set('refresh', input.refresh);
+        const response = await fetch('/api/v1/czsc/analyses?' + query.toString());
+        const body = await response.json();
+        if (!response.ok) throw new Error(errorMessage(body, '缠论分析请求失败'));
+        return body;
+    }
+
+    function scanRecordFromResponse(body) {
+        const record = body && body.ok === true ? body.data : (body && body.data && body.data.scan_id ? body.data : body);
+        if (!record || typeof record.scan_id !== 'string') throw new Error(errorMessage(body, '批量扫描任务响应无效'));
+        return record;
+    }
+
+    async function requestScan(input) {
+        if (deskBridge && deskBridge.whenReady) await deskBridge.whenReady();
+        if (deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(scanActionId)) {
+            return scanRecordFromResponse(await deskBridge.invokeAction(scanActionId, input));
+        }
+        const response = await fetch('/api/v1/czsc/scans', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(input),
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(errorMessage(body, '批量扫描任务创建失败'));
+        return scanRecordFromResponse(body);
+    }
+
+    async function fetchScan(scanId) {
+        const response = await fetch(`/api/v1/czsc/scans/${encodeURIComponent(scanId)}`);
+        const body = await response.json();
+        if (!response.ok) throw new Error(errorMessage(body, '批量扫描状态读取失败'));
+        return scanRecordFromResponse(body);
+    }
+
+    async function requestScanCancellation(scanId) {
+        const response = await fetch(`/api/v1/czsc/scans/${encodeURIComponent(scanId)}`, {method: 'DELETE'});
+        const body = await response.json();
+        if (!response.ok) throw new Error(errorMessage(body, '批量扫描取消失败'));
+        return scanRecordFromResponse(body);
+    }
+
+    function parseScanSymbols() {
+        const raw = document.getElementById('scan-symbols').value;
+        const symbols = Array.from(new Set(raw.split(/[\s,，;；]+/).map(value => value.trim().toUpperCase()).filter(Boolean)));
+        if (!symbols.length) throw new Error('请至少输入 1 个股票或 ETF 代码');
+        if (symbols.length > 20) throw new Error('每次最多扫描 20 个唯一代码');
+        const invalid = symbols.filter(symbol => !/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol));
+        if (invalid.length) throw new Error(`代码格式错误：${invalid.slice(0, 5).join('、')}`);
+        return symbols;
+    }
+
+    function scanStatusLabel(status) {
+        return {
+            queued: '排队中', running: '扫描中', cancelling: '正在取消',
+            completed: '扫描完成', cancelled: '已取消', failed: '扫描失败',
+        }[status] || '等待开始';
+    }
+
+    function scanTrendLabel(value) {
+        return {up: '上行', down: '下行', sideways: '震荡', unknown: '未知'}[value] || value || '--';
+    }
+
+    function scanBiasLabel(value) {
+        return {bullish: '偏多', bearish: '偏空', neutral: '中性', unknown: '历史不足'}[value] || value || '--';
+    }
+
+    function scanStabilityLabel(value) {
+        return {strong: '较强', moderate: '中等', forming: '形成中', insufficient: '证据不足'}[value] || value || '未知';
+    }
+
+    function showScanError(message) {
+        scanError.textContent = message;
+        scanError.style.display = 'block';
+    }
+
+    function clearScanError() {
+        scanError.textContent = '';
+        scanError.style.display = 'none';
+    }
+
+    function selectScanCandidate(symbol) {
+        const parameters = (currentScan && currentScan.parameters) || {};
+        document.getElementById('stock-code').value = symbol;
+        if (parameters.period) document.getElementById('period').value = parameters.period;
+        if (parameters.bars) document.getElementById('bars').value = String(parameters.bars);
+        document.getElementById('as-of').value = parameters.asOf || '';
+        load(false);
+        document.querySelector('.czsc-hero').scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+
+    function renderScanCandidates(record) {
+        const rows = document.getElementById('scan-rows');
+        const footnote = document.getElementById('scan-footnote');
+        rows.replaceChildren();
+        const result = record.result || {};
+        const candidates = result.candidates || [];
+        const shortHistory = result.short_history_watchlist || [];
+        const failures = result.failures || [];
+        candidates.forEach(item => {
+            const row = document.createElement('tr');
+            const stability = item.structure_stability || {};
+            const values = [
+                item.rank, item.symbol, item.candidate_score, scanBiasLabel(item.bias),
+                `${scanTrendLabel(item.trend)} · ${item.trend_strength || 0}`,
+                item.latest_signal || '无', `${scanStabilityLabel(stability.state)} · ${stability.score || 0}`,
+                item.end_date || '--',
+            ];
+            values.forEach((value, index) => {
+                const cell = document.createElement('td');
+                cell.textContent = value == null ? '--' : String(value);
+                if (index === 2) cell.className = 'czsc-scan-score';
+                row.appendChild(cell);
+            });
+            const actionCell = document.createElement('td');
+            const button = document.createElement('button');
+            button.type = 'button'; button.className = 'btn btn-xs czsc-scan-open';
+            button.textContent = '查看结构';
+            button.addEventListener('click', () => selectScanCandidate(item.symbol));
+            actionCell.appendChild(button); row.appendChild(actionCell); rows.appendChild(row);
+        });
+        shortHistory.forEach(item => {
+            const row = document.createElement('tr');
+            const stability = item.structure_stability || {};
+            const values = [
+                '观察', item.symbol, '--', '历史不足',
+                `${scanTrendLabel(item.trend)} · ${item.trend_strength || 0}`,
+                '不形成方向结论', `${scanStabilityLabel(stability.state)} · ${stability.score || 0}`,
+                item.end_date || '--',
+            ];
+            values.forEach((value, index) => {
+                const cell = document.createElement('td');
+                cell.textContent = value == null ? '--' : String(value);
+                if (index === 2) cell.className = 'czsc-scan-score';
+                row.appendChild(cell);
+            });
+            const actionCell = document.createElement('td');
+            const button = document.createElement('button');
+            button.type = 'button'; button.className = 'btn btn-xs czsc-scan-open';
+            button.textContent = '查看结构';
+            button.addEventListener('click', () => selectScanCandidate(item.symbol));
+            actionCell.appendChild(button); row.appendChild(actionCell); rows.appendChild(row);
+        });
+        if (!candidates.length && !shortHistory.length) {
+            const row = document.createElement('tr'); const cell = document.createElement('td');
+            cell.colSpan = 9; cell.className = 'text-center text-muted';
+            cell.textContent = terminalScanStatuses.has(record.status) ? '任务没有生成可用候选' : '等待候选结果…';
+            row.appendChild(cell); rows.appendChild(row);
+        }
+        const failureText = failures.length
+            ? `失败标的：${failures.slice(0, 5).map(item => item.symbol).join('、')}${failures.length > 5 ? ' 等' : ''}。`
+            : '';
+        const shortText = shortHistory.length ? `短历史观察 ${shortHistory.length} 只，已排除正式排名。` : '';
+        footnote.textContent = `${failureText}${shortText}候选分是 InStock 启发式排序，不是 CZSC 官方信号；取消无法中断已经发出的上游 HTTP 请求。`;
+        scanResults.style.display = 'block';
+    }
+
+    function renderScan(record) {
+        currentScan = record;
+        const progress = record.progress || {};
+        const total = Number(progress.total || 0);
+        const completed = Number(progress.completed || 0);
+        const percent = total ? Math.min(100, completed / total * 100) : 0;
+        document.getElementById('scan-status').textContent = scanStatusLabel(record.status);
+        document.getElementById('scan-current').textContent = progress.current_symbol ? `刚完成 ${progress.current_symbol}` : (record.scan_id || '--');
+        document.getElementById('scan-counts').textContent = `${completed} / ${total} · 成功 ${progress.succeeded || 0} · 失败 ${progress.failed || 0}`;
+        document.getElementById('scan-progress-bar').style.width = `${percent}%`;
+        scanState.style.display = 'block';
+        const active = !terminalScanStatuses.has(record.status);
+        scanStart.disabled = active;
+        scanCancel.disabled = !active || record.status === 'cancelling';
+        if (record.error) showScanError(record.error);
+        if (record.result || terminalScanStatuses.has(record.status)) renderScanCandidates(record);
+        publishContext();
+    }
+
+    function stopScanPolling() {
+        if (scanPollTimer !== null) window.clearTimeout(scanPollTimer);
+        scanPollTimer = null;
+    }
+
+    async function pollScan(scanId, generation) {
+        if (generation !== scanGeneration) return;
+        try {
+            const record = await fetchScan(scanId);
+            if (generation !== scanGeneration) return;
+            renderScan(record);
+            if (!terminalScanStatuses.has(record.status)) {
+                scanPollTimer = window.setTimeout(() => pollScan(scanId, generation), 700);
+            } else {
+                stopScanPolling();
+            }
+        } catch (error) {
+            if (generation === scanGeneration) {
+                stopScanPolling();
+                scanStart.disabled = false;
+                showScanError(error.message || String(error));
+                publishContext();
+            }
+        }
+    }
+
+    async function startScan() {
+        clearScanError();
+        let symbols;
+        try { symbols = parseScanSymbols(); }
+        catch (error) { showScanError(error.message || String(error)); return; }
+        stopScanPolling();
+        const generation = ++scanGeneration;
+        currentScan = null;
+        scanStart.disabled = true;
+        scanCancel.disabled = true;
+        scanResults.style.display = 'none';
+        scanState.style.display = 'block';
+        document.getElementById('scan-status').textContent = '正在创建任务';
+        document.getElementById('scan-current').textContent = `${symbols.length} 个标的`;
+        document.getElementById('scan-counts').textContent = `0 / ${symbols.length} · 成功 0 · 失败 0`;
+        document.getElementById('scan-progress-bar').style.width = '0%';
+        const input = {
+            symbols,
+            period: document.getElementById('scan-period').value,
+            bars: Number(document.getElementById('scan-bars').value),
+            maxWorkers: Number(document.getElementById('scan-workers').value),
+        };
+        const asOf = document.getElementById('scan-as-of').value;
+        if (asOf) input.asOf = asOf;
+        try {
+            const record = await requestScan(input);
+            if (generation !== scanGeneration) return;
+            renderScan(record);
+            if (!terminalScanStatuses.has(record.status)) {
+                scanPollTimer = window.setTimeout(() => pollScan(record.scan_id, generation), 250);
+            }
+        } catch (error) {
+            if (generation === scanGeneration) {
+                scanStart.disabled = false;
+                showScanError(error.message || String(error));
+                publishContext();
+            }
+        }
+    }
+
+    async function cancelScan() {
+        if (!currentScan || terminalScanStatuses.has(currentScan.status)) return;
+        clearScanError();
+        scanCancel.disabled = true;
+        try {
+            const record = await requestScanCancellation(currentScan.scan_id);
+            renderScan(record);
+            if (!terminalScanStatuses.has(record.status) && scanPollTimer === null) {
+                const generation = scanGeneration;
+                scanPollTimer = window.setTimeout(() => pollScan(record.scan_id, generation), 250);
+            }
+        } catch (error) {
+            scanCancel.disabled = false;
+            showScanError(error.message || String(error));
+        }
+    }
+
+    function applyUrlParameters() {
+        const params = new URLSearchParams(window.location.search);
+        const code = (params.get('code') || '').trim().toUpperCase();
+        const period = (params.get('period') || '').trim().toLowerCase();
+        const bars = (params.get('bars') || '').trim();
+        const asOf = (params.get('asOf') || params.get('as_of') || '').trim();
+        currentAssetType = (params.get('assetType') || 'stock').trim().toLowerCase();
+        if (/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(code)) document.getElementById('stock-code').value = code;
+        if (['daily', 'weekly', 'monthly'].includes(period)) document.getElementById('period').value = period;
+        if (['120', '240', '480', '800'].includes(bars)) document.getElementById('bars').value = bars;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(asOf)) document.getElementById('as-of').value = asOf;
+    }
+
+    function text(id, value) { document.getElementById(id).textContent = value == null ? '--' : String(value); }
+    function addList(id, values) {
+        const root = document.getElementById(id); root.replaceChildren();
+        (values || []).forEach(value => { const li = document.createElement('li'); li.textContent = value; root.appendChild(li); });
+    }
+    function showError(message) {
+        errorBox.textContent = message; errorBox.style.display = 'block';
+        stats.style.display = 'none'; resultBox.style.display = 'none';
+    }
+    function cssToken(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+    function chartColors() {
+        return {
+            surface: cssToken('--instock-surface'),
+            surfaceMuted: cssToken('--instock-surface-muted'),
+            surfaceRaised: cssToken('--instock-surface-raised'),
+            surfaceHover: cssToken('--instock-surface-hover'),
+            border: cssToken('--instock-border'),
+            borderStrong: cssToken('--instock-border-strong'),
+            text: cssToken('--instock-text'),
+            textSoft: cssToken('--instock-text-soft'),
+            muted: cssToken('--instock-text-muted'),
+            faint: cssToken('--instock-text-faint'),
+            accent: cssToken('--instock-accent'),
+            accentSoft: cssToken('--instock-accent-soft'),
+            zone: cssToken('--instock-chart-zone'),
+            grid: cssToken('--instock-chart-grid'),
+            positive: cssToken('--instock-positive'),
+            negative: cssToken('--instock-negative'),
+        };
+    }
+    function chartOptionForViewport(rawOption) {
+        const option = JSON.parse(JSON.stringify(rawOption || {}));
+        const mobile = window.matchMedia('(max-width: 680px)').matches;
+        const colors = chartColors();
+        option.backgroundColor = 'transparent';
+        option.textStyle = {...(option.textStyle || {}), color: colors.textSoft};
+        option.title = {
+            ...(option.title || {}), left: mobile ? 6 : 10, top: 4,
+            textStyle: { ...((option.title || {}).textStyle || {}), color: colors.text, fontSize: mobile ? 14 : 17 },
+            subtextStyle: { ...((option.title || {}).subtextStyle || {}), color: colors.muted, fontSize: mobile ? 10 : 12 },
+        };
+        option.legend = {
+            ...(option.legend || {}), type: 'scroll',
+            left: mobile ? 8 : 245, right: 10, top: mobile ? 58 : 10,
+            itemWidth: mobile ? 13 : 18, itemHeight: mobile ? 8 : 10,
+            inactiveColor: colors.faint,
+            textStyle: { ...((option.legend || {}).textStyle || {}), color: colors.textSoft, fontSize: mobile ? 10 : 12 },
+        };
+        option.tooltip = {
+            ...(option.tooltip || {}),
+            backgroundColor: colors.surfaceRaised,
+            borderColor: colors.borderStrong,
+            textStyle: {...((option.tooltip || {}).textStyle || {}), color: colors.text},
+            axisPointer: {
+                ...((option.tooltip || {}).axisPointer || {}),
+                lineStyle: {color: colors.accent},
+                crossStyle: {color: colors.accent},
+                label: {backgroundColor: colors.accent, color: colors.surfaceRaised},
+            },
+        };
+        option.xAxis = (option.xAxis || []).map(axis => ({
+            ...axis,
+            axisLine: {...(axis.axisLine || {}), lineStyle: {...((axis.axisLine || {}).lineStyle || {}), color: colors.borderStrong}},
+            axisTick: {...(axis.axisTick || {}), lineStyle: {...((axis.axisTick || {}).lineStyle || {}), color: colors.borderStrong}},
+            axisLabel: {...(axis.axisLabel || {}), color: colors.faint},
+            splitLine: {...(axis.splitLine || {}), lineStyle: {...((axis.splitLine || {}).lineStyle || {}), color: colors.grid}},
+        }));
+        option.yAxis = (option.yAxis || []).map(axis => ({
+            ...axis,
+            axisLine: {...(axis.axisLine || {}), lineStyle: {...((axis.axisLine || {}).lineStyle || {}), color: colors.borderStrong}},
+            axisTick: {...(axis.axisTick || {}), lineStyle: {...((axis.axisTick || {}).lineStyle || {}), color: colors.borderStrong}},
+            axisLabel: {...(axis.axisLabel || {}), color: colors.faint},
+            splitLine: {...(axis.splitLine || {}), lineStyle: {...((axis.splitLine || {}).lineStyle || {}), color: colors.grid}},
+            splitArea: {...(axis.splitArea || {}), areaStyle: {...((axis.splitArea || {}).areaStyle || {}), color: [colors.surface, colors.surfaceMuted]}},
+        }));
+        option.dataZoom = (option.dataZoom || []).map(zoom => ({
+            ...zoom,
+            borderColor: colors.border,
+            backgroundColor: colors.surfaceMuted,
+            fillerColor: colors.zone,
+            textStyle: {...(zoom.textStyle || {}), color: colors.muted},
+            dataBackground: {
+                ...(zoom.dataBackground || {}),
+                lineStyle: {color: colors.faint},
+                areaStyle: {color: colors.surfaceHover},
+            },
+            selectedDataBackground: {
+                ...(zoom.selectedDataBackground || {}),
+                lineStyle: {color: colors.accent},
+                areaStyle: {color: colors.accentSoft},
+            },
+            handleStyle: {...(zoom.handleStyle || {}), color: colors.accent, borderColor: colors.accent},
+            moveHandleStyle: {...(zoom.moveHandleStyle || {}), color: colors.accent},
+        }));
+        option.series = (option.series || []).map(series => {
+            const next = {...series};
+            if (series.name === 'K线') {
+                next.itemStyle = {...(series.itemStyle || {}), color: colors.positive, color0: colors.negative, borderColor: colors.positive, borderColor0: colors.negative};
+                next.markArea = {...(series.markArea || {}), itemStyle: {...((series.markArea || {}).itemStyle || {}), color: colors.zone}};
+            } else if (series.name === '笔') {
+                next.lineStyle = {...(series.lineStyle || {}), color: colors.accent};
+                next.itemStyle = {...(series.itemStyle || {}), color: colors.accent};
+            } else if (series.name === '顶分型' || series.name === '买点') {
+                next.itemStyle = {...(series.itemStyle || {}), color: colors.positive};
+            } else if (series.name === '底分型' || series.name === '卖点') {
+                next.itemStyle = {...(series.itemStyle || {}), color: colors.negative};
+            } else if (series.name === '成交量') {
+                next.data = (series.data || []).map(item => ({
+                    ...item,
+                    itemStyle: {
+                        ...(item.itemStyle || {}),
+                        color: (item.itemStyle || {}).color === '#ef5350' ? colors.positive : colors.negative,
+                    },
+                }));
+            }
+            return next;
+        });
+        if (mobile && Array.isArray(option.grid) && option.grid.length >= 2) {
+            option.grid[0] = { ...option.grid[0], left: 48, right: 14, top: 104, height: '55%' };
+            option.grid[1] = { ...option.grid[1], left: 48, right: 14, top: '76%', height: '11%' };
+        }
+        return option;
+    }
+    function renderChart() {
+        if (!chart || !currentPayload) return;
+        chart.clear();
+        chart.setOption(chartOptionForViewport(currentPayload.chart), true);
+    }
+    function render(payload, source) {
+        currentPayload = payload;
+        const summary = payload.summary || {};
+        const insight = payload.insight || {};
+        const structureEvidence = payload.evidence || {};
+        const stability = structureEvidence.structure_stability || {};
+        const latestChange = structureEvidence.latest_structure_change || {};
+        const inputQuality = structureEvidence.input_quality || {};
+        const trend = {up: '上行', down: '下行', sideways: '震荡', unknown: '未知'}[summary.trend] || summary.trend;
+        text('stat-trend', trend); text('stat-strength', (summary.trend_strength || 0) + '/100');
+        text('stat-fx', summary.fx_count); text('stat-bi', summary.bi_count); text('stat-zs', summary.zs_count);
+        const signalSource = summary.signal_source === 'czsc_official' ? '官方' : (summary.signal_source === 'instock_heuristic' ? '启发式' : '');
+        text('stat-signal', `${summary.latest_signal || '无'}${signalSource ? `（${signalSource}）` : ''}`); text('headline', insight.headline || '暂无结构结论');
+        const stabilityLabel = {strong: '较强', moderate: '中等', forming: '形成中', insufficient: '证据不足'}[stability.state] || '未知';
+        text('stat-stability', `${stabilityLabel} · ${stability.score || 0}`);
+        text('stat-change', latestChange.date ? `${latestChange.date.slice(5)} · ${latestChange.label || '结构更新'}` : '暂无');
+        addList('evidence', insight.evidence); addList('risks', insight.risk_flags);
+
+        const levels = document.getElementById('levels'); levels.replaceChildren();
+        (insight.key_levels || []).forEach(item => {
+            const row = document.createElement('div'); row.className = 'czsc-level';
+            const label = document.createElement('span'); label.textContent = item.label;
+            const value = document.createElement('b'); value.textContent = Number(item.value).toFixed(2);
+            row.append(label, value); levels.appendChild(row);
+        });
+
+        const signalRows = document.getElementById('signal-rows'); signalRows.replaceChildren();
+        const signals = insight.recent_signals || [];
+        if (!signals.length) {
+            const row = document.createElement('tr'); const cell = document.createElement('td');
+            cell.colSpan = 6; cell.className = 'text-center text-muted'; cell.textContent = '当前样本内没有满足规则的结构买卖点';
+            row.appendChild(cell); signalRows.appendChild(row);
+        } else {
+            signals.forEach(item => {
+                const row = document.createElement('tr');
+                [item.time, item.type, item.level, Number(item.price).toFixed(2), item.score, item.description].forEach((value, index) => {
+                    const cell = document.createElement('td'); cell.textContent = value == null ? '--' : value;
+                    if (index === 1) cell.className = item.side === 'buy' ? 'czsc-buy' : 'czsc-sell';
+                    row.appendChild(cell);
+                });
+                signalRows.appendChild(row);
+            });
+        }
+
+        if (!chart) chart = echarts.init(document.getElementById('czsc-chart'));
+        renderChart();
+        const snapshot = payload.snapshot || {};
+        const provenance = snapshot.provenance || {};
+        const coverage = snapshot.data_window && snapshot.data_window.coverage === 'partial' ? ' · 窗口不完整' : '';
+        const conclusion = payload.conclusion_state === 'insufficient_history' ? ' · 历史不足，不形成方向结论' : '';
+        const replay = provenance.as_of_mode === 'client_filter' ? ' · 历史窗口过滤' : '';
+        const gaps = inputQuality.large_gap_count ? ` · 疑似间隔 ${inputQuality.large_gap_count}` : '';
+        const engineCompatibility = payload.engine.compatibility || {};
+        const compatibility = engineCompatibility.mode === 'structure-only'
+            ? ' · 官方信号适配降级'
+            : (engineCompatibility.tested === false ? ' · CZSC 版本未认证' : '');
+        const sourceNames = {
+            'newma-desk': 'Newma-Desk',
+            tencent: '腾讯行情',
+            yahoo: 'Yahoo Finance',
+        };
+        const providerLabel = sourceNames[payload.data_source] || payload.data_source || '未知数据边界';
+        const upstreamLabel = sourceNames[provenance.upstream_source] || provenance.upstream_source || '';
+        const sourceLabel = upstreamLabel ? `${providerLabel} / ${upstreamLabel}` : providerLabel;
+        const adjustment = {qfq: '前复权', hfq: '后复权', none: '不复权'}[provenance.adjust]
+            || (provenance.adjust && provenance.adjust !== 'unknown' ? provenance.adjust : '复权未知');
+        meta.textContent = `${source === 'history' ? '历史版本 · ' : ''}${payload.engine.name.toUpperCase()} v${payload.engine.version} · ${sourceLabel} · ${adjustment} · ${payload.actual_bars} 根 · 更新至 ${payload.end_date}${replay}${coverage}${conclusion}${gaps}${compatibility}`;
+        meta.title = [
+            `统一数据边界：${providerLabel}`,
+            upstreamLabel ? `实际上游：${upstreamLabel}` : '',
+            provenance.upstream_as_of ? `来源响应时间：${provenance.upstream_as_of}` : '',
+            provenance.market ? `市场：${provenance.market}` : '',
+            provenance.timeframe ? `周期：${provenance.timeframe}` : '',
+            `复权：${adjustment}`,
+        ].filter(Boolean).join('\n');
+        const code = document.getElementById('stock-code').value.trim().toUpperCase();
+        const researchParams = new URLSearchParams({symbol: code, period: document.getElementById('period').value, bars: document.getElementById('bars').value, sourceModule: 'instock-czsc', ...(snapshot.snapshot_id ? {sourceSnapshotId: snapshot.snapshot_id} : {}), ...(payload.end_date ? {asOf: payload.end_date} : {})});
+        researchLink.href = `/mods/stock-research?${researchParams.toString()}`;
+        researchLink.style.display = /^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(code) && !['etf', 'index', 'fund'].includes(currentAssetType) ? 'inline-flex' : 'none';
+        stats.style.display = 'grid'; resultBox.style.display = 'block';
+        setTimeout(() => chart.resize(), 0);
+        publishContext();
+        window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source);
+    }
+
+    async function load(refresh) {
+        if (typeof echarts === 'undefined') { showError('本地 ECharts 资源加载失败，请检查静态文件配置'); return; }
+        const code = document.getElementById('stock-code').value.trim().toUpperCase();
+        const period = document.getElementById('period').value;
+        const bars = document.getElementById('bars').value;
+        const asOf = document.getElementById('as-of').value;
+        const generation = ++loadGeneration;
+        analysisRunning = true; publishContext();
+        loading.style.display = 'inline'; errorBox.style.display = 'none';
+        try {
+            const currentQuery = new URLSearchParams(window.location.search);
+            const query = new URLSearchParams({code, period, bars});
+            if (asOf) query.set('asOf', asOf);
+            ['sourceModule', 'sourceSnapshotId', 'assetType'].forEach(key => { if (currentQuery.get(key)) query.set(key, currentQuery.get(key)); });
+            window.history.replaceState(null, '', window.location.pathname + '?' + query.toString());
+            const body = await requestAnalysis({code, period, bars: Number(bars), asOf: asOf || undefined, ...(refresh ? {refresh: '1'} : {})});
+            if (!body || !body.ok) throw new Error(errorMessage(body, '缠论分析请求失败'));
+            if (generation === loadGeneration) render(body.data);
+        } catch (error) {
+            if (generation === loadGeneration) showError(error.message || String(error));
+        }
+        finally {
+            if (generation === loadGeneration) {
+                analysisRunning = false; loading.style.display = 'none'; publishContext();
+            }
+        }
+    }
+
+    function handleSecuritySelected(event) {
+        if (!event || event.event !== 'security.selected') return;
+        const payload = event.payload || {};
+        const symbol = String(payload.symbol || '').trim().toUpperCase();
+        if (payload.market && payload.market !== 'CN') return;
+        if (!/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol)) return;
+        currentAssetType = String(payload.assetType || 'stock').trim().toLowerCase();
+        currentDisplayName = String(payload.name || symbol).trim();
+        document.getElementById('stock-code').value = symbol;
+        const eventAsOf = String(payload.asOf || '');
+        document.getElementById('as-of').value = /^\d{4}-\d{2}-\d{2}$/.test(eventAsOf) ? eventAsOf : '';
+        load(false);
+    }
+
+    async function handleWikiHandoff(handoff) {
+        const subject = handoff && handoff.subject || {};
+        const symbol = String(subject.symbol || '').trim().toUpperCase();
+        if (subject.market !== 'CN' || !['security', 'etf'].includes(subject.type)) {
+            throw new Error('CZSC 当前只支持 A 股与场内 ETF');
+        }
+        if (!/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol)) {
+            throw new Error('Wiki 交接的证券代码无效');
+        }
+        currentAssetType = subject.type === 'etf' ? 'etf' : 'stock';
+        currentDisplayName = String(subject.displayName || symbol).trim();
+        document.getElementById('stock-code').value = symbol;
+        const period = handoff.parameters && handoff.parameters.period;
+        const bars = handoff.parameters && String(handoff.parameters.bars || '');
+        if (['daily', 'weekly', 'monthly'].includes(period)) document.getElementById('period').value = period;
+        if (['120', '240', '480', '800'].includes(bars)) document.getElementById('bars').value = bars;
+        document.getElementById('as-of').value = '';
+        await load(false);
+        return {selected: symbol};
+    }
+
+    document.addEventListener('instock:history-selected', event => render(event.detail.payload, event.detail.view_source || 'history'));
+
+    form.addEventListener('submit', event => { event.preventDefault(); load(true); });
+    scanForm.addEventListener('submit', event => { event.preventDefault(); startScan(); });
+    scanCancel.addEventListener('click', cancelScan);
+    window.addEventListener('resize', () => { if (chart) chart.resize(); });
+    window.addEventListener('beforeunload', stopScanPolling);
+    document.addEventListener('instock:themechange', renderChart);
+    if (deskBridge) deskBridge.setContextProvider(buildContext);
+    if (deskBridge && deskBridge.setHandoffHandler) deskBridge.setHandoffHandler(handleWikiHandoff);
+    if (deskBridge && deskBridge.subscribe) deskBridge.subscribe(handleSecuritySelected);
+    const now = new Date();
+    const today = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+    document.getElementById('as-of').max = today;
+    document.getElementById('scan-as-of').max = today;
+    applyUrlParameters();
+    load(false);
+})();
+</script>
+{% end %}

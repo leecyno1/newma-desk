@@ -1,0 +1,383 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-08-20",
+  "policy": {
+    "purpose": "Non-secret account slot registry for Publish stage routing and login health checks.",
+    "store_passwords": false,
+    "store_cookies": false,
+    "store_api_secrets": false,
+    "session_root": "~/Library/Application Support/NewmaPublishSessions",
+    "browser_profile_config": "configs/publish/browser_profiles.json",
+    "final_publish_requires_confirmation": true
+  },
+  "logical_accounts": {
+    "publisher-a": {
+      "label": "发布账号 A",
+      "description": "跨平台主账号组；真实账号名只在各平台登录态中维护。",
+      "matrix_role": "primary",
+      "routes": {
+        "xiaohongshu_video": "slot-1",
+        "douyin_video": "slot-1",
+        "bilibili_video": "slot-1",
+        "wechat_channels_video": "slot-1"
+      }
+    },
+    "publisher-b": {
+      "label": "发布账号 B",
+      "description": "跨平台副账号组；真实账号名只在各平台登录态中维护。",
+      "matrix_role": "secondary",
+      "routes": {
+        "xiaohongshu_video": "slot-2",
+        "douyin_video": "slot-2",
+        "bilibili_video": "slot-2",
+        "wechat_channels_video": "slot-2"
+      }
+    }
+  },
+  "channels": {
+    "wechat_article": {
+      "platform": "wechat",
+      "publish_presets": {},
+      "slots": {
+        "slot-1": {
+          "label": "公众号 1号账号",
+          "default": true,
+          "account_metadata": {
+            "group": "invest-market",
+            "matrix_role": "primary",
+            "owner_alias": null,
+            "operator_alias": null,
+            "ip_group": "direct-a",
+            "registration_status": "active"
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "local",
+            "proxy_profile": null
+          },
+          "credential_alias": "default",
+          "browser_profile": "wechat_article",
+          "auth_modes": [
+            "official_api",
+            "browser_profile"
+          ]
+        },
+        "slot-2": {
+          "label": "墨丘利实验室",
+          "default": false,
+          "account_metadata": {
+            "group": "fin-business",
+            "ip_group": "proxy-b",
+            "matrix_role": "secondary",
+            "owner_alias": null,
+            "operator_alias": null,
+            "registration_status": "active",
+            "registered_account": "墨丘利实验室",
+            "wechat_app_id": "wx91e21014138059fa",
+            "activated_at": "2026-08-20T23:40:40",
+            "whitelist_ip": "111.193.80.93",
+            "whitelist_verified_at": "2026-08-20T23:42:37"
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "proxy",
+            "proxy_profile": "proxy-b"
+          },
+          "credential_alias": "wechat_mp_slot-2",
+          "browser_profile": "wechat_article_slot-2",
+          "auth_modes": [
+            "official_api",
+            "browser_profile"
+          ],
+          "setup_checklist": [
+            "✅ 注册与凭证录入",
+            "✅ IP 白名单 111.193.80.93 已生效（access_token 验证通过）"
+          ]
+        },
+        "slot-3": {
+          "label": "Newma牛马进化论",
+          "default": false,
+          "account_metadata": {
+            "group": "ai-tech",
+            "ip_group": "proxy-c",
+            "matrix_role": "tertiary",
+            "owner_alias": null,
+            "operator_alias": null,
+            "registration_status": "active",
+            "registered_account": "Newma牛马进化论",
+            "wechat_app_id": "wxe2288fd204f4067f",
+            "activated_at": "2026-08-21T00:08:57"
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "proxy",
+            "proxy_profile": "proxy-c"
+          },
+          "credential_alias": "wechat_mp_slot-3",
+          "browser_profile": "wechat_article_slot-3",
+          "auth_modes": [
+            "official_api",
+            "browser_profile"
+          ],
+          "setup_checklist": [
+            "IP 白名单 111.193.80.93 待用户在公众号后台添加"
+          ]
+        }
+      },
+      "platform_groups": {
+        "by_purpose": [
+          {
+            "group_id": "invest-market",
+            "name": "投资市场组",
+            "slots": [
+              "slot-1"
+            ],
+            "content_focus": "投资市场：行情复盘/资产配置/仓位策略"
+          },
+          {
+            "group_id": "fin-business",
+            "name": "财经商业组",
+            "slots": [
+              "slot-2"
+            ],
+            "content_focus": "财经商业：公司商业/产业链/市场博弈"
+          },
+          {
+            "group_id": "ai-tech",
+            "name": "AI 科技组",
+            "slots": [
+              "slot-3"
+            ],
+            "content_focus": "AI 科技：AI 生态/芯片半导体/技术趋势"
+          }
+        ],
+        "by_ip": [
+          {
+            "group_id": "direct-a",
+            "name": "直连出口 A",
+            "network": "local/direct",
+            "slots": [
+              "slot-1"
+            ]
+          },
+          {
+            "group_id": "proxy-b",
+            "name": "代理出口 B",
+            "network": "proxy-b",
+            "slots": [
+              "slot-2"
+            ]
+          },
+          {
+            "group_id": "proxy-c",
+            "name": "代理出口 C",
+            "network": "proxy-c",
+            "slots": [
+              "slot-3"
+            ]
+          }
+        ]
+      }
+    },
+    "xiaohongshu_video": {
+      "platform": "xiaohongshu",
+      "cli_platform": "xiaohongshu",
+      "publish_presets": {},
+      "slots": {
+        "slot-1": {
+          "label": "小红书 1号账号",
+          "default": true,
+          "account_metadata": {
+            "group": "default",
+            "matrix_role": "primary",
+            "owner_alias": null,
+            "operator_alias": null
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "local",
+            "proxy_profile": null
+          },
+          "cli_account_name": "slot-1",
+          "browser_profile": "xiaohongshu_video",
+          "auth_modes": [
+            "qianfan_local_api",
+            "social_auto_upload",
+            "browser_profile"
+          ]
+        },
+        "slot-2": {
+          "label": "小红书 2号账号",
+          "account_metadata": {
+            "group": "default",
+            "matrix_role": "secondary",
+            "owner_alias": null,
+            "operator_alias": null
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "local",
+            "proxy_profile": null
+          },
+          "cli_account_name": "slot-2",
+          "browser_profile": "xiaohongshu_video_2",
+          "auth_modes": [
+            "qianfan_local_api",
+            "social_auto_upload",
+            "browser_profile"
+          ]
+        }
+      }
+    },
+    "douyin_video": {
+      "platform": "douyin",
+      "cli_platform": "douyin",
+      "publish_presets": {},
+      "slots": {
+        "slot-1": {
+          "label": "抖音 1号账号",
+          "default": true,
+          "account_metadata": {
+            "group": "default",
+            "matrix_role": "primary",
+            "owner_alias": null,
+            "operator_alias": null
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "local",
+            "proxy_profile": null
+          },
+          "cli_account_name": "slot-1",
+          "browser_profile": "douyin_video",
+          "auth_modes": [
+            "qianfan_local_api",
+            "social_auto_upload",
+            "browser_profile"
+          ]
+        },
+        "slot-2": {
+          "label": "抖音 2号账号",
+          "account_metadata": {
+            "group": "default",
+            "matrix_role": "secondary",
+            "owner_alias": null,
+            "operator_alias": null
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "local",
+            "proxy_profile": null
+          },
+          "cli_account_name": "slot-2",
+          "browser_profile": "douyin_video_2",
+          "auth_modes": [
+            "qianfan_local_api",
+            "social_auto_upload",
+            "browser_profile"
+          ]
+        }
+      }
+    },
+    "bilibili_video": {
+      "platform": "bilibili",
+      "cli_platform": "bilibili",
+      "publish_presets": {},
+      "slots": {
+        "slot-1": {
+          "label": "B站 1号账号",
+          "default": true,
+          "account_metadata": {
+            "group": "default",
+            "matrix_role": "primary",
+            "owner_alias": null,
+            "operator_alias": null
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "local",
+            "proxy_profile": null
+          },
+          "cli_account_name": "slot-1",
+          "browser_profile": "bilibili_video",
+          "auth_modes": [
+            "qianfan_local_api",
+            "social_auto_upload",
+            "browser_profile"
+          ]
+        },
+        "slot-2": {
+          "label": "B站 2号账号",
+          "account_metadata": {
+            "group": "default",
+            "matrix_role": "secondary",
+            "owner_alias": null,
+            "operator_alias": null
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "local",
+            "proxy_profile": null
+          },
+          "cli_account_name": "slot-2",
+          "browser_profile": "bilibili_video_2",
+          "auth_modes": [
+            "qianfan_local_api",
+            "social_auto_upload",
+            "browser_profile"
+          ]
+        }
+      }
+    },
+    "wechat_channels_video": {
+      "platform": "wechat_channels",
+      "cli_platform": "tencent",
+      "publish_presets": {},
+      "slots": {
+        "slot-1": {
+          "label": "视频号 1号账号",
+          "default": true,
+          "account_metadata": {
+            "group": "default",
+            "matrix_role": "primary",
+            "owner_alias": null,
+            "operator_alias": null
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "local",
+            "proxy_profile": null
+          },
+          "cli_account_name": "slot-1",
+          "browser_profile": "wechat_channels_video",
+          "auth_modes": [
+            "qianfan_local_api",
+            "social_auto_upload",
+            "browser_profile"
+          ]
+        },
+        "slot-2": {
+          "label": "视频号 2号账号",
+          "account_metadata": {
+            "group": "default",
+            "matrix_role": "secondary",
+            "owner_alias": null,
+            "operator_alias": null
+          },
+          "publish_presets": {},
+          "network_policy": {
+            "mode": "local",
+            "proxy_profile": null
+          },
+          "cli_account_name": "slot-2",
+          "browser_profile": "wechat_channels_video_2",
+          "auth_modes": [
+            "qianfan_local_api",
+            "social_auto_upload",
+            "browser_profile"
+          ]
+        }
+      }
+    }
+  }
+}

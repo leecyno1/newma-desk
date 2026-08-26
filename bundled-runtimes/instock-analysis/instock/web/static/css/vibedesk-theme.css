@@ -1,0 +1,168 @@
+:root {
+    color-scheme: light;
+    --instock-bg: #f4efe3;
+    --instock-surface: #fbf7ef;
+    --instock-surface-muted: #eae1d0;
+    --instock-surface-raised: #fffaf1;
+    --instock-surface-hover: #e2d8c6;
+    --instock-surface-selected: #e0d2b5;
+    --instock-border: #d8cdbb;
+    --instock-border-strong: #b9aa90;
+    --instock-text: #173128;
+    --instock-text-soft: #3f5c51;
+    --instock-text-muted: #66766e;
+    --instock-text-faint: #89958d;
+    --instock-accent: #a87432;
+    --instock-accent-hover: #8d5e25;
+    --instock-accent-soft: #ddc79c;
+    --instock-accent-surface: #f1e3c6;
+    --instock-accent-contrast: #173128;
+    --instock-positive: #dc2626;
+    --instock-negative: #16a34a;
+    --instock-warning: #a16207;
+    --instock-warning-text: #854d0e;
+    --instock-warning-bg: #fffbeb;
+    --instock-warning-border: #fde68a;
+    --instock-error-text: #991b1b;
+    --instock-error-bg: #fef2f2;
+    --instock-error-border: #fecaca;
+    --instock-chart-grid: #d8cdbb;
+    --instock-chart-zone: rgba(168, 116, 50, .14);
+    --instock-shadow: 0 8px 24px rgba(23, 49, 40, .07);
+    --instock-font-ui: "Manrope", "Avenir Next", "Cairo", -apple-system,
+        BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC",
+        "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --instock-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root[data-vibedesk-theme="dark"],
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --instock-bg: #0f1714;
+    --instock-surface: #16211c;
+    --instock-surface-muted: #121d18;
+    --instock-surface-raised: #1a2821;
+    --instock-surface-hover: #203129;
+    --instock-surface-selected: #2a382e;
+    --instock-border: #2a3931;
+    --instock-border-strong: #405146;
+    --instock-text: #f3ecdd;
+    --instock-text-soft: #cfc7b7;
+    --instock-text-muted: #a8b4a5;
+    --instock-text-faint: #78847a;
+    --instock-accent: #c89a5a;
+    --instock-accent-hover: #dab47d;
+    --instock-accent-soft: #5a452c;
+    --instock-accent-surface: #2c2a21;
+    --instock-accent-contrast: #102019;
+    --instock-positive: #f87171;
+    --instock-negative: #4ade80;
+    --instock-warning: #facc15;
+    --instock-warning-text: #fde68a;
+    --instock-warning-bg: #2b2110;
+    --instock-warning-border: #713f12;
+    --instock-error-text: #fca5a5;
+    --instock-error-bg: #321417;
+    --instock-error-border: #7f1d1d;
+    --instock-chart-grid: #2a3931;
+    --instock-chart-zone: rgba(200, 154, 90, .16);
+    --instock-shadow: none;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-vibedesk-theme]):not([data-theme]) {
+        color-scheme: dark;
+        --instock-bg: #0f1714;
+        --instock-surface: #16211c;
+        --instock-surface-muted: #121d18;
+        --instock-surface-raised: #1a2821;
+        --instock-surface-hover: #203129;
+        --instock-surface-selected: #2a382e;
+        --instock-border: #2a3931;
+        --instock-border-strong: #405146;
+        --instock-text: #f3ecdd;
+        --instock-text-soft: #cfc7b7;
+        --instock-text-muted: #a8b4a5;
+        --instock-text-faint: #78847a;
+        --instock-accent: #c89a5a;
+        --instock-accent-hover: #dab47d;
+        --instock-accent-soft: #5a452c;
+        --instock-accent-surface: #2c2a21;
+        --instock-accent-contrast: #102019;
+        --instock-positive: #f87171;
+        --instock-negative: #4ade80;
+        --instock-warning: #facc15;
+        --instock-warning-text: #fde68a;
+        --instock-warning-bg: #2b2110;
+        --instock-warning-border: #713f12;
+        --instock-error-text: #fca5a5;
+        --instock-error-bg: #321417;
+        --instock-error-border: #7f1d1d;
+        --instock-chart-grid: #2a3931;
+        --instock-chart-zone: rgba(200, 154, 90, .16);
+        --instock-shadow: none;
+    }
+}
+
+html,
+body {
+    min-height: 100%;
+    background: var(--instock-bg);
+    color: var(--instock-text);
+    font-family: var(--instock-font-ui);
+}
+
+html.vibedesk-theme-pending,
+html.vibedesk-theme-pending body {
+    background: transparent !important;
+}
+
+html.vibedesk-theme-pending body {
+    visibility: hidden;
+}
+
+html.vibedesk-embedded body,
+html.vibedesk-embedded .main-container,
+html.vibedesk-embedded .main-content,
+html.vibedesk-embedded .main-content-inner {
+    background: var(--instock-bg) !important;
+    color: var(--instock-text);
+}
+
+/* Ace / Bootstrap 3 ship their blue primary palette with !important rules.
+ * Keep the upstream component vocabulary, but remap its brand semantics at
+ * the Newma embedding boundary so every InStock page inherits the Desk theme. */
+html.vibedesk-embedded .btn-primary,
+html.vibedesk-embedded .btn-primary.focus,
+html.vibedesk-embedded .btn-primary:focus,
+html.vibedesk-embedded .btn-primary:hover,
+html.vibedesk-embedded .btn-primary:active,
+html.vibedesk-embedded .btn-primary.active,
+html.vibedesk-embedded .open > .dropdown-toggle.btn-primary {
+    background-color: var(--instock-accent) !important;
+    border-color: var(--instock-accent) !important;
+    color: var(--instock-accent-contrast) !important;
+}
+
+html.vibedesk-embedded .btn-primary:hover,
+html.vibedesk-embedded .btn-primary:active,
+html.vibedesk-embedded .btn-primary.active,
+html.vibedesk-embedded .open > .dropdown-toggle.btn-primary {
+    background-color: var(--instock-accent-hover) !important;
+    border-color: var(--instock-accent-hover) !important;
+}
+
+html.vibedesk-embedded .text-primary,
+html.vibedesk-embedded a.text-primary,
+html.vibedesk-embedded a:not(.btn):not(.czsc-buy):not(.czsc-sell) {
+    color: var(--instock-accent) !important;
+}
+
+html.vibedesk-embedded .bg-primary,
+html.vibedesk-embedded .label-primary,
+html.vibedesk-embedded .badge-primary,
+html.vibedesk-embedded .panel-primary > .panel-heading {
+    background-color: var(--instock-accent) !important;
+    border-color: var(--instock-accent) !important;
+    color: var(--instock-accent-contrast) !important;
+}

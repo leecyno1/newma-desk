@@ -1,0 +1,40 @@
+{
+  "name": "dasheng-video-vox",
+  "version": "1.5.0",
+  "lane": "vox_explainer_video",
+  "pipeline": "configs/video/pipelines/vox_explainer.yaml",
+  "director_entry": "scripts/dasheng_video_director.py",
+  "storyboard_entry": "scripts/video_vox_storyboard.py",
+  "image2_entry": "scripts/video_vox_image2_pipeline.py",
+  "image_to_video_entry": "scripts/video_vox_omni_pack.py",
+  "image_to_video_skill": "dasheng-video-omni-browser",
+  "image_to_video_fallback": "scripts/video_vox_mmx_generate.py",
+  "default_format": {
+    "aspect_ratio": "16:9",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "state_machine": [
+    "cold_open",
+    "central_question",
+    "evidence_map",
+    "historical_context",
+    "mechanism_explainer",
+    "field_or_human_evidence",
+    "counterargument",
+    "data_resolution",
+    "qualified_conclusion"
+  ],
+  "required_gates": [
+    "script_rewrite_gate",
+    "storyboard_review_gate",
+    "claim_evidence_gate",
+    "image2_scene_still_gate",
+    "crop_storyboard_gate",
+    "renderer_asset_gate",
+    "renderer_contract_gate",
+    "video_render_qc",
+    "final_delivery_manifest"
+  ]
+}

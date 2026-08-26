@@ -1,0 +1,234 @@
+import type { TimelineItem } from '../editor/types';
+import type { TranscriptWord } from '../transcript/types';
+import { hasOperationalTranscript } from '../transcript/types';
+import { isStableIdentity, newManualCueIdentity } from '../transcript/identity';
+import { normalizeCaptionSourceEntries } from './sourceOrder';
+import { CAPTION_STYLE_BY_ID } from './styles';
+import type { CaptionLayout, CaptionsData, CaptionSourceEntry, CaptionTemplate } from './types';
+
+const DEFAULT_CUE_MS = 3_000;
+const MIN_CUE_MS = 1;
+
+export type ManualCueEdge = 'start' | 'end';
+
+export interface DroppedManualCaption {
+  laneId: string;
+  patch: Partial<CaptionsData>;
+}
+
+const id = (): string => `lane_${crypto.randomUUID()}`;
+
+export function isManualCaptionEntry(entry: CaptionSourceEntry): boolean {
+  return Array.isArray(entry.words);
+}
+export function identifyManualCues(words: readonly TranscriptWord[]): TranscriptWord[] {
+  return words.map((word) => ({ ...word, id: newManualCueIdentity() }));
+}
+
+export function newManualCaptions(): CaptionsData {
+  return {
+    enabled: true,
+    template: 'black-bar',
+    pacing: 'phrase',
+    sourceEntries: [newManualEntry(1)],
+    sourceMode: 'item',
+  };
+}
+
+export function newManualEntry(number: number): CaptionSourceEntry {
+  const laneId = id();
+  return {
+    id: laneId,
+    itemId: `manual:${laneId}`,
+    label: `手动字幕 ${number}`,
+    words: [],
+  };
+}
+
+export function promoteCaptionEntries(captions: CaptionsData, items: TimelineItem[]): CaptionSourceEntry[] {
+  if (captions.sourceEntries?.length) {
+    return normalizeCaptionSourceEntries(captions.sourceEntries).filter((entry) =>
+      entry.words !== undefined || hasOperationalTranscript(items.find((item) => item.id === entry.itemId)));
+  }
+  const ids = sourceIds(captions, items);
+  const entries: CaptionSourceEntry[] = ids.map((itemId) => ({ id: id(), itemId }));
+  if (captions.words) entries.push({ ...newManualEntry(1), words: captions.words.map((word) => ({ ...word })) });
+  return normalizeCaptionSourceEntries(entries);
+}
+
+function sourceIds(captions: CaptionsData, items: TimelineItem[]): string[] {
+  if (captions.sourceMode === 'timeline') {
+    return items.filter((item) => hasOperationalTranscript(item)).map((item) => item.id);
+  }
+  if (captions.sources?.length) {
+    return captions.sources.filter((itemId) => hasOperationalTranscript(items.find((item) => item.id === itemId)));
+  }
+  return captions.sourceItemId
+    && hasOperationalTranscript(items.find((item) => item.id === captions.sourceItemId))
+    ? [captions.sourceItemId]
+    : [];
+}
+
+export function appendManualLane(captions: CaptionsData, items: TimelineItem[]): Partial<CaptionsData> {
+  const entries = promoteCaptionEntries(captions, items);
+  const count = entries.filter(isManualCaptionEntry).length;
+  return entryPatch([...entries, newManualEntry(count + 1)]);
+}
+
+export function appendDroppedManualCaption(
+  captions: CaptionsData,
+  items: TimelineItem[],
+  template: CaptionTemplate,
+  text: string,
+  startMs: number,
+  layout: CaptionLayout,
+): DroppedManualCaption | null {
+  const cue = manualCue(text, startMs, startMs + DEFAULT_CUE_MS);
+  if (!cue) return null;
+  const entries = promoteCaptionEntries(captions, items);
+  const manualCount = entries.filter(isManualCaptionEntry).length;
+  const entry = newManualEntry(manualCount + 1);
+  const { id: _id, label: _label, labelZh: _labelZh, hint: _hint, ...style } = CAPTION_STYLE_BY_ID[template];
+  return {
+    laneId: entry.id,
+    patch: {
+      enabled: true,
+      ...entryPatch([...entries, { ...entry, ...layout, style, words: [cue] }]),
+      ...(captions.layoutPolicy?.mode === 'single-lane' ? { layoutPolicy: { mode: 'auto-stack' as const } } : {}),
+    },
+  };
+}
+
+export function removeManualLane(captions: CaptionsData, laneId: string): Partial<CaptionsData> {
+  return entryPatch((captions.sourceEntries ?? []).filter((entry) => entry.id !== laneId));
+}
+
+export function appendManualCue(
+  captions: CaptionsData,
+  laneId: string,
+  text: string,
+  startMs: number,
+  endMs = startMs + DEFAULT_CUE_MS,
+): Partial<CaptionsData> | null {
+  const cue = manualCue(text, startMs, endMs);
+  if (!cue) return null;
+  return mapManualLane(captions, laneId, (words) => [...words, cue].sort((a, b) => a.start - b.start));
+}
+
+export function appendManualCueToFirstLane(
+  captions: CaptionsData,
+  items: TimelineItem[],
+  text: string,
+  startMs: number,
+  endMs: number,
+): Partial<CaptionsData> | null {
+  const entries = promoteCaptionEntries(captions, items);
+  const lane = entries.find(isManualCaptionEntry) ?? newManualEntry(1);
+  const next = entries.some((entry) => entry.id === lane.id) ? captions : { ...captions, ...entryPatch([...entries, lane]) };
+  return appendManualCue(next, lane.id, text, startMs, endMs);
+}
+
+export function updateManualCue(
+  captions: CaptionsData,
+  laneId: string,
+  index: number,
+  text: string,
+  startMs: number,
+  endMs: number,
+): Partial<CaptionsData> | null {
+  const current = captions.sourceEntries?.find((entry) => entry.id === laneId && isManualCaptionEntry(entry))?.words?.[index];
+  if (!current) return null;
+  const cue = manualCue(text, startMs, endMs, current.id);
+  if (!cue) return null;
+  return mapManualLane(captions, laneId, (words) =>
+    words.map((word, i) => i === index ? cue : word).sort((a, b) => a.start - b.start),
+  );
+}
+
+/**
+ * Drag-placed non-overlapping clamp: Put a cue of durationMs with the desired startMs between others
+ * gap. If the neighbor is pressed, it will be welted (not penetrated, the same semantics as trim's neighbor clamping); the target gap cannot fit the entire
+ * cue → returns null, the caller remains intact (rebound). The data layer append/update itself still allows overlap,
+ * This strategy is only used by drag-and-drop interactions.
+ */
+export function placeManualCueTiming(
+  others: readonly TranscriptWord[],
+  startMs: number,
+  durationMs: number,
+): Pick<TranscriptWord, 'start' | 'end'> | null {
+  if (!Number.isFinite(startMs) || !Number.isFinite(durationMs)) return null;
+  const requested = Math.max(0, Math.round(startMs));
+  const duration = Math.max(MIN_CUE_MS, Math.round(durationMs));
+  const sorted = [...others].sort((a, b) => a.start - b.start);
+  let insertAt = 0;
+  while (insertAt < sorted.length && sorted[insertAt]!.start <= requested) insertAt += 1;
+  const lower = insertAt > 0 ? sorted[insertAt - 1]!.end : 0;
+  const upper = insertAt < sorted.length ? sorted[insertAt]!.start : Number.POSITIVE_INFINITY;
+  if (upper - lower < duration) return null;
+  const start = Math.min(Math.max(requested, lower), upper - duration);
+  return { start, end: start + duration };
+}
+
+export function resizedManualCueTiming(
+  words: readonly TranscriptWord[],
+  index: number,
+  edge: ManualCueEdge,
+  deltaMs: number,
+): Pick<TranscriptWord, 'start' | 'end'> | null {
+  const cue = words[index];
+  if (!cue || !Number.isFinite(deltaMs)) return null;
+  const delta = Math.round(deltaMs);
+  if (edge === 'start') {
+    const lower = words[index - 1]?.end ?? 0;
+    return { start: Math.min(cue.end - MIN_CUE_MS, Math.max(lower, cue.start + delta)), end: cue.end };
+  }
+  const upper = words[index + 1]?.start ?? Number.POSITIVE_INFINITY;
+  return { start: cue.start, end: Math.max(cue.start + MIN_CUE_MS, Math.min(upper, cue.end + delta)) };
+}
+
+export function resizeManualCue(
+  captions: CaptionsData,
+  laneId: string,
+  index: number,
+  edge: ManualCueEdge,
+  deltaMs: number,
+): Partial<CaptionsData> | null {
+  const words = captions.sourceEntries?.find((entry) => entry.id === laneId && isManualCaptionEntry(entry))?.words;
+  const cue = words?.[index];
+  const timing = words ? resizedManualCueTiming(words, index, edge, deltaMs) : null;
+  return cue && timing ? updateManualCue(captions, laneId, index, cue.text, timing.start, timing.end) : null;
+}
+
+export function removeManualCue(captions: CaptionsData, laneId: string, index: number): Partial<CaptionsData> {
+  return mapManualLane(captions, laneId, (words) => words.filter((_, i) => i !== index));
+}
+
+function manualCue(text: string, startMs: number, endMs: number, cueId?: string): TranscriptWord | null {
+  const clean = text.trim();
+  if (!clean || !Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  const start = Math.max(0, Math.round(startMs));
+  const end = Math.max(start + 1, Math.round(endMs));
+  return { id: isStableIdentity(cueId) ? cueId : newManualCueIdentity(), text: clean, start, end };
+}
+
+function mapManualLane(
+  captions: CaptionsData,
+  laneId: string,
+  update: (words: TranscriptWord[]) => TranscriptWord[],
+): Partial<CaptionsData> {
+  const entries = (captions.sourceEntries ?? []).map((entry) =>
+    entry.id === laneId && isManualCaptionEntry(entry)
+      ? { ...entry, words: update(entry.words ?? []) }
+      : entry,
+  );
+  return entryPatch(entries);
+}
+
+function entryPatch(entries: CaptionSourceEntry[]): Partial<CaptionsData> {
+  return {
+    sourceEntries: normalizeCaptionSourceEntries(entries),
+    sources: undefined,
+    sourceMode: 'item',
+    words: undefined,
+  };
+}

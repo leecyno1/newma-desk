@@ -1,0 +1,18 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.*
+!.env.example
+
+# 用户私有数据（永不进仓库）—— 合规红线：零真实持仓 / 零标的
+my-watchlist.json
+portfolio.json
+public/user-data/
+
+# editor / os
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+*.log

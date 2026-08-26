@@ -1,0 +1,30 @@
+{
+  "facts": {
+    "us-gaap": {
+      "RevenueFromContractWithCustomerExcludingAssessedTax": {
+        "units": {
+          "USD": [
+            {
+              "end": "2023-09-30",
+              "filed": "2023-11-03",
+              "val": 383285000000,
+              "form": "10-K"
+            }
+          ]
+        }
+      },
+      "NetIncomeLoss": {
+        "units": {
+          "USD": [
+            {
+              "end": "2023-09-30",
+              "filed": "2023-11-03",
+              "val": 96995000000,
+              "form": "10-K"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

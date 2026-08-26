@@ -1,0 +1,81 @@
+{
+  "schema_version": "dasheng.video_creator_learning_watchlist.v1",
+  "enabled": true,
+  "output_root": "~/Desktop/自媒体创作/00_范式学习/视频训练/每日博主自学习",
+  "schedule": {
+    "timezone": "Asia/Shanghai",
+    "hour": 22,
+    "minute": 0
+  },
+  "discovery": {
+    "yt_dlp": "yt-dlp",
+    "cookies_from_browser": "chrome",
+    "impersonate": "Chrome-136:Macos-15",
+    "playlist_items": 3,
+    "max_new_per_creator": 2,
+    "bootstrap_mode": "baseline_only",
+    "video_format": "bv*[height<=720]+ba/b[height<=720]",
+    "max_filesize_mb": 1500,
+    "delete_source_after_success": true
+  },
+  "analysis": {
+    "crv_root": "vendor/reserved/video/claude-real-video",
+    "max_frames": 140,
+    "fps_floor": 1.0,
+    "scene_threshold": 0.3,
+    "dedup_threshold": 8.0,
+    "report": true,
+    "transcribe": false,
+    "agent": {
+      "enabled": true,
+      "provider": "codex-native",
+      "review_all_contact_sheets": true
+    }
+  },
+  "knowledge": {
+    "professional_taxonomy": "configs/video/creator_learning_taxonomy.json",
+    "analysis_schema": "configs/video/artifact_schemas/creator_learning_analysis.schema.json",
+    "tool_registry": "configs/video/tool_registry.json",
+    "reference_registry": "configs/video/reference_video_dna_registry.json",
+    "auto_promote_to_approved_dna": false,
+    "retain_analysis_history": true
+  },
+  "creators": [
+    {
+      "platform": "bilibili",
+      "creator_id": "520819684",
+      "homepage": "https://space.bilibili.com/520819684/video",
+      "label": "小Lin说"
+    },
+    {
+      "platform": "bilibili",
+      "creator_id": "37950062",
+      "homepage": "https://space.bilibili.com/37950062/video",
+      "label": "硬核资本论"
+    },
+    {
+      "platform": "bilibili",
+      "creator_id": "472747194",
+      "homepage": "https://space.bilibili.com/472747194/video",
+      "label": "巫师财经"
+    },
+    {
+      "platform": "bilibili",
+      "creator_id": "46377861",
+      "homepage": "https://space.bilibili.com/46377861/video",
+      "label": "神烦老狗"
+    },
+    {
+      "platform": "bilibili",
+      "creator_id": "4848323",
+      "homepage": "https://space.bilibili.com/4848323/video",
+      "label": "数字游牧人"
+    },
+    {
+      "platform": "bilibili",
+      "creator_id": "13611123",
+      "homepage": "https://space.bilibili.com/13611123/video",
+      "label": "投研部杨摸鱼"
+    }
+  ]
+}

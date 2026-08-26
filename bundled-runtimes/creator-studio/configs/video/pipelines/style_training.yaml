@@ -1,0 +1,56 @@
+schema_version: dasheng.video.pipeline.v1
+id: style_training
+lane: style_training
+title: 视频范式学习与训练流水线
+default_output_stage: paradigm
+external_output_policy:
+  required_root: "~/Desktop/自媒体创作/00_范式学习/视频训练"
+  forbid_paths:
+    - "skills/"
+    - ".codex/skills/"
+human_approval_default: false
+style_reference:
+  primary: 用户提供样片库
+  principle: 训练只学习形式、节奏、构图和剪辑语法，不复制事实、文案或专属素材。
+stages:
+  - name: ingest_reference
+    description: 接收样片、逐帧抽样、ASR、镜头切分和基础元数据。
+    skill: dasheng-video-style-trainer
+    required_artifacts_in:
+      - brief
+    produces:
+      - asset_manifest
+    tools_available:
+      - read_video_with_crv
+      - learn_blogger_video_style_local
+      - media_downloader
+    checkpoint_required: false
+    review_focus:
+      - 样片产物必须落在桌面范式学习目录。
+      - 记录来源链接、下载方式、权限和使用边界。
+    success_criteria:
+      - schema-valid asset_manifest artifact
+      - no reference media copied into skills directory
+  - name: extract_style_profile
+    description: 抽取镜头节奏、构图状态、证据密度、转场签名、BGM/SFX 特征。
+    skill: dasheng-video-style-trainer
+    required_artifacts_in:
+      - asset_manifest
+    produces:
+      - review
+    tools_available:
+      - learn_blogger_video_style_local
+      - build_video_review_suite_strict
+    checkpoint_required: true
+    review_focus:
+      - 输出的是风格 profile，不是可直接抄袭的样片复刻。
+      - profile 必须能被 talking_head/explainer 两条线读取。
+    success_criteria:
+      - schema-valid review artifact
+      - profile includes pacing, composition, transition, evidence, audio signatures
+      - curated profile records strengths_to_reuse and limitations_not_to_copy
+      - rolling latest samples retain checked_at and do not overwrite classic benchmarks
+fail_conditions:
+  - copied sample script or proprietary visual identity as production output
+  - reference videos stored in project root or skills directory
+  - style profile cannot be traced back to source clips

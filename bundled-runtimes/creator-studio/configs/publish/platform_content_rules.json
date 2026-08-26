@@ -1,0 +1,143 @@
+{
+  "schema_version": "dasheng.publish.platform_content_rules.v1",
+  "updated_at": "2026-08-02",
+  "policy": {
+    "purpose": "Platform-derived packaging rules for titles, descriptions, tags, covers, video routing and activity discovery.",
+    "core_video_and_facts_are_frozen": true,
+    "source_square_video_may_pass_through_without_reencoding": true,
+    "activity_names_must_come_from_live_platform_discovery": true,
+    "activity_join_requires_editor_confirmation": true,
+    "final_publish_requires_confirmation": true
+  },
+  "channels": {
+    "xiaohongshu_video": {
+      "platform": "xiaohongshu",
+      "title": {
+        "recommended_max_chars": 18,
+        "hard_limit_is_dynamic": true
+      },
+      "description": {
+        "recommended_max_chars": 600,
+        "style": "first_person_conclusion_plus_three_evidence_points_plus_question"
+      },
+      "tags": {
+        "recommended_min": 4,
+        "recommended_max": 8
+      },
+      "cover": {
+        "width": 1080,
+        "height": 1440,
+        "safe_margin": 72,
+        "format": "jpg"
+      },
+      "video": {
+        "preferred_ratio": "3:4_or_9:16",
+        "source_1x1_strategy": "passthrough_to_avoid_quality_loss",
+        "optional_transcode_profile": "vertical_blur_pad_1080x1920"
+      },
+      "activity_discovery": {
+        "mode": "creator_center_browser_review",
+        "command": "python3 scripts/open_publish_browser.py <browser_profile_key>",
+        "selection_policy": "title_and_topic_must_be_directly_relevant"
+      }
+    },
+    "douyin_video": {
+      "platform": "douyin",
+      "title": {
+        "recommended_max_chars": 30,
+        "hard_limit_is_dynamic": true
+      },
+      "description": {
+        "recommended_max_chars": 800,
+        "style": "three_second_hook_plus_evidence_chain_plus_conclusion"
+      },
+      "tags": {
+        "recommended_min": 3,
+        "recommended_max": 6
+      },
+      "cover": {
+        "width": 1080,
+        "height": 1920,
+        "safe_margin": 96,
+        "format": "jpg"
+      },
+      "video": {
+        "preferred_ratio": "9:16",
+        "source_1x1_strategy": "passthrough_to_avoid_quality_loss",
+        "optional_transcode_profile": "vertical_blur_pad_1080x1920"
+      },
+      "activity_discovery": {
+        "mode": "opencli_read_then_editor_select",
+        "command": "vendor/reserved/publish/opencli/dist/src/main.js douyin activities -f json",
+        "activity_capable_publish_route": "opencli-douyin",
+        "selection_policy": "do_not_join_unrelated_traffic_activities"
+      },
+      "declaration": {
+        "mode": "explicit_only",
+        "rule": "Never infer or auto-fill a Douyin self-declaration. Pass the exact platform option text only when explicitly approved."
+      }
+    },
+    "bilibili_video": {
+      "platform": "bilibili",
+      "title": {
+        "recommended_max_chars": 60,
+        "hard_limit_is_dynamic": true
+      },
+      "description": {
+        "recommended_max_chars": 1800,
+        "style": "chapter_summary_plus_data_sources_plus_risk_disclaimer"
+      },
+      "tags": {
+        "recommended_min": 5,
+        "recommended_max": 10
+      },
+      "cover": {
+        "width": 1920,
+        "height": 1080,
+        "safe_margin": 80,
+        "format": "jpg"
+      },
+      "video": {
+        "preferred_ratio": "16:9",
+        "source_1x1_strategy": "passthrough_to_avoid_quality_loss",
+        "optional_transcode_profile": "landscape_blur_pad_1920x1080"
+      },
+      "activity_discovery": {
+        "mode": "member_center_browser_review",
+        "command": "python3 scripts/open_publish_browser.py <browser_profile_key>",
+        "selection_policy": "prefer_official_topic_or_collection_only_when_directly_relevant"
+      }
+    },
+    "wechat_channels_video": {
+      "platform": "wechat_channels",
+      "title": {
+        "recommended_max_chars": 28,
+        "hard_limit_is_dynamic": true
+      },
+      "description": {
+        "recommended_max_chars": 600,
+        "style": "plain_language_conclusion_plus_share_prompt"
+      },
+      "tags": {
+        "recommended_min": 3,
+        "recommended_max": 6
+      },
+      "cover": {
+        "width": 1080,
+        "height": 1440,
+        "safe_margin": 72,
+        "format": "jpg"
+      },
+      "video": {
+        "preferred_ratio": "3:4_or_9:16",
+        "source_1x1_strategy": "passthrough_to_avoid_quality_loss",
+        "optional_transcode_profile": "vertical_blur_pad_1080x1920"
+      },
+      "activity_discovery": {
+        "mode": "channels_creator_center_browser_review",
+        "command": "python3 scripts/open_publish_browser.py <browser_profile_key>",
+        "selection_policy": "join_only_visible_current_activities_with_direct_topic_match"
+      }
+    }
+  }
+}

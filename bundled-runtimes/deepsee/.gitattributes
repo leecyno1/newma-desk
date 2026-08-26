@@ -1,0 +1,2 @@
+# Preserve vendored dependency formatting exactly as imported.
+third_party/chatlog/** -whitespace

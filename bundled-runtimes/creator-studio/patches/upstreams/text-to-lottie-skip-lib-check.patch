@@ -1,0 +1,12 @@
+diff --git a/tsconfig.json b/tsconfig.json
+index e8a6a33..4e6240d 100644
+--- a/tsconfig.json
++++ b/tsconfig.json
+@@ -15,6 +15,7 @@
+ 
+     // Type Checking & Safety
+     "strict": true,
++    "skipLibCheck": true,
+     "types": ["vite/client"],
+ 
+     "baseUrl": ".",

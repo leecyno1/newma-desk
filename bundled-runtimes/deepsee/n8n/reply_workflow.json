@@ -1,0 +1,70 @@
+{
+  "name": "AI Reply Webhook (Template)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "reply",
+        "options": {},
+        "responseMode": "responseNode"
+      },
+      "id": "Webhook1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const ctx = $json;\nconst suggestions = [{ text: '好的，已收到', confidence: 0.5, style: 'default' }];\nreturn [{ json: { request_id: ctx.request_id, suggestions } }];"
+      },
+      "id": "Function1",
+      "name": "Mock Suggestion",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        560,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "Respond1",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        820,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Mock Suggestion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Suggestion": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false
+}
+

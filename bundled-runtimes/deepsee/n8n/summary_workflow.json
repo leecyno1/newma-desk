@@ -1,0 +1,70 @@
+{
+  "name": "AI Summary Webhook (Template)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "summary",
+        "options": {},
+        "responseMode": "responseNode"
+      },
+      "id": "Webhook1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const ctx = $json;\nconst report = { title: 'AI 汇总报告', html: '<h2>示例报告</h2><p>这是一个示例报告内容。</p>' };\nreturn [{ json: { request_id: ctx.request_id, report } }];"
+      },
+      "id": "Function1",
+      "name": "Mock Report",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        560,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "Respond1",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        820,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Mock Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Report": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false
+}
+

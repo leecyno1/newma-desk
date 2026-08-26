@@ -1,0 +1,623 @@
+{
+  "schema_version": "dasheng.video.director_registry.v1",
+  "updated_at": "2026-08-14",
+  "standard_flow": [
+    {
+      "id": "intake",
+      "name": "素材接收",
+      "gate": "source_inventory_locked"
+    },
+    {
+      "id": "script_rewrite",
+      "name": "编剧与口播重写",
+      "gate": "script_review_approved"
+    },
+    {
+      "id": "scene_plan",
+      "name": "导演分镜",
+      "gate": "storyboard_review_approved"
+    },
+    {
+      "id": "asset_build",
+      "name": "素材生成",
+      "gate": "asset_manifest_pass"
+    },
+    {
+      "id": "edit_composite",
+      "name": "剪辑合成",
+      "gate": "edit_decisions_locked"
+    },
+    {
+      "id": "render",
+      "name": "渲染",
+      "gate": "renderer_contract_pass"
+    },
+    {
+      "id": "qc_delivery",
+      "name": "质检与交付",
+      "gate": "final_delivery_bound_to_qc_video"
+    }
+  ],
+  "directors": [
+    {
+      "id": "talking_head_director",
+      "order": 1,
+      "name": "真人出镜口播导演",
+      "lane": "talking_head_video",
+      "pipeline_id": "talking_head",
+      "status": "ready",
+      "execution_enabled": true,
+      "orchestrator_skill": "dasheng-media-sop",
+      "lane_skill": "dasheng-video-talking-head",
+      "best_for": [
+        "真人出镜口播",
+        "访谈实拍",
+        "财经博主讲解",
+        "长视频切条"
+      ],
+      "stage_capabilities": {
+        "intake": [
+          "video_reading",
+          "transcript",
+          "contact_sheet",
+          "reference_download"
+        ],
+        "script_rewrite": [
+          "word_level_transcript",
+          "mistake_detection",
+          "spoken_script_alignment"
+        ],
+        "source_preparation": [
+          "talking_head_cut",
+          "roughcut_plan",
+          "local_asr",
+          "silence_cleanup",
+          "timeline_edit",
+          "color_grade",
+          "audio_mastering"
+        ],
+        "scene_plan": [
+          "director_scene_plan",
+          "storyboard_review",
+          "composition_policy",
+          "transition_policy",
+          "motion_design",
+          "visual_design"
+        ],
+        "asset_build": [
+          "reference_download",
+          "reusable_footage",
+          "dynamic_chart",
+          "conceptual_illustration",
+          "lottie_asset"
+        ],
+        "edit_composite": [
+          "talking_head_packaging",
+          "html_video",
+          "remotion_render",
+          "subtitle_motion",
+          "lower_thirds",
+          "data_callout"
+        ],
+        "render": [
+          "final_render",
+          "audio_mastering",
+          "media_probe"
+        ],
+        "qc_delivery": [
+          "render_qc",
+          "motion_review",
+          "evidence_gate",
+          "media_probe"
+        ]
+      },
+      "core_tools": [
+        "video_roughcut_funasr",
+        "video_roughcut_agent_align",
+        "video_timeline_edl",
+        "dasheng_video_director",
+        "video_claim_evidence_ledger",
+        "media_downloader",
+        "build_remotion_renderer_pack",
+        "render_html_anything_scene_pack_animated",
+        "align_video_subtitles_to_asr",
+        "dasheng_ffmpeg_toolkit",
+        "video_render_qc",
+        "video_final_delivery"
+      ],
+      "reserve_tools": [
+        "cut_talking_head_skill",
+        "finish_talking_head_skill",
+        "freecut_skill",
+        "auto_editor_cli",
+        "video_wrapper_local",
+        "text_to_lottie_local",
+        "jianying_cloud_draft"
+      ],
+      "hard_gates": [
+        "粗剪未清除口误、重说、口水词和无效停顿时不得进入导演包装",
+        "真人原声在 Remotion 根时间轴只挂载一次",
+        "字幕必须来自 ASR 或强制对齐，禁止按字数平均分配",
+        "滤镜、美颜和响度处理不得造成脸部失真、爆音或音画漂移",
+        "分镜、证据、渲染器和最终交付文件必须逐级通过门禁"
+      ]
+    },
+    {
+      "id": "vox_investigation_director",
+      "order": 2,
+      "name": "VOX 调查解释导演",
+      "lane": "vox_explainer_video",
+      "pipeline_id": "vox_explainer",
+      "status": "ready",
+      "execution_enabled": true,
+      "orchestrator_skill": "dasheng-vox-skills",
+      "lane_skill": "dasheng-video-vox",
+      "best_for": [
+        "问题驱动调查",
+        "财经机制解释",
+        "历史与证据拼接",
+        "反证型叙事"
+      ],
+      "stage_capabilities": {
+        "intake": [
+          "reference_download",
+          "video_reading",
+          "transcript",
+          "vox_investigation",
+          "content_distillation"
+        ],
+        "script_rewrite": [
+          "creator_script_rewrite",
+          "retention_design",
+          "counterargument_design",
+          "qualified_conclusion"
+        ],
+        "scene_plan": [
+          "director_scene_plan",
+          "story_segment_storyboard",
+          "production_shot_split",
+          "visual_bible",
+          "shot_recipe_library",
+          "shotcraft_binding",
+          "camera_choreography"
+        ],
+        "asset_build": [
+          "video_download",
+          "archive_footage",
+          "document_visualization",
+          "dynamic_chart",
+          "reference_image_generation",
+          "real_page_capture",
+          "image_to_video_shots"
+        ],
+        "edit_composite": [
+          "editorial_collage",
+          "remotion_render",
+          "subtitle_motion",
+          "beat_sync",
+          "sound_design"
+        ],
+        "render": [
+          "html_video",
+          "remotion_render",
+          "final_render",
+          "audio_mastering"
+        ],
+        "qc_delivery": [
+          "render_qc",
+          "shotcraft_review",
+          "motion_review",
+          "evidence_gate",
+          "media_probe"
+        ]
+      },
+      "core_tools": [
+        "video_vox_storyboard",
+        "shotcraft_adapter",
+        "media_downloader",
+        "video_claim_evidence_ledger",
+        "video_vox_omni_pack",
+        "gemini_video_api",
+        "gemini_omni_browser",
+        "build_remotion_renderer_pack",
+        "vox_shot_qc",
+        "video_render_qc",
+        "video_final_delivery"
+      ],
+      "reserve_tools": [
+        "video_vox_mmx_generate",
+        "mmx_cli",
+        "seedance2-skill",
+        "hyperframes_local",
+        "text_to_lottie_local"
+      ],
+      "hard_gates": [
+        "只能围绕一个中心问题推进",
+        "口播重写和 10-25 秒叙事分镜未批准前不得生成视觉资产",
+        "事实证据、情境素材、作者推演和反证必须分开登记",
+        "Shotcraft 镜头必须有有效卡片、样式、demo 和本地 Remotion 路由",
+        "生成式画面不得冒充新闻、人物原话或历史证据"
+      ]
+    },
+    {
+      "id": "faceless_explainer_director",
+      "order": 3,
+      "name": "无头口播导演",
+      "lane": "explainer_html_video",
+      "pipeline_id": "explainer_html",
+      "status": "ready",
+      "execution_enabled": true,
+      "orchestrator_skill": "dasheng-video-explainer-html",
+      "lane_skill": "dasheng-html-video-bridge",
+      "best_for": [
+        "无真人财经科普",
+        "数据图表讲解",
+        "产品与产业机制",
+        "HTML 动画视频"
+      ],
+      "stage_capabilities": {
+        "intake": [
+          "article_parse",
+          "reference_download",
+          "content_distillation"
+        ],
+        "script_rewrite": [
+          "explainer_scene_plan",
+          "creator_script_rewrite",
+          "retention_design"
+        ],
+        "scene_plan": [
+          "director_scene_plan",
+          "storyboard_review",
+          "template_intent",
+          "motion_design",
+          "visual_design"
+        ],
+        "asset_build": [
+          "video_download",
+          "reusable_footage",
+          "dynamic_chart",
+          "document_visualization",
+          "conceptual_illustration",
+          "lottie_asset"
+        ],
+        "edit_composite": [
+          "html_video",
+          "gsap_motion",
+          "lottie_overlay",
+          "remotion_render",
+          "subtitle_motion"
+        ],
+        "render": [
+          "html_video",
+          "remotion_render",
+          "final_render",
+          "audio_mastering"
+        ],
+        "qc_delivery": [
+          "render_qc",
+          "motion_review",
+          "evidence_gate",
+          "media_probe"
+        ]
+      },
+      "core_tools": [
+        "video_explainer_storyboard",
+        "media_downloader",
+        "render_html_anything_timeline_pack",
+        "render_html_anything_scene_pack_animated",
+        "build_remotion_renderer_pack",
+        "align_video_subtitles_to_asr",
+        "video_render_qc",
+        "video_final_delivery"
+      ],
+      "reserve_tools": [
+        "hyperframes_local",
+        "text_to_lottie_local",
+        "remotion-video-toolkit",
+        "video_use_local",
+        "mmx_cli"
+      ],
+      "hard_gates": [
+        "文章数据和原图表不得静默遗漏",
+        "正式动画必须是 live HTML/Remotion，不得用截图或 PNG 拼接冒充",
+        "字幕必须覆盖完整旁白并与真实音频对齐",
+        "真实 B-roll 必须有本地文件、来源和用途记录",
+        "Remotion 必须是可见的主时间轴，不得只做空壳"
+      ]
+    },
+    {
+      "id": "digital_human_director",
+      "order": 4,
+      "name": "AI 数字人导演",
+      "lane": "digital_human_video",
+      "pipeline_id": "digital_human",
+      "status": "ready",
+      "execution_enabled": true,
+      "orchestrator_skill": "dasheng-digital-human-talking-head",
+      "lane_skill": "dasheng-video-talking-head",
+      "best_for": [
+        "单人数字人口播",
+        "动物头或虚构角色",
+        "双人 AI 访谈",
+        "授权肖像图生视频"
+      ],
+      "supported_modes": [
+        "single_presenter",
+        "dual_interview"
+      ],
+      "stage_capabilities": {
+        "intake": [
+          "portrait_consent",
+          "transcript",
+          "reference_image_conditioning"
+        ],
+        "script_rewrite": [
+          "dialogue_script_rewrite",
+          "speaker_turn_plan",
+          "single_presenter_plan",
+          "dual_interview_plan"
+        ],
+        "presenter_generation": [
+          "image_generation",
+          "animal_head_image_edit",
+          "audio_driven_lip_sync",
+          "portrait_audio_animation",
+          "identity_review",
+          "lip_sync_review"
+        ],
+        "scene_plan": [
+          "director_scene_plan",
+          "storyboard_review",
+          "dual_presenter_composition",
+          "speaker_label_plan",
+          "motion_design"
+        ],
+        "asset_build": [
+          "reference_download",
+          "dynamic_chart",
+          "conceptual_illustration",
+          "lottie_asset",
+          "reusable_footage"
+        ],
+        "edit_composite": [
+          "digital_human_composition",
+          "dual_presenter_composition",
+          "speaker_label_plan",
+          "remotion_render",
+          "subtitle_motion"
+        ],
+        "render": [
+          "remotion_render",
+          "final_render",
+          "audio_mastering"
+        ],
+        "qc_delivery": [
+          "identity_review",
+          "lip_sync_review",
+          "render_qc",
+          "motion_review",
+          "ai_disclosure_check",
+          "media_probe"
+        ]
+      },
+      "core_tools": [
+        "image2",
+        "build_digital_human_job",
+        "omni_video_bridge",
+        "digital_human_dialogue_router",
+        "digital_human_qc",
+        "build_remotion_renderer_pack",
+        "align_video_subtitles_to_asr",
+        "video_render_qc",
+        "video_final_delivery"
+      ],
+      "reserve_tools": [
+        "render_joyvasa_digital_human",
+        "whisperx_diarization",
+        "mmx_cli",
+        "text_to_lottie_local",
+        "seedance2-skill"
+      ],
+      "hard_gates": [
+        "无肖像、声音授权或 AI 披露计划时停止",
+        "先做 6-10 秒短样，身份、口型、眼睛、牙齿和背景稳定后才能生成长段",
+        "双人访谈必须分别生成两个人物源，再按说话轮次由 Remotion 合成",
+        "数字人源视频必须静音，主音频只在根时间轴挂载一次",
+        "公众人物替身发言、身份漂移或明显口型伪影不得交付"
+      ],
+      "engine_note": "2026-08-22 用户裁决：Luma 路线已废弃，人物源引擎=omni（dasheng-omni-video-bridge）；JoyVASA 仅离线备用"
+    },
+    {
+      "id": "commercial_promo_director",
+      "order": 6,
+      "name": "广告宣传片导演",
+      "lane": "commercial_promo_video",
+      "pipeline_id": "commercial_promo",
+      "status": "ready",
+      "execution_enabled": true,
+      "orchestrator_skill": "dasheng-commercial-promo-video",
+      "lane_skill": "dasheng-commercial-promo-video",
+      "best_for": [
+        "品牌形象片",
+        "产品宣传片",
+        "新品发布预告",
+        "效果广告"
+      ],
+      "supported_modes": [
+        "brand_film",
+        "product_promo",
+        "launch_trailer",
+        "performance_ad"
+      ],
+      "default_durations_sec": [
+        15,
+        30,
+        60
+      ],
+      "stage_capabilities": {
+        "intake": [
+          "brand_asset_intake",
+          "reference_download",
+          "content_distillation",
+          "brand_system"
+        ],
+        "script_rewrite": [
+          "commercial_script_rewrite",
+          "offer_design",
+          "retention_design",
+          "cta_design",
+          "claims_compliance"
+        ],
+        "scene_plan": [
+          "director_scene_plan",
+          "storyboard_review",
+          "product_showcase",
+          "brand_system",
+          "visual_design",
+          "motion_design",
+          "shot_recipe_library"
+        ],
+        "asset_build": [
+          "product_asset_routing",
+          "reference_download",
+          "video_download",
+          "image_generation",
+          "generated_broll",
+          "html_video",
+          "gsap_motion",
+          "lottie_asset",
+          "music_generation",
+          "sound_design"
+        ],
+        "edit_composite": [
+          "commercial_edit",
+          "remotion_render",
+          "subtitle_motion",
+          "kinetic_typography",
+          "beat_sync",
+          "sound_design"
+        ],
+        "render": [
+          "remotion_render",
+          "final_render",
+          "audio_mastering",
+          "media_probe"
+        ],
+        "qc_delivery": [
+          "brand_consistency_review",
+          "claims_compliance",
+          "render_qc",
+          "motion_review",
+          "media_probe"
+        ]
+      },
+      "core_tools": [
+        "commercial_promo_package_builder",
+        "video_director_tool_router",
+        "media_downloader",
+        "image2",
+        "shotcraft_adapter",
+        "render_html_anything_scene_pack_animated",
+        "build_remotion_renderer_pack",
+        "mmx_cli",
+        "dasheng_ffmpeg_toolkit",
+        "video_render_qc",
+        "video_final_delivery"
+      ],
+      "reserve_tools": [
+        "brandkit",
+        "brand-guidelines",
+        "high-end-visual-design",
+        "hyperframes_local",
+        "seedance2-skill",
+        "gemini_video_api",
+        "text_to_lottie_local"
+      ],
+      "hard_gates": [
+        "品牌、产品、受众、唯一目标、核心承诺和主 CTA 未锁定时不得进入正式制作",
+        "产品能力、比较、客户结果、价格、优惠和免责声明必须绑定真实来源与有效期",
+        "真实产品录屏或实拍优先，生成式画面不得冒充产品 UI、客户证言或效果证明",
+        "分镜必须包含钩子、产品承诺、卖点收益、证明、品牌记忆和 CTA",
+        "Logo、产品、字幕、价格、优惠、法律说明和 CTA 必须通过多比例安全区检查"
+      ]
+    },
+    {
+      "id": "cinematic_short_drama_director",
+      "order": 5,
+      "name": "电影短剧导演",
+      "lane": "cinematic_short_drama_video",
+      "pipeline_id": "cinematic_short_drama",
+      "status": "deferred_external_api",
+      "execution_enabled": false,
+      "orchestrator_skill": "dasheng-media-sop",
+      "lane_skill": "seedance2-skill",
+      "best_for": [
+        "电影感短剧",
+        "多角色剧情",
+        "连续场景叙事",
+        "外部视频模型生成"
+      ],
+      "stage_capabilities": {
+        "intake": [
+          "content_distillation",
+          "reference_download"
+        ],
+        "script_rewrite": [
+          "cinematic_screenplay",
+          "character_bible",
+          "dialogue_script_rewrite"
+        ],
+        "scene_plan": [
+          "cinematic_shot_list",
+          "cinematic_camera",
+          "continuity_bible",
+          "storyboard_review"
+        ],
+        "asset_build": [
+          "reference_image_generation",
+          "video_prompt_design",
+          "image_to_video_shots",
+          "external_video_generation",
+          "sound_design"
+        ],
+        "edit_composite": [
+          "continuity_edit",
+          "remotion_render",
+          "subtitle_motion",
+          "sound_design"
+        ],
+        "render": [
+          "final_render",
+          "audio_mastering"
+        ],
+        "qc_delivery": [
+          "continuity_review",
+          "render_qc",
+          "media_probe"
+        ]
+      },
+      "core_tools": [
+        "cinematic_planning_router",
+        "cinematic_external_api_router",
+        "image2",
+        "gemini_video_api",
+        "mmx_cli",
+        "build_remotion_renderer_pack",
+        "dasheng_ffmpeg_toolkit"
+      ],
+      "reserve_tools": [
+        "seedance2-skill",
+        "video_vox_mmx_generate",
+        "gemini_omni_browser"
+      ],
+      "hard_gates": [
+        "当前只允许生成编剧包、角色圣经和分镜，不得自动调用付费视频 API",
+        "启用前必须由用户明确批准供应商、预算、角色授权和内容安全边界",
+        "角色外观、服装、场景轴线和镜头连续性必须先锁定",
+        "每镜单独生成、单独 QC，失败不得重做已通过镜头",
+        "第三方聚合商不得进入默认路由"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "name": "dasheng-daily-postmortem",
+  "version": "1.0.0",
+  "description": "Stage 5 Postmortem - 发布后复盘，反馈评分准确性，更新知识库",
+  "stage": "postmortem",
+  "stage_number": 5,
+  "runner": "python",
+  "upstream_gate": "publish_manifest.json",
+  "output_gate": null,
+  "hitl": false,
+  "trigger": {
+    "keyword": "复盘",
+    "manual_trigger": true
+  },
+  "aliases": [
+    "postmortem",
+    "复盘",
+    "第五环节"
+  ],
+  "dependencies": {
+    "python": ">=3.10"
+  },
+  "inputs": {
+    "required": [
+      "publish_manifest.json"
+    ],
+    "optional": [
+      "rewrite_manifest.json"
+    ]
+  },
+  "outputs": {
+    "documents": [
+      "08_复盘报告.md",
+      "08_L1回写建议.md"
+    ],
+    "manifests": [
+      "postmortem_manifest.json"
+    ]
+  },
+  "metadata": {
+    "chat_id": "<REPLACE_ME>",
+    "postmortem": {
+      "metrics": [
+        "views",
+        "likes",
+        "shares",
+        "comments",
+        "engagement_rate"
+      ],
+      "scoring_feedback": {
+        "article_value": "成稿价值分准确性",
+        "viral_potential": "爆款视频潜力分准确性"
+      },
+      "pattern_libraries": [
+        "topic_patterns",
+        "evidence_patterns",
+        "visual_patterns",
+        "channel_patterns"
+      ]
+    },
+    "output": {
+      "type": "feishu_doc",
+      "doc_name": "复盘报告"
+    },
+    "feishu": {
+      "folder_naming": "YYYY-MM-DD",
+      "auto_create_folder": true
+    }
+  }
+}

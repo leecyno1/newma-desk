@@ -1,0 +1,49 @@
+{
+  "_comment": "板块·环节骨架（开源版单一来源）。零具体标的：nodes 只有产业链环节名。verified=true 者环节已核实（来自做透的板块）；false 者为占位，待实时核实补全（禁止靠模型记忆编）。用户可在本地 my-watchlist.json 挂自己的标的，不进仓库。",
+  "indices": {
+    "aShare": ["上证指数", "深证成指", "创业板指", "沪深300"],
+    "us": ["道琼斯", "纳斯达克", "标普500"]
+  },
+  "sectors": [
+    {
+      "key": "humanoid",
+      "label": "人形机器人",
+      "tagline": "感知、执行器、控制系统、整机集成与具身智能的完整链条",
+      "hot": true,
+      "verified": true,
+      "nodes": ["感知传感器", "计算与伺服控制", "旋转执行器", "直线执行器", "灵巧手", "能源与结构", "具身模型", "运动控制", "子系统集成", "整机制造", "测试验证", "场景应用"]
+    },
+    {
+      "key": "ai-computing",
+      "label": "AI 算力",
+      "tagline": "算力基建的产业链——芯片、光互连、封装、散热",
+      "hot": true,
+      "verified": true,
+      "nodes": ["AI芯片", "光模块", "CPO光互连", "HBM存储", "先进封装", "PCB", "液冷散热"]
+    },
+    { "key": "hbm", "label": "HBM", "tagline": "高带宽存储——AI 芯片的内存瓶颈", "hot": true, "verified": false, "nodes": [] },
+    {
+      "key": "cpo",
+      "label": "光模块与光互联",
+      "tagline": "光电芯片、光引擎、封装测试与可插拔/LPO/CPO 并行路线",
+      "hot": true,
+      "verified": true,
+      "nodes": ["激光器芯片", "探测器芯片", "硅光芯片", "模拟与 DSP 芯片", "无源光学", "光引擎", "封装测试", "可插拔光模块", "LPO", "CPO", "网络设备", "AI 集群与电信网络"]
+    },
+    { "key": "semiconductor", "label": "半导体国产替代", "tagline": "设备、材料、EDA、制造的自主链条", "hot": true, "verified": false, "nodes": [] },
+    { "key": "solid-state-battery", "label": "固态电池", "tagline": "下一代电池的材料与工艺路线", "hot": true, "verified": false, "nodes": [] },
+    { "key": "low-altitude", "label": "低空经济", "tagline": "eVTOL、空管、基建与运营", "hot": true, "verified": false, "nodes": [] },
+    { "key": "smart-driving", "label": "智能驾驶", "tagline": "感知、算力、线控与整车", "hot": true, "verified": false, "nodes": [] },
+    { "key": "innovative-drug", "label": "创新药", "tagline": "靶点、临床、CXO 与出海", "hot": true, "verified": false, "nodes": [] },
+    { "key": "power-grid", "label": "电网与特高压", "tagline": "输配电设备与新型电力系统", "hot": false, "verified": false, "nodes": [] },
+    { "key": "defense", "label": "军工", "tagline": "航空、航天、船舶与信息化", "hot": false, "verified": false, "nodes": [] },
+    { "key": "fusion", "label": "可控核聚变", "tagline": "磁约束、超导与第一壁材料", "hot": true, "verified": false, "nodes": [] },
+    { "key": "business-space", "label": "商业航天", "tagline": "火箭、卫星制造与卫星互联网", "hot": true, "verified": false, "nodes": [] },
+    { "key": "ai-pharma", "label": "生物医药", "tagline": "创新药、AI 制药与生物技术", "hot": true, "verified": false, "nodes": [] },
+    { "key": "resources", "label": "资源卡口", "tagline": "稀土、锗、铟等被卡的关键资源", "hot": false, "verified": false, "nodes": [] },
+    { "key": "ai-application", "label": "AI 应用", "tagline": "大模型落地的应用与 Agent", "hot": true, "verified": false, "nodes": [] },
+    { "key": "ai-hardware", "label": "AI 硬件", "tagline": "端侧、AI 眼镜与消费终端", "hot": true, "verified": false, "nodes": [] },
+    { "key": "energy-storage", "label": "储能", "tagline": "电化学储能与电网侧调峰", "hot": false, "verified": false, "nodes": [] },
+    { "key": "data-element", "label": "数据要素", "tagline": "数据确权、交易与流通基建", "hot": false, "verified": false, "nodes": [] }
+  ]
+}

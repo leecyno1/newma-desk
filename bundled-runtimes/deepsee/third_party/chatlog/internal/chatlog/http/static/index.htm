@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatlog 管理控制台</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-body: #f3f4f6;
+            --bg-card: #ffffff;
+            --text-main: #1f2937;
+            --text-secondary: #6b7280;
+            --border: #e5e7eb;
+            --danger: #ef4444;
+            --success: #10b981;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        header {
+            background: var(--bg-card);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+            padding-bottom: 5px;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            border: none;
+            background: var(--bg-card);
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            white-space: nowrap;
+        }
+
+        .tab-btn:hover {
+            color: var(--primary);
+            background: #eff6ff;
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* Content Area */
+        .tab-content {
+            display: none;
+            background: var(--bg-card);
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Forms */
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-weight: 500;
+            font-size: 0.9rem;
+            color: var(--text-main);
+        }
+
+        input, select {
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.95rem;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            border-top: 1px solid var(--border);
+            padding-top: 20px;
+        }
+
+        .btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #f3f4f6;
+            color: var(--text-main);
+        }
+
+        .btn-secondary:hover {
+            background: #e5e7eb;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+        }
+
+        /* Results */
+        .result-area {
+            margin-top: 20px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #f8fafc;
+            padding: 15px;
+            position: relative;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px dashed var(--border);
+        }
+
+        .url-display {
+            font-family: monospace;
+            background: #e2e8f0;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            word-break: break-all;
+        }
+
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Consolas', monospace;
+            font-size: 0.9rem;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        /* Database List Styles */
+        .db-group {
+            margin-bottom: 20px;
+        }
+        
+        .db-group-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .db-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .db-item {
+            background: white;
+            border: 1px solid var(--border);
+            padding: 12px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-family: monospace;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .db-item:hover {
+            border-color: var(--primary);
+            background: #eff6ff;
+        }
+
+        .badge {
+            background: #e0f2fe;
+            color: #0369a1;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        /* Modal Styles */
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; justify-content: center; align-items: center; }
+        .modal.hidden { display: none; }
+        .modal-content { background: white; width: 95%; max-width: 1300px; height: 95%; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+        .modal-header { padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #f9fafb; border-radius: 8px 8px 0 0; }
+        .modal-header h3 { margin: 0; color: var(--text-main); font-size: 1.2rem; }
+        .modal-body { flex: 1; overflow: hidden; padding: 20px; display: flex; flex-direction: column; }
+        .close-btn { background: none; border: none; font-size: 2rem; line-height: 1; cursor: pointer; color: var(--text-secondary); }
+        .close-btn:hover { color: var(--danger); }
+
+        /* Modal Nav & Views */
+        .modal-nav { display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        .nav-btn { background: none; border: none; padding: 8px 15px; cursor: pointer; font-weight: 500; color: var(--text-secondary); border-radius: 4px; transition: all 0.2s; }
+        .nav-btn:hover { background: #f3f4f6; }
+        .nav-btn.active { background: #eff6ff; color: var(--primary); font-weight: 600; }
+        
+        .modal-view { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+        .modal-view.active { display: flex; }
+
+        /* Browser View */
+        #table-list-view { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+        .db-table-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; overflow-y: auto; padding: 5px; height: 100%; }
+        .db-table-item { padding: 15px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-align: center; background: white; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .db-table-item:hover { background: #eff6ff; border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+
+        .data-view-container { display: flex; flex-direction: column; height: 100%; flex: 1; overflow: hidden; }
+        .data-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; flex-shrink: 0; flex-wrap: wrap; }
+        .spacer { flex: 1; }
+        .search-input { padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px; width: 200px; font-size: 0.9rem; }
+        
+        .table-scroll { flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 6px; position: relative; }
+        
+        /* SQL View */
+        .sql-editor-container { margin-bottom: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .sql-editor { width: 100%; height: 120px; font-family: 'Consolas', monospace; padding: 10px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; resize: vertical; font-size: 14px; background: #f8fafc; }
+        .sql-editor:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1); }
+        
+        #data-table, #sql-result-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.9rem; }
+        #data-table th, #sql-result-table th, #data-table td, #sql-result-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); white-space: nowrap; max-width: 400px; overflow: hidden; text-overflow: ellipsis; }
+        #data-table th, #sql-result-table th { background: #f3f4f6; position: sticky; top: 0; z-index: 10; font-weight: 600; text-align: left; }
+        #data-table tr:hover, #sql-result-table tr:hover { background-color: #f9fafb; }
+        
+        .pagination { display: flex; justify-content: center; gap: 15px; margin-top: 15px; align-items: center; flex-shrink: 0; }
+
+        /* Helper Classes */
+        .hidden { display: none !important; }
+        .text-sm { font-size: 0.875rem; }
+        .text-gray { color: var(--text-secondary); }
+        .text-danger { color: var(--danger); }
+        .text-success { color: var(--success); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                Chatlog 控制台
+            </h1>
+            <div>
+                <button id="clearCacheBtn" class="btn btn-danger text-sm">清除媒体缓存</button>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('dashboard')">仪表盘 & 数据库</button>
+            <button class="tab-btn" onclick="switchTab('session')">最近会话</button>
+            <button class="tab-btn" onclick="switchTab('chatroom')">群聊管理</button>
+            <button class="tab-btn" onclick="switchTab('contact')">联系人</button>
+            <button class="tab-btn" onclick="switchTab('sns')">朋友圈检索</button>
+            <button class="tab-btn" onclick="switchTab('chatlog')">消息检索</button>
+        </div>
+
+        <!-- Dashboard / DB List -->
+        <div id="dashboard" class="tab-content active">
+            <h2>当前已解密数据库</h2>
+            <p class="text-gray" style="margin-bottom: 20px;">点击下方的数据库文件可直接浏览其表结构和数据内容。</p>
+            <div id="db-list-container">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+
+        <!-- Other Tabs (Keep same as before) -->
+        <div id="session" class="tab-content">
+             <!-- ... content ... -->
+             <div class="form-grid">
+                <div class="form-group">
+                    <label>关键词搜索 (可选)</label>
+                    <input type="text" id="session-keyword" placeholder="昵称 / 备注 / wxid">
+                </div>
+                <div class="form-group">
+                    <label>输出格式</label>
+                    <select id="session-format">
+                        <option value="json">JSON (预览)</option>
+                        <option value="csv">CSV 导出</option>
+                        <option value="xlsx">Excel 导出</option>
+                        <option value="text">纯文本</option>
+                    </select>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="queryAPI('session')">查询 / 导出</button>
+            </div>
+            <div id="session-result" class="result-area hidden"></div>
+        </div>
+        <div id="chatroom" class="tab-content">
+             <!-- ... content ... -->
+             <div class="form-grid">
+                <div class="form-group">
+                    <label>搜索群聊 (可选)</label>
+                    <input type="text" id="chatroom-keyword" placeholder="群名称 / 群ID">
+                </div>
+                <div class="form-group">
+                    <label>输出格式</label>
+                    <select id="chatroom-format">
+                        <option value="json">JSON (预览)</option>
+                        <option value="csv">CSV 导出</option>
+                        <option value="xlsx">Excel 导出</option>
+                        <option value="text">纯文本</option>
+                    </select>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="queryAPI('chatroom')">查询 / 导出</button>
+            </div>
+            <div id="chatroom-result" class="result-area hidden"></div>
+        </div>
+        <div id="contact" class="tab-content">
+             <!-- ... content ... -->
+             <div class="form-grid">
+                <div class="form-group">
+                    <label>搜索联系人 (可选)</label>
+                    <input type="text" id="contact-keyword" placeholder="昵称 / 备注 / wxid">
+                </div>
+                <div class="form-group">
+                    <label>输出格式</label>
+                    <select id="contact-format">
+                        <option value="json">JSON (预览)</option>
+                        <option value="csv">CSV 导出</option>
+                        <option value="xlsx">Excel 导出</option>
+                        <option value="text">纯文本</option>
+                    </select>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="queryAPI('contact')">查询 / 导出</button>
+            </div>
+            <div id="contact-result" class="result-area hidden"></div>
+        </div>
+        <div id="sns" class="tab-content">
+             <div class="form-grid">
+                <div class="form-group">
+                    <label>用户名 (可选)</label>
+                    <input type="text" id="sns-username" placeholder="wxid 或 微信号">
+                </div>
+                <div class="form-group">
+                    <label>限制数量</label>
+                    <input type="number" id="sns-limit" value="100">
+                </div>
+                <div class="form-group">
+                    <label>输出格式</label>
+                    <select id="sns-format">
+                        <option value="json">JSON (预览)</option>
+                        <option value="csv">CSV 导出</option>
+                        <option value="xlsx">Excel 导出</option>
+                        <option value="text">纯文本</option>
+                        <option value="raw">原始格式 (XML)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="queryAPI('sns')">查询 / 导出</button>
+            </div>
+            <div id="sns-result" class="result-area hidden"></div>
+        </div>
+        <div id="chatlog" class="tab-content">
+             <!-- ... content ... -->
+             <div class="form-grid">
+                <div class="form-group">
+                    <label>时间范围 <span style="color:red">*</span></label>
+                    <input type="text" id="chatlog-time" placeholder="例如: 2023-01-01~2023-12-31">
+                </div>
+                <div class="form-group">
+                    <label>聊天对象 (Talker) <span style="color:red">*</span></label>
+                    <input type="text" id="chatlog-talker" placeholder="wxid / 群ID / 备注">
+                </div>
+                <div class="form-group">
+                    <label>发送者 (Sender) (可选)</label>
+                    <input type="text" id="chatlog-sender" placeholder="仅群聊有效，指定发送人">
+                </div>
+                <div class="form-group">
+                    <label>内容关键词 (可选)</label>
+                    <input type="text" id="chatlog-keyword" placeholder="正则匹配消息内容">
+                </div>
+                <div class="form-group">
+                    <label>限制数量 (Limit)</label>
+                    <input type="number" id="chatlog-limit" value="100">
+                </div>
+                <div class="form-group">
+                    <label>输出格式</label>
+                    <select id="chatlog-format">
+                        <option value="json">JSON (预览)</option>
+                        <option value="chatlab">ChatLab JSON</option>
+                        <option value="csv">CSV 导出</option>
+                        <option value="xlsx">Excel 导出</option>
+                        <option value="text">纯文本</option>
+                    </select>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="queryAPI('chatlog')">查询 / 导出</button>
+            </div>
+            <div id="chatlog-result" class="result-area hidden"></div>
+        </div>
+
+    </div>
+
+    <!-- DB Viewer Modal -->
+    <div id="db-viewer-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">数据库查看器</h3>
+                <button class="close-btn" onclick="closeModal()">×</button>
+            </div>
+            <div class="modal-body">
+                
+                <div class="modal-nav">
+                    <button class="nav-btn active" id="btn-view-browser" onclick="switchModalView('browser')">表浏览器</button>
+                    <button class="nav-btn" id="btn-view-sql" onclick="switchModalView('sql')">SQL 控制台</button>
+                </div>
+
+                <!-- Browser View -->
+                <div id="view-browser" class="modal-view active">
+                    <!-- Table List -->
+                    <div id="table-list-view">
+                         <p class="text-gray" style="margin-bottom: 15px;">请选择要查看的表:</p>
+                         <div id="table-list" class="db-table-list"></div>
+                    </div>
+
+                    <!-- Table Data -->
+                    <div id="table-data-view" class="data-view-container hidden">
+                         <div class="data-controls">
+                             <button class="btn btn-secondary text-sm" onclick="backToTableList()">← 返回列表</button>
+                             <strong id="current-table-name" style="font-size: 1.1rem; margin-right: 15px;"></strong>
+                             
+                             <input type="text" id="data-search-input" class="search-input" placeholder="搜索关键词..." onkeydown="if(event.key === 'Enter') performTableSearch()">
+                             <button class="btn btn-secondary btn-sm" onclick="performTableSearch()">搜索</button>
+                             
+                             <div class="spacer"></div>
+                             
+                             <button class="btn btn-success btn-sm" style="background-color: #10b981; color: white;" onclick="exportTableData('xlsx')">导出 Excel</button>
+                             <button class="btn btn-secondary btn-sm" onclick="exportTableData('csv')">导出 CSV</button>
+                         </div>
+                         
+                         <div class="table-scroll">
+                             <table id="data-table">
+                                 <thead></thead>
+                                 <tbody></tbody>
+                             </table>
+                         </div>
+                         <div id="browser-loading" class="text-gray hidden" style="text-align: center; padding: 10px;">加载中...</div>
+                         
+                         <div class="pagination">
+                             <button class="btn btn-secondary text-sm" onclick="prevPage()">上一页</button>
+                             <span id="page-info" class="text-sm font-bold">Page 1</span>
+                             <button class="btn btn-secondary text-sm" onclick="nextPage()">下一页</button>
+                         </div>
+                    </div>
+                </div>
+
+                <!-- SQL View -->
+                <div id="view-sql" class="modal-view">
+                    <div class="sql-editor-container">
+                        <textarea id="sql-input" class="sql-editor" placeholder="在此输入 SQL 语句... (例如: SELECT * FROM message LIMIT 10)"></textarea>
+                        <div class="toolbar">
+                            <button class="btn btn-primary btn-sm" onclick="runSQL()">执行 (Run)</button>
+                            <div class="spacer"></div>
+                            <button class="btn btn-success btn-sm" style="background-color: #10b981; color: white;" onclick="exportSQLResult('xlsx')">导出结果 Excel</button>
+                            <button class="btn btn-secondary btn-sm" onclick="exportSQLResult('csv')">导出结果 CSV</button>
+                        </div>
+                    </div>
+                    
+                    <div class="table-scroll">
+                        <table id="sql-result-table">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                        <div id="sql-msg" style="padding: 10px; color: #666; text-align: center;">请执行查询以查看结果</div>
+                    </div>
+                </div>
+                
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDBList();
+        });
+
+        // Tab Switching for Main Page
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+            
+            if(tabId === 'dashboard') {
+                loadDBList();
+            }
+        }
+
+        // --- Dashboard / DB Viewer Logic ---
+
+        let currentDB = { group: null, file: null };
+        let currentTable = null;
+        let currentPage = 0;
+        let currentKeyword = '';
+        const pageSize = 50;
+        
+        // Modal View Switching
+        function switchModalView(view) {
+            document.querySelectorAll('.modal-nav .nav-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`btn-view-${view}`).classList.add('active');
+            
+            document.querySelectorAll('.modal-view').forEach(v => v.classList.remove('active'));
+            document.getElementById(`view-${view}`).classList.add('active');
+        }
+
+        // Load DB List
+        async function loadDBList() {
+            const container = document.getElementById('db-list-container');
+            try {
+                const res = await fetch('/api/v1/db');
+                if(!res.ok) throw new Error('Failed to load DB list');
+                const data = await res.json();
+                
+                let html = '';
+                for (const [group, files] of Object.entries(data)) {
+                    html += `
+                        <div class="db-group">
+                            <div class="db-group-title">
+                                <span class="badge">${group}</span>
+                                <span class="text-sm text-gray">(${files ? files.length : 0} files)</span>
+                            </div>
+                            <div class="db-list">
+                    `;
+                    
+                    if (files && files.length > 0) {
+                        files.forEach(file => {
+                            // Escape backslashes for JS string
+                            const escapedFile = file.replace(/\\/g, '\\\\');
+                            html += `<div class="db-item" onclick="openDBViewer('${group}', '${escapedFile}')">
+                                <span style="font-weight:bold;">📄 ${file.split(/[\\/]/).pop()}</span>
+                                <span class="text-gray text-sm" style="margin-left:auto;">${file}</span>
+                            </div>`;
+                        });
+                    } else {
+                        html += `<div class="db-item text-gray" style="cursor:default;">暂无文件</div>`;
+                    }
+                    
+                    html += `</div></div>`;
+                }
+                container.innerHTML = html;
+            } catch (e) {
+                container.innerHTML = `<div class="text-danger">加载失败: ${e.message}</div>`;
+            }
+        }
+
+        async function openDBViewer(group, file) {
+            currentDB = { group, file };
+            document.getElementById('modal-title').textContent = `正在查看: ${file.split(/[\/]/).pop()}`;
+            document.getElementById('db-viewer-modal').classList.remove('hidden');
+            
+            // Reset state
+            switchModalView('browser');
+            backToTableList();
+            document.getElementById('sql-input').value = '';
+            document.getElementById('sql-result-table').querySelector('thead').innerHTML = '';
+            document.getElementById('sql-result-table').querySelector('tbody').innerHTML = '';
+            document.getElementById('sql-msg').textContent = '请执行查询以查看结果';
+            
+            // Load tables
+            const listContainer = document.getElementById('table-list');
+            listContainer.innerHTML = '<div class="loading">加载表列表中...</div>';
+
+            try {
+                const res = await fetch(`/api/v1/db/tables?group=${group}&file=${encodeURIComponent(file)}`);
+                if(!res.ok) throw new Error('Failed to load tables');
+                const tables = await res.json();
+                
+                let html = '';
+                if(tables && tables.length > 0) {
+                    tables.forEach(t => {
+                        html += `<div class="db-table-item" onclick="loadTableData('${t}')">${t}</div>`;
+                    });
+                } else {
+                    html = '<div class="text-gray">此数据库中没有表。</div>';
+                }
+                listContainer.innerHTML = html;
+            } catch(e) {
+                listContainer.innerHTML = `<div class="text-danger">加载表失败: ${e.message}</div>`;
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('db-viewer-modal').classList.add('hidden');
+            currentDB = { group: null, file: null };
+            currentTable = null;
+        }
+
+        function backToTableList() {
+            document.getElementById('table-list-view').classList.remove('hidden');
+            document.getElementById('table-data-view').classList.add('hidden');
+            currentTable = null;
+        }
+
+        async function loadTableData(table) {
+            currentTable = table;
+            currentPage = 0;
+            currentKeyword = '';
+            document.getElementById('data-search-input').value = '';
+            
+            document.getElementById('table-list-view').classList.add('hidden');
+            document.getElementById('table-data-view').classList.remove('hidden');
+            document.getElementById('current-table-name').textContent = table;
+            
+            await fetchTableData();
+        }
+        
+        function performTableSearch() {
+            const val = document.getElementById('data-search-input').value.trim();
+            currentKeyword = val;
+            currentPage = 0;
+            fetchTableData();
+        }
+
+        async function fetchTableData() {
+            if(!currentTable || !currentDB.file) return;
+            
+            const tbody = document.querySelector('#data-table tbody');
+            const thead = document.querySelector('#data-table thead');
+            const indicator = document.getElementById('browser-loading');
+            
+            indicator.classList.remove('hidden');
+            tbody.innerHTML = '';
+            
+            const offset = currentPage * pageSize;
+            
+            try {
+                let url = `/api/v1/db/data?group=${currentDB.group}&file=${encodeURIComponent(currentDB.file)}&table=${currentTable}&limit=${pageSize}&offset=${offset}`;
+                if(currentKeyword) {
+                    url += `&keyword=${encodeURIComponent(currentKeyword)}`;
+                }
+                
+                const res = await fetch(url);
+                if(!res.ok) throw new Error('Failed to load data');
+                const data = await res.json();
+                
+                renderTable(data, thead, tbody, currentPage, pageSize); // Reuse renderTable
+                
+                document.getElementById('page-info').textContent = `Page ${currentPage + 1}`;
+                
+            } catch(e) {
+                tbody.innerHTML = `<tr><td class="text-danger">Error: ${e.message}</td></tr>`;
+            } finally {
+                indicator.classList.add('hidden');
+            }
+        }
+
+        function renderTable(data, thead, tbody, page, size) {
+            thead.innerHTML = '';
+            if(data && data.length > 0) {
+                const headers = Object.keys(data[0]);
+                let headerHtml = '<tr>';
+                headers.forEach(h => headerHtml += `<th>${h}</th>`);
+                headerHtml += '</tr>';
+                thead.innerHTML = headerHtml;
+                
+                let bodyHtml = '';
+                data.forEach(row => {
+                    bodyHtml += '<tr>';
+                    headers.forEach(h => {
+                        let val = row[h];
+                        if(val === null) val = '<span class="text-gray">null</span>';
+                        if(typeof val === 'string') {
+                            if(val.length > 100) val = val.substring(0, 100) + '...';
+                            val = escapeHtml(val);
+                        }
+                        bodyHtml += `<td>${val}</td>`;
+                    });
+                    bodyHtml += '</tr>';
+                });
+                tbody.innerHTML = bodyHtml;
+            } else {
+                if(page === 0) {
+                    thead.innerHTML = '<tr><td>暂无数据</td></tr>';
+                } else {
+                    const prevHeader = thead.innerHTML; 
+                    if(!prevHeader) thead.innerHTML = '<tr><td>End of data</td></tr>';
+                    else tbody.innerHTML = '<tr><td colspan="100%" style="text-align:center; padding: 20px;">没有更多数据了</td></tr>';
+                }
+            }
+        }
+
+        function prevPage() {
+            if(currentPage > 0) {
+                currentPage--;
+                fetchTableData();
+            }
+        }
+
+        function nextPage() {
+            currentPage++;
+            fetchTableData();
+        }
+        
+        function exportTableData(format) {
+            if(!currentTable || !currentDB.file) return;
+            let url = `/api/v1/db/data?group=${currentDB.group}&file=${encodeURIComponent(currentDB.file)}&table=${currentTable}&format=${format}`;
+            if(currentKeyword) {
+                url += `&keyword=${encodeURIComponent(currentKeyword)}`;
+            }
+            window.location.href = url;
+        }
+        
+        // --- SQL Console Logic ---
+        async function runSQL() {
+            const sql = document.getElementById('sql-input').value.trim();
+            if(!sql) {
+                alert("请输入 SQL 语句");
+                return;
+            }
+            
+            const tbody = document.querySelector('#sql-result-table tbody');
+            const thead = document.querySelector('#sql-result-table thead');
+            const msg = document.getElementById('sql-msg');
+            
+            tbody.innerHTML = '';
+            thead.innerHTML = '';
+            msg.textContent = '执行中...';
+            msg.style.display = 'block';
+            
+            try {
+                const url = `/api/v1/db/query?group=${currentDB.group}&file=${encodeURIComponent(currentDB.file)}&sql=${encodeURIComponent(sql)}`;
+                const res = await fetch(url);
+                if(!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                
+                msg.style.display = 'none';
+                renderTable(data, thead, tbody, 0, 0); // Reuse renderTable
+                
+                if(!data || data.length === 0) {
+                    msg.textContent = '执行成功，无结果返回';
+                    msg.style.display = 'block';
+                }
+                
+            } catch(e) {
+                msg.textContent = `执行错误: ${e.message}`;
+                msg.style.color = 'var(--danger)';
+                msg.style.display = 'block';
+            }
+        }
+        
+        function exportSQLResult(format) {
+            const sql = document.getElementById('sql-input').value.trim();
+            if(!sql) {
+                alert("请输入 SQL 语句");
+                return;
+            }
+             const url = `/api/v1/db/query?group=${currentDB.group}&file=${encodeURIComponent(currentDB.file)}&sql=${encodeURIComponent(sql)}&format=${format}`;
+             window.location.href = url;
+        }
+
+        // --- Generic API Query (Keep same as before) ---
+        async function queryAPI(type) {
+            // ... (Same logic as before, just kept for brevity since I'm overwriting file)
+            const resultArea = document.getElementById(`${type}-result`);
+            resultArea.classList.remove('hidden');
+            resultArea.innerHTML = '<div class="loading">正在处理...</div>';
+
+            try {
+                let params = new URLSearchParams();
+                let format = 'json';
+
+                if (type === 'session') {
+                    const kw = document.getElementById('session-keyword').value;
+                    format = document.getElementById('session-format').value;
+                    if(kw) params.append('keyword', kw);
+                } else if (type === 'chatroom') {
+                    const kw = document.getElementById('chatroom-keyword').value;
+                    format = document.getElementById('chatroom-format').value;
+                    if(kw) params.append('keyword', kw);
+                } else if (type === 'contact') {
+                    const kw = document.getElementById('contact-keyword').value;
+                    format = document.getElementById('contact-format').value;
+                    if(kw) params.append('keyword', kw);
+                } else if (type === 'sns') {
+                    const username = document.getElementById('sns-username').value;
+                    const limit = document.getElementById('sns-limit').value;
+                    format = document.getElementById('sns-format').value;
+                    if(username) params.append('username', username);
+                    if(limit) params.append('limit', limit);
+                } else if (type === 'chatlog') {
+                    const time = document.getElementById('chatlog-time').value;
+                    const talker = document.getElementById('chatlog-talker').value;
+                    if(!time || !talker) {
+                        alert('时间和聊天对象是必填项');
+                        resultArea.classList.add('hidden');
+                        return;
+                    }
+                    params.append('time', time);
+                    params.append('talker', talker);
+                    
+                    const sender = document.getElementById('chatlog-sender').value;
+                    if(sender) params.append('sender', sender);
+                    
+                    const kw = document.getElementById('chatlog-keyword').value;
+                    if(kw) params.append('keyword', kw);
+                    
+                    const limit = document.getElementById('chatlog-limit').value;
+                    if(limit) params.append('limit', limit);
+                    
+                    format = document.getElementById('chatlog-format').value;
+                }
+
+                params.append('format', format);
+                const url = `/api/v1/${type}?${params.toString()}`;
+
+                if (format === 'csv' || format === 'xlsx') {
+                    window.location.href = url;
+                    resultArea.innerHTML = `<div class="text-success">已触发 ${format.toUpperCase()} 下载。<br>请求URL: <span class="url-display">${url}</span></div>`;
+                } else {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(res.statusText);
+                    
+                    let text;
+                    if(format === 'json' || format === 'chatlab') {
+                        const json = await res.json();
+                        text = JSON.stringify(json, null, 2);
+                    } else {
+                        text = await res.text();
+                    }
+
+                    resultArea.innerHTML = `
+                        <div class="result-header">
+                            <span class="url-display">${url}</span>
+                            <div style="display:flex; gap:10px;">
+                                <button class="btn btn-secondary text-sm" onclick="downloadResult('${type}', '${format}')">下载</button>
+                                <button class="btn btn-secondary text-sm" onclick="copyResult('${type}')">复制</button>
+                            </div>
+                        </div>
+                        <pre id="${type}-pre">${escapeHtml(text)}</pre>
+                    `;
+                }
+
+            } catch (e) {
+                resultArea.innerHTML = `<div style="color:var(--danger)">请求错误: ${e.message}</div>`;
+            }
+        }
+
+        function downloadResult(type, format) {
+            const text = document.getElementById(`${type}-pre`).innerText;
+            let mimeType = 'text/plain';
+            let ext = 'txt';
+            
+            if (format === 'json' || format === 'chatlab') {
+                mimeType = 'application/json';
+                ext = 'json';
+            }
+
+            const blob = new Blob([text], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            // Filename: type_timestamp.ext
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            a.download = `${type}_export_${timestamp}.${ext}`;
+            
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return text;
+            return String(text)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function copyResult(type) {
+            const text = document.getElementById(`${type}-pre`).innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                alert('已复制到剪贴板');
+            });
+        }
+
+        document.getElementById('clearCacheBtn').addEventListener('click', async () => {
+            if(!confirm('确定要清除所有解密的媒体文件缓存吗？')) return;
+            try {
+                const res = await fetch('/api/v1/cache/clear', { method: 'POST' });
+                const data = await res.json();
+                alert(`缓存已清除，共删除 ${data.deletedCount} 个文件`);
+            } catch (e) {
+                alert('清除失败: ' + e.message);
+            }
+        });
+    </script>
+</body>
+</html>

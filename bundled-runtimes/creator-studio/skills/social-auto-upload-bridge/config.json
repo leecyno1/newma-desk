@@ -1,0 +1,43 @@
+{
+  "name": "social-auto-upload-bridge",
+  "version": "0.2.0",
+  "type": "publish_bridge",
+  "description": "Bridge Newma publish channel packs to the external social-auto-upload project.",
+  "external_dependency": {
+    "name": "social-auto-upload",
+    "repo": "https://github.com/dreammis/social-auto-upload.git",
+    "default_root": "${SOCIAL_AUTO_UPLOAD_ROOT:-vendor/publish/social-auto-upload}",
+    "version_locked": false,
+    "upstream_registry": "configs/publish/upstream_repos.json"
+  },
+  "inputs": {
+    "required": [
+      "channel_pack.json",
+      "final video"
+    ],
+    "optional": [
+      "cover image",
+      "subtitle",
+      "tags",
+      "scheduled_at"
+    ]
+  },
+  "outputs": [
+    "social_auto_upload_request.json",
+    "guarded dry-run command preview",
+    "execution_request.json",
+    "platform response",
+    "verification_request.json",
+    "fallback manual package"
+  ],
+  "supported_platforms": [
+    "bilibili",
+    "xiaohongshu",
+    "douyin",
+    "kuaishou",
+    "wechat_channels",
+    "baijiahao",
+    "tiktok",
+    "youtube"
+  ]
+}

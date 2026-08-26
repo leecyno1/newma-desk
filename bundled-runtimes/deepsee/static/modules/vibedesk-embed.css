@@ -1,0 +1,374 @@
+html.vibedesk-embed,
+html.vibedesk-embed body {
+    min-height: 100%;
+    background: var(--surface);
+}
+
+html.vibedesk-embed body {
+    overflow: auto;
+}
+
+html.vibedesk-embed .container {
+    width: 100%;
+    max-width: none;
+    min-height: 100vh;
+    margin: 0;
+}
+
+html.vibedesk-embed .header,
+html.vibedesk-embed .module-tabs {
+    display: none !important;
+}
+
+html.vibedesk-embed .module-content {
+    min-height: 100vh;
+    overflow: visible;
+}
+
+html.vibedesk-embed .module-panel .filters {
+    height: auto !important;
+    min-height: var(--filters-height, 34px) !important;
+    padding: 6px 8px !important;
+    gap: 5px 8px !important;
+    flex-wrap: wrap !important;
+    overflow-x: hidden !important;
+    overflow-y: visible !important;
+}
+
+html.vibedesk-embed .module-panel .filter-group {
+    max-width: 100%;
+}
+
+html.vibedesk-embed .module-panel,
+html.vibedesk-embed .module-panel.active {
+    min-height: 100vh;
+}
+
+html.vibedesk-embed .module-panel.active {
+    border-radius: 0;
+}
+
+/* Newma Theme Contract ----------------------------------------------------
+ * The host supplies concrete --vibe-* values through appearance.cssVars.
+ * These mappings keep Deepsee's legacy variable names while removing its
+ * former blue/white and Slate surfaces in embedded Mod mode.
+ */
+html.vibedesk-embed {
+    color-scheme: light;
+    --bg: var(--vibe-bg, #f4efe3);
+    --panel: var(--vibe-surface, #fbf7ef);
+    --panel-muted: var(--vibe-surface-muted, #eae1d0);
+    --text: var(--vibe-text, #173128);
+    --text-muted: var(--vibe-text-muted, #66766e);
+    --border: var(--vibe-border, #d8cdbb);
+    --border-strong: var(--vibe-border-strong, #b9aa90);
+    --accent: var(--vibe-accent, #a87432);
+    --accent-contrast: var(--vibe-accent-contrast, #173128);
+    --accent-soft: var(--vibe-accent-surface, #f1e3c6);
+    --focus: var(--vibe-accent, #a87432);
+    --row-hover: color-mix(in srgb, var(--vibe-accent, #a87432) 12%, transparent);
+    --title-accent: var(--vibe-accent, #a87432);
+    --btn-primary-bg: var(--vibe-accent, #a87432);
+    --btn-primary-fg: var(--vibe-accent-contrast, #173128);
+    --btn-primary-bg-hover: var(--vibe-accent-hover, #8d5e25);
+    --brand-primary: var(--vibe-accent, #a87432);
+    --brand-secondary: var(--vibe-text, #173128);
+    --brand-accent: var(--vibe-accent, #a87432);
+    --brand-blue: var(--vibe-accent, #a87432);
+    --chip-blue-bg: var(--vibe-accent-surface, #f1e3c6);
+    --chip-blue-bg-hover: var(--vibe-surface-selected, #e0d2b5);
+    --chip-blue-fg: var(--vibe-text, #173128);
+    --chip-blue-border: var(--vibe-accent-soft, #ddc79c);
+    --popover-bg: var(--vibe-surface-raised, #fffaf1);
+    --popover-fg: var(--vibe-text, #173128);
+    --popover-border: var(--vibe-border-strong, #b9aa90);
+    --status-info-bg: var(--vibe-accent-surface, #f1e3c6);
+    --status-info-fg: var(--vibe-text, #173128);
+    --status-info-border: var(--vibe-accent-soft, #ddc79c);
+    --status-loading-bg: var(--vibe-surface-muted, #eae1d0);
+    --status-loading-fg: var(--vibe-text-muted, #66766e);
+    --status-loading-border: var(--vibe-border, #d8cdbb);
+    --shadow-sm: 0 1px 2px rgba(23, 49, 40, 0.08);
+    --shadow: 0 16px 36px rgba(23, 49, 40, 0.12);
+}
+
+html.vibedesk-embed body.theme-hacker {
+    color-scheme: dark;
+    --bg: var(--vibe-bg, #0f1714);
+    --panel: var(--vibe-surface, #16211c);
+    --panel-muted: var(--vibe-surface-muted, #121d18);
+    --text: var(--vibe-text, #f3ecdd);
+    --text-muted: var(--vibe-text-muted, #a8b4a5);
+    --border: var(--vibe-border, #2a3931);
+    --border-strong: var(--vibe-border-strong, #405146);
+    --accent: var(--vibe-accent, #c89a5a);
+    --accent-contrast: var(--vibe-accent-contrast, #102019);
+    --accent-soft: var(--vibe-accent-surface, #2c2a21);
+    --focus: var(--vibe-accent, #c89a5a);
+    --row-hover: color-mix(in srgb, var(--vibe-accent, #c89a5a) 16%, transparent);
+    --title-accent: var(--vibe-accent, #c89a5a);
+    --btn-primary-bg: var(--vibe-accent, #c89a5a);
+    --btn-primary-fg: var(--vibe-accent-contrast, #102019);
+    --btn-primary-bg-hover: var(--vibe-accent-hover, #dab47d);
+    --btn-secondary-bg: var(--vibe-surface-raised, #1a2821);
+    --btn-secondary-fg: var(--vibe-text, #f3ecdd);
+    --brand-primary: var(--vibe-accent, #c89a5a);
+    --brand-secondary: var(--vibe-text, #f3ecdd);
+    --brand-accent: var(--vibe-accent, #c89a5a);
+    --brand-blue: var(--vibe-accent, #c89a5a);
+    --chip-blue-bg: var(--vibe-accent-surface, #2c2a21);
+    --chip-blue-bg-hover: var(--vibe-surface-selected, #2a382e);
+    --chip-blue-fg: var(--vibe-text, #f3ecdd);
+    --chip-blue-border: var(--vibe-accent-soft, #5a452c);
+    --popover-bg: var(--vibe-surface-raised, #1a2821);
+    --popover-fg: var(--vibe-text, #f3ecdd);
+    --popover-border: var(--vibe-border-strong, #405146);
+    --status-info-bg: var(--vibe-accent-surface, #2c2a21);
+    --status-info-fg: var(--vibe-text, #f3ecdd);
+    --status-info-border: var(--vibe-accent-soft, #5a452c);
+    --status-loading-bg: var(--vibe-surface-muted, #121d18);
+    --status-loading-fg: var(--vibe-text-muted, #a8b4a5);
+    --status-loading-border: var(--vibe-border, #2a3931);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
+}
+
+html.vibedesk-embed #dashboard,
+html.vibedesk-embed body.theme-hacker #dashboard {
+    --dash-ink: var(--vibe-text, #173128);
+    --dash-muted: var(--vibe-text-muted, #66766e);
+    --dash-card: color-mix(in srgb, var(--vibe-surface, #fbf7ef) 94%, transparent);
+    --dash-line: var(--vibe-border, #d8cdbb);
+    background: var(--vibe-bg, #f4efe3);
+}
+
+html.vibedesk-embed #dashboard .dash-card,
+html.vibedesk-embed #dashboard .dash-search-pill,
+html.vibedesk-embed #dashboard .dash-icon-pill,
+html.vibedesk-embed #dashboard .dash-select,
+html.vibedesk-embed #dashboard .dash-kpi-card,
+html.vibedesk-embed #dashboard .dash-brief-item,
+html.vibedesk-embed #dashboard .dash-action-chip,
+html.vibedesk-embed #dashboard .dash-topic-node {
+    background: color-mix(in srgb, var(--vibe-surface-raised, #fffaf1) 90%, transparent);
+    border-color: var(--vibe-border, #d8cdbb);
+    box-shadow: 0 16px 38px color-mix(in srgb, var(--vibe-text, #173128) 10%, transparent);
+}
+
+html.vibedesk-embed #dashboard .dash-brand-dot,
+html.vibedesk-embed #dashboard .dash-signal-icon,
+html.vibedesk-embed #dashboard .dash-bars.orange span,
+html.vibedesk-embed #dashboard .dash-pivot-bar span {
+    background: var(--vibe-accent, #a87432);
+    color: var(--vibe-accent-contrast, #173128);
+}
+
+html.vibedesk-embed #dashboard .dash-insight-item:hover,
+html.vibedesk-embed #messageTable tbody tr.row-highlight td,
+html.vibedesk-embed .cell-range {
+    background: color-mix(in srgb, var(--vibe-accent, #a87432) 14%, transparent) !important;
+}
+
+html.vibedesk-embed .cell-selected {
+    outline-color: var(--vibe-accent, #a87432);
+}
+
+/* Legacy brand-blue adapter ------------------------------------------------
+ * Deepsee predates the Newma theme contract and still has a handful of
+ * hard-coded iOS/Tailwind blues. These selectors are intentionally scoped to
+ * embedded pages and to brand/selection semantics; financial red/green,
+ * warning and error meanings stay untouched. */
+html.vibedesk-embed .time-filter-tabs,
+html.vibedesk-embed #ai-summary .time-filter-tabs {
+    background: color-mix(in srgb, var(--vibe-accent, #a87432) 8%, transparent) !important;
+}
+
+html.vibedesk-embed .time-tab:hover,
+html.vibedesk-embed .score-btn.score-focus,
+html.vibedesk-embed #news-agg .news-keyword,
+html.vibedesk-embed #news-agg .news-chip.neutral,
+html.vibedesk-embed #news-agg .news-chip.heat-mid,
+html.vibedesk-embed #newsRefreshBtn,
+html.vibedesk-embed .settings-merge-notice,
+html.vibedesk-embed #settings-ai-config .router-runtime-lane {
+    background: color-mix(in srgb, var(--vibe-accent, #a87432) 12%, transparent) !important;
+    border-color: color-mix(in srgb, var(--vibe-accent, #a87432) 32%, transparent) !important;
+    color: var(--vibe-text, #173128) !important;
+}
+
+html.vibedesk-embed #news-agg .news-engine-shell {
+    color: var(--vibe-text, #173128) !important;
+    background:
+        radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--vibe-accent, #a87432) 14%, transparent), transparent 32%),
+        radial-gradient(circle at 88% 8%, color-mix(in srgb, var(--vibe-chart-series-3, #8f6b50) 12%, transparent), transparent 30%),
+        linear-gradient(180deg, var(--vibe-surface-raised, #fffaf1) 0%, var(--vibe-surface, #fbf7ef) 100%) !important;
+    border-color: var(--vibe-border, #d8cdbb) !important;
+}
+
+html.vibedesk-embed #news-agg .news-hero,
+html.vibedesk-embed #news-agg .news-card,
+html.vibedesk-embed #news-agg .news-metric {
+    color: var(--vibe-text, #173128) !important;
+    background: color-mix(in srgb, var(--vibe-surface, #fbf7ef) 94%, transparent) !important;
+    border-color: var(--vibe-border, #d8cdbb) !important;
+    box-shadow: 0 16px 38px color-mix(in srgb, var(--vibe-text, #173128) 9%, transparent) !important;
+}
+
+html.vibedesk-embed #newsSearchInput,
+html.vibedesk-embed #newsSourceSelect,
+html.vibedesk-embed #newsOriginalToggle {
+    color: var(--vibe-text, #173128) !important;
+    background: var(--vibe-surface-raised, #fffaf1) !important;
+    border-color: var(--vibe-border, #d8cdbb) !important;
+}
+
+html.vibedesk-embed #news-agg .news-original-toggle input {
+    accent-color: var(--vibe-accent, #a87432) !important;
+}
+
+html.vibedesk-embed .time-tab.active,
+html.vibedesk-embed #news-agg .news-title span,
+html.vibedesk-embed #news-agg .news-row-title:hover,
+html.vibedesk-embed #news-agg .news-alpha-confidence,
+html.vibedesk-embed #ai-summary .analysis-title-main span,
+html.vibedesk-embed #contact-management .contact-header h2 span {
+    color: var(--vibe-accent, #a87432) !important;
+}
+
+html.vibedesk-embed .time-tab.active {
+    background: var(--vibe-accent, #a87432) !important;
+    color: var(--vibe-accent-contrast, #173128) !important;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--vibe-accent, #a87432) 22%, transparent) !important;
+}
+
+html.vibedesk-embed #contact-management .contact-warning-group[data-warning-group="watching"] {
+    background: color-mix(in srgb, var(--vibe-accent, #a87432) 12%, transparent) !important;
+    border-color: color-mix(in srgb, var(--vibe-accent, #a87432) 28%, transparent) !important;
+}
+
+html.vibedesk-embed #dashboard .dash-topic-map {
+    background:
+        radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--vibe-negative, #16a34a) 14%, transparent), transparent 30%),
+        radial-gradient(circle at 70% 60%, color-mix(in srgb, var(--vibe-accent, #a87432) 14%, transparent), transparent 36%),
+        color-mix(in srgb, var(--vibe-text, #173128) 4%, transparent) !important;
+}
+
+html.vibedesk-embed #contact-management .contact-management-container,
+html.vibedesk-embed #contact-management .contact-header,
+html.vibedesk-embed #ai-summary .analysis-titlebar,
+html.vibedesk-embed #ai-summary::before,
+html.vibedesk-embed #contact-management::before {
+    background: color-mix(in srgb, var(--vibe-surface-raised, #fffaf1) 92%, transparent) !important;
+    border-color: var(--vibe-border, #d8cdbb) !important;
+    box-shadow: 0 16px 38px color-mix(in srgb, var(--vibe-text, #173128) 9%, transparent) !important;
+    color: var(--vibe-text, #173128) !important;
+}
+
+html.vibedesk-embed .inline-link:hover {
+    background: var(--vibe-surface-selected, #e0d2b5);
+    border-color: var(--vibe-accent-soft, #ddc79c);
+}
+
+html.vibedesk-embed a,
+html.vibedesk-embed a:visited {
+    color: var(--vibe-accent, #a87432) !important;
+    border-color: var(--vibe-accent, #a87432) !important;
+}
+
+html.vibedesk-embed a:hover,
+html.vibedesk-embed a:focus-visible {
+    background: color-mix(in srgb, var(--vibe-accent, #a87432) 12%, transparent) !important;
+}
+
+html.vibedesk-embed #ai-summary .analysis-btn.run-primary {
+    background: var(--vibe-accent, #a87432) !important;
+    border-color: var(--vibe-accent, #a87432) !important;
+    color: var(--vibe-accent-contrast, #173128) !important;
+    box-shadow: 0 8px 18px color-mix(in srgb, var(--vibe-accent, #a87432) 20%, transparent) !important;
+}
+
+html.vibedesk-embed #ai-summary .analysis-btn.run-primary:hover {
+    background: var(--vibe-accent-hover, #8d5e25) !important;
+    border-color: var(--vibe-accent-hover, #8d5e25) !important;
+}
+
+html.vibedesk-embed .op-btn[data-op="约"],
+html.vibedesk-embed .op-btn[data-op="约"].is-active {
+    background: var(--vibe-accent-surface, #f1e3c6) !important;
+    border-color: var(--vibe-accent-soft, #ddc79c) !important;
+    color: var(--vibe-text, #173128) !important;
+}
+
+html.vibedesk-embed .op-btn[data-op="约"].is-active {
+    background: var(--vibe-accent, #a87432) !important;
+    border-color: var(--vibe-accent, #a87432) !important;
+    color: var(--vibe-accent-contrast, #173128) !important;
+}
+
+html.vibedesk-embed .op-btn[data-op="踩"] {
+    background: var(--vibe-surface-muted, #eae1d0) !important;
+    border-color: var(--vibe-border, #d8cdbb) !important;
+    color: var(--vibe-text-muted, #66766e) !important;
+}
+
+html.vibedesk-embed .op-btn[data-op="踩"].is-active {
+    background: var(--vibe-surface-selected, #e0d2b5) !important;
+    border-color: var(--vibe-border-strong, #b9aa90) !important;
+    color: var(--vibe-text, #173128) !important;
+}
+
+html.vibedesk-embed #manualPullBtn {
+    background: var(--vibe-accent, #a87432) !important;
+    border-color: var(--vibe-accent, #a87432) !important;
+    color: var(--vibe-accent-contrast, #173128) !important;
+}
+
+html.vibedesk-embed #manualPullBtn:hover {
+    background: var(--vibe-accent-hover, #8d5e25) !important;
+    border-color: var(--vibe-accent-hover, #8d5e25) !important;
+}
+
+html.vibedesk-embed .module-panel:not(#dashboard):not(#news-agg) {
+    background: var(--vibe-bg, #f4efe3) !important;
+}
+
+html.vibedesk-embed .module-panel:not(#dashboard):not(#news-agg) .filters,
+html.vibedesk-embed .module-panel:not(#dashboard):not(#news-agg) .summary-section,
+html.vibedesk-embed .module-panel:not(#dashboard):not(#news-agg) .table-container,
+html.vibedesk-embed .module-panel:not(#dashboard):not(#news-agg) .settings-layout,
+html.vibedesk-embed .module-panel:not(#dashboard):not(#news-agg) .send-management-container,
+html.vibedesk-embed .module-panel:not(#dashboard):not(#news-agg) .contact-management-container,
+html.vibedesk-embed .module-panel:not(#dashboard):not(#news-agg) .ai-summary-container > .summary-dashboard,
+html.vibedesk-embed .module-panel:not(#dashboard):not(#news-agg) .send-shell {
+    background: color-mix(in srgb, var(--vibe-surface, #fbf7ef) 94%, transparent) !important;
+    border-color: var(--vibe-border, #d8cdbb) !important;
+    box-shadow: 0 16px 38px color-mix(in srgb, var(--vibe-text, #173128) 9%, transparent) !important;
+}
+
+html.vibedesk-embed .contact-filters .pagination-btn {
+    background: var(--vibe-surface-muted, #eae1d0) !important;
+    border-color: var(--vibe-border, #d8cdbb) !important;
+    color: var(--vibe-text, #173128) !important;
+}
+
+html.vibedesk-embed .contact-filters .pagination-btn:hover:not(:disabled) {
+    background: var(--vibe-surface-selected, #e0d2b5) !important;
+    border-color: var(--vibe-accent-soft, #ddc79c) !important;
+}
+
+html.vibedesk-embed #dashboard.module-panel.active {
+    padding-top: 8px;
+}
+
+html.vibedesk-embed #function-settings .settings-layout {
+    min-height: calc(100vh - 16px);
+    max-height: calc(100vh - 16px);
+}
+
+html.vibedesk-embed #function-settings .settings-nav-item {
+    width: calc(100% - 8px);
+    border: 1px solid transparent;
+    background: transparent;
+    text-align: left;
+    font-family: inherit;
+}

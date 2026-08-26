@@ -1,0 +1,1579 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Fund {
+  id                String    @id @default(uuid())
+  windCode          String    @unique @map("wind_code")
+  name              String
+  type              String
+  managerIds        String[]  @map("manager_ids")
+  nav               Decimal?  @db.Decimal(10, 4)
+  navDate           DateTime? @map("nav_date") @db.Date
+  totalAsset        Decimal?  @map("total_asset") @db.Decimal(15, 2)
+  establishmentDate DateTime? @map("establishment_date") @db.Date
+  performanceData   Json?     @map("performance_data")
+  riskMetrics       Json?     @map("risk_metrics")
+  rawData           Json?     @map("raw_data")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  scores                Score[]                      @relation("FundScore")
+  evaluationSnapshots   FundEvaluationSnapshot[]
+  aiReports             AIAnalysisReport[]           @relation("FundAnalysis")
+  holdings              Holding[]
+  assetAllocations      FundAssetAllocation[]
+  holderStructures      FundHolderStructure[]
+  bondHoldings          FundBondHolding[]
+  underlyingHoldings    FundUnderlyingHolding[]
+  bondDurationEstimates FundBondDurationEstimate[]
+  factorExposures       FactorExposure[]
+  holdingStyleSnapshots HoldingStyleSnapshot[]
+  attributions          PerformanceAttribution[]
+  shareClassMappings    FundShareClass[]
+  holdingLookthroughs   HoldingLookthroughSnapshot[]
+  holdingSimilaritiesA  HoldingSimilarity[]          @relation("HoldingSimilarityFundA")
+  holdingSimilaritiesB  HoldingSimilarity[]          @relation("HoldingSimilarityFundB")
+
+  @@index([windCode])
+  @@index([name])
+  @@index([type])
+  @@map("funds")
+}
+
+model FundCompany {
+  id              String    @id @default(uuid())
+  name            String    @unique
+  normalizedName  String    @map("normalized_name")
+  shortName       String?   @map("short_name")
+  source          String    @default("manual_or_sync")
+  sourceUpdatedAt DateTime? @map("source_updated_at") @db.Date
+  rawData         Json?     @map("raw_data")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  productLines    FundProductLine[]
+  fundEntities    FundEntity[]
+  researchProfile FundCompanyResearchProfile?
+  researchEvents  FundCompanyResearchEvent[]
+
+  @@index([normalizedName])
+  @@map("fund_companies")
+}
+
+model FundProductLine {
+  id               String    @id @default(uuid())
+  companyId        String    @map("company_id")
+  name             String
+  assetClass       String?   @map("asset_class")
+  strategyFamilyId String?   @map("strategy_family_id")
+  description      String?   @db.Text
+  source           String    @default("manual_or_sync")
+  sourceUpdatedAt  DateTime? @map("source_updated_at") @db.Date
+  rawData          Json?     @map("raw_data")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  company           FundCompany                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  strategyFamily    StrategyFamily?                   @relation(fields: [strategyFamilyId], references: [id], onDelete: SetNull)
+  fundEntities      FundEntity[]
+  researchSnapshots FundProductLineResearchSnapshot[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([strategyFamilyId])
+  @@map("fund_product_lines")
+}
+
+model FundCompanyResearchProfile {
+  id                 String   @id @default(uuid())
+  companyId          String   @unique @map("company_id")
+  researchTeam       String?  @map("research_team")
+  platformCapability Json?    @map("platform_capability")
+  productLineSummary Json?    @map("product_line_summary")
+  issuanceSummary    Json?    @map("issuance_summary")
+  liquidationSummary Json?    @map("liquidation_summary")
+  scaleTrend         Json?    @map("scale_trend")
+  managerBench       Json?    @map("manager_bench")
+  sameCompanyReview  Json?    @map("same_company_review")
+  evidenceRefs       Json?    @map("evidence_refs")
+  qualityStatus      String   @default("draft") @map("quality_status")
+  source             String   @default("company_research_profile")
+  updatedBy          String?  @map("updated_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  company FundCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([qualityStatus])
+  @@map("fund_company_research_profiles")
+}
+
+model FundProductLineResearchSnapshot {
+  id                  String   @id @default(uuid())
+  productLineId       String   @map("product_line_id")
+  asOfDate            DateTime @map("as_of_date") @db.Date
+  fundCount           Int?     @map("fund_count")
+  activeFundCount     Int?     @map("active_fund_count")
+  totalAsset          Decimal? @map("total_asset") @db.Decimal(18, 2)
+  flagshipFundCodes   String[] @map("flagship_fund_codes")
+  averageExcessReturn Decimal? @map("average_excess_return") @db.Decimal(10, 4)
+  liquidationCount    Int?     @map("liquidation_count")
+  issuanceCount       Int?     @map("issuance_count")
+  reviewSummary       String?  @map("review_summary") @db.Text
+  evidenceRefs        Json?    @map("evidence_refs")
+  source              String   @default("product_line_research")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  productLine FundProductLine @relation(fields: [productLineId], references: [id], onDelete: Cascade)
+
+  @@unique([productLineId, asOfDate])
+  @@index([productLineId])
+  @@index([asOfDate])
+  @@map("fund_product_line_research_snapshots")
+}
+
+model FundCompanyResearchEvent {
+  id                    String   @id @default(uuid())
+  companyId             String   @map("company_id")
+  eventDate             DateTime @map("event_date") @db.Date
+  eventType             String   @map("event_type")
+  title                 String
+  description           String?  @db.Text
+  affectedProductLineId String?  @map("affected_product_line_id")
+  affectedFundCodes     String[] @map("affected_fund_codes")
+  researchImpact        String?  @map("research_impact") @db.Text
+  evidenceRefs          Json?    @map("evidence_refs")
+  source                String   @default("company_research_event")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  company FundCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, eventDate])
+  @@index([eventType])
+  @@index([affectedProductLineId])
+  @@map("fund_company_research_events")
+}
+
+model StrategyFamily {
+  id              String   @id @default(uuid())
+  key             String   @unique
+  name            String
+  assetClass      String?  @map("asset_class")
+  activePassive   String?  @map("active_passive")
+  styleTags       String[] @map("style_tags")
+  benchmarkPolicy Json?    @map("benchmark_policy")
+  peerPolicy      Json?    @map("peer_policy")
+  source          String   @default("methodology_config")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  productLines        FundProductLine[]
+  fundEntities        FundEntity[]
+  peerGroups          PeerGroup[]
+  methodologyMappings ResearchMethodologyMapping[]
+
+  @@index([assetClass])
+  @@index([activePassive])
+  @@map("strategy_families")
+}
+
+model ResearchMethodologyTemplate {
+  id                String   @id @default(uuid())
+  key               String   @unique
+  name              String
+  fundType          String   @map("fund_type")
+  assetClass        String?  @map("asset_class")
+  activePassive     String?  @map("active_passive")
+  description       String?  @db.Text
+  requiredEvidence  Json     @map("required_evidence")
+  benchmarkPolicy   Json?    @map("benchmark_policy")
+  peerPolicy        Json?    @map("peer_policy")
+  attributionPolicy Json?    @map("attribution_policy")
+  holdingPolicy     Json?    @map("holding_policy")
+  managerPolicy     Json?    @map("manager_policy")
+  companyPolicy     Json?    @map("company_policy")
+  source            String   @default("methodology_config")
+  version           String   @default("1.0.0")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  dimensions ResearchMethodologyDimension[]
+  mappings   ResearchMethodologyMapping[]
+
+  @@index([fundType])
+  @@index([assetClass])
+  @@index([activePassive])
+  @@index([isActive])
+  @@map("research_methodology_templates")
+}
+
+model ResearchMethodologyDimension {
+  id                String   @id @default(uuid())
+  templateId        String   @map("template_id")
+  dimensionKey      String   @map("dimension_key")
+  name              String
+  weight            Decimal? @db.Decimal(5, 2)
+  evidenceFields    String[] @map("evidence_fields")
+  calculationPolicy Json?    @map("calculation_policy")
+  hardGate          Boolean  @default(false) @map("hard_gate")
+  displayOrder      Int      @default(0) @map("display_order")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  template ResearchMethodologyTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, dimensionKey])
+  @@index([templateId])
+  @@index([dimensionKey])
+  @@index([hardGate])
+  @@map("research_methodology_dimensions")
+}
+
+model ResearchMethodologyMapping {
+  id               String   @id @default(uuid())
+  templateId       String   @map("template_id")
+  strategyFamilyId String?  @map("strategy_family_id")
+  fundType         String?  @map("fund_type")
+  assetClass       String?  @map("asset_class")
+  activePassive    String?  @map("active_passive")
+  matchRules       Json?    @map("match_rules")
+  priority         Int      @default(100)
+  source           String   @default("methodology_config")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  template       ResearchMethodologyTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  strategyFamily StrategyFamily?             @relation(fields: [strategyFamilyId], references: [id], onDelete: SetNull)
+
+  @@index([templateId])
+  @@index([strategyFamilyId])
+  @@index([fundType])
+  @@index([assetClass])
+  @@index([activePassive])
+  @@index([priority])
+  @@map("research_methodology_mappings")
+}
+
+model FundEntity {
+  id               String    @id @default(uuid())
+  canonicalCode    String    @unique @map("canonical_code")
+  canonicalName    String    @map("canonical_name")
+  normalizedName   String    @map("normalized_name")
+  companyId        String?   @map("company_id")
+  productLineId    String?   @map("product_line_id")
+  strategyFamilyId String?   @map("strategy_family_id")
+  assetClass       String?   @map("asset_class")
+  activePassive    String?   @map("active_passive")
+  lifecycleStage   String    @default("active") @map("lifecycle_stage")
+  establishedAt    DateTime? @map("established_at") @db.Date
+  terminatedAt     DateTime? @map("terminated_at") @db.Date
+  source           String    @default("entity_standardization")
+  sourceUpdatedAt  DateTime? @map("source_updated_at") @db.Date
+  rawData          Json?     @map("raw_data")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  company                 FundCompany?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  productLine             FundProductLine?         @relation(fields: [productLineId], references: [id], onDelete: SetNull)
+  strategyFamily          StrategyFamily?          @relation(fields: [strategyFamilyId], references: [id], onDelete: SetNull)
+  shareClasses            FundShareClass[]
+  lifecycleEvents         FundLifecycleEvent[]
+  changeHistory           FundChangeHistory[]
+  peerMemberships         PeerGroupMember[]
+  benchmarkMappings       BenchmarkMapping[]
+  attributionExplanations AttributionExplanation[]
+
+  @@index([normalizedName])
+  @@index([companyId])
+  @@index([productLineId])
+  @@index([strategyFamilyId])
+  @@index([assetClass])
+  @@index([lifecycleStage])
+  @@map("fund_entities")
+}
+
+model FundShareClass {
+  id              String    @id @default(uuid())
+  entityId        String    @map("entity_id")
+  fundId          String?   @map("fund_id")
+  windCode        String    @unique @map("wind_code")
+  shareClass      String?   @map("share_class")
+  feeClass        String?   @map("fee_class")
+  currency        String?   @default("CNY")
+  isPrimary       Boolean   @default(false) @map("is_primary")
+  status          String    @default("active")
+  source          String    @default("share_class_normalizer")
+  sourceUpdatedAt DateTime? @map("source_updated_at") @db.Date
+  rawData         Json?     @map("raw_data")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  entity FundEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  fund   Fund?      @relation(fields: [fundId], references: [id], onDelete: SetNull)
+
+  @@index([entityId])
+  @@index([fundId])
+  @@index([shareClass])
+  @@index([status])
+  @@map("fund_share_classes")
+}
+
+model FundLifecycleEvent {
+  id          String   @id @default(uuid())
+  entityId    String   @map("entity_id")
+  eventDate   DateTime @map("event_date") @db.Date
+  eventType   String   @map("event_type")
+  title       String
+  description String?  @db.Text
+  source      String
+  evidenceRef String?  @map("evidence_ref")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  entity FundEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([entityId, eventDate])
+  @@index([eventType])
+  @@map("fund_lifecycle_events")
+}
+
+model FundChangeHistory {
+  id            String   @id @default(uuid())
+  entityId      String   @map("entity_id")
+  changedAt     DateTime @map("changed_at") @db.Date
+  changeType    String   @map("change_type")
+  fieldName     String?  @map("field_name")
+  previousValue String?  @map("previous_value") @db.Text
+  newValue      String?  @map("new_value") @db.Text
+  source        String
+  evidenceRef   String?  @map("evidence_ref")
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  entity FundEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([entityId, changedAt])
+  @@index([changeType])
+  @@map("fund_change_history")
+}
+
+model PeerGroup {
+  id               String    @id @default(uuid())
+  key              String    @unique
+  name             String
+  strategyFamilyId String?   @map("strategy_family_id")
+  assetClass       String    @map("asset_class")
+  activePassive    String    @map("active_passive")
+  benchmarkCode    String?   @map("benchmark_code")
+  benchmarkName    String?   @map("benchmark_name")
+  inclusionRules   Json      @map("inclusion_rules")
+  exclusionRules   Json?     @map("exclusion_rules")
+  minimumPeerCount Int       @default(10) @map("minimum_peer_count")
+  source           String    @default("peer_group_policy")
+  sourceUpdatedAt  DateTime? @map("source_updated_at") @db.Date
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  strategyFamily    StrategyFamily?    @relation(fields: [strategyFamilyId], references: [id], onDelete: SetNull)
+  members           PeerGroupMember[]
+  benchmarkMappings BenchmarkMapping[]
+
+  @@index([strategyFamilyId])
+  @@index([assetClass])
+  @@index([activePassive])
+  @@index([benchmarkCode])
+  @@map("peer_groups")
+}
+
+model PeerGroupMember {
+  id             String    @id @default(uuid())
+  peerGroupId    String    @map("peer_group_id")
+  entityId       String    @map("entity_id")
+  role           String    @default("member")
+  matchedRules   Json      @map("matched_rules")
+  excludedRules  Json?     @map("excluded_rules")
+  sampleAsOfDate DateTime? @map("sample_as_of_date") @db.Date
+  confidence     Decimal?  @db.Decimal(5, 2)
+  source         String    @default("peer_group_builder")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  peerGroup PeerGroup  @relation(fields: [peerGroupId], references: [id], onDelete: Cascade)
+  entity    FundEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([peerGroupId, entityId])
+  @@index([peerGroupId])
+  @@index([entityId])
+  @@index([role])
+  @@map("peer_group_members")
+}
+
+model BenchmarkMapping {
+  id            String    @id @default(uuid())
+  entityId      String    @map("entity_id")
+  peerGroupId   String?   @map("peer_group_id")
+  benchmarkCode String    @map("benchmark_code")
+  benchmarkName String    @map("benchmark_name")
+  benchmarkType String    @map("benchmark_type")
+  mappingMethod String    @map("mapping_method")
+  confidence    Decimal?  @db.Decimal(5, 2)
+  rationale     String    @db.Text
+  evidenceRefs  Json?     @map("evidence_refs")
+  effectiveFrom DateTime? @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  status        String    @default("active")
+  source        String    @default("benchmark_mapping_policy")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  entity                  FundEntity               @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  peerGroup               PeerGroup?               @relation(fields: [peerGroupId], references: [id], onDelete: SetNull)
+  attributionExplanations AttributionExplanation[]
+
+  @@unique([entityId, benchmarkCode, effectiveFrom])
+  @@index([entityId])
+  @@index([peerGroupId])
+  @@index([benchmarkCode])
+  @@index([status])
+  @@map("benchmark_mappings")
+}
+
+model AttributionExplanation {
+  id                   String   @id @default(uuid())
+  entityId             String   @map("entity_id")
+  benchmarkMappingId   String?  @map("benchmark_mapping_id")
+  periodStart          DateTime @map("period_start") @db.Date
+  periodEnd            DateTime @map("period_end") @db.Date
+  totalReturn          Decimal? @map("total_return") @db.Decimal(10, 4)
+  benchmarkReturn      Decimal? @map("benchmark_return") @db.Decimal(10, 4)
+  excessReturn         Decimal? @map("excess_return") @db.Decimal(10, 4)
+  allocationEffect     Decimal? @map("allocation_effect") @db.Decimal(10, 4)
+  selectionEffect      Decimal? @map("selection_effect") @db.Decimal(10, 4)
+  interactionEffect    Decimal? @map("interaction_effect") @db.Decimal(10, 4)
+  styleContribution    Json?    @map("style_contribution")
+  industryContribution Json?    @map("industry_contribution")
+  assetAllocation      Json?    @map("asset_allocation")
+  residualExplanation  String?  @map("residual_explanation") @db.Text
+  evidenceRefs         Json?    @map("evidence_refs")
+  qualityStatus        String   @default("draft") @map("quality_status")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  entity           FundEntity        @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  benchmarkMapping BenchmarkMapping? @relation(fields: [benchmarkMappingId], references: [id], onDelete: SetNull)
+
+  @@unique([entityId, periodStart, periodEnd, benchmarkMappingId], map: "attribution_explanations_unique_period")
+  @@index([entityId, periodEnd])
+  @@index([benchmarkMappingId])
+  @@index([qualityStatus])
+  @@map("attribution_explanations")
+}
+
+model Manager {
+  id                    String   @id @default(uuid())
+  windCode              String?  @unique @map("wind_code")
+  name                  String
+  company               String?
+  education             String?
+  workYears             Int?     @map("work_years")
+  managementYears       Decimal? @map("management_years") @db.Decimal(5, 2)
+  currentFunds          String[] @map("current_funds")
+  historicalPerformance Json?    @map("historical_performance")
+  styleAnalysis         Json?    @map("style_analysis")
+  rawData               Json?    @map("raw_data")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  researchReportLinks        ResearchReportManager[]
+  scores                     Score[]                            @relation("ManagerScore")
+  aiReports                  AIAnalysisReport[]                 @relation("ManagerAnalysis")
+  profile                    ManagerProfile?
+  philosophyTracking         PhilosophyTracking[]
+  tenureSlices               ManagerTenureSlice[]
+  representativeAttributions ManagerRepresentativeAttribution[]
+  transitionEvents           ManagerTransitionEvent[]
+  fundTenures                ManagerFundTenure[]
+
+  @@index([name])
+  @@index([company])
+  @@map("managers")
+}
+
+model ManagerFundTenure {
+  id                  String    @id @default(uuid())
+  managerId           String    @map("manager_id")
+  fundCode            String    @map("fund_code")
+  fundName            String?   @map("fund_name")
+  startDate           DateTime  @map("start_date") @db.Date
+  endDate             DateTime? @map("end_date") @db.Date
+  isCurrent           Boolean   @default(false) @map("is_current")
+  performanceSnapshot Json?     @map("performance_snapshot")
+  source              String    @default("tushare.fund_manager")
+  rawData             Json?     @map("raw_data")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  manager Manager @relation(fields: [managerId], references: [windCode], onDelete: Cascade)
+
+  @@unique([managerId, fundCode, startDate])
+  @@index([managerId, isCurrent])
+  @@index([fundCode])
+  @@map("manager_fund_tenures")
+}
+
+model ManagerTenureSlice {
+  id                  String    @id @default(uuid())
+  managerId           String    @map("manager_id")
+  fundCode            String    @map("fund_code")
+  fundName            String?   @map("fund_name")
+  role                String    @default("lead")
+  coManagerNames      String[]  @map("co_manager_names")
+  startDate           DateTime  @map("start_date") @db.Date
+  endDate             DateTime? @map("end_date") @db.Date
+  tenureDays          Int?      @map("tenure_days")
+  overlapShare        Decimal?  @map("overlap_share") @db.Decimal(5, 2)
+  performanceSnapshot Json?     @map("performance_snapshot")
+  attributionNotes    String?   @map("attribution_notes") @db.Text
+  evidenceRefs        Json?     @map("evidence_refs")
+  source              String    @default("manager_tenure_policy")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  manager Manager @relation(fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([managerId, fundCode, startDate])
+  @@index([managerId])
+  @@index([fundCode])
+  @@index([role])
+  @@map("manager_tenure_slices")
+}
+
+model ManagerRepresentativeAttribution {
+  id                   String   @id @default(uuid())
+  managerId            String   @map("manager_id")
+  fundCode             String   @map("fund_code")
+  fundName             String?  @map("fund_name")
+  periodStart          DateTime @map("period_start") @db.Date
+  periodEnd            DateTime @map("period_end") @db.Date
+  excessReturn         Decimal? @map("excess_return") @db.Decimal(10, 4)
+  maxDrawdown          Decimal? @map("max_drawdown") @db.Decimal(10, 4)
+  attributionSummary   Json?    @map("attribution_summary")
+  styleDriftScore      Decimal? @map("style_drift_score") @db.Decimal(5, 2)
+  platformContribution Decimal? @map("platform_contribution") @db.Decimal(5, 2)
+  conclusion           String?  @db.Text
+  evidenceRefs         Json?    @map("evidence_refs")
+  qualityStatus        String   @default("draft") @map("quality_status")
+  source               String   @default("manager_representative_attribution")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  manager Manager @relation(fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([managerId, fundCode, periodStart, periodEnd], map: "manager_representative_unique_period")
+  @@index([managerId])
+  @@index([fundCode])
+  @@index([qualityStatus])
+  @@map("manager_representative_attributions")
+}
+
+model ManagerTransitionEvent {
+  id                   String   @id @default(uuid())
+  managerId            String   @map("manager_id")
+  fundCode             String?  @map("fund_code")
+  eventDate            DateTime @map("event_date") @db.Date
+  eventType            String   @map("event_type")
+  previousManagerNames String[] @map("previous_manager_names")
+  nextManagerNames     String[] @map("next_manager_names")
+  impactWindowDays     Int?     @map("impact_window_days")
+  impactSnapshot       Json?    @map("impact_snapshot")
+  researchImplication  String?  @map("research_implication") @db.Text
+  evidenceRefs         Json?    @map("evidence_refs")
+  source               String   @default("manager_transition_policy")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  manager Manager @relation(fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@index([managerId, eventDate])
+  @@index([fundCode])
+  @@index([eventType])
+  @@map("manager_transition_events")
+}
+
+model ResearchReport {
+  id                  String    @id @default(uuid())
+  managerId           String?   @map("manager_id")
+  fundIds             String[]  @map("fund_ids")
+  title               String
+  reportDate          DateTime? @map("report_date") @db.Date
+  reportDateSource    String?   @map("report_date_source")
+  reportDatePrecision String?   @map("report_date_precision")
+  source              String
+  content             String    @db.Text
+  summary             String?   @db.Text
+  keyPoints           Json?     @map("key_points")
+  tags                String[]
+  viewpointTopics     String[]  @map("viewpoint_topics")
+  researchDomains     String[]  @map("research_domains")
+  embedding           Json? // 向量存储 (float[1536])，通过Python层做相似度计算
+  attachments         Json?
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  managerLinks ResearchReportManager[]
+  chunks       ResearchReportChunk[]
+
+  @@index([managerId])
+  @@index([reportDate])
+  @@index([tags])
+  @@map("research_reports")
+}
+
+model ResearchReportManager {
+  id          String   @id @default(uuid())
+  reportId    String   @map("report_id")
+  managerId   String   @map("manager_id")
+  managerName String   @map("manager_name")
+  source      String   @default("research_memo_review")
+  confirmedAt DateTime @default(now()) @map("confirmed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  report  ResearchReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  manager Manager        @relation(fields: [managerId], references: [windCode], onDelete: Cascade)
+
+  @@unique([reportId, managerId])
+  @@index([managerId, confirmedAt])
+  @@map("research_report_managers")
+}
+
+// ============================================================
+// 调研报告切片：用于 RAG 证据链和 chunk 级语义检索
+// ============================================================
+model ResearchReportChunk {
+  id          String   @id @default(uuid())
+  reportId    String   @map("report_id")
+  chunkIndex  Int      @map("chunk_index")
+  content     String   @db.Text
+  tokenCount  Int?     @map("token_count")
+  embeddingId String?  @map("embedding_id")
+  entities    Json?
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  report ResearchReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, chunkIndex])
+  @@index([reportId])
+  @@index([embeddingId])
+  @@map("research_report_chunks")
+}
+
+model AIAnalysisReport {
+  id                  String   @id @default(uuid())
+  targetType          String   @map("target_type")
+  targetId            String   @map("target_id")
+  reportType          String   @map("report_type")
+  content             String   @db.Text
+  dataSources         Json?    @map("data_sources")
+  researchReportsUsed String[] @map("research_reports_used")
+  generationParams    Json?    @map("generation_params")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  fund    Fund?    @relation("FundAnalysis", fields: [targetId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "ai_analysis_fund_fk")
+  manager Manager? @relation("ManagerAnalysis", fields: [targetId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "ai_analysis_manager_fk")
+
+  @@index([targetType, targetId])
+  @@index([reportType])
+  @@index([createdAt])
+  @@map("ai_analysis_reports")
+}
+
+model Score {
+  id                String   @id @default(uuid())
+  targetType        String   @map("target_type")
+  targetId          String   @map("target_id")
+  dimension         String
+  score             Decimal  @db.Decimal(5, 2)
+  weight            Decimal? @db.Decimal(3, 2)
+  calculationMethod String   @map("calculation_method")
+  details           Json?
+  scoredAt          DateTime @map("scored_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  fund    Fund?    @relation("FundScore", fields: [targetId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "score_fund_fk")
+  manager Manager? @relation("ManagerScore", fields: [targetId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "score_manager_fk")
+
+  @@index([targetType, targetId])
+  @@index([dimension])
+  @@index([scoredAt])
+  @@map("scores")
+}
+
+model ScreeningCriteria {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  criteria    Json
+  createdBy   String?  @map("created_by")
+  isPublic    Boolean  @default(false) @map("is_public")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([createdBy])
+  @@index([isPublic])
+  @@map("screening_criteria")
+}
+
+// ============================================================
+// 数据源快照：记录每次数据采集/同步的血缘和质量状态
+// ============================================================
+model DataSourceSnapshot {
+  id            String    @id @default(uuid())
+  source        String
+  dataset       String
+  status        String    @default("running")
+  startedAt     DateTime  @default(now()) @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+  coverageStart DateTime? @map("coverage_start") @db.Date
+  coverageEnd   DateTime? @map("coverage_end") @db.Date
+  recordCount   Int?      @map("record_count")
+  errorMessage  String?   @map("error_message") @db.Text
+  metadata      Json?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  metrics MetricSnapshot[]
+
+  @@index([source])
+  @@index([dataset])
+  @@index([status])
+  @@index([startedAt])
+  @@map("data_source_snapshots")
+}
+
+// ============================================================
+// 指标快照：保存基金/经理在指定日期和口径下的指标值
+// ============================================================
+model MetricSnapshot {
+  id               String   @id @default(uuid())
+  targetType       String   @map("target_type")
+  targetId         String   @map("target_id")
+  asOfDate         DateTime @map("as_of_date") @db.Date
+  metricName       String   @map("metric_name")
+  metricValue      Decimal  @map("metric_value") @db.Decimal(20, 8)
+  metricUnit       String?  @map("metric_unit")
+  window           String?
+  benchmarkCode    String?  @map("benchmark_code")
+  peerGroupKey     String?  @map("peer_group_key")
+  sourceSnapshotId String?  @map("source_snapshot_id")
+  details          Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  sourceSnapshot DataSourceSnapshot? @relation(fields: [sourceSnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([targetType, targetId, asOfDate, metricName, window, benchmarkCode, peerGroupKey], map: "metric_snapshots_unique_key")
+  @@index([targetType, targetId, asOfDate])
+  @@index([metricName])
+  @@index([sourceSnapshotId])
+  @@map("metric_snapshots")
+}
+
+// ============================================================
+// 基金池：候选池 / 观察池 / 核心池 / 淘汰池
+// ============================================================
+model FundPool {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  createdBy   String?  @map("created_by")
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  members PoolMember[]
+
+  @@index([name])
+  @@index([isDefault])
+  @@map("fund_pools")
+}
+
+model PoolMember {
+  id               String    @id @default(uuid())
+  poolId           String    @map("pool_id")
+  fundId           String    @map("fund_id")
+  status           String
+  reason           String?   @db.Text
+  latestConclusion String?   @map("latest_conclusion") @db.Text
+  evidence         Json?
+  riskNotes        String?   @map("risk_notes") @db.Text
+  nextReviewDate   DateTime? @map("next_review_date") @db.Date
+  createdBy        String?   @map("created_by")
+  updatedBy        String?   @map("updated_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  pool FundPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, fundId])
+  @@index([poolId])
+  @@index([fundId])
+  @@index([status])
+  @@index([nextReviewDate])
+  @@map("pool_members")
+}
+
+model AlertRule {
+  id        String   @id @default(uuid())
+  name      String
+  ruleType  String   @map("rule_type")
+  scopeType String   @map("scope_type")
+  scopeId   String?  @map("scope_id")
+  threshold Json?
+  enabled   Boolean  @default(true)
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  events AlertEvent[]
+
+  @@index([ruleType])
+  @@index([scopeType, scopeId])
+  @@index([enabled])
+  @@map("alert_rules")
+}
+
+model AlertEvent {
+  id           String    @id @default(uuid())
+  ruleId       String?   @map("rule_id")
+  fundId       String?   @map("fund_id")
+  poolMemberId String?   @map("pool_member_id")
+  eventType    String    @map("event_type")
+  severity     String
+  title        String
+  message      String    @db.Text
+  status       String
+  triggeredAt  DateTime  @default(now()) @map("triggered_at")
+  resolvedAt   DateTime? @map("resolved_at")
+  details      Json?
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  rule AlertRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([ruleId])
+  @@index([fundId])
+  @@index([poolMemberId])
+  @@index([status])
+  @@index([severity])
+  @@index([triggeredAt])
+  @@map("alert_events")
+}
+
+// ============================================================
+// 新增：持仓数据（十大重仓股）
+// ============================================================
+model Holding {
+  id        String  @id @default(uuid())
+  fundId    String  @map("fund_id")
+  stockCode String  @map("stock_code")
+  stockName String  @map("stock_name")
+  weight    Decimal @db.Decimal(8, 4) // 占基金净值比 (%)
+  quarter   String // 季度，如 "2024Q1"
+
+  // 估值和基本面指标
+  marketCap     String?  @map("market_cap") // 大盘/中盘/小盘
+  peRatio       Decimal? @map("pe_ratio") @db.Decimal(10, 2)
+  pbRatio       Decimal? @map("pb_ratio") @db.Decimal(10, 2)
+  roe           Decimal? @map("roe") @db.Decimal(8, 4) // 净资产收益率
+  revenueGrowth Decimal? @map("revenue_growth") @db.Decimal(10, 4) // 营收增速
+
+  // 行业分类
+  industry    String? // 申万一级行业
+  subIndustry String? @map("sub_industry") // 申万二级行业
+
+  // 其他因子值
+  dividendYield  Decimal? @map("dividend_yield") @db.Decimal(8, 4) // 股息率
+  marketCapValue Decimal? @map("market_cap_value") @db.Decimal(15, 2) // 市值金额(亿)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  fund    Fund            @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  factors HoldingFactor[]
+
+  @@unique([fundId, quarter, stockCode])
+  @@index([fundId, quarter])
+  @@index([industry])
+  @@index([stockCode])
+  @@map("holdings")
+}
+
+model FundAssetAllocation {
+  windCode   String   @map("wind_code")
+  reportDate DateTime @map("report_date") @db.Date
+  stockRatio Decimal? @map("stock_ratio") @db.Decimal(10, 8)
+  bondRatio  Decimal? @map("bond_ratio") @db.Decimal(10, 8)
+  cashRatio  Decimal? @map("cash_ratio") @db.Decimal(10, 8)
+  netAssetYi Decimal? @map("net_asset_yi") @db.Decimal(15, 4)
+  source     String
+  sourceUrl  String?  @map("source_url")
+  fetchedAt  DateTime @default(now()) @map("fetched_at")
+
+  fund Fund @relation(fields: [windCode], references: [windCode], onDelete: Cascade)
+
+  @@id([windCode, reportDate])
+  @@index([reportDate])
+  @@map("fund_asset_allocations")
+}
+
+model FundHolderStructure {
+  windCode         String   @map("wind_code")
+  reportDate       DateTime @map("report_date") @db.Date
+  institutionRatio Decimal? @map("institution_ratio") @db.Decimal(10, 8)
+  individualRatio  Decimal? @map("individual_ratio") @db.Decimal(10, 8)
+  internalRatio    Decimal? @map("internal_ratio") @db.Decimal(10, 8)
+  totalSharesYi    Decimal? @map("total_shares_yi") @db.Decimal(15, 4)
+  source           String
+  sourceUrl        String?  @map("source_url")
+  fetchedAt        DateTime @default(now()) @map("fetched_at")
+
+  fund Fund @relation(fields: [windCode], references: [windCode], onDelete: Cascade)
+
+  @@id([windCode, reportDate])
+  @@index([reportDate])
+  @@map("fund_holder_structures")
+}
+
+model FundBondHolding {
+  windCode            String   @map("wind_code")
+  reportDate          DateTime @map("report_date") @db.Date
+  sequence            Int
+  bondCode            String   @map("bond_code")
+  bondName            String   @map("bond_name")
+  bondType            String   @map("bond_type")
+  navRatio            Decimal? @map("nav_ratio") @db.Decimal(10, 8)
+  marketValueWan      Decimal? @map("market_value_wan") @db.Decimal(18, 2)
+  classificationBasis String?  @map("classification_basis") @db.Text
+  issuer              String?
+  securityBondType    String?  @map("security_bond_type")
+  creditRating        String?  @map("credit_rating")
+  ratingType          String?  @map("rating_type")
+  maturityDate        DateTime? @map("maturity_date") @db.Date
+  couponRate          Decimal? @map("coupon_rate") @db.Decimal(10, 8)
+  metadataSource      String?  @map("metadata_source")
+  metadataUrl         String?  @map("metadata_url")
+  metadataStatus      String   @default("unavailable") @map("metadata_status")
+  source              String
+  sourceUrl           String?  @map("source_url")
+  fetchedAt           DateTime @default(now()) @map("fetched_at")
+
+  fund Fund @relation(fields: [windCode], references: [windCode], onDelete: Cascade)
+
+  @@id([windCode, reportDate, bondCode])
+  @@index([reportDate])
+  @@index([bondCode])
+  @@index([bondType])
+  @@map("fund_bond_holdings")
+}
+
+model FundUnderlyingHolding {
+  windCode           String   @map("wind_code")
+  reportDate         DateTime @map("report_date") @db.Date
+  sequence           Int
+  underlyingFundCode String   @map("underlying_fund_code")
+  underlyingFundName String   @map("underlying_fund_name")
+  navRatio           Decimal? @map("nav_ratio") @db.Decimal(10, 8)
+  dailyReturn        Decimal? @map("daily_return") @db.Decimal(10, 8)
+  source             String
+  sourceUrl          String?  @map("source_url")
+  fetchedAt          DateTime @default(now()) @map("fetched_at")
+
+  fund Fund @relation(fields: [windCode], references: [windCode], onDelete: Cascade)
+
+  @@id([windCode, reportDate, underlyingFundCode])
+  @@index([reportDate])
+  @@index([underlyingFundCode])
+  @@map("fund_underlying_holdings")
+}
+
+model BondIndexSeries {
+  seriesKey   String   @map("series_key")
+  indexGroup  String   @map("index_group")
+  indexName   String   @map("index_name")
+  indexId     String   @map("index_id")
+  periodCode  String   @map("period_code")
+  periodLabel String   @map("period_label")
+  indicator   String
+  tradeDate   DateTime @map("trade_date") @db.Date
+  value       Decimal  @db.Decimal(18, 8)
+  source      String
+  sourceUrl   String   @map("source_url")
+  fetchedAt   DateTime @default(now()) @map("fetched_at")
+
+  @@id([seriesKey, indicator, tradeDate])
+  @@index([indexGroup, tradeDate])
+  @@index([indicator, tradeDate])
+  @@map("bond_index_series")
+}
+
+model FundBondDurationEstimate {
+  windCode          String   @map("wind_code")
+  asOfDate          DateTime @map("as_of_date") @db.Date
+  windowWeeks       Int      @map("window_weeks")
+  dataStart         DateTime? @map("data_start") @db.Date
+  dataEnd           DateTime? @map("data_end") @db.Date
+  observations      Int      @default(0)
+  estimatedDuration Decimal? @map("estimated_duration") @db.Decimal(10, 6)
+  durationBucket    String?  @map("duration_bucket")
+  rSquared          Decimal? @map("r_squared") @db.Decimal(10, 8)
+  trackingError     Decimal? @map("tracking_error") @db.Decimal(10, 8)
+  selectedSeries    Json     @default("[]") @map("selected_series")
+  weights           Json     @default("[]")
+  groupDiagnostics  Json     @default("[]") @map("group_diagnostics")
+  methodologyVersion String  @map("methodology_version")
+  status            String
+  source            String
+  missingItems      Json     @default("[]") @map("missing_items")
+  calculatedAt      DateTime @default(now()) @map("calculated_at")
+
+  fund Fund @relation(fields: [windCode], references: [windCode], onDelete: Cascade)
+
+  @@id([windCode, asOfDate, windowWeeks])
+  @@index([windCode, asOfDate(sort: Desc)])
+  @@map("fund_bond_duration_estimates")
+}
+
+model HoldingLookthroughSnapshot {
+  id                   String   @id @default(uuid())
+  fundId               String   @map("fund_id")
+  quarter              String
+  topTenWeight         Decimal? @map("top_ten_weight") @db.Decimal(8, 4)
+  topThreeWeight       Decimal? @map("top_three_weight") @db.Decimal(8, 4)
+  topIndustry          String?  @map("top_industry")
+  topIndustryWeight    Decimal? @map("top_industry_weight") @db.Decimal(8, 4)
+  industryBuckets      Json?    @map("industry_buckets")
+  themeTags            String[] @map("theme_tags")
+  styleTags            String[] @map("style_tags")
+  marketCapBuckets     Json?    @map("market_cap_buckets")
+  turnoverEstimate     Decimal? @map("turnover_estimate") @db.Decimal(8, 4)
+  heavyPositionChanges Json?    @map("heavy_position_changes")
+  evidenceRefs         Json?    @map("evidence_refs")
+  qualityStatus        String   @default("draft") @map("quality_status")
+  source               String   @default("holding_lookthrough_tool")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, quarter])
+  @@index([fundId, quarter])
+  @@index([topIndustry])
+  @@index([qualityStatus])
+  @@map("holding_lookthrough_snapshots")
+}
+
+model HoldingSimilarity {
+  id              String   @id @default(uuid())
+  fundAId         String   @map("fund_a_id")
+  fundBId         String   @map("fund_b_id")
+  quarter         String
+  overlapWeight   Decimal? @map("overlap_weight") @db.Decimal(8, 4)
+  jaccardScore    Decimal? @map("jaccard_score") @db.Decimal(8, 4)
+  commonHoldings  Json?    @map("common_holdings")
+  similarityLevel String   @default("unknown") @map("similarity_level")
+  evidenceRefs    Json?    @map("evidence_refs")
+  source          String   @default("holding_similarity_tool")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  fundA Fund @relation("HoldingSimilarityFundA", fields: [fundAId], references: [id], onDelete: Cascade)
+  fundB Fund @relation("HoldingSimilarityFundB", fields: [fundBId], references: [id], onDelete: Cascade)
+
+  @@unique([fundAId, fundBId, quarter])
+  @@index([fundAId, quarter])
+  @@index([fundBId, quarter])
+  @@index([similarityLevel])
+  @@map("holding_similarities")
+}
+
+// ============================================================
+// 新增：持仓因子特征
+// ============================================================
+model HoldingFactor {
+  id          String  @id @default(uuid())
+  holdingId   String  @map("holding_id")
+  factorName  String  @map("factor_name") // market/size/value/growth/momentum/volatility/dividend
+  factorValue Decimal @map("factor_value") @db.Decimal(10, 4)
+
+  holding Holding @relation(fields: [holdingId], references: [id], onDelete: Cascade)
+
+  @@unique([holdingId, factorName])
+  @@map("holding_factors")
+}
+
+// ============================================================
+// 新增：因子暴露度
+// ============================================================
+model FactorExposure {
+  id               String   @id @default(uuid())
+  fundId           String   @map("fund_id")
+  quarter          String
+  factorName       String   @map("factor_name") // market/size/value/growth/momentum/volatility/dividend
+  exposure         Decimal  @map("exposure") @db.Decimal(10, 4)
+  factorReturn     Decimal? @map("factor_return") @db.Decimal(10, 4) // 因子收益率
+  riskContribution Decimal? @map("risk_contribution") @db.Decimal(8, 4) // 风险贡献占比
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, quarter, factorName])
+  @@index([fundId, quarter])
+  @@map("factor_exposures")
+}
+
+model HoldingStyleSnapshot {
+  windCode                String   @map("wind_code")
+  quarter                 String
+  peerGroupId             String?  @map("peer_group_id")
+  peerGroupKey            String?  @map("peer_group_key")
+  peerGroupName           String?  @map("peer_group_name")
+  descriptors             Json     @default("[]")
+  peerPercentiles         Json     @default("[]") @map("peer_percentiles")
+  styleLabels             String[] @map("style_labels")
+  peerSampleSize          Int      @default(0) @map("peer_sample_size")
+  minimumPeerCount        Int      @default(5) @map("minimum_peer_count")
+  holdingsDisclosedWeight Decimal? @map("holdings_disclosed_weight") @db.Decimal(8, 6)
+  source                  String
+  status                  String
+  missingItems            Json     @default("[]") @map("missing_items")
+  calculatedAt            DateTime @default(now()) @map("calculated_at")
+
+  fund Fund @relation(fields: [windCode], references: [windCode], onDelete: Cascade)
+
+  @@id([windCode, quarter])
+  @@index([peerGroupId, quarter])
+  @@map("holding_style_snapshots")
+}
+
+model MarketIndexConstituentSnapshot {
+  indexCode       String   @map("index_code")
+  asOfDate        DateTime @map("as_of_date") @db.Date
+  constituentCode String   @map("constituent_code")
+  constituentName String?  @map("constituent_name")
+  weight          Decimal? @db.Decimal(12, 10)
+  industry        String?
+  source          String
+  evidenceUrl     String?  @map("evidence_url")
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@id([indexCode, asOfDate, constituentCode])
+  @@index([indexCode, asOfDate(sort: Desc)])
+  @@map("market_index_constituent_snapshots")
+}
+
+model FundEvaluationSnapshot {
+  id                   String    @id @default(uuid())
+  windCode             String    @map("wind_code")
+  evaluationWindow     String    @map("evaluation_window")
+  asOfDate             DateTime? @map("as_of_date") @db.Date
+  status               String
+  methodologyVersion   String    @map("methodology_version")
+  calculationMethod    String?   @map("calculation_method")
+  peerGroupId          String?   @map("peer_group_id")
+  peerGroupName        String?   @map("peer_group_name")
+  overallScore         Decimal?  @map("overall_score") @db.Decimal(5, 2)
+  overallGrade         String?   @map("overall_grade")
+  peerRank             Int?      @map("peer_rank")
+  peerCount            Int?      @map("peer_count")
+  peerPercentile       Decimal?  @map("peer_percentile") @db.Decimal(8, 4)
+  dimensionScores      Json      @default("{}") @map("dimension_scores")
+  peerMetrics          Json      @default("{}") @map("peer_metrics")
+  dataQuality          Json      @default("{}") @map("data_quality")
+  missingItems         Json      @default("[]") @map("missing_items")
+  sourceSnapshotIds    String[]  @default([]) @map("source_snapshot_ids")
+  snapshot             Json
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  fund Fund @relation(fields: [windCode], references: [windCode], onDelete: Cascade)
+
+  @@index([windCode, evaluationWindow, createdAt])
+  @@map("fund_evaluation_snapshots")
+}
+
+// ============================================================
+// 新增：业绩归因（Brinson模型）
+// ============================================================
+model PerformanceAttribution {
+  id          String @id @default(uuid())
+  fundId      String @map("fund_id")
+  benchmarkId String @map("benchmark_id") // 基准指数，如 "000300" 沪深300
+  quarter     String
+
+  // 收益数据
+  totalReturn     Decimal @map("total_return") @db.Decimal(10, 4)
+  benchmarkReturn Decimal @map("benchmark_return") @db.Decimal(10, 4)
+  activeReturn    Decimal @map("active_return") @db.Decimal(10, 4)
+
+  // Brinson 归因分解
+  allocationEffect  Decimal? @map("allocation_effect") @db.Decimal(10, 4) // 资产配置效应
+  selectionEffect   Decimal? @map("selection_effect") @db.Decimal(10, 4) // 个股选择效应
+  interactionEffect Decimal? @map("interaction_effect") @db.Decimal(10, 4) // 交互效应
+
+  // 简化归因（十大重仓股）
+  industryAllocation Decimal? @map("industry_allocation") @db.Decimal(10, 4) // 行业配置贡献
+  stockSelection     Decimal? @map("stock_selection") @db.Decimal(10, 4) // 个股选择贡献
+  residual           Decimal? @map("residual") @db.Decimal(10, 4) // 残差/非重仓股贡献
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, quarter])
+  @@index([fundId, quarter])
+  @@map("performance_attributions")
+}
+
+// ============================================================
+// 新增：基金经理画像
+// ============================================================
+model ManagerProfile {
+  id          String   @id @default(uuid())
+  managerId   String   @unique @map("manager_id")
+  lastUpdated DateTime @default(now()) @map("last_updated")
+
+  // 投资框架（从已确认纪要提取）
+  productPositioning  String? @map("product_positioning") @db.Text
+  investmentObjective String? @map("investment_objective") @db.Text
+  investmentMethod    String? @map("investment_method") @db.Text
+
+  // 投资理念（从专访提取）
+  corePhilosophy      String? @map("core_philosophy") @db.Text
+  stockSelectionLogic String? @map("stock_selection_logic") @db.Text
+  riskPhilosophy      String? @map("risk_philosophy")
+
+  // 能力圈
+  focusIndustries      String[] @map("focus_industries")
+  competenceAdvantages String?  @map("competence_advantages") @db.Text
+  competenceBoundaries String?  @map("competence_boundaries") @db.Text
+
+  // 投资风格
+  styleLabel         String? @map("style_label") // 价值/成长/平衡/激进
+  concentration      String? @db.Text
+  turnover           String? @db.Text
+  excessReturnSource String? @map("excess_return_source") @db.Text
+  holdingStyle       String? @map("holding_style") @db.Text
+  styleStability     Int?    @map("style_stability") // 风格稳定性评分 0-100
+
+  // 评分
+  philosophyScore     Int? @map("philosophy_score") // 理念评分 0-100
+  competenceScore     Int? @map("competence_score") // 能力圈评分 0-100
+  styleScore          Int? @map("style_score") // 风格评分 0-100
+  overallQualityScore Int? @map("overall_quality_score") // 综合素质评分 0-100
+
+  // 一致性分析
+  philosophyBehaviorConsistency Decimal? @map("philosophy_behavior_consistency") @db.Decimal(5, 2) // 理念-行为一致性 0-100
+  valuationConsistency          Int?     @map("valuation_consistency") // 估值一致性 0-100
+  qualityConsistency            Int?     @map("quality_consistency") // 质量一致性 0-100
+  industryConsistency           Int?     @map("industry_consistency") // 行业一致性 0-100
+
+  // 关键洞察和风险警示
+  keyInsights String[] @map("key_insights")
+  redFlags    String[] @map("red_flags")
+
+  // 元数据
+  interviewsAnalyzed Int       @default(0) @map("interviews_analyzed")
+  lastInterviewDate  DateTime? @map("last_interview_date")
+  evidence           Json      @default("{}")
+  updatedBy          String?   @map("updated_by")
+
+  manager Manager @relation(fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@map("manager_profiles")
+}
+
+// ============================================================
+// 新增：投资理念追踪（季度）
+// ============================================================
+model PhilosophyTracking {
+  id                String  @id @default(uuid())
+  managerId         String  @map("manager_id")
+  quarter           String
+  philosophySummary String  @map("philosophy_summary")
+  consistencyScore  Decimal @map("consistency_score") @db.Decimal(5, 2) // 与历史一致性 0-100
+
+  // 风格指标
+  styleLabel String? @map("style_label")
+  peFocus    String? @map("pe_focus") // 估值偏好
+  roeFocus   String? @map("roe_focus") // 质量偏好
+
+  manager Manager @relation(fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([managerId, quarter])
+  @@index([managerId])
+  @@map("philosophy_tracking")
+}
+
+// ============================================================
+// 新增：因子收益率（因子库）
+// ============================================================
+model FactorReturn {
+  id         String  @id @default(uuid())
+  factorName String  @map("factor_name")
+  date       String // 月份 "2024-01"
+  return     Decimal @db.Decimal(10, 4)
+
+  @@unique([factorName, date])
+  @@index([factorName])
+  @@map("factor_returns")
+}
+
+// ============================================================
+// 新增：行业收益率
+// ============================================================
+model IndustryReturn {
+  id           String  @id @default(uuid())
+  industry     String
+  benchmarkId  String  @map("benchmark_id")
+  quarter      String
+  fundReturn   Decimal @map("fund_return") @db.Decimal(10, 4)
+  benchReturn  Decimal @map("bench_return") @db.Decimal(10, 4)
+  activeReturn Decimal @map("active_return") @db.Decimal(10, 4)
+
+  @@unique([industry, benchmarkId, quarter])
+  @@index([industry])
+  @@map("industry_returns")
+}
+
+// ============================================================
+// 投资论点结构化 (Investment Thesis) — 研究结论的容器
+// 每只重点研究基金能保存一份结构化论点：为什么买、卖出触发、有效期、
+// 支撑证据快照 ID、状态机与编辑历史，用于后续复盘和学习。
+// ============================================================
+enum InvestmentThesisState {
+  candidate
+  researching
+  observing
+  invalid
+  archived
+}
+
+model InvestmentThesis {
+  id           String                @id @default(uuid()) @db.Uuid
+  fundWindCode String                @map("fund_wind_code")
+  title        String
+  state        InvestmentThesisState @default(candidate)
+
+  coreReasoning Json    @default("[]") @map("core_reasoning")
+  sellTriggers  Json    @default("[]") @map("sell_triggers")
+  oneLiner      String? @map("one_liner")
+  counterView   String? @map("counter_view")
+  risks         Json    @default("[]")
+
+  validUntil        DateTime? @map("valid_until") @db.Date
+  nextReviewDate    DateTime? @map("next_review_date") @db.Date
+  reviewCadenceDays Int       @default(30) @map("review_cadence_days")
+
+  evidenceSnapshot Json @default("{}") @map("evidence_snapshot")
+
+  stateHistory Json @default("[]") @map("state_history")
+  editHistory  Json @default("[]") @map("edit_history")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  closedAt  DateTime? @map("closed_at") @db.Timestamptz
+
+  closeReason  String? @map("close_reason")
+  closeVerdict String? @map("close_verdict")
+
+  queueItems ResearchQueueItem[]
+  postmortems DecisionPostmortem[]
+
+  @@index([fundWindCode])
+  @@index([state])
+  @@index([nextReviewDate])
+  @@map("investment_theses")
+}
+
+// ============================================================
+// 观察项 (Fund Watches) — 任意基金+任意指标+阈值+夜扫
+// ============================================================
+enum WatchStatus {
+  active
+  triggered
+  dismissed
+}
+
+model FundWatch {
+  id             String      @id @default(uuid()) @db.Uuid
+  fundWindCode   String      @map("fund_wind_code")
+  metricField    String      @map("metric_field")
+  operator       String      @default(">=")
+  threshold      Float
+  note           String?
+  status         WatchStatus @default(active)
+  triggeredAt    DateTime?   @map("triggered_at") @db.Timestamptz
+  triggeredValue Float?      @map("triggered_value")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([fundWindCode])
+  @@index([status])
+  @@map("fund_watches")
+}
+
+// ============================================================
+// 研究队列 (Research Queue) — 候选→研究→产出的工作流容器
+// ============================================================
+enum ResearchQueueStatus {
+  queued
+  researching
+  concluded
+  dropped
+}
+
+model ResearchQueueItem {
+  id              String              @id @default(uuid()) @db.Uuid
+  fundWindCode    String              @map("fund_wind_code")
+  status          ResearchQueueStatus @default(queued)
+  priority        Int                 @default(3)
+  source          String?
+  sourceRef       String?             @map("source_ref")
+  nextReviewDate  DateTime?           @map("next_review_date") @db.Date
+  outputCommitted Boolean             @default(false) @map("output_committed")
+  thesisId        String?             @map("thesis_id") @db.Uuid
+  conclusion      String?
+  concludedAt     DateTime?           @map("concluded_at") @db.Timestamptz
+  notes           String?
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+
+  thesis InvestmentThesis? @relation(fields: [thesisId], references: [id])
+
+  @@index([status])
+  @@index([fundWindCode])
+  @@index([nextReviewDate])
+  @@map("research_queue_items")
+}
+
+// ============================================================
+// 决策复盘 (Decision Post-mortems) — 论点关闭后强制复盘
+// ============================================================
+model DecisionPostmortem {
+  id                     String   @id @default(uuid()) @db.Uuid
+  thesisId               String   @map("thesis_id") @db.Uuid
+  fundWindCode           String   @map("fund_wind_code")
+  outcome                String
+  actualReturnPct        Float?   @map("actual_return_pct")
+  peerMedianReturnPct    Float?   @map("peer_median_return_pct")
+  excessReturnPct        Float?   @map("excess_return_pct")
+  reasoningVerdicts      Json     @default("[]") @map("reasoning_verdicts")
+  triggerFired           Boolean  @default(false) @map("trigger_fired")
+  triggerDetail          String?  @map("trigger_detail")
+  lessonLearned          String?  @map("lesson_learned")
+  decisionBias           String?  @map("decision_bias")
+  wouldRepeat            Boolean? @map("would_repeat")
+  reviewedAt             DateTime @default(now()) @map("reviewed_at") @db.Timestamptz
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  thesis InvestmentThesis @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+
+  @@index([thesisId])
+  @@index([fundWindCode])
+  @@index([outcome])
+  @@map("decision_postmortems")
+}
+
+// ============================================================
+// 基金组合构建 (Portfolio Construction) — 研究型组合：目标配置、候选准入、等权/自定义权重
+// ============================================================
+enum PortfolioStatus {
+  draft
+  active
+  archived
+}
+
+enum PortfolioWeightSource {
+  equal
+  custom
+}
+
+model Portfolio {
+  id        String         @id @default(uuid()) @db.Uuid
+  name      String
+  objective String?
+  status    PortfolioStatus @default(draft)
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  targets   PortfolioTarget[]
+  holdings  PortfolioHolding[]
+  snapshots PortfolioSnapshot[]
+
+  @@map("portfolios")
+}
+
+model PortfolioTarget {
+  id            String   @id @default(uuid()) @db.Uuid
+  portfolioId   String   @map("portfolio_id") @db.Uuid
+  peerGroupKey  String   @map("peer_group_key")
+  peerGroupName String?  @map("peer_group_name")
+  targetWeight  Decimal  @map("target_weight") @db.Decimal(8, 6)
+  note          String?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId])
+  @@map("portfolio_targets")
+}
+
+model PortfolioHolding {
+  id           String                @id @default(uuid()) @db.Uuid
+  portfolioId  String                @map("portfolio_id") @db.Uuid
+  windCode     String                @map("wind_code")
+  weight       Decimal?              @db.Decimal(8, 6)
+  weightSource PortfolioWeightSource? @map("weight_source")
+  note         String?
+  addedAt      DateTime              @default(now()) @map("added_at") @db.Timestamptz
+  updatedAt    DateTime              @updatedAt @map("updated_at") @db.Timestamptz
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioId, windCode])
+  @@index([portfolioId])
+  @@index([windCode])
+  @@map("portfolio_holdings")
+}
+
+model PortfolioSnapshot {
+  id                String   @id @default(uuid()) @db.Uuid
+  portfolioId       String   @map("portfolio_id") @db.Uuid
+  snapshotDate      DateTime @map("snapshot_date") @db.Date
+  holdingCount      Int      @map("holding_count")
+  totalWeight       Decimal  @map("total_weight") @db.Decimal(8, 6)
+  styleAggregate    Json     @default("{}") @map("style_aggregate")
+  overlapMatrix     Json     @default("{}") @map("overlap_matrix")
+  correlationMatrix Json     @default("{}") @map("correlation_matrix")
+  coverage          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId])
+  @@index([snapshotDate])
+  @@map("portfolio_snapshots")
+}

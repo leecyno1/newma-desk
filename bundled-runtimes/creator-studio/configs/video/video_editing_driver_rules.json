@@ -1,0 +1,300 @@
+{
+  "schema_version": "dasheng.video_editing_driver_rules.v1",
+  "created_at": "2026-06-13",
+  "reference_styles": {
+    "xiaolin_talking_head": {
+      "role": "human_trust_anchor",
+      "median_segment_sec": [2.5, 4.0],
+      "evidence_ratio": [0.45, 0.65],
+      "speaker_return_interval_sec": [8, 20],
+      "default_transition": "hard_cut",
+      "signature": "speaker returns frequently while evidence, documents, charts, and B-roll carry most visual progress"
+    },
+    "wizard_explainer": {
+      "role": "narrated_visual_documentary",
+      "median_segment_sec": [4.0, 5.0],
+      "avg_segment_sec": [5.0, 7.0],
+      "evidence_interval_sec": [20, 35],
+      "chapter_interval_sec": [45, 90],
+      "default_transition": "fade_or_push",
+      "signature": "continuous voiceover drives a cinematic evidence chain; visuals replace the speaker as attention anchor"
+    }
+  },
+  "beat_classes": {
+    "hook": {
+      "triggers": ["反常识", "冲突", "问题", "不是", "真正", "为什么", "可能"],
+      "preferred_shots": ["real_broll_composite_hook", "video_background_title_outline", "interactive_data_over_video", "glitch_title", "liquid_hero", "typewriter_quote"],
+      "duration_sec": [5, 12],
+      "transition": "impact_cut"
+    },
+    "claim": {
+      "triggers": ["判断", "核心", "我认为", "本质", "关键"],
+      "preferred_shots": ["speaker_punch_in", "bold_statement", "quote_card"],
+      "duration_sec": [4, 8],
+      "transition": "hard_cut"
+    },
+    "evidence_data": {
+      "triggers": ["数字", "%", "万亿", "亿美元", "利率", "指数", "财报", "IPO", "同比", "环比"],
+      "preferred_shots": ["data_chart", "data_rollup", "stat_card", "table_scene"],
+      "duration_sec": [6, 15],
+      "transition": "data_reveal"
+    },
+    "evidence_document": {
+      "triggers": ["公告", "文件", "新闻", "报告", "政策", "来源", "截图"],
+      "preferred_shots": ["document_zoom", "browser_capture", "source_card"],
+      "duration_sec": [5, 12],
+      "transition": "push_zoom"
+    },
+    "logic_chain": {
+      "triggers": ["导致", "传导", "链条", "因为", "所以", "首先", "其次", "最后"],
+      "preferred_shots": ["decision_tree", "flowchart", "swiss_grid"],
+      "duration_sec": [6, 12],
+      "transition": "path_highlight"
+    },
+    "objection": {
+      "triggers": ["有人说", "问题是", "是不是", "但", "然而"],
+      "preferred_shots": ["speaker_full", "social_feedback", "electric_quote"],
+      "duration_sec": [4, 9],
+      "transition": "counter_cut"
+    },
+    "chapter": {
+      "triggers": ["第一", "第二", "第三", "壹", "贰", "叁", "回到正题"],
+      "preferred_shots": ["bold_signal", "light_leak", "bold_poster"],
+      "duration_sec": [3, 6],
+      "transition": "chapter_hit"
+    },
+    "recap": {
+      "triggers": ["总结", "所以", "归根到底", "一句话"],
+      "preferred_shots": ["outline_recap", "speaker_full", "logo_outro"],
+      "duration_sec": [4, 8],
+      "transition": "resolve_fade"
+    }
+  },
+  "shot_selection_weights": {
+    "evidence_need": 0.34,
+    "attention_debt": 0.18,
+    "trust_debt": 0.16,
+    "cognitive_load": 0.14,
+    "novelty": 0.1,
+    "platform_readability": 0.08
+  },
+  "conceptual_illustration_rules": {
+    "default_skill": "dasheng-lemon-illustrations",
+    "character": "柠檬人",
+    "brand_alias": "柠檬博士",
+    "allowed_uses": [
+      "visual_metaphor",
+      "workflow",
+      "abstract_mechanism",
+      "emotion_beat",
+      "chapter_bridge",
+      "transition_accent"
+    ],
+    "source_trigger_policy": {
+      "intent_artifact": "03_IllustrationIntents_<topic>.json",
+      "preserve_source_metaphor_before_inventing_new_one": true,
+      "semantic_review_required": true,
+      "story_motion": "setup -> lemon character action -> result -> speaker/evidence return",
+      "simple_metaphor_duration_sec": [4, 7],
+      "example_story_duration_sec": [7, 12]
+    },
+    "forbidden_replacements": [
+      "real_chart",
+      "article_chart",
+      "table",
+      "official_webpage",
+      "source_document",
+      "product_ui",
+      "map",
+      "speaker"
+    ],
+    "evidence_authenticity": "schematic",
+    "full_canvas_aspect_ratio": "16:9",
+    "transparent_key": "#ff00ff",
+    "required_output_root": "~/Desktop/自媒体创作",
+    "motion_contract": "generated raster is one source layer; character, prop, path, annotation, mask, or PIP must have semantic motion; zoompan alone fails",
+    "max_consecutive_without_evidence_or_speaker_return": 2
+  },
+    "lane_a_talking_head_rules": {
+    "timeline_master": "human_audio",
+    "states": ["speaker_anchor", "claim_closeup", "evidence_fullscreen", "broll_with_pip", "document_zoom", "chart_card", "speaker_return"],
+    "composition_states": {
+      "speaker_state": ["full", "speaker_punch_in", "half_left", "half_right", "circle_pip", "rounded_rect_pip", "vertical_strip", "hidden"],
+      "material_state": ["none", "transparent_overlay", "evidence_fullscreen", "document_fullscreen", "chart_fullscreen", "broll_fullscreen", "split_screen"],
+      "pip_shape": ["none", "circle", "rounded_rect", "square", "phone_mockup", "nested_card"],
+      "forbid_mechanical_repetition": "No more than 2 consecutive scenes may share speaker_state + material_state + pip_shape."
+    },
+    "roughcut_gate": {
+      "required_before_final_render": true,
+      "asr_quality_required": true,
+      "human_or_agent_review_required": true,
+      "block_if_repeated_or_wrong_speech_remains": true,
+      "opening_manual_review_sec": 30,
+      "hook_claim_deadline_sec": 5,
+      "block_opening_patterns": ["问候铺垫", "呃或嗯开场", "重复字", "半句重启", "核心判断晚于5秒"],
+      "full_listen_after_jianying_reimport": true,
+      "blocked_output_allowed": ["roughcut_gate_report.json", "director_storyboard_review.html", "delete_candidates.json"]
+    },
+    "director_quality_gate": {
+      "required_before_final_render": true,
+      "script": "scripts/video_scene_plan_quality_gate.py",
+      "benchmark": "xiaolin_talking_head",
+      "target_cuts_per_min": [17, 25],
+      "hard_min_cuts_per_min": 14,
+      "target_median_scene_sec": [1.4, 4.0],
+      "hard_max_median_scene_sec": 4.5,
+      "max_scene_sec_without_micro_shots": 8,
+      "expected_scene_count_formula": "ceil(duration_sec / 3.2)",
+      "evidence_authenticity_levels": ["real_data", "source_screenshot", "user_claim_card", "schematic"],
+      "block_if_quality_gate_fails": true
+    },
+    "speaker_return_if_sec_since_speaker_gt": 16,
+    "force_evidence_if_beat_has_data": true,
+    "force_document_if_beat_has_source": true,
+    "pip_size_ratio": [0.18, 0.24],
+    "subtitle_max_lines": 2,
+    "subtitle_max_chars_per_line": 24,
+    "subtitle_bottom_safe_ratio": 0.1,
+    "subtitle_keyword_highlight_max_per_sentence": 1,
+    "safe_area_policy": "speaker_bottom_or_side_preserved; overlay must not cover face or subtitles",
+    "platform_variants": {
+      "xiaohongshu": {
+        "preferred_aspect_ratios": ["9:16", "3:4"],
+        "preferred_duration_sec": [150, 240],
+        "horizontal_allowed_after_mobile_readability_review": true
+      },
+      "bilibili_or_longform": {
+        "preferred_aspect_ratios": ["16:9"],
+        "longform_allowed": true
+      }
+    },
+    "evidence_mix_targets": {
+      "evidence_or_broll_ratio": [0.45, 0.65],
+      "real_source_share_within_evidence_min": 0.6,
+      "analysis_framework_must_be_labeled": true,
+      "max_repeated_three_node_flowcharts": 2
+    },
+    "shooting_intake_gate": {
+      "preferred_face_yaw_deg": [0, 25],
+      "eyes_near_upper_third": true,
+      "block_excessive_empty_background": true,
+      "strong_claims_return_to_camera_facing_speaker": true
+    },
+    "forbidden_patterns": [
+      "static_image_zoompan_as_animation",
+      "fixed_upper_left_html_plus_bottom_right_speaker_for_long_sections",
+      "decorative_fake_chart",
+      "same_layout_repeated_more_than_two_scenes",
+      "final_render_without_approved_roughcut_gate",
+      "global_yellow_sweep_or_scanline_transition",
+      "small_upper_left_evidence_card_with_empty_center"
+      ,
+      "published_opening_contains_obvious_false_start_or_repeated_syllable",
+      "core_claim_appears_after_first_5_seconds",
+      "mechanical_speaker_to_cream_flowchart_ping_pong",
+      "source_footnote_unreadable_on_mobile"
+    ],
+    "required_scene_fields": [
+      "roughcut_status",
+      "speaker_state",
+      "material_state",
+      "pip_shape",
+      "transition_in",
+      "transition_out",
+      "html_animation_behavior",
+      "collision_policy",
+      "evidence_refs",
+      "qc_risk"
+    ]
+  },
+  "lane_b_explainer_rules": {
+    "timeline_master": "voiceover_audio",
+    "states": ["hook_card", "question_setup", "chapter_card", "evidence_scene", "logic_animation", "cinematic_bridge", "recap_card", "outro"],
+    "evidence_required_every_sec": 35,
+    "chapter_required_every_sec": 90,
+    "avoid_static_ppt_longer_than_sec": 8,
+    "per_scene_motion_required": ["entrance", "focus_change", "exit_or_continuous_motion"],
+    "data_policy": "preserve article chart data and provenance; when faithfully reconstructed as dynamic animation, do not repeat the original screenshot; no schematic chart unless marked schematic",
+    "narration_policy": "authorial first-person/direct voice; supplied article is the creator draft, not a third-party source to be repeatedly referenced",
+    "forbidden_rewrite_framing": ["原文提到", "原文章", "文章认为", "文章指出", "作者表示", "根据原文章"],
+    "source_asset_audit": {
+      "download_original_asset_when_url_exists": true,
+      "record_intrinsic_dimensions": true,
+      "record_source_url_and_download_completeness": true,
+      "page_screenshot_as_chart_source_forbidden_when_original_exists": true,
+      "full_frame_first": true,
+      "full_frame_fit": "contain",
+      "crop_before_audit_forbidden": true,
+      "detail_crop_secondary_only": true,
+      "object_fit_cover_for_source_charts_forbidden": true
+    },
+    "enumeration_cardinality_policy": {
+      "preserve_exact_count_across_script_storyboard_renderer_recap": true,
+      "template_capacity_may_not_drop_items": true,
+      "mismatch_is_blocking_content_loss": true
+    },
+    "real_broll_policy": {
+      "default_route": "media-downloader",
+      "downloaded_local_asset_required_before_executable_route": true,
+      "required_provenance": ["source_title", "publisher_or_channel", "url", "source_time_range", "download_date", "local_path", "scene_usage", "rights_review_status"],
+      "default_evidence_role": "context",
+      "context_may_not_prove_financial_or_regulatory_claim": true,
+      "multi_tool_composition_allowed": ["real_video", "html_video", "remotion", "dynamic_chart", "caption", "annotation"],
+      "opening_composite_default": ["real_video_base", "animated_title", "outline_or_question_map", "interactive_data_or_rule_layer", "caption"],
+      "opening_window_sec": [15, 35],
+      "candidate_download_target_for_4_6_min": [10, 18],
+      "usable_local_clip_target_for_4_6_min": [6, 12],
+      "visual_category_target_min": 4,
+      "publisher_or_source_target_min": 2,
+      "real_video_runtime_share_target": [0.2, 0.35],
+      "real_video_windows_target": [6, 12],
+      "continuity_reuse_allowed": true,
+      "continuity_reuse_requirements": ["different_source_time_range", "different_crop_or_mask", "different_overlay_grammar", "no_exact_shot_treatment_replay"],
+      "document_exception_when_targets_unavailable": true
+    }
+  },
+  "transition_rules": {
+    "hard_cut": "default for talking-head and fast evidence switching",
+    "impact_cut": "use on hook, objection, contradiction, number shock",
+    "push_zoom": "use on document, webpage, screenshot, table highlight",
+    "data_reveal": "use on charts: axis first, mark second, annotation third; do not use global scan lines, yellow sweep bars, or moving light strips unless explicitly requested",
+    "path_highlight": "use on causal chains and process diagrams",
+    "fade_or_push": "default for no-human cinematic explainer",
+    "chapter_hit": "short sound hit plus title card; no long ornamental transitions"
+  },
+  "audio_rules": {
+    "voice_lufs_target": -16,
+    "bgm_duck_under_voice_db": [-18, -24],
+    "transition_sfx": "only for chapter, number shock, document reveal, final CTA",
+    "silence_policy": "no mid-video dead air; replace pauses with J-cut/L-cut, broll, or music tail"
+  },
+  "qc_fail_conditions": [
+    "developer labels visible in final video",
+    "fake chart or unsourced number used as evidence",
+    "static image zoom/pan is used as the only motion in any evidence scene",
+    "mechanical fixed layout repeats as upper-left material plus bottom-right speaker without semantic transition",
+    "yellow sweep line, global scanline, or moving scan-light is used as repeated transition language",
+    "evidence or chart scene is confined to a small upper-left card while the center of frame is mostly empty",
+    "final talking-head render starts before roughcut gate is approved",
+    "subtitle overlaps with face, chart, or bottom UI",
+    "speaker absent for more than 24 seconds in talking-head lane without strong evidence sequence",
+    "no evidence scene for more than 40 seconds in explainer lane",
+    "scene longer than 12 seconds with no motion or focus change",
+    "more than two visual systems mixed in one video without deliberate chapter reset"
+    ,
+    "talking-head scene plan has fewer than 14 effective visual changes per minute",
+    "talking-head median scene duration is above 4.5 seconds",
+    "scene longer than 8 seconds has no micro_shots or intra-scene shot plan",
+    "evidence scene lacks evidence_authenticity label",
+    "conceptual cartoon replaces a real chart, table, official page, document, product UI, map, or speaker",
+    "conceptual cartoon uses the upstream recurring character or a generic cute mascot instead of 柠檬人",
+    "lemon illustration is rendered as one flattened image with zoompan only"
+    ,
+    "source chart is cropped before intrinsic-dimension audit or shown only with object-fit cover",
+    "enumerated source content changes item count between article, narration, storyboard, renderer, and recap",
+    "real topical broll is planned without a downloaded local file and provenance manifest",
+    "real-world explainer uses a static title-only opening while suitable downloaded footage exists and no editorial exception is documented",
+    "real-world explainer uses only isolated token broll inserts without a footage-pool plan, continuity distribution, or availability/rights exception",
+    "contextual broll is mislabeled as direct evidence for a financial, regulatory, valuation, or return claim"
+  ]
+}

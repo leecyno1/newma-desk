@@ -80,6 +80,7 @@ COMMANDS = {
     "creator.node.request-changes",
     "creator.material.attach",
     "creator.artifact.register",
+    "creator.node.reconcile",
     "creator.handoff.create",
     "creator.workflow.continue",
     "creator.marketplace.apply-preset",
@@ -734,6 +735,7 @@ class CreatorStudioService:
                     outputs.append(
                         {
                             "type": artifact_type,
+                            "slot": item.get("slot"),
                             "path": path,
                             "label": item.get("label") or artifact_type,
                             "status": item.get("status") or "created",
@@ -1054,6 +1056,7 @@ class CreatorStudioService:
                 node_id=node_id,
                 artifact={
                     "type": artifact_type,
+                    "slot": command.input.get("slot"),
                     "path": path,
                     "label": command.input.get("label") or artifact_type,
                     "status": command.input.get("status") or "created",
@@ -1065,6 +1068,96 @@ class CreatorStudioService:
                 document, registry, stage_id, node_id, state, node_definition
             )
             payload = artifact
+        elif command.action_id == "creator.node.reconcile":
+            raw_outputs = command.input.get("outputs")
+            if not isinstance(raw_outputs, list) or not raw_outputs:
+                raise CreatorCommandError("reconcile outputs are required")
+            declared_outputs = {
+                str(item) for item in node_definition.get("outputs", []) if str(item)
+            }
+            normalized_outputs: list[dict[str, Any]] = []
+            for item in raw_outputs:
+                if not isinstance(item, dict):
+                    raise CreatorCommandError("reconcile output must be an object")
+                artifact_type = str(item.get("type") or "").strip()
+                path = str(item.get("path") or "").strip()
+                if artifact_type not in declared_outputs:
+                    raise CreatorCommandError(
+                        f"undeclared artifact type for {stage_id}/{node_id}: {artifact_type}"
+                    )
+                if not path or not Path(path).expanduser().exists():
+                    raise CreatorCommandError(f"reconcile artifact path does not exist: {path}")
+                normalized_outputs.append(
+                    {
+                        "type": artifact_type,
+                        "slot": item.get("slot"),
+                        "path": str(Path(path).expanduser().resolve()),
+                        "label": item.get("label") or artifact_type,
+                        "status": item.get("status") or "created",
+                    }
+                )
+            available_types = {
+                str(item.get("type"))
+                for item in state.get("artifacts", [])
+                if item.get("status") in USABLE_ARTIFACT_STATUSES
+            } | {item["type"] for item in normalized_outputs}
+            missing_outputs = sorted(declared_outputs - available_types)
+            if missing_outputs:
+                raise CreatorCommandError(
+                    "reconcile is missing declared outputs: " + ", ".join(missing_outputs)
+                )
+            artifacts: list[dict[str, Any]] = []
+            for item in normalized_outputs:
+                artifact, _ = self.lineage.register_artifact(
+                    document,
+                    stage_id=stage_id,
+                    node_id=node_id,
+                    artifact=item,
+                    created_at=now_iso(),
+                )
+                artifacts.append(artifact)
+            state["status"] = "succeeded"
+            state["progress"] = 100
+            self._append_log(state, f"外部产物已回写：{len(artifacts)} 项，节点完成。")
+            document["status"] = "pending"
+            phase = PUBLISH_EXECUTOR_PHASES.get(
+                str(node_definition.get("executor") or "")
+            )
+            if phase:
+                publish_state = document.setdefault(
+                    "publishState", {"schemaVersion": "newma.creator-publish-state.v1"}
+                )
+                phase_state = publish_state.setdefault(phase, {})
+                phase_state.update(
+                    {
+                        "nodeStatus": "succeeded",
+                        "reconciledAt": now_iso(),
+                        "artifactCount": len(artifacts),
+                    }
+                )
+                publish_state["updatedAt"] = now_iso()
+            next_target = self.registry.next_node(registry, stage_id, node_id)
+            if next_target is not None:
+                next_stage_id, next_node_id = next_target
+                try:
+                    self._create_handoff(
+                        document,
+                        registry,
+                        stage_id,
+                        node_id,
+                        {
+                            "targetStageId": next_stage_id,
+                            "targetNodeId": next_node_id,
+                            "artifactIds": [item["id"] for item in artifacts],
+                        },
+                    )
+                except Exception as exc:  # noqa: BLE001 - 回写完成不因非必需转接失败而丢失
+                    self._append_log(state, f"外部产物转接未完成：{exc}")
+            payload = {
+                "reconciled": True,
+                "artifactCount": len(artifacts),
+                "artifactIds": [item["id"] for item in artifacts],
+            }
         elif command.action_id == "creator.handoff.create":
             payload = self._create_handoff(
                 document,
@@ -1347,6 +1440,7 @@ class CreatorStudioService:
                     node_id=node_id,
                     artifact={
                         "type": artifact_type,
+                        "slot": item.get("slot"),
                         "path": artifact_path,
                         "label": item.get("label") or artifact_type,
                         "status": artifact_status,
@@ -2247,6 +2341,8 @@ class CreatorStudioService:
                     "creator.artifact.register",
                 ]
             )
+            if status not in FINAL_NODE_STATUSES:
+                actions.append("creator.node.reconcile")
         if status in {"queued", "running"} and (
             state.get("executionRequest") or {}
         ).get("jobId"):

@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-08-02",
+  "policy": {
+    "purpose": "Persistent browser profiles for platform publishing login sessions.",
+    "do_not_use": [
+      "Chrome DevTools MCP temporary profiles",
+      "one-off automation profiles",
+      "project-local skills or output directories for cookies"
+    ],
+    "cookie_handling": "Do not read, export, commit, or copy cookies. Reuse the browser profile directory only.",
+    "final_publish_requires_confirmation": true,
+    "confirmation_scope": "task_or_campaign_authorization",
+    "authorized_flow_popups": "auto_handle_without_reconfirming"
+  },
+  "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "profile_parent": "~/Library/Application Support/NewmaPublishProfiles",
+  "window_policy": {
+    "mode": "secondary_display_preferred",
+    "width": 1180,
+    "height": 780,
+    "margin": 40,
+    "anchor": "top_right",
+    "launch_in_background": true,
+    "never_maximize": true,
+    "fallback": "primary_display_top_right_small_window"
+  },
+  "profiles": {
+    "wechat_article": {
+      "platform": "wechat",
+      "profile_dir": "~/Library/Application Support/NewmaPublishProfiles/wechat",
+      "debug_port": 9331,
+      "entry_url": "https://mp.weixin.qq.com/",
+      "notes": "For WeChat browser fallback only. API draft remains preferred when credentials are valid."
+    },
+    "xiaohongshu_video": {
+      "platform": "xiaohongshu",
+      "profile_dir": "~/Library/Application Support/NewmaPublishProfiles/xiaohongshu",
+      "debug_port": 9332,
+      "entry_url": "https://creator.xiaohongshu.com/publish/publish?source=official",
+      "notes": "Login once here so creator.xiaohongshu.com cookies can be reused in future publish runs."
+    },
+    "xiaohongshu_video_2": {
+      "platform": "xiaohongshu",
+      "profile_dir": "~/Library/Application Support/NewmaPublishProfiles/xiaohongshu-2",
+      "debug_port": 9334,
+      "entry_url": "https://creator.xiaohongshu.com/publish/publish?source=official",
+      "notes": "Second Xiaohongshu account slot."
+    },
+    "douyin_video": {
+      "platform": "douyin",
+      "profile_dir": "~/Library/Application Support/NewmaPublishProfiles/douyin",
+      "debug_port": 9333,
+      "entry_url": "https://creator.douyin.com/creator-micro/content/upload",
+      "notes": "Login once here so creator.douyin.com cookies can be reused in future publish runs."
+    },
+    "douyin_video_2": {
+      "platform": "douyin",
+      "profile_dir": "~/Library/Application Support/NewmaPublishProfiles/douyin-2",
+      "debug_port": 9335,
+      "entry_url": "https://creator.douyin.com/creator-micro/content/upload",
+      "notes": "Second Douyin account slot."
+    },
+    "wechat_channels_video": {
+      "platform": "wechat_channels",
+      "profile_dir": "~/Library/Application Support/NewmaPublishProfiles/wechat-channels",
+      "debug_port": 9336,
+      "entry_url": "https://channels.weixin.qq.com/platform/post/create",
+      "notes": "Persistent browser fallback for WeChat Channels video publishing. social-auto-upload remains the preferred executable route."
+    },
+    "wechat_channels_video_2": {
+      "platform": "wechat_channels",
+      "profile_dir": "~/Library/Application Support/NewmaPublishProfiles/wechat-channels-2",
+      "debug_port": 9337,
+      "entry_url": "https://channels.weixin.qq.com/platform/post/create",
+      "notes": "Second WeChat Channels account slot."
+    },
+    "bilibili_video": {
+      "platform": "bilibili",
+      "profile_dir": "~/Library/Application Support/NewmaPublishProfiles/bilibili",
+      "debug_port": 9338,
+      "entry_url": "https://member.bilibili.com/platform/upload/video/frame",
+      "notes": "Persistent browser fallback for the first Bilibili account slot."
+    },
+    "bilibili_video_2": {
+      "platform": "bilibili",
+      "profile_dir": "~/Library/Application Support/NewmaPublishProfiles/bilibili-2",
+      "debug_port": 9339,
+      "entry_url": "https://member.bilibili.com/platform/upload/video/frame",
+      "notes": "Persistent browser fallback for the second Bilibili account slot."
+    }
+  }
+}

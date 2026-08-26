@@ -1,0 +1,212 @@
+{% extends "layout/mod.html" %}
+{% block main_content %}
+<link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/research-workbench.css') }}">
+<style>:root { --terminal-accent: #0f766e; }</style>
+
+<main class="desk-workbench market-workbench">
+    <section class="desk-panel desk-hero">
+        <div>
+            <div class="desk-kicker">MARKET OVERVIEW &amp; REVIEW</div>
+            <h1 class="desk-title">市场复盘</h1>
+            <p class="desk-copy">将 A 股市场宽度、短线情绪、行业强弱、市场异动与核心榜单归并成一份当日复盘。全部结论来自当前 Desk 快照，缺失字段会明确标注。</p>
+        </div>
+        <div class="desk-controls">
+            <div class="desk-control"><label for="market-limit">扫描范围</label><select id="market-limit"><option value="50">50 只</option><option value="100" selected>100 只</option><option value="200">200 只</option></select></div>
+            <button id="market-run" class="desk-button" type="button">刷新市场</button>
+            <div id="market-meta" class="desk-meta">等待 Desk 行情</div>
+        </div>
+    </section>
+    <div id="market-alert" class="desk-alert" role="alert"></div>
+
+    <section class="desk-stat-grid market-summary-grid">
+        <article class="desk-panel desk-stat"><span>市场宽度</span><strong id="market-breadth">--</strong><small id="market-ratio">上涨占比 --</small></article>
+        <article class="desk-panel desk-stat market-count-stat"><span>上涨 / 下跌 / 平盘</span><strong><b id="market-up" class="desk-positive">--</b><i>/</i><b id="market-down" class="desk-negative">--</b><i>/</i><b id="market-flat">--</b></strong><small>全市场家数</small></article>
+        <article class="desk-panel desk-stat"><span>领先行业</span><strong id="market-sector">--</strong><small>Desk 行业截面</small></article>
+        <article class="desk-panel desk-stat"><span>成交核心</span><strong id="market-active">--</strong><small id="market-active-code">--</small></article>
+    </section>
+
+    <section class="desk-panel market-review-panel">
+        <header class="desk-section-head"><h2>当日复盘</h2><span id="market-review-asof">等待市场快照</span></header>
+        <div class="market-review-grid market-review-conclusions">
+            <div><span>短线结论</span><strong id="market-review-emotion">--</strong><small id="market-review-emotion-note">封板与炸板口径</small></div>
+            <div><span>风险结论</span><strong id="market-review-risk">--</strong><small id="market-review-risk-note">异动与数据缺口</small></div>
+        </div>
+        <details class="market-review-brief">
+            <summary>展开事实摘要</summary>
+            <ul id="market-review-points"><li>刷新后生成当日客观复盘。</li></ul>
+        </details>
+    </section>
+
+    <section class="desk-panel" style="margin-top:10px">
+        <header class="desk-section-head"><h2>短线市场情绪</h2><span id="market-emotion-note">等待 Desk 涨停池</span></header>
+        <div class="desk-stat-grid">
+            <article class="desk-stat"><span>涨停 / 跌停</span><strong id="emotion-limits">--</strong><small>客观涨跌停家数</small></article>
+            <article class="desk-stat"><span>炸板率</span><strong id="emotion-break-rate">--</strong><small id="emotion-break-count">炸板 -- 家</small></article>
+            <article class="desk-stat"><span>封板率</span><strong id="emotion-seal-rate">--</strong><small>封住 / 尝试涨停</small></article>
+            <article class="desk-stat"><span>晋级率</span><strong id="emotion-promotion-rate">--</strong><small>二板及以上 / 昨涨停</small></article>
+            <article class="desk-stat"><span>最高连板</span><strong id="emotion-max-boards">--</strong><small id="emotion-consecutive">连板 -- 只</small></article>
+            <article class="desk-stat"><span>连板核心</span><strong id="emotion-leader">--</strong><small id="emotion-leader-code">--</small></article>
+        </div>
+        <div id="market-emotion-ladder" class="desk-data-gaps"></div>
+    </section>
+
+    <section class="desk-grid">
+        <article class="desk-panel">
+            <header class="desk-section-head"><h2>行业涨跌排名</h2><span id="market-sector-note">等待 Desk 行业截面</span></header>
+            <div id="market-sector-chart" class="desk-chart"></div>
+        </article>
+        <aside class="desk-panel">
+            <header class="desk-section-head"><h2>个股详情</h2><span>从榜单中选择一只股票</span></header>
+            <div class="desk-tabs" id="market-tabs">
+                <button class="desk-tab is-active" type="button" data-board="gainers">涨幅</button>
+                <button class="desk-tab" type="button" data-board="losers">跌幅</button>
+                <button class="desk-tab" type="button" data-board="amount">成交额</button>
+                <button class="desk-tab" type="button" data-board="turnover">换手</button>
+                <button class="desk-tab" type="button" data-board="volume_ratio">量比</button>
+            </div>
+            <div id="market-detail" class="desk-detail"><div class="desk-empty">刷新后选择一只股票查看盘口拆解</div></div>
+        </aside>
+    </section>
+
+    <section class="desk-panel" style="margin-top:10px">
+        <header class="desk-section-head"><h2>市场异动</h2><span>最新截面 · 量价与行业资金证据</span></header>
+        <div id="market-anomalies" class="desk-anomaly-grid"></div>
+        <div id="market-data-gaps" class="desk-data-gaps"></div>
+    </section>
+
+    <section class="desk-panel" style="margin-top:10px">
+            <header class="desk-section-head"><h2 id="market-board-title">涨幅榜</h2><span id="market-board-scope">点击标的发送 security.selected 至 Desk</span></header>
+        <div class="desk-table-wrap"><table class="desk-table"><thead><tr><th>#</th><th>标的</th><th>行业</th><th>涨跌幅</th><th>成交额</th><th>换手率</th><th>量比</th><th>PE / PB</th></tr></thead><tbody id="market-body"></tbody></table></div>
+    </section>
+    <p class="desk-footnote">每日 ETF 数据统一在“行业与 ETF 轮动”查看；公司公告、龙虎榜、资金流和大宗交易统一在“公司事件”查看。</p>
+</main>
+
+<script src="{{ static_url('js/echarts.min-6.1.0.js') }}"></script>
+<script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script>
+(function () {
+    if (window.location.protocol === 'file:') { window.location.replace('http://127.0.0.1:9988/mods/market-workbench/'); return; }
+    const deskBridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+    const actionId = 'analysis.market-workbench';
+    const state = {data: null, board: 'gainers', selected: null, sectorChart: null};
+    const boardLabels = {gainers: '涨幅榜', losers: '跌幅榜', amount: '成交额榜', turnover: '换手率榜', volume_ratio: '量比榜'};
+    const runButton = document.getElementById('market-run');
+    const alertBox = document.getElementById('market-alert');
+    function setText(id, value) { document.getElementById(id).textContent = value == null || value === '' ? '--' : String(value); }
+    function money(value) { const n = Number(value || 0); if (!n) return '--'; return n >= 1e8 ? `${(n / 1e8).toFixed(1)}亿` : n >= 1e4 ? `${(n / 1e4).toFixed(1)}万` : n.toFixed(0); }
+    function pct(value) { const n = Number(value || 0); return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`; }
+    function unwrap(payload) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-market-workbench') throw new Error('市场复盘返回格式不受支持'); return data; }
+    async function request(input) { if (deskBridge && deskBridge.whenReady) await deskBridge.whenReady(); if (deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId)) return deskBridge.invokeAction(actionId, input); const response = await fetch('/api/v1/market-workbench/snapshots?' + new URLSearchParams(input)); const body = await response.json(); if (!response.ok) throw new Error(body && body.error && body.error.message || '市场数据加载失败'); return body; }
+    function cssToken(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+    function reviewSnapshot(data) {
+        const summary = data && data.summary || {};
+        const emotion = data && data.market_emotion || {};
+        const anomalies = data && data.market_anomalies || {};
+        const breadthAvailable = data && data.market_breadth && data.market_breadth.state === 'available';
+        const upRatio = Number(summary.up_ratio || 0);
+        const structure = !breadthAvailable ? '数据待补' : upRatio >= 65 ? '普涨' : upRatio >= 55 ? '偏强' : upRatio <= 35 ? '普跌' : upRatio <= 45 ? '偏弱' : '分化';
+        const breakRate = Number(emotion.break_rate || 0);
+        const sealRate = Number(emotion.seal_rate || 0);
+        const promotionRate = Number(emotion.promotion_rate || 0);
+        const emotionLabel = emotion.state !== 'available' ? '数据待补' : breakRate >= .35 ? '分歧加剧' : sealRate >= .75 && promotionRate >= .25 ? '活跃' : sealRate >= .6 ? '中性' : '偏弱';
+        const flows = anomalies.sector_fund_flows || [];
+        const leader = summary.leading_sector || (flows[0] && flows[0].name) || '暂无明确方向';
+        const anomalyCount = ['volume_spikes', 'turnover_heat', 'price_volume_surges', 'limit_watch'].reduce((total, key) => total + (anomalies[key] || []).length, 0);
+        const gapCount = (anomalies.unavailable_topics || []).length + (data && data.limitations || []).length;
+        const risk = gapCount ? '口径待补' : breakRate >= .35 ? '炸板偏高' : anomalyCount >= 12 ? '异动密集' : '常态';
+        const points = [];
+        if (breadthAvailable) points.push(`全市场上涨 ${Number(summary.up || 0)} 家、下跌 ${Number(summary.down || 0)} 家，上涨占比 ${upRatio.toFixed(1)}%。`);
+        else points.push('Desk 暂未返回完整涨跌家数，本次不推测市场宽度。');
+        if (emotion.state === 'available') points.push(`涨停 ${Number(emotion.limit_up_count || 0)} 家、跌停 ${Number(emotion.limit_down_count || 0)} 家，封板率 ${(sealRate * 100).toFixed(1)}%，炸板率 ${(breakRate * 100).toFixed(1)}%。`);
+        else points.push('短线情绪接口当前不可用，本次不从涨幅榜反推涨停和连板。');
+        points.push(`${leader === '暂无明确方向' ? '当前没有可验证的领先行业。' : `领先行业为 ${leader}。`}${summary.most_active_name ? ` 成交核心为 ${summary.most_active_name}（${summary.most_active_symbol || '--'}）。` : ''}`);
+        points.push(`当前识别 ${anomalyCount} 条量价异动，${gapCount ? `另有 ${gapCount} 项数据口径待补。` : '主要数据口径完整。'}`);
+        return {structure, upRatio, emotionLabel, breakRate, sealRate, leader, anomalyCount, gapCount, risk, points};
+    }
+    function buildContext() { const data = state.data || {}; const selected = state.selected || {}; return {view: {id: 'market-workbench', title: '市场复盘'}, visibleBlocks: [{id: 'daily-review', type: 'research-summary', title: '当日复盘'}, {id: 'market-breadth', type: 'market-overview', title: '市场宽度'}, {id: 'market-emotion', type: 'market-overview', title: '短线市场情绪'}, {id: 'sector-temperature', type: 'chart', title: '行业涨跌排名'}, {id: 'market-anomalies', type: 'evidence-list', title: '市场异动'}, {id: 'market-tape', type: 'table', title: boardLabels[state.board]}], selectedSecurity: selected.symbol ? {market: 'CN', symbol: selected.symbol, name: selected.name} : null, data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, dailyReview: reviewSnapshot(data), summary: data.summary, marketEmotion: data.market_emotion || {}, sectorBasis: data.sector_basis || {}, marketAnomalies: data.market_anomalies || {}, selectedSecurity: selected, activeBoard: state.board, snapshot: data.snapshot, limitations: data.limitations || []} : {}, actions: [{id: actionId, label: '刷新市场复盘', available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId))}]}; }
+    function publish() { if (!deskBridge) return; deskBridge.setContextProvider && deskBridge.setContextProvider(buildContext); deskBridge.publishContext && deskBridge.publishContext(); }
+    function emit(row) { if (deskBridge && deskBridge.emit) deskBridge.emit('security.selected', {market: 'CN', symbol: row.symbol, name: row.name, source: 'instock-market-workbench', snapshotId: state.data && state.data.snapshot && state.data.snapshot.snapshot_id}); }
+    function renderSectors(rows, basis) {
+        const root = document.getElementById('market-sector-chart');
+        const items = (rows || []).slice(0, 14).reverse();
+        const source = basis && basis.source || 'unavailable';
+        const note = source === 'desk_overview'
+            ? 'Desk 全市场行业截面'
+            : source === 'ranked_scan_sample'
+                ? `成交额样本中位涨幅 · ${Number(basis.sample_size || 0)}只`
+                : 'Desk 暂无行业截面';
+        setText('market-sector-note', note);
+
+        if (!items.length) {
+            if (state.sectorChart) {
+                state.sectorChart.dispose();
+                state.sectorChart = null;
+            }
+            root.replaceChildren();
+            const empty = document.createElement('div');
+            empty.className = 'desk-chart-empty';
+            empty.textContent = 'Desk 暂未返回行业数据，当前不展示推测排名';
+            root.appendChild(empty);
+            return;
+        }
+
+        if (state.sectorChart && !state.sectorChart.isDisposed()) state.sectorChart.dispose();
+        root.replaceChildren();
+        state.sectorChart = echarts.init(root);
+        state.sectorChart.setOption({
+            animationDuration: 360,
+            grid: {left: 82, right: 52, top: 18, bottom: 24},
+            xAxis: {
+                type: 'value',
+                splitLine: {lineStyle: {color: cssToken('--instock-chart-grid')}},
+            },
+            yAxis: {
+                type: 'category',
+                data: items.map(item => item.name),
+                axisLabel: {color: cssToken('--instock-text-muted'), fontSize: 12},
+            },
+            series: [{
+                type: 'bar',
+                barWidth: 9,
+                data: items.map(item => ({
+                    value: item.change_pct,
+                    itemStyle: {
+                        color: item.change_pct >= 0
+                            ? cssToken('--instock-positive')
+                            : cssToken('--instock-negative'),
+                    },
+                })),
+                label: {
+                    show: true,
+                    position: 'right',
+                    formatter: value => `${Number(value.value).toFixed(2)}%`,
+                    color: cssToken('--instock-text-muted'),
+                    fontSize: 12,
+                },
+            }],
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: {type: 'shadow'},
+                formatter: params => {
+                    const item = items[params[0].dataIndex] || {};
+                    return `${item.name}<br>中位涨跌 ${Number(item.change_pct || 0).toFixed(2)}%<br>样本 ${Number(item.firms || 0)} 只`;
+                },
+            },
+        }, true);
+    }
+    function researchUrl(path, row, extra) { const query = new URLSearchParams({symbol: row.symbol, industry: row.industry || '', sourceModule: 'instock-market-workbench', ...(state.data && state.data.snapshot ? {sourceSnapshotId: state.data.snapshot.snapshot_id} : {}), ...(state.data && state.data.as_of ? {asOf: state.data.as_of} : {}), ...(extra || {})}); return `${path}?${query.toString()}`; }
+    function researchLink(label, href) { const link = document.createElement('a'); link.className = 'desk-research-link'; link.href = href; link.target = '_blank'; link.rel = 'noopener'; link.textContent = label; return link; }
+    function renderDetail(row) { state.selected = row; const root = document.getElementById('market-detail'); root.replaceChildren(); const head = document.createElement('div'); head.className = 'desk-detail-title'; head.innerHTML = `<div><h3></h3><p></p></div><div class="desk-score"></div>`; head.querySelector('h3').textContent = row.name; head.querySelector('p').textContent = `${row.symbol} · ${row.industry || '未分类'}`; head.querySelector('.desk-score').textContent = pct(row.change_pct); root.appendChild(head); const grid = document.createElement('div'); grid.className = 'desk-detail-grid'; [['最新价', Number(row.price || 0) ? Number(row.price).toFixed(2) : '--'], ['成交额', money(row.amount)], ['换手率', Number(row.turnover_pct || 0) ? pct(row.turnover_pct) : '--'], ['量比', Number(row.volume_ratio || 0) ? Number(row.volume_ratio).toFixed(2) : '--'], ['总市值', money(row.market_cap)], ['PE / PB', Number(row.pe || 0) || Number(row.pb || 0) ? `${Number(row.pe || 0).toFixed(1)} / ${Number(row.pb || 0).toFixed(1)}` : '--']].forEach(([label, value]) => { const card = document.createElement('div'); card.className = 'desk-detail-card'; const span = document.createElement('span'); span.textContent = label; const strong = document.createElement('strong'); strong.textContent = value; card.append(span, strong); grid.appendChild(card); }); root.appendChild(grid); const actions = document.createElement('div'); actions.className = 'desk-research-actions'; actions.append(researchLink('进入股票研究', researchUrl('/mods/stock-research', row, {period: 'daily', bars: '240'})), researchLink('查看 CZSC', researchUrl('/mods/czsc', row, {code: row.symbol, period: 'daily', bars: '480'}))); root.appendChild(actions); const note = document.createElement('p'); note.className = 'desk-footnote'; note.textContent = '市场快照只作为交接来源；股票研究会重新读取 Desk 证据。'; root.appendChild(note); emit(row); publish(); }
+    function anomalyRow(row, value) { const item = document.createElement('div'); item.className = 'desk-anomaly-row'; const copy = document.createElement('div'); const name = document.createElement('b'); name.textContent = row.name || row.symbol; const meta = document.createElement('small'); meta.textContent = `${row.symbol || ''} · ${row.industry || '未分类'} · ${row.signal || ''}`; copy.append(name, meta); const score = document.createElement('strong'); score.textContent = value; item.append(copy, score); if (row.symbol) item.addEventListener('click', () => { renderDetail(row); renderBoard(); }); return item; }
+    function renderEmotion(data) { const available = data && data.state === 'available'; setText('market-emotion-note', available ? `${data.date || '--'} · Desk 涨停池客观统计` : 'Desk 短线情绪当前不可用'); setText('emotion-limits', available ? `${Number(data.limit_up_count || 0)} / ${Number(data.limit_down_count || 0)}` : null); setText('emotion-break-rate', available ? `${(Number(data.break_rate || 0) * 100).toFixed(1)}%` : null); setText('emotion-break-count', available ? `炸板 ${Number(data.break_count || 0)} 家` : '不使用零值代替缺失'); setText('emotion-seal-rate', available ? `${(Number(data.seal_rate || 0) * 100).toFixed(1)}%` : null); setText('emotion-promotion-rate', available ? `${(Number(data.promotion_rate || 0) * 100).toFixed(1)}%` : null); setText('emotion-max-boards', available ? `${Number(data.max_boards || 0)} 板` : null); setText('emotion-consecutive', available ? `连板 ${Number(data.consecutive_count || 0)} 只` : '连板数据不可用'); const leader = available && (data.leaders || [])[0]; setText('emotion-leader', leader && leader.name); setText('emotion-leader-code', leader ? `${leader.code || '--'} · ${Number(leader.boards || 0)}板` : '--'); const ladder = document.getElementById('market-emotion-ladder'); ladder.replaceChildren(); if (!available) { const gap = document.createElement('div'); gap.className = 'desk-data-gap'; gap.textContent = '短线情绪只读取 market.emotion；接口失败时不从涨幅榜推测涨停和连板。'; ladder.appendChild(gap); return; } (data.ladder || []).forEach(item => { const tag = document.createElement('div'); tag.className = 'desk-data-gap'; tag.textContent = `${Number(item.boards || 0)}板：${Number(item.count || 0)}只${item.plus ? '（最高梯队）' : ''}`; ladder.appendChild(tag); }); }
+    function renderReview(data) { const review = reviewSnapshot(data); setText('market-review-asof', `${data.as_of || '--'} · 客观快照`); setText('market-review-emotion', review.emotionLabel); setText('market-review-emotion-note', `封板 ${(review.sealRate * 100).toFixed(1)}% · 炸板 ${(review.breakRate * 100).toFixed(1)}%`); setText('market-review-risk', review.risk); setText('market-review-risk-note', `${review.anomalyCount} 条异动 · ${review.gapCount} 项口径待补`); const list = document.getElementById('market-review-points'); list.replaceChildren(); review.points.forEach(text => { const item = document.createElement('li'); item.textContent = text; list.appendChild(item); }); }
+    function renderAnomalies(data) { const root = document.getElementById('market-anomalies'); const gaps = document.getElementById('market-data-gaps'); root.replaceChildren(); gaps.replaceChildren(); const limitDistance = row => { const distance = Math.abs(Number(row.distance_pct || 0)).toFixed(2); if (row.threshold_state === 'above') return `超过理论阈值 ${distance}%`; if (row.threshold_state === 'at') return '达到理论阈值'; return `距阈值 ${distance}%`; }; const configs = [['量比放大', data.volume_spikes || [], row => `${Number(row.volume_ratio || 0).toFixed(2)}×`], ['高换手', data.turnover_heat || [], row => pct(row.turnover_pct)], ['量价上攻', data.price_volume_surges || [], row => `${pct(row.change_pct)} / ${Number(row.volume_ratio || 0).toFixed(2)}×`], ['接近涨停', data.limit_watch || [], limitDistance]]; configs.forEach(([title, rows, formatter]) => { const card = document.createElement('article'); card.className = 'desk-anomaly-card'; const head = document.createElement('h3'); const label = document.createElement('b'); label.textContent = title; const count = document.createElement('span'); count.textContent = `${rows.length} 只`; head.append(label, count); const list = document.createElement('div'); list.className = 'desk-anomaly-list'; if (!rows.length) { const emptyNode = document.createElement('div'); emptyNode.className = 'desk-anomaly-empty'; emptyNode.textContent = '当前扫描样本未发现符合条件的标的'; list.appendChild(emptyNode); } else rows.slice(0, 5).forEach(row => list.appendChild(anomalyRow(row, formatter(row)))); card.append(head, list); root.appendChild(card); }); const flows = (data.sector_fund_flows || []).slice(0, 6); if (flows.length) { const card = document.createElement('article'); card.className = 'desk-anomaly-card'; const head = document.createElement('h3'); head.innerHTML = '<b>行业资金方向</b><span></span>'; head.querySelector('span').textContent = `${flows.length} 项`; const list = document.createElement('div'); list.className = 'desk-anomaly-list'; flows.forEach(row => list.appendChild(anomalyRow({name: row.name, industry: 'Desk 行业截面', signal: row.direction === 'inflow' ? '净流入' : '净流出'}, `${row.net > 0 ? '+' : ''}${Number(row.net).toFixed(2)}`))); card.append(head, list); root.appendChild(card); } (data.unavailable_topics || []).forEach(topic => { const item = document.createElement('div'); item.className = 'desk-data-gap'; item.textContent = `${topic.label}：${topic.reason}`; gaps.appendChild(item); }); }
+    function renderBoard() { const rows = state.data && state.data.leaderboards && state.data.leaderboards[state.board] || []; const coverage = state.data && state.data.coverage || {}; const scope = coverage.leaderboard_scopes && coverage.leaderboard_scopes[state.board]; setText('market-board-title', boardLabels[state.board]); setText('market-board-scope', scope === 'full_market_top20' ? '全市场成交额 Top20' : scope === 'full_market_ranked_top' ? 'Desk 全市场排序结果' : rows.length ? 'Desk 返回扫描池' : 'Desk 当前没有有效排序字段'); const body = document.getElementById('market-body'); body.replaceChildren(); if (!rows.length) { const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 8; td.className = 'desk-empty'; td.textContent = state.board === 'turnover' ? 'Desk 当前换手率字段为空，暂不生成换手榜' : state.board === 'volume_ratio' ? 'Desk 当前量比字段为空，暂不生成量比榜' : '当前榜单暂无有效数据'; tr.appendChild(td); body.appendChild(tr); return; } rows.forEach((row, index) => { const tr = document.createElement('tr'); if (state.selected && state.selected.symbol === row.symbol) tr.className = 'is-selected'; const cells = [index + 1, null, row.industry || '未分类', pct(row.change_pct), money(row.amount), Number(row.turnover_pct || 0) ? pct(row.turnover_pct) : '--', Number(row.volume_ratio || 0) ? Number(row.volume_ratio).toFixed(2) : '--', Number(row.pe || 0) || Number(row.pb || 0) ? `${Number(row.pe || 0).toFixed(1)} / ${Number(row.pb || 0).toFixed(1)}` : '--']; cells.forEach((value, cellIndex) => { const td = document.createElement('td'); if (cellIndex === 1) { td.className = 'desk-symbol'; const strong = document.createElement('strong'); strong.textContent = row.name; const span = document.createElement('span'); span.textContent = row.symbol; td.append(strong, span); } else td.textContent = value; tr.appendChild(td); }); tr.addEventListener('click', () => { renderDetail(row); renderBoard(); }); body.appendChild(tr); }); if (!state.selected && rows[0]) renderDetail(rows[0]); }
+    function render(data, source) { state.data = data; const summary = data.summary || {}; const breadthAvailable = data.market_breadth && data.market_breadth.state === 'available'; setText('market-breadth', breadthAvailable ? summary.market_breadth : '--'); setText('market-ratio', breadthAvailable ? `上涨占比 ${Number(summary.up_ratio || 0).toFixed(2)}%` : 'Desk 暂无涨跌家数'); setText('market-up', breadthAvailable ? summary.up : null); setText('market-down', breadthAvailable ? summary.down : null); setText('market-flat', breadthAvailable ? summary.flat : null); setText('market-sector', summary.leading_sector); setText('market-active', summary.most_active_name); setText('market-active-code', summary.most_active_symbol); setText('market-meta', `${source === 'history' ? '历史版本 · ' : ''}${data.as_of} · ${data.data_source} · ${data.data_state}`); renderReview(data); renderEmotion(data.market_emotion || {}); renderSectors(data.sector_leaders || [], data.sector_basis || {}); renderAnomalies(data.market_anomalies || {}); renderBoard(); publish(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
+    async function run(refresh) { runButton.disabled = true; alertBox.style.display = 'none'; try { render(unwrap(await request({scanLimit: Number(document.getElementById('market-limit').value), ...(refresh ? {refresh: '1'} : {})}))); } catch (error) { alertBox.textContent = error.message || String(error); alertBox.style.display = 'block'; } finally { runButton.disabled = false; } }
+    document.querySelectorAll('[data-board]').forEach(button => button.addEventListener('click', () => { state.board = button.dataset.board; document.querySelectorAll('[data-board]').forEach(item => item.classList.toggle('is-active', item === button)); state.selected = null; renderBoard(); publish(); }));
+    runButton.addEventListener('click', () => run(true)); window.addEventListener('resize', () => { state.sectorChart && state.sectorChart.resize(); }); document.addEventListener('instock:themechange', () => { if (!state.data) return; renderSectors(state.data.sector_leaders || [], state.data.sector_basis || {}); }); document.addEventListener('instock:history-selected', event => render(unwrap(event.detail.payload), event.detail.view_source || 'history')); run(false);
+})();
+</script>
+{% end %}

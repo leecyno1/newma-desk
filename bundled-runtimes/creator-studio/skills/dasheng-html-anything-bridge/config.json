@@ -1,0 +1,27 @@
+{
+  "name": "dasheng-html-anything-bridge",
+  "version": "0.1.0",
+  "description": "Bridge Newma article, card, poster, and video-frame outputs to HTML Anything templates.",
+  "type": "template_reference",
+  "external_project": "${HTML_ANYTHING_ROOT:-vendor/reserved/render/html-anything}",
+  "external_dependency": {
+    "name": "html-anything",
+    "repo": "https://github.com/nexu-io/html-anything.git",
+    "version_locked": false,
+    "installer": "scripts/ensure_video_external_deps.py --dep html-anything --mode install --install-node-deps"
+  },
+  "inputs": {
+    "required": [
+      "draft html or transwrite lane manifest"
+    ],
+    "optional": [
+      "template id",
+      "surface",
+      "channel"
+    ]
+  },
+  "outputs": [
+    "template references in stage manifests",
+    "adapted self-contained HTML when used by an Agent"
+  ]
+}

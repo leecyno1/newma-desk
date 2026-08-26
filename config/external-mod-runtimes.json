@@ -21,6 +21,7 @@
         "source": {
           "env": "NEWMA_DESK_INVESTMENT_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/vibe-research" },
             { "root": "repo", "path": "mod-projects/vibe-research" },
             { "root": "projects", "path": "vibe-research" }
           ]
@@ -36,6 +37,7 @@
         "source": {
           "env": "NEWMA_DESK_TRADING_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/vibe-trading" },
             { "root": "repo", "path": "mod-projects/vibe-trading" },
             { "root": "projects", "path": "vibe-trading" }
           ]
@@ -51,6 +53,7 @@
         "source": {
           "env": "NEWMA_DESK_CREATOR_STUDIO_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/creator-studio" },
             { "root": "projects", "path": "公众号文章" },
             { "root": "repo", "path": "mod-projects/creator-studio" }
           ]
@@ -72,6 +75,7 @@
         "source": {
           "env": "NEWMA_DESK_OPENCHATCUT_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/openchatcut" },
             { "root": "projects", "path": "公众号文章/vendor/reserved/video/openchatcut" },
             { "root": "projects", "path": "OpenChatCut" },
             { "root": "projects", "path": "openchatcut" }
@@ -100,6 +104,7 @@
         "source": {
           "env": "NEWMA_DESK_WORLD_INTEL_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/world-intel-mcp" },
             { "root": "repo", "path": "mod-projects/world-intel-mcp" },
             { "root": "projects", "path": "world-intel-mcp" }
           ]
@@ -121,9 +126,10 @@
         "source": {
           "env": "NEWMA_DESK_CRUCIX_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/crucix" },
+            { "root": "repo", "path": "mod-projects/crucix" },
             { "root": "projects", "path": "Crucix" },
-            { "root": "projects", "path": "crucix" },
-            { "root": "repo", "path": "mod-projects/crucix" }
+            { "root": "projects", "path": "crucix" }
           ]
         }
       },
@@ -138,11 +144,12 @@
     {
       "id": "deepsee",
       "label": "Deepsee",
-      "adapter": "external-only",
+      "adapter": "deepsee",
       "workspaces": {
         "source": {
           "env": "NEWMA_DESK_DEEPSEE_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/deepsee" },
             { "root": "projects", "path": "0913" },
             { "root": "projects", "path": "deepsee" },
             { "root": "repo", "path": "mod-projects/deepsee" }
@@ -165,6 +172,7 @@
         "source": {
           "env": "NEWMA_DESK_SEVEN_CYCLE_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/seven-cycle" },
             { "root": "projects", "path": "1周期模块" },
             { "root": "projects", "path": "seven-cycle" },
             { "root": "repo", "path": "mod-projects/seven-cycle" }
@@ -187,6 +195,7 @@
         "source": {
           "env": "NEWMA_DESK_INSTOCK_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/instock-analysis" },
             { "root": "projects", "path": "stock-czsc-integration" },
             { "root": "projects", "path": "instock-analysis" },
             { "root": "repo", "path": "mod-projects/instock-analysis" }
@@ -209,6 +218,7 @@
         "source": {
           "env": "NEWMA_DESK_FUND_ANALYSIS_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/fund-analysis" },
             { "root": "projects", "path": "基金筛选/fund-analysis" },
             { "root": "repo", "path": "mod-projects/fund-analysis" }
           ]
@@ -235,6 +245,7 @@
         "frontend": {
           "env": "NEWMA_DESK_ORCHESTRA_FRONTEND_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/orchestra-prisma" },
             { "root": "projects", "path": "orchestra-prisma" },
             { "root": "projects", "path": "投研日常/orchestra-prisma" },
             { "root": "desktop-projects", "path": "投研日常/orchestra-prisma" }
@@ -243,6 +254,7 @@
         "backend": {
           "env": "NEWMA_DESK_ORCHESTRA_BACKEND_WORKSPACE",
           "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/orchestra-agentscope" },
             { "root": "projects", "path": "orchestra-agentscope" },
             { "root": "projects", "path": "投研日常/orchestra-agentscope" },
             { "root": "desktop-projects", "path": "投研日常/orchestra-agentscope" }

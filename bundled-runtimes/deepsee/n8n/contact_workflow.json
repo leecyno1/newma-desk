@@ -1,0 +1,70 @@
+{
+  "name": "Contact Analyze Webhook (Template)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "contact",
+        "options": {},
+        "responseMode": "responseNode"
+      },
+      "id": "Webhook1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const ctx = $json;\nconst ratings = (ctx.contacts||[]).map(c => ({ contact_id: c.id, rating: 60, labels: ['活跃'], notes: '示例' }));\nreturn [{ json: { request_id: ctx.request_id, ratings } }];"
+      },
+      "id": "Function1",
+      "name": "Mock Analyze",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        560,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "Respond1",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        820,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Mock Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Analyze": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false
+}
+

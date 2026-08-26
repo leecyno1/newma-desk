@@ -1,0 +1,12 @@
+# Tushare Token Configuration Template
+# Copy this file to .tushare_token in the project root
+
+# Tushare API Token
+# Get your token from: https://tushare.pro/register
+your_tushare_token_here
+
+# Usage:
+# 1. Copy this file to .tushare_token (no extension)
+# 2. Replace the placeholder with your actual Tushare token
+# 3. The token should be on a single line with no extra whitespace
+# 4. This file is used by the Material stage for financial data visualization

@@ -1,0 +1,695 @@
+{
+  "id": "instock-analysis",
+  "name": "InStock 分析服务",
+  "description": "提供 A 股候选、股票研究档案、单标的与批量 CZSC 结构分析，以及行业、ETF 轮动快照和稳健性实验。",
+  "priority": 30,
+  "baseUrl": "http://127.0.0.1:9988/api/v1",
+  "healthPath": "/health",
+  "transport": "rest",
+  "capabilities": {
+    "analysis.czsc": {
+      "method": "GET",
+      "path": "/czsc/analyses",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "code": {"type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"},
+          "period": {"enum": ["daily", "weekly", "monthly"]},
+          "bars": {"enum": [120, 240, 480, 800]},
+          "asOf": {"type": "string", "format": "date"},
+          "refresh": {"enum": ["0", "1"]}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["symbol", "period", "end_date", "engine", "summary", "evidence", "structure", "chart", "data_source", "snapshot"],
+            "properties": {
+              "symbol": {"type": "string"},
+              "period": {"type": "string"},
+              "end_date": {"type": "string"},
+              "engine": {"type": "object"},
+              "summary": {"type": "object"},
+              "evidence": {
+                "type": "object",
+                "required": ["schema_version", "method", "structure_stability", "latest_structure_change", "input_quality"]
+              },
+              "structure": {"type": "object"},
+              "chart": {"type": "object"},
+              "data_source": {"type": "string"},
+              "snapshot": {
+                "type": "object",
+                "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]
+              }
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.czsc.scan": {
+      "method": "POST",
+      "path": "/czsc/scans",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["symbols"],
+        "properties": {
+          "symbols": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {"type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"}
+          },
+          "period": {"enum": ["daily", "weekly", "monthly"]},
+          "bars": {"enum": [120, 240, 480, 800]},
+          "asOf": {"type": "string", "format": "date"},
+          "maxWorkers": {"type": "integer", "minimum": 1, "maximum": 4}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["scan_id", "status", "created_at", "parameters", "progress", "result", "error"],
+            "properties": {
+              "scan_id": {"type": "string", "pattern": "^czsc-scan-[a-f0-9]{32}$"},
+              "status": {"enum": ["queued", "running", "cancelling", "completed", "cancelled", "failed"]},
+              "created_at": {"type": "string", "format": "date-time"},
+              "parameters": {"type": "object"},
+              "progress": {
+                "type": "object",
+                "required": ["total", "completed", "succeeded", "failed", "cancel_requested"]
+              },
+              "result": {"type": ["object", "null"]},
+              "error": {"type": ["string", "null"]}
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.rotation": {
+      "method": "GET",
+      "path": "/rotations/snapshots",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "window": {"enum": [40, 60, 120]},
+          "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+          "refresh": {"enum": ["0", "1"]},
+          "asOf": {"type": "string", "format": "date"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["as_of", "window", "benchmark", "data_source", "data_state", "signal_state", "index_signal_count", "signal_fallback_count", "summary", "market_breadth", "etfs", "snapshot"],
+            "properties": {
+              "as_of": {"type": "string"},
+              "window": {"type": "integer"},
+              "benchmark": {"type": "object"},
+              "data_source": {"type": "string"},
+              "data_state": {"enum": ["complete", "partial"]},
+              "signal_state": {"enum": ["complete", "partial", "fallback"]},
+              "index_signal_count": {"type": "integer", "minimum": 0},
+              "signal_fallback_count": {"type": "integer", "minimum": 0},
+              "signal_failures": {"type": "array"},
+              "summary": {"type": "object"},
+              "market_breadth": {
+                "type": "object",
+                "required": ["state", "breadth", "up", "down", "flat", "up_ratio"],
+                "properties": {
+                  "state": {"enum": ["available", "unavailable"]},
+                  "breadth": {"type": "string"},
+                  "up": {"type": "integer", "minimum": 0},
+                  "down": {"type": "integer", "minimum": 0},
+                  "flat": {"type": "integer", "minimum": 0},
+                  "up_ratio": {"type": "number", "minimum": 0, "maximum": 100}
+                },
+                "additionalProperties": true
+              },
+              "etfs": {"type": "array"},
+              "snapshot": {
+                "type": "object",
+                "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]
+              }
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.rotation.experiment": {
+      "method": "GET",
+      "path": "/rotations/experiments",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+          "rebalanceDays": {"enum": [5, 10, 20]},
+          "costBps": {"enum": [10, 25, 50]},
+          "refresh": {"enum": ["0", "1"]},
+          "asOf": {"type": "string", "format": "date"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["engine", "as_of", "data_source", "rules", "data_quality", "selected_variant", "parameter_surface", "stress_tests", "equity_curve", "verdict", "summary", "limitations", "snapshot"],
+            "properties": {
+              "engine": {"type": "object"},
+              "as_of": {"type": "string"},
+              "data_source": {"type": "string"},
+              "rules": {"type": "object"},
+              "data_quality": {"type": "object"},
+              "selected_variant": {"type": "object"},
+              "parameter_surface": {"type": "array", "minItems": 9, "maxItems": 9},
+              "stress_tests": {"type": "array", "minItems": 3, "maxItems": 3},
+              "equity_curve": {"type": "array"},
+              "verdict": {"type": "object", "required": ["state", "label", "reasons"]},
+              "summary": {"type": "object"},
+              "limitations": {"type": "array"},
+              "snapshot": {
+                "type": "object",
+                "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]
+              }
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.industry-chain": {
+      "method": "POST",
+      "path": "/industry-chain/research",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["schema_version", "theme", "market", "as_of", "evidence", "chain", "layers", "candidates"],
+        "properties": {
+          "schema_version": {"const": "2.0"},
+          "theme": {"type": "string", "minLength": 1, "maxLength": 160},
+          "market": {"enum": ["CN", "HK", "US", "TW", "JP", "KR", "EU", "GLOBAL"]},
+          "as_of": {"type": "string", "format": "date"},
+          "notes": {"type": "string"},
+          "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
+          "chain": {
+            "type": "object",
+            "required": ["nodes", "links"],
+            "properties": {
+              "nodes": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"type": "object"}},
+              "links": {"type": "array", "maxItems": 120, "items": {"type": "object"}}
+            },
+            "additionalProperties": false
+          },
+          "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
+          "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {"type": "object", "required": ["engine", "schema_version", "canonical_schema_version", "chain", "layers", "candidates", "snapshot"]},
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.stock-candidates": {
+      "method": "GET",
+      "path": "/stock-candidates/snapshots",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "market": {"enum": ["CN", "HK", "CN_HK"]},
+          "universeMode": {"enum": ["broad", "quick"]},
+          "universeSize": {"enum": [30, 50, 100, 200]},
+          "outputSize": {"enum": [10, 20, 30]},
+          "bars": {"enum": [120, 240]},
+          "profile": {"enum": ["balanced", "trend", "value", "defensive"]},
+          "industries": {"type": "string", "maxLength": 300},
+          "minAmount": {"type": "number", "minimum": 0},
+          "minMarketCap": {"type": "number", "minimum": 0},
+          "maxMarketCap": {"type": "number", "minimum": 0},
+          "maxPE": {"type": "number", "minimum": 0},
+          "maxPB": {"type": "number", "minimum": 0},
+          "minTurnover": {"type": "number", "minimum": 0},
+          "maxTurnover": {"type": "number", "minimum": 0},
+          "minVolumeRatio": {"type": "number", "minimum": 0},
+          "maxVolumeRatio": {"type": "number", "minimum": 0},
+          "minMomentum20": {"type": "number", "minimum": 0},
+          "maxVolatility": {"type": "number", "minimum": 0},
+          "minROE": {"type": "number", "minimum": 0},
+          "minRevenueGrowth": {"type": "number", "minimum": 0},
+          "minNetProfitGrowth": {"type": "number", "minimum": 0},
+          "maxValuationPercentile": {"type": "number", "minimum": 0, "maximum": 100},
+          "requiredSignals": {"type": "string", "maxLength": 300},
+          "eventFlowSnapshotId": {"type": "string", "minLength": 1, "maxLength": 160},
+          "refresh": {"enum": ["0", "1"]}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["engine", "factor_model", "screening_model", "screening_coverage", "excluded_by_rules", "evidence_quality", "candidate_lifecycle", "as_of", "data_source", "data_state", "coverage", "summary", "candidates", "failures", "history_exclusions", "new_listing_watchlist", "fundamental_failures", "limitations", "calibrated_backtest", "snapshot"],
+            "properties": {
+              "engine": {"type": "object"},
+              "factor_model": {"type": "object"},
+              "screening_model": {"type": "object"},
+              "screening_coverage": {"type": "object"},
+              "excluded_by_rules": {"type": "array"},
+              "evidence_quality": {"type": "object"},
+              "candidate_lifecycle": {"type": "object"},
+              "as_of": {"type": "string", "format": "date"},
+              "data_source": {"type": "string"},
+              "data_state": {"enum": ["complete", "partial"]},
+              "coverage": {"type": "object"},
+              "summary": {"type": "object"},
+              "candidates": {"type": "array"},
+              "failures": {"type": "array"},
+              "history_exclusions": {"type": "array"},
+              "new_listing_watchlist": {"type": "array"},
+              "fundamental_failures": {"type": "array"},
+              "warnings": {"type": "array"},
+              "limitations": {"type": "array"},
+              "calibrated_backtest": {"const": false},
+              "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.stock-research": {
+      "method": "GET",
+      "path": "/stock-research/dossiers",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["symbol"],
+        "properties": {
+          "symbol": {"type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"},
+          "period": {"enum": ["daily", "weekly", "monthly"]},
+          "bars": {"enum": [120, 240, 480, 800]},
+          "asOf": {"type": "string", "format": "date"},
+          "industryChainSnapshotId": {"type": "string", "minLength": 1, "maxLength": 160},
+          "eventFlowSnapshotId": {"type": "string", "minLength": 1, "maxLength": 160},
+          "refresh": {"enum": ["0", "1"]}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["engine", "identity", "as_of", "data_source", "data_state", "technical", "fundamentals", "disclosures", "industry_chain", "event_flow", "assessment", "limitations", "snapshot"],
+            "properties": {
+              "engine": {"type": "object"},
+              "identity": {"type": "object"},
+              "as_of": {"type": "string", "format": "date"},
+              "data_source": {"type": "string"},
+              "data_state": {"enum": ["complete", "partial"]},
+              "technical": {"type": "object"},
+              "fundamentals": {"type": "object"},
+              "disclosures": {"type": "object"},
+              "industry_chain": {"type": ["object", "null"]},
+              "event_flow": {"type": ["object", "null"]},
+              "assessment": {"type": "object"},
+              "failures": {"type": "array"},
+              "limitations": {"type": "array"},
+              "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.strategy-validation": {
+      "method": "POST",
+      "path": "/strategy-validations",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["schema_version", "strategy", "as_of", "benchmark", "holding_period_sessions", "cost_bps_per_side", "signals"],
+        "properties": {
+          "schema_version": {"const": "instock-strategy-validation-packet-v1"},
+          "strategy": {
+            "type": "object",
+            "required": ["id", "source_module"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1, "maxLength": 120},
+              "name": {"type": "string", "maxLength": 160},
+              "source_module": {"enum": ["stock-candidates", "czsc", "rotation"]}
+            },
+            "additionalProperties": false
+          },
+          "as_of": {"type": "string", "format": "date"},
+          "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+          "holding_period_sessions": {"type": "integer", "minimum": 1, "maximum": 60},
+          "cost_bps_per_side": {"type": "integer", "minimum": 0, "maximum": 100},
+          "signals": {
+            "type": "array", "minItems": 2, "maxItems": 200,
+            "items": {
+              "type": "object", "required": ["decision_date", "symbols"],
+              "properties": {
+                "decision_date": {"type": "string", "format": "date"},
+                "symbols": {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"}}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object", "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["engine", "strategy", "as_of", "benchmark", "rules", "coverage", "train", "out_of_sample", "trades", "failures", "limitations", "verdict", "data_source", "snapshot"],
+            "properties": {
+              "engine": {"type": "object"}, "strategy": {"type": "object"},
+              "as_of": {"type": "string", "format": "date"}, "benchmark": {"type": "string"},
+              "rules": {"type": "object"}, "coverage": {"type": "object"},
+              "train": {"type": "object"}, "out_of_sample": {"type": "object"},
+              "trades": {"type": "array"}, "failures": {"type": "array"},
+              "limitations": {"type": "array"}, "verdict": {"enum": ["evidence_sufficient", "insufficient_evidence"]},
+              "data_source": {"type": "string"},
+              "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.event-flow": {
+      "method": "POST", "path": "/event-flows",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object",
+        "oneOf": [
+          {
+            "required": ["symbol"],
+            "properties": {
+              "symbol": {"type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"},
+              "asOf": {"type": "string", "format": "date"}
+            },
+            "additionalProperties": false
+          },
+          {
+            "required": ["schema_version", "as_of", "market", "events"],
+            "properties": {
+              "schema_version": {"const": "instock-event-flow-packet-v1"},
+              "as_of": {"type": "string", "format": "date"},
+              "market": {"enum": ["CN", "HK", "US", "GLOBAL"]},
+              "events": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"type": "object", "required": ["id", "type", "symbol", "occurred_at", "title", "direction", "magnitude_score", "evidence_strength", "source_ref"], "properties": {"id": {"type": "string"}, "type": {"enum": ["announcement", "news", "report", "fund_flow", "margin", "dragon_tiger", "block_trade", "holder_change", "dividend", "lockup", "limit_up", "northbound", "institutional_flow"]}, "symbol": {"type": "string"}, "occurred_at": {"type": "string", "format": "date"}, "title": {"type": "string"}, "direction": {"enum": ["positive", "negative", "neutral"]}, "magnitude_score": {"type": "number", "minimum": 0, "maximum": 100}, "evidence_strength": {"enum": ["strong", "medium", "weak"]}, "source_ref": {"type": "string"}, "details": {"type": "object", "maxProperties": 20, "additionalProperties": {"type": ["string", "number", "boolean", "null"]}}}, "additionalProperties": false}}
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object", "required": ["engine", "schema_version", "input_mode", "query", "market", "as_of", "data_source", "data_state", "summary", "coverage", "alerts", "symbol_summary", "failures", "limitations", "snapshot"], "properties": {"engine": {"type": "object"}, "schema_version": {"type": "string"}, "input_mode": {"enum": ["packet", "desk_symbol"]}, "query": {"type": "object"}, "market": {"type": "string"}, "as_of": {"type": "string", "format": "date"}, "data_source": {"type": "string"}, "data_state": {"enum": ["complete", "partial"]}, "summary": {"type": "object"}, "coverage": {"type": "object"}, "alerts": {"type": "array"}, "symbol_summary": {"type": "array"}, "failures": {"type": "array"}, "limitations": {"type": "array"}, "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}}, "additionalProperties": true}, "meta": {"type": "object", "required": ["api_version", "request_id"]}}, "additionalProperties": false},
+      "permission": "analysis.read"
+    },
+    "analysis.research-book": {
+      "method": "POST", "path": "/research-books",
+      "inputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["schema_version", "name", "as_of", "items"], "properties": {"schema_version": {"const": "instock-research-book-packet-v1"}, "name": {"type": "string", "minLength": 1, "maxLength": 160}, "as_of": {"type": "string", "format": "date"}, "items": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object", "required": ["symbol", "name", "market", "sector", "target_weight_pct", "thesis", "invalidation", "risk_tags", "snapshot_ids"], "properties": {"symbol": {"type": "string"}, "name": {"type": "string"}, "market": {"enum": ["CN", "HK", "US", "GLOBAL"]}, "sector": {"type": "string"}, "target_weight_pct": {"type": "number", "minimum": 0, "maximum": 100}, "thesis": {"type": "string", "minLength": 1}, "invalidation": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string"}}, "risk_tags": {"type": "array", "maxItems": 20, "items": {"type": "string"}}, "snapshot_ids": {"type": "array", "maxItems": 10, "items": {"type": "string"}}}, "additionalProperties": false}}}, "additionalProperties": false},
+      "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object", "required": ["engine", "schema_version", "name", "as_of", "data_source", "data_state", "summary", "items", "exposures", "warnings", "limitations", "snapshot"], "properties": {"engine": {"type": "object"}, "schema_version": {"type": "string"}, "name": {"type": "string"}, "as_of": {"type": "string", "format": "date"}, "data_source": {"type": "string"}, "data_state": {"enum": ["complete", "partial"]}, "summary": {"type": "object"}, "items": {"type": "array"}, "exposures": {"type": "object"}, "warnings": {"type": "array"}, "limitations": {"type": "array"}, "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}}, "additionalProperties": true}, "meta": {"type": "object", "required": ["api_version", "request_id"]}}, "additionalProperties": false},
+      "permission": "analysis.read"
+    },
+    "analysis.market-workbench": {
+      "method": "GET",
+      "path": "/market-workbench/snapshots",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scanLimit": {"enum": [50, 100, 200]},
+          "refresh": {"enum": ["0", "1"]}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["engine", "as_of", "data_source", "data_state", "coverage", "summary", "market_breadth", "market_emotion", "sector_leaders", "leaderboards", "failures", "limitations", "snapshot"],
+            "properties": {
+              "engine": {"type": "object"},
+              "as_of": {"type": "string", "format": "date"},
+              "data_source": {"type": "string"},
+              "data_state": {"enum": ["complete", "partial"]},
+              "coverage": {"type": "object"},
+              "summary": {"type": "object"},
+              "market_breadth": {"type": "object"},
+              "market_emotion": {"type": "object"},
+              "sector_leaders": {"type": "array"},
+              "leaderboards": {"type": "object"},
+              "failures": {"type": "array"},
+              "limitations": {"type": "array"},
+              "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.market-map": {
+      "method": "GET",
+      "path": "/market-maps/snapshots",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "capacity": {"enum": [100, 500]},
+          "refresh": {"enum": ["0", "1"]}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["engine", "as_of", "data_source", "data_state", "size_basis", "color_basis", "groups", "coverage", "summary", "failures", "limitations", "snapshot"],
+            "properties": {
+              "engine": {"type": "object"},
+              "as_of": {"type": "string", "format": "date"},
+              "data_source": {"type": "string"},
+              "data_state": {"enum": ["complete", "partial"]},
+              "size_basis": {"type": "string"},
+              "color_basis": {"const": "change_pct"},
+              "groups": {"type": "array"},
+              "coverage": {"type": "object"},
+              "summary": {"type": "object"},
+              "failures": {"type": "array"},
+              "limitations": {"type": "array"},
+              "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.technical-signals": {
+      "method": "GET",
+      "path": "/technical-signals/snapshots",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "market": {"enum": ["CN", "HK", "CN_HK"]},
+          "universeMode": {"enum": ["broad", "quick"]},
+          "universeSize": {"enum": [30, 50, 100, 200]},
+          "bars": {"enum": [120, 260]},
+          "bias": {"enum": ["all", "bullish", "neutral", "bearish"]},
+          "requiredStrategies": {"type": ["string", "array"]},
+          "requiredPatterns": {"type": ["string", "array"]},
+          "industries": {"type": ["string", "array"]},
+          "minTechnicalScore": {"type": "number"},
+          "minAmount": {"type": "number"},
+          "minMarketCap": {"type": "number"},
+          "maxMarketCap": {"type": "number"},
+          "maxPE": {"type": "number"},
+          "maxPB": {"type": "number"},
+          "minROE": {"type": "number"},
+          "minRevenueGrowth": {"type": "number"},
+          "minNetProfitGrowth": {"type": "number"},
+          "minTurnover": {"type": "number"},
+          "maxTurnover": {"type": "number"},
+          "minVolumeRatio": {"type": "number"},
+          "maxVolumeRatio": {"type": "number"},
+          "maxWorkers": {"type": "integer", "minimum": 1, "maximum": 8},
+          "refresh": {"enum": ["0", "1"]}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["engine", "as_of", "data_source", "data_state", "coverage", "summary", "catalog", "rows", "matched_rows", "excluded_by_rules", "screening_model", "screening_coverage", "failures", "short_history_watchlist", "limitations", "snapshot"],
+            "properties": {
+              "engine": {"type": "object"},
+              "as_of": {"type": "string", "format": "date"},
+              "data_source": {"type": "string"},
+              "data_state": {"enum": ["complete", "partial"]},
+              "coverage": {"type": "object"},
+              "summary": {"type": "object"},
+              "catalog": {"type": "object"},
+              "rows": {"type": "array"},
+              "matched_rows": {"type": "array"},
+              "excluded_by_rules": {"type": "array"},
+              "screening_model": {"type": "object"},
+              "screening_coverage": {"type": "object"},
+              "failures": {"type": "array"},
+              "short_history_watchlist": {"type": "array"},
+              "limitations": {"type": "array"},
+              "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    },
+    "analysis.rotation.supply-chain": {
+      "method": "POST",
+      "path": "/rotations/supply-chain-research",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["schema_version", "theme", "market", "as_of", "evidence", "layers", "candidates"],
+        "properties": {
+          "schema_version": {"const": "1.0"},
+          "theme": {"type": "string", "minLength": 1, "maxLength": 160},
+          "market": {"enum": ["CN", "HK", "US", "TW", "JP", "KR", "EU", "GLOBAL"]},
+          "as_of": {"type": "string", "format": "date"},
+          "notes": {"type": "string"},
+          "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
+          "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
+          "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["ok", "data", "meta"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {
+            "type": "object",
+            "required": ["engine", "schema_version", "theme", "market", "as_of", "data_source", "data_state", "summary", "layers", "candidates", "evidence_summary", "limitations", "snapshot"],
+            "properties": {
+              "engine": {"type": "object"},
+              "schema_version": {"const": "1.0"},
+              "theme": {"type": "string"},
+              "market": {"type": "string"},
+              "as_of": {"type": "string", "format": "date"},
+              "data_source": {"const": "newma-desk-agent"},
+              "data_state": {"enum": ["complete", "partial"]},
+              "summary": {"type": "object"},
+              "layers": {"type": "array"},
+              "candidates": {"type": "array"},
+              "evidence_summary": {"type": "object"},
+              "limitations": {"type": "array"},
+              "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}
+            },
+            "additionalProperties": true
+          },
+          "meta": {"type": "object", "required": ["api_version", "request_id"]}
+        },
+        "additionalProperties": false
+      },
+      "permission": "analysis.read"
+    }
+  },
+  "timeoutSeconds": 120,
+  "allowedHosts": ["127.0.0.1", "localhost"]
+}

@@ -1,0 +1,600 @@
+{
+	"common": {
+		"add": "Add",
+		"agent": "Agent",
+		"cancel": "Cancel",
+		"chat": "Chat",
+		"close": "Close",
+		"confirm": "Confirm",
+		"create": "Create",
+		"creating": "Creating…",
+		"credential": "Credentials",
+		"date": "Date",
+		"delete": "Delete",
+		"deleting": "Deleting…",
+		"disabled": "Disabled",
+		"edit": "Edit",
+		"error": "Something went wrong",
+		"information": "Information",
+		"interrupted": "Interrupted",
+		"knowledge": "Knowledge Bases",
+		"loading": "Loading...",
+		"model": "Model",
+		"name": "Name",
+		"no": "No",
+		"noData": "No data",
+		"readOnly": "Read-only",
+		"readOnlyTooltip": "Shared with you as read-only; editing and deletion are disabled.",
+		"completed": "Completed",
+		"failed": "Failed",
+		"running": "Running",
+		"save": "Save",
+		"saving": "Saving…",
+		"schedule": "Schedule",
+		"selectAgent": "Select an agent",
+		"settings": "Settings",
+		"switchToZh": "切换为中文",
+		"switchToEn": "Switch to English",
+		"success": "Success",
+		"team": "Team",
+		"leader": "Leader",
+		"worker": "Worker",
+		"time": "Time",
+		"yes": "Yes",
+		"deleteTitle": "Delete {{entity}} \"{{name}}\"?",
+		"deleteDescription": "This action cannot be undone."
+	},
+	"error": {
+		"description": "The page hit an unexpected error. You can retry or go back home.",
+		"retry": "Retry",
+		"home": "Back to home"
+	},
+	"tool": {
+		"callGeneric": "Call tool",
+		"read": {
+			"name": "Read",
+			"fileCount_one": "{{count}} file",
+			"fileCount_other": "{{count}} files",
+			"lineCount_one": "Read {{formatted}} line",
+			"lineCount_other": "Read {{formatted}} lines"
+		},
+		"glob": {
+			"name": "Glob"
+		},
+		"taskCreate": {
+			"name": "TaskCreate"
+		},
+		"grep": {
+			"name": "Grep"
+		},
+		"summary": {
+			"separator": ", ",
+			"bash_one": "ran {{count}} shell command",
+			"bash_other": "ran {{count}} shell commands",
+			"read_one": "read {{count}} file",
+			"read_other": "read {{count}} files",
+			"edit_one": "edited {{count}} file",
+			"edit_other": "edited {{count}} files",
+			"search_one": "searched {{count}} pattern",
+			"search_other": "searched {{count}} patterns",
+			"todo_one": "updated todos {{count}} item",
+			"todo_other": "updated todos {{count}} items",
+			"mcp_one": "called {{count}} MCP tool",
+			"mcp_other": "called {{count}} MCP tools",
+			"fallback_one": "called {{count}} tool",
+			"fallback_other": "called {{count}} tools"
+		}
+	},
+	"textInput": {
+		"toComplete": "to complete",
+		"attach": "Attach file",
+		"attachNotSupported": "This model does not support file attachments",
+		"send": "Send",
+		"stop": "Stop generating",
+		"stopping": "Stopping ..."
+	},
+	"confirmCard": {
+		"toConfirm": "to confirm",
+		"yesWithRule": "Yes, and allow {{toolName}} to execute {{ruleContent}} for this session"
+	},
+	"messageBubble": {
+		"thinking": "Thinking",
+		"audioGenerating": "Generating audio…",
+		"playAudio": "Play audio",
+		"pauseAudio": "Pause audio",
+		"running": "Running...",
+		"hintSource": {
+			"tool_output": "Tool Output",
+			"team_message": "Team Message",
+			"schedule": "Schedule"
+		},
+		"error": {
+			"title": "Reply failed",
+			"authentication": "Authentication failed — check the model's API key or credential.",
+			"permission": "Request not allowed — the credential lacks permission for this model or endpoint.",
+			"rate_limit": "Rate limit or quota exceeded — please try again later.",
+			"invalid_request": "The request to the model was rejected as invalid.",
+			"upstream": "The upstream model service returned an error.",
+			"connection": "Could not reach the model service — network error or timeout.",
+			"internal": "An unexpected internal error occurred.",
+			"unknown": "The reply failed with an unknown error."
+		}
+	},
+	"chat": {
+		"inputPlaceholder": "Type a message...",
+		"placeholder": "Type a message...",
+		"send": "Send",
+		"confirmToolCall": "Allow this action?",
+		"subagentConfirmTitle": "{{name}} requests confirmation",
+		"newSession": "New Session",
+		"noSessions": "No sessions yet",
+		"greeting": "Where should we start?",
+		"agent": {
+			"selectPlaceholder": "Select an agent",
+			"emptyTitle": "No agents",
+			"emptyDescription": "Create an agent to get started.",
+			"groupYours": "Yours",
+			"groupShared": "Shared with you"
+		},
+		"session": {
+			"label": "Session",
+			"emptyTitle": "No sessions",
+			"emptyNoAgent": "Select an agent first.",
+			"emptyHasAgent": "Create a session to start chatting."
+		}
+	},
+	"dialog-agent-create": {
+		"title": "Create agent",
+		"description": "Define a new agent's identity and behaviour.",
+		"trigger": "Create agent"
+	},
+	"agent-form": {
+		"identity": {
+			"legend": "Agent Identity",
+			"description": "Name and instructions that define this agent's behaviour.",
+			"name": {
+				"label": "Name",
+				"placeholder": "My agent"
+			},
+			"system-prompt": {
+				"label": "System prompt"
+			}
+		},
+		"context-config": {
+			"legend": "Context Config",
+			"description": "Controls how the context window is managed and compressed.",
+			"trigger-ratio": {
+				"label": "Trigger ratio"
+			},
+			"reserve-ratio": {
+				"label": "Reserve ratio"
+			},
+			"tool-result-limit": {
+				"label": "Tool result limit"
+			},
+			"compression-prompt": {
+				"label": "Compression prompt"
+			},
+			"summary-template": {
+				"label": "Summary template"
+			}
+		},
+		"react-config": {
+			"legend": "ReAct Config",
+			"description": "Controls the reasoning and action loop behaviour.",
+			"max-iters": {
+				"label": "Max iterations"
+			},
+			"stop-on-reject": {
+				"label": "Stop on reject"
+			}
+		},
+		"invite-config": {
+			"legend": "Invite Config",
+			"description": "Controls whether other agents can borrow this one via AgentInvite.",
+			"invitable": {
+				"label": "Invitable"
+			},
+			"invite-description": {
+				"label": "Invite description",
+				"placeholder": "Briefly describe this agent's expertise; required when invitable is on."
+			}
+		}
+	},
+	"dialog-agent-edit": {
+		"title": "Edit agent",
+		"description": "Update this agent's configuration."
+	},
+	"dialog-agent-delete": {
+		"entity": "agent",
+		"confirm": "Delete"
+	},
+	"dialog-session-delete": {
+		"entity": "session",
+		"confirm": "Delete"
+	},
+	"dialog-session-rename": {
+		"title": "Rename session",
+		"description": "Give this session a new name.",
+		"label": "Name",
+		"placeholder": "Session name"
+	},
+	"session-menu": {
+		"rename": "Rename",
+		"delete": "Delete"
+	},
+	"dialog-credential-create": {
+		"title": "Add credential",
+		"description": "Add credentials for a model provider.",
+		"selectType": "Provider",
+		"selectTypePlaceholder": "Select a provider"
+	},
+	"dialog-credential-edit": {
+		"title": "Edit Credential",
+		"description": "Update the saved credential for this provider."
+	},
+	"dialog-knowledge-base-create": {
+		"title": "Create knowledge base",
+		"description": "Create a new knowledge base using an embedding model.",
+		"name": {
+			"label": "Name",
+			"placeholder": "My knowledge base"
+		},
+		"descriptionField": {
+			"label": "Description",
+			"placeholder": "Describe what this knowledge base is for."
+		},
+		"embeddingModel": {
+			"label": "Embedding model"
+		},
+		"dimension": {
+			"label": "Dimension"
+		},
+		"policy": {
+			"lockedTitle": "Dimension is locked to {{dimension}}d",
+			"lockedDescription": "This server already pins all knowledge bases to {{dimension}}-dim embeddings. Only compatible models are listed below.",
+			"noCompatibleTitle": "No compatible embedding models",
+			"noCompatibleAny": "None of your credentials expose an embedding model. Add a credential first.",
+			"noCompatibleLocked": "None of your credentials expose a model that can produce {{dimension}}-dim embeddings."
+		},
+		"errors": {
+			"nameRequired": "Please give the knowledge base a name.",
+			"embeddingRequired": "Please pick an embedding model.",
+			"dimensionRequired": "Please pick a dimension."
+		}
+	},
+	"dialog-knowledge-base-edit": {
+		"title": "Edit knowledge base",
+		"description": "Update the knowledge base name and description.",
+		"name": {
+			"label": "Name",
+			"placeholder": "My knowledge base"
+		},
+		"descriptionField": {
+			"label": "Description",
+			"placeholder": "Describe what this knowledge base is for."
+		},
+		"embeddingModel": {
+			"label": "Embedding model"
+		},
+		"errors": {
+			"nameRequired": "Please give the knowledge base a name."
+		}
+	},
+	"dialog-knowledge-base-delete": {
+		"title": "Delete knowledge base",
+		"description": "This will permanently delete the knowledge base \"{{name}}\" and all of its indexed documents. This action cannot be undone."
+	},
+	"credential": {
+		"noProviders": "No providers available",
+		"noConfigs": "No configurations",
+		"selectHint": "No credential selected",
+		"selectHintDescription": "Select a credential from the sidebar to view its details.",
+		"availableModels": "Available Models",
+		"noModels": "No models available",
+		"noModelsDescription": "This provider returned no models.",
+		"deleteEntity": "credential",
+		"subtitle": "Model API credential configuration",
+		"configured": "Configured",
+		"addProvider": "Add credential",
+		"reasoning": "Reasoning",
+		"maxContext": "Max. Context",
+		"maxOutput": "Max. Output",
+		"inputTypes": "Input",
+		"outputTypes": "Output",
+		"availableTTSModels": "TTS Models"
+	},
+	"knowledge": {
+		"subtitle": "Manage knowledge bases used by your agents",
+		"selectHint": "No knowledge base selected",
+		"selectHintDescription": "Select a knowledge base from the sidebar to view its details.",
+		"deleteEntity": "knowledge base",
+		"list": {
+			"label": "Knowledge bases",
+			"emptyTitle": "No knowledge bases",
+			"emptyDescription": "Create a knowledge base to start indexing documents.",
+			"createButton": "Create knowledge base"
+		},
+		"document": {
+			"label": "Documents",
+			"emptyTitle": "No documents",
+			"emptyDescription": "Upload a document to index it into this knowledge base.",
+			"uploadButton": "Upload document",
+			"uploadButtonShort": "Upload",
+			"countLabel": "Documents ({{count}})",
+			"size": "Size",
+			"chunks": "Chunks",
+			"chunkCount_one": "{{count}} chunk",
+			"chunkCount_other": "{{count}} chunks",
+			"uploadedAt": "Uploaded {{when}}",
+			"deleteEntity": "document",
+			"deleteConfirmTitle": "Delete document",
+			"deleteConfirmDescription": "Delete \"{{name}}\"? This removes the document and every indexed chunk. This action cannot be undone.",
+			"deleteError": "Could not delete document.",
+			"dropHint": "Drop files here to upload",
+			"dropHintIdle": "or drop files here",
+			"invalidFile": "\"{{name}}\" could not be added.",
+			"unsupportedExtension": "\"{{name}}\" was skipped — file type not supported.",
+			"status": {
+				"queued": "Queued",
+				"uploading": "Uploading",
+				"pending": "Awaiting worker",
+				"parsing": "Parsing",
+				"chunking": "Chunking",
+				"indexing": "Indexing",
+				"ready": "Ready",
+				"error": "Error",
+				"cancelled": "Cancelled"
+			},
+			"actions": {
+				"cancel": "Cancel",
+				"retry": "Retry",
+				"dismiss": "Dismiss",
+				"remove": "Remove",
+				"clearFinished": "Clear finished"
+			}
+		},
+		"test": {
+			"button": "Test",
+			"title": "Test retrieval",
+			"description": "Probe \"{{name}}\" with an ad-hoc query.",
+			"queryLabel": "Query",
+			"queryPlaceholder": "Type a natural-language question…",
+			"topKLabel": "Top K",
+			"searchButton": "Search",
+			"score": "score",
+			"chunkPosition": "Chunk {{index}} of {{total}}",
+			"emptyTitle": "No matches",
+			"emptyDescription": "No chunks scored above the threshold for this query."
+		}
+	},
+	"llm-select": {
+		"placeholder": "Select a model",
+		"fallbackPlaceholder": "Fallback model",
+		"loading": "Loading…",
+		"empty": {
+			"title": "No models available",
+			"description": "Add a credential to get started.",
+			"addButton": "Add credential"
+		},
+		"addCredential": "Add Credential",
+		"clear": "Clear selection",
+		"noFallback": "No fallback"
+	},
+	"embedding-select": {
+		"placeholder": "Select an embedding model",
+		"loading": "Loading…",
+		"empty": {
+			"title": "No embedding models available",
+			"description": "Add a credential that supports embedding to get started."
+		},
+		"addCredential": "Add Credential",
+		"clear": "Clear selection"
+	},
+	"dimension-select": {
+		"placeholder": "Select a dimension",
+		"pickModelFirst": "Pick a model first"
+	},
+	"permission-mode": {
+		"placeholder": "Select permission mode",
+		"trigger-tooltip": "Permission Mode",
+		"label": "Permission Mode",
+		"default-tooltip": "Default mode: all operations require explicit permission (most secure)",
+		"accept_edits-tooltip": "Auto-allow file reads/writes in working directories and filesystem commands; other operations follow normal rules",
+		"explore-tooltip": "Read-only mode: allow read/grep/glob tools, deny write/edit/bash modification tools",
+		"bypass-tooltip": "All operations automatically allowed without any permission checks (use in trusted/sandbox environments)",
+		"dont_ask-tooltip": "Convert all ASK decisions to DENY; suitable for scheduled tasks or background execution when user is unavailable"
+	},
+	"dialog-mcp-create": {
+		"title": "Add MCP Servers",
+		"description": "Add new MCP server(s) by configuration.",
+		"configLabel": "MCP Configuration",
+		"keepAlive": "Keep Alive",
+		"keepAliveDesc": "Maintain state across interactions. Enable for browser-use or other long-running MCPs.",
+		"adding": "Adding…",
+		"added": "Added",
+		"parseError": "Invalid JSON configuration: {{message}}",
+		"missingMcpServers": "Configuration must contain a \"mcpServers\" object.",
+		"emptyMcpServers": "No MCP servers found in configuration."
+	},
+	"dialog-mcp-delete": {
+		"entity": "MCP server",
+		"skillEntity": "skill",
+		"skillDescription": "Are you sure you want to remove this skill from the workspace?"
+	},
+	"dialog-skill-add": {
+		"title": "Add skill",
+		"description": "Enter the path to a skill directory to add it to the workspace.",
+		"pathLabel": "Skill path",
+		"pathPlaceholder": "/path/to/skill"
+	},
+	"schedule": {
+		"calendar": "Calendar",
+		"createSchedule": {
+			"description": "Set up a recurring or one-time scheduled task for an agent.",
+			"descriptionLabel": "Description",
+			"descriptionPlaceholder": "Describe what this schedule should do...",
+			"namePlaceholder": "e.g. Daily Report",
+			"title": "Create Schedule"
+		},
+		"deleteSchedule": {
+			"entity": "schedule",
+			"successToast": "Schedule deleted successfully."
+		},
+		"endAt": "End Date",
+		"end_at": "End At",
+		"executionHistory": "Execution History",
+		"freqDaily": "Daily",
+		"freqMonthly": "Monthly",
+		"freqOnce": "Once",
+		"freqWeekly": "Weekly",
+		"frequency": "Frequency",
+		"friday": "Fri",
+		"list": "List",
+		"monday": "Mon",
+		"more": "more",
+		"nextMonth": "Next Month",
+		"nextYear": "Next Year",
+		"noExecutions": "No executions yet",
+		"noExecutionsDescription": "This schedule has not been executed yet.",
+		"noSchedules": "No schedules",
+		"noSchedulesDescription": "Create a schedule to automate agent tasks.",
+		"pickDate": "Pick a date",
+		"permissionMode": "Permission Mode",
+		"timezone": "Timezone",
+		"triggerTime": "Trigger Time",
+		"createdAt": "Created At",
+		"dayOfMonthSuffix": "",
+		"stateful": "Stateful",
+		"statefulDesc": "Reuse one session across all fires to accumulate context. Disabled: every fire creates a fresh session.",
+		"previousMonth": "Previous Month",
+		"previousYear": "Previous Year",
+		"saturday": "Sat",
+		"startAt": "Start At",
+		"sunday": "Sun",
+		"thursday": "Thu",
+		"today": "Today",
+		"tuesday": "Tue",
+		"wednesday": "Wed"
+	},
+	"model-parameters": {
+		"title": "Model Parameters",
+		"description": "Adjust inference parameters for the selected model.",
+		"empty": "No configurable parameters.",
+		"fallbackLabel": "Fallback model",
+		"fallbackLabelWithModel": "Fallback model ({{model}})",
+		"parametersLabel": "Parameters",
+		"ttsLabel": "TTS",
+		"ttsEmpty": "No TTS models available.",
+		"ttsParameters": "Parameters",
+		"ttsParametersDescription": "Adjust parameters for the selected TTS model.",
+		"noTts": "No TTS"
+	},
+	"setup": {
+		"title": "Connect to Service",
+		"description": "Enter your server URL and username to get started.",
+		"serverUrl": "Server URL",
+		"serverUrlPlaceholder": "https://...",
+		"username": "Username",
+		"usernamePlaceholder": "Your username",
+		"submit": "Get Started",
+		"hint": "This is a frontend-only application, and all data are served from the Server URL above. The username is used solely for server-side authentication."
+	},
+	"tour": {
+		"trigger": "Take a tour",
+		"prev": "Back",
+		"next": "Next",
+		"finish": "Finish",
+		"skip": "Skip",
+		"step": "Step {{current}} / {{total}}",
+		"createAgent": {
+			"title": "Create an agent",
+			"content": "Start by creating an agent — your chat partner."
+		},
+		"createSession": {
+			"title": "Create a session",
+			"content": "Click + to start a new session."
+		},
+		"llmSelect": {
+			"title": "Pick a model",
+			"content": "Choose a model; add a credential from the dropdown if needed."
+		},
+		"permissionMode": {
+			"title": "Permission mode",
+			"content": "Decide whether tool calls need confirmation."
+		},
+		"chatInput": {
+			"title": "Start chatting",
+			"content": "Type a message and press Enter. Paperclip attaches files."
+		}
+	},
+	"task-panel": {
+		"heading": "Tasks",
+		"noTasks": "No tasks yet.",
+		"pending": "Pending",
+		"inProgress": "In Progress",
+		"completed": "Completed",
+		"blockedBy": "blocked by"
+	},
+	"panel": {
+		"plan": {
+			"title": "Plan",
+			"completed": "Completed: {{count}}",
+			"total": "Total: {{count}}",
+			"emptyTitle": "No tasks yet",
+			"emptyDescription": "Tasks the agent plans will show up here."
+		},
+		"mcp": {
+			"title": "MCP",
+			"description": "The MCP servers equipped in the workspace.",
+			"searchPlaceholder": "Search MCP in the workspace",
+			"add": "Add MCP",
+			"tools": "{{count}} tools",
+			"emptyTitle": "No MCP servers",
+			"emptyDescription": "Add an MCP server to equip the workspace with tools."
+		},
+		"skill": {
+			"title": "Skills",
+			"description": "The skills equipped in the workspace.",
+			"searchPlaceholder": "Search skills in the workspace",
+			"add": "Add Skill",
+			"emptyTitle": "No skills",
+			"emptyDescription": "Add a skill to equip the workspace."
+		},
+		"knowledge": {
+			"title": "Knowledge Bases",
+			"description": "Knowledge bases the agent can retrieve from.",
+			"searchPlaceholder": "Search knowledge bases",
+			"emptyTitle": "No knowledge bases",
+			"emptyDescription": "Create one on the Knowledge Bases page first.",
+			"parametersTitle": "Retrieval settings",
+			"parametersDescription": "Knowledge base retrieval settings.",
+			"selectedCount": "{{count}} attached"
+		},
+		"permission": {
+			"title": "Permissions",
+			"description": "The permissions applied in this session.",
+			"mode": "Mode: {{mode}}",
+			"workingDirectories": "Working Directories",
+			"noWorkingDirectories": "No working directories.",
+			"allow": "Allow",
+			"deny": "Deny",
+			"ask": "Ask",
+			"anyInvocation": "any invocation",
+			"emptyTitle": "No rules configured",
+			"emptyDescription": "Allow / deny / ask rules will appear here as they are added."
+		},
+		"search": {
+			"emptyTitle": "No results",
+			"emptyDescription": "Nothing matches “{{query}}”."
+		},
+		"loading": "Loading…"
+	},
+	"team-sidebar": {
+		"membersHeading": "Members",
+		"noMembers": "No members yet — ask the leader to spawn one with AgentCreate.",
+		"running": "Running",
+		"idle": "Idle",
+		"missingSession": "(no session)"
+	}
+}

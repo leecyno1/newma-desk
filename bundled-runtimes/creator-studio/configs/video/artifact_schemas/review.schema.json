@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.review.v1",
+  "title": "Newma Video Review",
+  "type": "object",
+  "required": ["schema_version", "status", "review_items"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "dasheng.video.review.v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["approved", "needs_revision", "blocked"]
+    },
+    "review_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "message"],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warn", "fail"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "scene_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "render_allowed": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": true
+}

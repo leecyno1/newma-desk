@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd 模板：FastAPI 后端常驻生产进程（127.0.0.1:8005）。
+  KeepAlive 崩溃自动重启；复用 backend/scripts/start_backend.sh 的解释器选择逻辑。
+
+  用法：
+    cp scripts/launchd/com.fund-analysis.backend.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.fund-analysis.backend.plist
+
+  停止：
+    launchctl bootout gui/$(id -u)/com.fund-analysis.backend
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fund-analysis.backend</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>backend/scripts/start_backend.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/absolute/path/to/fund-analysis</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PORT</key>
+    <string>8005</string>
+    <key>HOST</key>
+    <string>127.0.0.1</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/fund-analysis.backend.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/fund-analysis.backend.stderr.log</string>
+</dict>
+</plist>

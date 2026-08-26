@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.brief.v1",
+  "title": "Newma Video Brief",
+  "type": "object",
+  "required": ["schema_version", "title", "lane", "source_materials", "output_root"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "dasheng.video.brief.v1"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lane": {
+      "type": "string",
+      "enum": ["talking_head_video", "explainer_html_video", "vox_explainer_video", "digital_human_video", "commercial_promo_video", "cinematic_short_drama_video", "style_training"]
+    },
+    "source_materials": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "path"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["speaker_video", "article_html", "draft_html", "reference_video", "subtitle", "audio", "image", "data", "brand_asset", "product_video", "product_screenshot", "logo", "font", "legal_copy"]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "aspect": {
+          "type": "string",
+          "enum": ["9:16", "16:9", "1:1", "4:5"]
+        },
+        "duration_sec": {
+          "type": "number",
+          "minimum": 1
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "output_root": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must point to the desktop creator output root, not a skills directory."
+    },
+    "human_approval_required": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": true
+}

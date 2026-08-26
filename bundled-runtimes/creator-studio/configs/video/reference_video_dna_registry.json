@@ -1,0 +1,193 @@
+{
+  "schema_version": "dasheng.reference_video_dna_registry.v1",
+  "updated_at": "2026-07-12",
+  "media_root": "~/Desktop/自媒体创作/00_范式学习/视频训练",
+  "policy": {
+    "reference_only": true,
+    "copy_scripts_or_brand_assets": false,
+    "prefer_curated_profile": true,
+    "curated_profile_filename": "style_profile.curated.json",
+    "fallback_profile_filename": "style_profile.json",
+    "latest_reference_is_rolling": true,
+    "latest_refresh_rule": "Resolve the creator homepage at run time, record checked_at and source URL, and never silently replace a previously approved profile.",
+    "production_media_forbidden_roots": [
+      "skills/",
+      "openclaw-skill-exports/",
+      ".codex/skills/",
+      "project root"
+    ]
+  },
+  "selection_rules": {
+    "talking_head_finance": [
+      "xiaolin_talking_head_classic",
+      "xiaolin_latest_interview_20260703",
+      "xhs_realestate_explainer_standard_20260712"
+    ],
+    "no_human_finance_explainer": [
+      "wushi_finance_latest_20260701",
+      "wushi_finance_ipo_20260611"
+    ],
+    "product_interview_or_demo": [
+      "xiaolin_latest_interview_20260703"
+    ],
+    "realestate_professional_explainer": [
+      "xhs_realestate_explainer_standard_20260712"
+    ]
+  },
+  "profiles": [
+    {
+      "id": "xhs_realestate_explainer_standard_20260712",
+      "status": "approved_standard_reference",
+      "scope": "横版真人地产研究、行业供需解释、单项目拆解",
+      "checked_at": "2026-07-12",
+      "source_mode": "user_selected_fixed_samples",
+      "analysis_coverage": ["metadata", "scene-aware keyframes", "contact sheets", "director visual review"],
+      "transcript_analyzed": false,
+      "sources": [
+        {
+          "platform": "xiaohongshu",
+          "note_id": "6a520fc1000000001503ea68",
+          "title": "北京怎么买房，看2026上半年供地结构！",
+          "url": "https://www.xiaohongshu.com/explore/6a520fc1000000001503ea68",
+          "duration_sec": 388.587
+        },
+        {
+          "platform": "xiaohongshu",
+          "note_id": "6a40fdac000000002103ee1c",
+          "title": "东三环改善盘，懋源騴橒臺12分钟深度解析",
+          "url": "https://www.xiaohongshu.com/explore/6a40fdac000000002103ee1c",
+          "duration_sec": 772.901
+        }
+      ],
+      "training_dir": "~/Desktop/自媒体创作/00_范式学习/视频训练/xhs_realestate_explainer_standard_20260712",
+      "profile": "~/Desktop/自媒体创作/00_范式学习/视频训练/xhs_realestate_explainer_standard_20260712/style_profile.curated.json",
+      "use_for": [
+        "真人作为信任锚",
+        "地图、规划图、表格、指标卡全屏证据",
+        "长视频章节进度和风险/适配结论"
+      ],
+      "do_not_copy": [
+        "传统电视栏目式重阴影大字",
+        "把简单叠字当成动画质量上限",
+        "全片固定黄色强调"
+      ]
+    },
+    {
+      "id": "xiaolin_latest_interview_20260703",
+      "status": "approved_rolling_reference_with_scope_limit",
+      "scope": "真人访谈、品牌合作、产品演示；不替代小 Lin 经典财经解释 DNA",
+      "checked_at": "2026-07-12",
+      "source_mode": "creator_homepage_latest_at_checked_at",
+      "analysis_coverage": ["metadata", "scene-aware keyframes", "contact sheets", "director visual review"],
+      "transcript_analyzed": false,
+      "creator_homepage": "https://space.bilibili.com/520819684/video",
+      "sources": [
+        {
+          "platform": "bilibili",
+          "bvid": "BV12kTp6tENs",
+          "title": "Anthropic估值暴涨背后，普通人有什么AI时代的红利？",
+          "url": "https://www.bilibili.com/video/BV12kTp6tENs",
+          "upload_date": "2026-07-03",
+          "duration_sec": 2109.96
+        }
+      ],
+      "training_dir": "~/Desktop/自媒体创作/00_范式学习/视频训练/xiaolin_latest_20260712",
+      "profile": "~/Desktop/自媒体创作/00_范式学习/视频训练/xiaolin_latest_20260712/style_profile.curated.json",
+      "use_for": [
+        "双人全景与交替近景",
+        "手机界面、产品实录和人物 PIP",
+        "真人反应与追问形成自然节奏"
+      ],
+      "do_not_copy": [
+        "用访谈慢节奏覆盖金融解释片的高证据密度",
+        "用广告产品界面代替真实金融证据",
+        "复制人物、品牌合作内容或专属画面"
+      ]
+    },
+    {
+      "id": "wushi_finance_latest_20260701",
+      "status": "approved_rolling_reference",
+      "scope": "无真人横版产业/金融资料纪录片",
+      "checked_at": "2026-07-12",
+      "source_mode": "creator_homepage_latest_at_checked_at",
+      "analysis_coverage": ["metadata", "scene-aware keyframes", "contact sheets", "director visual review"],
+      "transcript_analyzed": false,
+      "creator_homepage": "https://space.bilibili.com/472747194/video",
+      "sources": [
+        {
+          "platform": "bilibili",
+          "bvid": "BV1dATv6kEPC",
+          "title": "【巫师】男色经济02：恋与深空大瓜的背后，乙女产业的金矿",
+          "url": "https://www.bilibili.com/video/BV1dATv6kEPC",
+          "upload_date": "2026-07-01",
+          "duration_sec": 592.72
+        }
+      ],
+      "training_dir": "~/Desktop/自媒体创作/00_范式学习/视频训练/wushi_finance_latest_20260712",
+      "profile": "~/Desktop/自媒体创作/00_范式学习/视频训练/wushi_finance_latest_20260712/style_profile.curated.json",
+      "use_for": [
+        "旁白不断线的全屏资料蒙太奇",
+        "统一栏目外壳和章节导航",
+        "网页、图表、文件、产品和产业 B-roll 的语义切换"
+      ],
+      "do_not_copy": [
+        "原作者 Logo、边框、字幕造型和专属素材",
+        "用电影或游戏 B-roll 冒充金融证据",
+        "重复扫描线或装饰性转场"
+      ]
+    },
+    {
+      "id": "wushi_finance_ipo_20260611",
+      "status": "existing_reference",
+      "scope": "无真人金融事件解释与 IPO 机制分析",
+      "checked_at": "2026-07-10",
+      "sources": [
+        {
+          "platform": "bilibili",
+          "bvid": "BV1ViEg6PESR",
+          "title": "【巫师】人类最大IPO来了，行内视角看背后的算计",
+          "url": "https://www.bilibili.com/video/BV1ViEg6PESR",
+          "upload_date": "2026-06-11",
+          "duration_sec": 797.374
+        }
+      ],
+      "notes": "保留为金融主题专项标杆，与最新产业样本共同使用。"
+    },
+    {
+      "id": "xiaolin_talking_head_classic",
+      "status": "existing_reference",
+      "scope": "真人财经解释经典节奏标杆",
+      "training_dir": "~/Desktop/自媒体创作/00_范式学习/视频训练/xiaolin_reference_local_20260704",
+      "notes": "继续作为真人金融口播的主要节奏基线；最新访谈样本只补充访谈和产品演示语法。"
+    }
+  ],
+  "production_postmortems": [
+    {
+      "id": "dasheng_xhs_commercial_space_20260712",
+      "status": "reviewed_internal_baseline",
+      "platform": "xiaohongshu",
+      "note_id": "6a5354ed0000000007027e76",
+      "title": "中国的商业航天，不是SpaceX是军工",
+      "url": "https://www.xiaohongshu.com/explore/6a5354ed0000000007027e76",
+      "duration_sec": 419.421,
+      "analysis_dir": "~/Desktop/自媒体创作/00_范式学习/视频训练/xhs_6a5354ed_20260712",
+      "postmortem": "~/Desktop/自媒体创作/00_范式学习/视频训练/xhs_6a5354ed_20260712/PUBLISHED_VIDEO_POSTMORTEM.md",
+      "strengths": [
+        "18.17 strong visual changes per minute",
+        "2.85 second median visual interval",
+        "consistent cream and dark-green visual system",
+        "speaker, full-screen evidence, and PIP states are all present",
+        "voice loudness passes at -15.42 LUFS"
+      ],
+      "regressions_to_block": [
+        "opening false starts and repeated syllables",
+        "core claim delayed until roughly 17 seconds",
+        "mechanical speaker-to-cream-flowchart alternation",
+        "too many self-made framework cards relative to real evidence",
+        "persistent side-profile speaker footage",
+        "seven-minute horizontal cut published without a shorter mobile variant"
+      ],
+      "usage": "Use as an internal regression baseline, not as an approved style reference."
+    }
+  ]
+}

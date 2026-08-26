@@ -1,0 +1,199 @@
+diff --git a/backend/impl/_browser.py b/backend/impl/_browser.py
+index 9f06485..6f026d7 100644
+--- a/backend/impl/_browser.py
++++ b/backend/impl/_browser.py
+@@ -7,6 +7,10 @@
+ """
+ 
+ import asyncio
++import json
++import os
++import platform
++import subprocess
+ 
+ from conf import LOGIN_HEADLESS, LOCAL_CHROME_HEADLESS
+ from util._logger import get_channel_logger
+@@ -14,6 +18,99 @@ from util._logger import get_channel_logger
+ logger = get_channel_logger("browser")
+ 
+ 
++def _positive_int_env(name: str, default: int) -> int:
++    try:
++        return max(1, int(os.getenv(name, str(default))))
++    except (TypeError, ValueError):
++        return default
++
++
++def _macos_secondary_position(width: int, height: int) -> tuple[int, int] | None:
++    if platform.system() != "Darwin":
++        return None
++    script = (
++        'ObjC.import("AppKit"); '
++        'JSON.stringify($.NSScreen.screens.js.map((s,i)=>{'
++        'const f=s.visibleFrame; return {index:i,x:Number(f.origin.x),y:Number(f.origin.y),'
++        'width:Number(f.size.width),height:Number(f.size.height)};}));'
++    )
++    try:
++        result = subprocess.run(
++            ["osascript", "-l", "JavaScript", "-e", script],
++            capture_output=True,
++            text=True,
++            check=False,
++            timeout=3,
++        )
++        screens = json.loads(result.stdout.strip() or "[]") if result.returncode == 0 else []
++    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
++        return None
++    if not isinstance(screens, list) or len(screens) < 2 or not isinstance(screens[1], dict):
++        return None
++    target = screens[1]
++    margin = 40
++    try:
++        x = int(target["x"]) + int(target["width"]) - width - margin
++        y = int(target["y"]) + margin
++    except (KeyError, TypeError, ValueError):
++        return None
++    return x, y
++
++
++def headed_window_args() -> list[str]:
++    """Keep visible publish browsers small and off the primary display when possible."""
++    width = _positive_int_env("DASHENG_PUBLISH_WINDOW_WIDTH", 1180)
++    height = _positive_int_env("DASHENG_PUBLISH_WINDOW_HEIGHT", 780)
++    try:
++        x = int(os.environ["DASHENG_PUBLISH_WINDOW_X"])
++        y = int(os.environ["DASHENG_PUBLISH_WINDOW_Y"])
++    except (KeyError, TypeError, ValueError):
++        position = _macos_secondary_position(width, height)
++        x, y = position if position is not None else (40, 40)
++    return [f"--window-size={width},{height}", f"--window-position={x},{y}"]
++
++
++def _frontmost_app_name() -> str | None:
++    if platform.system() != "Darwin":
++        return None
++    try:
++        result = subprocess.run(
++            [
++                "osascript",
++                "-e",
++                'tell application "System Events" to get name of first application process whose frontmost is true',
++            ],
++            capture_output=True,
++            text=True,
++            check=False,
++            timeout=2,
++        )
++    except (OSError, subprocess.SubprocessError):
++        return None
++    name = result.stdout.strip()
++    return name if result.returncode == 0 and name else None
++
++
++def _restore_frontmost_app(name: str | None) -> None:
++    if platform.system() != "Darwin" or not name:
++        return
++    escaped = name.replace("\\", "\\\\").replace('"', '\\"')
++    try:
++        subprocess.run(
++            [
++                "osascript",
++                "-e",
++                f'tell application "System Events" to set frontmost of first application process whose name is "{escaped}" to true',
++            ],
++            capture_output=True,
++            text=True,
++            check=False,
++            timeout=2,
++        )
++    except (OSError, subprocess.SubprocessError):
++        pass
++
++
+ def _download_binary():
+     """Download CloakBrowser stealth binary."""
+     from cloakbrowser import ensure_binary
+@@ -53,13 +150,16 @@ async def create_browser(
+     """
+     if headless is None:
+         headless = LOGIN_HEADLESS if login_mode else LOCAL_CHROME_HEADLESS
++    previous_frontmost_app = _frontmost_app_name() if headless is False else None
+     from cloakbrowser import launch_async
+     browser = await launch_async(
+         headless=headless,
+-        args=["--start-maximized"],
++        args=headed_window_args() if headless is False else [],
++        _suppress_maximize=headless is False,
+         humanize=humanize,
+         human_preset=human_preset,
+     )
++    _restore_frontmost_app(previous_frontmost_app)
+ 
+     if login_mode or headless is False:
+         # login 或有头浏览器（发布场景）：用户主动关浏览器 → cancel 当前 task，
+@@ -179,12 +279,16 @@ async def create_persistent_context(
+ ):
+     """异步入口：登录扫码用持久化 context（no_viewport，跟随窗口自适应）。"""
+     from cloakbrowser import launch_persistent_context_async
+-    return await launch_persistent_context_async(
++    previous_frontmost_app = _frontmost_app_name() if headless is False else None
++    context = await launch_persistent_context_async(
+         user_data_dir,
+         headless=headless,
+         no_viewport=True,
+-        args=["--window-size=1920,1080", "--start-maximized"],
++        args=headed_window_args() if headless is False else [],
++        _suppress_maximize=headless is False,
+     )
++    _restore_frontmost_app(previous_frontmost_app)
++    return context
+ 
+ 
+ # ──────────── 同步入口 ────────────
+@@ -192,7 +296,14 @@ async def create_persistent_context(
+ def create_browser_sync(headless: bool = False):
+     """同步入口：创建 stealth Chromium 浏览器。"""
+     from cloakbrowser import launch
+-    return launch(headless=headless)
++    previous_frontmost_app = _frontmost_app_name() if headless is False else None
++    browser = launch(
++        headless=headless,
++        args=headed_window_args() if headless is False else [],
++        _suppress_maximize=headless is False,
++    )
++    _restore_frontmost_app(previous_frontmost_app)
++    return browser
+ 
+ 
+ def create_context_sync(
+diff --git a/backend/impl/bilibili/platform.py b/backend/impl/bilibili/platform.py
+index 8083324..4a4bc84 100644
+--- a/backend/impl/bilibili/platform.py
++++ b/backend/impl/bilibili/platform.py
+@@ -1292,12 +1292,20 @@ class BilibiliPlatform(BasePlatform):
+                 await submit_btn.click()
+             await asyncio.sleep(1)
+ 
+-            # Step 6: Click confirm button inside dialog
+-            confirm_btn = dialog.locator(
+-                "button.bcc-button--primary"
+-            ).first
+-            if await confirm_btn.count() > 0:
+-                await confirm_btn.click()
++            # Step 6: Some Bilibili builds close the cover editor immediately
++            # after the crop dialog's "完成" button is clicked.  Reusing the
++            # original dialog locator then points at a detached/hidden copy and
++            # turns a successful cover update into a false timeout.  Only click
++            # a second confirmation when a visible cover dialog still exists.
++            visible_cover_dialog = page.locator(
++                'div.bcc-dialog:visible:has-text("封面")'
++            ).last
++            if await visible_cover_dialog.count() > 0:
++                confirm_btn = visible_cover_dialog.locator(
++                    'button.bcc-button--primary:visible'
++                ).filter(has_text="完成").last
++                if await confirm_btn.count() > 0:
++                    await confirm_btn.click(force=True)
+             await asyncio.sleep(1)
+ 
+             # Ensure any stray dialogs are closed

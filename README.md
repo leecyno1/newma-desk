@@ -112,16 +112,13 @@ NEWMA_DESK_CONTROL_PLANE_URL=http://127.0.0.1:8911
 
 ## 本地启动
 
-要求：Node.js 22+、npm 10+、Python 3.12+。
+要求：Node.js 24.15+、npm 10+、Python 3.12。
 
 ```bash
-npm install
-
-cd services/api
-python3.12 -m venv .venv
-.venv/bin/pip install -e '.[test]'
-cd ../..
+npm run runtime:bootstrap
 ```
+
+该命令会安装 Desk 本体和 `bundled-runtimes/` 中当前可见 Mod 的依赖。源码、锁文件和运行入口都在主仓，不再读取本机其他项目目录。只准备核心页面可使用 `npm run runtime:bootstrap -- --core`。
 
 复制环境变量模板。只使用本机 CLI 时无需填写模型 API Key：
 
@@ -129,7 +126,7 @@ cd ../..
 cp .env.example .env
 ```
 
-推荐用统一开发启动器启动 Newma-Desk，以及内置的 Research / Trading / World Intelligence 运行时：
+推荐用统一开发启动器启动 Newma-Desk 和全部已准备好的本地运行时：
 
 ```bash
 npm run dev:stack
@@ -143,7 +140,7 @@ Research 与 Trading 不再分别启动 `5899 / 5901 / 8900 / 8899`。它们的�
 npm run dev:status
 ```
 
-统一启动器把 Newma-Desk API、Desk、内置 Research / Trading 和 World Intelligence 视为核心运行时；市场与情报工作区由 Desk 在 `5888` 内按需加载。InStock、Orchestra、Seven Cycle 与 Deepsee 属于可选或外部 Mod。可选 Mod 不可用时会显示 `WARN/MISS`，但不会关闭已经就绪的 Desk。需要把所有可选 Mod 也纳入严格检查时使用：
+统一启动器把 Newma-Desk API、Desk、Research、Trading 和 World Intelligence 视为核心运行时；InStock、Fund Analysis、Orchestra、Seven Cycle、Deepsee 与 OpenChatCut 是仓内可选运行时。可选 Mod 不可用时会显示 `WARN/MISS`，但不会关闭已经就绪的 Desk。需要把全部 Mod 都纳入检查时使用：
 
 ```bash
 npm run dev:status -- --strict
@@ -151,14 +148,14 @@ npm run dev:status -- --strict
 
 核心启动等待时间可通过 `NEWMA_DESK_STARTUP_TIMEOUT_MS` 调整；可选 Mod 使用独立的 `NEWMA_DESK_OPTIONAL_STARTUP_TIMEOUT_MS`，默认 30 秒。Seven Cycle 的健康响应会读取 Catalog 状态，单次探测默认允许 5 秒，可通过 `NEWMA_DESK_SEVEN_CYCLE_HEALTH_TIMEOUT_MS` 调整，避免慢盘场景被误判为掉线。
 统一启动器默认使用 `runtime/newma-desk-stack.pid` 做单实例保护；重复执行 `npm run dev:stack` 会直接提示现有进程，不会重复占用 Mods 端口。确需改变锁文件位置时，可设置 `NEWMA_DESK_STACK_PID_FILE`。
-Newma-Desk 启动 Seven Cycle 时会显式启用严格的 Catalog 设备漂移自修复；它只接受 manifest、产品 checksum、旧 Catalog 审计和两份 deployment 全部通过验证的重挂载场景。可用 `NEWMA_DESK_SEVEN_CYCLE_REPAIR_CATALOG_ON_START=0` 关闭。
+`runtime:bootstrap` 会基于仓内只读快照生成 Seven Cycle 的本机 Catalog。一般启动不需要修复；如果只是移动了同一份已验证数据，可设置 `NEWMA_DESK_SEVEN_CYCLE_REPAIR_CATALOG_ON_START=1` 启用严格的设备漂移修复。
 
 ### 外部 Mod Runtime Descriptor
 
 World Intelligence、Deepsee、Seven Cycle、InStock 与 Orchestra 统一由
 [`config/external-mod-runtimes.json`](config/external-mod-runtimes.json) 声明工作区候选、HTTP 入口和健康路径。这个 Runtime Descriptor 是启动生命周期的公共 Interface；Node 启动器和 Python Agent Gateway 各自通过 Adapter 读取它，因此端口、路径发现和允许的来源只需要维护一处。
 
-默认会依次从 Newma-Desk 同级项目目录、`~/Desktop/Projects` 和仓库内候选目录发现外部工作区。新机器通常不需要填写个人绝对路径；如果目录布局不同，可以先覆盖发现根目录：
+默认首先使用 `bundled-runtimes/` 中的仓内源码。环境变量和旧项目目录只用于开发者主动覆盖，不是正常启动依赖：
 
 ```text
 NEWMA_DESK_PROJECTS_ROOT=/path/to/projects
@@ -220,9 +217,9 @@ NEWMA_DESK_ANTHROPIC_MODEL=claude-sonnet-4-5
 NEWMA_DESK_AGENT_DEFAULT_ADAPTER=codex-cli
 NEWMA_DESK_AGENT_TIMEOUT_SECONDS=300
 NEWMA_DESK_WORKSPACE_ROOT=.
-NEWMA_DESK_INVESTMENT_WORKSPACE=mod-projects/vibe-research
-NEWMA_DESK_TRADING_WORKSPACE=mod-projects/vibe-trading
-NEWMA_DESK_WORLD_INTEL_WORKSPACE=mod-projects/world-intel-mcp
+NEWMA_DESK_INVESTMENT_WORKSPACE=bundled-runtimes/vibe-research
+NEWMA_DESK_TRADING_WORKSPACE=bundled-runtimes/vibe-trading
+NEWMA_DESK_WORLD_INTEL_WORKSPACE=bundled-runtimes/world-intel-mcp
 NEWMA_DESK_WORLD_INTEL_URL=http://127.0.0.1:8501
 NEWMA_DESK_MOD_SESSION_SECRET=请在生产环境设置固定随机值
 NEWMA_DESK_MOD_SESSION_TTL_SECONDS=900

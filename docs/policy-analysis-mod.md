@@ -9,7 +9,7 @@
 | shishaochen/PbcCrawler | 人民银行公开市场公告 | 小型项目 | 未声明 | 不采用，RSSHub 已覆盖对应路由 |
 | LoveSunday7/government_policy_crawler | 政府网站关键词采集 | 小型项目 | 未声明 | 不采用，维护与许可不满足产品要求 |
 
-本地基础仓库位于 mod-projects/rsshub-policy，固定 revision
+本地基础仓库位于 `bundled-runtimes/rsshub-policy`，固定 revision
 ddaa58f793eb5c5a8075ec507ce86dcd2e17cd95。公共 RSSHub 实例在当前网络中超时，
 因此产品运行时不依赖公共实例；后续自建采集器可按接口返回的 rssHubPath 接入。
 

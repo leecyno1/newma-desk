@@ -1,0 +1,6 @@
+{
+  "name": "dasheng-daily-draft",
+  "version": "1.0.0",
+  "description": "Legacy compatibility entry for dasheng-media-sop",
+  "replacement": "dasheng-media-sop"
+}

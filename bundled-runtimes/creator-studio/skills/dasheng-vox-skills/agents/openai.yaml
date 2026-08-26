@@ -1,0 +1,4 @@
+interface:
+  display_name: "Newma VOX 视频制作"
+  short_description: "编排剧本、Shotcraft 镜头卡、Gemini、Remotion 与质检"
+  default_prompt: "使用 $dasheng-vox-skills 将内容先重写并审核分镜，再为适合的生产镜绑定 Shotcraft，其他镜头按官方 Gemini 路由生成，最后完成字幕、花字、实体标签和 Remotion 质检。"

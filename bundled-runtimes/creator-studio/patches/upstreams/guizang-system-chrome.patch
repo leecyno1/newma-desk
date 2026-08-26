@@ -1,0 +1,16 @@
+diff --git a/validate-social-deck.mjs b/validate-social-deck.mjs
+index 7fda20b..1b61de9 100644
+--- a/validate-social-deck.mjs
++++ b/validate-social-deck.mjs
+@@ -45,7 +45,11 @@ if (!fs.existsSync(htmlPath)) {
+ }
+ 
+ const url = "file://" + htmlPath;
++const systemChrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
++const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
++  || (fs.existsSync(systemChrome) ? systemChrome : undefined);
+ const browser = await chromium.launch({
++  executablePath,
+   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+ });
+ const ctx = await browser.newContext({

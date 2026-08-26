@@ -1,0 +1,90 @@
+channels:
+  - channel_id: growth_demand
+    name_zh: 增长/需求
+    name_en: Growth and Demand
+    eligible_indicator_concepts:
+      - pmi
+      - new_orders
+      - gdp
+      - industrial_output
+      - consumption
+      - exports
+      - employment
+      - external_demand
+    minimum_breadth: 4
+
+  - channel_id: inflation_prices
+    name_zh: 通胀/价格
+    name_en: Inflation and Prices
+    eligible_indicator_concepts:
+      - cpi
+      - ppi
+      - commodity_prices
+    minimum_breadth: 2
+
+  - channel_id: real_rate_discount
+    name_zh: 实际利率/贴现率
+    name_en: Real Rates and Discounting
+    eligible_indicator_concepts:
+      - policy_rate
+      - government_bond_yield
+      - real_rate
+      - lpr
+    minimum_breadth: 2
+
+  - channel_id: liquidity_credit
+    name_zh: 流动性/信用
+    name_en: Liquidity and Credit
+    eligible_indicator_concepts:
+      - social_financing
+      - loans
+      - m1
+      - m2
+      - lpr
+      - rrr
+      - reverse_repo
+      - mlf
+      - financing
+    minimum_breadth: 4
+
+  - channel_id: earnings_margin
+    name_zh: 盈利/利润率
+    name_en: Earnings and Margins
+    eligible_indicator_concepts:
+      - profits
+      - roe
+      - margins
+      - capacity_utilization
+    minimum_breadth: 2
+
+  - channel_id: risk_premium_crowding
+    name_zh: 风险溢价/拥挤
+    name_en: Risk Premium and Crowding
+    eligible_indicator_concepts:
+      - market_breadth
+      - turnover
+      - valuation
+      - financing
+      - etf_flow
+      - volatility
+    minimum_breadth: 3
+
+  - channel_id: fx_external_demand
+    name_zh: 汇率/外部需求
+    name_en: FX and External Demand
+    eligible_indicator_concepts:
+      - fx
+      - dxy
+      - external_demand
+      - exports
+    minimum_breadth: 2
+
+  - channel_id: supply_inventory_geopolitics
+    name_zh: 供给/库存/地缘
+    name_en: Supply, Inventory, and Geopolitics
+    eligible_indicator_concepts:
+      - inventory
+      - capacity_utilization
+      - commodity_prices
+      - ppi
+    minimum_breadth: 2

@@ -1,0 +1,12 @@
+{
+  "engine": "omni",
+  "provider": "gemini_web",
+  "session_url": "https://gemini.google.com/u/1/app",
+  "max_segment_seconds": 10,
+  "download_dir": "~/Downloads",
+  "default_aspect": "9:16",
+  "state_cleanup": "new_session_each_run",
+  "generation_wait_seconds": 180,
+  "paste_interval_seconds": 3.0,
+  "note": "omni 引擎配置：Gemini 图生视频；切分段数与时长由输入 batch 决定（引擎不硬编码）。"
+}

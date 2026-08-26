@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Newma 创作总控
+  short_description: 6 阶段自媒体创作总控 Skill
+  default_prompt: 按当前自媒体 6 阶段 SOP 执行，并严格遵守阶段接口与交付文档。

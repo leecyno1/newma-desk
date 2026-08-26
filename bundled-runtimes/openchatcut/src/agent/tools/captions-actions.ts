@@ -1,0 +1,282 @@
+import type { AgentContext } from '../context';
+import type { CaptionsData, CaptionTemplate, CaptionPacing, CaptionAnchor, CaptionLayout, CaptionMotionPreset } from '../../captions/types';
+import { CAPTION_STYLES, CAPTION_STYLE_BY_ID } from '../../captions/styles';
+import { mapCaptionStyle } from '../../captions/styleMap';
+import { sourceList, sourceSet, sourceAdd, sourceRemove, languageMode, bilingual, firstTranscribedOnTrack } from './captions-sources';
+import { execLayoutPolicy, execPositions, execSourceUpdate } from './captions-lanes';
+import { listCaptionPresets, saveCaptionPreset, deleteCaptionPreset, resolveCaptionPreset, type CaptionPreset } from '../../captions/presetStore';
+import { captionsOnTrack, defaultTrackId, resolveTrackId, timelineTrackIds, trackAlias, type TimelineState } from '../../editor/types';
+import { hasOperationalTranscript } from '../../transcript/types';
+import { applyDisplayTextEntries } from './captions-word-overrides';
+import { isCaptionMotionPreset } from '../../captions/captionMotion';
+
+// edit_captions uses one tool with a multi-action dispatcher. Most action data
+// arrives as a JSON string in `json`. Backed by OpenChatCut's captions overlay
+// (enable/template/style/layout/display overrides/multi-source/translation).
+// The three brothers of multi-lane (layout_policy / positions / source_update) are in captions-lanes.ts,
+// Data model = CaptionsData.sourceEntries (one rendering lane per source).
+
+type Args = Record<string, unknown>;
+type Result = Record<string, unknown>;
+
+const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+const orderNum = (v: unknown): number | undefined => {
+  if (typeof v === 'number' && Number.isInteger(v) && v >= 0) return v;
+  if (typeof v === 'string' && /^\d+$/.test(v.trim())) return Number(v.trim());
+  return undefined;
+};
+
+/** Action data usually arrives as a JSON string in `json`; raw objects are also accepted. */
+function parseJson(args: Args): Record<string, unknown> {
+  const j = args.json;
+  if (j && typeof j === 'object') return j as Record<string, unknown>;
+  if (typeof j === 'string' && j.trim()) {
+    try { const o = JSON.parse(j); return o && typeof o === 'object' ? o : {}; } catch { return {}; }
+  }
+  return {};
+}
+
+const isTemplate = (id: string): id is CaptionTemplate => id in CAPTION_STYLE_BY_ID;
+
+const ANCHORS = new Set<CaptionAnchor>(['top', 'center', 'bottom', 'top-left', 'top-center', 'top-right', 'middle-left', 'middle-center', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right']);
+
+/** action=layout json → CaptionLayout, including serializable visual transforms. */
+function toLayout(json: Record<string, unknown>, width: number, height: number): CaptionLayout | null {
+  const l: CaptionLayout = {};
+  const preset = str(json.preset) || str(json.anchor);
+  if (preset) { if (!ANCHORS.has(preset as CaptionAnchor)) return null; l.anchor = preset as CaptionAnchor; }
+  const oxr = num(json.offsetXRatio); if (oxr !== undefined) l.offsetXRatio = oxr;
+  const oyr = num(json.offsetYRatio); if (oyr !== undefined) l.offsetYRatio = oyr;
+  // pixel top/left → approximate anchor + offset from the top-left
+  const top = num(json.top); if (top !== undefined && height > 0) { l.anchor = l.anchor ?? 'top-center'; l.offsetYRatio = top / height; }
+  const left = num(json.left); if (left !== undefined && width > 0) { l.offsetXRatio = (left - width / 2) / width; }
+  const transforms = json.transforms && typeof json.transforms === 'object'
+    ? json.transforms as Record<string, unknown>
+    : {};
+  const scale = num(json.scale) ?? num(transforms.scale);
+  const rotation = num(json.rotation) ?? num(transforms.rotation);
+  const opacity = num(json.opacity) ?? num(transforms.opacity);
+  if (scale !== undefined) l.scale = Math.max(0.01, scale);
+  if (rotation !== undefined) l.rotation = rotation;
+  if (opacity !== undefined) l.opacity = Math.max(0, Math.min(1, opacity));
+  return Object.keys(l).length ? l : null;
+}
+
+/** display_text: stable-ref-first per-word overrides + legacy numeric selectors. */
+function displayText(json: Record<string, unknown>, c: CaptionsData, ctx: AgentContext, s: TimelineState): Result {
+  if (json.clearOverrides === true || json.clear_overrides === true) {
+    ctx.commands.updateCaptions({ wordOverrides: {} });
+    return { ok: true, cleared: true };
+  }
+  const raw = json.overrides;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { error: 'display_text needs {overrides:[{wordRef,...}]} or {clearOverrides:true}' };
+  }
+  const item = c.sourceItemId ? s.items.find((candidate) => candidate.id === c.sourceItemId) : undefined;
+  if (c.sourceItemId && !hasOperationalTranscript(item)) {
+    return { error: `caption source ${c.sourceItemId} has no current transcript; transcribe it again` };
+  }
+  const result = applyDisplayTextEntries(raw, c, s.items, s.fps);
+  ctx.commands.updateCaptions({ wordOverrides: result.wordOverrides });
+  return {
+    ok: result.errors.length === 0,
+    overrides: Object.keys(result.wordOverrides).length,
+    ...(result.ignored.length ? { ignored: result.ignored } : {}),
+    ...(result.errors.length ? { errors: result.errors } : {}),
+  };
+}
+
+/** preset_apply/rename/delete resolve a saved preset by presetId (or presetName). */
+async function findPreset(args: Args, json: Record<string, unknown>): Promise<CaptionPreset | undefined> {
+  const q = str(args.presetId) || str(json.presetId) || str(json.id) || str(args.presetName) || str(json.presetName) || str(json.name);
+  return q ? resolveCaptionPreset(q) : undefined;
+}
+
+export async function editCaptions(args: Args, ctx: AgentContext): Promise<Result> {
+  const action = str(args.action);
+  if (!action) return { error: 'edit_captions needs an action' };
+  const s = ctx.getState();
+  const requested = str(args.captionTrackId) || str(args.captionsItemId);
+  const target = requested ? resolveTrackId(s, requested, 'caption') : defaultTrackId(s, 'caption');
+  if (requested && !target) return { error: `no caption track ${requested}` };
+  const c = target ? captionsOnTrack(s, target) : s.captions ?? null;
+  if (target) {
+    const commands = ctx.commands;
+    ctx = {
+      ...ctx,
+      commands: {
+        ...commands,
+        setCaptions: (captions) => commands.setCaptions(captions, target),
+        updateCaptions: (patch) => commands.updateCaptions(patch, target),
+      },
+    };
+  }
+  const json = parseJson(args);
+
+  // ── template: list built-ins (no arg) or apply one — works with captions off ──
+  if (action === 'template') {
+    const pick = str(args.templatePreset) || str(args.preset);
+    if (!pick) return { ok: true, presets: CAPTION_STYLES.map((p) => ({ id: p.id, name: p.label, nameZh: p.labelZh, styleProfile: p.hint })) };
+    if (!isTemplate(pick)) return { error: `unknown caption preset "${pick}"`, presets: CAPTION_STYLES.map((p) => p.id) };
+    if (!c) return { error: 'captions are off; action=enable first' };
+    ctx.commands.updateCaptions({ template: pick }); // size/position preserved (styleOverride/layout untouched)
+    return { ok: true, template: pick };
+  }
+
+  // ── lifecycle ──
+  if (action === 'enable') {
+    const transcribed = s.items.filter((it) => hasOperationalTranscript(it));
+    const hasManualWords = !!c?.words?.length || !!c?.sourceEntries?.some((entry) => entry.words !== undefined);
+    if (!transcribed.length && !hasManualWords) return { error: 'no current transcript to caption; run transcribe_track first' };
+    const presetArg = str(args.preset);
+    const template: CaptionTemplate = presetArg && presetArg !== 'auto' && isTemplate(presetArg) ? presetArg : (c?.template ?? 'plain');
+    const pacing: CaptionPacing = c?.pacing ?? 'phrase';
+    const base: CaptionsData = { ...(c ?? {}), enabled: true, template, pacing };
+    const currentSource = c?.sourceItemId ? s.items.find((item) => item.id === c.sourceItemId) : undefined;
+    if (!hasOperationalTranscript(currentSource) && transcribed[0]) base.sourceItemId = transcribed[0].id;
+    if (c) ctx.commands.updateCaptions(base); else ctx.commands.setCaptions(base);
+    return { ok: true, enabled: true, template, pacing, note: 'captions read the anchored source; for ALL audible tracks use action=source_set {mode:"timeline"}.' };
+  }
+  if (action === 'disable') {
+    if (c) ctx.commands.updateCaptions({ enabled: false });
+    return { ok: true, enabled: false };
+  }
+  if (action === 'hide_overlay') {
+    ctx.commands.setCaptionsHidden(true);
+    return {
+      ok: true,
+      action,
+      captionsHidden: true,
+      note: 'Overlay hidden (captionsHidden). Caption track data is kept; use show_overlay to restore.',
+    };
+  }
+  if (action === 'show_overlay') {
+    ctx.commands.setCaptionsHidden(false);
+    return {
+      ok: true,
+      action,
+      captionsHidden: false,
+      note: 'Overlay visible. If a track was disabled via action=disable, enable it first.',
+    };
+  }
+
+  if (!c) return { error: `captions are off; action=enable first (then ${action})` };
+
+  // ── style / layout / display / track ──
+  if (action === 'style') {
+    const { styleOverride, pacing, ignored } = mapCaptionStyle(json, s.height);
+    const patch: Partial<CaptionsData> = { styleOverride: { ...(c.styleOverride ?? {}), ...styleOverride } };
+    if (pacing) patch.pacing = pacing;
+    if (!Object.keys(styleOverride).length && !pacing) return { error: 'style needs at least one recognized field in json', ...(ignored.length ? { ignored } : {}) };
+    ctx.commands.updateCaptions(patch);
+    return { ok: true, applied: Object.keys(styleOverride), ...(pacing ? { pacing } : {}), ...(ignored.length ? { ignored } : {}) };
+  }
+  if (action === 'animation') {
+    const requestedPreset = str(args.motionPreset) || str(json.preset);
+    if (!isCaptionMotionPreset(requestedPreset)) {
+      return {
+        error: 'animation needs motionPreset: none|fade-up|pop|word-pop|karaoke-pulse',
+      };
+    }
+    const motionPreset: CaptionMotionPreset = requestedPreset;
+    ctx.commands.updateCaptions({ motionPreset });
+    return { ok: true, motionPreset };
+  }
+  if (action === 'layout') {
+    const layout = toLayout(json, s.width, s.height);
+    if (!layout) return { error: 'layout 移动整块字幕,参数例:{"preset":"bottom-center"}(3×3 锚点/top/bottom/center)或 {"offsetXRatio":0.1,"offsetYRatio":-0.05} 微调;要把多条字幕分开摆(如英文上/中文下)用 action=positions,不是 layout' };
+    ctx.commands.updateCaptions({ layout });
+    return { ok: true, layout };
+  }
+  if (action === 'display_text') return displayText(json, c, ctx, s);
+  if (action === 'track') {
+    const trackIds = timelineTrackIds(s);
+    if (args.list === true) {
+      return {
+        ok: true,
+        tracks: trackIds.map((id, trackOrder) => ({
+          trackOrder,
+          trackId: trackAlias(s, id),
+          id,
+          hasTranscript: s.items.some((item) => item.track === id && hasOperationalTranscript(item)),
+        })),
+      };
+    }
+    const requestedOrder = args.trackOrder === undefined ? undefined : orderNum(args.trackOrder);
+    if (args.trackOrder !== undefined && requestedOrder === undefined) return { error: 'trackOrder must be a non-negative 0-based integer' };
+    const requestedTrack = str(args.trackId);
+    const stableTrackId = requestedTrack
+      ? resolveTrackId(s, requestedTrack)
+      : requestedOrder === undefined ? null : trackIds[requestedOrder] ?? null;
+    if (!stableTrackId) {
+      return { error: requestedOrder === undefined
+        ? 'track needs trackId or trackOrder (or list:true). To choose visible caption text, prefer source_set.'
+        : `trackOrder ${requestedOrder} out of range (0..${Math.max(0, trackIds.length - 1)})` };
+    }
+    const it = firstTranscribedOnTrack(s, stableTrackId);
+    if (!it) return { error: `no transcribed clip on track ${trackAlias(s, stableTrackId)}` };
+    ctx.commands.updateCaptions({ sourceItemId: it.id, sources: undefined, sourceMode: 'item' });
+    return { ok: true, trackId: trackAlias(s, stableTrackId), trackOrder: trackIds.indexOf(stableTrackId), sourceItemId: it.id };
+  }
+
+  // ── multi-source + language (delegated) ──
+  if (action === 'layout_policy') return execLayoutPolicy(json, c, ctx);
+  if (action === 'positions') return execPositions(json, c, ctx, s);
+  if (action === 'source_update') return execSourceUpdate(json, c, ctx, s);
+  if (action === 'source_list') return sourceList(c, s);
+  if (action === 'source_set') return sourceSet(json, c, ctx, s);
+  if (action === 'source_add') return sourceAdd(json, c, ctx, s);
+  if (action === 'source_remove') return sourceRemove(json, c, ctx, s);
+  if (action === 'language_mode') return languageMode(json, c, ctx, s);
+  if (action === 'bilingual') return bilingual(json, c, ctx, s);
+
+  // ── IDB-backed user style presets: save/apply/list/rename/delete ─────────
+  if (action === 'preset_save') {
+    const name = str(args.presetName) || str(json.name) || str(json.presetName);
+    if (!name) return { error: 'preset_save needs presetName (or json.name)' };
+    const preset: CaptionPreset = {
+      id: `cp_${crypto.randomUUID()}`,
+      name,
+      template: c.template,
+      styleOverride: c.styleOverride,
+      pacing: c.pacing,
+      createdAt: Date.now(),
+      motionPreset: c.motionPreset,
+    };
+    await saveCaptionPreset(preset);
+    return { ok: true, presetId: preset.id, name, captured: { template: c.template, styleFields: Object.keys(c.styleOverride ?? {}) } };
+  }
+  if (action === 'preset_list') {
+    const presets = await listCaptionPresets();
+    return { ok: true, presets: presets.map((p) => ({ id: p.id, name: p.name, template: p.template })) };
+  }
+  if (action === 'preset_apply') {
+    const preset = await findPreset(args, json);
+    if (!preset) return { error: 'preset_apply needs presetId or presetName of a saved preset (see preset_list)' };
+    ctx.commands.updateCaptions({
+      template: preset.template ?? c.template,
+      styleOverride: preset.styleOverride ?? {},
+      ...(preset.pacing ? { pacing: preset.pacing } : {}),
+      ...(preset.motionPreset ? { motionPreset: preset.motionPreset } : {}),
+    });
+    return { ok: true, applied: preset.name, presetId: preset.id, template: preset.template };
+  }
+  if (action === 'preset_rename') {
+    const preset = await findPreset(args, json);
+    if (!preset) return { error: 'preset_rename needs presetId (see preset_list)' };
+    const name = str(args.newName) || str(json.newName) || str(json.name);
+    if (!name) return { error: 'preset_rename needs a new name (newName / json.name)' };
+    await saveCaptionPreset({ ...preset, name });
+    return { ok: true, presetId: preset.id, name };
+  }
+  if (action === 'preset_delete') {
+    const preset = await findPreset(args, json);
+    if (!preset) return { error: 'preset_delete needs presetId (see preset_list)' };
+    await deleteCaptionPreset(preset.id);
+    return { ok: true, deleted: preset.name, presetId: preset.id };
+  }
+
+
+  return { error: `unknown action "${action}"` };
+}

@@ -1,0 +1,26 @@
+{
+  "name": "dasheng-commercial-promo-video",
+  "version": "0.1.0",
+  "lane": "commercial_promo_video",
+  "pipeline": "configs/video/pipelines/commercial_promo.yaml",
+  "director_id": "commercial_promo_director",
+  "entry": "skills/dasheng-commercial-promo-video/scripts/build_commercial_promo_package.py",
+  "supported_modes": ["brand_film", "product_promo", "launch_trailer", "performance_ad"],
+  "default_durations_sec": [15, 30, 60],
+  "default_format": {
+    "aspect_ratio": "9:16",
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "alternate_profiles": ["16:9", "1:1", "4:5"]
+  },
+  "required_gates": [
+    "brand_brief_gate",
+    "storyboard_review_gate",
+    "claim_evidence_gate",
+    "renderer_asset_gate",
+    "renderer_contract_gate",
+    "video_render_qc",
+    "final_delivery_manifest"
+  ]
+}

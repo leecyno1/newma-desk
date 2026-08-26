@@ -1,0 +1,4 @@
+interface:
+  display_name: "柠檬卡通插画"
+  short_description: "为口播视频生成柠檬人概念插画与透明叠加素材。"
+  default_prompt: "Use $dasheng-lemon-illustrations to turn this narration beat into a production-ready lemon-person illustration asset without replacing real evidence."

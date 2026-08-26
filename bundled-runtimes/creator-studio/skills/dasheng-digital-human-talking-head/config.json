@@ -1,0 +1,24 @@
+{
+  "name": "dasheng-digital-human-talking-head",
+  "version": "0.3.0",
+  "stage": "video",
+  "description": "用授权肖像和独立说话人音轨生成单人或双人数字人物源，再由 Remotion 合成口播或访谈。",
+  "runner": "python",
+  "entry": "scripts/build_digital_human_job.py",
+  "inputs": {
+    "required": ["one or two authorized portrait images", "one audio track per presenter", "Luma signed-in session"],
+    "optional": ["Codex imagegen character edit", "subtitle or dialogue-turn timestamps", "speaker labels", "article evidence"]
+  },
+  "outputs": [
+    "digital_human_job.json",
+    "presenter_source_manifest.json",
+    "digital_human_source.mp4",
+    "digital_human_interview_source.mp4",
+    "digital_human_qc.json"
+  ],
+  "hitl": true,
+  "local_video_api_required": false,
+  "video_provider": "luma_dream_machine_browser",
+  "lane": "digital_human_video",
+  "supported_modes": ["single_presenter", "dual_interview"]
+}

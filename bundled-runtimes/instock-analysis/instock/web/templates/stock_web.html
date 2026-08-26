@@ -1,0 +1,217 @@
+{% extends "layout/default.html" %}
+
+{% block main_content %}
+<link rel="stylesheet" href="/static/css/bootstrap-datepicker3.min.css" />
+<link rel="stylesheet" href="/static/css/gc.spread.sheets.excel2013white.css" type="text/css"/>
+<script type="text/javascript" src="/static/js/gc.spread.sheets.all.min.js"></script>
+<script src="/static/js/FileSaver.js" type="text/javascript"></script>
+<script src="/static/js/gc.spread.sheets.tablesheet.min.js" type="text/javascript"></script>
+<script type="text/javascript" src="/static/js/gc.spread.sheets.resources.zh.min.js"></script>
+<script src="/static/js/gc.spread.excelio.min.js" type="text/javascript"></script>
+<script src="/static/js/bootstrap-datepicker.min.js"></script>
+<script src="/static/js/bootstrap-datepicker.zh-CN.min.js"></script>
+<div style="height: 100%;overflow: hidden;">
+        <div class="table-header" style="width:100%;height:35px;">
+            <div style="display:inline-block;float:left;height:100%;">
+                <div style="display:inline-block;float:left;text-overflow:ellipsis;white-space:nowrap;">
+                    {{ web_module_data.name }}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;日期：
+                </div>
+                <div style="display:inline-block;float:right;">
+                    <input type="hidden" id="dateid_old">
+                    <input type="text" value="{{ date_now }}" id="dateid" class="input-group-sm form-control date-picker">
+                </div>
+            </div>
+            <div style="display:inline-block;float:right;height:100%;">
+                <input type="button" id="resetFilter" value="重置筛选" style="background-color:#307ECC;height:100%;">
+                <input type="button" id="saveExcel" value="保存Excel" style="background-color:#307ECC;height:100%;">
+            </div>
+        </div>
+        <div id="instock-data" style="width:100%;height:calc( 100% - 55px );"></div>
+        <div id="statusBar" style="width:100%;height:20px;"></div>
+</div>
+
+<script type="text/javascript">
+    const nameParam = $.getUrlVar('table_name');
+    let dateParam = "{{ date_now }}";
+    const colInfos = {% raw web_module_data.column_names %};
+    let myView;
+
+    $(document).ready(function () {
+        const spread = new GC.Spread.Sheets.Workbook(document.getElementById('instock-data'), {sheetCount: 0});
+        spread.options.newTabVisible = false;
+        spread.options.tabEditable = false;
+        spread.options.tabNavigationVisible = false;
+        spread.options.tabStripRatio = 0.37;
+        const sheet = spread.addSheetTab(0, nameParam, GC.Spread.Sheets.SheetType.tableSheet);
+        sheet.options.sheetTabColor = 'red';
+        sheet.options.allowAddNew = false; //hide new row
+        sheet.setDefaultRowHeight(80, GC.Spread.Sheets.SheetArea.colHeader);
+        sheet.applyTableTheme(GC.Spread.Sheets.Tables.TableThemes.light18)
+        if (colInfos[1].value == 'code') {
+            let hyperlinkStyle = new GC.Spread.Sheets.Style();
+            let hl = new GC.Spread.Sheets.CellTypes.HyperLink();
+            hl.onClickAction(function (cell) {
+                row = cell.row;
+                window.open('/instock/data/indicators?code=' + sheet.getSheet().getValue(row, 1) + '&date=' + (sheet.getSheet().getValue(row, 0)).format('yyyy-MM-dd') + '&name=' + sheet.getSheet().getValue(row, 2), '_blank');
+            });
+            hyperlinkStyle.cellType = hl;
+            colInfos[1].style = hyperlinkStyle;
+        }
+        let statusBar = initStatusBar(spread);
+        initSpread(spread, statusBar);
+        initEvent(spread, statusBar);
+        const elem = document.querySelector('#instock-data')
+        {
+          let prevWidth;
+          new ResizeObserver(changes => {
+            for(const change of changes){
+              if(change.contentRect.width === prevWidth) {return;}
+              spread.refresh();
+            }
+          }).observe(elem);
+        };
+
+        $( ".date-picker" ).datepicker({
+            language: 'zh-CN', //设置语言
+            format:"yyyy-mm-dd",
+            showOtherMonths: true,
+            selectOtherMonths: false,
+            autoclose: true,
+            todayHighlight: true,
+            onSelect: function(selected,evnt) {
+                 console.log(selected);
+            }
+        }).on('changeDate', function(ev){
+           initSpread(GC.Spread.Sheets.findControl(document.getElementById('instock-data')));
+        });
+    });
+
+    function initStatusBar(spread) {
+        let old_cnd = 1;
+        let StatusItem = GC.Spread.Sheets.StatusBar.StatusItem;
+        function RecordCountItem(name, options) {
+            StatusItem.call(this, name, options);
+            this.cno = 1;
+            this.dataSourceLength = 0;
+            this.visibleLength =  0;
+        }
+        RecordCountItem.prototype = new StatusItem();
+        RecordCountItem.prototype.onCreateItemView = function(container) {
+            let element = this._element;
+            if (!element) {
+                element = this._element = document.createElement("span");
+                element.innerHTML = " <i class=\"fa fa-commenting-o\"></i>总记录/筛选记录：<b>" + this.dataSourceLength + "</b> / <b>" + this.visibleLength + "</b> 条 - 当前位置：第 <b>" + this.cno + "</b> 行";
+            }
+            container.appendChild(element);
+        };
+        RecordCountItem.prototype.onBind = function(context) {
+            let _this = this;
+            context.bind(GC.Spread.Sheets.Events.SelectionChanged, function(e, args) {
+                let row = args.newSelections[0].row;
+                if (row > 0 || args.newSelections[0].rowCount > 0) {
+                    _this.cno = row + 1;
+                }else{
+                    _this.cno = 0;
+                }
+                _this.onUpdate();
+            });
+            context.bind(GC.Spread.Sheets.Events.RangeFiltered, function (e, args) {
+                _this.dataSourceLength = myView.length();
+                _this.visibleLength = myView.visibleLength();
+                if (_this.visibleLength===0){old_cnd=_this.cno;_this.cno = 0;}
+                _this.onUpdate();
+            });
+            context.bind(GC.Spread.Sheets.Events.RangeFilterCleared, function (e, args) {
+                _this.dataSourceLength = myView.length();
+                _this.visibleLength = myView.visibleLength();
+                if (_this.visibleLength>0){_this.cno = old_cnd;}
+                _this.onUpdate();
+            });
+        };
+        RecordCountItem.prototype.onUpdate = function() {
+            StatusItem.prototype.onUpdate.call(this);
+            this._element.innerHTML = " <i class=\"fa fa-commenting-o\"></i>总记录/筛选记录：<b>" + this.dataSourceLength + "</b> / <b>" + this.visibleLength + "</b> 条 - 当前位置：第 <b>" + this.cno + "</b> 行";
+        };
+        let recordCountItem = new RecordCountItem('recordCountItem', { menuContent: '当前位置', value: 0 });
+        let statusBar = new GC.Spread.Sheets.StatusBar.StatusBar(document.getElementById('statusBar'), {
+            items: [recordCountItem]
+        });
+        statusBar.bind(spread);
+        return statusBar;
+    }
+
+    function initSpread(spread, statusBar) {
+        const dateParam_old = document.getElementById("dateid_old").value
+        dateParam = document.getElementById('dateid').value;
+        if (dateParam_old === dateParam) return;
+        document.getElementById("dateid_old").value = dateParam
+        spread.suspendPaint();
+        const dataManager = spread.dataManager();
+        const productTable = dataManager.addTable("productTable", {
+            remote: {
+                read: {
+                    url: "/instock/api_data?name="+nameParam+"&date="+dateParam
+                }
+            },
+            schema: {
+              columns: {
+                listing_date: { dataType: "date" },
+                report_date: { dataType: "date" },
+                plan_date: { dataType: "date" },
+                record_date: { dataType: "date" },
+                ex_dividend_date: { dataType: "date" },
+                record_date: { dataType: "date" },
+              },
+            }
+        });
+        const sheet = spread.getActiveSheetTab();
+        myView = productTable.addView("myView",colInfos);
+        myView.fetch().then(function() {
+            sheet.setDataView(myView);
+            sheet.togglePinnedColumns([0,1,2]);
+            if (statusBar) {
+                let recordItem = statusBar.get("recordCountItem");
+                if (recordItem) {
+                    recordItem.dataSourceLength = myView.length();
+                    recordItem.visibleLength = myView.visibleLength();
+                    if (recordItem.visibleLength===0){recordItem.cno = 0;}
+                    recordItem.onUpdate();
+                }
+            }
+        });
+        spread.resumePaint();
+    }
+
+    function initEvent(spread,statusBar) {
+        document.getElementById('saveExcel').onclick = function() {
+            const excelIo = new GC.Spread.Excel.IO();
+            const json = spread.toJSON({ includeBindingSource: true, saveAsView: true });
+            excelIo.save(json, function(blob) {
+                saveAs(blob, nameParam+dateParam+".xlsx");
+            }, function(e) {
+                console.log(e);
+            });
+        };
+        document.getElementById("resetFilter").onclick = function() {
+            spread.getActiveSheetTab().getSheet().rowFilter().reset();
+            if (statusBar) {
+                let recordItem = statusBar.get("recordCountItem");
+                if (recordItem) {
+                    recordItem.visibleLength =recordItem.dataSourceLength
+                    recordItem.onUpdate();
+                }
+            }
+        };
+    }
+
+    Date.prototype.format = function (format) {
+      let o = {
+        "y": "" + this.getFullYear(),
+        "M": "" + (this.getMonth() + 1),  //month
+        "d": "" + this.getDate(),         //day
+        "h": "" + this.getHours(),        //hour
+      }
+      return Object.keys(o).reduce((pre, k)=> (new RegExp("(" + k + "+)").test(pre)) ? (pre.replace(RegExp.$1, RegExp.$1.length === 1 ? o[k] : o[k].padStart(2, "0"))) : pre , format);
+    }
+</script>
+{% end %}

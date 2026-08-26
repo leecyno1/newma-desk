@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.digital_human_job.v1",
+  "title": "Newma Digital Human Job",
+  "type": "object",
+  "required": ["schema_version", "status", "presenter_source", "inputs", "voice", "generation", "outputs", "handoff", "gates"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "dasheng.digital_human_job.v1"},
+    "status": {"type": "string"},
+    "presenter_source": {
+      "type": "object",
+      "required": ["kind", "engine", "consent"],
+      "properties": {
+        "kind": {"type": "string", "const": "digital_human"},
+        "engine": {"type": "string", "enum": ["luma_dream_machine", "joyvasa_liveportrait", "multi_source"]},
+        "consent": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {"status": {"type": "string", "const": "confirmed"}},
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "inputs": {
+      "type": "object",
+      "required": ["portrait", "audio"],
+      "properties": {
+        "portrait": {"type": "string", "minLength": 1},
+        "audio": {"type": "string", "minLength": 1},
+        "subtitle": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "voice": {
+      "type": "object",
+      "required": ["provider", "master_audio", "mount_policy"],
+      "properties": {
+        "provider": {"type": "string", "const": "minimax"},
+        "master_audio": {"type": "string", "minLength": 1},
+        "mount_policy": {"type": "string", "enum": ["exactly_once_at_remotion_root", "dialogue_turns_once_at_remotion_root"]}
+      },
+      "additionalProperties": true
+    },
+    "generation": {
+      "type": "object",
+      "required": ["profile", "api_video_generation"],
+      "properties": {
+        "profile": {"type": "string", "enum": ["animal_presenter", "calm_presenter", "stable_lips", "expressive_presenter", "dual_interview"]},
+        "cfg_scale": {"type": "number", "minimum": 1, "maximum": 2.5},
+        "animation_region": {"type": "string", "enum": ["all", "lip", "exp", "pose", "eyes"]},
+        "api_video_generation": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "mode": {"type": "string", "enum": ["single_presenter", "dual_interview"]},
+    "presenters": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["speaker_id", "job", "manifest", "video", "master_audio"],
+        "properties": {
+          "speaker_id": {"type": "string"},
+          "display_name": {"type": "string"},
+          "job": {"type": "string"},
+          "manifest": {"type": "string"},
+          "video": {"type": "string"},
+          "master_audio": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "dialogue": {"type": "object"},
+    "outputs": {"type": "object"},
+    "handoff": {"type": "object"},
+    "gates": {"type": "object"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,2744 @@
+{
+  "schema_version": "newma.creator_studio_registry.v1",
+  "updated_at": "2026-08-23",
+  "product": {
+    "id": "newma-creator-studio",
+    "name": "Newma Creator Studio",
+    "namespace": "newma",
+    "control_module": "scripts/newma_creator_control.py",
+    "namespace_aliases": "configs/workflow/newma_namespace_aliases.json"
+  },
+  "navigation": {
+    "default_view": "dashboard",
+    "stage_axis": "vertical",
+    "node_axis": "horizontal",
+    "flow_connector": "dashed_arrow",
+    "fixed_items": [
+      {
+        "id": "dashboard",
+        "name": "状态看板",
+        "position": "top"
+      },
+      {
+        "id": "marketplace",
+        "name": "超市项目",
+        "position": "bottom"
+      },
+      {
+        "id": "settings",
+        "name": "设置",
+        "position": "bottom"
+      }
+    ],
+    "node_workspace_tabs": [
+      "状态",
+      "输入素材",
+      "本环节文件",
+      "修改与反馈",
+      "人工编辑",
+      "运行日志",
+      "节点设置",
+      "转接下一节点"
+    ],
+    "removed_global_pages": [
+      "审核",
+      "交付物",
+      "剪辑",
+      "发布"
+    ]
+  },
+  "status_model": {
+    "values": [
+      "pending",
+      "queued",
+      "running",
+      "waiting_user",
+      "changes_requested",
+      "blocked",
+      "failed",
+      "succeeded",
+      "skipped",
+      "stale",
+      "cancelled"
+    ],
+    "legacy_mapping": {
+      "pending_review": "waiting_user",
+      "approved": "succeeded",
+      "complete": "succeeded",
+      "needs_revision": "changes_requested"
+    }
+  },
+  "node_defaults": {
+    "supports_create_project_here": true,
+    "supports_manual_material": true,
+    "supports_upstream_handoff": true,
+    "common_actions": [
+      "create_project_here",
+      "attach_material",
+      "use_upstream_artifact",
+      "run",
+      "retry",
+      "submit_feedback",
+      "save_version",
+      "continue_to_next"
+    ]
+  },
+  "execution_adapters": [
+    {
+      "id": "newma.control.package",
+      "kind": "package",
+      "message": "已生成结构化节点配置包。"
+    },
+    {
+      "id": "newma.control.review-gate",
+      "kind": "review_gate",
+      "message": "审核包已生成，等待用户批准或退回。"
+    },
+    {
+      "id": "newma.control.editor-session",
+      "kind": "editor_session",
+      "message": "人工编辑会话已创建，等待编辑结果回写。"
+    },
+    {
+      "id": "newma.control.capability-session",
+      "kind": "capability_session",
+      "message": "能力调用请求已创建，等待已注册工具或人工产物回写。"
+    },
+    {
+      "id": "newma.control.publish-confirmation",
+      "kind": "publish_confirmation",
+      "message": "发布执行包已准备，等待当前任务的明确发布确认。"
+    },
+    {
+      "id": "newma.publish.preflight",
+      "kind": "publish_preflight",
+      "timeout_seconds": 300
+    },
+    {
+      "id": "newma.publish.execute",
+      "kind": "publish_execute",
+      "timeout_seconds": 14400
+    },
+    {
+      "id": "newma.publish.verify",
+      "kind": "publish_verify",
+      "timeout_seconds": 300
+    },
+    {
+      "id": "newma.control.route-select",
+      "kind": "route_select"
+    },
+    {
+      "id": "newma.mainline.intake",
+      "kind": "mainline_stage",
+      "stage": "intake",
+      "timeout_seconds": 1800,
+      "artifacts": [
+        {
+          "type": "intake_records",
+          "path": "raw/intake_records.json"
+        },
+        {
+          "type": "raw_assets",
+          "path": "raw"
+        },
+        {
+          "type": "source_receipts",
+          "path": "channel_tasks.json"
+        },
+        {
+          "type": "intake_report",
+          "path": "notes/01_内容采集_报告.md",
+          "label": "内容采集报告"
+        },
+        {
+          "type": "channel_hotspot_list",
+          "path": "channel_top10.json",
+          "label": "各渠道热点 Top10"
+        },
+        {
+          "type": "ai_hot_topics",
+          "path": "ai_hot_topics.json",
+          "label": "AI 热点清单"
+        },
+        {
+          "type": "duplicate_report",
+          "path": "duplicate_report.json",
+          "label": "去重与冲突报告"
+        },
+        {
+          "type": "event_clusters",
+          "path": "event_clusters.json",
+          "label": "去重后的事件列表"
+        },
+        {
+          "type": "source_quality_report",
+          "path": "source_quality_report.json",
+          "label": "来源质量报告"
+        },
+        {
+          "type": "recommended_topics",
+          "path": "recommended_topics.json",
+          "label": "推荐选题清单"
+        }
+      ]
+    },
+    {
+      "id": "newma.mainline.brief",
+      "kind": "mainline_stage",
+      "stage": "brief",
+      "timeout_seconds": 1800,
+      "artifacts": [
+        {
+          "type": "event_clusters",
+          "path": "event_clusters.json"
+        },
+        {
+          "type": "topic_cards",
+          "path": "topic_cards.json"
+        },
+        {
+          "type": "brief_manifest",
+          "path": "brief_manifest.json"
+        },
+        {
+          "type": "research_source_pack",
+          "path": "brief_signal_bundle.json",
+          "label": "全网资料与引用底稿"
+        },
+        {
+          "type": "topic_reasoning_report",
+          "path": "topic_reasoning_report.html",
+          "label": "选题分析与逻辑推演报告"
+        },
+        {
+          "type": "topic_ranking",
+          "path": "topic_ranking.json",
+          "label": "选题评分与排序"
+        },
+        {
+          "type": "topic_expansion_map",
+          "path": "topic_expansion_map.json",
+          "label": "话题衍生关系图"
+        }
+      ]
+    },
+    {
+      "id": "newma.mainline.draft",
+      "kind": "mainline_stage",
+      "stage": "draft",
+      "timeout_seconds": 2400,
+      "artifacts": [
+        {
+          "type": "evidence_ledger",
+          "glob": "03_ReasoningSheet_*.json"
+        },
+        {
+          "type": "data_tables",
+          "glob": "03_DraftAssets_*.json"
+        },
+        {
+          "type": "image_pool",
+          "glob": "03_DraftAssets_*.json"
+        },
+        {
+          "type": "citation_index",
+          "glob": "03_ReasoningSheet_*.json"
+        },
+        {
+          "type": "draft_manifest",
+          "path": "draft_manifest.json"
+        },
+        {
+          "type": "article_markdown",
+          "glob": "03_标准初稿_*.md"
+        },
+        {
+          "type": "article_html",
+          "glob": "03_HTML草稿_*.html"
+        }
+      ]
+    },
+    {
+      "id": "newma.mainline.transwrite",
+      "kind": "mainline_stage",
+      "stage": "transwrite",
+      "timeout_seconds": 2400,
+      "artifacts": [
+        {
+          "type": "video_script",
+          "json_key": "script"
+        },
+        {
+          "type": "claim_evidence_ledger",
+          "glob": "**/claim_evidence_ledger.json"
+        },
+        {
+          "type": "retention_plan",
+          "glob": "**/script_quality_gate.json"
+        },
+        {
+          "type": "transwrite_manifest",
+          "path": "transwrite_manifest.json"
+        }
+      ]
+    },
+    {
+      "id": "newma.video.director",
+      "kind": "video_director",
+      "timeout_seconds": 2400,
+      "artifacts": [
+        {
+          "type": "scene_plan",
+          "json_key": "scene_plan"
+        },
+        {
+          "type": "tool_routing_plan",
+          "json_key": "tool_routing_plan"
+        },
+        {
+          "type": "storyboard_review",
+          "json_key": "review_html"
+        }
+      ]
+    },
+    {
+      "id": "newma.mainline.publish-package",
+      "kind": "mainline_stage",
+      "stage": "publish",
+      "timeout_seconds": 1200,
+      "artifacts": [
+        {
+          "type": "channel_packs",
+          "path": "publish_manifest.json"
+        },
+        {
+          "type": "cover_pack",
+          "glob": "**/cover*"
+        },
+        {
+          "type": "platform_copy",
+          "glob": "**/*publish*.md"
+        }
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "order": 1,
+      "id": "intake",
+      "name": "内容采集",
+      "short_label": "采集",
+      "entry_skill": "newma-daily-intake",
+      "color": "#42d6a4",
+      "nodes": [
+        {
+          "id": "collect",
+          "name": "多源热点发现",
+          "description": "从新闻、公众号、社交平台、研报和本地素材中抓取热点，向用户交付完整热点清单与来源统计。来源配置保留在后台，不作为前端产品。",
+          "material_requirements": [
+            {
+              "type": "source",
+              "label": "补充来源（可选）",
+              "required": false,
+              "accepts": [
+                "url",
+                ".json",
+                ".md",
+                ".txt"
+              ],
+              "sources": [
+                "manual"
+              ]
+            }
+          ],
+          "outputs": [
+            "intake_records",
+            "raw_assets",
+            "source_receipts",
+            "intake_report",
+            "channel_hotspot_list"
+          ],
+          "executor": "newma.mainline.intake",
+          "product": {
+            "kind": "report_and_list",
+            "title": "多源热点清单",
+            "summary": "展示本轮一共找到了什么、分别来自哪些渠道、哪些内容最热。用户先看报告和榜单，原始抓取文件放在底层目录。",
+            "primary_outputs": [
+              {
+                "type": "intake_report",
+                "label": "内容采集报告",
+                "patterns": [
+                  "01_采集/notes/01_内容采集_报告.md"
+                ]
+              },
+              {
+                "type": "channel_hotspot_list",
+                "label": "各渠道热点 Top10",
+                "patterns": [
+                  "01_采集/channel_top10.json"
+                ]
+              },
+              {
+                "type": "ai_hot_topics",
+                "label": "AI 热点清单",
+                "patterns": [
+                  "01_采集/ai_hot_topics.json"
+                ]
+              }
+            ],
+            "supporting_outputs": [
+              {
+                "type": "intake_records",
+                "label": "全部采集记录",
+                "patterns": [
+                  "01_采集/raw/intake_records.json"
+                ]
+              },
+              {
+                "type": "source_receipts",
+                "label": "来源执行回执",
+                "patterns": [
+                  "01_采集/channel_tasks.json"
+                ]
+              }
+            ],
+            "interaction": {
+              "mode": "preview"
+            }
+          },
+          "actions": [
+            "run_collection",
+            "retry_failed_sources"
+          ],
+          "capabilities": [
+            "web_capture",
+            "media_download",
+            "metadata_extract"
+          ]
+        },
+        {
+          "id": "normalize",
+          "name": "去重合并",
+          "description": "把同一事件的重复内容合并，标出来源冲突、噪音和信息缺口，交付去重后的事件清单。",
+          "material_requirements": [
+            {
+              "type": "intake_records",
+              "label": "采集记录",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "normalized_records",
+            "duplicate_report",
+            "event_clusters",
+            "source_quality_report",
+            "intake_manifest"
+          ],
+          "executor": "newma.control.review-gate",
+          "product": {
+            "kind": "dedup_report",
+            "title": "去重事件与冲突报告",
+            "summary": "重点看合并后还剩多少事件、哪些来源互相矛盾、哪些高热内容其实是噪音。",
+            "primary_outputs": [
+              {
+                "type": "duplicate_report",
+                "label": "去重与冲突报告",
+                "patterns": [
+                  "01_采集/duplicate_report.json"
+                ]
+              },
+              {
+                "type": "event_clusters",
+                "label": "去重后的事件列表",
+                "patterns": [
+                  "01_采集/event_clusters.json"
+                ]
+              },
+              {
+                "type": "source_quality_report",
+                "label": "来源质量报告",
+                "patterns": [
+                  "01_采集/source_quality_report.json"
+                ]
+              }
+            ],
+            "supporting_outputs": [
+              {
+                "type": "intake_manifest",
+                "label": "采集清单",
+                "patterns": [
+                  "01_采集/intake_manifest.json"
+                ]
+              }
+            ],
+            "interaction": {
+              "mode": "approve"
+            }
+          },
+          "gate": {
+            "required": true,
+            "kind": "human_review",
+            "approve_action": "approve_dedup",
+            "reject_action": "request_dedup_changes"
+          },
+          "actions": [
+            "merge_duplicates",
+            "edit_source_metadata"
+          ],
+          "capabilities": [
+            "deduplication",
+            "content_normalization",
+            "source_trace"
+          ]
+        },
+        {
+          "id": "intake_review",
+          "name": "推荐选题与交付",
+          "description": "基于去重事件继续加工，交付本轮推荐选题及其依据；审核通过后把完整资料包交给 Brief。",
+          "material_requirements": [
+            {
+              "type": "duplicate_report",
+              "label": "去重报告",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "recommended_topics",
+            "intake_review",
+            "brief_handoff"
+          ],
+          "executor": "newma.control.review-gate",
+          "product": {
+            "kind": "topic_delivery",
+            "title": "Intake 推荐选题",
+            "summary": "默认交付约 10 个值得进入 Brief 的题目，并说明热度、差异化、受众价值与继续研究的理由。",
+            "primary_outputs": [
+              {
+                "type": "recommended_topics",
+                "label": "推荐选题清单",
+                "patterns": [
+                  "01_采集/recommended_topics.json"
+                ]
+              },
+              {
+                "type": "brief_handoff",
+                "label": "Brief 交接包",
+                "patterns": [
+                  "01_采集/brief_input.json"
+                ]
+              }
+            ],
+            "supporting_outputs": [
+              {
+                "type": "intake_review",
+                "label": "采集审核记录",
+                "patterns": [
+                  "01_采集/intake_review.json",
+                  "nodes/intake/intake_review/intake_review.json"
+                ]
+              },
+              {
+                "type": "intake_topic_working_notes",
+                "label": "选题加工底稿",
+                "patterns": [
+                  "01_采集/notes/01_内容采集_底稿.md"
+                ]
+              }
+            ],
+            "interaction": {
+              "mode": "approve"
+            }
+          },
+          "gate": {
+            "required": true,
+            "kind": "human_review",
+            "approve_action": "approve_intake",
+            "reject_action": "request_collection_changes"
+          },
+          "actions": [
+            "approve",
+            "request_changes",
+            "handoff_to_brief"
+          ],
+          "capabilities": [
+            "coverage_check",
+            "material_gap_detection"
+          ]
+        }
+      ]
+    },
+    {
+      "order": 2,
+      "id": "brief",
+      "name": "选题 Brief",
+      "short_label": "Brief",
+      "entry_skill": "newma-daily-phase2",
+      "color": "#7ba7ff",
+      "nodes": [
+        {
+          "id": "event_cluster",
+          "name": "资料与全网研究",
+          "description": "接收 Intake 的底层资料，补充全网新闻、研报、数据与引用来源，形成可追溯的研究资料包。",
+          "material_requirements": [
+            {
+              "type": "brief_handoff",
+              "label": "采集交接包",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            }
+          ],
+          "outputs": [
+            "event_clusters",
+            "source_matrix",
+            "research_source_pack",
+            "brief_manifest"
+          ],
+          "executor": "newma.mainline.brief",
+          "product": {
+            "kind": "research_pack",
+            "title": "全网研究资料包",
+            "summary": "这里交付的是后续分析所依赖的事件簇、来源矩阵、引用链接和研究底稿，不要求用户阅读执行配置。",
+            "primary_outputs": [
+              {
+                "type": "event_clusters",
+                "label": "事件与资料归并报告",
+                "patterns": [
+                  "02_选题/event_clusters.json"
+                ]
+              },
+              {
+                "type": "research_source_pack",
+                "label": "全网资料与引用底稿",
+                "patterns": [
+                  "02_选题/brief_signal_bundle.json"
+                ]
+              }
+            ],
+            "supporting_outputs": [
+              {
+                "type": "brief_manifest",
+                "label": "Brief 生产清单",
+                "patterns": [
+                  "02_选题/brief_manifest.json"
+                ]
+              },
+              {
+                "type": "brief_agent_prompt",
+                "label": "研究任务说明",
+                "patterns": [
+                  "02_选题/brief_agent_prompt.md"
+                ]
+              }
+            ],
+            "interaction": {
+              "mode": "preview"
+            }
+          },
+          "actions": [
+            "merge_cluster",
+            "split_cluster"
+          ],
+          "capabilities": [
+            "event_clustering",
+            "source_comparison"
+          ]
+        },
+        {
+          "id": "topic_pool",
+          "name": "选题分析与推演",
+          "description": "对候选事件跑全网数据，完成论证、反驳、逻辑链和话题衍生，把约 10 个基础方向扩展为约 30 个可选话题。",
+          "material_requirements": [
+            {
+              "type": "event_clusters",
+              "label": "事件簇",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "topic_cards",
+            "topic_ranking",
+            "topic_reasoning_report",
+            "topic_expansion_map"
+          ],
+          "executor": "newma.control.editor-session",
+          "editors": [
+            "html_anything",
+            "wechat_preview"
+          ],
+          "product": {
+            "kind": "topic_analysis",
+            "title": "30 个衍生选题与逻辑推演",
+            "summary": "每个选题都要说明核心判断、证据、反方观点、逻辑链、受众价值和时效性，不能只交一份空的编辑会话。",
+            "primary_outputs": [
+              {
+                "type": "topic_reasoning_report",
+                "label": "选题分析与逻辑推演报告",
+                "patterns": [
+                  "02_选题/topic_reasoning_report.md",
+                  "02_选题/topic_reasoning_report.html"
+                ]
+              },
+              {
+                "type": "topic_cards",
+                "label": "30 个候选选题",
+                "patterns": [
+                  "02_选题/topic_cards.json"
+                ]
+              },
+              {
+                "type": "topic_ranking",
+                "label": "选题评分与排序",
+                "patterns": [
+                  "02_选题/topic_ranking.json"
+                ]
+              }
+            ],
+            "supporting_outputs": [
+              {
+                "type": "topic_expansion_map",
+                "label": "话题衍生关系图",
+                "patterns": [
+                  "02_选题/topic_expansion_map.json"
+                ]
+              }
+            ],
+            "interaction": {
+              "mode": "preview"
+            }
+          },
+          "actions": [
+            "add_topic",
+            "reorder_topics",
+            "discard_topic"
+          ],
+          "capabilities": [
+            "topic_generation",
+            "angle_design",
+            "priority_scoring"
+          ]
+        },
+        {
+          "id": "brief_review",
+          "name": "精选选题",
+          "description": "用户可以勾选 3—10 个题目，也可以直接采用系统推荐；选择结果进入详细 Brief。",
+          "material_requirements": [
+            {
+              "type": "topic_cards",
+              "label": "选题卡",
+              "required": true,
+              "accepts": [
+                ".json",
+                ".md"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            }
+          ],
+          "outputs": [
+            "selected_topics"
+          ],
+          "executor": "newma.control.review-gate",
+          "product": {
+            "kind": "topic_selection",
+            "title": "精选题目确认",
+            "summary": "在同一屏幕浏览候选题，勾选希望继续深挖的 3—10 个题目。选择会写入共享状态并传给下一节点。",
+            "primary_outputs": [
+              {
+                "type": "selected_topics",
+                "label": "已选题目",
+                "patterns": [
+                  "02_选题/selected_topics.json"
+                ]
+              }
+            ],
+            "interaction": {
+              "mode": "select",
+              "sourceType": "topic_cards",
+              "minSelect": 3,
+              "maxSelect": 10,
+              "actionLabel": "确认所选题目"
+            }
+          },
+          "gate": {
+            "required": true,
+            "kind": "human_review",
+            "approve_action": "approve_topics",
+            "reject_action": "request_topic_changes"
+          },
+          "actions": [
+            "approve",
+            "request_changes"
+          ],
+          "capabilities": [
+            "topic_selection",
+            "priority_override"
+          ]
+        },
+        {
+          "id": "research_brief",
+          "name": "详细 Brief 与提纲",
+          "description": "对入选题目进一步深挖，逐题交付核心判断、论证链、反方、数据需求、资料来源和文章提纲。",
+          "material_requirements": [
+            {
+              "type": "selected_topics",
+              "label": "已选题目",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "topic_briefs",
+            "article_outlines",
+            "research_plan",
+            "evidence_gaps",
+            "draft_handoff"
+          ],
+          "executor": "newma.control.editor-session",
+          "editors": [
+            "html_anything",
+            "wechat_preview"
+          ],
+          "product": {
+            "kind": "detailed_brief",
+            "title": "逐题详细 Brief 与文章提纲",
+            "summary": "每个入选题目单独成卡或成文档，用户可以逐题预览、修改和确认，再交给 Draft。",
+            "primary_outputs": [
+              {
+                "type": "topic_briefs",
+                "label": "逐题详细 Brief",
+                "patterns": [
+                  "02_选题/topic_briefs/*.md",
+                  "02_选题/topic_briefs/*.html",
+                  "02_选题/detailed_briefs.json"
+                ]
+              },
+              {
+                "type": "article_outlines",
+                "label": "文章提纲",
+                "patterns": [
+                  "02_选题/article_outlines/*.md",
+                  "02_选题/article_outlines.json"
+                ]
+              },
+              {
+                "type": "draft_handoff",
+                "label": "Draft 交接包",
+                "patterns": [
+                  "02_选题/draft_handoff.json",
+                  "nodes/brief/research_brief/draft_handoff.json"
+                ]
+              }
+            ],
+            "supporting_outputs": [
+              {
+                "type": "research_plan",
+                "label": "研究计划与证据缺口",
+                "patterns": [
+                  "02_选题/research_plan.json",
+                  "02_选题/evidence_gaps.json"
+                ]
+              }
+            ],
+            "interaction": {
+              "mode": "edit"
+            }
+          },
+          "actions": [
+            "run_research",
+            "edit_brief",
+            "handoff_to_draft"
+          ],
+          "capabilities": [
+            "research_planning",
+            "finance_evidence",
+            "counterargument_design",
+            "outline_generation"
+          ]
+        }
+      ]
+    },
+    {
+      "order": 3,
+      "id": "draft",
+      "name": "初稿生产",
+      "short_label": "初稿",
+      "entry_skill": "newma-daily-draft",
+      "color": "#f2c45d",
+      "nodes": [
+        {
+          "id": "evidence_base",
+          "name": "证据底稿",
+          "description": "补齐事实、数据、图表、新闻图片和引用。",
+          "material_requirements": [
+            {
+              "type": "draft_handoff",
+              "label": "初稿交接包",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            }
+          ],
+          "outputs": [
+            "evidence_ledger",
+            "data_tables",
+            "image_pool",
+            "citation_index"
+          ],
+          "executor": "newma.mainline.draft",
+          "product": {
+            "kind": "evidence_pack",
+            "title": "数据、图表与引用底稿",
+            "summary": "逐题展示已找到的数据表、生成图表、新闻图片、引用来源和仍待补齐的证据。",
+            "primary_outputs": [
+              {"type": "data_tables", "label": "数据表"},
+              {"type": "image_pool", "label": "图表与图片素材"},
+              {"type": "evidence_ledger", "label": "证据账本"},
+              {"type": "citation_index", "label": "引用与来源目录"}
+            ],
+            "interaction": {"mode": "preview"}
+          },
+          "actions": [
+            "search_evidence",
+            "attach_chart",
+            "mark_evidence_gap"
+          ],
+          "capabilities": [
+            "finance_research",
+            "chart_generation",
+            "news_image_search",
+            "citation_management"
+          ]
+        },
+        {
+          "id": "outline",
+          "name": "文章结构",
+          "description": "组织引子、论点递进、数据论证、反方和结论。",
+          "material_requirements": [
+            {
+              "type": "evidence_ledger",
+              "label": "证据账本",
+              "required": true,
+              "accepts": [
+                ".json",
+                ".md"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "article_outline",
+            "claim_order"
+          ],
+          "executor": "newma.control.editor-session",
+          "editors": [
+            "html_anything",
+            "wechat_preview"
+          ],
+          "product": {
+            "kind": "outline",
+            "title": "文章提纲与论证顺序",
+            "summary": "展示引子、章节、论点递进、反方观点和结论，用户可以调整章节和论证顺序。",
+            "primary_outputs": [
+              {"type": "article_outline", "label": "文章提纲"},
+              {"type": "claim_order", "label": "论点与证据顺序"}
+            ],
+            "interaction": {"mode": "edit"}
+          },
+          "actions": [
+            "reorder_sections",
+            "lock_structure"
+          ],
+          "capabilities": [
+            "argument_structure",
+            "retention_structure"
+          ]
+        },
+        {
+          "id": "article_draft",
+          "name": "分析底稿",
+          "description": "逐题生成不少于 10000 字的分析底稿，只处理事实、数据、论证、反驳、推理、情景和结论；不做 DNA、文风润色或平台包装。",
+          "material_requirements": [
+            {
+              "type": "article_outline",
+              "label": "文章结构",
+              "required": true,
+              "accepts": [
+                ".json",
+                ".md"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            },
+            {
+              "type": "evidence_ledger",
+              "label": "证据账本",
+              "required": true,
+              "accepts": [
+                ".json",
+                ".md"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "article_markdown",
+            "article_html",
+            "draft_manifest"
+          ],
+          "executor": "newma.control.editor-session",
+          "editors": [
+            "html_anything",
+            "wechat_preview"
+          ],
+          "product": {
+            "kind": "article_draft",
+            "title": "分析底稿与 HTML 预览",
+            "summary": "同一题目的 Markdown、HTML、事实口径、论证链和质量门禁统一展示；每题少于 10000 字不能通过。",
+            "primary_outputs": [
+              {
+                "type": "article_markdown",
+                "label": "文章初稿",
+                "patterns": ["03_初稿/03_标准初稿_*.md"]
+              },
+              {
+                "type": "article_html",
+                "label": "HTML 预览",
+                "patterns": ["03_初稿/03_HTML草稿_*.html"]
+              }
+            ],
+            "supporting_outputs": [
+              {
+                "type": "draft_manifest",
+                "label": "初稿生产清单",
+                "patterns": [
+                  "03_初稿/03_初稿_报告.md",
+                  "03_初稿/draft_manifest.json",
+                  "03_初稿/draft_quality_gate.json"
+                ]
+              }
+            ],
+            "interaction": {"mode": "edit"}
+          },
+          "actions": [
+            "rewrite_section",
+            "compare_versions",
+            "strengthen_evidence"
+          ],
+          "capabilities": [
+            "longform_writing",
+            "argumentation",
+            "fact_check"
+          ]
+        },
+        {
+          "id": "visual_package",
+          "name": "图表与配图",
+          "description": "把图表、新闻图、官网数据和说明文字嵌入文章。 可用 skills：image-enhancer（ImageGen 出图后的分辨率/清晰度增强）。",
+          "material_requirements": [
+            {
+              "type": "article_markdown",
+              "label": "文章正文",
+              "required": true,
+              "accepts": [
+                ".md"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            },
+            {
+              "type": "image_pool",
+              "label": "图片池",
+              "required": false,
+              "accepts": [
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".webp",
+                ".svg"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            }
+          ],
+          "outputs": [
+            "illustrated_article",
+            "asset_manifest",
+            "cover_candidates"
+          ],
+          "executor": "newma.control.editor-session",
+          "product": {
+            "kind": "visual_article",
+            "title": "图文成稿与配图清单",
+            "summary": "预览已经嵌入数据图、新闻图和 AI 说明图的文章，并逐张查看图片来源、生成理由与说明文字。",
+            "primary_outputs": [
+              {"type": "illustrated_article", "label": "图文成稿"},
+              {"type": "cover_candidates", "label": "封面候选"}
+            ],
+            "supporting_outputs": [
+              {"type": "asset_manifest", "label": "配图来源与生成记录"}
+            ],
+            "interaction": {"mode": "edit"}
+          },
+          "actions": [
+            "replace_image",
+            "edit_caption",
+            "regenerate_chart"
+          ],
+          "editors": [
+            "html_anything",
+            "wechat_preview"
+          ],
+          "capabilities": [
+            "article_illustration",
+            "infographic",
+            "cover_design",
+            "html_layout"
+          ]
+        },
+        {
+          "id": "draft_review",
+          "name": "初稿审核",
+          "description": "统一处理内容、引用、排版和图片审核。",
+          "material_requirements": [
+            {
+              "type": "illustrated_article",
+              "label": "图文终稿候选",
+              "required": true,
+              "accepts": [
+                ".md",
+                ".html"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "final_structure_snapshot",
+            "transwrite_handoff"
+          ],
+          "executor": "newma.control.review-gate",
+          "product": {
+            "kind": "draft_review",
+            "title": "初稿终审与转写交接",
+            "summary": "统一审核正文、数据、引用、排版和图片；批准后把确认版本交给公众号、视频和播音通路。",
+            "primary_outputs": [
+              {"type": "final_structure_snapshot", "label": "确认后的文章版本"},
+              {"type": "transwrite_handoff", "label": "转写交接包"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "gate": {
+            "required": true,
+            "kind": "human_review",
+            "approve_action": "approve_draft",
+            "reject_action": "request_draft_changes"
+          },
+          "actions": [
+            "approve",
+            "request_changes",
+            "handoff_to_transwrite"
+          ],
+          "capabilities": [
+            "article_quality_gate",
+            "evidence_coverage_check",
+            "visual_qc"
+          ]
+        }
+      ]
+    },
+    {
+      "order": 4,
+      "id": "transwrite",
+      "name": "转写生产",
+      "short_label": "转写",
+      "entry_skill": "newma-stage-transwrite",
+      "color": "#ff744d",
+      "lane_catalog": [
+        {
+          "id": "talking_head",
+          "name": "真人出镜口播",
+          "director": "talking_head_director",
+          "enabled": true
+        },
+        {
+          "id": "vox_explainer",
+          "name": "VOX 解释片",
+          "director": "vox_director",
+          "enabled": true
+        },
+        {
+          "id": "headless_explainer",
+          "name": "无头口播",
+          "director": "headless_director",
+          "enabled": true
+        },
+        {
+          "id": "digital_human",
+          "name": "AI 数字人",
+          "director": "digital_human_director",
+          "enabled": true
+        },
+        {
+          "id": "commercial_promo",
+          "name": "广告宣传片",
+          "director": "commercial_promo_director",
+          "enabled": true
+        },
+        {
+          "id": "cinematic_short_drama",
+          "name": "电影短剧",
+          "director": "cinematic_short_drama_director",
+          "enabled": false
+        }
+      ],
+      "nodes": [
+        {
+          "id": "dna_profile",
+          "name": "DNA 与 IP 模板",
+          "description": "选择或修改写作 DNA、说话风格和 IP 模板。可复用上次档案、预制档案，也可直接编辑底层提示词和角色定义。",
+          "material_requirements": [
+            {
+              "type": "transwrite_handoff",
+              "label": "转写交接包",
+              "required": true,
+              "accepts": [".json"],
+              "sources": ["upstream", "manual"]
+            }
+          ],
+          "outputs": [
+            "dna_profile",
+            "dna_selection",
+            "ip_template_selection"
+          ],
+          "executor": "newma.control.editor-session",
+          "editors": ["html_anything", "wechat_preview"],
+          "product": {
+            "kind": "dna_profile",
+            "title": "本次内容 DNA 与 IP 模板",
+            "summary": "用户可以查看、选择和修改写作口吻、人物定义、固定表达、视频制式、配音、字体、动画和提示词。",
+            "primary_outputs": [
+              {"type": "dna_profile", "label": "DNA 档案"},
+              {"type": "ip_template_selection", "label": "IP 模板选择"}
+            ],
+            "supporting_outputs": [
+              {"type": "dna_selection", "label": "本次生效参数"}
+            ],
+            "interaction": {"mode": "edit"}
+          },
+          "actions": ["select_profile", "edit_profile", "save_profile", "select_ip_template"],
+          "capabilities": ["dna_learning", "style_profile", "ip_template", "prompt_editing"]
+        },
+        {
+          "id": "route_select",
+          "name": "任务分发",
+          "description": "把每个题目分发给公众号、视频和播音 Agent，并为视频选择真人口播、VOX、无头口播、数字人、广告片或短剧 IP 模板。",
+          "material_requirements": [
+            {
+              "type": "transwrite_handoff",
+              "label": "转写交接包",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            },
+            {
+              "type": "dna_selection",
+              "label": "DNA 生效参数",
+              "required": true,
+              "accepts": [".json", ".yaml", ".yml"],
+              "sources": ["upstream"]
+            }
+          ],
+          "outputs": [
+            "transwrite_decision",
+            "lane_jobs"
+          ],
+          "executor": "newma.control.route-select",
+          "product": {
+            "kind": "task_matrix",
+            "title": "公众号、视频与播音任务矩阵",
+            "summary": "同一屏幕展示本批题目将进入哪些通路、使用哪个 IP 模板、由哪个 Agent 执行以及当前状态。",
+            "primary_outputs": [
+              {"type": "lane_jobs", "label": "平行生产任务列表"},
+              {"type": "transwrite_decision", "label": "通路与模板决策"}
+            ],
+            "interaction": {"mode": "select"}
+          },
+          "actions": [
+            "select_lane",
+            "duplicate_lane",
+            "defer_lane"
+          ],
+          "capabilities": [
+            "lane_routing",
+            "director_routing",
+            "preset_selection"
+          ]
+        },
+        {
+          "id": "article_build",
+          "name": "公众号文章生产",
+          "description": "公众号文章生产（文章先于视频）：①拉取 DNA 档案（风格/结构选型，core/dna_engine.py）②按档案转写打磨：≥5000 字、名言引用/前言/引言/完整章节结构 ③数据补全：数据表+数据图（Tushare 实测）④图片素材：网搜素材（标注来源）+ AI 说明图（小黑柠檬人手绘/漫画分格/柳叶刀学术风格，见 configs/image_generation/explain_illustration_styles.yaml）⑤文末媒体水印+话题标注 ⑥产出公众号 HTML 排版包。 插图三分法：概念图=账号 DNA 角色（newma-account-illustrations）；结构图=baoyu-diagram/drafter-diagram（SVG 产业链/流程/架构）；数据图=matplotlib（永不角色化）。",
+          "executor": "newma.control.editor-session",
+          "material_requirements": [
+            {
+              "type": "transwrite_decision",
+              "label": "通路决策",
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            }
+          ],
+          "outputs": [
+            "article_html_pack",
+            "article_style_dna",
+            "claim_evidence_ledger",
+            "title_candidates",
+            "article_asset_manifest"
+          ],
+          "editors": [
+            "html_anything",
+            "wechat_preview"
+          ],
+          "product": {
+            "kind": "wechat_article",
+            "title": "公众号文章生产列表",
+            "summary": "按题目统一展示候选标题、配图、AI 生图说明、引用记录和可直接浏览的公众号 HTML 成稿。",
+            "primary_outputs": [
+              {"type": "article_html_pack", "label": "公众号 HTML 成稿"},
+              {"type": "title_candidates", "label": "候选标题"}
+            ],
+            "supporting_outputs": [
+              {"type": "article_asset_manifest", "label": "图片来源与 AI 生图记录"},
+              {"type": "claim_evidence_ledger", "label": "论点与证据账本"},
+              {"type": "article_style_dna", "label": "本篇 DNA 执行记录"}
+            ],
+            "interaction": {"mode": "edit"}
+          },
+          "actions": ["edit_title", "replace_image", "edit_article", "approve_article"],
+          "capabilities": ["wechat_writing", "dna_style", "news_image_search", "ai_illustration", "html_layout"]
+        },
+        {
+          "id": "audio_build",
+          "name": "播音与口播录音",
+          "description": "把确认内容交给播音 Agent，生成可修改的口播稿、声音样片和最终音频；支持选择声音、语速、停顿和情绪。",
+          "material_requirements": [
+            {
+              "type": "lane_jobs",
+              "label": "通路任务",
+              "required": true,
+              "accepts": [".json"],
+              "sources": ["upstream"]
+            }
+          ],
+          "outputs": ["narration_script", "voice_sample", "audio_master", "audio_manifest"],
+          "executor": "newma.control.editor-session",
+          "editors": ["html_anything", "wechat_preview"],
+          "product": {
+            "kind": "audio_delivery",
+            "title": "播音稿、声音样片与成品音频",
+            "summary": "逐题试听声音和口播节奏，确认后生成最终音频；声音模型和参数放在参考资料中。",
+            "primary_outputs": [
+              {"type": "narration_script", "label": "播音稿"},
+              {"type": "voice_sample", "label": "声音样片"},
+              {"type": "audio_master", "label": "最终音频"}
+            ],
+            "supporting_outputs": [
+              {"type": "audio_manifest", "label": "声音与参数记录"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "actions": ["select_voice", "edit_pronunciation", "regenerate_audio", "approve_audio"],
+          "capabilities": ["tts", "voice_clone", "audio_edit", "audio_mastering"]
+        },
+        {
+          "id": "script_rewrite",
+          "name": "剧本重写",
+          "description": "视频剧本转写：从文章提炼核心论点/关键数据/口语化表达，形成口播剧本（视频内容生产，非发布）。",
+          "material_requirements": [
+            {
+              "type": "lane_jobs",
+              "label": "通路任务",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            },
+            {
+              "type": "illustrated_article",
+              "label": "原文章",
+              "required": true,
+              "accepts": [
+                ".md",
+                ".html"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            }
+          ],
+          "outputs": [
+            "video_script",
+            "claim_evidence_ledger",
+            "retention_plan"
+          ],
+          "executor": "newma.mainline.transwrite",
+          "product": {
+            "kind": "video_script",
+            "title": "视频口播稿",
+            "summary": "保留文章核心判断、关键数据和论据，同时改写成播客或博主的自然口语，并标注钩子、互动点和留存设计。",
+            "primary_outputs": [
+              {"type": "video_script", "label": "口播稿"},
+              {"type": "retention_plan", "label": "留存与互动设计"}
+            ],
+            "supporting_outputs": [
+              {"type": "claim_evidence_ledger", "label": "视频论据账本"}
+            ],
+            "interaction": {"mode": "edit"}
+          },
+          "actions": [
+            "rewrite_hook",
+            "rewrite_spoken_lines",
+            "lock_claims"
+          ],
+          "capabilities": [
+            "script_adaptation",
+            "spoken_language",
+            "retention_design",
+            "claim_evidence"
+          ]
+        },
+        {
+          "id": "director_storyboard",
+          "name": "导演分镜",
+          "description": "按通路导演生成镜头、动效、字幕、花字和贴纸说明。",
+          "material_requirements": [
+            {
+              "type": "video_script",
+              "label": "视频剧本",
+              "required": true,
+              "accepts": [
+                ".json",
+                ".md"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            },
+            {
+              "type": "claim_evidence_ledger",
+              "label": "论据账本",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "scene_plan",
+            "tool_routing_plan",
+            "storyboard_review"
+          ],
+          "executor": "newma.video.director",
+          "product": {
+            "kind": "storyboard",
+            "title": "导演分镜与技术调度",
+            "summary": "逐镜展示台词、时长、画面比例、运镜、字幕、花字、人物标签、素材来源以及 Remotion、Hyperframes、数字人等技术调用。",
+            "primary_outputs": [
+              {"type": "storyboard_review", "label": "分镜审阅页"},
+              {"type": "scene_plan", "label": "导演分镜脚本"}
+            ],
+            "supporting_outputs": [
+              {"type": "tool_routing_plan", "label": "镜头技术调用表"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "gate": {
+            "required": true,
+            "kind": "human_review",
+            "approve_action": "approve_storyboard",
+            "reject_action": "request_storyboard_changes"
+          },
+          "actions": [
+            "edit_shot",
+            "add_emphasis_text",
+            "add_identity_label",
+            "approve",
+            "request_changes"
+          ],
+          "editors": [
+            "storyboard_editor",
+            "html_video_project_studio"
+          ],
+          "capabilities": [
+            "director_scene_plan",
+            "shotcraft",
+            "html_storyboard",
+            "caption_emphasis",
+            "identity_labels"
+          ]
+        },
+        {
+          "id": "asset_build",
+          "name": "素材生产",
+          "description": "匹配实拍、新闻、图表、动画、人物和音频资产。 引擎组件：omni（skills/newma-omni-video-bridge，图生视频素材） / animated-chart（scripts/build_animated_charts.py，动态数据图） / html-anything（模板部件）——按导演分镜的引擎路由选择；分镜→omni 提示词由包内 build_omni_prompts.py 转换（P0-4 适配层在引擎包内）。",
+          "material_requirements": [
+            {
+              "type": "scene_plan",
+              "label": "分镜脚本",
+              "required": true,
+              "accepts": [
+                ".json",
+                ".md"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "asset_manifest",
+            "presenter_source_manifest",
+            "renderer_asset_gate"
+          ],
+          "executor": "newma.control.editor-session",
+          "product": {
+            "kind": "scene_assets",
+            "title": "单镜头素材与生产结果",
+            "summary": "按分镜逐条展示新闻图、图表、动画、人物、数字人、配音和每个 5—10 秒镜头的生成结果，便于快速逐镜审核。",
+            "primary_outputs": [
+              {"type": "asset_manifest", "label": "逐镜素材清单"},
+              {"type": "presenter_source_manifest", "label": "人物与数字人素材"},
+              {"type": "renderer_asset_gate", "label": "镜头素材完成情况"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "editors": [
+            "html_anything",
+            "wechat_preview"
+          ],
+          "actions": [
+            "search_asset",
+            "generate_asset",
+            "replace_asset",
+            "approve_presenter"
+          ],
+          "capabilities": [
+            "news_asset_search",
+            "official_chart_capture",
+            "generated_broll",
+            "presenter_generation",
+            "audio_generation"
+          ]
+        },
+        {
+          "id": "rough_cut",
+          "name": "视频粗剪",
+          "description": "按分镜自动拼接镜头、口播、音乐和基础字幕，先交付每条视频的粗剪版与时间线，不在此阶段做精细包装。",
+          "material_requirements": [
+            {
+              "type": "asset_manifest",
+              "label": "逐镜素材清单",
+              "required": true,
+              "accepts": [".json"],
+              "sources": ["upstream"]
+            },
+            {
+              "type": "scene_plan",
+              "label": "导演分镜",
+              "required": true,
+              "accepts": [".json", ".md"],
+              "sources": ["upstream"]
+            }
+          ],
+          "outputs": ["roughcut_video", "roughcut_timeline", "roughcut_report"],
+          "executor": "newma.control.editor-session",
+          "editors": ["roughcut_review", "openchatcut", "html_video_project_studio"],
+          "product": {
+            "kind": "rough_cut",
+            "title": "视频粗剪与时间线",
+            "summary": "逐条播放粗剪版本，同时查看缺失镜头、字幕错位、节奏问题和需要人工介入的位置。",
+            "primary_outputs": [
+              {"type": "roughcut_video", "label": "粗剪视频"},
+              {"type": "roughcut_timeline", "label": "粗剪时间线"},
+              {"type": "roughcut_report", "label": "粗剪问题清单"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "actions": ["preview_roughcut", "retry_scene", "approve_roughcut", "open_editor"],
+          "capabilities": ["roughcut", "caption_align", "timeline_assembly", "audio_sync"]
+        },
+        {
+          "id": "manual_edit",
+          "name": "精修与人工剪辑",
+          "description": "在 OpenCut/OpenChatCut 时间线上处理口水词、字幕、花字、滤镜、音量、转场和动效；用户与 Agent 可操作同一份工程。",
+          "material_requirements": [
+            {
+              "type": "roughcut_video",
+              "label": "粗剪视频",
+              "required": true,
+              "accepts": [
+                ".mp4",
+                ".webm",
+                ".mov"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            },
+            {
+              "type": "roughcut_timeline",
+              "label": "粗剪时间线",
+              "required": true,
+              "accepts": [
+                ".json",
+                ".otio"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "edit_decisions",
+            "timeline_exchange",
+            "edited_master",
+            "edit_proposal",
+            "project_template",
+            "editor_session"
+          ],
+          "executor": "newma.control.editor-session",
+          "product": {
+            "kind": "fine_cut",
+            "title": "精修工程与成片候选",
+            "summary": "直接打开可视化剪辑工程，查看 Agent 提案、人工修改记录、精修时间线和成片候选；编辑会话本身只放在后台文件。",
+            "primary_outputs": [
+              {"type": "edited_master", "label": "精修成片候选"},
+              {"type": "timeline_exchange", "label": "精修时间线"},
+              {"type": "edit_proposal", "label": "Agent 剪辑提案"}
+            ],
+            "supporting_outputs": [
+              {"type": "edit_decisions", "label": "剪辑决策记录"},
+              {"type": "project_template", "label": "可保存的 IP 剪辑模板"}
+            ],
+            "interaction": {"mode": "edit"}
+          },
+          "actions": [
+            "open_editor",
+            "save_draft",
+            "import_editor_export",
+            "save_and_continue",
+            "mark_downstream_stale"
+          ],
+          "editors": [
+            "openchatcut",
+            "roughcut_review",
+            "fablecut",
+            "html_video_project_studio"
+          ],
+          "capabilities": [
+            "roughcut",
+            "caption_edit",
+            "timeline_edit",
+            "agent_timeline_edit",
+            "proposal_review",
+            "template_library",
+            "audio_master",
+            "color_grade",
+            "motion_overlay"
+          ]
+        },
+        {
+          "id": "render_qc",
+          "name": "渲染与 QC",
+          "description": "生成审片、终片、联系表和质量报告。 外部异步：omni 图生视频在浏览器侧异步生成（desk 不感知进度）——视频文件下载后通过 creator.artifact.register 回执到本节点，或手动上传确认。",
+          "material_requirements": [
+            {
+              "type": "edit_decisions",
+              "label": "剪辑决策",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            },
+            {
+              "type": "renderer_asset_gate",
+              "label": "素材门禁",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            },
+            {
+              "type": "timeline_exchange",
+              "label": "编辑时间线",
+              "required": false,
+              "accepts": [
+                ".json",
+                ".otio"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            },
+            {
+              "type": "edited_master",
+              "label": "人工剪辑成片",
+              "required": false,
+              "accepts": [
+                ".mp4",
+                ".webm",
+                ".mov"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "review_render",
+            "contact_sheet",
+            "render_report",
+            "final_delivery_manifest"
+          ],
+          "executor": "newma.control.editor-session",
+          "product": {
+            "kind": "final_video",
+            "title": "审片、终片与质量报告",
+            "summary": "统一播放审片和最终成片，查看逐镜联系表以及字幕、音量、清晰度、画幅和素材完整性检查。",
+            "primary_outputs": [
+              {"type": "review_render", "label": "审片视频"},
+              {"type": "final_delivery_manifest", "label": "最终成片与交付清单"},
+              {"type": "contact_sheet", "label": "逐镜联系表"}
+            ],
+            "supporting_outputs": [
+              {"type": "render_report", "label": "渲染与质量报告"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "editors": [
+            "html_anything",
+            "wechat_preview"
+          ],
+          "actions": [
+            "render_preview",
+            "render_final",
+            "retry_failed_scene",
+            "open_contact_sheet"
+          ],
+          "capabilities": [
+            "remotion_render",
+            "html_video_render",
+            "ffmpeg_render",
+            "media_qc"
+          ]
+        },
+        {
+          "id": "transwrite_review",
+          "name": "成片审核",
+          "description": "转写终审：集中确认文章、视频、音频各通路的内容交付（只审内容与排版包，发布去下一环节）。",
+          "material_requirements": [
+            {
+              "type": "final_delivery_manifest",
+              "label": "最终交付清单",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "transwrite_manifest",
+            "publish_decision",
+            "publish_handoff"
+          ],
+          "executor": "newma.control.review-gate",
+          "product": {
+            "kind": "transwrite_delivery",
+            "title": "公众号、视频与音频最终交付",
+            "summary": "按题目和通路统一审核所有成品，确认无误后生成发布交接包；任何编辑会话和执行配置都不进入此列表。",
+            "primary_outputs": [
+              {"type": "transwrite_manifest", "label": "多通路成品清单"},
+              {"type": "publish_handoff", "label": "发布交接包"}
+            ],
+            "supporting_outputs": [
+              {"type": "publish_decision", "label": "发布建议"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "gate": {
+            "required": true,
+            "kind": "human_review",
+            "approve_action": "approve_delivery",
+            "reject_action": "request_delivery_changes"
+          },
+          "actions": [
+            "approve",
+            "request_changes",
+            "handoff_to_publish"
+          ],
+          "capabilities": [
+            "delivery_review",
+            "cross_lane_consistency",
+            "publish_readiness"
+          ]
+        }
+      ],
+      "description": "多渠道内容生产环节：把确认的选题转写为公众号文章、口播视频等各渠道内容包。本环节只生产内容（文章排版包/视频剧本/分镜/成片），不做任何平台上传与发布——草稿上传与多平台发布属于下一环节 publish。内容规范：DNA 档案先行（风格/结构选型）→ ≥5000 字成稿（名言引用/前言/引言/完整章节）→ 数据表与数据图补全（Tushare 实测）→ 网图素材（标注来源）+ AI 说明图（小黑手绘/漫画/柳叶刀风格，与内容高度匹配）→ 文末媒体水印与话题标注。"
+    },
+    {
+      "order": 5,
+      "id": "publish",
+      "name": "多平台发布",
+      "short_label": "发布",
+      "entry_skill": "newma-stage-publish",
+      "color": "#c48cff",
+      "nodes": [
+        {
+          "id": "channel_package",
+          "name": "渠道包装",
+          "description": "渠道打包：把转写产物组装为各平台的发布载荷（公众号 HTML 草稿载荷/视频文件/封面），不执行上传。",
+          "material_requirements": [
+            {
+              "type": "publish_handoff",
+              "label": "发布交接包",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            },
+            {
+              "type": "publish_decision",
+              "label": "发布决策",
+              "required": false,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            }
+          ],
+          "outputs": [
+            "channel_packs",
+            "cover_pack",
+            "platform_copy"
+          ],
+          "executor": "newma.mainline.publish-package",
+          "product": {
+            "kind": "channel_package",
+            "title": "各平台发布预览包",
+            "summary": "逐平台预览标题、正文、视频、封面、标签和尺寸适配结果，缺什么素材会直接列出。",
+            "primary_outputs": [
+              {"type": "channel_packs", "label": "平台发布包"},
+              {"type": "cover_pack", "label": "平台封面"},
+              {"type": "platform_copy", "label": "平台文案"}
+            ],
+            "interaction": {"mode": "edit"}
+          },
+          "actions": [
+            "edit_title",
+            "replace_cover",
+            "select_channels"
+          ],
+          "capabilities": [
+            "platform_packaging",
+            "cover_edit",
+            "copy_adaptation"
+          ]
+        },
+        {
+          "id": "account_route",
+          "name": "账号路由",
+          "description": "账号路由：按账号分组（投资市场=默丘利Lab / 财经商业=墨丘利实验室 / AI科技=Newma牛马进化论）把载荷分配到对应发布账号。",
+          "material_requirements": [
+            {
+              "type": "channel_packs",
+              "label": "渠道包",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "account_routes",
+            "publish_schedule"
+          ],
+          "executor": "newma.control.editor-session",
+          "product": {
+            "kind": "account_route",
+            "title": "发布平台、IP 与账号选择",
+            "summary": "勾选要发布的平台、账号/IP 和发布时间，可直接打开内嵌千帆管理账号状态。",
+            "primary_outputs": [
+              {"type": "account_routes", "label": "账号与 IP 路由"},
+              {"type": "publish_schedule", "label": "发布时间表"}
+            ],
+            "interaction": {"mode": "select"}
+          },
+          "actions": [
+            "select_account",
+            "test_login",
+            "schedule"
+          ],
+          "editors": [
+            "qianfan_account_console"
+          ],
+          "capabilities": [
+            "account_management",
+            "account_health",
+            "publish_schedule"
+          ]
+        },
+        {
+          "id": "publish_preflight",
+          "name": "发布预检",
+          "description": "发布预检：凭证（AppID/Secret）、IP 白名单、封面、内容尺寸、平台规则校验，全部通过才放行执行。",
+          "material_requirements": [
+            {
+              "type": "account_routes",
+              "label": "账号路由",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "publish_preflight_report"
+          ],
+          "executor": "newma.publish.preflight",
+          "product": {
+            "kind": "publish_preflight",
+            "title": "发布预检报告",
+            "summary": "集中显示账号登录、凭证、白名单、尺寸、封面和平台规则是否通过，阻塞项必须先修复。",
+            "primary_outputs": [
+              {"type": "publish_preflight_report", "label": "发布预检报告"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "gate": {
+            "required": true,
+            "kind": "policy_gate",
+            "approve_action": "approve_publish",
+            "reject_action": "fix_publish_package"
+          },
+          "actions": [
+            "run_preflight",
+            "fix_issue",
+            "approve"
+          ],
+          "capabilities": [
+            "publish_guard",
+            "platform_validation",
+            "account_health"
+          ]
+        },
+        {
+          "id": "publish_execute",
+          "name": "执行发布",
+          "description": "发布执行：真实调用平台 API 推草稿/上传（确定性脚本直跑：公众号 wechat-api.ts；多平台走发布桥接器），执行前需人工确认。",
+          "material_requirements": [
+            {
+              "type": "publish_preflight_report",
+              "label": "发布预检",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "publish_jobs",
+            "platform_receipts"
+          ],
+          "executor": "newma.publish.execute",
+          "product": {
+            "kind": "publish_execution",
+            "title": "发布进度与平台回执",
+            "summary": "显示每条内容在每个平台的执行状态、草稿链接、失败原因和可重试项；发布前保留人工确认。",
+            "primary_outputs": [
+              {"type": "platform_receipts", "label": "平台发布回执"}
+            ],
+            "supporting_outputs": [
+              {"type": "publish_jobs", "label": "发布任务状态"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "actions": [
+            "publish_now",
+            "run_scheduled",
+            "retry_job",
+            "cancel_job"
+          ],
+          "editors": [
+            "qianfan_publish_console"
+          ],
+          "capabilities": [
+            "local_publish_api",
+            "publish_cli",
+            "browser_publish"
+          ]
+        },
+        {
+          "id": "receipt_verify",
+          "name": "回执验真",
+          "description": "回执核验：核对各平台返回的 media_id/草稿链接，确认上传成功并留档。",
+          "material_requirements": [
+            {
+              "type": "platform_receipts",
+              "label": "平台回执",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "publish_manifest",
+            "publish_verification_report",
+            "postmortem_handoff"
+          ],
+          "executor": "newma.publish.verify",
+          "product": {
+            "kind": "publish_receipt",
+            "title": "发布结果与验真报告",
+            "summary": "核对每个平台的真实链接、media_id、发布时间和发布状态，确认后把作品清单交给复盘。",
+            "primary_outputs": [
+              {"type": "publish_verification_report", "label": "发布验真报告"},
+              {"type": "publish_manifest", "label": "已发布作品清单"},
+              {"type": "postmortem_handoff", "label": "复盘交接包"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "gate": {
+            "required": true,
+            "kind": "receipt_verification",
+            "approve_action": "approve_receipts",
+            "reject_action": "retry_publish"
+          },
+          "actions": [
+            "verify_link",
+            "refresh_status",
+            "handoff_to_postmortem"
+          ],
+          "capabilities": [
+            "publish_verification",
+            "receipt_reconciliation"
+          ]
+        }
+      ],
+      "description": "上传与发布环节：把 transwrite 产出的内容包真正上传到各平台——公众号推草稿（3 账号矩阵：默丘利Lab/墨丘利实验室/Newma牛马进化论）、视频号草稿、B站/小红书/抖音发布。含渠道路由、账号路由、发布预检、执行、回执核验。与上一环节的边界：transwrite 只生产内容，publish 负责一切平台上传动作。"
+    },
+    {
+      "order": 6,
+      "id": "postmortem",
+      "name": "复盘",
+      "short_label": "复盘",
+      "entry_skill": "newma-daily-postmortem",
+      "color": "#68d1e8",
+      "nodes": [
+        {
+          "id": "metrics_collect",
+          "name": "数据回收",
+          "description": "收集各平台播放、阅读、互动、转化和成本数据。",
+          "material_requirements": [
+            {
+              "type": "postmortem_handoff",
+              "label": "复盘交接包",
+              "required": true,
+              "accepts": [
+                ".json"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            }
+          ],
+          "outputs": [
+            "performance_dataset",
+            "platform_snapshot"
+          ],
+          "executor": "newma.control.editor-session",
+          "product": {
+            "kind": "performance_data",
+            "title": "发布后 1 天 / 3 天表现数据",
+            "summary": "按作品和平台展示阅读、播放、点赞、收藏、评论、关注和转化，保留平台截图作为核验。",
+            "primary_outputs": [
+              {"type": "performance_dataset", "label": "跨平台表现数据"},
+              {"type": "platform_snapshot", "label": "平台数据快照"}
+            ],
+            "interaction": {"mode": "preview"}
+          },
+          "editors": [
+            "html_anything",
+            "wechat_preview"
+          ],
+          "actions": [
+            "refresh_metrics",
+            "attach_manual_metrics"
+          ],
+          "capabilities": [
+            "platform_metrics",
+            "data_normalization"
+          ]
+        },
+        {
+          "id": "competitor_benchmark",
+          "name": "同题竞品对比",
+          "description": "在全网搜索同话题、同类型文章和视频，对比标题、开头、结构、时长、素材、互动和传播结果。",
+          "material_requirements": [
+            {
+              "type": "performance_dataset",
+              "label": "本项目表现数据",
+              "required": true,
+              "accepts": [".json", ".csv", ".xlsx"],
+              "sources": ["upstream"]
+            }
+          ],
+          "outputs": ["competitor_dataset", "competitor_report", "benchmark_examples"],
+          "executor": "newma.control.editor-session",
+          "editors": ["html_anything", "wechat_preview"],
+          "product": {
+            "kind": "competitor_benchmark",
+            "title": "同话题竞品样本与对比报告",
+            "summary": "展示全网优秀样本、关键截图和可复用打法，避免只看自己的数据做封闭复盘。",
+            "primary_outputs": [
+              {"type": "competitor_report", "label": "竞品对比报告"},
+              {"type": "benchmark_examples", "label": "优秀样本列表"}
+            ],
+            "supporting_outputs": [
+              {"type": "competitor_dataset", "label": "竞品数据集"}
+            ],
+            "interaction": {"mode": "preview"}
+          },
+          "actions": ["search_competitors", "add_example", "exclude_sample"],
+          "capabilities": ["competitor_search", "social_metrics", "content_benchmark"]
+        },
+        {
+          "id": "performance_analysis",
+          "name": "效果归因",
+          "description": "对比选题、结构、素材、通路和发布时间，找出有效因素。",
+          "material_requirements": [
+            {
+              "type": "performance_dataset",
+              "label": "表现数据",
+              "required": true,
+              "accepts": [
+                ".json",
+                ".csv",
+                ".xlsx"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            },
+            {
+              "type": "competitor_report",
+              "label": "竞品对比报告",
+              "required": true,
+              "accepts": [".md", ".html", ".json"],
+              "sources": ["upstream"]
+            }
+          ],
+          "outputs": [
+            "postmortem_report",
+            "experiment_findings"
+          ],
+          "executor": "newma.control.editor-session",
+          "product": {
+            "kind": "postmortem_report",
+            "title": "效果归因与可执行结论",
+            "summary": "把本项目表现与竞品放在一起，判断选题、结构、标题、素材、IP 模板、发布时间和平台适配分别贡献了什么。",
+            "primary_outputs": [
+              {"type": "postmortem_report", "label": "传播复盘报告"},
+              {"type": "experiment_findings", "label": "可验证结论"}
+            ],
+            "interaction": {"mode": "edit"}
+          },
+          "editors": [
+            "html_anything",
+            "wechat_preview"
+          ],
+          "actions": [
+            "compare_lane",
+            "compare_platform",
+            "add_hypothesis"
+          ],
+          "capabilities": [
+            "performance_attribution",
+            "experiment_analysis"
+          ]
+        },
+        {
+          "id": "knowledge_writeback",
+          "name": "知识回写",
+          "description": "把确认有效的经验写回 DNA、导演规则和发布策略。",
+          "material_requirements": [
+            {
+              "type": "postmortem_report",
+              "label": "复盘报告",
+              "required": true,
+              "accepts": [
+                ".md",
+                ".json"
+              ],
+              "sources": [
+                "upstream"
+              ]
+            }
+          ],
+          "outputs": [
+            "dna_updates",
+            "director_updates",
+            "publish_policy_updates"
+          ],
+          "executor": "newma.control.review-gate",
+          "product": {
+            "kind": "learning_writeback",
+            "title": "DNA、导演与发布策略回写",
+            "summary": "逐条审核准备写入 Learning 的新规则；只有用户确认的经验才会更新 DNA、IP 模板和发布策略。",
+            "primary_outputs": [
+              {"type": "dna_updates", "label": "DNA 学习建议"},
+              {"type": "director_updates", "label": "导演与 IP 模板建议"},
+              {"type": "publish_policy_updates", "label": "发布策略建议"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "gate": {
+            "required": true,
+            "kind": "human_review",
+            "approve_action": "approve_writeback",
+            "reject_action": "reject_writeback"
+          },
+          "actions": [
+            "approve_rule",
+            "reject_rule",
+            "edit_rule"
+          ],
+          "capabilities": [
+            "dna_writeback",
+            "director_learning",
+            "policy_learning"
+          ]
+        },
+        {
+          "id": "next_cycle",
+          "name": "下一轮任务",
+          "description": "形成继续、停止或试验建议，并可一键创建新项目。",
+          "material_requirements": [
+            {
+              "type": "experiment_findings",
+              "label": "试验结论",
+              "required": false,
+              "accepts": [
+                ".json",
+                ".md"
+              ],
+              "sources": [
+                "upstream",
+                "manual"
+              ]
+            }
+          ],
+          "outputs": [
+            "next_cycle_plan",
+            "postmortem_manifest"
+          ],
+          "executor": "newma.control.package",
+          "product": {
+            "kind": "next_cycle",
+            "title": "下一轮任务与实验计划",
+            "summary": "明确继续做什么、停止什么、下轮要验证什么，并可把成功流程保存为项目或 IP 模板。",
+            "primary_outputs": [
+              {"type": "next_cycle_plan", "label": "下一轮行动计划"}
+            ],
+            "supporting_outputs": [
+              {"type": "postmortem_manifest", "label": "复盘归档清单"}
+            ],
+            "interaction": {"mode": "approve"}
+          },
+          "actions": [
+            "create_next_project",
+            "archive_run",
+            "export_report"
+          ],
+          "capabilities": [
+            "next_cycle_planning",
+            "project_template_creation"
+          ]
+        }
+      ]
+    }
+  ],
+  "capability_adapters": [
+    {
+      "id": "codex",
+      "name": "Codex CLI",
+      "kind": "local_cli",
+      "binary": "codex",
+      "mode": "output_only",
+      "stages": [
+        "brief",
+        "draft",
+        "transwrite",
+        "postmortem"
+      ]
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "kind": "local_cli",
+      "binary": "claude",
+      "mode": "output_only",
+      "stages": [
+        "brief",
+        "draft",
+        "transwrite",
+        "postmortem"
+      ]
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini CLI",
+      "kind": "local_cli",
+      "binary": "gemini",
+      "mode": "output_only",
+      "stages": [
+        "intake",
+        "brief",
+        "draft",
+        "transwrite"
+      ]
+    },
+    {
+      "id": "cursor-agent",
+      "name": "Cursor Agent",
+      "kind": "local_cli",
+      "binary": "cursor-agent",
+      "mode": "output_only",
+      "stages": [
+        "draft",
+        "transwrite"
+      ]
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "kind": "local_cli",
+      "binary": "opencode",
+      "mode": "output_only",
+      "stages": [
+        "draft",
+        "transwrite"
+      ]
+    },
+    {
+      "id": "qwen",
+      "name": "Qwen Code",
+      "kind": "local_cli",
+      "binary": "qwen",
+      "mode": "output_only",
+      "stages": [
+        "brief",
+        "draft",
+        "transwrite"
+      ]
+    },
+    {
+      "id": "qoder-cli",
+      "name": "Qoder CLI",
+      "kind": "local_cli",
+      "binary": "qodercli",
+      "mode": "output_only",
+      "stages": [
+        "draft",
+        "transwrite"
+      ]
+    },
+    {
+      "id": "copilot",
+      "name": "GitHub Copilot CLI",
+      "kind": "local_cli",
+      "binary": "copilot",
+      "mode": "detect_only",
+      "stages": [
+        "draft",
+        "transwrite"
+      ]
+    },
+    {
+      "id": "aider",
+      "name": "Aider",
+      "kind": "local_cli",
+      "binary": "aider",
+      "mode": "detect_only",
+      "stages": [
+        "draft",
+        "transwrite"
+      ]
+    },
+    {
+      "id": "hermes",
+      "name": "Hermes CLI",
+      "kind": "local_cli",
+      "binary": "hermes",
+      "mode": "output_only",
+      "stages": [
+        "brief",
+        "draft",
+        "transwrite"
+      ]
+    },
+    {
+      "id": "html-anything",
+      "name": "HTML Anything",
+      "kind": "local_project",
+      "mode": "editor_and_renderer",
+      "stages": [
+        "draft",
+        "transwrite"
+      ]
+    },
+    {
+      "id": "html-video",
+      "name": "HTML Video",
+      "kind": "local_project",
+      "mode": "project_studio_and_renderer",
+      "stages": [
+        "transwrite"
+      ]
+    },
+    {
+      "id": "ffmpeg",
+      "name": "FFmpeg",
+      "kind": "local_cli",
+      "binary": "ffmpeg",
+      "mode": "media_runtime",
+      "stages": [
+        "transwrite",
+        "publish"
+      ]
+    },
+    {
+      "id": "remotion",
+      "name": "Remotion",
+      "kind": "local_project",
+      "mode": "renderer",
+      "stages": [
+        "transwrite"
+      ]
+    }
+  ],
+  "editor_adapters": [
+    {
+      "id": "openchatcut",
+      "name": "OpenChatCut 协同剪辑",
+      "kind": "local_web",
+      "project_path": "${NEWMA_DESK_OPENCHATCUT_WORKSPACE:-vendor/reserved/video/openchatcut}",
+      "project_candidates": [
+        "${NEWMA_DESK_OPENCHATCUT_WORKSPACE:-vendor/reserved/video/openchatcut}",
+        "../OpenChatCut",
+        "../openchatcut"
+      ],
+      "launch_url": "${NEWMA_DESK_OPENCHATCUT_WEB_URL:-http://127.0.0.1:5199}",
+  "health_port": 5199,
+  "command": [
+    "/opt/homebrew/opt/node@24/bin/node",
+    "/opt/homebrew/opt/node@24/lib/node_modules/npm/bin/npm-cli.js",
+    "run",
+    "dev:shared"
+  ],
+  "command_candidates": [
+    [
+      "${NEWMA_DESK_OPENCHATCUT_NODE_BIN:-/opt/homebrew/opt/node@24/bin/node}",
+      "${NEWMA_DESK_OPENCHATCUT_NPM_CLI:-/opt/homebrew/opt/node@24/lib/node_modules/npm/bin/npm-cli.js}",
+      "run",
+      "dev:shared"
+    ],
+    [
+      "/usr/local/opt/node@24/bin/node",
+      "/usr/local/opt/node@24/lib/node_modules/npm/bin/npm-cli.js",
+      "run",
+      "dev:shared"
+    ],
+        [
+          "npm",
+          "run",
+          "dev:shared"
+        ]
+      ],
+      "required_paths": [
+        "node_modules"
+      ],
+      "embed_mode": "new_window",
+  "agent_bridge": {
+    "kind": "mcp",
+    "endpoint": "${NEWMA_DESK_OPENCHATCUT_MCP_ORIGIN:-http://127.0.0.1:5199}/api/external-mcp/mcp",
+        "protocol": "openchatcut.edit-session.v1",
+        "approval_modes": [
+          "manual",
+          "auto"
+        ],
+        "required_tools": [
+          "begin_edit_session",
+          "review_edit_session",
+          "get_edit_session"
+        ]
+      },
+      "session_protocol": {
+        "timeline_owner": "openchatcut",
+        "run_owner": "newma.creator-run-control",
+        "draft_isolation": true,
+        "proposal_review": true,
+        "atomic_commit": true,
+        "single_undo_step": true
+      },
+      "template_catalogs": [
+        "assets/templates/openchatcut-templates.json",
+        "assets/templates/koubo-scenes-templates.json",
+        "assets/templates/social-shorts-templates.json"
+      ]
+    },
+    {
+      "id": "html_anything",
+      "name": "HTML Anything",
+      "kind": "local_web",
+      "project_path": "vendor/reserved/render/html-anything/next",
+      "launch_url": "http://127.0.0.1:3072",
+      "health_port": 3072,
+      "command": [
+        "pnpm",
+        "dev",
+        "--hostname",
+        "127.0.0.1",
+        "--port",
+        "3072"
+      ]
+    },
+    {
+      "id": "wechat_preview",
+      "name": "公众号预览",
+      "kind": "artifact_preview"
+    },
+    {
+      "id": "storyboard_editor",
+      "name": "分镜编辑器",
+      "kind": "internal"
+    },
+    {
+      "id": "html_video_project_studio",
+      "name": "HTML Video Studio",
+      "kind": "local_web",
+      "project_path": "vendor/reserved/render/html-video",
+      "launch_url": "http://127.0.0.1:3071",
+      "health_port": 3071,
+      "command": [
+        "node",
+        "packages/cli/dist/bin.js",
+        "studio"
+      ]
+    },
+    {
+      "id": "fablecut",
+      "name": "FableCut",
+      "kind": "unavailable",
+      "reason": "当前环境尚未注册 FableCut 本地项目。"
+    },
+    {
+      "id": "roughcut_review",
+      "name": "粗剪审核",
+      "kind": "internal"
+    },
+    {
+      "id": "qianfan_account_console",
+      "name": "千帆账号控制台",
+      "kind": "publish_console",
+      "launch_url": "http://127.0.0.1:5173/account-management",
+      "embed_mode": "iframe"
+    },
+    {
+      "id": "qianfan_publish_console",
+      "name": "千帆发布控制台",
+      "kind": "publish_console",
+      "launch_url": "http://127.0.0.1:5173/publish-center",
+      "embed_mode": "iframe"
+    }
+  ],
+  "marketplace": {
+    "name": "超市项目",
+    "categories": [
+      "repository",
+      "skill",
+      "ip_template",
+      "component_template",
+      "editor",
+      "publisher"
+    ],
+    "source_registries": [
+      "configs/external/reserved_projects.json",
+      "configs/workflow/module_registry.json",
+      "configs/workflow/stage_reserve_registry.json",
+      "configs/video/tool_registry.json",
+      "configs/video/director_registry.json",
+      "configs/video/upstream_video_skills.json"
+    ],
+    "template_roots": [
+      "vendor/reserved/render/html-video/templates",
+      "${HTML_VIDEO_ROOT:-../html-video}/templates",
+      "templates/video"
+    ],
+    "selection_flow": [
+      "select",
+      "compatibility_check",
+      "demo",
+      "save_preset"
+    ],
+    "card_fields": [
+      "readiness",
+      "stages",
+      "inputs",
+      "outputs",
+      "dependencies",
+      "license",
+      "cost",
+      "credentials"
+    ]
+  },
+  "learning": {
+    "name": "Learning",
+    "description": "沉淀用户确认后的 DNA、IP 模板、导演规则和发布经验；复盘建议未经审核不得自动覆盖正式档案。",
+    "libraries": [
+      {
+        "id": "dna_profiles",
+        "name": "DNA 档案",
+        "applies_to": ["draft", "transwrite.article_build", "transwrite.audio_build"]
+      },
+      {
+        "id": "ip_templates",
+        "name": "IP 模板",
+        "applies_to": ["transwrite.dna_profile", "transwrite.route_select", "transwrite.director_storyboard"]
+      },
+      {
+        "id": "component_templates",
+        "name": "动画与剪辑组件",
+        "applies_to": ["transwrite.director_storyboard", "transwrite.asset_build", "transwrite.manual_edit"]
+      },
+      {
+        "id": "publish_playbooks",
+        "name": "发布策略",
+        "applies_to": ["publish"]
+      }
+    ],
+    "writeback_gate": "postmortem.knowledge_writeback"
+  },
+  "notifications": {
+    "topbar_counters": [
+      "waiting_review",
+      "new_artifacts",
+      "blocked_nodes"
+    ],
+    "toast_events": [
+      "node_finished",
+      "review_requested",
+      "artifact_created",
+      "publish_failed",
+      "handoff_ready"
+    ],
+    "inbox_filters": [
+      "all",
+      "review",
+      "artifact",
+      "warning",
+      "publish"
+    ]
+  }
+}

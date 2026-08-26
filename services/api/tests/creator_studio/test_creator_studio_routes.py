@@ -313,6 +313,105 @@ def test_creator_commands_share_one_workspace_scoped_run_state(tmp_path: Path):
     ]
 
 
+def test_reconcile_external_products_registers_artifacts_and_completes_node(tmp_path: Path):
+    workspace = creator_workspace(tmp_path)
+    source = tmp_path / "source.txt"
+    source.write_text("source", encoding="utf-8")
+    source_plan = tmp_path / "source_plan.json"
+    source_plan.write_text('{"sources": []}', encoding="utf-8")
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=workspace,
+        creator_studio_dist=tmp_path / "missing-dist",
+    )
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+
+    with TestClient(create_app(settings)) as client:
+        created = client.post(
+            "/api/creator-studio/runs",
+            headers=headers,
+            json={
+                "title": "外部产物回写",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "materials": [
+                    {"type": "source", "path": str(source), "source": "manual"}
+                ],
+            },
+        ).json()
+        run_id = created["run"]["runId"]
+        reconciled = client.post(
+            f"/api/creator-studio/runs/{run_id}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.reconcile",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": created["run"]["revision"],
+                "input": {
+                    "outputs": [
+                        {
+                            "type": "source_plan",
+                            "path": str(source_plan),
+                            "label": "来源计划",
+                        }
+                    ]
+                },
+            },
+        )
+
+    assert reconciled.status_code == 200
+    snapshot = reconciled.json()
+    node = snapshot["stages"][0]["nodes"][0]
+    assert node["status"] == "succeeded"
+    assert node["artifacts"][-1]["type"] == "source_plan"
+    assert snapshot["run"]["activeNodeId"] == "collect"
+
+
+def test_reconcile_external_products_rejects_missing_declared_outputs(tmp_path: Path):
+    workspace = creator_workspace(tmp_path)
+    source = tmp_path / "source.txt"
+    source.write_text("source", encoding="utf-8")
+    wrong = tmp_path / "wrong.json"
+    wrong.write_text("{}", encoding="utf-8")
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=workspace,
+        creator_studio_dist=tmp_path / "missing-dist",
+    )
+    headers = {"X-User-Id": "alice", "X-Workspace-Id": "creator-a"}
+
+    with TestClient(create_app(settings)) as client:
+        created = client.post(
+            "/api/creator-studio/runs",
+            headers=headers,
+            json={
+                "title": "错误回写",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "materials": [
+                    {"type": "source", "path": str(source), "source": "manual"}
+                ],
+            },
+        ).json()
+        response = client.post(
+            f"/api/creator-studio/runs/{created['run']['runId']}/commands",
+            headers=headers,
+            json={
+                "actionId": "creator.node.reconcile",
+                "stageId": "intake",
+                "nodeId": "source_setup",
+                "expectedRevision": created["run"]["revision"],
+                "input": {"outputs": [{"type": "wrong_type", "path": str(wrong)}]},
+            },
+        )
+
+    assert response.status_code == 422
+    assert "undeclared artifact type" in response.json()["detail"]
+
+
 def test_marketplace_preview_assets_are_served_only_from_creator_workspace(tmp_path: Path):
     workspace = creator_workspace(tmp_path)
     preview = workspace / "vendor" / "reserved" / "render" / "demo" / "preview.png"

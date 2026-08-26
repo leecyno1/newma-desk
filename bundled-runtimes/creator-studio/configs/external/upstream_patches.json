@@ -1,0 +1,56 @@
+{
+  "schema_version": "dasheng.upstream_patches.v1",
+  "updated_at": "2026-08-03",
+  "policy": {
+    "purpose": "Keep small Newma compatibility changes reproducible without vendoring third-party repositories.",
+    "apply_after_clone": true,
+    "update_rule": "Export local changes, restore a clean checkout, fast-forward the upstream, then re-check and re-apply patches."
+  },
+  "patches": [
+    {
+      "id": "qianfan-publish-window-and-bilibili-cover",
+      "project": "qianfan-sync",
+      "root": "vendor/reserved/publish/qianfan-sync",
+      "patch_file": "patches/upstreams/qianfan-publish-window-and-bilibili-cover.patch",
+      "base_commit": "0cce6ea493a3e6d4979cc45f9c8347bfb845d061",
+      "files": ["backend/impl/_browser.py", "backend/impl/bilibili/platform.py"],
+      "purpose": "Use a small publish window on the secondary display, restore focus, and avoid a false Bilibili cover timeout."
+    },
+    {
+      "id": "baoyu-socks-runtime",
+      "project": "baoyu-skills",
+      "root": "vendor/reserved/design/baoyu-skills",
+      "patch_file": "patches/upstreams/baoyu-socks-runtime.patch",
+      "base_commit": "6b7a2e417500561a5ecdd0b168332f4142584617",
+      "files": ["package.json", "package-lock.json"],
+      "purpose": "Declare the SOCKS runtime dependency required by the media download path."
+    },
+    {
+      "id": "guizang-system-chrome",
+      "project": "guizang-social-card-skill",
+      "root": "vendor/reserved/design/guizang-social-card-skill",
+      "patch_file": "patches/upstreams/guizang-system-chrome.patch",
+      "base_commit": "cf4b810fac1c73fb65a2bb31d8c9278d82cbc4c5",
+      "files": ["validate-social-deck.mjs"],
+      "purpose": "Prefer an explicit Playwright browser path or installed system Chrome during visual validation."
+    },
+    {
+      "id": "html-video-motion-deps",
+      "project": "html-video",
+      "root": "vendor/reserved/render/html-video",
+      "patch_file": "patches/upstreams/html-video-motion-deps.patch",
+      "base_commit": "c414ecc07f795add03807d5d9ce4baefd807cea2",
+      "files": ["package.json"],
+      "purpose": "Add GSAP and Lottie runtimes used by Newma animated scenes."
+    },
+    {
+      "id": "text-to-lottie-skip-lib-check",
+      "project": "text-to-lottie",
+      "root": "vendor/reserved/video/text-to-lottie",
+      "patch_file": "patches/upstreams/text-to-lottie-skip-lib-check.patch",
+      "base_commit": "d8973f96fb4553c3dbe6d118b20b83f0f98196dd",
+      "files": ["tsconfig.json"],
+      "purpose": "Avoid third-party declaration conflicts while preserving strict checking for project source."
+    }
+  ]
+}

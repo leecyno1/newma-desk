@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "professional-fund-research/security-selected.event.json",
+  "type": "object",
+  "required": ["symbol", "market", "assetType", "researchModule"],
+  "properties": {
+    "symbol": { "type": "string", "minLength": 1, "maxLength": 24 },
+    "name": { "type": "string", "maxLength": 80 },
+    "market": { "const": "CN" },
+    "assetType": { "enum": ["fund", "etf"] },
+    "researchModule": { "const": "professional-fund-research" }
+  },
+  "additionalProperties": false
+}

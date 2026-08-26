@@ -1,0 +1,80 @@
+{
+  "name": "jiebang",
+  "version": "1.0.0",
+  "description": "跨代理切换开发 - 用于 Claude Code、Codex、Antigravity 在同一项目中通过 .jiebang/runtime/ 共享进度和决策",
+  "runner": "bash",
+  "entry": "scripts/jiebang.sh",
+  "hitl": false,
+  "trigger": {
+    "keyword": "接棒|交棒|同步上下文|跨代理切换开发|自动交棒"
+  },
+  "aliases": [
+    "jiebang",
+    "接棒",
+    "交棒",
+    "跨代理",
+    "agent-handoff"
+  ],
+  "dependencies": {
+    "bash": ">=4.0",
+    "git": ">=2.0"
+  },
+  "inputs": {
+    "required": [
+      ".jiebang/manifest.yml"
+    ],
+    "optional": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      "README.md"
+    ]
+  },
+  "outputs": {
+    "documents": [
+      ".jiebang/runtime/project.md",
+      ".jiebang/runtime/current-task.md",
+      ".jiebang/runtime/decision-log.md",
+      ".jiebang/runtime/handoffs/cc.md",
+      ".jiebang/runtime/handoffs/cx.md",
+      ".jiebang/runtime/handoffs/ag.md"
+    ]
+  },
+  "metadata": {
+    "agents": {
+      "cc": {
+        "name": "Claude Code",
+        "wrapper": "external-native-file",
+        "handoff": ".jiebang/runtime/handoffs/cc.md",
+        "session": ".jiebang/runtime/sessions/cc.md"
+      },
+      "cx": {
+        "name": "Codex",
+        "wrapper": "AGENTS.md",
+        "handoff": ".jiebang/runtime/handoffs/cx.md",
+        "session": ".jiebang/runtime/sessions/cx.md"
+      },
+      "ag": {
+        "name": "Antigravity",
+        "wrapper": "external-native-file",
+        "handoff": ".jiebang/runtime/handoffs/ag.md",
+        "session": ".jiebang/runtime/sessions/ag.md"
+      }
+    },
+    "commands": {
+      "接棒cc": "Import Claude Code's persisted state",
+      "接棒cx": "Import Codex's persisted state",
+      "接棒ag": "Import Antigravity's persisted state",
+      "交棒": "Persist current agent's state for next agent",
+      "自动交棒": "Enable local snapshot-based handoff persistence"
+    },
+    "runtime_layout": {
+      "manifest": ".jiebang/manifest.yml",
+      "runtime_dir": ".jiebang/runtime",
+      "project_context_files": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md"
+      ]
+    }
+  }
+}

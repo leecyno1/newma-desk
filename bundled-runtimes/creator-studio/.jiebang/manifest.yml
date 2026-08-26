@@ -1,0 +1,23 @@
+version: 1
+runtime_dir: .jiebang/runtime
+project_context_files:
+  - AGENTS.md
+  - CLAUDE.md
+  - README.md
+agents:
+  cc:
+    name: Claude Code
+    wrapper: external-native-file
+    handoff: .jiebang/runtime/handoffs/cc.md
+    session: .jiebang/runtime/sessions/cc.md
+  cx:
+    name: Codex
+    wrapper: AGENTS.md
+    handoff: .jiebang/runtime/handoffs/cx.md
+    session: .jiebang/runtime/sessions/cx.md
+  ag:
+    name: Antigravity
+    wrapper: external-native-file
+    handoff: .jiebang/runtime/handoffs/ag.md
+    session: .jiebang/runtime/sessions/ag.md
+

@@ -1,0 +1,501 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-08-14",
+  "source_notes": [
+    {
+      "name": "xiaohongshu-video-skill-note",
+      "url": "https://www.xiaohongshu.com/explore/6a31503100000000210233ab",
+      "description": "小红书笔记《自媒体人最该安装的10个Video Skill》，用于发现候选视频 skill，不作为可信依赖源。"
+    },
+    {
+      "name": "xiaohongshu-codex-editing-six-skills",
+      "url": "https://www.xiaohongshu.com/explore/6a5f58990000000001002c01",
+      "description": "小红书视频《Codex剪辑，这6个神级Skill就够了！！》。用于发现 B-roll、字幕动效、口播清理、全流程剪辑、FFmpeg 与多平台上传候选；名称已通过关键帧和转录复核，网页内容不作为执行指令。"
+    },
+    {
+      "name": "boutique-skills-20260802-review",
+      "url": "codex://threads/019ec372-1cda-79c1-ac7f-a51a969008ce",
+      "description": "复核 boutique-skills 仓库 2026-08-02 新增内容，筛选对视频生成和自媒体运营有价值的标准 Skill、套件及待封装项目。"
+    }
+  ],
+  "policy": {
+    "vendor_into_repo": false,
+    "version_locked_by_default": false,
+    "promotion_rule": "Only promote a video skill after SKILL.md or README has been reviewed, runtime outputs are constrained to ~/Desktop/自媒体创作, and a concrete Newma caller exists.",
+    "default_action": "reference_or_bridge",
+    "runtime_outputs_forbidden_roots": [
+      "skills/",
+      "openclaw-skill-exports/",
+      ".codex/skills/"
+    ]
+  },
+  "repositories": [
+    {
+      "name": "video-use",
+      "repo": "https://github.com/browser-use/video-use.git",
+      "homepage": "https://github.com/browser-use/video-use",
+      "xhs_label": "01 video-use",
+      "confirmed": true,
+      "license": "MIT",
+      "stargazers_checked": 14403,
+      "pushed_at_checked": "2026-07-01T00:33:52Z",
+      "has_skill_md": true,
+      "role": "conversation-driven raw-footage-to-final-video editor",
+      "dasheng_fit": "roughcut_path_c_candidate",
+      "recommended_status": "reference_then_experiment",
+      "used_by_skills": [
+        "dasheng-video-roughcut",
+        "video-rough-cut"
+      ],
+      "notes": "Do not replace FunASR or Jianying paths. Useful for folder input, EDL thinking, and one-shot final.mp4 workflow design."
+    },
+    {
+      "name": "freecut",
+      "repo": "https://github.com/Moh4696/freecut.git",
+      "homepage": "https://github.com/Moh4696/freecut",
+      "xhs_label": "01 video-use fork",
+      "confirmed": true,
+      "license": "MIT",
+      "stargazers_checked": 58,
+      "pushed_at_checked": "2026-07-01T10:34:34Z",
+      "has_skill_md": true,
+      "role": "video-use fork with local Whisper/VibeVoice-ASR instead of paid ElevenLabs",
+      "dasheng_fit": "low_cost_roughcut_experiment",
+      "recommended_status": "prefer_if_testing_video_use",
+      "used_by_skills": [
+        "dasheng-video-roughcut"
+      ],
+      "notes": "Better first test target than upstream video-use if avoiding new paid ASR/TTS dependencies."
+    },
+    {
+      "name": "talking-head-editor",
+      "repo": "https://github.com/chrislema/videoeditor.git",
+      "homepage": "https://github.com/chrislema/videoeditor",
+      "xhs_label": "02 talking-head-editor",
+      "confirmed": true,
+      "license": null,
+      "stargazers_checked": 14,
+      "pushed_at_checked": "2026-04-20T19:20:49Z",
+      "has_skill_md": false,
+      "role": "8-step talking-head editing pipeline",
+      "dasheng_fit": "workflow_reference_for_talking_head",
+      "recommended_status": "reference_only",
+      "used_by_skills": [
+        "dasheng-video-talking-head",
+        "video-rough-cut"
+      ],
+      "notes": "No top-level SKILL.md and no license found during check; use as process reference only."
+    },
+    {
+      "name": "caption-clip",
+      "repo": "https://github.com/kwindla/skill-caption-clip.git",
+      "homepage": "https://github.com/kwindla/skill-caption-clip",
+      "xhs_label": "05 caption-clip",
+      "confirmed": true,
+      "license": null,
+      "stargazers_checked": 2,
+      "pushed_at_checked": "2026-01-27T23:00:58Z",
+      "has_skill_md": true,
+      "role": "Deepgram transcription, SRT cleanup, styled subtitle burn-in with FFmpeg",
+      "dasheng_fit": "optional_caption_lane_reference",
+      "recommended_status": "reference_optional_provider",
+      "used_by_skills": [
+        "dasheng-video-roughcut",
+        "dasheng-video-explainer-html"
+      ],
+      "notes": "Deepgram should remain optional. Default Newma path stays FunASR/Jianying/Agent proofread."
+    },
+    {
+      "name": "claude-shorts",
+      "repo": "https://github.com/AgriciDaniel/claude-shorts.git",
+      "homepage": "https://github.com/AgriciDaniel/claude-shorts",
+      "xhs_label": "06 claude-shorts",
+      "confirmed": true,
+      "license": "MIT",
+      "stargazers_checked": 140,
+      "pushed_at_checked": "2026-06-27T02:32:36Z",
+      "has_skill_md": true,
+      "role": "longform-to-shortform extraction, highlight scoring, vertical caption rendering",
+      "dasheng_fit": "future_publish_aftercare_short_clips",
+      "recommended_status": "candidate_new_dasheng_video_short_clips",
+      "used_by_skills": [
+        "dasheng-stage-publish",
+        "social-auto-upload-bridge"
+      ],
+      "notes": "Should run after main video completion as secondary distribution, not inside primary video generation."
+    },
+    {
+      "name": "video-wrapper",
+      "repo": "https://github.com/op7418/Video-Wrapper-Skills.git",
+      "homepage": "https://github.com/op7418/Video-Wrapper-Skills",
+      "xhs_label": "07 video-wrapper",
+      "confirmed": true,
+      "license": null,
+      "stargazers_checked": 319,
+      "pushed_at_checked": "2026-02-10T16:51:55Z",
+      "has_skill_md": true,
+      "role": "variety-show style visual wrappers for interview and podcast videos",
+      "dasheng_fit": "talking_head_visual_packaging_reference",
+      "recommended_status": "high_priority_template_reference",
+      "used_by_skills": [
+        "dasheng-video-talking-head"
+      ],
+      "notes": "Strong candidate for lower-third, term-card, quote-callout, social-bar, chapter-title template ideas."
+    },
+    {
+      "name": "remotion-video-skill",
+      "repo": "https://github.com/wshuyi/remotion-video-skill.git",
+      "homepage": "https://github.com/wshuyi/remotion-video-skill",
+      "xhs_label": "08 remotion-video",
+      "confirmed": true,
+      "license": null,
+      "stargazers_checked": 305,
+      "pushed_at_checked": "2026-01-25T02:21:58Z",
+      "has_skill_md": true,
+      "role": "programmatic Remotion video generation with TTS and templates",
+      "dasheng_fit": "remotion_best_practice_reference",
+      "recommended_status": "reference_only",
+      "used_by_skills": [
+        "dasheng-video-explainer-html",
+        "dasheng-html-video-bridge"
+      ],
+      "notes": "Newma already depends on html-video, Remotion, GSAP, and OpenAI Remotion skill. Avoid duplicate runtime dependency."
+    },
+    {
+      "name": "text-to-lottie",
+      "repo": "https://github.com/diffusionstudio/lottie.git",
+      "homepage": "https://github.com/diffusionstudio/lottie",
+      "xhs_label": "text-to-lottie",
+      "confirmed": true,
+      "license": "MIT",
+      "has_skill_md": true,
+      "role": "Agent-authored Lottie/Bodymovin JSON with local Skia Skottie player verification",
+      "dasheng_fit": "optional_lottie_motion_asset_generator",
+      "recommended_status": "optional_external_dependency",
+      "used_by_skills": [
+        "dasheng-html-video-bridge",
+        "dasheng-video-explainer-html",
+        "dasheng-video-talking-head"
+      ],
+      "default_external_path": "${TEXT_TO_LOTTIE_ROOT:-vendor/reserved/video/text-to-lottie}",
+      "dependency_status": "ready_build_verified",
+      "notes": "Use for transparent stickers, lower thirds, warning/status icons, document scan cues, data-flow arrows, market ticker accents, chapter/outro marks. Never use it to replace real data charts, tables, screenshots, or sourced evidence."
+    },
+    {
+      "name": "claude-real-video",
+      "repo": "https://github.com/HUANGCHIHHUNGLeo/claude-real-video.git",
+      "homepage": "https://github.com/HUANGCHIHHUNGLeo/claude-real-video",
+      "xhs_label": "claude-real-video",
+      "xhs_source": "https://www.xiaohongshu.com/explore/6a4edb5a00000000080330e8",
+      "confirmed": true,
+      "license": "MIT",
+      "stargazers_checked": 1451,
+      "pushed_at_checked": null,
+      "has_skill_md": true,
+      "role": "local video reading: scene-aware keyframes, deduplicated frames, contact sheets, transcript, audio and MANIFEST for LLM review",
+      "dasheng_fit": "video_reading_and_style_training_ingest",
+      "recommended_status": "optional_external_dependency",
+      "used_by_skills": [
+        "dasheng-video-style-trainer",
+        "dasheng-video-talking-head",
+        "dasheng-video-director"
+      ],
+      "default_external_path": "${CLAUDE_REAL_VIDEO_ROOT:-vendor/reserved/video/claude-real-video}",
+      "local_path_checked": "vendor/reserved/video/claude-real-video",
+      "local_install_note": "Cloned in the project reserve on 2026-07-24, HEAD e34161691c9e; isolated Python 3.11 .venv installed with the fast extra.",
+      "dependency_status": "ready",
+      "notes": "Default local video reading layer for reference videos and finished-cut audits. Newma wrapper is scripts/read_video_with_crv.py and stores outputs under ~/Desktop/自媒体创作, never in skills or project root."
+    },
+    {
+      "name": "product-launch-video-skill",
+      "repo": "https://github.com/memex-lab/product-launch-video-skill.git",
+      "homepage": "https://github.com/memex-lab/product-launch-video-skill",
+      "xhs_label": "09 product-launch-video",
+      "confirmed": true,
+      "license": "MIT",
+      "stargazers_checked": 4,
+      "pushed_at_checked": "2026-06-01T09:25:16Z",
+      "has_skill_md": true,
+      "role": "cinematic product launch videos with Remotion",
+      "dasheng_fit": "product_demo_reference",
+      "recommended_status": "niche_reference",
+      "used_by_skills": [
+        "dasheng-video-explainer-html"
+      ],
+      "notes": "Useful only for product launch/demo channels; not a core finance article/video dependency."
+    },
+    {
+      "name": "claude-code-video-toolkit",
+      "repo": "https://github.com/digitalsamba/claude-code-video-toolkit.git",
+      "homepage": "https://github.com/digitalsamba/claude-code-video-toolkit",
+      "xhs_label": "10 claude-code-video-toolkit",
+      "confirmed": true,
+      "license": "MIT",
+      "stargazers_checked": 1662,
+      "pushed_at_checked": "2026-06-22T14:44:50Z",
+      "has_skill_md": true,
+      "role": "AI-native video production toolkit with templates and examples",
+      "dasheng_fit": "video_workbench_reference",
+      "recommended_status": "reference_not_bulk_install",
+      "used_by_skills": [
+        "dasheng-stage-transwrite",
+        "dasheng-video-explainer-html",
+        "dasheng-video-talking-head"
+      ],
+      "notes": "Retain as a local reference for Remotion templates, transitions, reusable components, data visualization and browser recording. Do not register its Modal, RunPod, ElevenLabs, R2 or other third-party cloud routes."
+    },
+    {
+      "name": "ian-xiaohei-illustrations",
+      "repo": "https://github.com/helloianneo/ian-xiaohei-illustrations.git",
+      "homepage": "https://github.com/helloianneo/ian-xiaohei-illustrations",
+      "confirmed": true,
+      "license": "MIT",
+      "head_tested": "91b560849e8f883922cc2fa8a358a668caa94105",
+      "has_skill_md": true,
+      "role": "minimal hand-drawn conceptual illustration grammar for article and video inserts",
+      "dasheng_fit": "default_conceptual_cartoon_lane_with_lemon_character_adapter",
+      "recommended_status": "external_upstream_with_local_adapter",
+      "used_by_skills": [
+        "dasheng-lemon-illustrations",
+        "dasheng-video-director",
+        "dasheng-video-talking-head",
+        "dasheng-video-explainer-html"
+      ],
+      "default_external_path": "${IAN_XIAOHEI_ILLUSTRATIONS_ROOT:-vendor/reserved/video/ian-xiaohei-illustrations}",
+      "local_path_checked": "vendor/reserved/video/ian-xiaohei-illustrations",
+      "local_install_note": "Cloned in the project reserve on 2026-07-24, HEAD 91b560849e8f. Review prompt/style changes before updating the local adapter.",
+      "notes": "Do not vendor or edit upstream. Newma replaces the recurring character with the serious lemon-person IP and uses this only for conceptual metaphors, transitions, workflows, and emotional beats. It never replaces real charts, tables, documents, screenshots, or sourced evidence."
+    },
+    {
+      "name": "seedance2-skill",
+      "repo": "https://github.com/dexhunter/seedance2-skill.git",
+      "homepage": "https://github.com/dexhunter/seedance2-skill",
+      "xhs_label": "seedance2",
+      "xhs_source": "https://www.xiaohongshu.com/explore/6a5f58990000000001002c01",
+      "confirmed": true,
+      "license": "MIT",
+      "head_checked": "e06c7c63a766d623004a2807881c30685ce517af",
+      "has_skill_md": true,
+      "role": "official Seedance/Jimeng prompt design for generated short B-roll and animated cutaways",
+      "dasheng_fit": "optional_first_party_generated_broll_provider",
+      "recommended_status": "installed_official_model_optional",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "seedance",
+        "jimeng"
+      ],
+      "used_by_skills": [
+        "dasheng-video-broll-generator"
+      ],
+      "notes": "Keep model access as an allowed optional dependency. Never use synthetic footage to impersonate factual evidence."
+    },
+    {
+      "name": "hyperframes",
+      "repo": "https://github.com/heygen-com/hyperframes.git",
+      "homepage": "https://github.com/heygen-com/hyperframes",
+      "xhs_label": "HyperFrames",
+      "xhs_source": "https://www.xiaohongshu.com/explore/6a5f58990000000001002c01",
+      "confirmed": true,
+      "license": null,
+      "head_checked": "f0034228f5026ffe928db84d83c1ffabd9a1d88a",
+      "has_skill_md": true,
+      "role": "HTML and GSAP video compositions with timed captions, overlays, transitions, and rendering CLI",
+      "dasheng_fit": "caption_motion_and_html_composition_provider",
+      "recommended_status": "installed_plugin_bridge",
+      "used_by_skills": [
+        "dasheng-caption-motion",
+        "dasheng-video-broll-generator",
+        "dasheng-video-explainer-html"
+      ],
+      "notes": "Available through the installed HyperFrames plugin. Keep Newma scene plans and evidence gates as the source of truth."
+    },
+    {
+      "name": "auto-editor",
+      "repo": "https://github.com/WyattBlue/auto-editor.git",
+      "homepage": "https://github.com/WyattBlue/auto-editor",
+      "xhs_label": "auto-editor",
+      "xhs_source": "https://www.xiaohongshu.com/explore/6a5f58990000000001002c01",
+      "confirmed": true,
+      "license": "Unlicense",
+      "head_checked": "0af63dea136c40572474a7e9074407e4b92fd99f",
+      "has_skill_md": false,
+      "role": "automatic silence and pacing cleanup for audio and video",
+      "dasheng_fit": "optional_roughcut_provider",
+      "recommended_status": "reference_optional_provider",
+      "used_by_skills": [
+        "dasheng-video-roughcut"
+      ],
+      "notes": "Do not replace the reviewed FunASR or Jianying routes. Evaluate deletion naturalness and semantic safety before promotion."
+    },
+    {
+      "name": "chengfeng-videocut-skills",
+      "repo": "https://github.com/Agentchengfeng/chengfeng-videocut-skills.git",
+      "homepage": "https://github.com/Agentchengfeng/chengfeng-videocut-skills",
+      "xhs_label": "chengfeng-videocut",
+      "xhs_source": "https://www.xiaohongshu.com/explore/6a5f58990000000001002c01",
+      "confirmed": true,
+      "license": null,
+      "head_checked": "e2cc73dce613c0701b3e02dc4a7c2f5f567ad7b3",
+      "has_skill_md": true,
+      "role": "local-first video editing agent skill collection",
+      "dasheng_fit": "optional_full_edit_provider",
+      "recommended_status": "reference_then_experiment",
+      "used_by_skills": [
+        "dasheng-video-editing-bridge"
+      ],
+      "notes": "Review license and runtime boundaries before any production trial. External output remains subject to Newma QC."
+    },
+    {
+      "name": "social-auto-upload",
+      "repo": "https://github.com/dreammis/social-auto-upload.git",
+      "homepage": "https://github.com/dreammis/social-auto-upload",
+      "xhs_label": "social-auto-upload",
+      "xhs_source": "https://www.xiaohongshu.com/explore/6a5f58990000000001002c01",
+      "confirmed": true,
+      "license": null,
+      "has_skill_md": false,
+      "role": "multi-platform video upload automation",
+      "dasheng_fit": "existing_guarded_publish_bridge",
+      "recommended_status": "existing_bridge",
+      "used_by_skills": [
+        "social-auto-upload-bridge",
+        "bilibili-upload-bridge"
+      ],
+      "notes": "Canonical runtime metadata remains in configs/publish/upstream_repos.json. Final publication always requires explicit current-session confirmation."
+    },
+    {
+      "name": "video-editing-pipeline",
+      "repo": null,
+      "homepage": null,
+      "xhs_label": "03 video-editing-pipeline",
+      "confirmed": false,
+      "role": "roughcut pipeline and EDL timeline generation",
+      "dasheng_fit": "already_covered_by_internal_pipeline",
+      "recommended_status": "defer_until_repo_confirmed",
+      "used_by_skills": [
+        "dasheng-video-roughcut"
+      ],
+      "notes": "XHS screenshot confirms the label but this check did not locate a stable GitHub owner/repo."
+    },
+    {
+      "name": "ffmpeg-usage",
+      "repo": null,
+      "homepage": null,
+      "xhs_label": "04 ffmpeg-usage",
+      "confirmed": false,
+      "role": "FFmpeg utility recipes for transcoding, merging, clipping, audio extraction, subtitle burn-in",
+      "dasheng_fit": "internal_ffmpeg_practice",
+      "recommended_status": "do_not_add_as_dependency",
+      "used_by_skills": [
+        "dasheng-video-roughcut",
+        "dasheng-video-talking-head",
+        "dasheng-video-explainer-html"
+      ],
+      "notes": "Keep FFmpeg as a direct external tool and document recipes in existing skills."
+    },
+    {
+      "name": "video-shotcraft",
+      "repo": "https://github.com/Vincentwei1021/video-shotcraft.git",
+      "homepage": "https://vincentwei1021.github.io/video-shotcraft/",
+      "confirmed": true,
+      "license": "Apache-2.0",
+      "has_skill_md": true,
+      "role": "cinematic Remotion shot-recipe library with real-page capture, 2.5D camera motion, beat-synced editing and sound design",
+      "dasheng_fit": "high_priority_director_shot_language_and_review_reference",
+      "recommended_status": "adapter_ready_local_execution",
+      "used_by_skills": [
+        "dasheng-vox-skills",
+        "dasheng-video-director",
+        "dasheng-video-explainer-html",
+        "dasheng-video-talking-head"
+      ],
+      "local_catalog_path": "${BOUTIQUE_SKILLS_ROOT:-../boutique-skills}/skills/default/video-shotcraft",
+      "notes": "The dasheng-vox-skills adapter now validates card/style/demo bindings and locks selected scenes to local Remotion. Keep Newma narration, evidence, real-footage and aspect-ratio rules as the governing contract."
+    },
+    {
+      "name": "gsap-skills",
+      "repo": "https://github.com/greensock/gsap-skills.git",
+      "homepage": "https://gsap.com/",
+      "confirmed": true,
+      "license": "MIT",
+      "head_checked": "aed9cfd3277740755f6bfc1155c7aa645403b760",
+      "has_skill_md": true,
+      "role": "official GSAP suite for core tweens, timelines, React/framework integration, ScrollTrigger, plugins, utilities and performance",
+      "dasheng_fit": "single_suite_router_for_html_and_remotion_motion",
+      "recommended_status": "reserve_as_suite_not_eight_peer_routes",
+      "used_by_skills": [
+        "dasheng-html-video-bridge",
+        "dasheng-caption-motion",
+        "dasheng-video-explainer-html"
+      ],
+      "suite_skills": [
+        "gsap-core",
+        "gsap-frameworks",
+        "gsap-performance",
+        "gsap-plugins",
+        "gsap-react",
+        "gsap-scrolltrigger",
+        "gsap-timeline",
+        "gsap-utils"
+      ],
+      "local_catalog_path": "${BOUTIQUE_SKILLS_ROOT:-../boutique-skills}/catalog/suites/gsap-skills.json",
+      "notes": "Expose one director-facing suite and dispatch internally. This keeps the registry readable and avoids eight nearly identical top-level advisors competing with existing animation skills."
+    },
+    {
+      "name": "impeccable",
+      "repo": "https://github.com/pbakaus/impeccable.git",
+      "homepage": "https://github.com/pbakaus/impeccable",
+      "confirmed": true,
+      "license": "Apache-2.0",
+      "has_skill_md": true,
+      "role": "frontend and HTML visual audit, responsive polish, motion review and browser-based quality assurance",
+      "dasheng_fit": "html_storyboard_and_chart_visual_qc_advisor",
+      "recommended_status": "reserve_then_visual_qc_adapter",
+      "used_by_skills": [
+        "dasheng-video-director",
+        "dasheng-video-explainer-html",
+        "dasheng-media-sop"
+      ],
+      "local_catalog_path": "${BOUTIQUE_SKILLS_ROOT:-../boutique-skills}/skills/default/impeccable",
+      "notes": "Use for storyboard HTML, dynamic charts, title systems and browser acceptance. It complements design-taste-frontend and review-animations rather than replacing either."
+    },
+    {
+      "name": "taste-skill",
+      "repo": "https://github.com/Leonxlnx/taste-skill.git",
+      "homepage": "https://github.com/Leonxlnx/taste-skill",
+      "confirmed": true,
+      "license": "MIT",
+      "has_skill_md": true,
+      "role": "anti-slop art direction, visual hierarchy and layout quality guidance",
+      "dasheng_fit": "existing_installed_visual_design_advisor",
+      "recommended_status": "already_retained_no_duplicate",
+      "used_by_skills": [
+        "dasheng-video-director",
+        "dasheng-video-explainer-html"
+      ],
+      "default_external_path": "${TASTE_SKILL_ROOT:-vendor/reserved/design/taste-skill}",
+      "notes": "Already installed as design-taste-frontend. Do not create a second copy from boutique-skills."
+    },
+    {
+      "name": "video-autopilot-kit",
+      "repo": "https://github.com/Hao0321/video-autopilot-kit.git",
+      "homepage": "https://github.com/Hao0321/video-autopilot-kit",
+      "confirmed": true,
+      "license": "MIT",
+      "has_skill_md": false,
+      "role": "short-video scripting, CapCut JSON handoff, FFmpeg templates and batch production",
+      "dasheng_fit": "high_priority_capcut_and_batch_production_adapter_candidate",
+      "recommended_status": "reserve_blocked_until_adapter",
+      "used_by_skills": [
+        "dasheng-video-editing-bridge",
+        "social-auto-upload-bridge"
+      ],
+      "notes": "Do not advertise as an installed Skill. Clone and review the CapCut schema, output boundaries and batch behavior, then wrap it with a guarded Newma adapter and smoke test before routing."
+    }
+  ],
+  "archived_for_production": [
+    "auto-editor",
+    "chengfeng-videocut-skills"
+  ],
+  "archived_note": "2026-08-22 审计降级：实验/参考状态，非生产路由。"
+}

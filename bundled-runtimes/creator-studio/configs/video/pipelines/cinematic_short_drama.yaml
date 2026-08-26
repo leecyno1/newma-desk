@@ -1,0 +1,109 @@
+schema_version: dasheng.video.pipeline.v1
+id: cinematic_short_drama
+lane: cinematic_short_drama_video
+director_id: cinematic_short_drama_director
+standard_flow_ref: configs/video/director_registry.json#standard_flow
+title: 电影短剧流水线（暂缓执行）
+orchestrator_skill: dasheng-media-sop
+status: deferred
+execution_enabled: false
+activation_rule: explicit_user_enable_after_provider_budget_rights_and_safety_preflight
+default_output_stage: video
+default_format:
+  aspect_ratio: "9:16"
+  width: 1080
+  height: 1920
+  fps: 24
+  alternate_profiles: ["16:9", "2.39:1"]
+external_output_policy:
+  required_root: "~/Desktop/自媒体创作"
+  forbid_paths: ["skills/", ".codex/skills/", "node_modules/"]
+human_approval_default: true
+style_reference:
+  primary: 电影感多角色连续叙事
+  principle: 先锁定剧本、角色圣经、场景轴线和逐镜分镜，再逐镜调用官方模型 API；当前只开放规划，不自动执行生成。
+stages:
+  - name: intake
+    canonical_stage: intake
+    description: 接收故事梗概、角色授权、参考风格、时长、平台规格、预算和供应商边界。
+    skill: dasheng-media-sop
+    required_artifacts_in: [brief]
+    produces: [review]
+    tools_available: [cinematic_planning_router, media_downloader]
+    checkpoint_required: true
+    success_criteria:
+      - planning inputs and rights are documented
+      - execution remains disabled
+  - name: script_rewrite
+    canonical_stage: script_rewrite
+    description: 生成可拍摄短剧剧本、角色弧线、场景目标、对白和节奏点。
+    skill: dasheng-video-director
+    required_artifacts_in: [brief, review]
+    produces: [script]
+    tools_available: [cinematic_planning_router]
+    checkpoint_required: true
+    success_criteria:
+      - schema-valid script artifact
+      - characters, locations and story beats are locked
+  - name: scene_plan
+    canonical_stage: scene_plan
+    description: 生成逐镜景别、机位、运动、表演、连续性、角色参考图和声音设计分镜。
+    skill: dasheng-video-director
+    required_artifacts_in: [script]
+    produces: [scene_plan, tool_routing_plan, review]
+    tools_available: [video_director_tool_router, cinematic_planning_router, image2, build_storyboard_template_review_table]
+    checkpoint_required: true
+    success_criteria:
+      - schema-valid scene_plan artifact
+      - storyboard review approved
+      - continuity bible is complete
+  - name: asset_build
+    canonical_stage: asset_build
+    description: 预留角色参考图、场景参考图、逐镜提示词、官方模型生成和音效素材槽位；当前不得自动调用付费 API。
+    skill: dasheng-html-video-bridge
+    required_artifacts_in: [scene_plan]
+    produces: [asset_manifest, renderer_asset_gate]
+    tools_available: [cinematic_external_api_router, image2, gemini_video_api, video_vox_mmx_generate, mmx_cli]
+    checkpoint_required: true
+    success_criteria:
+      - asset slots and provider routes are registered
+      - no paid generation is executed while pipeline is deferred
+  - name: edit_composite
+    canonical_stage: edit_composite
+    description: 预留连续性剪辑、对白、环境音、音乐、字幕和 Remotion/FFmpeg 合成决策。
+    skill: dasheng-video-director
+    required_artifacts_in: [scene_plan, asset_manifest]
+    produces: [edit_decisions]
+    tools_available: [cinematic_planning_router, convert_director_storyboard_to_video_timeline, build_remotion_renderer_pack]
+    checkpoint_required: true
+    success_criteria:
+      - schema-valid edit_decisions artifact
+      - continuity and sound plans are explicit
+  - name: render
+    canonical_stage: render
+    description: 预留 Remotion 主时间轴和 FFmpeg 终渲染；当前保持禁用。
+    skill: dasheng-html-video-bridge
+    required_artifacts_in: [edit_decisions, asset_manifest, renderer_asset_gate]
+    produces: [review]
+    tools_available: [cinematic_external_api_router, build_remotion_renderer_pack, dasheng_ffmpeg_toolkit]
+    checkpoint_required: true
+    success_criteria:
+      - render plan exists
+      - execution remains disabled
+  - name: qc_delivery
+    canonical_stage: qc_delivery
+    description: 预留角色连续性、镜头衔接、音画、字幕、内容安全和交付绑定检查。
+    skill: dasheng-media-sop
+    required_artifacts_in: [edit_decisions, asset_manifest, renderer_asset_gate, review]
+    produces: [render_report, review]
+    tools_available: [cinematic_planning_router, video_render_qc, video_final_delivery]
+    checkpoint_required: true
+    success_criteria:
+      - QC contract is registered
+      - no delivery occurs while pipeline is deferred
+fail_conditions:
+  - execution_enabled becomes true without explicit user activation
+  - provider, budget, rights or safety preflight is missing
+  - third-party aggregation service is used as the default route
+  - character, costume, location or screen-direction continuity is not locked
+  - paid generation runs before storyboard approval

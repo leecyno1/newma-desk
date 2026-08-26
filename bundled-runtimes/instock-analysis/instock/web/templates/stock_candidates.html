@@ -1,0 +1,285 @@
+{% extends "layout/mod.html" %}
+
+{% block main_content %}
+<link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
+<style>
+    :root { --candidate-ink: var(--instock-text); --candidate-muted: var(--instock-text-muted); --candidate-line: var(--instock-border); --candidate-panel: var(--instock-surface); --candidate-raised: var(--instock-surface-raised); --candidate-accent: #1e6f5c; --candidate-accent-soft: color-mix(in srgb, var(--candidate-accent) 14%, transparent); --candidate-gold: #bd8334; }
+    .candidate-shell { min-height: 100%; padding: 14px; color: var(--candidate-ink); background: var(--instock-bg); }
+    .candidate-panel { border: 1px solid var(--candidate-line); border-radius: 8px; background: color-mix(in srgb, var(--candidate-panel) 96%, transparent); box-shadow: var(--instock-shadow); }
+    .candidate-filter-panel { padding: 14px 16px 12px; border-top: 3px solid var(--candidate-accent); }
+    .candidate-filter-head { display: flex; gap: 18px; margin-bottom: 12px; align-items: flex-start; justify-content: space-between; }
+    .candidate-filter-head h2 { margin: 0; font-size: 13px; }
+    .candidate-filter-head p { max-width: 720px; margin: 0; color: var(--candidate-muted); font-size: 9px; line-height: 1.55; text-align: right; }
+    .candidate-controls { display: grid; grid-template-columns: repeat(6,minmax(110px,1fr)); gap: 9px; align-items: end; }
+    .candidate-control label { display: block; margin-bottom: 5px; color: var(--candidate-muted); font-size: 10px; font-weight: 800; }
+    .candidate-control select, .candidate-control input { width: 100%; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--instock-border-strong); border-radius: 6px; color: var(--candidate-ink); background: var(--candidate-raised); box-sizing: border-box; }
+    .candidate-run { height: 35px; padding: 0 17px; border: 0; border-radius: 7px; color: #f7f2e7; background: var(--candidate-accent); font-size: 11px; font-weight: 900; letter-spacing: .04em; }
+    .candidate-run:disabled { cursor: wait; opacity: .55; }
+    .candidate-action-row { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 12px; margin-top: 11px; padding-top: 11px; align-items: center; border-top: 1px solid color-mix(in srgb, var(--candidate-line) 70%, transparent); }
+    .candidate-meta { min-width: 0; color: var(--candidate-muted); font-family: var(--instock-font-mono); font-size: 8px; line-height: 1.55; text-align: right; }
+    .candidate-advanced { grid-column: 1 / -1; width: 100%; margin-top: 1px; border-top: 1px solid color-mix(in srgb, var(--candidate-line) 70%, transparent); }
+    .candidate-advanced summary { width: fit-content; padding-top: 10px; color: var(--candidate-accent); font-size: 9px; font-weight: 900; cursor: pointer; }
+    .candidate-advanced-body { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; padding-top: 10px; }
+    .candidate-filter-group { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 9px; width: 100%; padding: 11px; border: 1px solid var(--candidate-line); border-radius: 9px; background: var(--candidate-raised); }
+    .candidate-filter-group h3 { grid-column: 1 / -1; margin: 0; color: var(--candidate-accent); font-size: 10px; letter-spacing: .08em; }
+    .candidate-filter-group .candidate-control input { width: 100%; min-width: 0; box-sizing: border-box; }
+    .candidate-advanced-note { max-width: 460px; padding-bottom: 8px; color: var(--candidate-muted); font-size: 9px; line-height: 1.55; }
+    .candidate-alert { display: none; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--instock-error-border); border-radius: 9px; color: var(--instock-error-text); background: var(--instock-error-bg); font-size: 11px; }
+    .candidate-stats { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; margin-top: 10px; }
+    .candidate-stat { padding: 13px 14px; }
+    .candidate-stat span { color: var(--candidate-muted); font-size: 9px; }
+    .candidate-stat strong { display: block; margin-top: 8px; overflow: hidden; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+    .candidate-quality-panel { margin-top: 10px; overflow: hidden; }
+    .candidate-quality-head { display:flex; min-height:42px; padding:0 13px; align-items:center; justify-content:space-between; border-bottom:1px solid var(--candidate-line); }
+    .candidate-quality-head h2 { margin:0; font-size:11px; }
+    .candidate-quality-head span { color:var(--candidate-muted); font-family:var(--instock-font-mono); font-size:8px; }
+    .candidate-quality { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .candidate-quality-item { min-width:0; padding: 10px 11px; border-right:1px solid var(--candidate-line); }
+    .candidate-quality-item:last-child { border-right:0; }
+    .candidate-quality-item span { display: block; color: var(--candidate-muted); font-size: 9px; }
+    .candidate-quality-item strong { display: block; margin-top: 6px; font-size: 11px; }
+    .candidate-quality-item small { display: block; margin-top: 4px; color: var(--candidate-muted); font-size: 8px; line-height: 1.45; }
+    .candidate-quality-item[data-state="available"] strong { color: var(--candidate-accent); }
+    .candidate-quality-item[data-state="limited"] strong { color: var(--candidate-gold); }
+    .candidate-quality-item[data-state="partial"] strong, .candidate-quality-item[data-state="unavailable"] strong { color: var(--instock-error-text); }
+    .candidate-lifecycle { display: flex; min-height: 42px; margin-top: 7px; padding: 8px 11px; gap: 12px; align-items: center; justify-content: space-between; border-left: 3px solid var(--candidate-accent); color: var(--candidate-muted); background: var(--candidate-accent-soft); font-size: 9px; line-height: 1.55; }
+    .candidate-lifecycle-copy strong { display: block; color: var(--candidate-ink); font-size: 10px; }
+    .candidate-lifecycle-copy span { display: block; margin-top: 2px; }
+    .candidate-lifecycle-filters { display: inline-flex; flex: 0 0 auto; padding: 2px; border: 1px solid var(--candidate-line); border-radius: 7px; background: var(--candidate-raised); }
+    .candidate-lifecycle-filter { min-height: 29px; padding: 0 9px; border: 0; border-right: 1px solid var(--candidate-line); color: var(--candidate-muted); background: transparent; font-size: 9px; cursor: pointer; }
+    .candidate-lifecycle-filter:last-child { border-right: 0; }
+    .candidate-lifecycle-filter b { margin-left: 3px; color: inherit; font-family: var(--instock-font-mono); }
+    .candidate-lifecycle-filter[aria-pressed="true"] { color: #f7f2e7; background: var(--candidate-accent); }
+    .candidate-lifecycle-filter:disabled { cursor: default; opacity: .42; }
+    .candidate-exclusions { display: none; margin-top: 13px; overflow: hidden; }
+    .candidate-exclusions summary { display: flex; min-height: 43px; padding: 0 15px; align-items: center; justify-content: space-between; color: var(--candidate-ink); cursor: pointer; font-size: 12px; font-weight: 800; list-style: none; }
+    .candidate-exclusions summary::-webkit-details-marker { display: none; }
+    .candidate-exclusions summary span { color: var(--candidate-muted); font-family: var(--instock-font-mono); font-size: 9px; font-weight: 500; }
+    .candidate-exclusion-body { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(0, 1.3fr); gap: 12px; padding: 13px 15px 15px; border-top: 1px solid var(--candidate-line); }
+    .candidate-reason-list { display: flex; flex-wrap: wrap; gap: 7px; align-content: flex-start; }
+    .candidate-reason-chip { padding: 6px 8px; border: 1px solid var(--candidate-line); border-radius: 7px; color: var(--candidate-muted); background: var(--candidate-raised); font-size: 9px; }
+    .candidate-reason-chip b { margin-left: 5px; color: var(--candidate-accent); }
+    .candidate-excluded-list { display: grid; max-height: 420px; gap: 6px; overflow-y: auto; }
+    .candidate-excluded-row { display: grid; grid-template-columns: minmax(110px, .35fr) minmax(0, 1fr); gap: 10px; padding: 7px 9px; border-left: 2px solid var(--candidate-gold); color: var(--candidate-muted); background: color-mix(in srgb, var(--candidate-gold) 7%, transparent); font-size: 9px; line-height: 1.5; }
+    .candidate-excluded-row b { color: var(--candidate-ink); }
+    .candidate-excluded-security { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .candidate-stage-tag { padding: 2px 5px; border: 1px solid var(--candidate-line); border-radius: 4px; color: var(--candidate-accent); background: var(--candidate-raised); font-size: 8px; font-weight: 800; white-space: nowrap; }
+    .candidate-grid { display: grid; gap: 10px; margin-top: 10px; }
+    .candidate-insight-grid { grid-template-columns:minmax(0,1.3fr) minmax(280px,.7fr); }
+    .candidate-results-grid { grid-template-columns:minmax(0,1.6fr) minmax(340px,.65fr); align-items:start; }
+    .candidate-results-grid > aside { position:sticky; top:10px; }
+    .candidate-section-title { display: flex; min-height: 45px; margin: 0; padding: 0 15px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--candidate-line); font-size: 13px; }
+    .candidate-section-title span { color: var(--candidate-muted); font-family: var(--instock-font-mono); font-size: 9px; font-weight: 500; }
+    #candidate-rank-chart { height: 310px; }
+    .candidate-model { padding: 13px; }
+    .candidate-weight { display: grid; grid-template-columns: 64px minmax(0, 1fr) 36px; gap: 8px; align-items: center; margin: 9px 0; color: var(--candidate-muted); font-size: 10px; }
+    .candidate-weight-track { height: 6px; overflow: hidden; border-radius: 99px; background: var(--candidate-line); }
+    .candidate-weight-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--candidate-accent), var(--candidate-gold)); }
+    .candidate-note { margin-top: 14px; padding: 10px; border-left: 3px solid var(--candidate-gold); color: var(--candidate-muted); background: color-mix(in srgb, var(--candidate-gold) 10%, transparent); font-size: 10px; line-height: 1.65; }
+    .candidate-table-panel { overflow: hidden; }
+    .candidate-table-wrap { overflow-x: auto; }
+    .candidate-table { width: 100%; min-width: 1060px; border-collapse: collapse; }
+    .candidate-table th { padding: 10px 11px; border-bottom: 1px solid var(--candidate-line); color: var(--candidate-muted); background: var(--instock-surface-muted); font-size: 9px; text-align: left; white-space: nowrap; }
+    .candidate-table td { padding: 11px; border-bottom: 1px solid var(--candidate-line); font-size: 10px; white-space: nowrap; }
+    .candidate-table tbody tr { cursor: pointer; transition: background .16s ease; }
+    .candidate-table tbody tr:hover, .candidate-table tbody tr.is-selected { background: var(--candidate-accent-soft); }
+    .candidate-rank { color: var(--candidate-muted); font-family: var(--instock-font-mono); }
+    .candidate-name strong { display: block; font-size: 11px; }
+    .candidate-name span { display: block; margin-top: 3px; color: var(--candidate-muted); font-family: var(--instock-font-mono); font-size: 9px; }
+    .candidate-score { color: var(--candidate-accent); font-family: var(--instock-font-mono); font-size: 15px; font-weight: 900; }
+    .candidate-tag { display: inline-block; padding: 3px 6px; border: 1px solid var(--candidate-line); border-radius: 999px; color: var(--candidate-muted); background: var(--candidate-raised); font-size: 9px; }
+    .candidate-tag[data-lifecycle="continuing"] { color: var(--candidate-accent); border-color: color-mix(in srgb, var(--candidate-accent) 45%, transparent); }
+    .candidate-tag[data-lifecycle="returned"] { color: var(--candidate-gold); border-color: color-mix(in srgb, var(--candidate-gold) 48%, transparent); }
+    .candidate-detail { min-height: 340px; padding: 14px; }
+    .candidate-detail-head { display: flex; justify-content: space-between; align-items: start; }
+    .candidate-detail-head h3 { margin: 0; font-size: 17px; }
+    .candidate-detail-head p { margin: 5px 0 0; color: var(--candidate-muted); font-size: 10px; }
+    .candidate-detail-score { color: var(--candidate-accent); font-family: var(--instock-font-mono); font-size: 25px; font-weight: 900; }
+    .candidate-contributions { display: grid; gap: 7px; margin-top: 15px; }
+    .candidate-contribution { display: grid; grid-template-columns: 62px minmax(0, 1fr) 42px; gap: 8px; align-items: center; color: var(--candidate-muted); font-size: 9px; }
+    .candidate-contribution-track { height: 5px; overflow: hidden; border-radius: 99px; background: var(--candidate-line); }
+    .candidate-contribution-track i { display: block; height: 100%; background: var(--candidate-accent); }
+    .candidate-evidence { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
+    .candidate-evidence section { padding: 10px; border: 1px solid var(--candidate-line); border-radius: 8px; background: var(--candidate-raised); }
+    .candidate-evidence h4 { margin: 0 0 7px; color: var(--candidate-muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+    .candidate-evidence ul { margin: 0; padding-left: 16px; color: var(--candidate-muted); font-size: 10px; line-height: 1.7; }
+    .candidate-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+    .candidate-action { display: inline-flex; min-height: 33px; padding: 0 11px; align-items: center; justify-content: center; border: 1px solid var(--candidate-accent); border-radius: 7px; color: var(--candidate-accent); background: var(--candidate-accent-soft); font-size: 9px; font-weight: 900; text-decoration: none; }
+    .candidate-action:hover, .candidate-action:focus { color: #f7f2e7; background: var(--candidate-accent); text-decoration: none; }
+    .candidate-footnote { margin: 11px 2px 0; color: var(--candidate-muted); font-size: 9px; line-height: 1.7; }
+    .candidate-loading { padding: 70px 20px; color: var(--candidate-muted); text-align: center; font-size: 11px; }
+    @media (max-width: 1100px) { .candidate-controls { grid-template-columns:repeat(3,minmax(130px,1fr)); } .candidate-quality { grid-template-columns: repeat(3, minmax(0, 1fr)); } .candidate-quality-item:nth-child(3n) { border-right:0; } .candidate-quality-item:nth-child(-n+3) { border-bottom:1px solid var(--candidate-line); } .candidate-grid { grid-template-columns: 1fr; } .candidate-results-grid > aside { position:static; } .candidate-filter-group { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 620px) { .candidate-shell { padding: 10px; } .candidate-filter-head { display:block; } .candidate-filter-head p { margin-top:5px; text-align:left; } .candidate-controls { grid-template-columns: 1fr 1fr; } .candidate-control select, .candidate-control input, .candidate-run { width: 100%; min-width: 0; box-sizing: border-box; } .candidate-control-wide, .candidate-advanced { grid-column: 1 / -1; } .candidate-advanced-body, .candidate-filter-group { display: grid; grid-template-columns: 1fr; } .candidate-action-row { grid-template-columns:1fr; } .candidate-meta { overflow-wrap:anywhere; white-space:normal; text-align:left; } .candidate-stats { grid-template-columns: 1fr 1fr; } .candidate-quality { grid-template-columns:1fr 1fr; } .candidate-quality-item { border-right:1px solid var(--candidate-line); border-bottom:1px solid var(--candidate-line); } .candidate-quality-item:nth-child(2n) { border-right:0; } .candidate-quality-item:nth-last-child(-n+2) { border-bottom:0; } .candidate-lifecycle { align-items: stretch; flex-direction: column; } .candidate-lifecycle-filters { display: grid; grid-template-columns: repeat(4, 1fr); } .candidate-lifecycle-filter { padding: 0 5px; } .candidate-evidence, .candidate-exclusion-body { grid-template-columns: 1fr; } .candidate-excluded-row { grid-template-columns: 1fr; gap: 2px; } }
+</style>
+
+<main class="candidate-shell">
+    <section class="candidate-panel candidate-filter-panel">
+        <header class="candidate-filter-head">
+            <h2>筛选条件</h2>
+            <p>宽覆盖池先执行市场硬筛，再对深度计算池补充技术、财务质量、成长与估值；结果用于缩小研究范围，不是买卖信号。</p>
+        </header>
+        <div class="candidate-controls">
+            <div class="candidate-control"><label for="candidate-market">市场</label><select id="candidate-market"><option value="CN">A 股</option><option value="HK">港股</option><option value="CN_HK">A 股 + 港股</option></select></div>
+            <div class="candidate-control"><label for="candidate-mode">覆盖方式</label><select id="candidate-mode"><option value="broad">宽覆盖</option><option value="quick">快速榜单</option></select></div>
+            <div class="candidate-control"><label for="candidate-universe">深度计算池</label><select id="candidate-universe"><option value="100">100 只</option><option value="200">200 只</option><option value="50">50 只</option><option value="30">30 只</option></select></div>
+            <div class="candidate-control"><label for="candidate-output">输出数量</label><select id="candidate-output"><option value="10">前 10</option><option value="20">前 20</option><option value="30">前 30</option></select></div>
+            <div class="candidate-control"><label for="candidate-bars">历史窗口</label><select id="candidate-bars"><option value="120">120 日</option><option value="240">240 日</option></select></div>
+            <div class="candidate-control"><label for="candidate-profile">筛选画像</label><select id="candidate-profile"><option value="balanced">均衡</option><option value="trend">趋势</option><option value="value">价值</option><option value="defensive">防御</option></select></div>
+            <details id="candidate-advanced" class="candidate-advanced">
+                <summary id="candidate-advanced-summary">高级筛选</summary>
+                <div class="candidate-advanced-body">
+                    <section class="candidate-filter-group">
+                        <h3>市场条件</h3>
+                        <div class="candidate-control"><label for="candidate-industry">限定行业</label><input id="candidate-industry" type="text" placeholder="银行,电子"></div>
+                        <div class="candidate-control"><label for="candidate-min-amount">最低成交额（亿元）</label><input id="candidate-min-amount" type="number" min="0" step="1" placeholder="例如：5"></div>
+                        <div class="candidate-control"><label for="candidate-min-market-cap">最低市值（亿元）</label><input id="candidate-min-market-cap" type="number" min="0" step="10" placeholder="例如：100"></div>
+                        <div class="candidate-control"><label for="candidate-max-market-cap">最高市值（亿元）</label><input id="candidate-max-market-cap" type="number" min="0" step="10" placeholder="例如：3000"></div>
+                        <div class="candidate-control"><label for="candidate-min-turnover">最低换手率</label><input id="candidate-min-turnover" type="number" min="0" step="0.1" placeholder="例如：1%"></div>
+                        <div class="candidate-control"><label for="candidate-max-turnover">最高换手率</label><input id="candidate-max-turnover" type="number" min="0" step="0.1" placeholder="例如：15%"></div>
+                        <div class="candidate-control"><label for="candidate-min-volume-ratio">最低量比</label><input id="candidate-min-volume-ratio" type="number" min="0" step="0.1" placeholder="例如：1"></div>
+                        <div class="candidate-control"><label for="candidate-max-volume-ratio">最高量比</label><input id="candidate-max-volume-ratio" type="number" min="0" step="0.1" placeholder="例如：3"></div>
+                    </section>
+                    <section class="candidate-filter-group">
+                        <h3>技术条件</h3>
+                        <div class="candidate-control"><label for="candidate-min-momentum">最低 20 日动量</label><input id="candidate-min-momentum" type="number" min="0" step="1" placeholder="例如：5%"></div>
+                        <div class="candidate-control"><label for="candidate-max-volatility">最高波动率</label><input id="candidate-max-volatility" type="number" min="0" step="1" placeholder="例如：40%"></div>
+                        <div class="candidate-control"><label for="candidate-required-signals">必须触发信号</label><input id="candidate-required-signals" type="text" placeholder="均线多头,平台突破"></div>
+                    </section>
+                    <section class="candidate-filter-group">
+                        <h3>基本面条件</h3>
+                        <div class="candidate-control"><label for="candidate-max-pe">最高扫描 PE</label><input id="candidate-max-pe" type="number" min="0" step="1" placeholder="例如：50"></div>
+                        <div class="candidate-control"><label for="candidate-max-pb">最高扫描 PB</label><input id="candidate-max-pb" type="number" min="0" step="0.1" placeholder="例如：5"></div>
+                        <div class="candidate-control"><label for="candidate-min-roe">最低 ROE</label><input id="candidate-min-roe" type="number" min="0" step="1" placeholder="例如：10%"></div>
+                        <div class="candidate-control"><label for="candidate-min-revenue-growth">最低营收增速</label><input id="candidate-min-revenue-growth" type="number" min="0" step="1" placeholder="例如：10%"></div>
+                        <div class="candidate-control"><label for="candidate-min-profit-growth">最低净利增速</label><input id="candidate-min-profit-growth" type="number" min="0" step="1" placeholder="例如：10%"></div>
+                        <div class="candidate-control"><label for="candidate-max-valuation-percentile">最高估值分位</label><input id="candidate-max-valuation-percentile" type="number" min="0" max="100" step="1" placeholder="例如：70"></div>
+                    </section>
+                    <div class="candidate-control candidate-control-wide"><label for="candidate-event-flow">关联事件证据 ID</label><input id="candidate-event-flow" type="text" placeholder="由公司事件页面自动带入"></div>
+                    <div class="candidate-advanced-note">留空即不限制。基本面条件读取 Desk 批量财务比较，缺失时回退单股快照；指标缺失不会自动视为通过。</div>
+                </div>
+            </details>
+        </div>
+        <div class="candidate-action-row">
+            <button id="candidate-run" class="candidate-run" type="button">更新候选</button>
+            <span id="candidate-meta" class="candidate-meta">等待 Desk 数据</span>
+        </div>
+    </section>
+    <div id="candidate-alert" class="candidate-alert" role="alert"></div>
+
+    <section class="candidate-stats">
+        <div class="candidate-panel candidate-stat"><span>候选数量</span><strong id="candidate-count">--</strong></div>
+        <div class="candidate-panel candidate-stat"><span>正动量</span><strong id="candidate-positive">--</strong></div>
+        <div class="candidate-panel candidate-stat"><span>财务覆盖</span><strong id="candidate-fundamental">--</strong></div>
+        <div class="candidate-panel candidate-stat"><span>数据状态</span><strong id="candidate-state">--</strong></div>
+    </section>
+    <section class="candidate-panel candidate-quality-panel" aria-label="数据质量与校准状态">
+        <header class="candidate-quality-head"><h2>数据质量</h2><span>行情 · 历史 · 财务 · 估值 · 校准</span></header>
+        <div class="candidate-quality" id="candidate-quality"></div>
+    </section>
+    <section id="candidate-lifecycle" class="candidate-lifecycle" aria-label="候选轨迹筛选">
+        <div class="candidate-lifecycle-copy"><strong>候选轨迹</strong><span id="candidate-lifecycle-summary">等待同口径历史记录</span></div>
+        <div id="candidate-lifecycle-filters" class="candidate-lifecycle-filters" role="group" aria-label="按候选轨迹筛选">
+            <button class="candidate-lifecycle-filter" type="button" data-lifecycle="all" aria-pressed="true">全部 <b>0</b></button>
+            <button class="candidate-lifecycle-filter" type="button" data-lifecycle="continuing" aria-pressed="false">持续 <b>0</b></button>
+            <button class="candidate-lifecycle-filter" type="button" data-lifecycle="returned" aria-pressed="false">回归 <b>0</b></button>
+            <button class="candidate-lifecycle-filter" type="button" data-lifecycle="new" aria-pressed="false">新出现 <b>0</b></button>
+        </div>
+    </section>
+
+    <details id="candidate-exclusions" class="candidate-panel candidate-exclusions">
+        <summary>筛选排除说明 <span id="candidate-exclusion-summary">--</span></summary>
+        <div class="candidate-exclusion-body">
+            <div id="candidate-reason-list" class="candidate-reason-list"></div>
+            <div id="candidate-excluded-list" class="candidate-excluded-list"></div>
+        </div>
+    </details>
+
+    <section class="candidate-grid candidate-insight-grid">
+        <article class="candidate-panel">
+            <h2 class="candidate-section-title">综合排名 <span>技术预筛 · Desk 财务重排 · 过热惩罚</span></h2>
+            <div id="candidate-rank-chart"></div>
+        </article>
+        <aside class="candidate-panel">
+            <h2 class="candidate-section-title">因子模型 <span>instock-stock-candidate-score-v3</span></h2>
+            <div id="candidate-model" class="candidate-model"></div>
+        </aside>
+    </section>
+
+    <section class="candidate-grid candidate-results-grid">
+        <article class="candidate-panel candidate-table-panel">
+            <h2 class="candidate-section-title">候选清单 <span id="candidate-table-meta">点击标的查看拆解并发送至 Desk</span></h2>
+            <div class="candidate-table-wrap"><table class="candidate-table"><thead><tr><th>排名</th><th>标的</th><th>行业</th><th>综合分</th><th>动量</th><th>历史 / 置信度</th><th>财务质量</th><th>成长</th><th>扫描 PE / PB</th><th>状态</th><th>轨迹</th></tr></thead><tbody id="candidate-body"></tbody></table></div>
+        </article>
+        <aside class="candidate-panel">
+            <h2 class="candidate-section-title">候选拆解 <span>因子贡献 · 信号 · 风险</span></h2>
+            <div id="candidate-detail" class="candidate-detail"><div class="candidate-loading">运行候选分析后查看拆解</div></div>
+        </aside>
+    </section>
+    <p id="candidate-footnote" class="candidate-footnote">宽覆盖模式合并 Desk 在市值、成交额、涨跌幅、换手率、量比、PE、PB 等维度返回的 A/H 股截面，再对 30/50/100/200 只股票读取日线深算。Desk 当前没有分页证券主目录，因此页面会明确显示“宽覆盖池”，不会把它冒充为全市场逐股评分。</p>
+</main>
+
+<script src="{{ static_url('js/echarts.min-6.1.0.js') }}"></script>
+<script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script>
+(function () {
+    const deskBridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+    const actionId = 'analysis.stock-candidates';
+    const state = {data: null, selected: null, running: false, chart: null, lifecycleFilter: 'all'};
+    const labels = {trend: '趋势', momentum: '动量', liquidity: '流动性', stability: '稳定性', valuation: '估值', quality: '财务质量', growth: '成长', classic: '经典策略'};
+    const stageLabels = {market_prefilter: '市场预筛', technical_rules: '技术筛选', fundamental_rules: '基本面复核'};
+    const reasonLabels = {industry_not_selected: '行业不在限定范围', amount_below_min: '成交额低于下限', market_cap_below_min: '市值低于下限', market_cap_above_max: '市值高于上限', missing_market_cap: 'Desk 缺少市值', pe_above_max: '扫描 PE 高于上限', missing_pe: 'Desk 扫描缺少 PE', pb_above_max: '扫描 PB 高于上限', missing_pb: 'Desk 扫描缺少 PB', turnover_below_min: '换手率低于下限', turnover_above_max: '换手率高于上限', volume_ratio_below_min: '量比低于下限', volume_ratio_above_max: '量比高于上限', momentum_20_history_unavailable: '20 日历史不足', momentum_20_below_min: '20 日动量低于下限', volatility_above_max: '波动率高于上限', required_signal_missing: '未触发必选信号', missing_roe: 'Desk 缺少 ROE', roe_below_min: 'ROE 低于下限', missing_revenue_growth: 'Desk 缺少营收增速', revenue_growth_below_min: '营收增速低于下限', missing_net_profit_growth: 'Desk 缺少净利增速', net_profit_growth_below_min: '净利增速低于下限', missing_valuation_percentile: 'Desk 缺少估值分位', valuation_percentile_above_max: '估值分位高于上限'};
+    const metricLabels = {revenueGrowthPct: '营收同比', netProfitGrowthPct: '净利同比', roePct: 'ROE', grossMarginPct: '毛利率', netMarginPct: '净利率', cashConversionPct: '现金转化', valuationPercentile: '估值分位', pe: 'PE', pb: 'PB'};
+    const lifecycleLabels = {new: '新出现', continuing: '持续入选', returned: '回归候选'};
+    const alertBox = document.getElementById('candidate-alert');
+    const runButton = document.getElementById('candidate-run');
+    const meta = document.getElementById('candidate-meta');
+    const initialQuery = new URLSearchParams(window.location.search);
+    if (['CN', 'HK', 'CN_HK'].includes(initialQuery.get('market'))) document.getElementById('candidate-market').value = initialQuery.get('market');
+    if (['broad', 'quick'].includes(initialQuery.get('universeMode'))) document.getElementById('candidate-mode').value = initialQuery.get('universeMode');
+    const initialSelects = {universeSize: ['30', '50', '100', '200'], outputSize: ['10', '20', '30'], bars: ['120', '240'], profile: ['balanced', 'trend', 'value', 'defensive']};
+    const initialSelectIds = {universeSize: 'candidate-universe', outputSize: 'candidate-output', bars: 'candidate-bars', profile: 'candidate-profile'};
+    Object.entries(initialSelects).forEach(([key, allowed]) => { const value = initialQuery.get(key); if (allowed.includes(value)) document.getElementById(initialSelectIds[key]).value = value; });
+    if (initialQuery.get('industries')) document.getElementById('candidate-industry').value = initialQuery.get('industries').slice(0, 120);
+    if (initialQuery.get('eventFlowSnapshotId')) document.getElementById('candidate-event-flow').value = initialQuery.get('eventFlowSnapshotId').slice(0, 160);
+    const queryFieldMap = {minAmount: 'candidate-min-amount', minMarketCap: 'candidate-min-market-cap', maxMarketCap: 'candidate-max-market-cap', maxPE: 'candidate-max-pe', maxPB: 'candidate-max-pb', minTurnover: 'candidate-min-turnover', maxTurnover: 'candidate-max-turnover', minVolumeRatio: 'candidate-min-volume-ratio', maxVolumeRatio: 'candidate-max-volume-ratio', minMomentum20: 'candidate-min-momentum', maxVolatility: 'candidate-max-volatility', minROE: 'candidate-min-roe', minRevenueGrowth: 'candidate-min-revenue-growth', minNetProfitGrowth: 'candidate-min-profit-growth', maxValuationPercentile: 'candidate-max-valuation-percentile', requiredSignals: 'candidate-required-signals'};
+    const yuanQueryKeys = new Set(['minAmount', 'minMarketCap', 'maxMarketCap']);
+    Object.entries(queryFieldMap).forEach(([key, id]) => { const raw = initialQuery.get(key); if (!raw) return; document.getElementById(id).value = yuanQueryKeys.has(key) ? String(Number(raw) / 1e8) : raw.slice(0, 120); });
+    if (['industries', 'eventFlowSnapshotId', ...Object.keys(queryFieldMap)].some(key => initialQuery.get(key))) document.getElementById('candidate-advanced').open = true;
+
+    function parameters() { const input = {market: document.getElementById('candidate-market').value, universeMode: document.getElementById('candidate-mode').value, universeSize: Number(document.getElementById('candidate-universe').value), outputSize: Number(document.getElementById('candidate-output').value), bars: Number(document.getElementById('candidate-bars').value), profile: document.getElementById('candidate-profile').value}; const optional = {industries: document.getElementById('candidate-industry').value.trim(), minAmount: Number(document.getElementById('candidate-min-amount').value) * 1e8, minMarketCap: Number(document.getElementById('candidate-min-market-cap').value) * 1e8, maxMarketCap: Number(document.getElementById('candidate-max-market-cap').value) * 1e8, maxPE: document.getElementById('candidate-max-pe').value, maxPB: document.getElementById('candidate-max-pb').value, minTurnover: document.getElementById('candidate-min-turnover').value, maxTurnover: document.getElementById('candidate-max-turnover').value, minVolumeRatio: document.getElementById('candidate-min-volume-ratio').value, maxVolumeRatio: document.getElementById('candidate-max-volume-ratio').value, minMomentum20: document.getElementById('candidate-min-momentum').value, maxVolatility: document.getElementById('candidate-max-volatility').value, minROE: document.getElementById('candidate-min-roe').value, minRevenueGrowth: document.getElementById('candidate-min-revenue-growth').value, minNetProfitGrowth: document.getElementById('candidate-min-profit-growth').value, maxValuationPercentile: document.getElementById('candidate-max-valuation-percentile').value, requiredSignals: document.getElementById('candidate-required-signals').value.trim(), eventFlowSnapshotId: document.getElementById('candidate-event-flow').value.trim()}; Object.entries(optional).forEach(([key, value]) => { const sourceId = queryFieldMap[key]; const sourceValue = sourceId ? document.getElementById(sourceId).value : value; if (sourceValue !== '' && value !== '') input[key] = ['industries', 'requiredSignals', 'eventFlowSnapshotId'].includes(key) ? value : Number(value); }); return input; }
+    function setText(id, value) { const element = document.getElementById(id); if (element) element.textContent = value == null || value === '' ? '--' : String(value); }
+    function unwrap(payload) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-stock-candidate-engine') throw new Error('候选结果缺少受支持的 engine 标识'); return data; }
+    function errorMessage(body, fallback) { return body && body.error && typeof body.error === 'object' ? body.error.message || fallback : fallback; }
+    async function request(input) { if (deskBridge && deskBridge.whenReady) await deskBridge.whenReady(); if (deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId)) return deskBridge.invokeAction(actionId, input); const query = new URLSearchParams(input).toString(); const response = await fetch('/api/v1/stock-candidates/snapshots?' + query); const body = await response.json(); if (!response.ok) throw new Error(errorMessage(body, '候选分析失败')); return body; }
+    function buildContext() { const data = state.data || {}; const selected = state.selected || {}; return {view: {id: 'stock-candidates', title: 'A/H 股候选'}, visibleBlocks: [{id: 'candidate-quality', type: 'evidence-quality', title: '数据质量与校准状态'}, {id: 'candidate-ranking', type: 'table', title: 'A/H 股候选排名'}, {id: 'candidate-detail', type: 'research-evidence', title: '候选拆解'}], selectedSecurity: selected.symbol ? {market: selected.market || 'CN', symbol: selected.symbol, name: selected.name} : null, data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, summary: data.summary, evidenceQuality: data.evidence_quality, candidateLifecycle: data.candidate_lifecycle, lifecycleFilter: state.lifecycleFilter, selectedCandidate: selected, factorModel: data.factor_model, screeningModel: data.screening_model, excludedByRules: data.excluded_by_rules || [], eventFlow: data.event_flow, historyExclusions: data.history_exclusions || [], newListingWatchlist: data.new_listing_watchlist || [], snapshot: data.snapshot, limitations: data.limitations || []} : {}, actions: [{id: actionId, label: '更新 A/H 股候选', available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId)), inputSchema: {type: 'object', properties: {market: {enum: ['CN', 'HK', 'CN_HK']}, universeMode: {enum: ['broad', 'quick']}, universeSize: {enum: [30, 50, 100, 200]}, outputSize: {enum: [10, 20, 30]}, bars: {enum: [120, 240]}, profile: {enum: ['balanced', 'trend', 'value', 'defensive']}, industries: {type: 'string'}, minAmount: {type: 'number'}, minMarketCap: {type: 'number'}, maxMarketCap: {type: 'number'}, maxPE: {type: 'number'}, maxPB: {type: 'number'}, minTurnover: {type: 'number'}, maxTurnover: {type: 'number'}, minVolumeRatio: {type: 'number'}, maxVolumeRatio: {type: 'number'}, minMomentum20: {type: 'number'}, maxVolatility: {type: 'number'}, minROE: {type: 'number'}, minRevenueGrowth: {type: 'number'}, minNetProfitGrowth: {type: 'number'}, maxValuationPercentile: {type: 'number'}, requiredSignals: {type: 'string'}, eventFlowSnapshotId: {type: 'string'}}}}]}; }
+    function publishContext() { if (!deskBridge) return; deskBridge.setContextProvider && deskBridge.setContextProvider(buildContext); deskBridge.publishContext && deskBridge.publishContext(); }
+    function showError(error) { alertBox.textContent = error && error.message ? error.message : String(error); alertBox.style.display = 'block'; }
+    function renderModel(data) { const root = document.getElementById('candidate-model'); root.replaceChildren(); Object.entries((data.factor_model || {}).weights || {}).forEach(([key, weight]) => { const row = document.createElement('div'); row.className = 'candidate-weight'; const name = document.createElement('span'); name.textContent = labels[key] || key; const track = document.createElement('span'); track.className = 'candidate-weight-track'; const fill = document.createElement('i'); fill.style.width = `${Number(weight) * 100}%`; track.appendChild(fill); const value = document.createElement('b'); value.textContent = `${Math.round(Number(weight) * 100)}%`; row.append(name, track, value); root.appendChild(row); }); const note = document.createElement('div'); note.className = 'candidate-note'; note.textContent = '先对 Desk 宽池执行行业、流动性、市值和扫描估值硬筛，再对深算池做技术预评分；最后用 Desk 财务质量、成长和估值重排。10–79 根日线的技术分向 50 分收缩，少于 10 根单列新股观察。'; root.appendChild(note); }
+    function renderQuality(data) { const root = document.getElementById('candidate-quality'); root.replaceChildren(); const stateLabels = {available: '可用', limited: '受限', partial: '部分', unavailable: '不可用'}; const items = (data.evidence_quality && data.evidence_quality.items) || []; items.forEach(item => { const card = document.createElement('article'); card.className = 'candidate-quality-item'; card.dataset.state = item.state || 'unavailable'; const label = document.createElement('span'); label.textContent = item.label || item.id || '数据项'; const state = document.createElement('strong'); state.textContent = stateLabels[item.state] || '未知'; const detail = document.createElement('small'); detail.textContent = item.detail || '--'; card.append(label, state, detail); root.appendChild(card); }); if (!items.length) root.textContent = '数据质量状态不可用'; }
+    function hasComparableLifecycle(data) { const lifecycle = data && data.candidate_lifecycle; return lifecycle && lifecycle.schema_version === '2.0' && lifecycle.comparison_scope === 'same_candidate_configuration'; }
+    function renderLifecycle(data) { const lifecycle = data.candidate_lifecycle || {}; const summary = lifecycle.summary || {}; const total = (data.candidates || []).length; const comparable = hasComparableLifecycle(data); document.getElementById('candidate-lifecycle-summary').textContent = comparable && lifecycle.observation_count ? `同一筛选口径已保存 ${lifecycle.observation_count} 个观察期 · 只描述入选轨迹，不代表未来收益` : comparable ? '暂无同一筛选口径的可比较历史' : '该历史版本未保存同口径轨迹，持续/回归状态不可用'; document.querySelectorAll('.candidate-lifecycle-filter').forEach(button => { const key = button.dataset.lifecycle; const count = key === 'all' ? total : comparable ? Number(summary[key] || 0) : 0; button.querySelector('b').textContent = String(count); button.disabled = key !== 'all' && count === 0; button.setAttribute('aria-pressed', String(state.lifecycleFilter === key)); }); }
+    function renderFilterSummary(data) { renderQuality(data); renderLifecycle(data); const filters = data.screening_model && data.screening_model.filters || {}; const count = Object.values(filters).filter(value => Array.isArray(value) ? value.length : value != null && value !== '').length; document.getElementById('candidate-advanced-summary').textContent = count ? `高级筛选 · 已启用 ${count} 项` : '高级筛选'; }
+    function renderExclusions(data) { const panel = document.getElementById('candidate-exclusions'); const rows = data.excluded_by_rules || []; panel.style.display = rows.length ? 'block' : 'none'; if (!rows.length) return; const counts = {}; const stages = {}; rows.forEach(row => { stages[row.stage] = (stages[row.stage] || 0) + 1; (row.reasons || []).forEach(reason => { counts[reason] = (counts[reason] || 0) + 1; }); }); const visibleRows = rows.slice(0, 100); const stageSummary = Object.entries(stages).map(([stage, count]) => `${stageLabels[stage] || stage} ${count}`).join(' · '); const visibleSummary = rows.length > visibleRows.length ? ` · 明细前 ${visibleRows.length}` : ''; document.getElementById('candidate-exclusion-summary').textContent = `${rows.length} 只未通过 · ${stageSummary}${visibleSummary}`; const reasonRoot = document.getElementById('candidate-reason-list'); reasonRoot.replaceChildren(); Object.entries(counts).sort((a, b) => b[1] - a[1]).forEach(([reason, count]) => { const chip = document.createElement('span'); chip.className = 'candidate-reason-chip'; chip.append(document.createTextNode(reasonLabels[reason] || reason)); const value = document.createElement('b'); value.textContent = String(count); chip.appendChild(value); reasonRoot.appendChild(chip); }); const list = document.getElementById('candidate-excluded-list'); list.replaceChildren(); visibleRows.forEach(row => { const item = document.createElement('div'); item.className = 'candidate-excluded-row'; const security = document.createElement('div'); security.className = 'candidate-excluded-security'; const name = document.createElement('b'); name.textContent = `${row.name} · ${row.symbol}`; const stage = document.createElement('span'); stage.className = 'candidate-stage-tag'; stage.textContent = stageLabels[row.stage] || row.stage || '筛选'; security.append(name, stage); const reasons = document.createElement('span'); reasons.textContent = (row.reasons || []).map(reason => reasonLabels[reason] || reason).join('；'); item.append(security, reasons); list.appendChild(item); }); }
+    function renderChart(candidates) { const root = document.getElementById('candidate-rank-chart'); if (!state.chart) state.chart = echarts.init(root); const rows = candidates.slice(0, 15).reverse(); state.chart.setOption({animationDuration: 450, grid: {left: 90, right: 36, top: 24, bottom: 28}, xAxis: {type: 'value', min: 0, max: 100, splitLine: {lineStyle: {color: getComputedStyle(document.documentElement).getPropertyValue('--instock-chart-grid')}}}, yAxis: {type: 'category', data: rows.map(row => row.name), axisLabel: {color: getComputedStyle(document.documentElement).getPropertyValue('--instock-text-muted'), fontSize: 10}}, series: [{type: 'bar', data: rows.map(row => ({value: row.score, itemStyle: {color: row.rank <= 3 ? '#bd8334' : '#1e6f5c'}})), barWidth: 11, label: {show: true, position: 'right', formatter: '{c}', color: getComputedStyle(document.documentElement).getPropertyValue('--instock-text-muted'), fontSize: 9}}], tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}}}, true); }
+    function emitSelection(row) { if (!deskBridge || !deskBridge.emit) return; deskBridge.emit('security.selected', {market: row.market || 'CN', symbol: row.symbol, name: row.name, source: 'instock-stock-candidates', score: row.score, snapshotId: state.data && state.data.snapshot && state.data.snapshot.snapshot_id}); }
+    function researchUrl(path, row, extra) { const eventFlowSnapshotId = document.getElementById('candidate-event-flow').value.trim(); const query = new URLSearchParams({symbol: row.symbol, market: row.market || 'CN', industry: row.industry || '', sourceModule: 'instock-stock-candidates', ...(state.data && state.data.snapshot ? {sourceSnapshotId: state.data.snapshot.snapshot_id} : {}), ...(state.data && state.data.as_of ? {asOf: state.data.as_of} : {}), ...(eventFlowSnapshotId && row.market === 'CN' ? {eventFlowSnapshotId} : {}), ...(extra || {})}); return `${path}?${query.toString()}`; }
+    function researchLink(label, href) { const link = document.createElement('a'); link.className = 'candidate-action'; link.href = href; link.target = '_blank'; link.rel = 'noopener'; link.textContent = label; return link; }
+    function renderTable(candidates) { const body = document.getElementById('candidate-body'); body.replaceChildren(); candidates.forEach(row => { const tr = document.createElement('tr'); tr.dataset.symbol = row.symbol; tr.classList.toggle('is-selected', Boolean(state.selected && state.selected.symbol === row.symbol && state.selected.market === row.market)); const scores = (row.fundamentals || {}).scores || {}; const lifecycle = hasComparableLifecycle(state.data) ? (row.lifecycle || {}) : {}; const momentumWindow = Number(row.metrics.momentum_20_window || 20); const cells = [row.rank, null, row.industry, row.score.toFixed(1), `${momentumWindow}日 ${row.metrics.momentum_20_pct.toFixed(1)}%`, `${row.history_bars} 根 / ${Math.round(Number(row.technical_confidence || 0) * 100)}%`, Number(scores.quality == null ? 50 : scores.quality).toFixed(1), Number(scores.growth == null ? 50 : scores.growth).toFixed(1), `${row.pe > 0 ? row.pe.toFixed(1) : '--'} / ${row.pb > 0 ? row.pb.toFixed(1) : '--'}`, row.status, lifecycleLabels[lifecycle.state] || '未记录']; cells.forEach((value, index) => { const td = document.createElement('td'); if (index === 0) td.className = 'candidate-rank'; if (index === 1) { td.className = 'candidate-name'; const strong = document.createElement('strong'); strong.textContent = row.name; const span = document.createElement('span'); span.textContent = `${row.market || 'CN'} · ${row.symbol}`; td.append(strong, span); } else if (index === 3) { td.className = 'candidate-score'; td.textContent = value; } else if (index === 9 || index === 10) { const tag = document.createElement('span'); tag.className = 'candidate-tag'; tag.textContent = value; if (index === 10 && lifecycle.state) tag.dataset.lifecycle = lifecycle.state; td.appendChild(tag); } else td.textContent = value; tr.appendChild(td); }); tr.onclick = () => { state.selected = row; [...body.children].forEach(item => item.classList.toggle('is-selected', item === tr)); renderDetail(row); emitSelection(row); publishContext(); }; body.appendChild(tr); }); }
+    function financialEvidence(row) { const packet = row.fundamentals || {}; if (!packet.available) return [packet.error || 'Desk 财务快照不可用，三个财务因子按 50 分处理']; const scores = packet.scores || {}; const quality = packet.data_quality || {}; const items = [`财务质量 ${Number(scores.quality || 0).toFixed(1)} · 成长 ${Number(scores.growth || 0).toFixed(1)} · 估值 ${Number(scores.valuation || 0).toFixed(1)}`]; if (quality.score != null) items.push(`数据质量 ${Number(quality.score).toFixed(1)} · ${quality.level || '未分级'}`); Object.entries(packet.metrics || {}).slice(0, 8).forEach(([key, value]) => { if (value != null) items.push(`${metricLabels[key] || key} ${Number.isFinite(Number(value)) ? Number(value).toFixed(2) : value}`); }); (packet.gaps || []).slice(0, 3).forEach(item => items.push(`缺口：${item}`)); if ((packet.neutralized_factors || []).length) items.push(`中性处理：${packet.neutralized_factors.map(key => labels[key] || key).join('、')}`); return items; }
+    function signed(value, digits) { const number = Number(value); return `${number > 0 ? '+' : ''}${number.toFixed(digits)}`; }
+    function lifecycleEvidence(row) { const item = row.lifecycle; if (!hasComparableLifecycle(state.data) || !item) return ['该历史版本没有可靠的同口径轨迹字段']; const lines = [`${lifecycleLabels[item.state] || item.state} · 累计入选 ${Number(item.observed_periods || 1)} 个观察期 · 连续 ${Number(item.consecutive_observations || 1)} 个观察期`]; if (item.state === 'new') lines.push(`首次出现在已保存候选：${item.first_seen_as_of}`); if (item.state === 'returned') lines.push(`上一观察期 ${item.previous_as_of || '--'} 未入选，本期重新进入候选`); if (item.previous_rank != null) lines.push(`较 ${item.previous_as_of}：排名 ${signed(item.rank_change, 0)} · 得分 ${signed(item.score_change, 2)}`); lines.push('仅比较同一市场、画像、池规模和筛选条件，不是未来收益回测'); return lines; }
+    function renderDetail(row) { const root = document.getElementById('candidate-detail'); root.replaceChildren(); const head = document.createElement('div'); head.className = 'candidate-detail-head'; const copy = document.createElement('div'); const title = document.createElement('h3'); title.textContent = `${row.name} · ${row.market || 'CN'}:${row.symbol}`; const sub = document.createElement('p'); sub.textContent = `${row.industry} · ${row.status} · 预筛第 ${row.preselection_rank} · 截止 ${row.data_end}`; copy.append(title, sub); const score = document.createElement('b'); score.className = 'candidate-detail-score'; score.textContent = row.score.toFixed(1); head.append(copy, score); const factorContributions = document.createElement('div'); factorContributions.className = 'candidate-contributions'; Object.entries(row.factor_contributions || {}).forEach(([key, value]) => { const item = document.createElement('div'); item.className = 'candidate-contribution'; const name = document.createElement('span'); name.textContent = labels[key] || key; const track = document.createElement('span'); track.className = 'candidate-contribution-track'; const fill = document.createElement('i'); fill.style.width = `${Math.min(100, Number(value) * 4)}%`; track.appendChild(fill); const amount = document.createElement('b'); amount.textContent = Number(value).toFixed(1); item.append(name, track, amount); factorContributions.appendChild(item); }); const liquidityEvidence = row.amount_source === 'latest_daily_bar_proxy' ? ['盘前实时成交额尚未形成，流动性暂用最近完整日线成交额代理'] : ['流动性使用 Desk 实时扫描成交额']; const historyEvidence = [`${row.data_start} 至 ${row.data_end} · ${row.history_bars} 根日线 · ${row.history_source || 'Desk'}`, row.history_mode === 'short' ? `短历史模型 · 技术置信度 ${Math.round(Number(row.technical_confidence || 0) * 100)}% · 历史敏感因子向 50 分收缩` : '完整历史模型 · 技术置信度 100%', row.history_has_more === false ? 'Desk 明确返回 hasMore=false，当前已是全部上市历史' : '历史分页状态未明确']; const evidence = document.createElement('div'); evidence.className = 'candidate-evidence'; const blocks = [['入选轨迹', lifecycleEvidence(row)], ['历史口径', historyEvidence], ['财务证据', financialEvidence(row)], ['精选信号', row.classic_signals.length ? row.classic_signals : ['未触发精选经典策略']], ['流动性口径', liquidityEvidence], ['风险与限制', row.risks || []], ['事件证据', row.market === 'CN' && row.event_evidence && row.event_evidence.alerts.length ? row.event_evidence.alerts.map(item => `${item.occurred_at} · ${item.title} · ${item.direction}`) : [row.market === 'HK' ? '港股事件证据尚未进入本模块评分' : '未引用事件快照或暂无相关事件']]]; blocks.forEach(([heading, items]) => { const section = document.createElement('section'); const h = document.createElement('h4'); h.textContent = heading; const ul = document.createElement('ul'); items.forEach(text => { const li = document.createElement('li'); li.textContent = text; ul.appendChild(li); }); section.append(h, ul); evidence.appendChild(section); }); const actions = document.createElement('div'); actions.className = 'candidate-actions'; const bars = String(document.getElementById('candidate-bars').value); if (row.market === 'CN') actions.append(researchLink('进入股票研究', researchUrl('/mods/stock-research', row, {period: 'daily', bars})), researchLink('查看 CZSC', researchUrl('/mods/czsc', row, {code: row.symbol, period: 'daily', bars: bars === '120' ? '120' : '240'})), researchLink('查看技术信号', researchUrl('/mods/technical-signals', row))); else { const note = document.createElement('span'); note.className = 'candidate-note'; note.textContent = '港股候选已完成行情和财务评分；个股研究/CZSC 页面仍只支持 A 股，暂不提供错误跳转。'; actions.append(note); } root.append(head, factorContributions, evidence, actions); }
+    function candidateRows() { const rows = (state.data && state.data.candidates) || []; return state.lifecycleFilter === 'all' || !hasComparableLifecycle(state.data) ? rows : rows.filter(row => row.lifecycle && row.lifecycle.state === state.lifecycleFilter); }
+    function renderCandidateView() { const rows = candidateRows(); const selectedVisible = rows.some(row => state.selected && row.symbol === state.selected.symbol && row.market === state.selected.market); if (!selectedVisible) state.selected = rows[0] || null; renderChart(rows); renderTable(rows); document.getElementById('candidate-table-meta').textContent = state.lifecycleFilter === 'all' ? `显示全部 ${rows.length} 只` : `${lifecycleLabels[state.lifecycleFilter]} · ${rows.length} 只`; if (state.selected) renderDetail(state.selected); else document.getElementById('candidate-detail').innerHTML = '<div class="candidate-loading">该轨迹下没有候选</div>'; publishContext(); }
+    function render(payload, source) { const data = unwrap(payload); state.data = data; state.lifecycleFilter = 'all'; state.selected = (data.candidates || [])[0] || null; alertBox.style.display = 'none'; setText('candidate-top', data.summary.top_name); setText('candidate-count', data.summary.candidate_count); setText('candidate-positive', `${data.summary.positive_momentum_count} 只`); setText('candidate-fundamental', `${data.coverage.fundamental_available_count}/${data.coverage.fundamental_requested_count}`); setText('candidate-state', data.data_state === 'complete' ? '完整' : '部分'); const screening = data.screening_coverage || {}; const shortHistory = Number(data.coverage.short_history_count || 0); const watchCount = Number(data.coverage.new_listing_watch_count || 0); const historyNote = `${shortHistory ? ` · 短历史 ${shortHistory} 只` : ''}${watchCount ? ` · 新股观察 ${watchCount} 只` : ''}`; const broadCount = data.coverage.broad_eligible_count || data.coverage.scan_count; const marketCount = data.coverage.market_prefilter_count == null ? broadCount : data.coverage.market_prefilter_count; const deepCount = data.coverage.deep_pool_count || data.coverage.eligible_count; const technicalCount = screening.after_market_technical_rules == null ? data.coverage.analyzed_count : screening.after_market_technical_rules; const fundamentalCount = screening.after_rules == null ? data.coverage.fundamental_requested_count : screening.after_rules; const displayedCount = data.coverage.returned_count == null ? (data.candidates || []).length : data.coverage.returned_count; meta.textContent = `${source === 'history' ? '历史版本 · ' : ''}${(data.coverage.markets || []).join('+')} · 宽池 ${broadCount} → 市场预筛 ${marketCount} → 深算 ${deepCount} → 技术通过 ${technicalCount} → 财务复核 ${fundamentalCount} → 展示 ${displayedCount}${historyNote} · 财务可用 ${data.coverage.fundamental_available_count}/${data.coverage.fundamental_requested_count}`; renderFilterSummary(data); renderExclusions(data); renderModel(data); renderCandidateView(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
+    async function load(refresh) { if (state.running) return; state.running = true; runButton.disabled = true; runButton.textContent = '计算中…'; meta.textContent = '正在读取 Desk 行情并计算候选…'; alertBox.style.display = 'none'; const input = parameters(); if (refresh) input.refresh = '1'; try { render(await request(input)); } catch (error) { showError(error); meta.textContent = '候选分析失败'; } finally { state.running = false; runButton.disabled = false; runButton.textContent = '更新候选'; } }
+    runButton.addEventListener('click', () => load(true));
+    document.getElementById('candidate-lifecycle-filters').addEventListener('click', event => { const button = event.target.closest('.candidate-lifecycle-filter'); if (!button || button.disabled || !state.data) return; state.lifecycleFilter = button.dataset.lifecycle; renderLifecycle(state.data); renderCandidateView(); });
+    document.addEventListener('instock:history-selected', event => render(event.detail.payload, event.detail.view_source || 'history'));
+    window.addEventListener('resize', () => state.chart && state.chart.resize());
+    document.addEventListener('instock:themechange', () => { if (state.chart) { state.chart.dispose(); state.chart = null; state.data && renderChart(candidateRows()); } });
+    publishContext();
+    load(false);
+})();
+</script>
+{% end %}

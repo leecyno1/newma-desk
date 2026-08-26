@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.edit_decisions.v1",
+  "title": "Newma Video Edit Decisions",
+  "type": "object",
+  "required": ["schema_version", "lane", "decisions"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "dasheng.video.edit_decisions.v1"
+    },
+    "lane": {
+      "type": "string",
+      "enum": ["talking_head_video", "explainer_html_video", "vox_explainer_video", "digital_human_video", "commercial_promo_video", "cinematic_short_drama_video"]
+    },
+    "roughcut_gate": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["approved", "blocked", "not_required"]
+        },
+        "report_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "decisions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["scene_id", "composition", "transition_in", "transition_out"],
+        "properties": {
+          "scene_id": {
+            "type": "string"
+          },
+          "composition": {
+            "type": "string"
+          },
+          "transition_in": {
+            "type": "string"
+          },
+          "transition_out": {
+            "type": "string"
+          },
+          "bgm_policy": {
+            "type": "string"
+          },
+          "subtitle_policy": {
+            "type": "string"
+          },
+          "subtitle_timing_source": {
+            "type": "string",
+            "enum": ["asr-aligned-to-script", "word-timestamps", "sentence-timestamps", "manual-reviewed"]
+          },
+          "subtitle_cues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["text", "startMs", "endMs"],
+              "properties": {
+                "text": {"type": "string", "minLength": 1},
+                "startMs": {"type": "number", "minimum": 0},
+                "endMs": {"type": "number", "exclusiveMinimum": 0},
+                "timingSource": {"type": "string"}
+              },
+              "additionalProperties": true
+            }
+          },
+          "emphasis_cues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["text", "startMs", "endMs"],
+              "properties": {
+                "text": {"type": "string", "minLength": 1, "maxLength": 8},
+                "startMs": {"type": "number", "minimum": 0},
+                "endMs": {"type": "number", "exclusiveMinimum": 0},
+                "x": {"type": "number", "minimum": 0, "maximum": 100},
+                "y": {"type": "number", "minimum": 0, "maximum": 100}
+              },
+              "additionalProperties": true
+            }
+          },
+          "entity_labels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["text", "startMs", "endMs"],
+              "properties": {
+                "text": {"type": "string", "minLength": 1},
+                "entityType": {"enum": ["person", "organization", "place", "object"]},
+                "startMs": {"type": "number", "minimum": 0},
+                "endMs": {"type": "number", "exclusiveMinimum": 0},
+                "x": {"type": "number", "minimum": 0, "maximum": 100},
+                "y": {"type": "number", "minimum": 0, "maximum": 100}
+              },
+              "additionalProperties": true
+            }
+          },
+          "safe_area_notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

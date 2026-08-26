@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.scene_plan.v1",
+  "title": "Newma Video Scene Plan",
+  "type": "object",
+  "required": ["schema_version", "lane", "scenes"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["dasheng.talking_head_timeline.v1", "dasheng.explainer_storyboard.v1", "dasheng.video.scene_plan.v1", "dasheng.video.scene_plan.real_evidence_review.v1"]
+    },
+    "lane": {
+      "type": "string",
+      "enum": ["talking_head_video", "explainer_html_video", "vox_explainer_video", "digital_human_video", "commercial_promo_video", "cinematic_short_drama_video"]
+    },
+    "presenter_source": {
+      "type": "object",
+      "properties": {
+        "kind": {"type": "string", "enum": ["human_video", "digital_human"]},
+        "engine": {"type": "string"},
+        "mode": {"type": "string", "enum": ["single_presenter", "dual_interview"]},
+        "presenters": {"type": "array", "items": {"type": "object"}},
+        "manifest": {"type": "string"},
+        "master_audio": {"type": ["string", "null"]},
+        "ai_disclosure_required": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "aspect": {
+      "type": "string",
+      "enum": ["9:16", "16:9", "1:1", "4:5"]
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "start_sec", "end_sec", "duration_sec", "beat_class"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "start_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "end_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration_sec": {
+            "type": "number",
+            "minimum": 0.1
+          },
+          "beat_class": {
+            "type": "string"
+          },
+          "production_route": {
+            "type": "string",
+            "enum": ["gemini_video", "shotcraft_remotion", "real_evidence_remotion", "digital_presenter_remotion", "commercial_product_capture", "commercial_motion_graphics", "commercial_generated_shot", "cinematic_generated_shot", "hybrid"]
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "core_claim_id": {
+            "type": "string"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_binding": {
+            "type": "object",
+            "properties": {
+              "claim_id": {"type": "string"},
+              "claim_text": {"type": "string"},
+              "relation": {
+                "type": "string",
+                "enum": ["direct", "context", "illustrative", "assumption"]
+              },
+              "source_locator": {
+                "type": ["object", "null"]
+              },
+              "confidence": {
+                "type": "string",
+                "enum": ["high", "medium", "low"]
+              }
+            },
+            "additionalProperties": true
+          },
+          "motion": {
+            "type": "object",
+            "properties": {
+              "engine": {"type": "string"},
+              "shotcraft_card": {"type": "string"},
+              "style_key": {"type": "string"},
+              "card_source": {"type": "string"},
+              "demo_source": {"type": "string"},
+              "duration_frames": {"type": "integer", "minimum": 1},
+              "qa_frames": {
+                "type": "array",
+                "minItems": 2,
+                "items": {"type": "integer", "minimum": 0}
+              },
+              "brand_tokens": {"type": "object"}
+            },
+            "additionalProperties": true
+          },
+          "html_animation_behavior": {
+            "type": "string"
+          },
+          "speaker_state": {
+            "type": "string"
+          },
+          "material_state": {
+            "type": "string"
+          },
+          "pip_shape": {
+            "type": "string"
+          },
+          "transition_to_next": {
+            "type": "string"
+          },
+          "tool_routing": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "timeline_alignment": {
+      "type": ["object", "null"]
+    },
+    "claim_evidence_ledger": {
+      "type": "object"
+    },
+    "director_tool_routing": {
+      "type": "object"
+    },
+    "shotcraft_binding": {
+      "type": "object",
+      "properties": {
+        "catalog_revision": {"type": ["string", "null"]},
+        "bound_scene_count": {"type": "integer", "minimum": 1},
+        "fps": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

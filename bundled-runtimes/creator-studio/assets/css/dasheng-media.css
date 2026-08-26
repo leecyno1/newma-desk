@@ -1,0 +1,430 @@
+/*
+ * Newma Media Studio — 品牌样式系统
+ * Version: 1.0.0
+ * Updated: 2026-04-23
+ *
+ * 品牌色：深红 #C41E3A，金色 #D4AF37，石板灰 #2C3E50
+ */
+
+/* === CSS 变量定义 === */
+:root {
+  /* 品牌色 */
+  --ds-brand-red: #C41E3A;
+  --ds-brand-red-light: #E84C5A;
+  --ds-brand-red-dark: #9B1830;
+  --ds-gold: #D4AF37;
+  --ds-gold-light: #E8C967;
+  --ds-slate: #2C3E50;
+  --ds-slate-light: #34495E;
+
+  /* 背景色 */
+  --ds-bg: #FAFAFA;
+  --ds-bg-alt: #F0F0F0;
+  --ds-surface: #FFFFFF;
+
+  /* 文字色 */
+  --ds-text-primary: #1A1A1A;
+  --ds-text-secondary: #666666;
+  --ds-text-muted: #999999;
+  --ds-text-inverse: #FFFFFF;
+
+  /* 状态色 */
+  --ds-success: #27AE60;
+  --ds-warning: #F39C12;
+  --ds-error: #E74C3C;
+  --ds-info: #3498DB;
+
+  /* 字体 */
+  --ds-font-sans: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+  --ds-font-mono: "SF Mono", "Consolas", "Source Code Pro", monospace;
+
+  /* 间距 */
+  --ds-space-xs: 4px;
+  --ds-space-sm: 8px;
+  --ds-space-md: 16px;
+  --ds-space-lg: 24px;
+  --ds-space-xl: 40px;
+
+  /* 圆角 */
+  --ds-radius-sm: 4px;
+  --ds-radius-md: 8px;
+  --ds-radius-lg: 12px;
+
+  /* 阴影 */
+  --ds-shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --ds-shadow-md: 0 4px 12px rgba(0,0,0,0.10);
+  --ds-shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+}
+
+/* === 基础重置 === */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--ds-font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ds-text-primary);
+  background: var(--ds-bg);
+}
+
+/* 标题 */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--ds-brand-red);
+  font-weight: 600;
+  line-height: 1.3;
+}
+h1 { font-size: 1.8em; border-bottom: 2px solid var(--ds-brand-red); padding-bottom: var(--ds-space-sm); }
+h2 { font-size: 1.4em; margin-top: var(--ds-space-lg); }
+h3 { font-size: 1.1em; color: var(--ds-slate); }
+h4 { font-size: 1em; color: var(--ds-text-secondary); }
+
+/* === 阶段状态标签 === */
+.ds-stage-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-xs);
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.ds-stage-tag.intake    { background: #E8F4FD; color: #2980B9; }
+.ds-stage-tag.brief    { background: #FEF9E7; color: #D4AC0D; }
+.ds-stage-tag.draft    { background: #FDEBD0; color: #CA6F1E; }
+.ds-stage-tag.material { background: #E8DAEF; color: #7D3C98; }
+.ds-stage-tag.rewrite  { background: #D5F5E3; color: #1E8449; }
+.ds-stage-tag.publish  { background: #FADBD8; color: #A93226; }
+.ds-stage-tag.postmortem { background: #EAEDED; color: #566573; }
+.ds-stage-tag.utility  { background: #F2F3F4; color: #5D6D7E; }
+
+.ds-stage-tag.active   { background: var(--ds-brand-red); color: white; animation: pulse 2s infinite; }
+.ds-stage-tag.completed { background: var(--ds-success); color: white; }
+.ds-stage-tag.failed   { background: var(--ds-error); color: white; }
+.ds-stage-tag.pending  { background: var(--ds-text-muted); color: white; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* === 进度条 === */
+.ds-progress-container {
+  background: var(--ds-bg-alt);
+  border-radius: var(--ds-radius-md);
+  padding: var(--ds-space-md);
+  margin: var(--ds-space-md) 0;
+}
+
+.ds-progress-bar {
+  height: 8px;
+  background: #E0E0E0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.ds-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ds-brand-red), var(--ds-gold));
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+
+.ds-progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--ds-text-secondary);
+  margin-top: var(--ds-space-xs);
+}
+
+/* === 交付卡片 === */
+.ds-deliverable-card {
+  background: var(--ds-surface);
+  border: 1px solid #E8E8E8;
+  border-left: 4px solid var(--ds-brand-red);
+  border-radius: var(--ds-radius-md);
+  padding: var(--ds-space-md);
+  margin: var(--ds-space-md) 0;
+  box-shadow: var(--ds-shadow-sm);
+}
+
+.ds-deliverable-card h3 {
+  margin-top: 0;
+  margin-bottom: var(--ds-space-sm);
+}
+
+.ds-file-list {
+  list-style: none;
+  font-size: 13px;
+  font-family: var(--ds-font-mono);
+}
+
+.ds-file-list li {
+  padding: var(--ds-space-xs) 0;
+  border-bottom: 1px solid #F0F0F0;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-sm);
+}
+
+.ds-file-list li:last-child {
+  border-bottom: none;
+}
+
+.ds-file-list li::before {
+  content: "📄";
+  font-size: 12px;
+}
+
+.ds-file-list li.gate::before { content: "🚦"; }
+.ds-file-list li.manifest::before { content: "📋"; }
+.ds-file-list li.report::before { content: "📊"; }
+
+/* === 表格样式 === */
+.ds-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--ds-space-md) 0;
+  font-size: 14px;
+}
+
+.ds-table th {
+  background: var(--ds-brand-red);
+  color: white;
+  padding: var(--ds-space-sm) var(--ds-space-md);
+  text-align: left;
+  font-weight: 600;
+}
+
+.ds-table td {
+  padding: var(--ds-space-sm) var(--ds-space-md);
+  border-bottom: 1px solid #F0F0F0;
+}
+
+.ds-table tr:hover td {
+  background: #FFF5F5;
+}
+
+/* === 提示块 === */
+.ds-callout {
+  padding: var(--ds-space-md);
+  border-radius: var(--ds-radius-md);
+  margin: var(--ds-space-md) 0;
+  border-left: 4px solid;
+}
+
+.ds-callout.info {
+  background: #EBF5FB;
+  border-color: var(--ds-info);
+  color: #21618C;
+}
+
+.ds-callout.warning {
+  background: #FEF9E7;
+  border-color: var(--ds-warning);
+  color: #9A7D0A;
+}
+
+.ds-callout.success {
+  background: #EAFAF1;
+  border-color: var(--ds-success);
+  color: #1E8449;
+}
+
+.ds-callout.error {
+  background: #FADBD8;
+  border-color: var(--ds-error);
+  color: #A93226;
+}
+
+/* === 徽章 === */
+.ds-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--ds-radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ds-badge.new { background: var(--ds-brand-red); color: white; }
+.ds-badge.updated { background: var(--ds-gold); color: var(--ds-slate); }
+.ds-badge.deprecated { background: var(--ds-text-muted); color: white; }
+.ds-badge.hitl { background: var(--ds-warning); color: white; }
+
+/* === 看板卡片 === */
+.ds-kanban-card {
+  background: var(--ds-surface);
+  border: 1px solid #E8E8E8;
+  border-radius: var(--ds-radius-md);
+  padding: var(--ds-space-md);
+  margin-bottom: var(--ds-space-sm);
+  box-shadow: var(--ds-shadow-sm);
+  transition: box-shadow 0.2s ease;
+}
+
+.ds-kanban-card:hover {
+  box-shadow: var(--ds-shadow-md);
+}
+
+.ds-kanban-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--ds-space-sm);
+}
+
+.ds-kanban-card-title {
+  font-weight: 600;
+  color: var(--ds-slate);
+}
+
+/* === 时间线 === */
+.ds-timeline {
+  position: relative;
+  padding-left: var(--ds-space-xl);
+}
+
+.ds-timeline::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--ds-bg-alt);
+}
+
+.ds-timeline-item {
+  position: relative;
+  padding-bottom: var(--ds-space-md);
+}
+
+.ds-timeline-item::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--ds-space-xl) + 4px);
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ds-brand-red);
+  border: 2px solid var(--ds-surface);
+}
+
+.ds-timeline-item.completed::before { background: var(--ds-success); }
+.ds-timeline-item.failed::before { background: var(--ds-error); }
+.ds-timeline-item.current::before {
+  background: var(--ds-brand-red);
+  animation: pulse 2s infinite;
+}
+
+/* === 代码块样式 === */
+.ds-code-block {
+  background: var(--ds-slate);
+  color: #ECF0F1;
+  padding: var(--ds-space-md);
+  border-radius: var(--ds-radius-md);
+  font-family: var(--ds-font-mono);
+  font-size: 13px;
+  overflow-x: auto;
+  margin: var(--ds-space-md) 0;
+}
+
+.ds-code-block code {
+  color: #ECF0F1;
+}
+
+/* === 阶段进度指示器 === */
+.ds-stage-progress {
+  display: flex;
+  gap: var(--ds-space-xs);
+  margin: var(--ds-space-md) 0;
+}
+
+.ds-stage-progress-step {
+  flex: 1;
+  height: 4px;
+  background: var(--ds-bg-alt);
+  border-radius: 2px;
+  position: relative;
+}
+
+.ds-stage-progress-step.completed {
+  background: var(--ds-success);
+}
+
+.ds-stage-progress-step.current {
+  background: var(--ds-brand-red);
+  animation: pulse 2s infinite;
+}
+
+.ds-stage-progress-step.failed {
+  background: var(--ds-error);
+}
+
+/* === 任务列表样式 === */
+.ds-task-list {
+  list-style: none;
+}
+
+.ds-task-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-sm);
+  padding: var(--ds-space-sm) 0;
+  border-bottom: 1px solid var(--ds-bg-alt);
+}
+
+.ds-task-list li:last-child {
+  border-bottom: none;
+}
+
+.ds-task-checkbox {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--ds-brand-red);
+  border-radius: 3px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.ds-task-list li.completed .ds-task-checkbox {
+  background: var(--ds-success);
+  border-color: var(--ds-success);
+}
+
+.ds-task-list li.completed .ds-task-checkbox::after {
+  content: "✓";
+  color: white;
+  font-size: 12px;
+  display: block;
+  text-align: center;
+  line-height: 14px;
+}
+
+/* === 响应式设计 === */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+
+  h1 { font-size: 1.5em; }
+  h2 { font-size: 1.2em; }
+
+  .ds-table {
+    font-size: 12px;
+  }
+
+  .ds-table th,
+  .ds-table td {
+    padding: var(--ds-space-xs);
+  }
+}

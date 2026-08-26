@@ -1,0 +1,4 @@
+interface:
+  display_name: "Newma 动物头数字人口播"
+  short_description: "真人身体保留、imagegen 动物换头、Luma 中文口型视频"
+  default_prompt: "Use $dasheng-digital-human-talking-head to replace an authorized presenter's head with a realistic animal character using imagegen, animate it in Luma with MiniMax audio, and hand it to the talking-head director pipeline."

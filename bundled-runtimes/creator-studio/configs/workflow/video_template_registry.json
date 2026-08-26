@@ -1,0 +1,89 @@
+{
+  "schema_version": "newma.video_template_registry.v1",
+  "updated_at": "2026-08-22",
+  "note": "视频生产模板注册表：引擎组件（omni/html-anything/animated-chart）+ 角色分镜配方 + html-anything 模板池。模板的画幅（aspect/orientation）由模板声明——引擎不硬编码。",
+  "engines": [
+    {
+      "id": "omni",
+      "name": "omni 图生视频引擎",
+      "package": "skills/dasheng-omni-video-bridge",
+      "provider": "gemini_web",
+      "role": "生成素材/元素（图生视频段）",
+      "aspect_from_template": true,
+      "max_segment_seconds": 10
+    },
+    {
+      "id": "animated-chart",
+      "name": "动态数据图表引擎",
+      "package": "scripts/build_animated_charts.py",
+      "provider": "local_html_js",
+      "role": "chart_data.json → HTML 动画图表",
+      "aspect_from_template": true,
+      "renders_to": "html（Chrome Headless 截图/视频桥）"
+    },
+    {
+      "id": "html-anything",
+      "name": "HTML Anything 模板渲染",
+      "package": "skills/dasheng-html-anything-bridge",
+      "provider": "vendor/reserved/render/html-anything",
+      "role": "文章/卡片/HTML 部件渲染",
+      "aspect_from_template": true
+    },
+    {
+      "id": "remotion",
+      "name": "Remotion 主时间轴合成引擎",
+      "package": "remotion-video",
+      "provider": "node/remotion",
+      "role": "代码化视频时间线渲染（数据包 data/*.json + src/packs.ts 注册 → Composition）",
+      "aspect_from_template": true
+    }
+  ],
+  "storyboard_recipes": [
+    {
+      "id": "vox-silhouette-mixed",
+      "name": "剪影+拟真混合配方（Vox 风）",
+      "characters": "solid black silhouette + costume-outline detail（无五官无排线）",
+      "props": "realistic（手机/显示器/放映机：边框反光细节）",
+      "background": "warm yellow + faint newspaper texture",
+      "palette": "warm yellow + black dominant; red only for 1-2 accent icons",
+      "layout": "flat graphic icons + smooth color-block wipes",
+      "verified_on": ["格雷欣法则 18s", "传播链条 10s"],
+      "marketplace_preset": true
+    },
+    {
+      "id": "vox-paper-collage",
+      "name": "剪纸拼贴配方",
+      "characters": "paper-collage cutout figures",
+      "props": "paper cutout with torn edges",
+      "background": "old newspaper page (blurred type blocks)",
+      "palette": "yellowed paper + black cutout + red/blue accents",
+      "verified_on": ["Paper Collage 10s（Gemini 会话实测）"]
+    }
+  ],
+  "html_anything_pool": {
+    "source": "vendor/reserved/render/html-anything + docs/technical/html-anything-template-matrix.md",
+    "count": 40,
+    "templates": [
+      "article-magazine", "blog-post", "card-twitter", "card-xiaohongshu", "social-carousel",
+      "competitive-teardown", "dashboard", "data-report", "dataset", "dating-web",
+      "deck-blueprint", "deck-course-module", "deck-dir-key-nav", "deck-graphify-dark",
+      "deck-guizang-editorial", "deck-hermes-cyber", "deck-magazine-web", "deck-obsidian-claude",
+      "deck-open-slide-canvas", "deck-pitch", "deck-presenter-mode", "deck-product-launch",
+      "deck-replit", "deck-safety-alert", "deck-simple", "deck-swiss-international",
+      "deck-tech-sharing", "deck-xhs-pastel", "deck-xhs-post", "deck-xhs-white",
+      "digital-eguide", "doc-kami-parchment", "docs-page", "eng-runbook", "finance-report",
+      "frame-data-chart-nyt", "frame-flowchart-sticky", "frame-glitch-title",
+      "frame-light-leak-cinema", "frame-liquid-bg-hero", "frame-logo-outro",
+      "frame-macos-notification", "frame-swiss-international", "invoice", "magazine-poster",
+      "mobile-app", "mobile-onboarding", "mockup-device-3d", "motion-frames",
+      "poster-hero", "pricing-page", "social-spotify-card", "vfx-text-cursor",
+      "web-proto-editorial", "web-proto-soft", "weekly-update", "wireframe-sketch",
+      "gamified-app", "blog-magazine", "docs-article"
+    ]
+  },
+  "chart_aspect_presets": [
+    {"id": "portrait-9x16", "aspect": "9:16", "size": [1080, 1920], "for": "视频号/抖音/小红书竖屏"},
+    {"id": "landscape-16x9", "aspect": "16:9", "size": [1920, 1080], "for": "B站/YouTube/视频横屏"},
+    {"id": "square-1x1", "aspect": "1:1", "size": [1080, 1080], "for": "小红书/朋友圈方图"}
+  ]
+}

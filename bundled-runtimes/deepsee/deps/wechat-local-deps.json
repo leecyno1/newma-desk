@@ -1,0 +1,19 @@
+{
+  "chatlog_alpha": {
+    "source": "third_party/chatlog",
+    "imported_commit": "bfb031f7f94923a97ac186f5f048ef6006ab3d63",
+    "purpose": "仓库内置的本地微信聊天记录 HTTP sidecar 源码，由安装脚本本机构建"
+  },
+  "wx_cli": {
+    "repo": "jackwener/wx-cli",
+    "release": "v0.3.0",
+    "purpose": "Windows 优先的本地微信数据 CLI/daemon，用于 chatlog 不可用时兜底读取消息与公众号文章",
+    "assets": {
+      "darwin-amd64": "wx-macos-x86_64",
+      "darwin-arm64": "wx-macos-arm64",
+      "linux-amd64": "wx-linux-x86_64",
+      "linux-arm64": "wx-linux-arm64",
+      "windows-amd64": "wx-windows-x86_64.exe"
+    }
+  }
+}

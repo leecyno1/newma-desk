@@ -1,0 +1,204 @@
+schema_version: dasheng.video.pipeline.v1
+id: talking_head
+lane: talking_head_video
+director_id: talking_head_director
+standard_flow_ref: configs/video/director_registry.json#standard_flow
+title: 真人出镜口播流水线
+orchestrator_skill: dasheng-video-talking-head
+default_output_stage: video
+default_format:
+  aspect_ratio: "9:16"
+  width: 1080
+  height: 1920
+  fps: 30
+  alternate_profiles: ["16:9", "1:1", "4:5"]
+external_output_policy:
+  required_root: "~/Desktop/自媒体创作"
+  forbid_paths: ["skills/", ".codex/skills/", "node_modules/"]
+human_approval_default: true
+style_reference:
+  primary: 小林说类真人出镜口播
+  principle: 真人是信任锚点，脚本、证据、动画、字幕和声音共同推进，不用固定小窗模板机械包装。
+stages:
+  - name: intake
+    canonical_stage: intake
+    description: 接收真人原片、文章、提纲、字幕和参考样片，建立素材清单并检查画面、声音和授权状态。
+    skill: dasheng-video-roughcut
+    required_artifacts_in: [brief]
+    produces: [review]
+    tools_available: [read_video_with_crv, video_roughcut_funasr]
+    checkpoint_required: true
+    review_focus:
+      - 原片、音轨、字幕、文章和参考样片路径必须可定位。
+      - 检查正脸比例、构图、安全区、底噪、爆音和长静音。
+    success_criteria:
+      - source inventory is complete
+      - human source and rights are confirmed
+      - media probe and intake review are available
+  - name: script_rewrite
+    canonical_stage: script_rewrite
+    description: 按原口播顺序删掉口误、重说、口水词和无效铺垫，强化前 5 秒钩子、博主介绍、互动和留存兑现。
+    skill: dasheng-video-roughcut
+    required_artifacts_in: [brief, review]
+    produces: [script]
+    tools_available: [video_roughcut_funasr, video_roughcut_agent_align, cut_talking_head_skill]
+    checkpoint_required: true
+    review_focus:
+      - 只做口播重写和顺序内精简，不凭空改写事实。
+      - 公司名、股票名、年份、数字和结论不能误删。
+      - 开头不得保留“嗯、呃、大家好”式无效起手。
+    success_criteria:
+      - schema-valid script artifact
+      - core claim appears within five seconds unless an approved exception exists
+      - filler, restart and duplicate-sentence candidates are reviewed
+  - name: roughcut
+    canonical_stage: intake
+    description: 执行真人粗剪、EDL 时间重映射、基础滤镜与美颜、降噪、压缩、响度放大和限幅，锁定唯一真人主音轨。
+    skill: dasheng-video-roughcut
+    required_artifacts_in: [script]
+    produces: [presenter_source_manifest, review]
+    tools_available:
+      - video_roughcut_funasr
+      - video_roughcut_agent_align
+      - video_timeline_edl
+      - freecut_skill
+      - auto_editor_cli
+      - dasheng_ffmpeg_toolkit
+    checkpoint_required: true
+    review_focus:
+      - 删除结果不能吞字、断句或破坏逻辑。
+      - 画面调整保持自然，禁止过度磨皮、强滤镜和脸部变形。
+      - 人声清晰稳定，不得爆音、金属音、抽吸或音画漂移。
+    success_criteria:
+      - schema-valid presenter_source_manifest artifact
+      - roughcut gate approved
+      - approved human video and exactly one master audio track are locked
+  - name: scene_plan
+    canonical_stage: scene_plan
+    description: 根据锁定口播时间轴制定分镜、构图状态、证据插入、HTML/Remotion 动画、转场、字幕、花字和人物标签。
+    skill: dasheng-video-director
+    required_artifacts_in: [script, presenter_source_manifest]
+    produces: [scene_plan, tool_routing_plan, review]
+    tools_available:
+      - video_director_tool_router
+      - video_director_timeline
+      - build_video_director_storyboard
+      - build_storyboard_template_review_table
+      - video_renderer_contract_gate
+    checkpoint_required: true
+    review_focus:
+      - 分镜覆盖完整口播和关键论据，不逐句机械贴图。
+      - 交替使用真人全屏、证据全屏、圆形 PIP、圆角 PIP、分屏、图表和 B-roll。
+      - 关键判断、反转、数字和结论安排同步花字；人物和机构首次出现安排说明标签。
+    success_criteria:
+      - schema-valid scene_plan artifact
+      - storyboard review approved
+      - no more than two consecutive scenes use the same composition state
+      - every long scene contains internal micro-shots
+  - name: claim_evidence
+    canonical_stage: scene_plan
+    description: 将微分镜归并为核心命题，逐项确认数据、网页、新闻、图表和作者推演的证据关系。
+    skill: dasheng-video-director
+    required_artifacts_in: [scene_plan]
+    produces: [claim_evidence_ledger, spoken_revision_sheet, review]
+    tools_available: [video_claim_evidence_ledger, video_finance_evidence, video_official_evidence, video_model_evidence]
+    checkpoint_required: true
+    review_focus:
+      - 事实、估值、因果和历史判断必须有可定位证据。
+      - 证据冲突时先修口播，不得把错误事实降级成观点绕过。
+    success_criteria:
+      - schema-valid claim_evidence_ledger artifact
+      - claim_evidence_gate status is pass
+      - spoken_revision_sheet pending_count is 0
+  - name: asset_build
+    canonical_stage: asset_build
+    description: 下载真实 B-roll 和证据，生成 HTML/GSAP/Lottie 动画、动态图表、贴纸、花字和说明标签。
+    skill: dasheng-html-video-bridge
+    required_artifacts_in: [scene_plan, claim_evidence_ledger]
+    produces: [asset_manifest, renderer_asset_gate]
+    tools_available:
+      - media_downloader
+      - render_html_anything_scene_pack_animated
+      - build_remotion_renderer_pack
+      - text_to_lottie_local
+      - dasheng-video-broll-generator
+      - dasheng-lemon-illustrations
+    checkpoint_required: true
+    review_focus:
+      - 动画必须解释当前句子，静态图片不能只做缩放。
+      - 图表和证据保留来源；贴纸、花字和字幕不能遮脸或遮数据。
+      - 所有生产素材写入桌面创作目录。
+    success_criteria:
+      - schema-valid asset_manifest artifact
+      - renderer_asset_gate status is pass
+      - production assets contain no placeholders
+  - name: edit_decisions
+    canonical_stage: edit_composite
+    description: 将真人、证据、B-roll、HTML 动画、字幕、花字、标签、BGM 和音效编排到 Remotion 主时间轴。
+    skill: dasheng-video-director
+    required_artifacts_in: [scene_plan, asset_manifest, presenter_source_manifest]
+    produces: [edit_decisions]
+    tools_available:
+      - convert_director_storyboard_to_video_timeline
+      - finish_talking_head_skill
+      - build_remotion_renderer_pack
+      - align_video_subtitles_to_asr
+      - video_driver_rules
+    checkpoint_required: true
+    review_focus:
+      - 真人主音轨只挂载一次，BGM 单独连续铺设并在人声下 duck。
+      - 字幕按 ASR/强制对齐时间戳，重点花字不能简单复制整句字幕。
+      - 真人回归、证据密度、镜头节奏和转场由语义驱动。
+    success_criteria:
+      - schema-valid edit_decisions artifact
+      - subtitles cover the full approved speech
+      - master audio is mounted exactly once
+  - name: render
+    canonical_stage: render
+    description: 渲染评审版和正式版，输出接触表并验证渲染器真实消费分镜字段。
+    skill: dasheng-video-talking-head
+    required_artifacts_in: [edit_decisions, asset_manifest, renderer_asset_gate]
+    produces: [review]
+    tools_available: [build_remotion_renderer_pack, render_html_anything_scene_pack_animated, video_renderer_contract_gate]
+    checkpoint_required: true
+    review_focus:
+      - Remotion 是主时间轴，HTML/GSAP/Lottie 是场景工作器。
+      - 不得出现空白帧、假模板切换、开发标签或重复音轨。
+    success_criteria:
+      - renderer contract gate status is pass
+      - review render and contact sheet are available
+  - name: render_qc
+    canonical_stage: qc_delivery
+    description: 检查字幕同步、遮挡、响度、暗帧、转场闪屏、视觉变化密度和最终交付哈希。
+    skill: dasheng-video-talking-head
+    required_artifacts_in: [edit_decisions, asset_manifest, renderer_asset_gate, review]
+    produces: [render_report, review]
+    tools_available:
+      - build_remotion_renderer_pack
+      - build_video_review_suite_strict
+      - video_render_qc
+      - video_renderer_contract_gate
+      - dasheng_ffmpeg_toolkit
+      - video_final_delivery
+      - jianying_cloud_draft
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 完整复听，抽查开头、中段、结尾和所有数字专名。
+      - 交付 manifest 必须绑定同一个 QC 通过文件、时长和哈希。
+    success_criteria:
+      - schema-valid render_report artifact
+      - video_qc_report status is pass
+      - final delivery manifest points to the exact QC-passed video hash
+fail_conditions:
+  - digital-human source is routed into the human talking-head lane
+  - roughcut gate not approved before scene planning
+  - filler, restart, duplicate sentence or long dead air remains in the release cut
+  - face filter or beauty processing causes visible identity distortion
+  - voice loudness, denoise or compression creates clipping, pumping or metallic artifacts
+  - claim/evidence ledger not approved before asset generation
+  - production renderer contains placeholder evidence, chart, document or B-roll assets
+  - captions omit speech or drift from the voice
+  - static screenshot stitching or FFmpeg zoompan is used as production animation
+  - master narration is mounted more than once
+  - final media is written under the skills directory

@@ -1,0 +1,147 @@
+# 个人微信号二次开发/微信机器人开发/wechatapi.net 
+
+## Docs
+- 项目概览 / 开发说明 [微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/ipad协议开发/gewechat开发](https://post.wechatapi.net/a1.md): 微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/ipad协议开发/gewechat开发
+- 项目概览 / 开发说明 [微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/videosapi.com/ipad协议开发/gewe框架开发/gewechat开发](https://post.wechatapi.net/a2.md): 微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/videosapi.com/ipad协议开发/gewe框架开发/gewechat开发
+- 项目概览 / 开发说明 [🔄 消息推送事件说明](https://post.wechatapi.net/doc-8560389.md): 
+- 项目概览 / 开发说明 [🛡️ 账号风控与安全运营指南](https://post.wechatapi.net/doc-8559705.md): 
+- 项目概览 / 开发说明 [📖 API 接入与开发规范指南](https://post.wechatapi.net/doc-8562911.md): 
+- 核心 API 模块 [🤖  AI 辅助开发⭐](https://post.wechatapi.net/doc-8561747.md): 
+- 项目案例（部分） [微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/videosapi.com/ipad协议开发/gewe框架开发/gewechat开发](https://post.wechatapi.net/doc-6189935.md): 微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/videosapi.com/ipad协议开发/gewe框架开发/gewechat开发
+- 项目案例（部分） [微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/videosapi.com/ipad协议开发/gewe框架开发/gewechat开发](https://post.wechatapi.net/doc-6190020.md): 微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/videosapi.com/ipad协议开发/gewe框架开发/gewechat开发
+- 项目案例（部分） [微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/videosapi.com/ipad协议开发/gewe框架开发/gewechat开发](https://post.wechatapi.net/doc-6190144.md): 微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/videosapi.com/ipad协议开发/gewe框架开发/gewechat开发
+- 项目案例（部分） [微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/videosapi.com/ipad协议开发/gewe框架开发/gewechat开发](https://post.wechatapi.net/doc-6190219.md): 微信ipad协议/微信个人号开发/个微开发框架/个人微信号二次开发/微信机器人开发/videosapi.com/ipad协议开发/gewe框架开发/gewechat开发
+
+## API Docs
+- 核心 API 模块 > 登录模块 [wechatapi-微信二次开发/机器人开发](https://post.wechatapi.net/login/getloginqrcode.md): 微信个人号开发API-gewechat-微信机器人开发
+- 核心 API 模块 > 登录模块 [wechatapi-微信二次开发/机器人开发](https://post.wechatapi.net/login/checklogin.md): 微信个人号开发API-gewechat-微信机器人开发 微信ipad协议 微信api
+- 核心 API 模块 > 登录模块 [wechatapi-微信二次开发/机器人开发](https://post.wechatapi.net/login/dialoglogin.md): 微信个人号开发API-gewechat-微信机器人开发 微信ipad协议 微信api
+- 核心 API 模块 > 登录模块 [wechatapi-微信二次开发/机器人开发](https://post.wechatapi.net/login/logout.md): 微信个人号开发API-gewechat-微信机器人开发 微信ipad协议 微信api
+- 核心 API 模块 > 登录模块 [wechatapi-微信二次开发/机器人开发](https://post.wechatapi.net/login/checkonline.md): 微信个人号开发API-gewechat-微信机器人开发 微信ipad协议 微信api
+- 核心 API 模块 > 登录模块 [wechatapi-微信二次开发/机器人开发](https://post.wechatapi.net/login/reconnection.md): 微信个人号开发API-gewechat-微信机器人开发 微信ipad协议 微信api
+- 核心 API 模块 > 登录模块 [wechatapi-微信二次开发/机器人开发](https://post.wechatapi.net/login/setproxy.md): 微信个人号开发API-gewechat-微信机器人开发 微信ipad协议 微信api
+- 核心 API 模块 > 登录模块 [根据token设置回调地址](https://post.wechatapi.net/api-434899145.md): 设置token的回调地址
+- 核心 API 模块 > 联系人相关接口 [获取通讯录列表(包含群聊)](https://post.wechatapi.net/contacts/fetchcontactslist.md): 本接口为长耗时接口，耗时时间根据好友数量递增，若接口超时可通过[获取通讯录列表缓存接口](https://post.wechatapi.net/contacts/fetchcontactslistcache)获取响应结果
+- 核心 API 模块 > 联系人相关接口 [获取通讯录列表(包含群聊)缓存](https://post.wechatapi.net/contacts/fetchcontactslistcache.md): 通讯录列表数据缓存10分钟，超时则需要重新调用[获取通讯录列表接口](https://post.wechatapi.net/contacts/fetchcontactslist)
+- 核心 API 模块 > 联系人相关接口 [搜索好友](https://post.wechatapi.net/contacts/search.md): 搜索的联系人信息若已经是好友，响应结果的v3则为好友的wxid
+- 核心 API 模块 > 联系人相关接口 [添加好友/同意好友](https://post.wechatapi.net/contacts/addcontacts.md): 本接口建议在线3天后再进行调用。
+- 核心 API 模块 > 联系人相关接口 [删除好友](https://post.wechatapi.net/contacts/deletefriend.md): 
+- 核心 API 模块 > 联系人相关接口 [获取群/好友简要信息](https://post.wechatapi.net/contacts/getbriefinfo.md): 
+- 核心 API 模块 > 联系人相关接口 [获取群/好友详细信息](https://post.wechatapi.net/contacts/getdetailinfo.md): 
+- 核心 API 模块 > 联系人相关接口 [设置好友仅聊天](https://post.wechatapi.net/contacts/setfriendpermissions.md): 设置完好友仅聊天后若发现手机展示不是设置的结果，可能是手机缓存未刷新，重新进入页面刷新查看
+- 核心 API 模块 > 联系人相关接口 [检测好友关系](https://post.wechatapi.net/contacts/checkrelation.md): 
+- 核心 API 模块 > 联系人相关接口 [设置好友备注](https://post.wechatapi.net/contacts/setfriendremark.md): 
+- 核心 API 模块 > 联系人相关接口 [获取手机通讯录](https://post.wechatapi.net/contacts/getphoneaddresslist.md): 
+- 核心 API 模块 > 联系人相关接口 [上传手机通讯录](https://post.wechatapi.net/contacts/uploadphoneaddresslist.md): 
+- 核心 API 模块 > 联系人相关接口 [同步企微好友](https://post.wechatapi.net/im/sync.md): 
+- 核心 API 模块 > 联系人相关接口 [获取企微好友详情](https://post.wechatapi.net/im/detail.md): 
+- 核心 API 模块 > 群管理接口 [创建微信群](https://post.wechatapi.net/group/createchatroom.md): 创建微信群时最少要选择两位微信好友
+- 核心 API 模块 > 群管理接口 [修改群名称](https://post.wechatapi.net/group/modifychatroomname.md): 修改完群名称后若发现手机未展示修改后的名称，可能是手机缓存未刷新，手机聊天框多切换几次会刷新。
+- 核心 API 模块 > 群管理接口 [修改群备注](https://post.wechatapi.net/group/modifychatroomremark.md): 群备注仅自己可见
+- 核心 API 模块 > 群管理接口 [修改我在群内的昵称](https://post.wechatapi.net/group/modifychatroomnicknameforself.md): 
+- 核心 API 模块 > 群管理接口 [gewei开发](https://post.wechatapi.net/group/invitemember.md): 
+- 核心 API 模块 > 群管理接口 [删除群成员](https://post.wechatapi.net/group/removemember.md): 
+- 核心 API 模块 > 群管理接口 [退出群聊](https://post.wechatapi.net/group/quitchatroom.md): 
+- 核心 API 模块 > 群管理接口 [获取群信息](https://post.wechatapi.net/group/getchatroominfo.md): 
+- 核心 API 模块 > 群管理接口 [获取群成员列表](https://post.wechatapi.net/group/getchatroommemberlist.md): 
+- 核心 API 模块 > 群管理接口 [获取群成员详情](https://post.wechatapi.net/group/getchatroommemberdetail.md): 
+- 核心 API 模块 > 群管理接口 [设置群公告](https://post.wechatapi.net/group/setchatroomannouncement.md): 仅群主或管理员可以发布群公告
+- 核心 API 模块 > 群管理接口 [获取群公告](https://post.wechatapi.net/group/getchatroomannouncement.md): 
+- 核心 API 模块 > 群管理接口 [同意进群](https://post.wechatapi.net/group/agreejoinroom.md): 
+- 核心 API 模块 > 群管理接口 [添加群成员为好友](https://post.wechatapi.net/group/addgroupmemberasfriend.md): 添加群成员为好友，若对方关闭从群聊添加的权限则添加失败
+- 核心 API 模块 > 群管理接口 [获取群二维码](https://post.wechatapi.net/group/getchatroomqrcode.md): ### 注意
+- 核心 API 模块 > 群管理接口 [群保存到通讯录](https://post.wechatapi.net/group/savecontractlist.md): 
+- 核心 API 模块 > 群管理接口 [管理员操作](https://post.wechatapi.net/group/adminoperate.md): 添加、删除群管理员，转让群主
+- 核心 API 模块 > 群管理接口 [聊天置顶](https://post.wechatapi.net/group/pinchat.md): 
+- 核心 API 模块 > 群管理接口 [设置消息免打扰](https://post.wechatapi.net/group/setmsgsilence.md): 
+- 核心 API 模块 > 群管理接口 [扫码进群](https://post.wechatapi.net/group/joinroomusingqrcode.md): qrUrl是通过解析群二维码图片获得的内容
+- 核心 API 模块 > 群管理接口 [确认进群申请](https://post.wechatapi.net/group/roomaccessapplycheckapprove.md): 群聊开启邀请确认后，有人申请进群时群主和管理员会收到进群申请，本接口用于确认进群申请
+- 核心 API 模块 > 消息模块 > 下载 [下载文件](https://post.wechatapi.net/message/downloadfile.md): 
+- 核心 API 模块 > 消息模块 > 下载 [下载图片](https://post.wechatapi.net/message/downloadimage.md): **注意** 如果下载图片失败，可尝试下载另外两种图片类型，并非所有图片都会有高清、常规图片
+- 核心 API 模块 > 消息模块 > 下载 [下载语音](https://post.wechatapi.net/message/downloadvoice.md): > **语音silk格式转换MP3地址[：silk转mp3](https://github.com/kn007/silk-v3-decoder)**
+- 核心 API 模块 > 消息模块 > 下载 [下载视频](https://post.wechatapi.net/message/downloadvideo.md): 
+- 核心 API 模块 > 消息模块 > 下载 [下载emoji](https://post.wechatapi.net/message/downloademojimd5.md): > 下载emoji时应强制加上下载后缀.png
+- 核心 API 模块 > 消息模块 > 下载 [cdn下载](https://post.wechatapi.net/api-170454752.md): **注意** 如果是下载图片失败，可尝试下载另外两种图片类型，并非所有图片都会有高清、常规图片
+- 核心 API 模块 > 消息模块 [发送文字消息](https://post.wechatapi.net/message/posttext.md): #### 注意
+- 核心 API 模块 > 消息模块 [发送文件消息](https://post.wechatapi.net/message/postfile.md): 
+- 核心 API 模块 > 消息模块 [发送图片消息](https://post.wechatapi.net/message/postimage.md): #### 注意
+- 核心 API 模块 > 消息模块 [发送语音消息](https://post.wechatapi.net/message/postvoice.md): 
+- 核心 API 模块 > 消息模块 [发送视频消息](https://post.wechatapi.net/message/postvideo.md): #### 注意
+- 核心 API 模块 > 消息模块 [发送链接消息](https://post.wechatapi.net/message/postlink.md): 
+- 核心 API 模块 > 消息模块 [发送名片消息](https://post.wechatapi.net/message/postnamecard.md): 
+- 核心 API 模块 > 消息模块 [发送定位置消息](https://post.wechatapi.net/message/postlocation.md): 本接口为发送/转发定位消息，使用回调中XML数据
+- 核心 API 模块 > 消息模块 [发送emoji消息](https://post.wechatapi.net/message/postemoji.md): 
+- 核心 API 模块 > 消息模块 [发送appmsg消息](https://post.wechatapi.net/message/postappmsg.md): #### 注意
+- 核心 API 模块 > 消息模块 [发送小程序消息](https://post.wechatapi.net/message/postminiapp.md): 
+- 核心 API 模块 > 消息模块 [转发文件](https://post.wechatapi.net/message/forwardfile.md): 
+- 核心 API 模块 > 消息模块 [转发图片](https://post.wechatapi.net/message/forwardimage.md): #### 注意
+- 核心 API 模块 > 消息模块 [转发视频](https://post.wechatapi.net/message/forwardvideo.md): #### 注意
+- 核心 API 模块 > 消息模块 [转发链接](https://post.wechatapi.net/message/forwardurl.md): 
+- 核心 API 模块 > 消息模块 [转发小程序](https://post.wechatapi.net/message/forwardminiapp.md): 
+- 核心 API 模块 > 消息模块 [撤回消息](https://post.wechatapi.net/message/revokemsg.md): 
+- 核心 API 模块 > 朋友圈模块 [点赞/取消点赞](https://post.wechatapi.net/sns/likesns.md): 在新设备登录后的1-3天内，您将无法使用朋友圈发布、点赞、评论等功能。在此期间，如果尝试进行这些操作，您将收到来自微信团队的提醒。请注意遵守相关规定。
+- 核心 API 模块 > 朋友圈模块 [删除朋友圈](https://post.wechatapi.net/sns/delsns.md): 
+- 核心 API 模块 > 朋友圈模块 [设置朋友圈可见范围](https://post.wechatapi.net/sns/snsvisiblescope.md): #### 朋友圈可见范围 option 可选项
+- 核心 API 模块 > 朋友圈模块 [是否允许陌生人查看朋友圈](https://post.wechatapi.net/sns/strangervisibilityenabled.md): 
+- 核心 API 模块 > 朋友圈模块 [设置某条朋友圈为隐私/公开](https://post.wechatapi.net/sns/snssetprivacy.md): 
+- 核心 API 模块 > 朋友圈模块 [下载朋友圈视频](https://post.wechatapi.net/sns/downloadsnsvideo.md): 
+- 核心 API 模块 > 朋友圈模块 [发送文字朋友圈](https://post.wechatapi.net/sns/sendtextsns.md): 在新设备登录后的1-3天内，您将无法使用朋友圈发布、点赞、评论等功能。在此期间，如果尝试进行这些操作，您将收到来自微信团队的提醒。请注意遵守相关规定。
+- 核心 API 模块 > 朋友圈模块 [发送图片朋友圈](https://post.wechatapi.net/sns/sendimgsns.md): 在新设备登录后的1-3天内，您将无法使用朋友圈发布、点赞、评论等功能。在此期间，如果尝试进行这些操作，您将收到来自微信团队的提醒。请注意遵守相关规定。
+- 核心 API 模块 > 朋友圈模块 [发送视频朋友圈](https://post.wechatapi.net/sns/sendvideosns.md): 在新设备登录后的1-3天内，您将无法使用朋友圈发布、点赞、评论等功能。在此期间，如果尝试进行这些操作，您将收到来自微信团队的提醒。请注意遵守相关规定。
+- 核心 API 模块 > 朋友圈模块 [发送链接朋友圈](https://post.wechatapi.net/sns/sendurlsns.md): 在新设备登录后的1-3天内，您将无法使用朋友圈发布、点赞、评论等功能。在此期间，如果尝试进行这些操作，您将收到来自微信团队的提醒。请注意遵守相关规定。
+- 核心 API 模块 > 朋友圈模块 [上传朋友圈图片](https://post.wechatapi.net/sns/uploadsnsimage.md): 
+- 核心 API 模块 > 朋友圈模块 [上传朋友圈视频](https://post.wechatapi.net/sns/uploadsnsvideo.md): 
+- 核心 API 模块 > 朋友圈模块 [转发朋友圈](https://post.wechatapi.net/sns/forwardsns.md): 在新设备登录后的1-3天内，您将无法使用朋友圈发布、点赞、评论等功能。在此期间，如果尝试进行这些操作，您将收到来自微信团队的提醒。请注意遵守相关规定。
+- 核心 API 模块 > 朋友圈模块 [自己的朋友圈列表](https://post.wechatapi.net/sns/snslist.md): 
+- 核心 API 模块 > 朋友圈模块 [联系人的朋友圈列表](https://post.wechatapi.net/sns/contactssnslist.md): 
+- 核心 API 模块 > 朋友圈模块 [某条朋友圈详情](https://post.wechatapi.net/sns/snsdetails.md): 
+- 核心 API 模块 > 朋友圈模块 [评论/删除评论](https://post.wechatapi.net/sns/commentsns.md): 在新设备登录后的1-3天内，您将无法使用朋友圈发布、点赞、评论等功能。在此期间，如果尝试进行这些操作，您将收到来自微信团队的提醒。请注意遵守相关规定。
+- 核心 API 模块 > 标签模块 [添加标签](https://post.wechatapi.net/label/add.md): #### 注意
+- 核心 API 模块 > 标签模块 [删除标签](https://post.wechatapi.net/label/delete.md): 
+- 核心 API 模块 > 标签模块 [标签列表](https://post.wechatapi.net/label/list.md): 
+- 核心 API 模块 > 标签模块 [修改好友标签](https://post.wechatapi.net/label/modifymemberlist.md): #### 注意
+- 核心 API 模块 > 个人模块 [获取个人资料](https://post.wechatapi.net/personal/getprofile.md): 
+- 核心 API 模块 > 个人模块 [获取自己的二维码](https://post.wechatapi.net/personal/getqrcode.md): 
+- 核心 API 模块 > 个人模块 [获取设备记录](https://post.wechatapi.net/personal/getsafetyinfo.md): 
+- 核心 API 模块 > 个人模块 [隐私设置](https://post.wechatapi.net/personal/privacysettings.md): **option 说明**
+- 核心 API 模块 > 个人模块 [修改个人信息](https://post.wechatapi.net/personal/updateprofile.md): **注意** 修改个人信息需要单独设置每一项
+- 核心 API 模块 > 个人模块 [修改头像](https://post.wechatapi.net/personal/updateheadimg.md): **注意** 修改头像后需要将手机的微信进程关掉，然后重启查看最新头像
+- 核心 API 模块 > 收藏夹模块 [同步收藏夹](https://post.wechatapi.net/favor/sync.md): #### 注意:
+- 核心 API 模块 > 收藏夹模块 [获取收藏夹内容](https://post.wechatapi.net/favor/getcontent.md): 
+- 核心 API 模块 > 收藏夹模块 [删除收藏夹](https://post.wechatapi.net/favor/delete.md): 
+- 核心 API 模块 > 视频号模块 [搜索视频号](https://post.wechatapi.net/finder/search.md): 
+- 核心 API 模块 > 视频号模块 [获取视频号信息](https://post.wechatapi.net/finder/getprofile.md): 
+- 核心 API 模块 > 视频号模块 [创建视频号](https://post.wechatapi.net/finder/createfinder.md): 
+- 核心 API 模块 > 视频号模块 [发私信文本消息](https://post.wechatapi.net/finder/postprivateletter.md): 消息回调接口内返回了msgsessionid可直接使用、或者使用获取私信sessionid接口
+- 核心 API 模块 > 视频号模块 [发私信图片消息](https://post.wechatapi.net/finder/postprivateletterimg.md): 
+- 核心 API 模块 > 视频号模块 [获取私信人详情](https://post.wechatapi.net/finder/contactlist.md): 
+- 核心 API 模块 > 视频号模块 [获取私信SessionId](https://post.wechatapi.net/finder/getmsgsessionid.md): 消息回调接口内返回可不用调用此接口。如未返回需调用本接口。
+- 核心 API 模块 > 视频号模块 [获取所有运营者身份](https://post.wechatapi.net/finder/getfinderinfo.md): 本接口与扫码登录视频号助手配合使用，如需登录其他运营者的身份，需要先用本接口获取所有视频号身份的username，使用[扫码登录视频号助手接口登录](https://post.wechatapi.net/finder/scanloginchannels)
+- 核心 API 模块 > 视频号模块 [扫码登录视频号助手](https://post.wechatapi.net/finder/scanloginchannels.md): username**为空则默认登录管理员身份**，
+- 核心 API 模块 > 视频号模块 [视频-直接发布视频](https://post.wechatapi.net/finder/publishfinderweb.md): 
+- 核心 API 模块 > 视频号模块 [关注/取消关注](https://post.wechatapi.net/finder/follow.md): 
+- 核心 API 模块 > 视频号模块 [获取用户主页(所有视频)](https://post.wechatapi.net/finder/userpage.md): :::highlight green 
+- 核心 API 模块 > 视频号模块 [获取自己赞和收藏](https://post.wechatapi.net/finder/likefavlist.md): 
+- 核心 API 模块 > 视频号模块 [视频-分享给好友](https://post.wechatapi.net/message/sendfindermsg.md): 
+- 核心 API 模块 > 视频号模块 [视频-分享到朋友圈](https://post.wechatapi.net/sns/sendfindersns.md): 
+- 核心 API 模块 > 视频号模块 [视频-评论列表](https://post.wechatapi.net/finder/commentlist.md): 
+- 核心 API 模块 > 视频号模块 [视频-点赞](https://post.wechatapi.net/finder/idfav.md): 
+- 核心 API 模块 > 视频号模块 [视频-小红心](https://post.wechatapi.net/finder/idlike.md): 
+- 核心 API 模块 > 视频号模块 [视频-评论](https://post.wechatapi.net/finder/comment.md): 
+- 核心 API 模块 > 视频号模块 [视频-浏览](https://post.wechatapi.net/finder/browse.md): 
+- 核心 API 模块 > 视频号模块 [修改视频号资料](https://post.wechatapi.net/finder/updateprofile.md): 
+- 核心 API 模块 > 视频号模块 [关注列表](https://post.wechatapi.net/finder/followlist.md): 
+- 核心 API 模块 > 视频号模块 [获取消息列表](https://post.wechatapi.net/finder/mentionlist.md): > **首次执行返回为空，拿返回的lastBuff传参即可获取数据。**
+- 核心 API 模块 > 视频号模块 [我的二维码](https://post.wechatapi.net/finder/getqrcode.md): 
+- 核心 API 模块 > 视频号模块 [扫码关注](https://post.wechatapi.net/finder/scanfollow.md): 
+- 核心 API 模块 > 视频号模块 [扫码获取视频详情](https://post.wechatapi.net/finder/scanqrcode.md): 
+- 核心 API 模块 > 视频号模块 [扫码点小红心](https://post.wechatapi.net/finder/scanlike.md): 
+- 核心 API 模块 > 视频号模块 [扫码大拇指](https://post.wechatapi.net/finder/scanfav.md): 
+- 核心 API 模块 > 视频号模块 [扫码浏览](https://post.wechatapi.net/finder/scanbrowse.md): 
+- 核心 API 模块 > 视频号模块 [扫码评论](https://post.wechatapi.net/finder/scancomment.md): 
+- 核心 API 模块 > 视频号模块 [同步私信消息(临时停用)](https://post.wechatapi.net/api-170454788.md): **暂时弃用，请使用《消息回调通知》进行获取。具体恢复时间待通知**
+- 核心 API 模块 > 视频号模块 [视频-直接发布视频](https://post.wechatapi.net/api-170454791.md): 
+- 核心 API 模块 > 视频号模块 [视频-CDN上传视频(1)](https://post.wechatapi.net/api-170454792.md): 
+- 核心 API 模块 > 视频号模块 [视频-CDN异步上传视频](https://post.wechatapi.net/api-243118732.md): 视频超过30M使用此接口，上传后用DATA返回的信息去[CDN异步查询接口](http://apifox.videosapi.com/api-243148030)查询信息，并用查询接口返回的信息进行CDN发布。
+- 核心 API 模块 > 视频号模块 [视频-CDN异步查询](https://post.wechatapi.net/api-243148030.md): 
+- 核心 API 模块 > 视频号模块 [视频-CDN发布视频(2)](https://post.wechatapi.net/api-170454793.md): 

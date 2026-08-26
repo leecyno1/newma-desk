@@ -1,0 +1,10 @@
+.git
+.venv
+.pytest_cache
+__pycache__
+.env
+data
+backups
+chatlog_*
+*.log
+.DS_Store

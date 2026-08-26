@@ -1,0 +1,40 @@
+{
+  "name": "dasheng-vox-skills",
+  "version": "1.2.0",
+  "lane": "vox_explainer_video",
+  "pipeline": "configs/video/pipelines/vox_explainer.yaml",
+  "manifest_entry": "skills/dasheng-vox-skills/scripts/vox_manifest.py",
+  "shotcraft_adapter_entry": "skills/dasheng-vox-skills/scripts/shotcraft_adapter.py",
+  "gemini_api_entry": "skills/dasheng-vox-skills/scripts/gemini_video_api.py",
+  "shot_qc_entry": "skills/dasheng-vox-skills/scripts/shot_qc.py",
+  "components": [
+    "dasheng-video-vox",
+    "dasheng-video-omni-browser",
+    "video-shotcraft",
+    "imagegen",
+    "remotion"
+  ],
+  "default_provider_order": [
+    "gemini_api_omni",
+    "gemini_api_veo",
+    "gemini_browser_omni",
+    "remotion_local_motion"
+  ],
+  "reference_image_provider": "codex_builtin_imagegen",
+  "director_stage": [
+    "content_distillation",
+    "script_rewrite",
+    "retention_design",
+    "story_segment_storyboard",
+    "approval",
+    "production_shot_split",
+    "shotcraft_binding"
+  ],
+  "shotcraft_root": "vendor/reserved/video/video-shotcraft",
+  "default_format": {
+    "aspect_ratio": "16:9",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  }
+}

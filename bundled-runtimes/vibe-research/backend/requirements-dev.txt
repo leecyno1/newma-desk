@@ -1,0 +1,5 @@
+# 开发/测试依赖。安装：.venv/bin/pip install -r requirements-dev.txt
+# 跑测试：.venv/bin/pytest -m "not live"   （只跑离线单测/API 测，快且稳）
+#         .venv/bin/pytest -m live          （联网核对数据源 shape，开源前/升级后用）
+pytest>=7
+httpx>=0.24   # fastapi TestClient 依赖

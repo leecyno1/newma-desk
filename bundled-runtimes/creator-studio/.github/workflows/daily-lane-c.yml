@@ -1,0 +1,21 @@
+name: Daily Lane C (macro-watch)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 22 * * *"  # UTC 22:30 = 北京 06:30，与 lane-a/b 并行
+
+jobs:
+  lane-c:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Advance lane-c (article before video)
+        run: python scripts/run_daily_lane.py --lane lane-c --dry-run

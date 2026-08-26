@@ -1,0 +1,220 @@
+import path from 'path';
+import { Readable } from 'stream';
+import type { ReadableStream as NodeReadableStream } from 'stream/web';
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import type { Connect } from 'vite';
+import packageJson from './package.json' with { type: 'json' };
+
+// Allowed API hostnames to prevent SSRF
+const ALLOWED_HOSTS = [
+  'generativelanguage.googleapis.com',
+  'api.openai.com',
+  'api.deepseek.com',
+  'api.anthropic.com',
+  'api.groq.com',
+  'api.mistral.ai',
+  'open.bigmodel.cn',
+  'dashscope.aliyuncs.com',
+];
+
+const ENABLE_PROXY_DEBUG = process.env.PRISMA_PROXY_DEBUG === 'true';
+const ORCHESTRA_API_TARGET = process.env.ORCHESTRA_API_TARGET || 'http://127.0.0.1:8011';
+
+function customApiProxyMiddleware(): Connect.NextHandleFunction {
+  return async (req, res, next) => {
+    if (!req.url?.startsWith('/custom-api')) {
+      return next();
+    }
+
+    const targetUrlHeader = req.headers['x-target-url'];
+    const targetUrl = Array.isArray(targetUrlHeader) ? targetUrlHeader[0] : targetUrlHeader;
+
+    if (!targetUrl) {
+      console.error('[Custom Proxy] Missing X-Target-URL header');
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: 'Missing X-Target-URL header' }));
+      return;
+    }
+
+    try {
+      const url = new URL(targetUrl);
+
+      if (!ALLOWED_HOSTS.includes(url.hostname)) {
+        console.error(`[Custom Proxy] Blocked request to disallowed host: ${url.hostname}`);
+        res.statusCode = 403;
+        res.end(JSON.stringify({ error: 'Target host not allowed' }));
+        return;
+      }
+
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+        console.error(`[Custom Proxy] Blocked request with unsupported protocol: ${url.protocol}`);
+        res.statusCode = 403;
+        res.end(JSON.stringify({ error: 'Unsupported protocol' }));
+        return;
+      }
+
+      // Clean up target base URL (remove trailing slash)
+      let targetBase = targetUrl.trim();
+      if (targetBase.endsWith('/')) {
+        targetBase = targetBase.slice(0, -1);
+      }
+
+      // 2. Extract relative path (remove /custom-api prefix)
+      let targetPath = req.url.replace(/^\/custom-api/, '');
+
+      // 3. Ensure targetPath starts with /
+      if (!targetPath.startsWith('/')) {
+        targetPath = '/' + targetPath;
+      }
+
+      // Construct full URL
+      const fullUrl = `${targetBase}${targetPath}`;
+
+      if (ENABLE_PROXY_DEBUG) {
+        console.debug(`[Custom Proxy] ${req.method} ${req.url} -> ${fullUrl}`);
+      }
+
+      // Collect request body
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(chunk as Buffer);
+      }
+      const body = Buffer.concat(chunks);
+
+      // Forward headers
+      const forwardHeaders: Record<string, string> = {};
+      // Filter out headers that confuse the upstream server or are hop-by-hop
+      const skipHeaders = [
+        'host',
+        'connection',
+        'x-target-url',
+        'transfer-encoding',
+        'origin',
+        'referer',
+      ];
+
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (!skipHeaders.includes(key.toLowerCase()) && value) {
+          forwardHeaders[key] = Array.isArray(value) ? value[0] : value;
+        }
+      }
+
+      // Explicitly set Host to the target host (crucial for some APIs like OpenAI/Vercel)
+      forwardHeaders['host'] = url.hostname;
+      forwardHeaders['accept-encoding'] = 'identity';
+
+      const fetchOptions: RequestInit = {
+        method: req.method,
+        headers: forwardHeaders,
+        body: ['GET', 'HEAD'].includes(req.method || '') ? undefined : body,
+      };
+
+      const response = await fetch(fullUrl, fetchOptions);
+
+      // Forward response status and headers
+      res.statusCode = response.status;
+      response.headers.forEach((value, key) => {
+        if (
+          !['transfer-encoding', 'connection', 'content-encoding', 'content-length'].includes(
+            key.toLowerCase(),
+          )
+        ) {
+          res.setHeader(key, value);
+        }
+      });
+
+      // Stream the response body using Node.js pipeline for proper backpressure
+      if (response.body) {
+        Readable.fromWeb(response.body as unknown as NodeReadableStream).pipe(res);
+      } else {
+        res.end();
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[Custom Proxy] Error:', message);
+      res.statusCode = 502;
+      res.end(JSON.stringify({ error: 'Proxy error', message }));
+    }
+  };
+}
+
+export default defineConfig(() => {
+  return {
+    define: {
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(packageJson.version),
+    },
+    server: {
+      port: 3001,
+      host: '0.0.0.0',
+      strictPort: true,
+      proxy: {
+        '/api': {
+          target: ORCHESTRA_API_TARGET,
+          changeOrigin: true,
+        },
+        '/healthz': {
+          target: ORCHESTRA_API_TARGET,
+          changeOrigin: true,
+        },
+        // Fallback proxies for specific known routes if not using custom-api
+        '/openai/v1': {
+          target: 'https://api.openai.com',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/openai\/v1/, '/v1'),
+        },
+      },
+    },
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'custom-api-proxy',
+        configureServer(server) {
+          server.middlewares.use(customApiProxyMiddleware());
+        },
+      },
+    ],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('/openai/') || id.includes('/@google/genai/')) {
+              return 'ai-clients';
+            }
+
+            if (id.includes('/react-syntax-highlighter/')) {
+              return 'syntax-highlighter';
+            }
+
+            if (
+              id.includes('/react-markdown/') ||
+              id.includes('/rehype-katex/') ||
+              id.includes('/katex/') ||
+              id.includes('/remark-') ||
+              id.includes('/mdast-') ||
+              id.includes('/micromark') ||
+              id.includes('/unist-') ||
+              id.includes('/hast-') ||
+              id.includes('/vfile') ||
+              id.includes('/property-information/') ||
+              id.includes('/space-separated-tokens/') ||
+              id.includes('/comma-separated-tokens/')
+            ) {
+              return 'markdown-core';
+            }
+
+            return undefined;
+          },
+        },
+      },
+    },
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, '.'),
+      },
+    },
+  };
+});

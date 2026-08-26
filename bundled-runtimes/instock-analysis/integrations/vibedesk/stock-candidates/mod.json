@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-stock-candidates",
+  "name": "A/H 股候选",
+  "description": "从 Desk 的 A 股、港股宽覆盖截面中分层预筛，再融合财务质量、成长和估值的可解释候选排名。",
+  "version": "0.17.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["A股", "综合选股", "因子", "候选池", "基本面", "成长", "量化"],
+  "agentWorkspace": {"type": "runtime", "runtimeId": "instock", "workspaceName": "source"},
+  "runtime": {"type": "external", "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:9988", "route": "/mods/stock-candidates"},
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "quant",
+    "navigation": {
+      "groupLabel": "量化研究", "groupOrder": 120, "itemOrder": 4, "label": "A/H 股候选",
+      "directory": {"id": "instock-suite", "label": "InStock 分析", "order": 20},
+      "project": {"id": "quant-research", "name": "量化研究", "order": 120, "description": "A 股候选、结构、轮动与验证。"},
+      "icon": "quant"
+    },
+    "compatibility": {"level": 2, "bridgeProtocol": "1.0"},
+    "permissions": ["analysis.read"],
+    "dataServices": [],
+    "actions": {
+      "analysis.stock-candidates": {
+        "binding": {"type": "data", "capability": "analysis.stock-candidates"},
+        "execution": "request",
+        "permission": "analysis.read",
+        "inputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"market": {"enum": ["CN", "HK", "CN_HK"]}, "universeMode": {"enum": ["broad", "quick"]}, "universeSize": {"enum": [30, 50, 100, 200]}, "outputSize": {"enum": [10, 20, 30]}, "bars": {"enum": [120, 240]}, "profile": {"enum": ["balanced", "trend", "value", "defensive"]}, "industries": {"type": "string"}, "minAmount": {"type": "number", "minimum": 0}, "minMarketCap": {"type": "number", "minimum": 0}, "maxMarketCap": {"type": "number", "minimum": 0}, "maxPE": {"type": "number", "minimum": 0}, "maxPB": {"type": "number", "minimum": 0}, "minTurnover": {"type": "number", "minimum": 0}, "maxTurnover": {"type": "number", "minimum": 0}, "minVolumeRatio": {"type": "number", "minimum": 0}, "maxVolumeRatio": {"type": "number", "minimum": 0}, "minMomentum20": {"type": "number", "minimum": 0}, "maxVolatility": {"type": "number", "minimum": 0}, "minROE": {"type": "number", "minimum": 0}, "minRevenueGrowth": {"type": "number", "minimum": 0}, "minNetProfitGrowth": {"type": "number", "minimum": 0}, "maxValuationPercentile": {"type": "number", "minimum": 0, "maximum": 100}, "requiredSignals": {"type": "string"}, "eventFlowSnapshotId": {"type": "string", "minLength": 1, "maxLength": 160}, "refresh": {"enum": ["0", "1"]}}, "additionalProperties": false},
+        "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+        "confirmation": "none",
+        "timeoutSeconds": 120
+      }
+    },
+    "events": {"emits": ["security.selected"], "accepts": []},
+    "refresh": {"mode": "manual"}
+  }
+}

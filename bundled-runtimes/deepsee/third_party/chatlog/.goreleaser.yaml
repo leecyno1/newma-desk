@@ -1,0 +1,58 @@
+# GoReleaser v2 配置
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: chatlog
+    binary: chatlog
+    ldflags:
+      - -s -w -X github.com/sjzar/chatlog/pkg/version.Version={{.Version}}
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - windows
+    goarch:
+      - amd64
+    overrides:
+      - goos: windows
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=x86_64-w64-mingw32-gcc
+          - CXX=x86_64-w64-mingw32-g++
+
+upx:
+  - enabled: true
+    goos: [windows]
+    goarch: [amd64]
+    compress: best
+    lzma: true
+
+archives:
+  - id: default
+    formats: zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+  - id: binary
+    formats: binary
+    name_template: "{{ .Binary }}"
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+# 配置 GitHub Release
+release:
+  draft: false
+  prerelease: auto
+  mode: replace

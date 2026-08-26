@@ -1,0 +1,27 @@
+{
+  "name": "dasheng-video-director",
+  "version": "0.1.0",
+  "stage": "video",
+  "description": "视频导演层：将口播稿、字幕、HTML文章和证据素材转成可审核的分镜、构图、模板、动效、转场与音频策略。",
+  "runner": "python",
+  "entry": "../../scripts/dasheng_video_director.py",
+  "inputs": {
+    "required": [
+      "brief/script or captions/article html"
+    ],
+    "optional": [
+      "project_run_manifest.json",
+      "roughcut_gate_report.json",
+      "style_profile.json",
+      "article evidence assets"
+    ]
+  },
+  "outputs": [
+    "scene_plan.json",
+    "storyboard_template_review.html",
+    "storyboard_review_decision.json",
+    "storyboard_review_gate.json",
+    "director_checkpoint.json"
+  ],
+  "hitl": true
+}

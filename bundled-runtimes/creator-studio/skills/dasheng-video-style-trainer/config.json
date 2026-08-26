@@ -1,0 +1,30 @@
+{
+  "name": "dasheng-video-style-trainer",
+  "version": "0.2.0",
+  "stage": "video-style-training",
+  "description": "从大量样板视频学习博主/栏目剪辑风格 DNA，供真人口播和无真人科普视频生产引用。",
+  "runner": "python",
+  "entry": "../../scripts/learn_blogger_video_style_local.py",
+  "canonical": false,
+  "optional_asset": true,
+  "inputs": {
+    "required": [
+      "sample video directory",
+      "style_id"
+    ],
+    "optional": [
+      "blogger_name",
+      "blogger_platform",
+      "skip_aggregate"
+    ]
+  },
+  "outputs": [
+    "training_manifest.json",
+    "per_video/*/analysis.json",
+    "style_profile.json",
+    "style_profile.md",
+    "style_profile.curated.json (after director review)"
+  ],
+  "default_output_root": "~/Desktop/自媒体创作/00_范式学习/视频训练",
+  "hitl": true
+}

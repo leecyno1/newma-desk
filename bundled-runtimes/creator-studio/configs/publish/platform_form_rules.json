@@ -1,0 +1,205 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-07-20",
+  "policy": {
+    "purpose": "Platform-specific preflight validation before building publish executor payloads.",
+    "blocking_severity": "error",
+    "warnings_do_not_block": true,
+    "publish_guard_still_required_after_execution": true,
+    "dynamic_platform_limits_must_remain_warnings_until_reverified": true
+  },
+  "channels": {
+    "wechat_article": {
+      "platform": "wechat",
+      "required": [
+        {
+          "field": "title",
+          "code": "missing_title",
+          "message": "公众号文章缺少标题。"
+        }
+      ],
+      "required_any": [
+        {
+          "fields": [
+            "text_html",
+            "text_markdown"
+          ],
+          "code": "missing_text_artifact",
+          "message": "公众号文章必须提供 HTML 或 Markdown 正文。"
+        }
+      ],
+      "existing_files": [
+        "text_html",
+        "text_markdown",
+        "cover"
+      ],
+      "recommended": [
+        {
+          "field": "cover",
+          "code": "cover_required_for_wechat_api",
+          "message": "公众号 API 草稿需要封面；浏览器路线可在平台内补充。"
+        },
+        {
+          "field": "summary",
+          "code": "missing_summary",
+          "message": "建议提供公众号摘要。"
+        }
+      ],
+      "limits": [
+        {
+          "field": "title",
+          "max_chars": 64,
+          "severity": "warning",
+          "code": "title_may_exceed_platform_limit",
+          "message": "公众号标题可能超过平台常见长度限制，请发布前复核。"
+        },
+        {
+          "field": "summary",
+          "max_chars": 120,
+          "severity": "warning",
+          "code": "summary_may_exceed_platform_limit",
+          "message": "公众号摘要可能超过常见展示长度，请发布前复核。"
+        }
+      ]
+    },
+    "xiaohongshu_video": {
+      "platform": "xiaohongshu",
+      "required": [
+        {
+          "field": "title",
+          "code": "missing_title",
+          "message": "小红书视频缺少标题。"
+        },
+        {
+          "field": "video",
+          "code": "missing_video_artifact",
+          "message": "小红书视频缺少最终视频文件。"
+        },
+        {
+          "field": "account_slot",
+          "code": "missing_account_slot",
+          "message": "小红书发布任务缺少账号槽。"
+        }
+      ],
+      "existing_files": [
+        "video",
+        "cover",
+        "subtitle"
+      ],
+      "limits": [
+        {
+          "field": "title",
+          "max_chars": 20,
+          "severity": "warning",
+          "code": "title_may_exceed_platform_limit",
+          "message": "小红书标题可能超过常见长度限制，请发布前复核。"
+        }
+      ]
+    },
+    "douyin_video": {
+      "platform": "douyin",
+      "required": [
+        {
+          "field": "title",
+          "code": "missing_title",
+          "message": "抖音视频缺少标题或发布文案。"
+        },
+        {
+          "field": "video",
+          "code": "missing_video_artifact",
+          "message": "抖音视频缺少最终视频文件。"
+        },
+        {
+          "field": "account_slot",
+          "code": "missing_account_slot",
+          "message": "抖音发布任务缺少账号槽。"
+        }
+      ],
+      "existing_files": [
+        "video",
+        "cover",
+        "subtitle"
+      ]
+    },
+    "bilibili_video": {
+      "platform": "bilibili",
+      "required": [
+        {
+          "field": "title",
+          "code": "missing_title",
+          "message": "B站视频缺少标题。"
+        },
+        {
+          "field": "video",
+          "code": "missing_video_artifact",
+          "message": "B站视频缺少最终视频文件。"
+        },
+        {
+          "field": "account_slot",
+          "code": "missing_account_slot",
+          "message": "B站发布任务缺少账号槽。"
+        }
+      ],
+      "required_any": [
+        {
+          "fields": [
+            "platform_options.tid",
+            "platform_options.category_id"
+          ],
+          "code": "missing_bilibili_tid",
+          "message": "B站发布必须指定 tid 或 category_id 分区。"
+        }
+      ],
+      "existing_files": [
+        "video",
+        "cover",
+        "subtitle"
+      ],
+      "limits": [
+        {
+          "field": "title",
+          "max_chars": 80,
+          "severity": "warning",
+          "code": "title_may_exceed_platform_limit",
+          "message": "B站标题可能超过平台常见长度限制，请发布前复核。"
+        }
+      ]
+    },
+    "wechat_channels_video": {
+      "platform": "wechat_channels",
+      "required": [
+        {
+          "field": "title",
+          "code": "missing_title",
+          "message": "视频号视频缺少标题或发布文案。"
+        },
+        {
+          "field": "video",
+          "code": "missing_video_artifact",
+          "message": "视频号缺少最终视频文件。"
+        },
+        {
+          "field": "account_slot",
+          "code": "missing_account_slot",
+          "message": "视频号发布任务缺少账号槽。"
+        }
+      ],
+      "existing_files": [
+        "video",
+        "cover",
+        "subtitle",
+        "platform_options.thumbnail_landscape",
+        "platform_options.thumbnail_portrait"
+      ],
+      "limits": [
+        {
+          "field": "platform_options.short_title",
+          "max_chars": 30,
+          "severity": "warning",
+          "code": "short_title_may_exceed_platform_limit",
+          "message": "视频号短标题可能超过常见长度限制，请发布前复核。"
+        }
+      ]
+    }
+  }
+}

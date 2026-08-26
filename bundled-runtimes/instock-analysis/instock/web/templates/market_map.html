@@ -1,0 +1,606 @@
+{% extends "layout/mod.html" %}
+{% block main_content %}
+<link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/research-workbench.css') }}">
+<style>:root { --terminal-accent: #b45309; }</style>
+
+<main class="desk-workbench market-map-workbench">
+    <section class="desk-panel desk-hero market-map-hero">
+        <div>
+            <div class="desk-kicker">MARKET MAP / A-SHARE</div>
+            <h1 class="desk-title">大盘云图</h1>
+            <p class="desk-copy">按申万 2021 一级行业 → 个股组织。一级行业以内嵌角标标识，个股从全景直接可见。</p>
+        </div>
+        <div class="desk-controls market-map-primary-controls">
+            <div class="desk-control">
+                <label>覆盖范围</label>
+                <div class="market-map-capacity" role="group" aria-label="云图覆盖范围">
+                    <button class="market-map-button is-active" type="button" data-map-capacity="100" aria-pressed="true">Top100</button>
+                    <button class="market-map-button" type="button" data-map-capacity="500" aria-pressed="false">多榜 Top500</button>
+                </div>
+            </div>
+            <button id="market-map-run" class="desk-button" type="button">刷新云图</button>
+            <div id="market-map-meta" class="desk-meta">等待 Desk 行情</div>
+        </div>
+    </section>
+    <div id="market-map-alert" class="desk-alert" role="alert"></div>
+
+    <section class="desk-stat-grid market-map-stat-grid">
+        <article class="desk-panel desk-stat"><span>展示个股</span><strong id="market-map-count">--</strong><small id="market-map-pool">市值排序样本</small></article>
+        <article class="desk-panel desk-stat"><span>申万一级行业</span><strong id="market-map-industries">31</strong><small id="market-map-industry-coverage">当前样本覆盖 --</small></article>
+        <article class="desk-panel desk-stat"><span>上涨 / 下跌</span><strong id="market-map-breadth">--</strong><small id="market-map-flat">平盘 --</small></article>
+        <article class="desk-panel desk-stat"><span>领涨行业</span><strong id="market-map-strongest" class="desk-positive">--</strong><small id="market-map-strongest-pct">--</small></article>
+        <article class="desk-panel desk-stat"><span>领跌行业</span><strong id="market-map-weakest" class="desk-negative">--</strong><small id="market-map-weakest-pct">--</small></article>
+        <article class="desk-panel desk-stat"><span>最大权重</span><strong id="market-map-largest">--</strong><small id="market-map-largest-code">--</small></article>
+    </section>
+
+    <section class="desk-panel market-map-panel market-map-stage-panel">
+        <header class="desk-section-head market-map-stage-head">
+            <div>
+                <h2>申万一级行业 → 个股</h2>
+                <small id="market-map-note">等待 Desk 排名覆盖池</small>
+            </div>
+            <div class="market-map-tools">
+                <div class="market-map-search">
+                    <input id="market-map-search" type="search" list="market-map-symbols" placeholder="代码 / 名称" aria-label="搜索云图个股">
+                    <datalist id="market-map-symbols"></datalist>
+                    <button id="market-map-locate" class="market-map-button" type="button">定位</button>
+                </div>
+                <select id="market-map-industry" class="market-map-select" aria-label="筛选一级行业"><option value="">全部行业</option></select>
+                <div class="market-map-metric" role="group" aria-label="云图面积口径">
+                    <button class="market-map-button is-active" type="button" data-map-size="market_cap" aria-pressed="true">市值面积</button>
+                    <button class="market-map-button" type="button" data-map-size="amount" aria-pressed="false">成交面积</button>
+                </div>
+                <div class="market-map-view-controls" role="group" aria-label="云图缩放与重置">
+                    <button id="market-map-zoom-out" class="market-map-button" type="button" aria-label="缩小云图" title="缩小云图" disabled>−</button>
+                    <output id="market-map-zoom-level" class="market-map-zoom-level" aria-live="polite">100%</output>
+                    <button id="market-map-zoom-in" class="market-map-button" type="button" aria-label="放大云图" title="放大云图" disabled>＋</button>
+                    <button id="market-map-reset" class="market-map-button" type="button" title="恢复全景并清除筛选" disabled>重置</button>
+                </div>
+                <button id="market-map-fullscreen" class="market-map-button" type="button" aria-pressed="false">全屏</button>
+            </div>
+        </header>
+        <div class="market-map-stage">
+            <div id="market-map-chart" class="market-map-chart" role="img" aria-label="A 股行业和个股涨跌云图，点击个股进入股票研究"></div>
+            <div id="market-map-industry-badge" class="market-map-industry-badge">
+                <span id="market-map-badge-kicker">申万 2021</span>
+                <b id="market-map-badge-title">31 个一级行业</b>
+                <small id="market-map-badge-detail">等待覆盖数据</small>
+            </div>
+            <div class="market-map-corner-note"><b id="market-map-view-title">全景 · 100%</b><span>滚轮或按钮缩放 · 拖拽平移</span></div>
+        </div>
+        <footer class="market-map-footer">
+            <div class="market-map-legend" aria-label="绿色下跌，灰色平盘，红色上涨"><span>跌</span><i></i><span>涨</span></div>
+            <p id="market-map-caption" class="market-map-caption">颜色代表当日涨跌幅，面积默认代表总市值。</p>
+        </footer>
+    </section>
+
+    <section class="desk-grid market-map-lower-grid">
+        <article class="desk-panel">
+            <header class="desk-section-head"><h2>个股预览</h2><span>悬停查看，点击直接进入研究</span></header>
+            <div id="market-map-detail" class="desk-detail"><div class="desk-empty">在云图中悬停或搜索一只股票</div></div>
+        </article>
+        <article class="desk-panel">
+            <header class="desk-section-head"><h2>覆盖池说明</h2><span id="market-map-coverage-state">--</span></header>
+            <div id="market-map-rankings" class="market-map-ranking-list"></div>
+            <p id="market-map-disclosure" class="desk-footnote market-map-disclosure">Top100 为市值排序样本；Top500 为多榜去重覆盖池。</p>
+        </article>
+    </section>
+</main>
+
+<script src="{{ static_url('js/echarts.min-6.1.0.js') }}"></script>
+<script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script>
+(function () {
+    if (window.location.protocol === 'file:') { window.location.replace('http://127.0.0.1:9988/mods/market-map/'); return; }
+    const deskBridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+    const actionId = 'analysis.market-map';
+    const query = new URL(window.location.href).searchParams;
+    const initialCapacity = query.get('capacity') === '500' ? 500 : 100;
+    const state = {data: null, chart: null, capacity: initialCapacity, sizeMode: 'market_cap', industry: '', selected: null};
+    const runButton = document.getElementById('market-map-run');
+    const alertBox = document.getElementById('market-map-alert');
+    const zoomInButton = document.getElementById('market-map-zoom-in');
+    const zoomOutButton = document.getElementById('market-map-zoom-out');
+    const resetButton = document.getElementById('market-map-reset');
+    const fullscreenButton = document.getElementById('market-map-fullscreen');
+
+    function setText(id, value) { const node = document.getElementById(id); if (node) node.textContent = value == null || value === '' ? '--' : String(value); }
+    function number(value) { const parsed = Number(value || 0); return Number.isFinite(parsed) ? parsed : 0; }
+    function money(value) { const n = number(value); if (!n) return '--'; return n >= 1e12 ? `${(n / 1e12).toFixed(2)}万亿` : n >= 1e8 ? `${(n / 1e8).toFixed(1)}亿` : n >= 1e4 ? `${(n / 1e4).toFixed(1)}万` : n.toFixed(0); }
+    function pct(value) { const n = number(value); return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`; }
+    function cssToken(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+    function unwrap(payload) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-market-map') throw new Error('大盘云图返回格式不受支持'); return data; }
+    async function request(input) { if (deskBridge && deskBridge.whenReady) await deskBridge.whenReady(); if (deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId)) return deskBridge.invokeAction(actionId, input); const response = await fetch('/api/v1/market-maps/snapshots?' + new URLSearchParams(input)); const body = await response.json(); if (!response.ok) throw new Error(body && body.error && body.error.message || '大盘云图加载失败'); return body; }
+
+    function buildContext() {
+        const data = state.data || {};
+        const selected = state.selected || {};
+        return {
+            view: {id: 'market-map', title: '大盘云图'},
+            visibleBlocks: [{id: 'market-map-chart', type: 'treemap', title: '行业与个股云图'}, {id: 'market-map-coverage', type: 'evidence-list', title: '覆盖池说明'}],
+            selectedSecurity: selected.symbol ? {market: 'CN', symbol: selected.symbol, name: selected.name} : null,
+            data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, capacity: state.capacity, sizeMode: state.sizeMode, industry: state.industry, coverage: data.coverage, summary: data.summary, selectedSecurity: selected, snapshot: data.snapshot, limitations: data.limitations || []} : {},
+            actions: [{id: actionId, label: '刷新大盘云图', available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId))}],
+        };
+    }
+    function publish() { if (!deskBridge) return; deskBridge.setContextProvider && deskBridge.setContextProvider(buildContext); deskBridge.publishContext && deskBridge.publishContext(); }
+    function emit(row) { if (deskBridge && deskBridge.emit) deskBridge.emit('security.selected', {market: 'CN', symbol: row.symbol, name: row.name, industry: row.industry, secondaryIndustry: row.industry_l2 || '', source: 'instock-market-map', snapshotId: state.data && state.data.snapshot && state.data.snapshot.snapshot_id}); }
+    function researchUrl(row) { const params = new URLSearchParams({symbol: row.symbol, industry: row.industry || '', secondaryIndustry: row.industry_l2 || '', sourceModule: 'instock-market-map', period: 'daily', bars: '240', ...(state.data && state.data.snapshot ? {sourceSnapshotId: state.data.snapshot.snapshot_id} : {}), ...(state.data && state.data.as_of ? {asOf: state.data.as_of} : {})}); return `/mods/stock-research?${params.toString()}`; }
+    function openResearch(row) { state.selected = row; emit(row); publish(); window.location.assign(researchUrl(row)); }
+
+    function mapColor(change) {
+        const value = Math.max(-10, Math.min(10, number(change)));
+        const strength = Math.min(Math.abs(value) / 10, 1);
+        if (Math.abs(value) < 0.05) return '#737b77';
+        if (value > 0) return `rgb(${Math.round(156 + strength * 64)}, ${Math.round(73 - strength * 34)}, ${Math.round(68 - strength * 32)})`;
+        return `rgb(${Math.round(44 - strength * 18)}, ${Math.round(132 + strength * 42)}, ${Math.round(82 - strength * 24)})`;
+    }
+    function mapSize(row) { return state.sizeMode === 'amount' ? number(row.amount || row.market_cap || row.float_market_cap) : number(row.market_cap || row.float_market_cap || row.amount); }
+    function allRows(data) { return (data && data.groups || []).flatMap(group => group.items || []); }
+    function selectedGroups(data) { const groups = data && data.groups || []; return state.industry ? groups.filter(group => group.name === state.industry) : groups; }
+    function rankReason(row) { const sources = row.rank_sources || []; return sources.length ? sources.slice(0, 3).map(item => `${item.label}#${item.rank}`).join(' · ') : '市值样本'; }
+    function updateIndustryBadge(node) {
+        const badge = document.getElementById('market-map-industry-badge');
+        const data = state.data || {};
+        const row = node && node.row;
+        if (row) {
+            badge.classList.add('is-visible');
+            setText('market-map-badge-kicker', `申万一级行业 · ${row.industry || '未分类'}`);
+            setText('market-map-badge-title', row.name);
+            setText('market-map-badge-detail', `${row.symbol} · ${pct(row.change_pct)}`);
+            return;
+        }
+        const activeIndustry = node && node.node_type === 'l1' ? node.name : '';
+        if (activeIndustry) {
+            badge.classList.add('is-visible');
+            const group = (data.groups || []).find(item => item.name === activeIndustry) || node || {};
+            setText('market-map-badge-kicker', '申万一级行业');
+            setText('market-map-badge-title', activeIndustry);
+            setText('market-map-badge-detail', `${number(group.stock_count)} 只个股 · ${pct(group.change_pct)}`);
+            return;
+        }
+        badge.classList.remove('is-visible');
+    }
+
+    function syncButtons() {
+        document.querySelectorAll('[data-map-capacity]').forEach(button => {
+            const active = number(button.dataset.mapCapacity) === state.capacity;
+            button.classList.toggle('is-active', active);
+            button.setAttribute('aria-pressed', String(active));
+        });
+        document.querySelectorAll('[data-map-size]').forEach(button => {
+            const active = button.dataset.mapSize === state.sizeMode;
+            button.classList.toggle('is-active', active);
+            button.setAttribute('aria-pressed', String(active));
+        });
+    }
+    function updateMapViewport() {
+        if (!state.chart || state.chart.isDisposed()) {
+            zoomInButton.disabled = true;
+            zoomOutButton.disabled = true;
+            resetButton.disabled = true;
+            setText('market-map-zoom-level', '--');
+            setText('market-map-view-title', '等待云图');
+            return;
+        }
+        const series = state.chart.getModel().getSeriesByIndex(0);
+        const rootLayout = series && series.getData().tree.root.getLayout();
+        const viewportWidth = number(series && series.layoutInfo && series.layoutInfo.width);
+        const zoom = rootLayout && viewportWidth ? Math.max(100, Math.round(rootLayout.width / viewportWidth * 100)) : 100;
+        const shifted = rootLayout && (Math.abs(number(rootLayout.x)) > 2 || Math.abs(number(rootLayout.y)) > 2);
+        const localView = Boolean(state.industry || zoom > 101 || shifted);
+        setText('market-map-zoom-level', `${zoom}%`);
+        setText('market-map-view-title', `${state.industry || (localView ? '局部视图' : '全景')} · ${zoom}%`);
+        zoomInButton.disabled = zoom >= 600;
+        zoomOutButton.disabled = zoom <= 100;
+        resetButton.disabled = !localView && !document.getElementById('market-map-search').value;
+    }
+    function zoomMap(direction) {
+        if (!state.chart || state.chart.isDisposed()) return;
+        const root = document.getElementById('market-map-chart');
+        const target = root.querySelector('canvas, svg') || root;
+        const rect = root.getBoundingClientRect();
+        target.dispatchEvent(new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+            deltaY: direction > 0 ? 120 : -120,
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2,
+        }));
+        requestAnimationFrame(updateMapViewport);
+        setTimeout(updateMapViewport, 460);
+    }
+    function resetMapView() {
+        state.industry = '';
+        document.getElementById('market-map-industry').value = '';
+        document.getElementById('market-map-search').value = '';
+        if (state.data) {
+            renderMap(state.data);
+            publish();
+        }
+    }
+    function syncSearch(data) {
+        const datalist = document.getElementById('market-map-symbols');
+        datalist.replaceChildren();
+        allRows(data).forEach(row => {
+            const option = document.createElement('option');
+            option.value = row.symbol;
+            option.label = `${row.name} · ${row.industry || '未分类'}`;
+            datalist.appendChild(option);
+        });
+    }
+    function syncIndustries(data) {
+        const select = document.getElementById('market-map-industry');
+        const value = state.industry;
+        select.replaceChildren();
+        const all = document.createElement('option');
+        all.value = '';
+        all.textContent = '全部行业';
+        select.appendChild(all);
+        (data.groups || []).slice().sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')).forEach(group => {
+            const option = document.createElement('option');
+            option.value = group.name;
+            option.textContent = `${group.name} · ${group.stock_count}只`;
+            select.appendChild(option);
+        });
+        select.value = value;
+    }
+    function renderSummary(data) {
+        const summary = data.summary || {};
+        const coverage = data.coverage || {};
+        setText('market-map-count', summary.securities || coverage.displayed_securities);
+        setText('market-map-pool', coverage.pool_kind === 'multi_rank_union' ? 'Desk 多榜去重覆盖池' : 'Desk 市值排序样本');
+        setText('market-map-industries', number(coverage.total_l1_industries || 31));
+        setText('market-map-industry-coverage', `当前样本覆盖 ${number(coverage.represented_l1_industries)} 个`);
+        setText('market-map-breadth', `${number(summary.advancers)} / ${number(summary.decliners)}`);
+        setText('market-map-flat', `平盘 ${number(summary.flat)}`);
+        setText('market-map-strongest', summary.strongest_industry);
+        setText('market-map-strongest-pct', pct(summary.strongest_industry_change_pct));
+        setText('market-map-weakest', summary.weakest_industry);
+        setText('market-map-weakest-pct', pct(summary.weakest_industry_change_pct));
+        setText('market-map-largest', summary.largest_name);
+        setText('market-map-largest-code', summary.largest_symbol);
+    }
+    function renderCoverage(data) {
+        const root = document.getElementById('market-map-rankings');
+        const coverage = data.coverage || {};
+        root.replaceChildren();
+        const taxonomy = document.createElement('div');
+        taxonomy.className = 'market-map-ranking-row';
+        const taxonomyCopy = document.createElement('div');
+        const taxonomyLabel = document.createElement('b');
+        taxonomyLabel.textContent = '申万一级行业';
+        const taxonomyScope = document.createElement('small');
+        taxonomyScope.textContent = 'Tushare SW2021 一级目录校验';
+        taxonomyCopy.append(taxonomyLabel, taxonomyScope);
+        const taxonomyCount = document.createElement('strong');
+        taxonomyCount.textContent = `${number(coverage.represented_l1_industries)}/${number(coverage.total_l1_industries || 31)} 个行业`;
+        taxonomy.append(taxonomyCopy, taxonomyCount);
+        root.appendChild(taxonomy);
+        (coverage.contributing_rankings || []).forEach(ranking => {
+            const item = document.createElement('div');
+            item.className = 'market-map-ranking-row';
+            const copy = document.createElement('div');
+            const label = document.createElement('b');
+            label.textContent = ranking.label;
+            const scope = document.createElement('small');
+            scope.textContent = `${ranking.sort_basis} · ${ranking.scope}`;
+            copy.append(label, scope);
+            const count = document.createElement('strong');
+            count.textContent = `${number(ranking.returned)} 只`;
+            item.append(copy, count);
+            root.appendChild(item);
+        });
+        (data.failures || []).forEach(failure => {
+            const item = document.createElement('div');
+            item.className = 'market-map-ranking-row is-error';
+            const copy = document.createElement('div');
+            const label = document.createElement('b');
+            label.textContent = failure.label || failure.ranking;
+            const reason = document.createElement('small');
+            reason.textContent = failure.error;
+            copy.append(label, reason);
+            const status = document.createElement('strong');
+            status.textContent = '不可用';
+            item.append(copy, status);
+            root.appendChild(item);
+        });
+        setText('market-map-coverage-state', `${number(coverage.rankings_succeeded)}/${number(coverage.rankings_requested)} 个榜单可用`);
+        setText('market-map-disclosure', coverage.pool_kind === 'multi_rank_union'
+            ? `当前请求多榜 Top500，合并后得到 ${number(coverage.unique_securities)} 只不同股票，实际绘制 ${number(coverage.displayed_securities)} 只。这是榜单覆盖池，不是市值 Top500，也不是全市场。`
+            : `当前为 Desk 市值排序 Top100 样本，实际绘制 ${number(coverage.displayed_securities)} 只，不代表全市场。`);
+    }
+
+    function renderDetail(row) {
+        if (!row || !row.symbol) return;
+        state.selected = row;
+        const root = document.getElementById('market-map-detail');
+        root.replaceChildren();
+        const head = document.createElement('div');
+        head.className = 'desk-detail-title';
+        const copy = document.createElement('div');
+        const title = document.createElement('h3');
+        title.textContent = row.name;
+        const meta = document.createElement('p');
+        meta.textContent = `${row.symbol} · ${row.industry || '未分类'} · ${rankReason(row)}`;
+        copy.append(title, meta);
+        const change = document.createElement('div');
+        change.className = `desk-score ${number(row.change_pct) >= 0 ? 'desk-positive' : 'desk-negative'}`;
+        change.textContent = pct(row.change_pct);
+        head.append(copy, change);
+        root.appendChild(head);
+        const grid = document.createElement('div');
+        grid.className = 'desk-detail-grid';
+        [['最新价', number(row.price) ? number(row.price).toFixed(2) : '--'], ['总市值', money(row.market_cap)], ['流通市值', money(row.float_market_cap)], ['成交额', money(row.amount)], ['换手率', number(row.turnover_pct) ? pct(row.turnover_pct) : '--'], ['量比', number(row.volume_ratio) ? number(row.volume_ratio).toFixed(2) : '--']].forEach(([label, value]) => {
+            const card = document.createElement('div');
+            card.className = 'desk-detail-card';
+            const span = document.createElement('span');
+            span.textContent = label;
+            const strong = document.createElement('strong');
+            strong.textContent = value;
+            card.append(span, strong);
+            grid.appendChild(card);
+        });
+        root.appendChild(grid);
+        const link = document.createElement('a');
+        link.className = 'desk-research-link market-map-research-link';
+        link.href = researchUrl(row);
+        link.textContent = '进入股票研究 →';
+        link.addEventListener('click', () => emit(row));
+        root.appendChild(link);
+        publish();
+    }
+
+    function renderMap(data) {
+        const root = document.getElementById('market-map-chart');
+        const groups = selectedGroups(data);
+        const coverage = data.coverage || {};
+        const focusedCount = groups.reduce((sum, group) => sum + number(group.stock_count), 0);
+        syncButtons();
+        updateIndustryBadge(null);
+        setText('market-map-note', state.industry
+            ? `${state.industry} · ${focusedCount} 只个股`
+            : `申万一级行业 ${number(coverage.represented_l1_industries)}/${number(coverage.total_l1_industries || 31)} · ${number(coverage.displayed_securities)} 只个股`);
+        setText('market-map-caption', state.sizeMode === 'amount'
+            ? '面积按成交额计算，成交额缺失时回退市值；按申万一级行业 → 个股展示。'
+            : '面积按总市值计算，缺失时依次回退流通市值、成交额；按申万一级行业 → 个股展示。');
+        if (state.chart && !state.chart.isDisposed()) state.chart.dispose();
+        root.replaceChildren();
+        if (!groups.length) {
+            state.chart = null;
+            const empty = document.createElement('div');
+            empty.className = 'desk-chart-empty';
+            empty.textContent = '当前筛选没有可绘制的股票';
+            root.appendChild(empty);
+            updateMapViewport();
+            return;
+        }
+        state.chart = echarts.init(root);
+        const labelHost = rows => rows.reduce((largest, row) => (
+            !largest || mapSize(row) > mapSize(largest) ? row : largest
+        ), null);
+        const stockNode = (row, embeddedIndustryLabel = '') => {
+            const selected = state.selected && state.selected.symbol === row.symbol;
+            const label = embeddedIndustryLabel ? {
+                show: true,
+                position: 'insideTopLeft',
+                distance: 0,
+                padding: [4, 4, 0, 4],
+                formatter: `{industry|${embeddedIndustryLabel}}\n{stock|${row.name}}\n{change|${pct(row.change_pct)}}`,
+                rich: {
+                    industry: {
+                        color: 'rgba(255, 255, 255, 0.96)',
+                        backgroundColor: 'rgba(8, 17, 28, 0.58)',
+                        padding: [2, 4],
+                        borderRadius: 3,
+                        fontSize: 9,
+                        fontWeight: 900,
+                        lineHeight: 15,
+                    },
+                    stock: {
+                        color: '#fff',
+                        fontSize: 10,
+                        fontWeight: 900,
+                        lineHeight: 15,
+                        textShadowColor: 'rgba(0, 0, 0, 0.45)',
+                        textShadowBlur: 2,
+                    },
+                    change: {
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        fontSize: 9,
+                        fontWeight: 800,
+                        lineHeight: 12,
+                        textShadowColor: 'rgba(0, 0, 0, 0.45)',
+                        textShadowBlur: 2,
+                    },
+                },
+            } : {
+                show: true,
+                formatter: `${row.name}\n${pct(row.change_pct)}`,
+                lineHeight: 12,
+            };
+            return {
+                id: `stock:${row.symbol}`,
+                name: row.name,
+                node_type: 'stock',
+                value: mapSize(row),
+                row,
+                itemStyle: {
+                    color: mapColor(row.change_pct),
+                    borderColor: selected ? cssToken('--terminal-accent') : cssToken('--instock-surface'),
+                    borderWidth: selected ? 3 : 1,
+                    shadowBlur: selected ? 10 : 0,
+                    shadowColor: selected ? cssToken('--terminal-accent') : 'transparent',
+                },
+                label,
+            };
+        };
+        const seriesData = groups.map(group => {
+            const rows = group.items || [];
+            const industryLabelHost = labelHost(rows);
+            const stocks = rows.map(row => stockNode(
+                row,
+                industryLabelHost && row === industryLabelHost ? group.name : '',
+            )).filter(item => item.value > 0);
+            const value = stocks.reduce((sum, item) => sum + item.value, 0);
+            return {
+                id: `l1:${group.name}`,
+                name: group.name,
+                node_type: 'l1',
+                industry: group.name,
+                value,
+                change_pct: number(group.change_pct),
+                stock_count: number(group.stock_count),
+                itemStyle: {color: mapColor(group.change_pct), borderColor: cssToken('--instock-surface'), borderWidth: 4, gapWidth: 3},
+                children: stocks,
+            };
+        }).filter(item => item.value > 0 && item.children.length);
+        state.chart.setOption({
+            animationDuration: 420,
+            backgroundColor: 'transparent',
+            tooltip: {
+                confine: true,
+                renderMode: 'richText',
+                backgroundColor: cssToken('--instock-surface-raised'),
+                borderColor: cssToken('--instock-border-strong'),
+                textStyle: {color: cssToken('--instock-text'), fontSize: 11},
+                formatter: params => {
+                    const row = params.data && params.data.row;
+                    const node = params.data || {};
+                    if (row) return `${row.name} · ${row.symbol}\n申万一级行业 · ${row.industry || '未分类'}\n涨跌 ${pct(row.change_pct)}\n成交额 ${money(row.amount)}\n总市值 ${money(row.market_cap)}\n入池 ${rankReason(row)}\n点击进入股票研究`;
+                    return `申万一级行业 · ${node.name}\n加权涨跌 ${pct(node.change_pct)}\n覆盖 ${number(node.stock_count)} 只个股\n点击放大`;
+                },
+            },
+            series: [{
+                type: 'treemap',
+                roam: true,
+                scaleLimit: {min: 1, max: 6},
+                nodeClick: 'zoomToNode',
+                zoomToNodeRatio: 0.45,
+                leafDepth: 2,
+                visibleMin: 0,
+                breadcrumb: {
+                    show: true,
+                    height: 22,
+                    left: 10,
+                    bottom: 8,
+                    itemStyle: {color: cssToken('--instock-surface-raised'), borderColor: cssToken('--instock-border-strong')},
+                    emphasis: {itemStyle: {color: cssToken('--terminal-accent')}},
+                },
+                upperLabel: {show: false},
+                label: {show: true, color: '#fff', fontSize: 9, fontWeight: 800, overflow: 'truncate'},
+                itemStyle: {borderColor: cssToken('--instock-surface'), borderWidth: 1, gapWidth: 1},
+                levels: [
+                    {upperLabel: {show: false}, itemStyle: {borderWidth: 0, gapWidth: 3}},
+                    {upperLabel: {show: false}, itemStyle: {borderWidth: 3, gapWidth: 2}},
+                    {upperLabel: {show: false}, itemStyle: {borderWidth: 1, gapWidth: 1}},
+                ],
+                data: seriesData,
+            }],
+        }, true);
+        state.chart.on('mouseover', params => {
+            const row = params.data && params.data.row;
+            if (row) {
+                renderDetail(row);
+                updateIndustryBadge(params.data);
+            } else if (params.data && params.data.node_type) {
+                updateIndustryBadge(params.data);
+            }
+        });
+        state.chart.on('globalout', () => updateIndustryBadge(null));
+        state.chart.on('rendered', updateMapViewport);
+        state.chart.on('finished', updateMapViewport);
+        state.chart.on('click', params => {
+            const row = params.data && params.data.row;
+            if (row) openResearch(row);
+        });
+        requestAnimationFrame(updateMapViewport);
+    }
+
+    function render(data, source) {
+        state.data = data;
+        state.capacity = number(data.coverage && data.coverage.requested_capacity) || state.capacity;
+        state.industry = '';
+        state.selected = null;
+        const url = new URL(window.location.href);
+        url.searchParams.set('capacity', String(state.capacity));
+        window.history.replaceState(null, '', url.pathname + url.search);
+        setText('market-map-meta', `${source === 'history' ? '历史版本 · ' : ''}${data.as_of} · ${data.data_source} · ${data.data_state}`);
+        syncButtons();
+        syncSearch(data);
+        syncIndustries(data);
+        renderSummary(data);
+        renderCoverage(data);
+        renderMap(data);
+        const first = allRows(data)[0];
+        if (first) renderDetail(first);
+        publish();
+        window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source);
+    }
+    async function run(refresh) {
+        runButton.disabled = true;
+        alertBox.style.display = 'none';
+        setText('market-map-meta', state.capacity === 500 ? '正在合并六类 Desk 排名…' : '正在读取 Desk 市值榜…');
+        try {
+            render(unwrap(await request({capacity: state.capacity, ...(refresh ? {refresh: '1'} : {})})), 'latest');
+        } catch (error) {
+            alertBox.textContent = error.message || String(error);
+            alertBox.style.display = 'block';
+        } finally {
+            runButton.disabled = false;
+        }
+    }
+    function locate() {
+        if (!state.data) return;
+        const input = document.getElementById('market-map-search');
+        const value = input.value.trim().toLowerCase();
+        if (!value) return;
+        const rows = allRows(state.data);
+        const row = rows.find(item => String(item.symbol).toLowerCase() === value || String(item.name).toLowerCase() === value)
+            || rows.find(item => String(item.symbol).toLowerCase().includes(value) || String(item.name).toLowerCase().includes(value));
+        if (!row) {
+            alertBox.textContent = `当前 ${state.capacity === 500 ? '多榜 Top500 覆盖池' : 'Top100 样本'}中未找到该股票`;
+            alertBox.style.display = 'block';
+            return;
+        }
+        alertBox.style.display = 'none';
+        input.value = row.symbol;
+        state.industry = row.industry;
+        document.getElementById('market-map-industry').value = state.industry;
+        renderDetail(row);
+        renderMap(state.data);
+    }
+
+    document.querySelectorAll('[data-map-capacity]').forEach(button => button.addEventListener('click', () => {
+        const capacity = number(button.dataset.mapCapacity);
+        if (capacity === state.capacity) return;
+        state.capacity = capacity;
+        syncButtons();
+        run(false);
+    }));
+    document.querySelectorAll('[data-map-size]').forEach(button => button.addEventListener('click', () => { state.sizeMode = button.dataset.mapSize; syncButtons(); if (state.data) renderMap(state.data); publish(); }));
+    document.getElementById('market-map-industry').addEventListener('change', event => { state.industry = event.target.value; if (state.data) { renderMap(state.data); publish(); } });
+    document.getElementById('market-map-locate').addEventListener('click', locate);
+    document.getElementById('market-map-search').addEventListener('input', updateMapViewport);
+    document.getElementById('market-map-search').addEventListener('keydown', event => { if (event.key === 'Enter') locate(); });
+    zoomInButton.addEventListener('click', () => zoomMap(1));
+    zoomOutButton.addEventListener('click', () => zoomMap(-1));
+    resetButton.addEventListener('click', resetMapView);
+    fullscreenButton.addEventListener('click', async () => { try { const panel = document.querySelector('.market-map-stage-panel'); if (!document.fullscreenElement) await panel.requestFullscreen(); else await document.exitFullscreen(); } catch (error) { alertBox.textContent = '当前宿主未允许全屏显示'; alertBox.style.display = 'block'; } });
+    runButton.addEventListener('click', () => run(true));
+    window.addEventListener('resize', () => { if (state.chart) { state.chart.resize(); requestAnimationFrame(updateMapViewport); } });
+    document.addEventListener('fullscreenchange', () => {
+        const active = Boolean(document.fullscreenElement);
+        setText('market-map-fullscreen', active ? '退出全屏' : '全屏');
+        fullscreenButton.classList.toggle('is-active', active);
+        fullscreenButton.setAttribute('aria-pressed', String(active));
+        if (state.chart) setTimeout(() => { state.chart.resize(); updateMapViewport(); }, 60);
+    });
+    document.addEventListener('instock:themechange', () => state.data && renderMap(state.data));
+    document.addEventListener('instock:history-selected', event => render(unwrap(event.detail.payload), event.detail.view_source || 'history'));
+    run(false);
+})();
+</script>
+{% end %}

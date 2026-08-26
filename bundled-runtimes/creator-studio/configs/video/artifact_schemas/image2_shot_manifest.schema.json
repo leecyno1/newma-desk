@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.image2_shot_manifest.v1",
+  "title": "Newma Image2 VOX Shot Manifest",
+  "type": "object",
+  "required": ["schema_version", "lane", "reference_strategy", "master_canvas", "workflow", "jobs"],
+  "properties": {
+    "schema_version": {"const": "dasheng.video.image2_shot_manifest.v1"},
+    "lane": {"const": "vox_explainer_video"},
+    "master_canvas": {
+      "type": "object",
+      "required": ["width", "height", "safe_center_width_ratio"]
+    },
+    "workflow": {
+      "const": ["image2_prompt", "scene_still", "crop", "storyboard_review", "layer_decomposition", "layer_motion_design", "image_to_video", "remotion_composite"]
+    },
+    "jobs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["scene_id", "shot_id", "duration_sec", "shot_size", "focus", "crop_scale", "crop_plan", "style_reference_role", "image_prompt", "source_image", "crop_outputs", "video_prompt", "sound_cue", "video_output", "layer_decomposition", "camera_keyframes", "layer_motion_requirements", "exact_text_overlay", "status"],
+        "properties": {
+          "layer_decomposition": {
+            "type": "object",
+            "required": ["mode", "source_strategy", "object_inventory", "minimum_layer_count", "layer_manifest", "whole_scene_plate_role"],
+            "properties": {
+              "mode": {"const": "independent_object_layers"},
+              "minimum_layer_count": {"type": "integer", "minimum": 8},
+              "whole_scene_plate_role": {"const": "layout_reference_only"}
+            }
+          },
+          "camera_keyframes": {"type": "array", "minItems": 2},
+          "layer_motion_requirements": {
+            "type": "object",
+            "required": ["minimum_motion_dimensions", "require_depth_separation", "require_foreground_occlusion", "stepped_fps"]
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

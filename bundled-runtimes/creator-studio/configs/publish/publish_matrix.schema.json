@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dasheng.local/schemas/publish-matrix-v1.json",
+  "title": "Newma Publish Matrix",
+  "type": "object",
+  "required": [
+    "run_id",
+    "status",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "approved",
+        "pending_editor_review"
+      ]
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "publish_metadata": {
+          "type": "object"
+        },
+        "channels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "publish_metadata": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "topic_id",
+          "targets"
+        ],
+        "properties": {
+          "topic_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "variant_id": {
+            "type": "string"
+          },
+          "artifact_overrides": {
+            "type": "object"
+          },
+          "publish_metadata": {
+            "type": "object"
+          },
+          "targets": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "channel"
+              ],
+              "properties": {
+                "channel": {
+                  "type": "string"
+                },
+                "account_slots": {
+                  "oneOf": [
+                    {
+                      "const": "all"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "artifact_overrides": {
+                  "type": "object"
+                },
+                "publish_metadata": {
+                  "type": "object"
+                },
+                "platform_notes": {
+                  "type": "object"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

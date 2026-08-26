@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://instock.local/schemas/supply-chain-research-packet.schema.json",
+  "title": "InStock Supply Chain Research Packet",
+  "description": "Point-in-time evidence packet assembled by the Newma-Desk Agent and Data runtime. It is research input, not a trading instruction.",
+  "type": "object",
+  "required": ["schema_version", "theme", "market", "as_of", "evidence", "layers", "candidates"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "theme": {"type": "string", "minLength": 1, "maxLength": 160},
+    "market": {"enum": ["CN", "HK", "US", "TW", "JP", "KR", "EU", "GLOBAL"]},
+    "as_of": {"type": "string", "format": "date"},
+    "notes": {"type": "string"},
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 300,
+      "items": {"$ref": "#/$defs/evidence"}
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {"$ref": "#/$defs/layer"}
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {"$ref": "#/$defs/candidate"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[a-z0-9]+(?:[-_][a-z0-9]+)*$"
+    },
+    "rating": {"type": "number", "minimum": 0, "maximum": 5},
+    "evidence": {
+      "type": "object",
+      "required": ["id", "claim", "strength", "source_type", "source_ref", "observed_at"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "claim": {"type": "string", "minLength": 1, "maxLength": 800},
+        "strength": {"enum": ["strong", "medium", "weak", "unverified"]},
+        "source_type": {"type": "string", "minLength": 1, "maxLength": 80},
+        "source_ref": {"type": "string", "minLength": 1, "maxLength": 500},
+        "observed_at": {"type": "string", "format": "date"}
+      },
+      "additionalProperties": false
+    },
+    "layer_ratings": {
+      "type": "object",
+      "required": ["demand_pressure", "chokepoint_severity", "supplier_concentration", "expansion_difficulty", "substitution_difficulty"],
+      "properties": {
+        "demand_pressure": {"$ref": "#/$defs/rating"},
+        "chokepoint_severity": {"$ref": "#/$defs/rating"},
+        "supplier_concentration": {"$ref": "#/$defs/rating"},
+        "expansion_difficulty": {"$ref": "#/$defs/rating"},
+        "substitution_difficulty": {"$ref": "#/$defs/rating"}
+      },
+      "additionalProperties": false
+    },
+    "layer": {
+      "type": "object",
+      "required": ["id", "name", "constraint", "ratings", "evidence_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "constraint": {"type": "string", "minLength": 1, "maxLength": 600},
+        "ratings": {"$ref": "#/$defs/layer_ratings"},
+        "evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "candidate_ratings": {
+      "type": "object",
+      "required": ["exposure_purity", "valuation_disconnect", "catalyst_timing", "financial_resilience"],
+      "properties": {
+        "exposure_purity": {"$ref": "#/$defs/rating"},
+        "valuation_disconnect": {"$ref": "#/$defs/rating"},
+        "catalyst_timing": {"$ref": "#/$defs/rating"},
+        "financial_resilience": {"$ref": "#/$defs/rating"}
+      },
+      "additionalProperties": false
+    },
+    "candidate_penalties": {
+      "type": "object",
+      "required": ["dilution_financing", "governance", "geopolitics", "liquidity", "hype_risk", "accounting_quality", "cyclicality", "alternative_design_risk"],
+      "properties": {
+        "dilution_financing": {"$ref": "#/$defs/rating"},
+        "governance": {"$ref": "#/$defs/rating"},
+        "geopolitics": {"$ref": "#/$defs/rating"},
+        "liquidity": {"$ref": "#/$defs/rating"},
+        "hype_risk": {"$ref": "#/$defs/rating"},
+        "accounting_quality": {"$ref": "#/$defs/rating"},
+        "cyclicality": {"$ref": "#/$defs/rating"},
+        "alternative_design_risk": {"$ref": "#/$defs/rating"}
+      },
+      "additionalProperties": false
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["symbol", "name", "market", "layer_id", "ratings", "penalties", "evidence_ids", "invalidation"],
+      "properties": {
+        "symbol": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9.^_-]+$"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "market": {"enum": ["CN", "HK", "US", "TW", "JP", "KR", "EU", "GLOBAL"]},
+        "layer_id": {"$ref": "#/$defs/identifier"},
+        "ratings": {"$ref": "#/$defs/candidate_ratings"},
+        "penalties": {"$ref": "#/$defs/candidate_penalties"},
+        "evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "invalidation": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"type": "string", "minLength": 1, "maxLength": 500}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

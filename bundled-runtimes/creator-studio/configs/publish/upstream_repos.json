@@ -1,0 +1,298 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-08-02",
+  "policy": {
+    "vendor_into_repo": false,
+    "version_locked_by_default": false,
+    "runtime_outputs_allowed_roots": [
+      "产物/",
+      "tmp/",
+      "user_explicit_workspace"
+    ],
+    "runtime_outputs_forbidden_roots": [
+      "skills/",
+      "openclaw-skill-exports/"
+    ]
+  },
+  "repositories": [
+    {
+      "name": "agent-skills-launch-pack",
+      "repo": "https://github.com/chenjin-cmd/agent-skills-launch-pack_.git",
+      "homepage": "https://github.com/chenjin-cmd/agent-skills-launch-pack_",
+      "default_root_env": "AGENT_SKILLS_LAUNCH_PACK_ROOT",
+      "default_root": "${AGENT_SKILLS_LAUNCH_PACK_ROOT:-vendor/reserved/publish/agent-skills-launch-pack}",
+      "used_by_skills": [
+        "dasheng-publish-operations-bridge",
+        "dasheng-stage-publish"
+      ],
+      "role": "pre-publish account launch and operations advisory for WeChat, Xiaohongshu, Douyin, WeChat Channels, and X",
+      "platforms": [
+        "wechat",
+        "xiaohongshu",
+        "douyin",
+        "wechat_channels",
+        "x"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_publish_operations_changes",
+      "notes": "Advisory-only upstream. It does not log in, upload, schedule, or publish. Keep it external and normalize its output through dasheng-publish-operations-bridge. Reviewed at commit 35df470d36b07258f0018b20a0a8d09a942aaee6."
+    },
+    {
+      "name": "all-in-one",
+      "repo": "https://github.com/cv-cat/All-IN-ONE.git",
+      "homepage": "https://github.com/cv-cat/All-IN-ONE",
+      "default_root_env": "ALL_IN_ONE_ROOT",
+      "default_root": "${ALL_IN_ONE_ROOT:-vendor/reserved/publish/all-in-one}",
+      "used_by_skills": [
+        "dasheng-xhs-publish-bridge"
+      ],
+      "role": "xhs/weibo/douyin unified CLI and agent skill reference",
+      "platforms": [
+        "xiaohongshu",
+        "weibo",
+        "douyin"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_publish_bridge_changes",
+      "notes": "Primary reference for API-first XHS publish skill routing. Do not vendor generated media or auth state."
+    },
+    {
+      "name": "autoclaw-xhs-skills",
+      "repo": "https://github.com/autoclaw-cc/xiaohongshu-skills.git",
+      "homepage": "https://github.com/autoclaw-cc/xiaohongshu-skills",
+      "default_root_env": "AUTOCLAW_XHS_SKILLS_ROOT",
+      "default_root": "${AUTOCLAW_XHS_SKILLS_ROOT:-vendor/reserved/publish/autoclaw-xhs-skills}",
+      "used_by_skills": [
+        "dasheng-xhs-publish-bridge"
+      ],
+      "role": "browser-based xhs publish/reference skill suite",
+      "platforms": [
+        "xiaohongshu"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_publish_bridge_changes",
+      "notes": "Useful as the browser fallback path and for step-by-step publish flows."
+    },
+    {
+      "name": "xhs-skills",
+      "repo": "https://github.com/cv-cat/XhsSkills.git",
+      "homepage": "https://github.com/cv-cat/XhsSkills",
+      "default_root_env": "XHS_SKILLS_ROOT",
+      "default_root": "${XHS_SKILLS_ROOT:-vendor/reserved/publish/xhs-skills}",
+      "used_by_skills": [
+        "dasheng-xhs-publish-bridge"
+      ],
+      "role": "xhs api skill bridge",
+      "platforms": [
+        "xiaohongshu"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_publish_bridge_changes",
+      "notes": "Thin skill wrapper around Spider_XHS APIs; good fit for API-first publish execution."
+    },
+    {
+      "name": "spider-xhs",
+      "repo": "https://github.com/cv-cat/Spider_XHS.git",
+      "homepage": "https://github.com/cv-cat/Spider_XHS",
+      "default_root_env": "SPIDER_XHS_ROOT",
+      "default_root": "${SPIDER_XHS_ROOT:-vendor/reserved/publish/spider-xhs}",
+      "used_by_skills": [
+        "dasheng-xhs-publish-bridge"
+      ],
+      "role": "xhs api core and creator publish source",
+      "platforms": [
+        "xiaohongshu"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_publish_bridge_changes",
+      "notes": "Source-of-truth API layer for search, creator publish, and profile operations."
+    },
+    {
+      "name": "xiaohongshu-mcp",
+      "repo": "https://github.com/xpzouying/xiaohongshu-mcp.git",
+      "homepage": "https://github.com/xpzouying/xiaohongshu-mcp",
+      "default_root_env": "XIAOHONGSHU_MCP_ROOT",
+      "default_root": "${XIAOHONGSHU_MCP_ROOT:-vendor/reserved/publish/xiaohongshu-mcp}",
+      "used_by_skills": [
+        "dasheng-xhs-publish-bridge"
+      ],
+      "role": "xhs mcp access and publish bridge",
+      "platforms": [
+        "xiaohongshu"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_publish_bridge_changes",
+      "notes": "Useful when an MCP client is easier than raw CLI/skill integration."
+    },
+    {
+      "name": "xhs-downloader",
+      "repo": "https://github.com/JoeanAmier/XHS-Downloader.git",
+      "homepage": "https://github.com/JoeanAmier/XHS-Downloader",
+      "default_root_env": "XHS_DOWNLOADER_ROOT",
+      "default_root": "${XHS_DOWNLOADER_ROOT:-vendor/reserved/publish/xhs-downloader}",
+      "used_by_skills": [
+        "dasheng-xhs-publish-bridge"
+      ],
+      "role": "xhs intake and media downloader",
+      "platforms": [
+        "xiaohongshu"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_publish_bridge_changes",
+      "notes": "Best for intake/competitor media collection, not primary publish."
+    },
+    {
+      "name": "social-auto-upload",
+      "repo": "https://github.com/dreammis/social-auto-upload.git",
+      "homepage": "https://github.com/dreammis/social-auto-upload",
+      "default_root_env": "SOCIAL_AUTO_UPLOAD_ROOT",
+      "default_root": "${SOCIAL_AUTO_UPLOAD_ROOT:-vendor/publish/social-auto-upload}",
+      "used_by_skills": [
+        "social-auto-upload-bridge",
+        "bilibili-upload-bridge"
+      ],
+      "role": "multi-platform video upload bridge",
+      "platforms": [
+        "douyin",
+        "bilibili",
+        "xiaohongshu",
+        "kuaishou",
+        "wechat_channels",
+        "baijiahao",
+        "tiktok",
+        "youtube"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_publish_dev",
+      "notes": "Primary four-platform uploader. Installed as an ignored, independently updateable upstream under vendor/publish/social-auto-upload with its own .venv. Guarded executor covers Xiaohongshu, Douyin, Bilibili and WeChat Channels. Stage 7 generated packages and receipts remain under ~/Desktop/自媒体创作/07_发布执行/. Reviewed at commit 008e4ff66abd."
+    },
+    {
+      "name": "qianfan-sync",
+      "repo": "https://github.com/DevilJie/social-auto-upload-web-ui.git",
+      "homepage": "https://github.com/DevilJie/social-auto-upload-web-ui",
+      "default_root_env": "QIANFAN_SYNC_ROOT",
+      "default_root": "${QIANFAN_SYNC_ROOT:-vendor/reserved/publish/qianfan-sync}",
+      "used_by_skills": [
+        "dasheng-stage-publish",
+        "social-auto-upload-bridge"
+      ],
+      "role": "local visual account manager, material center, cover editor and multi-account publish queue",
+      "platforms": [
+        "xiaohongshu",
+        "douyin",
+        "bilibili",
+        "wechat_channels",
+        "kuaishou",
+        "youtube"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_console_changes",
+      "license": "MIT",
+      "dependency_status": "backend_frontend_and_mcp_installed",
+      "notes": "Use SAU_DATA_DIR under NewmaPublishSessions so named account state stays outside the repository. Reviewed at commit 0cce6ea493a3."
+    },
+    {
+      "name": "postbot",
+      "repo": "https://github.com/gitcoffee-os/postbot.git",
+      "homepage": "https://github.com/gitcoffee-os/postbot",
+      "default_root_env": "POSTBOT_ROOT",
+      "default_root": "${POSTBOT_ROOT:-vendor/reserved/publish/postbot}",
+      "used_by_skills": [
+        "dasheng-stage-publish"
+      ],
+      "role": "browser-extension fallback that reuses local logged-in browser sessions across Chinese social platforms",
+      "platforms": [
+        "xiaohongshu",
+        "douyin",
+        "bilibili",
+        "wechat_channels",
+        "wechat",
+        "weibo"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_extension_rebuild",
+      "license": "Apache-2.0",
+      "dependency_status": "extension_dependencies_installed_and_build_ready",
+      "selected_branch": "dasheng-stable-1.1.20",
+      "notes": "Secondary browser-session fallback; not the primary guarded uploader. The upstream default branch imports unpublished @gitcoffee packages, so Newma uses the public-dependency 1.1.20 branch. Installed and built at commit b988d0dddcde."
+    },
+    {
+      "name": "opencli",
+      "repo": "https://github.com/jackwener/OpenCLI.git",
+      "homepage": "https://github.com/jackwener/OpenCLI",
+      "default_root_env": "OPENCLI_ROOT",
+      "default_root": "${OPENCLI_ROOT:-vendor/reserved/publish/opencli}",
+      "used_by_skills": [
+        "dasheng-stage-publish"
+      ],
+      "role": "browser CLI fallback, Douyin activity discovery and activity-capable publish adapter",
+      "platforms": [
+        "xiaohongshu",
+        "douyin",
+        "bilibili"
+      ],
+      "version_locked": false,
+      "sync_strategy": "check_remote_head_before_adapter_changes",
+      "license": "Apache-2.0",
+      "dependency_status": "dependencies_installed_and_cli_built",
+      "notes": "Use for live activity discovery and UI adapters when the primary uploader lacks a platform field. Reviewed at commit 399c0de2a76e."
+    },
+    {
+      "name": "biliup-rs",
+      "repo": "https://github.com/biliup/biliup-rs.git",
+      "homepage": "https://github.com/biliup/biliup-rs",
+      "default_root_env": "BILIUP_RS_ROOT",
+      "default_root": "${BILIUP_RS_ROOT:-vendor/reserved/publish/biliup-rs}",
+      "used_by_skills": [
+        "bilibili-upload-bridge"
+      ],
+      "role": "Bilibili upload primary external tool",
+      "platforms": [
+        "bilibili"
+      ],
+      "version_locked": false,
+      "lifecycle": "archived",
+      "eligible_for_primary": false,
+      "sync_strategy": "check_remote_head_before_bilibili_bridge_changes",
+      "notes": "Archived upstream as of 2026-08-02. Keep only as a historical fallback; social-auto-upload is the Bilibili primary route."
+    },
+    {
+      "name": "postiz",
+      "repo": "https://github.com/gitroomhq/postiz-app.git",
+      "homepage": "https://github.com/gitroomhq/postiz-app",
+      "default_root_env": "POSTIZ_ROOT",
+      "default_root": "${POSTIZ_ROOT:-vendor/reserved/publish/postiz}",
+      "used_by_skills": [],
+      "role": "optional overseas social scheduling backend",
+      "platforms": [
+        "x",
+        "tiktok",
+        "youtube",
+        "linkedin",
+        "instagram",
+        "mastodon",
+        "bluesky"
+      ],
+      "version_locked": false,
+      "sync_strategy": "evaluate_when_overseas_scheduling_is_needed",
+      "notes": "Does not cover WeChat Official Account, Xiaohongshu, Weibo, or Bilibili core paths."
+    },
+    {
+      "name": "xurl",
+      "repo": "https://github.com/xdevplatform/xurl.git",
+      "homepage": "https://github.com/xdevplatform/xurl",
+      "default_root_env": "XURL_ROOT",
+      "default_root": "${XURL_ROOT:-vendor/reserved/publish/xurl}",
+      "used_by_skills": [
+        "baoyu-post-to-x"
+      ],
+      "role": "X official API CLI fallback",
+      "platforms": [
+        "x"
+      ],
+      "version_locked": false,
+      "sync_strategy": "evaluate_when_x_api_fallback_is_needed",
+      "notes": "Primary X path remains baoyu-post-to-x through Chrome/Computer Use/CDP."
+    }
+  ]
+}

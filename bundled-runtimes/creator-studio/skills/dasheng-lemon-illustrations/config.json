@@ -1,0 +1,49 @@
+{
+  "name": "dasheng-lemon-illustrations",
+  "version": "0.1.0",
+  "stage": "video",
+  "role": "default_conceptual_illustration_lane",
+  "upstream": {
+    "repo": "https://github.com/helloianneo/ian-xiaohei-illustrations.git",
+    "license": "MIT",
+    "external_path": "${IAN_XIAOHEI_ILLUSTRATIONS_ROOT:-vendor/reserved/video/ian-xiaohei-illustrations}",
+    "vendor_into_repo": false
+  },
+  "character": {
+    "name": "柠檬人",
+    "brand_alias": "柠檬博士",
+    "master_reference": "~/Desktop/自媒体创作/00_品牌资产/柠檬卡通人/lemon-person-master-reference-v2.jpg",
+    "action_reference": "~/Desktop/自媒体创作/00_品牌资产/柠檬卡通人/lemon-person-reference-sheet-v1.jpg"
+  },
+  "generation": {
+    "production_provider": "mmx image generate",
+    "design_preview_provider": "built-in image_gen",
+    "modes": [
+      "full_canvas",
+      "transparent_overlay"
+    ],
+    "transparent_key": "#ff00ff",
+    "chroma_removal_script": "~/.codex/skills/.system/imagegen/scripts/remove_chroma_key.py"
+  },
+  "routing": {
+    "config": "../../configs/creative/lemon_illustration_router.json",
+    "intent_schema": "../../configs/creative/lemon_illustration_intents.schema.json",
+    "semantic_review_required": true,
+    "trigger_sources": ["metaphor", "example", "analogy", "personification", "abstract_mechanism"]
+  },
+  "output_policy": {
+    "required_root": "~/Desktop/自媒体创作",
+    "default_runtime_dir": "~/Desktop/自媒体创作/<run_id>/assets/lemon_illustrations",
+    "forbid_paths": [
+      "skills/",
+      ".codex/skills/",
+      "node_modules/"
+    ]
+  },
+  "guards": {
+    "conceptual_only": true,
+    "does_not_replace_real_evidence": true,
+    "static_zoompan_is_not_animation": true,
+    "one_core_action_per_image": true
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": "newma.video_asset_registry.v1",
+  "updated_at": "2026-08-22",
+  "note": "视频资产注册规范：publish 前校验（时长/分辨率/编码/封面/大小）。register 到 artifact 时按本规范校验。",
+  "video_constraints": {
+    "container": "mp4",
+    "codec": "h264",
+    "min_duration_seconds": 5,
+    "max_duration_seconds": 600,
+    "allowed_resolutions": [
+      {"aspect": "9:16", "size": [720, 1280], "platforms": ["wechat_channels", "douyin", "xiaohongshu"]},
+      {"aspect": "9:16", "size": [1080, 1920], "platforms": ["wechat_channels", "douyin", "xiaohongshu"]},
+      {"aspect": "16:9", "size": [1920, 1080], "platforms": ["bilibili", "youtube"]},
+      {"aspect": "16:9", "size": [1280, 720], "platforms": ["bilibili", "youtube"]}
+    ],
+    "max_file_mb": 500,
+    "required": ["cover_image", "title", "hashtags"]
+  },
+  "audio_constraints": {
+    "codec": "aac",
+    "loudness_target_lufs": -14,
+    "note": "TTS 配音走 mmx（MiniMax CLI）；响度标准化走 FFmpeg loudnorm"
+  },
+  "subtitle_constraints": {
+    "format": "srt",
+    "burn_in": false,
+    "source": "FunASR 时间轴对齐（align_video_subtitles_to_asr.py）",
+    "style": "白字黑边，底部 8% 安全区"
+  },
+  "cover_constraints": {
+    "aspect": "9:16 or 16:9（随视频）",
+    "source": "cover_presets_imagegen.yaml 风格组 or 分镜首帧",
+    "required_for": ["wechat_article_draft", "wechat_channels", "bilibili"]
+  },
+  "registration_rule": "publish_manifest 中 video_assets 必须含 {path, duration, resolution, codec, size_mb, cover} 六项校验字段；缺项或超阈值阻断 publish_preflight。"
+}

@@ -1,0 +1,580 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-suite",
+  "name": "InStock 分析",
+  "description": "在 Newma-Desk 选股项目中整合市场观察、候选发现、个股研究、产业验证与研究组合。",
+  "version": "0.17.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["市场概览", "A股候选", "技术指标", "经典策略", "CZSC", "行业轮动", "ETF", "产业链"],
+  "agentWorkspace": {
+    "type": "runtime",
+    "runtimeId": "instock",
+    "workspaceName": "source"
+  },
+  "runtime": {
+    "type": "external",
+    "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:9988"
+  },
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "research",
+    "navigation": {
+      "groupLabel": "选股",
+      "groupOrder": 15,
+      "itemOrder": 100,
+      "directory": {
+        "id": "instock-suite",
+        "label": "股票研究",
+        "order": 10
+      },
+      "project": {
+        "id": "equity-research",
+        "name": "选股",
+        "order": 15,
+        "description": "从市场扫描、研究线索、公司基本面、财报、产业链与估值形成选股闭环。"
+      },
+      "icon": "research"
+    },
+    "compatibility": {
+      "level": 2,
+      "bridgeProtocol": "1.0"
+    },
+    "permissions": ["analysis.read"],
+    "dataServices": [],
+    "actions": {},
+    "events": {
+      "emits": [],
+      "accepts": []
+    },
+    "refresh": {
+      "mode": "manual"
+    }
+  },
+  "pages": [
+    {
+      "id": "instock-market-workbench",
+      "name": "市场概览",
+      "description": "统一展示市场宽度、行业强弱和涨跌、成交额、换手率、量比五类 A 股榜单。",
+      "tags": ["市场总览", "每日行情", "行业强弱", "涨跌榜", "成交榜"],
+      "route": "/mods/market-workbench",
+      "navigation": {"itemOrder": 1, "label": "市场概览"},
+      "manifest": {
+        "events": {"emits": ["security.selected"], "accepts": []},
+        "actions": {
+          "analysis.market-workbench": {
+            "binding": {"type": "data", "capability": "analysis.market-workbench"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "scanLimit": {"enum": [50, 100, 200]},
+                "refresh": {"enum": ["0", "1"]}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 60
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-market-map",
+      "name": "大盘云图",
+      "description": "按申万 2021 一级行业、二级行业和个股三级展示 A 股涨跌结构。",
+      "tags": ["大盘云图", "市场热力图", "申万一级行业", "申万二级行业", "Top100", "多榜Top500"],
+      "route": "/mods/market-map",
+      "navigation": {"itemOrder": 2, "label": "大盘云图"},
+      "manifest": {
+        "events": {"emits": ["security.selected"], "accepts": []},
+        "actions": {
+          "analysis.market-map": {
+            "binding": {"type": "data", "capability": "analysis.market-map"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "capacity": {"enum": [100, 500]},
+                "refresh": {"enum": ["0", "1"]}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 90
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-technical-signals",
+      "name": "选股中心",
+      "description": "按市场条件、基本面、技术方向、K 线形态和 10 个原 InStock 经典策略执行硬筛选。",
+      "tags": ["硬条件选股", "基本面", "技术指标", "K线形态", "经典策略"],
+      "route": "/mods/technical-signals",
+      "navigation": {"itemOrder": 5, "label": "选股中心"},
+      "manifest": {
+        "events": {"emits": ["security.selected"], "accepts": ["security.selected"]},
+        "actions": {
+          "analysis.technical-signals": {
+            "binding": {"type": "data", "capability": "analysis.technical-signals"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "market": {"enum": ["CN", "HK", "CN_HK"]},
+                "universeMode": {"enum": ["broad", "quick"]},
+                "universeSize": {"enum": [30, 50, 100, 200]},
+                "bars": {"enum": [120, 260]},
+                "bias": {"enum": ["all", "bullish", "neutral", "bearish"]},
+                "requiredStrategies": {"type": ["string", "array"]},
+                "requiredPatterns": {"type": ["string", "array"]},
+                "industries": {"type": ["string", "array"]},
+                "minTechnicalScore": {"type": "number"},
+                "minAmount": {"type": "number"},
+                "minMarketCap": {"type": "number"},
+                "maxMarketCap": {"type": "number"},
+                "maxPE": {"type": "number"},
+                "maxPB": {"type": "number"},
+                "minROE": {"type": "number"},
+                "minRevenueGrowth": {"type": "number"},
+                "minNetProfitGrowth": {"type": "number"},
+                "minTurnover": {"type": "number"},
+                "maxTurnover": {"type": "number"},
+                "minVolumeRatio": {"type": "number"},
+                "maxVolumeRatio": {"type": "number"},
+                "maxWorkers": {"type": "integer", "minimum": 1, "maximum": 8},
+                "refresh": {"enum": ["0", "1"]}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 120
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-czsc",
+      "name": "缠论结构分析",
+      "description": "基于官方 CZSC 的分型、笔、中枢和当前结构信号可视化，历史启发式标记与官方信号明确分层。",
+      "tags": ["CZSC", "缠论", "K线", "结构分析"],
+      "route": "/mods/czsc",
+      "navigation": {
+        "itemOrder": 7,
+        "label": "缠论结构分析"
+      },
+      "manifest": {
+        "events": {"emits": [], "accepts": ["security.selected"]},
+        "actions": {
+          "analysis.czsc": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.czsc"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"
+                },
+                "period": {
+                  "enum": ["daily", "weekly", "monthly"]
+                },
+                "bars": {
+                  "enum": [120, 240, 480, 800]
+                },
+                "asOf": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "refresh": {"enum": ["0", "1"]}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": ["ok", "data", "meta"],
+              "properties": {
+                "ok": {"const": true},
+                "data": {"type": "object"},
+                "meta": {"type": "object"}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 30
+          },
+          "analysis.czsc.scan": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.czsc.scan"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": ["symbols"],
+              "properties": {
+                "symbols": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 20,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"
+                  }
+                },
+                "period": {"enum": ["daily", "weekly", "monthly"]},
+                "bars": {"enum": [120, 240, 480, 800]},
+                "asOf": {"type": "string", "format": "date"},
+                "maxWorkers": {"type": "integer", "minimum": 1, "maximum": 4}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": ["ok", "data", "meta"],
+              "properties": {
+                "ok": {"const": true},
+                "data": {
+                  "type": "object",
+                  "required": ["scan_id", "status", "parameters", "progress"]
+                },
+                "meta": {"type": "object"}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 10
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-rotation",
+      "name": "行业与 ETF 轮动",
+      "description": "覆盖申万2021版31个一级行业，以七因子排名和9模型参数一致性辅助观察，并明示行业ETF代理口径。",
+      "tags": ["行业轮动", "ETF", "相对强弱", "量化"],
+      "route": "/mods/rotation",
+      "navigation": {
+        "itemOrder": 3,
+        "label": "行业与 ETF 轮动"
+      },
+      "manifest": {
+        "events": {"emits": ["security.selected"], "accepts": []},
+        "actions": {
+          "analysis.rotation": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.rotation"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "window": {
+                  "enum": [40, 60, 120]
+                },
+                "benchmark": {
+                  "type": "string",
+                  "pattern": "^[0-9]{6}$"
+                },
+                "refresh": {
+                  "enum": ["0", "1"]
+                },
+                "asOf": {
+                  "type": "string",
+                  "format": "date"
+                }
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": ["ok", "data", "meta"],
+              "properties": {
+                "ok": {"const": true},
+                "data": {"type": "object"},
+                "meta": {"type": "object"}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 30
+          },
+          "analysis.rotation.experiment": {
+            "binding": {
+              "type": "data",
+              "capability": "analysis.rotation.experiment"
+            },
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+                "rebalanceDays": {"enum": [5, 10, 20]},
+                "costBps": {"enum": [10, 25, 50]},
+                "refresh": {"enum": ["0", "1"]},
+                "asOf": {"type": "string", "format": "date"}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": ["ok", "data", "meta"],
+              "properties": {
+                "ok": {"const": true},
+                "data": {"type": "object"},
+                "meta": {"type": "object"}
+              }
+            },
+            "confirmation": "none",
+            "timeoutSeconds": 60
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-industry-chain",
+      "name": "产业链研究",
+      "description": "沿产业链节点与关系识别供应链瓶颈，并按证据质量核验上市公司暴露。",
+      "tags": ["产业链", "供应链", "瓶颈研究", "证据研究"],
+      "route": "/mods/industry-chain",
+      "navigation": {"itemOrder": 9, "label": "产业链研究"},
+      "manifest": {
+        "events": {"emits": [], "accepts": []},
+        "actions": {
+          "analysis.industry-chain": {
+            "binding": {"type": "data", "capability": "analysis.industry-chain"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": ["schema_version", "theme", "market", "as_of", "evidence", "chain", "layers", "candidates"],
+              "properties": {
+                "schema_version": {"const": "2.0"},
+                "theme": {"type": "string", "minLength": 1, "maxLength": 160},
+                "market": {"enum": ["CN", "HK", "US", "TW", "JP", "KR", "EU", "GLOBAL"]},
+                "as_of": {"type": "string", "format": "date"},
+                "notes": {"type": "string"},
+                "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
+                "chain": {"type": "object", "required": ["nodes", "links"], "properties": {"nodes": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"type": "object"}}, "links": {"type": "array", "maxItems": 120, "items": {"type": "object"}}}, "additionalProperties": false},
+                "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
+                "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 30
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-stock-candidates",
+      "name": "A/H 股候选",
+      "description": "从 Desk 的 A 股、港股宽覆盖截面中分层预筛，再用财务质量、成长与估值研究快照重排。",
+      "tags": ["A股", "综合选股", "因子", "候选池", "基本面", "成长", "量化"],
+      "route": "/mods/stock-candidates",
+      "navigation": {"itemOrder": 4, "label": "A/H 股候选"},
+      "manifest": {
+        "events": {"emits": ["security.selected"], "accepts": []},
+        "actions": {
+          "analysis.stock-candidates": {
+            "binding": {"type": "data", "capability": "analysis.stock-candidates"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "market": {"enum": ["CN", "HK", "CN_HK"]},
+                "universeMode": {"enum": ["broad", "quick"]},
+                "universeSize": {"enum": [30, 50, 100, 200]},
+                "outputSize": {"enum": [10, 20, 30]},
+                "bars": {"enum": [120, 240]},
+                "profile": {"enum": ["balanced", "trend", "value", "defensive"]},
+                "industries": {"type": "string", "maxLength": 300},
+                "minAmount": {"type": "number", "minimum": 0},
+                "minMarketCap": {"type": "number", "minimum": 0},
+                "maxMarketCap": {"type": "number", "minimum": 0},
+                "maxPE": {"type": "number", "minimum": 0},
+                "maxPB": {"type": "number", "minimum": 0},
+                "minTurnover": {"type": "number", "minimum": 0},
+                "maxTurnover": {"type": "number", "minimum": 0},
+                "minVolumeRatio": {"type": "number", "minimum": 0},
+                "maxVolumeRatio": {"type": "number", "minimum": 0},
+                "minMomentum20": {"type": "number", "minimum": 0},
+                "maxVolatility": {"type": "number", "minimum": 0},
+                "minROE": {"type": "number", "minimum": 0},
+                "minRevenueGrowth": {"type": "number", "minimum": 0},
+                "minNetProfitGrowth": {"type": "number", "minimum": 0},
+                "maxValuationPercentile": {"type": "number", "minimum": 0, "maximum": 100},
+                "requiredSignals": {"type": "string", "maxLength": 300},
+                "eventFlowSnapshotId": {"type": "string", "minLength": 1, "maxLength": 160},
+                "refresh": {"enum": ["0", "1"]}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 120
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-stock-research",
+      "name": "股票研究档案",
+      "description": "统一 CZSC 技术结构、财务估值、公告、研报、新闻和产业链引用，输出一份可审计单股研究快照。",
+      "tags": ["A股", "股票研究", "基本面", "估值", "CZSC", "证据档案"],
+      "route": "/mods/stock-research",
+      "navigation": {"itemOrder": 6, "label": "股票研究档案"},
+      "manifest": {
+        "events": {"emits": ["security.selected"], "accepts": ["security.selected"]},
+        "actions": {
+          "analysis.stock-research": {
+            "binding": {"type": "data", "capability": "analysis.stock-research"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": ["symbol"],
+              "properties": {
+                "symbol": {"type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"},
+                "period": {"enum": ["daily", "weekly", "monthly"]},
+                "bars": {"enum": [120, 240, 480, 800]},
+                "asOf": {"type": "string", "format": "date"},
+                "industryChainSnapshotId": {"type": "string", "minLength": 1, "maxLength": 160},
+                "eventFlowSnapshotId": {"type": "string", "minLength": 1, "maxLength": 160},
+                "refresh": {"enum": ["0", "1"]}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 120
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-strategy-validation",
+      "name": "策略验证",
+      "description": "统一选股、CZSC 与轮动研究信号的点时验证语义，固定下一交易日开盘执行、成本和样本外切分。",
+      "tags": ["策略验证", "样本外", "回撤", "成本", "点时数据"],
+      "route": "/mods/strategy-validation",
+      "navigation": {"itemOrder": 10, "label": "策略验证"},
+      "manifest": {
+        "events": {"emits": [], "accepts": []},
+        "actions": {
+          "analysis.strategy-validation": {
+            "binding": {"type": "data", "capability": "analysis.strategy-validation"},
+            "execution": "request",
+            "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "required": ["schema_version", "strategy", "as_of", "benchmark", "holding_period_sessions", "cost_bps_per_side", "signals"],
+              "properties": {
+                "schema_version": {"const": "instock-strategy-validation-packet-v1"},
+                "strategy": {"type": "object", "required": ["id", "source_module"], "properties": {"id": {"type": "string", "minLength": 1}, "name": {"type": "string"}, "source_module": {"enum": ["stock-candidates", "czsc", "rotation"]}}, "additionalProperties": false},
+                "as_of": {"type": "string", "format": "date"},
+                "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+                "holding_period_sessions": {"type": "integer", "minimum": 1, "maximum": 60},
+                "cost_bps_per_side": {"type": "integer", "minimum": 0, "maximum": 100},
+                "signals": {"type": "array", "minItems": 2, "maxItems": 200, "items": {"type": "object"}}
+              },
+              "additionalProperties": false
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none",
+            "timeoutSeconds": 120
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-event-flow",
+      "name": "个股事件与资金",
+      "description": "归并公告、新闻、研报、资金流、龙虎榜与大宗交易证据，统一去重、时效和异常强度。",
+      "tags": ["个股事件", "资金流", "龙虎榜", "公告", "证据雷达"],
+      "route": "/mods/event-flow",
+      "navigation": {"itemOrder": 8, "label": "个股事件与资金"},
+      "manifest": {
+        "events": {"emits": ["security.selected"], "accepts": ["security.selected"]},
+        "actions": {
+          "analysis.event-flow": {
+            "binding": {"type": "data", "capability": "analysis.event-flow"},
+            "execution": "request", "permission": "analysis.read",
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object",
+              "oneOf": [
+                {"required": ["symbol"], "properties": {"symbol": {"type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"}, "asOf": {"type": "string", "format": "date"}}, "additionalProperties": false},
+                {"required": ["schema_version", "as_of", "market", "events"], "properties": {"schema_version": {"const": "instock-event-flow-packet-v1"}, "as_of": {"type": "string", "format": "date"}, "market": {"enum": ["CN", "HK", "US", "GLOBAL"]}, "events": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"type": "object"}}}, "additionalProperties": false}
+              ]
+            },
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none", "timeoutSeconds": 120
+          }
+        }
+      },
+      "defaultInstall": true
+    },
+    {
+      "id": "instock-research-book",
+      "name": "研究组合",
+      "description": "汇总观察理由、证伪条件、Snapshot 引用、行业暴露与风险，不包含持久化和交易。",
+      "tags": ["研究组合", "观察列表", "证伪条件", "风险暴露", "Snapshot"],
+      "route": "/mods/research-book",
+      "navigation": {"itemOrder": 11, "label": "研究组合"},
+      "manifest": {
+        "events": {"emits": ["security.selected"], "accepts": ["security.selected"]},
+        "actions": {
+          "analysis.research-book": {
+            "binding": {"type": "data", "capability": "analysis.research-book"},
+            "execution": "request", "permission": "analysis.read",
+            "inputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["schema_version", "name", "as_of", "items"], "properties": {"schema_version": {"const": "instock-research-book-packet-v1"}, "name": {"type": "string", "minLength": 1}, "as_of": {"type": "string", "format": "date"}, "items": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}}, "additionalProperties": false},
+            "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+            "confirmation": "none", "timeoutSeconds": 120
+          }
+        }
+      },
+      "defaultInstall": true
+    }
+  ]
+}

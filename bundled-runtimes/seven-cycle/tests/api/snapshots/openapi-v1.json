@@ -1,0 +1,3932 @@
+{
+  "components": {
+    "schemas": {
+      "Pagination": {
+        "additionalProperties": false,
+        "description": "Metadata for a bounded list response.",
+        "properties": {
+          "limit": {
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "offset",
+          "total"
+        ],
+        "title": "Pagination",
+        "type": "object"
+      },
+      "ResponseEnvelope": {
+        "additionalProperties": false,
+        "description": "Common, auditable response shape for every endpoint.",
+        "properties": {
+          "caveats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Caveats",
+            "type": "array"
+          },
+          "data": {
+            "title": "Data"
+          },
+          "freshness": {
+            "title": "Freshness",
+            "type": "string"
+          },
+          "pagination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Pagination"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provenance": {
+            "additionalProperties": true,
+            "title": "Provenance",
+            "type": "object"
+          },
+          "usage_status": {
+            "title": "Usage Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "provenance",
+          "freshness",
+          "usage_status",
+          "caveats"
+        ],
+        "title": "ResponseEnvelope",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Seven Cycle Platform",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/analogs": {
+      "get": {
+        "operationId": "historical_analogs_v1_analogs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Historical Analogs",
+        "tags": [
+          "analogs"
+        ]
+      }
+    },
+    "/v1/assets": {
+      "get": {
+        "operationId": "list_assets_v1_assets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "List Assets",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/v1/assets/compare": {
+      "get": {
+        "operationId": "compare_assets_v1_assets_compare_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Compare Assets",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/v1/assets/{asset_id}/attribution": {
+      "get": {
+        "operationId": "asset_attribution_v1_assets__asset_id__attribution_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Asset Attribution",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/v1/assets/{asset_id}/mapping": {
+      "get": {
+        "operationId": "asset_mapping_v1_assets__asset_id__mapping_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Asset Mapping",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/v1/cycles/current": {
+      "get": {
+        "operationId": "current_cycles_v1_cycles_current_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Current Cycles",
+        "tags": [
+          "cycles"
+        ]
+      }
+    },
+    "/v1/cycles/forecast": {
+      "get": {
+        "operationId": "cycle_forecast_v1_cycles_forecast_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Cycle Forecast",
+        "tags": [
+          "cycles"
+        ]
+      }
+    },
+    "/v1/cycles/history": {
+      "get": {
+        "operationId": "cycle_history_v1_cycles_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Cycle History",
+        "tags": [
+          "cycles"
+        ]
+      }
+    },
+    "/v1/governance/calibrations": {
+      "get": {
+        "operationId": "calibrations_v1_governance_calibrations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Calibrations",
+        "tags": [
+          "governance"
+        ]
+      }
+    },
+    "/v1/governance/data-identity": {
+      "get": {
+        "operationId": "data_identity_v1_governance_data_identity_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Data Identity",
+        "tags": [
+          "governance"
+        ]
+      }
+    },
+    "/v1/governance/evidence": {
+      "get": {
+        "operationId": "evidence_v1_governance_evidence_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Evidence",
+        "tags": [
+          "governance"
+        ]
+      }
+    },
+    "/v1/governance/publication": {
+      "get": {
+        "operationId": "publication_v1_governance_publication_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Publication",
+        "tags": [
+          "governance"
+        ]
+      }
+    },
+    "/v1/runs": {
+      "get": {
+        "operationId": "list_runs_v1_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "List Runs",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/scenarios": {
+      "get": {
+        "operationId": "list_scenarios_v1_scenarios_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "List Scenarios",
+        "tags": [
+          "scenarios"
+        ]
+      }
+    },
+    "/v1/surfaces/cycle-asset": {
+      "get": {
+        "operationId": "cycle_asset_surface_v1_surfaces_cycle_asset_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_x",
+            "required": true,
+            "schema": {
+              "pattern": "^C[1-7]$",
+              "title": "Cycle X",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_y",
+            "required": true,
+            "schema": {
+              "pattern": "^C[1-7]$",
+              "title": "Cycle Y",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "window_months",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 120,
+              "minimum": 36,
+              "title": "Window Months",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "grid_size",
+            "required": false,
+            "schema": {
+              "default": 27,
+              "maximum": 41,
+              "minimum": 9,
+              "title": "Grid Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vintage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vintage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 120,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Benchmark"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cycle_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cycle Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Verified immutable catalog response.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Representation has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Local catalog cache policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Stable representation validator for conditional GET.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Catalog-Checksum": {
+                "description": "Checksum of the verified DuckDB catalog.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Config-Hash": {
+                "description": "Configuration hash of the verified run.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Manifest-Checksum": {
+                "description": "Checksum of the verified published-run manifest.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Endpoint was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Request was invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Published data was unavailable."
+          }
+        },
+        "summary": "Cycle Asset Surface",
+        "tags": [
+          "surfaces"
+        ]
+      }
+    }
+  }
+}

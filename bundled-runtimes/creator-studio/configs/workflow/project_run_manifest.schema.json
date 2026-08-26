@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "newma.project_run_manifest.v2",
+  "title": "Newma Project Run Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "title",
+    "created_at",
+    "updated_at",
+    "pipeline_id",
+    "lane",
+    "project_root",
+    "output_root",
+    "source_materials",
+    "stages",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "newma.project_run_manifest.v2",
+        "dasheng.project_run_manifest.v1"
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "pipeline_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lane": {
+      "type": "string",
+      "enum": [
+        "article",
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video",
+        "style_training",
+        "publish"
+      ]
+    },
+    "project_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "output_root": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Generated media and temporary deliverables must live under the creator desktop root."
+    },
+    "source_materials": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "path"],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "queued",
+              "running",
+              "pending_review",
+              "waiting_user",
+              "approved",
+              "needs_revision",
+              "changes_requested",
+              "blocked",
+              "failed",
+              "complete",
+              "succeeded",
+              "skipped",
+              "stale",
+              "cancelled"
+            ]
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "completed_at": {
+            "type": "string"
+          },
+          "checkpoint_path": {
+            "type": "string"
+          },
+          "review_path": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "current_node": {
+            "type": "string"
+          },
+          "completed_nodes": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "stage", "type", "path", "status", "created_at"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["planned", "created", "approved", "superseded", "failed", "stale"]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "retries": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "publish_targets": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "node_runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stage_id", "node_id", "status"],
+        "properties": {
+          "stage_id": {"type": "string"},
+          "node_id": {"type": "string"},
+          "status": {
+            "enum": ["pending", "queued", "running", "waiting_user", "changes_requested", "blocked", "failed", "succeeded", "skipped", "stale", "cancelled"]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "material_bindings": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "handoffs": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "events": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "notifications": {
+      "type": "array",
+      "items": {"type": "object"}
+    }
+  },
+  "additionalProperties": true
+}

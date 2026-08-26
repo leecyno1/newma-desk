@@ -11,8 +11,8 @@ const DEFAULT_ROOTS = [
   "apps/shell/src",
   "modules",
   "packages/chart-kit/src",
-  "mod-projects/vibe-research/frontend",
-  "mod-projects/vibe-trading/frontend",
+  "bundled-runtimes/vibe-research/frontend",
+  "bundled-runtimes/vibe-trading/frontend",
 ];
 const REQUIRED_TEMPLATE_IMPORTS = [
   "modules/global-intelligence/src/main.tsx",

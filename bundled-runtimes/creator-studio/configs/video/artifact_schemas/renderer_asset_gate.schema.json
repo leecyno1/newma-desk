@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.renderer_asset_gate.v1",
+  "title": "Newma Video Renderer Asset Gate",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "render_mode",
+    "allow_placeholders",
+    "failure_count",
+    "warning_count",
+    "failures",
+    "warnings"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "dasheng.video.renderer_asset_gate.v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "fail"]
+    },
+    "render_mode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "allow_placeholders": {
+      "type": "boolean"
+    },
+    "failure_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warning_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/gateFinding"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/gateFinding"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "failure_count": {
+            "const": 0
+          },
+          "failures": {
+            "maxItems": 0
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "failure_count": {
+            "minimum": 1
+          },
+          "failures": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "gateFinding": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scene_id": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

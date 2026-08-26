@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-market-map",
+  "name": "大盘云图",
+  "description": "按申万 2021 一级行业、二级行业和个股三级展示 A 股涨跌结构。",
+  "version": "0.17.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["大盘云图", "市场热力图", "申万一级行业", "申万二级行业", "Top100", "多榜Top500"],
+  "agentWorkspace": {"type": "runtime", "runtimeId": "instock", "workspaceName": "source"},
+  "runtime": {"type": "external", "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:9988", "route": "/mods/market-map"},
+  "manifest": {
+    "schemaVersion": "1.1", "category": "quant",
+    "navigation": {"groupLabel": "量化研究", "groupOrder": 120, "itemOrder": 2, "label": "大盘云图", "directory": {"id": "instock-suite", "label": "InStock 分析", "order": 20}, "project": {"id": "quant-research", "name": "量化研究", "order": 120, "description": "市场、选股、技术、结构、轮动与验证。"}, "icon": "quant"},
+    "compatibility": {"level": 2, "bridgeProtocol": "1.0"}, "permissions": ["analysis.read"], "dataServices": [],
+    "actions": {"analysis.market-map": {"binding": {"type": "data", "capability": "analysis.market-map"}, "execution": "request", "permission": "analysis.read", "inputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"capacity": {"enum": [100, 500]}, "refresh": {"enum": ["0", "1"]}}, "additionalProperties": false}, "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}}, "confirmation": "none", "timeoutSeconds": 90}},
+    "events": {"emits": ["security.selected"], "accepts": []}, "refresh": {"mode": "manual"}
+  }
+}

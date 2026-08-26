@@ -1,0 +1,20 @@
+{
+  "name": "dasheng-remotion-director-pack",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts DirectorVideo render/director-video.mp4",
+    "still": "remotion still src/index.ts DirectorVideo render/director-still.png --frame=45"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.476",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.476"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.3",
+    "typescript": "5.5.2"
+  }
+}

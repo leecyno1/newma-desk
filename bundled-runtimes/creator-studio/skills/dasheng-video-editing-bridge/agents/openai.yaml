@@ -1,0 +1,4 @@
+interface:
+  display_name: "Newma Video Editing Bridge"
+  short_description: "Route full-video editing through guarded providers"
+  default_prompt: "Choose and supervise the safest complete video-editing route for this project."

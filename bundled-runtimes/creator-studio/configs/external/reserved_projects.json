@@ -1,0 +1,1529 @@
+{
+  "schema_version": "newma.reserved_projects.v2",
+  "updated_at": "2026-08-23",
+  "project_root": ".",
+  "policy": {
+    "source_root": "vendor/reserved",
+    "ignored_by_git": true,
+    "selection": [
+      "stable_upstream",
+      "distinct_capability",
+      "usable_license_or_explicit_backup",
+      "local_invocability"
+    ],
+    "runtime_outputs_forbidden": [
+      "vendor/reserved",
+      "skills",
+      ".codex/skills"
+    ],
+    "promotion_requires": [
+      "smoke_test",
+      "evidence_guard",
+      "output_path_guard",
+      "human_review"
+    ],
+    "provider_selection": {
+      "retain_official_model_credentials": [
+        "openai",
+        "gpt",
+        "codex",
+        "moonshot",
+        "kimi",
+        "google",
+        "gemini",
+        "seedance",
+        "jimeng",
+        "seedream",
+        "minimax",
+        "mmx"
+      ],
+      "exclude_third_party_service_credentials": [
+        "atlascloud",
+        "openrouter",
+        "replicate",
+        "runpod",
+        "modal",
+        "elevenlabs",
+        "higgsfield"
+      ],
+      "exclude_additional_apps": true,
+      "notes": "Provider keys and model access are valid dependencies for approved first-party model providers; they are not project deletion criteria."
+    }
+  },
+  "summary": {
+    "retained_projects": 40,
+    "newly_cloned_projects": 40,
+    "existing_retained_projects": 1,
+    "installed_new_skills": 34,
+    "reserve_candidates": 18,
+    "cloned_reserve_candidates": 5,
+    "reviewed_existing_projects": 1
+  },
+  "reserve_candidates": [
+    {
+      "name": "video-shotcraft",
+      "category": "video",
+      "repo": "https://github.com/Vincentwei1021/video-shotcraft.git",
+      "local_path": "vendor/reserved/video/video-shotcraft",
+      "git_head": "41ee360d82f4",
+      "license": "Apache-2.0",
+      "tier": "high_priority_reserve",
+      "dependency_status": "adapter_ready_smoke_rendered",
+      "local_source_path": "${BOUTIQUE_SKILLS_ROOT:-../boutique-skills}/skills/default/video-shotcraft",
+      "source_catalog": "https://github.com/leecyno1/boutique-skills.git",
+      "source_catalog_head": "bb1714f10227",
+      "capabilities": [
+        "shot_recipe_library",
+        "remotion_render",
+        "cinematic_camera",
+        "beat_sync",
+        "sound_design",
+        "product_video",
+        "storyboard_review"
+      ],
+      "route_stages": [
+        "scene_design",
+        "render_and_composite",
+        "caption_and_audio",
+        "quality_control"
+      ],
+      "recommended_action": "use_through_newma_vox_adapter_only",
+      "adapter": "skills/dasheng-vox-skills/scripts/shotcraft_adapter.py",
+      "notes": "Adapter and Remotion smoke render are complete. Reuse shot cards, real-page capture, PageCam, deterministic motion, beat/SFX timing and final review through the Newma VOX Adapter; product-promo defaults never replace Newma narration and evidence rules."
+    },
+    {
+      "name": "openchatcut",
+      "category": "video",
+      "repo": "https://github.com/0xsline/OpenChatCut.git",
+      "local_path": "vendor/reserved/video/openchatcut",
+      "git_head": "320c07fd146c4068fc0ac62004b9e2818122d530",
+      "license": "AGPL-3.0-or-later",
+      "tier": "highest_priority_external_editor",
+      "dependency_status": "cloned_thin_adapter_registered",
+      "capabilities": [
+        "multi_track_timeline",
+        "roughcut",
+        "fine_cut",
+        "caption_edit",
+        "audio_master",
+        "color_grade",
+        "motion_graphics",
+        "agent_mcp_editing",
+        "edit_proposal_review",
+        "atomic_undo",
+        "project_template_library",
+        "remotion_render",
+        "ffmpeg_export"
+      ],
+      "route_stages": [
+        "roughcut",
+        "caption_and_audio",
+        "render_and_composite",
+        "quality_control"
+      ],
+      "recommended_action": "retain_complete_upstream_and_integrate_through_newma_editor_adapter",
+      "adapter": "configs/workflow/newma_creator_studio_registry.json#editor_adapters/openchatcut",
+      "notes": "Keep the upstream repository intact. Newma owns Run Control, review, Artifact Lineage and handoff; OpenChatCut owns the live timeline during the editor session. Human and Agent edits share EditorCore commands through the external MCP proposal workflow."
+    },
+    {
+      "name": "gsap-skills",
+      "category": "design",
+      "repo": "https://github.com/greensock/gsap-skills.git",
+      "local_path": "vendor/reserved/design/gsap-skills",
+      "git_head": "aed9cfd32777",
+      "license": "MIT",
+      "tier": "high_priority_suite_reserve",
+      "dependency_status": "cloned_suite_reserve_not_promoted",
+      "local_source_path": "${BOUTIQUE_SKILLS_ROOT:-../boutique-skills}/catalog/suites/gsap-skills.json",
+      "source_catalog": "https://github.com/leecyno1/boutique-skills.git",
+      "source_catalog_head": "bb1714f10227",
+      "suite_skills": [
+        "gsap-core",
+        "gsap-frameworks",
+        "gsap-performance",
+        "gsap-plugins",
+        "gsap-react",
+        "gsap-scrolltrigger",
+        "gsap-timeline",
+        "gsap-utils"
+      ],
+      "capabilities": [
+        "gsap_motion",
+        "timeline_animation",
+        "scroll_animation",
+        "svg_animation",
+        "motion_performance",
+        "responsive_motion"
+      ],
+      "route_stages": [
+        "scene_design",
+        "render_and_composite",
+        "quality_control"
+      ],
+      "recommended_action": "register_as_one_suite_router_with_subskill_dispatch",
+      "notes": "Keep one director-facing GSAP Suite entry and dispatch internally to eight subskills. Registering eight equal top-level entries would create routing noise and duplicate existing web-animation guidance."
+    },
+    {
+      "name": "impeccable",
+      "category": "design",
+      "repo": "https://github.com/pbakaus/impeccable.git",
+      "local_path": "vendor/reserved/design/impeccable",
+      "git_head": "c5e1ddd054dc",
+      "license": "Apache-2.0",
+      "tier": "medium_high_priority_reserve",
+      "dependency_status": "cloned_reserve_not_promoted",
+      "local_source_path": "${BOUTIQUE_SKILLS_ROOT:-../boutique-skills}/skills/default/impeccable",
+      "source_catalog": "https://github.com/leecyno1/boutique-skills.git",
+      "source_catalog_head": "bb1714f10227",
+      "capabilities": [
+        "visual_design",
+        "html_scene_audit",
+        "responsive_layout",
+        "motion_audit",
+        "accessibility_motion",
+        "browser_visual_qa",
+        "design_system"
+      ],
+      "route_stages": [
+        "scene_design",
+        "render_and_composite",
+        "quality_control"
+      ],
+      "recommended_action": "promote_as_html_scene_visual_qc_advisor",
+      "notes": "Best used to audit and polish HTML storyboards, charts and title systems before recording. It complements rather than replaces design-taste-frontend and the dedicated animation-review skills."
+    },
+    {
+      "name": "video-autopilot-kit",
+      "category": "video",
+      "repo": "https://github.com/Hao0321/video-autopilot-kit.git",
+      "local_path": "vendor/reserved/video/video-autopilot-kit",
+      "git_head": "f081e99ed169",
+      "license": "MIT",
+      "tier": "high_priority_adapter_reserve",
+      "dependency_status": "cloned_adapter_required",
+      "capabilities": [
+        "short_video_script",
+        "capcut_json",
+        "ffmpeg_batch",
+        "template_video",
+        "batch_video_production"
+      ],
+      "route_stages": [
+        "scene_design",
+        "roughcut",
+        "render_and_composite",
+        "distribution"
+      ],
+      "recommended_action": "build_guarded_newma_adapter_before_registration",
+      "blockers": [
+        "no_standard_skill_md",
+        "capcut_schema_and_output_contract_need_review"
+      ],
+      "notes": "Strong self-media operations candidate for batch production and CapCut handoff, but it is a project rather than an installable Skill today. Keep blocked from direct routing until an adapter, output guard and smoke test exist."
+    },
+    {
+      "name": "mixpost",
+      "category": "postmortem",
+      "repo": "https://github.com/inovector/mixpost.git",
+      "local_path": "vendor/reserved/postmortem/mixpost",
+      "license": "MIT",
+      "tier": "high_priority_platform_analytics_reserve",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["multi_platform_analytics", "engagement_metrics", "audience_insights", "social_scheduling"],
+      "route_stages": ["publish", "postmortem"],
+      "recommended_action": "evaluate_as_metrics_console_and_thin_adapter",
+      "notes": "Its platform analytics surface is more useful than rebuilding account dashboards. Newma should keep Run Control and normalize only approved metrics into performance_dataset."
+    },
+    {
+      "name": "4cat",
+      "category": "postmortem",
+      "repo": "https://github.com/digitalmethodsinitiative/4cat.git",
+      "local_path": "vendor/reserved/postmortem/4cat",
+      "license": "custom-open-source",
+      "tier": "highest_priority_competitor_analysis_reserve",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["social_dataset_capture", "competitor_analysis", "comment_analysis", "cross_platform_research"],
+      "route_stages": ["postmortem"],
+      "dependencies": ["zeeschuimer"],
+      "recommended_action": "retain_complete_service_and_integrate_by_dataset_handoff",
+      "notes": "Best fit for the competitor benchmark node. Keep the upstream service intact and exchange CSV/JSON datasets rather than copying its analysis modules into Newma."
+    },
+    {
+      "name": "zeeschuimer",
+      "category": "postmortem",
+      "repo": "https://github.com/digitalmethodsinitiative/zeeschuimer.git",
+      "local_path": "vendor/reserved/postmortem/zeeschuimer",
+      "license": "custom-open-source",
+      "tier": "high_priority_browser_capture_companion",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["browser_social_capture", "visible_data_export", "xhs_capture", "tiktok_capture", "instagram_capture"],
+      "route_stages": ["postmortem"],
+      "recommended_action": "use_only_as_4cat_capture_companion",
+      "notes": "Register as a 4CAT companion instead of a separate primary workflow choice. Human-visible capture is useful when platform APIs do not expose competitor data."
+    },
+    {
+      "name": "minet",
+      "category": "postmortem",
+      "repo": "https://github.com/medialab/minet.git",
+      "local_path": "vendor/reserved/postmortem/minet",
+      "license": "GPL-3.0",
+      "tier": "high_priority_competitor_cli_reserve",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["youtube_search", "web_mining", "social_dataset_export", "competitor_discovery"],
+      "route_stages": ["intake", "postmortem"],
+      "recommended_action": "wrap_cli_with_newma_dataset_contract",
+      "notes": "Use as the low-coupling CLI collector for public competitor discovery. Output must be normalized into competitor_dataset with source URLs and collection timestamps."
+    },
+    {
+      "name": "tiktok-api",
+      "category": "postmortem",
+      "repo": "https://github.com/davidteather/TikTok-Api.git",
+      "local_path": "vendor/reserved/postmortem/tiktok-api",
+      "license": "MIT",
+      "tier": "platform_adapter_reserve",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["tiktok_public_metrics", "tiktok_search", "comment_collection", "competitor_intake"],
+      "route_stages": ["postmortem"],
+      "recommended_action": "build_optional_platform_adapter",
+      "notes": "Unofficial endpoints can change. Keep it optional behind the platform metrics adapter and retain manual/browser fallback."
+    },
+    {
+      "name": "twscrape",
+      "category": "postmortem",
+      "repo": "https://github.com/vladkens/twscrape.git",
+      "local_path": "vendor/reserved/postmortem/twscrape",
+      "license": "MIT",
+      "tier": "platform_adapter_reserve",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["x_public_metrics", "x_search", "thread_capture", "competitor_intake"],
+      "route_stages": ["intake", "postmortem"],
+      "recommended_action": "build_optional_platform_adapter",
+      "notes": "Useful for public X comparison data, but account and rate-limit handling must remain outside the shared Newma artifact model."
+    },
+    {
+      "name": "youtube-operational-api",
+      "category": "postmortem",
+      "repo": "https://github.com/Benjamin-Loison/YouTube-operational-API.git",
+      "local_path": "vendor/reserved/postmortem/youtube-operational-api",
+      "license": "unverified",
+      "tier": "fallback_only",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["youtube_public_metrics", "video_lookup", "comment_lookup", "api_fallback"],
+      "route_stages": ["postmortem"],
+      "recommended_action": "keep_as_fallback_after_official_youtube_api",
+      "notes": "Official YouTube Data and Analytics APIs remain primary. This project is only a public-data fallback when the official API cannot satisfy competitor lookup."
+    },
+    {
+      "name": "bertopic",
+      "category": "postmortem",
+      "repo": "https://github.com/MaartenGr/BERTopic.git",
+      "local_path": "vendor/reserved/postmortem/bertopic",
+      "license": "MIT",
+      "tier": "high_priority_comment_analysis_reserve",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["comment_topic_clustering", "theme_evolution", "audience_question_mining", "semantic_labels"],
+      "route_stages": ["postmortem"],
+      "recommended_action": "use_as_analysis_dependency_not_standalone_app",
+      "notes": "Use after comments are collected and normalized. It should enrich experiment_findings, not become a separate user-facing workflow."
+    },
+    {
+      "name": "wechatpy",
+      "category": "postmortem",
+      "repo": "https://github.com/wechatpy/wechatpy.git",
+      "local_path": "vendor/reserved/postmortem/wechatpy",
+      "license": "MIT",
+      "tier": "highest_priority_wechat_metrics_dependency",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["wechat_official_metrics", "article_read_metrics", "share_metrics", "follower_metrics"],
+      "route_stages": ["publish", "postmortem"],
+      "recommended_action": "adopt_official_datacube_client_directly",
+      "notes": "Use the official WeChat datacube interfaces through wechatpy for owned accounts. Keep account credentials in the publish adapter and write only normalized metrics plus evidence timestamps."
+    },
+    {
+      "name": "mediacrawler",
+      "category": "postmortem",
+      "repo": "https://github.com/NanmiCoder/MediaCrawler.git",
+      "local_path": "vendor/reserved/postmortem/mediacrawler",
+      "license": "research-use",
+      "tier": "highest_priority_domestic_competitor_worker",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["domestic_platform_search", "competitor_posts", "author_profiles", "comment_threads", "multi_platform_competitor_search"],
+      "route_stages": ["intake", "postmortem"],
+      "recommended_action": "retain_as_isolated_collection_worker",
+      "notes": "Primary reserve for Xiaohongshu, Douyin, Kuaishou, Bilibili, Weibo, Tieba and Zhihu competitor collection. Run at low frequency and preserve raw snapshots because login and page changes are expected."
+    },
+    {
+      "name": "yt-dlp",
+      "category": "postmortem",
+      "repo": "https://github.com/yt-dlp/yt-dlp.git",
+      "local_path": "vendor/reserved/postmortem/yt-dlp",
+      "license": "Unlicense",
+      "tier": "highest_priority_video_sample_cli",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["video_metadata", "subtitle_download", "thumbnail_download", "comment_export", "sample_download"],
+      "route_stages": ["intake", "transwrite", "postmortem"],
+      "recommended_action": "adopt_cli_json_output_directly",
+      "notes": "Use for public competitor metadata, captions, thumbnails and review samples. It is not an owned-account analytics source and must not replace platform screenshots."
+    },
+    {
+      "name": "pyabsa",
+      "category": "postmortem",
+      "repo": "https://github.com/yangheng95/PyABSA.git",
+      "local_path": "vendor/reserved/postmortem/pyabsa",
+      "license": "MIT",
+      "tier": "high_priority_aspect_sentiment_reserve",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["aspect_sentiment", "comment_opinion_extraction", "feature_feedback", "multilingual_nlp"],
+      "route_stages": ["postmortem"],
+      "recommended_action": "use_after_comment_normalization",
+      "notes": "Separate opinions about title, hook, data, visuals and narration. Chinese internet slang and finance language require calibration and human review."
+    },
+    {
+      "name": "dowhy",
+      "category": "postmortem",
+      "repo": "https://github.com/py-why/dowhy.git",
+      "local_path": "vendor/reserved/postmortem/dowhy",
+      "license": "MIT",
+      "tier": "later_stage_causal_analysis_reserve",
+      "dependency_status": "candidate_not_cloned",
+      "capabilities": ["causal_inference", "hypothesis_refutation", "experiment_analysis", "confounder_checks"],
+      "route_stages": ["postmortem"],
+      "recommended_action": "enable_only_after_sufficient_cross_run_data",
+      "notes": "Do not run causal claims on one or a few works. Enable only after Newma has repeated experiments, explicit treatment variables and enough comparable samples."
+    }
+  ],
+  "projects": [
+    {
+      "name": "boutique-openclaw-skills",
+      "category": "catalog",
+      "repo": "https://github.com/leecyno1/boutique-openclaw-skills.git",
+      "local_path": "vendor/reserved/catalog/boutique-openclaw-skills",
+      "git_head": "379f5f6c98c9",
+      "tier": "catalog_source",
+      "dependency_status": "source_ready"
+    },
+    {
+      "name": "agent-skills-launch-pack",
+      "category": "publish",
+      "repo": "https://github.com/chenjin-cmd/agent-skills-launch-pack_.git",
+      "local_path": "vendor/reserved/publish/agent-skills-launch-pack",
+      "git_head": "35df470d36b0",
+      "tier": "backup",
+      "dependency_status": "cloned"
+    },
+    {
+      "name": "all-in-one",
+      "category": "publish",
+      "repo": "https://github.com/cv-cat/All-IN-ONE.git",
+      "local_path": "vendor/reserved/publish/all-in-one",
+      "git_head": "688be481f9e0",
+      "tier": "backup",
+      "dependency_status": "cloned"
+    },
+    {
+      "name": "autoclaw-xhs-skills",
+      "category": "publish",
+      "repo": "https://github.com/autoclaw-cc/xiaohongshu-skills.git",
+      "local_path": "vendor/reserved/publish/autoclaw-xhs-skills",
+      "git_head": "b043748282a5",
+      "tier": "backup",
+      "dependency_status": "cloned"
+    },
+    {
+      "name": "xhs-skills",
+      "category": "publish",
+      "repo": "https://github.com/cv-cat/XhsSkills.git",
+      "local_path": "vendor/reserved/publish/xhs-skills",
+      "git_head": "d5281c07aa8c",
+      "tier": "backup",
+      "dependency_status": "cloned"
+    },
+    {
+      "name": "spider-xhs",
+      "category": "publish",
+      "repo": "https://github.com/cv-cat/Spider_XHS.git",
+      "local_path": "vendor/reserved/publish/spider-xhs",
+      "git_head": "9504b5249103",
+      "tier": "backup",
+      "dependency_status": "cloned"
+    },
+    {
+      "name": "xiaohongshu-mcp",
+      "category": "publish",
+      "repo": "https://github.com/xpzouying/xiaohongshu-mcp.git",
+      "local_path": "vendor/reserved/publish/xiaohongshu-mcp",
+      "git_head": "85aed8b48349",
+      "tier": "backup",
+      "dependency_status": "cloned_needs_login"
+    },
+    {
+      "name": "xhs-downloader",
+      "category": "publish",
+      "repo": "https://github.com/JoeanAmier/XHS-Downloader.git",
+      "local_path": "vendor/reserved/publish/xhs-downloader",
+      "git_head": "cdc02d0da867",
+      "tier": "backup",
+      "dependency_status": "cloned_needs_login"
+    },
+    {
+      "name": "social-auto-upload",
+      "category": "publish",
+      "repo": "https://github.com/dreammis/social-auto-upload.git",
+      "local_path": "vendor/publish/social-auto-upload",
+      "git_head": "008e4ff66abd",
+      "tier": "primary_execution",
+      "dependency_status": "runtime_ready_needs_named_account_login"
+    },
+    {
+      "name": "qianfan-sync",
+      "category": "publish",
+      "repo": "https://github.com/DevilJie/social-auto-upload-web-ui.git",
+      "local_path": "vendor/reserved/publish/qianfan-sync",
+      "git_head": "0cce6ea493a3",
+      "tier": "account_management_console",
+      "dependency_status": "backend_frontend_and_mcp_installed",
+      "license": "MIT"
+    },
+    {
+      "name": "postbot",
+      "category": "publish",
+      "repo": "https://github.com/gitcoffee-os/postbot.git",
+      "local_path": "vendor/reserved/publish/postbot",
+      "git_head": "b988d0dddcde",
+      "tier": "browser_session_fallback",
+      "dependency_status": "extension_dependencies_installed_build_ready",
+      "license": "Apache-2.0",
+      "selected_branch": "dasheng-stable-1.1.20",
+      "notes": "Default branch depends on unpublished @gitcoffee packages; the public-dependency 1.1.20 branch is installed and built."
+    },
+    {
+      "name": "opencli",
+      "category": "publish",
+      "repo": "https://github.com/jackwener/OpenCLI.git",
+      "local_path": "vendor/reserved/publish/opencli",
+      "git_head": "399c0de2a76e",
+      "tier": "browser_cli_fallback",
+      "dependency_status": "dependencies_installed_cli_built",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "biliup-rs",
+      "category": "publish",
+      "repo": "https://github.com/biliup/biliup-rs.git",
+      "local_path": "vendor/reserved/publish/biliup-rs",
+      "git_head": "56df872972f0",
+      "tier": "archived_historical_fallback",
+      "dependency_status": "archived_not_primary"
+    },
+    {
+      "name": "postiz",
+      "category": "publish",
+      "repo": "https://github.com/gitroomhq/postiz-app.git",
+      "local_path": "vendor/reserved/publish/postiz",
+      "git_head": "c90b6c625bc0",
+      "tier": "backup",
+      "dependency_status": "cloned_server_stack_not_installed"
+    },
+    {
+      "name": "xurl",
+      "category": "publish",
+      "repo": "https://github.com/xdevplatform/xurl.git",
+      "local_path": "vendor/reserved/publish/xurl",
+      "git_head": "41259e8aef85",
+      "tier": "backup",
+      "dependency_status": "cloned_needs_api_credentials"
+    },
+    {
+      "name": "html-video",
+      "category": "render",
+      "repo": "https://github.com/nexu-io/html-video.git",
+      "local_path": "vendor/reserved/render/html-video",
+      "git_head": "c414ecc07f79",
+      "tier": "production_candidate",
+      "dependency_status": "dependency_ready",
+      "installed_skills": [
+        "newma-html-video-bridge"
+      ]
+    },
+    {
+      "name": "html-anything",
+      "category": "render",
+      "repo": "https://github.com/nexu-io/html-anything.git",
+      "local_path": "vendor/reserved/render/html-anything",
+      "git_head": "d0efb1eaa3b6",
+      "tier": "production_candidate",
+      "dependency_status": "dependency_ready"
+    },
+    {
+      "name": "video-use",
+      "category": "video",
+      "repo": "https://github.com/browser-use/video-use.git",
+      "local_path": "vendor/reserved/video/video-use",
+      "git_head": "92c2b34e44c2",
+      "tier": "experimental",
+      "dependency_status": "dependency_ready",
+      "installed_skills": [
+        "video-use"
+      ]
+    },
+    {
+      "name": "freecut",
+      "category": "video",
+      "repo": "https://github.com/Moh4696/freecut.git",
+      "local_path": "vendor/reserved/video/freecut",
+      "git_head": "f1d43341204f",
+      "tier": "preferred_local_experiment",
+      "dependency_status": "dependency_ready",
+      "installed_skills": [
+        "freecut"
+      ]
+    },
+    {
+      "name": "talking-head-editor",
+      "category": "video",
+      "repo": "https://github.com/chrislema/videoeditor.git",
+      "local_path": "vendor/reserved/video/talking-head-editor",
+      "git_head": "fb01bfea4134",
+      "tier": "reference_only",
+      "dependency_status": "reference_runtime_ready",
+      "notes": "Retained because explicitly requested; no clear license and no native Codex Skill."
+    },
+    {
+      "name": "claude-shorts",
+      "category": "video",
+      "repo": "https://github.com/AgriciDaniel/claude-shorts.git",
+      "local_path": "vendor/reserved/video/claude-shorts",
+      "git_head": "a369fad9d842",
+      "tier": "backup",
+      "dependency_status": "dependency_ready_with_npm_audit_warnings",
+      "installed_skills": [
+        "claude-shorts"
+      ]
+    },
+    {
+      "name": "video-wrapper",
+      "category": "video",
+      "repo": "https://github.com/op7418/Video-Wrapper-Skills.git",
+      "local_path": "vendor/reserved/video/video-wrapper",
+      "git_head": "029974a7ad4e",
+      "tier": "production_candidate",
+      "dependency_status": "dependency_ready",
+      "installed_skills": [
+        "video-wrapper"
+      ]
+    },
+    {
+      "name": "remotion-video-skill",
+      "category": "video",
+      "repo": "https://github.com/wshuyi/remotion-video-skill.git",
+      "local_path": "vendor/reserved/video/remotion-video-skill",
+      "git_head": "d16ebd9ca330",
+      "tier": "reference",
+      "dependency_status": "skill_ready_runtime_not_promoted",
+      "installed_skills": [
+        "remotion-video-skill"
+      ]
+    },
+    {
+      "name": "text-to-lottie",
+      "category": "video",
+      "repo": "https://github.com/diffusionstudio/lottie.git",
+      "local_path": "vendor/reserved/video/text-to-lottie",
+      "git_head": "d8973f96fb45",
+      "tier": "production_candidate",
+      "dependency_status": "built_with_local_skip_lib_check_for_upstream_kobalte_types",
+      "installed_skills": [
+        "gif-sticker-maker"
+      ]
+    },
+    {
+      "name": "claude-real-video",
+      "category": "video",
+      "repo": "https://github.com/HUANGCHIHHUNGLeo/claude-real-video.git",
+      "local_path": "vendor/reserved/video/claude-real-video",
+      "git_head": "e34161691c9e",
+      "tier": "production_candidate",
+      "dependency_status": "dependency_ready",
+      "installed_skills": [
+        "video-frames"
+      ]
+    },
+    {
+      "name": "claude-code-video-toolkit",
+      "category": "video",
+      "repo": "https://github.com/digitalsamba/claude-code-video-toolkit.git",
+      "local_path": "vendor/reserved/video/claude-code-video-toolkit",
+      "git_head": "9826feb491cf",
+      "tier": "reference",
+      "dependency_status": "local_reference_ready",
+      "notes": "Retain only the local Remotion templates, transitions, components, data-visualization examples and browser-recording patterns. Modal, RunPod, ElevenLabs, R2 and other third-party cloud routes are excluded from routing."
+    },
+    {
+      "name": "ian-xiaohei-illustrations",
+      "category": "video",
+      "repo": "https://github.com/helloianneo/ian-xiaohei-illustrations.git",
+      "local_path": "vendor/reserved/video/ian-xiaohei-illustrations",
+      "git_head": "91b560849e8f",
+      "tier": "production_candidate",
+      "dependency_status": "skill_ready",
+      "installed_skills": [
+        "ian-xiaohei-illustrations"
+      ]
+    },
+    {
+      "name": "seedance2-skill",
+      "category": "video",
+      "repo": "https://github.com/dexhunter/seedance2-skill.git",
+      "local_path": "vendor/reserved/video/seedance2-skill",
+      "git_head": "e06c7c63a766",
+      "tier": "backup",
+      "dependency_status": "skill_ready_official_model_access_optional",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "seedance",
+        "jimeng"
+      ],
+      "installed_skills": [
+        "seedance2-skill"
+      ]
+    },
+    {
+      "name": "hyperframes",
+      "category": "video",
+      "repo": "https://github.com/heygen-com/hyperframes.git",
+      "local_path": "vendor/reserved/video/hyperframes",
+      "git_head": "688500f2d6bb",
+      "tier": "production_candidate",
+      "dependency_status": "dependency_ready",
+      "installed_skills": [
+        "animated-financial-display"
+      ]
+    },
+    {
+      "name": "auto-editor",
+      "category": "video",
+      "repo": "https://github.com/WyattBlue/auto-editor.git",
+      "local_path": "vendor/reserved/video/auto-editor",
+      "git_head": "0af63dea136c",
+      "tier": "backup",
+      "dependency_status": "cli_ready_uv_tool_29.3.1"
+    },
+    {
+      "name": "chengfeng-videocut-skills",
+      "category": "video",
+      "repo": "https://github.com/Agentchengfeng/chengfeng-videocut-skills.git",
+      "local_path": "vendor/reserved/video/chengfeng-videocut-skills",
+      "git_head": "e2cc73dce613",
+      "tier": "experimental",
+      "dependency_status": "runtime_incomplete"
+    },
+    {
+      "name": "remotion-video-toolkit",
+      "category": "design",
+      "repo": "https://github.com/shreefentsar/remotion-video-toolkit.git",
+      "local_path": "vendor/reserved/design/remotion-video-toolkit",
+      "git_head": "81a412e7872f",
+      "tier": "production_candidate",
+      "dependency_status": "skill_ready",
+      "installed_skills": [
+        "remotion-video-toolkit"
+      ]
+    },
+    {
+      "name": "taste-skill",
+      "category": "design",
+      "repo": "https://github.com/Leonxlnx/taste-skill.git",
+      "local_path": "vendor/reserved/design/taste-skill",
+      "git_head": "e988add20dab",
+      "tier": "production_candidate",
+      "dependency_status": "skill_ready",
+      "installed_skills": [
+        "design-taste-frontend"
+      ],
+      "reviewed_at": "2026-08-02",
+      "notes": "Already retained and installed. Reuse as the anti-slop art-direction advisor; do not duplicate it from the newer catalog."
+    },
+    {
+      "name": "emilkowalski-skills",
+      "category": "design",
+      "repo": "https://github.com/emilkowalski/skills.git",
+      "local_path": "vendor/reserved/design/emilkowalski-skills",
+      "git_head": "e695d13cb298",
+      "tier": "production_candidate",
+      "dependency_status": "skill_ready",
+      "installed_skills": [
+        "animation-vocabulary",
+        "emil-design-eng",
+        "find-animation-opportunities",
+        "improve-animations",
+        "review-animations"
+      ]
+    },
+    {
+      "name": "baoyu-skills",
+      "category": "design",
+      "repo": "https://github.com/JimLiu/baoyu-skills.git",
+      "local_path": "vendor/reserved/design/baoyu-skills",
+      "git_head": "6b7a2e417500",
+      "tier": "production_candidate",
+      "dependency_status": "dependency_ready_with_official_provider_allowlist",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "codex",
+        "openai",
+        "google",
+        "gemini",
+        "minimax",
+        "jimeng",
+        "seedream"
+      ],
+      "blocked_providers": [
+        "openrouter",
+        "replicate"
+      ],
+      "installed_skills": [
+        "baoyu-imagine",
+        "baoyu-cover-image",
+        "baoyu-article-illustrator",
+        "baoyu-infographic"
+      ],
+      "notes": "Image, cover and infographic routes are retained. Director calls must explicitly select an allowed first-party provider and must not auto-route to third-party aggregators."
+    },
+    {
+      "name": "minimax-skills",
+      "category": "design",
+      "repo": "https://github.com/MiniMax-AI/skills.git",
+      "local_path": "vendor/reserved/design/minimax-skills",
+      "git_head": "60aaae52bb2a",
+      "tier": "backup",
+      "dependency_status": "skill_ready_official_provider_optional",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "minimax",
+        "mmx",
+        "codex",
+        "openai",
+        "google",
+        "gemini"
+      ],
+      "installed_skills": [
+        "brandkit",
+        "high-end-visual-design",
+        "image-to-code",
+        "minimalist-ui"
+      ],
+      "notes": "Retain both local design guidance and model-backed BrandKit/image-to-code workflows. Official MiniMax or other allowlisted model access is valid; third-party aggregators are excluded."
+    },
+    {
+      "name": "anthropics-skills",
+      "category": "design",
+      "repo": "https://github.com/anthropics/skills.git",
+      "local_path": "vendor/reserved/design/anthropics-skills",
+      "git_head": "1f630fdf9259",
+      "tier": "production_candidate",
+      "dependency_status": "skill_ready",
+      "installed_skills": [
+        "canvas-design",
+        "algorithmic-art",
+        "brand-guidelines"
+      ]
+    },
+    {
+      "name": "inference-skills",
+      "category": "design",
+      "repo": "https://github.com/inference-sh/skills.git",
+      "local_path": "vendor/reserved/design/inference-skills",
+      "git_head": "fbe0aa4ac8f4",
+      "tier": "advisory",
+      "dependency_status": "local_advisory_skills_ready",
+      "installed_skills": [
+        "apple-design",
+        "pick-ui-library",
+        "web-animation-design"
+      ],
+      "notes": "Registered only for local design and animation guidance; external inference model routes are excluded."
+    },
+    {
+      "name": "media-downloader",
+      "category": "design",
+      "repo": "https://github.com/yizhiyanhua-ai/media-downloader.git",
+      "local_path": "vendor/reserved/design/media-downloader",
+      "git_head": "e94a3ce3ed18",
+      "tier": "production_candidate",
+      "dependency_status": "dependency_ready",
+      "installed_skills": [
+        "media-downloader"
+      ]
+    },
+    {
+      "name": "guizang-social-card-skill",
+      "category": "design",
+      "repo": "https://github.com/op7418/guizang-social-card-skill.git",
+      "local_path": "vendor/reserved/design/guizang-social-card-skill",
+      "git_head": "cf4b810fac1c",
+      "tier": "production_candidate",
+      "dependency_status": "dependency_ready",
+      "installed_skills": [
+        "guizang-social-card-skill"
+      ]
+    }
+  ],
+  "project_capability_index": {
+    "boutique-openclaw-skills": {
+      "capabilities": [
+        "skill_discovery",
+        "technical_stack_mapping"
+      ],
+      "route_stages": [
+        "registry_only"
+      ],
+      "execution_mode": "catalog"
+    },
+    "agent-skills-launch-pack": {
+      "capabilities": [
+        "publish_operations",
+        "account_launch_advice"
+      ],
+      "route_stages": [
+        "distribution"
+      ],
+      "execution_mode": "advisory"
+    },
+    "all-in-one": {
+      "capabilities": [
+        "platform_upload",
+        "xiaohongshu_publish",
+        "douyin_publish",
+        "weibo_publish"
+      ],
+      "route_stages": [
+        "distribution"
+      ],
+      "execution_mode": "cli_or_skill"
+    },
+    "autoclaw-xhs-skills": {
+      "capabilities": [
+        "platform_upload",
+        "xiaohongshu_publish",
+        "browser_publish"
+      ],
+      "route_stages": [
+        "distribution"
+      ],
+      "execution_mode": "skill"
+    },
+    "xhs-skills": {
+      "capabilities": [
+        "platform_upload",
+        "xiaohongshu_publish",
+        "api_publish"
+      ],
+      "route_stages": [
+        "distribution"
+      ],
+      "execution_mode": "skill"
+    },
+    "spider-xhs": {
+      "capabilities": [
+        "xiaohongshu_publish",
+        "xiaohongshu_search",
+        "platform_api"
+      ],
+      "route_stages": [
+        "distribution",
+        "intake_and_analysis"
+      ],
+      "execution_mode": "api"
+    },
+    "xiaohongshu-mcp": {
+      "capabilities": [
+        "platform_upload",
+        "xiaohongshu_publish",
+        "xiaohongshu_search"
+      ],
+      "route_stages": [
+        "distribution",
+        "intake_and_analysis"
+      ],
+      "execution_mode": "mcp"
+    },
+    "xhs-downloader": {
+      "capabilities": [
+        "reference_download",
+        "xiaohongshu_download",
+        "competitor_intake",
+        "xiaohongshu_public_metrics"
+      ],
+      "route_stages": [
+        "intake_and_analysis",
+        "asset_generation",
+        "postmortem"
+      ],
+      "execution_mode": "cli"
+    },
+    "social-auto-upload": {
+      "capabilities": [
+        "platform_upload",
+        "cloud_draft",
+        "multi_platform_publish"
+      ],
+      "route_stages": [
+        "distribution"
+      ],
+      "execution_mode": "python"
+    },
+    "qianfan-sync": {
+      "capabilities": [
+        "account_management",
+        "account_labels",
+        "material_center",
+        "cover_editor",
+        "publish_queue",
+        "multi_platform_publish"
+      ],
+      "route_stages": [
+        "distribution"
+      ],
+      "execution_mode": "local_web_console_and_mcp"
+    },
+    "postbot": {
+      "capabilities": [
+        "browser_session_reuse",
+        "multi_platform_publish",
+        "content_adaptation"
+      ],
+      "route_stages": [
+        "distribution"
+      ],
+      "execution_mode": "browser_extension"
+    },
+    "opencli": {
+      "capabilities": [
+        "browser_session_reuse",
+        "douyin_activity_discovery",
+        "douyin_activity_publish",
+        "platform_readback"
+      ],
+      "route_stages": [
+        "distribution",
+        "postmortem"
+      ],
+      "execution_mode": "browser_cli"
+    },
+    "biliup-rs": {
+      "capabilities": [
+        "platform_upload",
+        "bilibili_publish"
+      ],
+      "route_stages": [
+        "distribution"
+      ],
+      "execution_mode": "archived_cli_fallback"
+    },
+    "postiz": {
+      "capabilities": [
+        "platform_upload",
+        "social_scheduling",
+        "multi_platform_publish",
+        "multi_platform_analytics",
+        "engagement_metrics"
+      ],
+      "route_stages": [
+        "distribution",
+        "postmortem"
+      ],
+      "execution_mode": "server"
+    },
+    "xurl": {
+      "capabilities": [
+        "platform_upload",
+        "x_publish"
+      ],
+      "route_stages": [
+        "distribution"
+      ],
+      "execution_mode": "cli"
+    },
+    "html-video": {
+      "capabilities": [
+        "html_video",
+        "remotion_render",
+        "gsap_motion",
+        "lottie_overlay",
+        "dynamic_chart",
+        "final_render"
+      ],
+      "route_stages": [
+        "render_and_composite",
+        "caption_and_audio"
+      ],
+      "execution_mode": "pnpm"
+    },
+    "html-anything": {
+      "capabilities": [
+        "html_template",
+        "visual_design",
+        "document_visualization",
+        "social_card"
+      ],
+      "route_stages": [
+        "scene_design",
+        "asset_generation",
+        "render_and_composite"
+      ],
+      "execution_mode": "pnpm"
+    },
+    "video-use": {
+      "capabilities": [
+        "video_edit",
+        "roughcut_plan",
+        "transcript",
+        "color_grade",
+        "subtitle_burnin",
+        "overlay_animation",
+        "final_render"
+      ],
+      "route_stages": [
+        "roughcut",
+        "render_and_composite",
+        "caption_and_audio"
+      ],
+      "execution_mode": "python"
+    },
+    "freecut": {
+      "capabilities": [
+        "video_edit",
+        "roughcut_plan",
+        "local_asr",
+        "color_grade",
+        "subtitle_burnin"
+      ],
+      "route_stages": [
+        "roughcut",
+        "caption_and_audio"
+      ],
+      "execution_mode": "python"
+    },
+    "talking-head-editor": {
+      "capabilities": [
+        "silence_cleanup",
+        "talking_head_packaging",
+        "multi_angle_edit",
+        "audio_mastering",
+        "subtitle_burnin"
+      ],
+      "route_stages": [
+        "roughcut",
+        "render_and_composite",
+        "caption_and_audio"
+      ],
+      "execution_mode": "reference_only"
+    },
+    "claude-shorts": {
+      "capabilities": [
+        "highlight_detection",
+        "long_to_short",
+        "vertical_caption_render",
+        "short_clip_distribution"
+      ],
+      "route_stages": [
+        "roughcut",
+        "caption_and_audio",
+        "distribution"
+      ],
+      "execution_mode": "python_and_remotion"
+    },
+    "video-wrapper": {
+      "capabilities": [
+        "talking_head_packaging",
+        "lower_thirds",
+        "quote_cards",
+        "chapter_titles",
+        "data_callout"
+      ],
+      "route_stages": [
+        "asset_generation",
+        "render_and_composite"
+      ],
+      "execution_mode": "python"
+    },
+    "remotion-video-skill": {
+      "capabilities": [
+        "remotion_render",
+        "programmatic_video",
+        "tts",
+        "caption_render",
+        "final_render"
+      ],
+      "route_stages": [
+        "render_and_composite",
+        "caption_and_audio"
+      ],
+      "execution_mode": "skill_reference"
+    },
+    "text-to-lottie": {
+      "capabilities": [
+        "lottie_asset",
+        "animated_sticker",
+        "transparent_overlay",
+        "motion_graphic"
+      ],
+      "route_stages": [
+        "asset_generation",
+        "render_and_composite"
+      ],
+      "execution_mode": "npm"
+    },
+    "claude-real-video": {
+      "capabilities": [
+        "video_reading",
+        "scene_detection",
+        "keyframes",
+        "contact_sheet",
+        "transcript"
+      ],
+      "route_stages": [
+        "intake_and_analysis",
+        "quality_control"
+      ],
+      "execution_mode": "python"
+    },
+    "claude-code-video-toolkit": {
+      "capabilities": [
+        "programmatic_video",
+        "remotion_template",
+        "transition_library",
+        "data_visualization",
+        "browser_recording_reference"
+      ],
+      "route_stages": [
+        "scene_design",
+        "render_and_composite"
+      ],
+      "execution_mode": "local_reference_only",
+      "excluded_capabilities": [
+        "cloud_gpu",
+        "third_party_tts",
+        "third_party_image_generation",
+        "third_party_music_generation",
+        "youtube_publish"
+      ]
+    },
+    "ian-xiaohei-illustrations": {
+      "capabilities": [
+        "conceptual_illustration",
+        "hand_drawn_illustration",
+        "shot_list",
+        "transparent_overlay"
+      ],
+      "route_stages": [
+        "scene_design",
+        "asset_generation"
+      ],
+      "execution_mode": "skill"
+    },
+    "seedance2-skill": {
+      "capabilities": [
+        "generated_broll",
+        "video_prompt_design",
+        "reference_to_video"
+      ],
+      "route_stages": [
+        "asset_generation"
+      ],
+      "execution_mode": "official_model_skill"
+    },
+    "hyperframes": {
+      "capabilities": [
+        "html_video",
+        "gsap_motion",
+        "timed_caption",
+        "dynamic_chart",
+        "final_render"
+      ],
+      "route_stages": [
+        "render_and_composite",
+        "caption_and_audio"
+      ],
+      "execution_mode": "bun"
+    },
+    "auto-editor": {
+      "capabilities": [
+        "silence_cleanup",
+        "pacing_cleanup",
+        "roughcut_plan"
+      ],
+      "route_stages": [
+        "roughcut"
+      ],
+      "execution_mode": "cli"
+    },
+    "chengfeng-videocut-skills": {
+      "capabilities": [
+        "video_edit",
+        "roughcut_plan",
+        "full_edit_provider_routing"
+      ],
+      "route_stages": [
+        "roughcut",
+        "render_and_composite"
+      ],
+      "execution_mode": "experimental_skill"
+    },
+    "remotion-video-toolkit": {
+      "capabilities": [
+        "remotion_render",
+        "programmatic_video",
+        "dynamic_chart",
+        "caption_render",
+        "three_d",
+        "final_render"
+      ],
+      "route_stages": [
+        "scene_design",
+        "render_and_composite",
+        "caption_and_audio"
+      ],
+      "execution_mode": "skill"
+    },
+    "taste-skill": {
+      "capabilities": [
+        "visual_design",
+        "art_direction",
+        "layout_design",
+        "anti_slop_review"
+      ],
+      "route_stages": [
+        "scene_design",
+        "quality_control"
+      ],
+      "execution_mode": "advisory_skill"
+    },
+    "emilkowalski-skills": {
+      "capabilities": [
+        "motion_design",
+        "motion_review",
+        "animation_audit",
+        "visual_polish"
+      ],
+      "route_stages": [
+        "scene_design",
+        "quality_control"
+      ],
+      "execution_mode": "advisory_and_review_skills"
+    },
+    "baoyu-skills": {
+      "capabilities": [
+        "article_illustration",
+        "cover_design",
+        "infographic",
+        "social_card",
+        "image_generation",
+        "markdown_format",
+        "markdown_to_html",
+        "wechat_html_layout"
+      ],
+      "route_stages": [
+        "scene_design",
+        "asset_generation",
+        "distribution"
+      ],
+      "execution_mode": "skill_collection_with_first_party_provider_allowlist"
+    },
+    "minimax-skills": {
+      "capabilities": [
+        "visual_design",
+        "art_direction",
+        "editorial_layout",
+        "motion_design",
+        "brand_system",
+        "image_generation",
+        "image_to_html"
+      ],
+      "route_stages": [
+        "scene_design",
+        "asset_generation",
+        "quality_control"
+      ],
+      "execution_mode": "official_model_and_local_skills"
+    },
+    "anthropics-skills": {
+      "capabilities": [
+        "visual_design",
+        "poster_design",
+        "algorithmic_art",
+        "brand_system"
+      ],
+      "route_stages": [
+        "scene_design",
+        "asset_generation"
+      ],
+      "execution_mode": "skill_collection"
+    },
+    "inference-skills": {
+      "capabilities": [
+        "visual_design",
+        "motion_design",
+        "renderer_library_selection",
+        "web_animation"
+      ],
+      "route_stages": [
+        "scene_design",
+        "render_and_composite"
+      ],
+      "execution_mode": "skill_collection"
+    },
+    "media-downloader": {
+      "capabilities": [
+        "reference_download",
+        "public_asset_collection",
+        "video_download"
+      ],
+      "route_stages": [
+        "intake_and_analysis",
+        "asset_generation"
+      ],
+      "execution_mode": "skill_cli"
+    },
+    "guizang-social-card-skill": {
+      "capabilities": [
+        "social_card",
+        "live_photo",
+        "poster_design",
+        "data_card",
+        "cover_design"
+      ],
+      "route_stages": [
+        "asset_generation",
+        "render_and_composite"
+      ],
+      "execution_mode": "skill_node"
+    },
+    "mixpost": {
+      "capabilities": ["multi_platform_analytics", "engagement_metrics", "audience_insights"],
+      "route_stages": ["distribution", "postmortem"],
+      "execution_mode": "candidate_server_adapter"
+    },
+    "4cat": {
+      "capabilities": ["social_dataset_capture", "competitor_analysis", "comment_analysis"],
+      "route_stages": ["postmortem"],
+      "execution_mode": "candidate_external_service"
+    },
+    "zeeschuimer": {
+      "capabilities": ["browser_social_capture", "visible_data_export"],
+      "route_stages": ["postmortem"],
+      "execution_mode": "candidate_browser_extension"
+    },
+    "minet": {
+      "capabilities": ["youtube_search", "web_mining", "competitor_discovery"],
+      "route_stages": ["intake_and_analysis", "postmortem"],
+      "execution_mode": "candidate_cli"
+    },
+    "tiktok-api": {
+      "capabilities": ["tiktok_public_metrics", "tiktok_search", "comment_collection"],
+      "route_stages": ["postmortem"],
+      "execution_mode": "candidate_python_adapter"
+    },
+    "twscrape": {
+      "capabilities": ["x_public_metrics", "x_search", "thread_capture"],
+      "route_stages": ["intake_and_analysis", "postmortem"],
+      "execution_mode": "candidate_python_adapter"
+    },
+    "youtube-operational-api": {
+      "capabilities": ["youtube_public_metrics", "video_lookup", "api_fallback"],
+      "route_stages": ["postmortem"],
+      "execution_mode": "fallback_service"
+    },
+    "bertopic": {
+      "capabilities": ["comment_topic_clustering", "theme_evolution", "audience_question_mining"],
+      "route_stages": ["postmortem"],
+      "execution_mode": "analysis_dependency"
+    },
+    "wechatpy": {
+      "capabilities": ["wechat_official_metrics", "article_read_metrics", "share_metrics", "follower_metrics"],
+      "route_stages": ["distribution", "postmortem"],
+      "execution_mode": "official_api_python_dependency"
+    },
+    "mediacrawler": {
+      "capabilities": ["domestic_platform_search", "competitor_posts", "author_profiles", "comment_threads"],
+      "route_stages": ["intake_and_analysis", "postmortem"],
+      "execution_mode": "candidate_isolated_worker"
+    },
+    "yt-dlp": {
+      "capabilities": ["video_metadata", "subtitle_download", "thumbnail_download", "comment_export", "sample_download"],
+      "route_stages": ["intake_and_analysis", "asset_generation", "postmortem"],
+      "execution_mode": "cli"
+    },
+    "pyabsa": {
+      "capabilities": ["aspect_sentiment", "comment_opinion_extraction", "feature_feedback"],
+      "route_stages": ["postmortem"],
+      "execution_mode": "analysis_dependency"
+    },
+    "dowhy": {
+      "capabilities": ["causal_inference", "hypothesis_refutation", "experiment_analysis"],
+      "route_stages": ["postmortem"],
+      "execution_mode": "gated_analysis_dependency"
+    }
+  },
+  "rejected": [
+    {
+      "name": "video-editing-pipeline",
+      "reason": "No stable independent upstream repository."
+    },
+    {
+      "name": "ffmpeg-usage",
+      "reason": "No stable independent upstream; covered by the internal FFmpeg toolkit."
+    },
+    {
+      "name": "caption-clip",
+      "reason": "Low adoption, no clear license, and duplicated caption capability."
+    },
+    {
+      "name": "product-launch-video-skill",
+      "reason": "Niche and lower quality than retained Remotion toolkits."
+    },
+    {
+      "name": "rednote-mcp",
+      "reason": "Duplicated by the retained xiaohongshu-mcp and stronger browser/API routes."
+    },
+    {
+      "name": "x-cli",
+      "reason": "Duplicated by xurl and existing publishing routes."
+    },
+    {
+      "name": "boutique/remotion-video",
+      "reason": "Hard-coded obsolete local paths."
+    },
+    {
+      "name": "boutique/video-subtitles",
+      "reason": "Hebrew/English-oriented and unsuitable for the Chinese primary workflow."
+    },
+    {
+      "name": "boutique/demo-video",
+      "reason": "Depends on obsolete Clawdbot browser paths."
+    },
+    {
+      "name": "boutique/video-agent",
+      "reason": "Documentation-only HeyGen API wrapper with no installable upstream."
+    },
+    {
+      "name": "boutique/animation-duplicates",
+      "reason": "Materially duplicated by retained Remotion, HyperFrames, Lottie and animation-review Skills."
+    },
+    {
+      "name": "governed-dcf-skill",
+      "reason": "Useful finance methodology but weak fit for video generation or self-media operations; upstream has no declared license, so keep outside the executable reserve."
+    },
+    {
+      "name": "livo-redskill-p5-attachments",
+      "reason": "No stable public upstream or license was verified. Generic procedural-motion ideas are already covered by algorithmic-art and GSAP; do not register as executable."
+    }
+  ],
+  "archived_for_production": [
+    "auto-editor",
+    "chengfeng-videocut-skills",
+    "claude-code-video-toolkit",
+    "claude-shorts"
+  ],
+  "archived_note": "2026-08-22 审计降级：实验/参考状态，无生产调用路由；保留为参考资产，不进入默认路由。"
+}

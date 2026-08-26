@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Creator Video Learning Analysis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "video",
+    "content_architecture",
+    "director_analysis",
+    "design_analysis",
+    "storyboard_analysis",
+    "transition_analysis",
+    "production_analysis",
+    "chart_analysis",
+    "aesthetic_profile",
+    "reproduction_stack",
+    "reusable_rules",
+    "anti_patterns",
+    "confidence_notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "dasheng.video_creator_learning_analysis.v1"
+    },
+    "analyzed_at": {"type": "string"},
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "creator_id", "creator_name", "video_id", "title", "url", "duration_sec", "upload_date"],
+      "properties": {
+        "platform": {"type": "string"},
+        "creator_id": {"type": "string"},
+        "creator_name": {"type": "string"},
+        "video_id": {"type": "string"},
+        "title": {"type": "string"},
+        "url": {"type": "string"},
+        "duration_sec": {"type": "number"},
+        "upload_date": {"type": "string"}
+      }
+    },
+    "content_architecture": {"type": "array", "items": {"type": "string"}},
+    "director_analysis": {"type": "array", "items": {"type": "string"}},
+    "design_analysis": {"type": "array", "items": {"type": "string"}},
+    "storyboard_analysis": {"type": "array", "items": {"type": "string"}},
+    "transition_analysis": {"type": "array", "items": {"type": "string"}},
+    "production_analysis": {"type": "array", "items": {"type": "string"}},
+    "chart_analysis": {"type": "array", "items": {"type": "string"}},
+    "aesthetic_profile": {"type": "array", "items": {"type": "string"}},
+    "reproduction_stack": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool", "use_for", "confidence", "reason", "implementation_note"],
+        "properties": {
+          "tool": {"type": "string"},
+          "use_for": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "reason": {"type": "string"},
+          "implementation_note": {"type": "string"}
+        }
+      }
+    },
+    "reusable_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rule", "applies_to", "confidence", "evidence", "review_required"],
+        "properties": {
+          "rule": {"type": "string"},
+          "applies_to": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "evidence": {"type": "string"},
+          "review_required": {"type": "boolean"}
+        }
+      }
+    },
+    "anti_patterns": {"type": "array", "items": {"type": "string"}},
+    "confidence_notes": {"type": "array", "items": {"type": "string"}}
+  }
+}

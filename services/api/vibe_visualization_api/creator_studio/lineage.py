@@ -79,6 +79,7 @@ class ArtifactLineage:
     ) -> tuple[dict[str, Any], list[dict[str, str]]]:
         state = document["nodeStates"][f"{stage_id}.{node_id}"]
         artifact_type = str(artifact.get("type") or "").strip()
+        artifact_slot = str(artifact.get("slot") or "").strip() or None
         artifact_path = str(artifact.get("path") or "").strip()
         if not artifact_type or not artifact_path:
             raise ValueError("artifact type and path are required")
@@ -87,6 +88,7 @@ class ArtifactLineage:
             item
             for item in state.get("artifacts", [])
             if str(item.get("type") or "") == artifact_type
+            and (str(item.get("slot") or "").strip() or None) == artifact_slot
             and str(item.get("status") or "created") in CURRENT_ARTIFACT_STATUSES
         ]
         requested_status = str(artifact.get("status") or "created")
@@ -104,7 +106,12 @@ class ArtifactLineage:
             else requested_status
         )
         version = max(
-            (int(item.get("version") or 1) for item in state.get("artifacts", []) if item.get("type") == artifact_type),
+            (
+                int(item.get("version") or 1)
+                for item in state.get("artifacts", [])
+                if item.get("type") == artifact_type
+                and (str(item.get("slot") or "").strip() or None) == artifact_slot
+            ),
             default=0,
         ) + 1
         artifact_id = str(artifact.get("id") or f"artifact-{uuid4().hex[:12]}")
@@ -122,6 +129,8 @@ class ArtifactLineage:
             "parametersDigest": self._digest(state.get("parameters", {})),
             "createdAt": created_at,
         }
+        if artifact_slot:
+            created["slot"] = artifact_slot
         if execution_id:
             created["executionId"] = execution_id
         if editor_session_id:
@@ -144,8 +153,12 @@ class ArtifactLineage:
                 source_stage_id=stage_id,
                 source_node_id=node_id,
                 artifact_ids={str(item["id"]) for item in previous},
-                artifact_types={artifact_type},
-                reason=f"{stage_id}/{node_id} 生成了 {artifact_type} v{version}",
+                artifact_types=set() if artifact_slot else {artifact_type},
+                reason=(
+                    f"{stage_id}/{node_id} 生成了 {artifact_type}[{artifact_slot}] v{version}"
+                    if artifact_slot
+                    else f"{stage_id}/{node_id} 生成了 {artifact_type} v{version}"
+                ),
                 stale_at=created_at,
             )
         return created, impacts
@@ -158,7 +171,7 @@ class ArtifactLineage:
         node_id: str,
         artifact: dict[str, Any],
     ) -> dict[str, Any]:
-        return {
+        material = {
             "type": artifact["type"],
             "path": artifact["path"],
             "source": "upstream",
@@ -171,6 +184,9 @@ class ArtifactLineage:
             "sourceNodeId": node_id,
             "status": "active",
         }
+        if artifact.get("slot"):
+            material["slot"] = artifact["slot"]
+        return material
 
     def mark_downstream_stale(
         self,

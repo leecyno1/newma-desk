@@ -1,0 +1,45 @@
+name: Mainline Hygiene CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  focused-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest
+        run: |
+          python -m pytest \
+            tests/test_repo_hygiene.py \
+            tests/test_workflow_doctor.py \
+            tests/test_mainline_hardening.py \
+            tests/test_publish_upstream_registry.py \
+            tests/test_publish_channel_executor.py \
+            tests/test_stage_draft_skill.py \
+            tests/test_stage_rewrite_v3.py \
+            tests/e2e/test_skill_discovery.py \
+            -q
+
+      - name: Verify installation
+        run: |
+          python scripts/verify_installation.py

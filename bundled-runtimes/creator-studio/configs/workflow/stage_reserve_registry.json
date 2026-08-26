@@ -1,0 +1,445 @@
+{
+  "schema_version": "newma.stage_reserve_registry.v2",
+  "updated_at": "2026-08-23",
+  "purpose": "Register retained and reference-only upstream projects against the six-stage Newma Media Studio workflow without promoting unverified candidates into the production route.",
+  "valid_stages": [
+    "intake",
+    "brief",
+    "draft",
+    "transwrite",
+    "publish",
+    "postmortem"
+  ],
+  "routing_policy": {
+    "ready": "May be selected by the stage router within its declared execution mode.",
+    "adapter_ready": "May be selected only through the named Newma compatibility adapter and its quality gates.",
+    "cloned_not_promoted": "Visible to the director as a fallback candidate, but cannot become the primary route before its blockers are cleared.",
+    "blocked": "Registered for future adaptation only and must not be invoked directly.",
+    "methodology_only": "May inform analysis and review, but no upstream source or executable code may be copied or invoked.",
+    "license_guard": "Projects without a verified upstream license remain reference-only and are never cloned by reserve synchronization.",
+    "provider_guard": "Official GPT/OpenAI, Kimi/Moonshot, Gemini/Google, Seedance/Jimeng/Seedream and MiniMax model credentials are valid optional dependencies. Third-party service keys and additional desktop Apps are excluded from Transwrite routing."
+  },
+  "stages": {
+    "intake": [],
+    "brief": [
+      {
+        "project": "governed-dcf-skill",
+        "role": "auditable_valuation_methodology",
+        "availability": "methodology_only",
+        "execution_mode": "reference_only",
+        "license_status": "missing",
+        "clone_allowed": false,
+        "fallback": [
+          "anthropic-fs-financial-analysis-dcf-model"
+        ],
+        "notes": "Use its governed-assumption and source-traceability principles when a topic requires DCF work; execute the model through the licensed Anthropic DCF Skill."
+      }
+    ],
+    "draft": [
+      {
+        "project": "taste-skill",
+        "role": "visual_language_and_anti_slop_review",
+        "availability": "ready",
+        "execution_mode": "advisory_skill",
+        "installed_skills": [
+          "design-taste-frontend"
+        ],
+        "fallback": [
+          "high-end-visual-design",
+          "brand-guidelines"
+        ]
+      },
+      {
+        "project": "impeccable",
+        "role": "html_css_design_audit_reserve",
+        "availability": "ready",
+        "execution_mode": "advisory_skill",
+        "fallback": [
+          "design-taste-frontend",
+          "review-animations"
+        ],
+        "blockers": [
+          "newma_adapter_required",
+          "browser_audit_smoke_test_required"
+        ],
+        "adapter": "scripts/run_impeccable_visual_qc.py",
+        "promoted_at": "2026-08-22"
+      },
+      {
+        "project": "governed-dcf-skill",
+        "role": "dcf_assumption_audit_methodology",
+        "availability": "methodology_only",
+        "execution_mode": "reference_only",
+        "license_status": "missing",
+        "clone_allowed": false,
+        "fallback": [
+          "anthropic-fs-financial-analysis-dcf-model"
+        ]
+      }
+    ],
+    "transwrite": [
+      {
+        "project": "baoyu-skills",
+        "role": "article_visual_cover_and_infographic_suite",
+        "availability": "ready",
+        "execution_mode": "skill_suite_with_first_party_provider_allowlist",
+        "installed_skills": [
+          "baoyu-imagine",
+          "baoyu-cover-image",
+          "baoyu-article-illustrator",
+          "baoyu-infographic"
+        ],
+        "allowed_providers": [
+          "codex",
+          "openai",
+          "google",
+          "gemini",
+          "minimax",
+          "jimeng",
+          "seedream"
+        ],
+        "blocked_providers": [
+          "openrouter",
+          "replicate"
+        ],
+        "fallback": [
+          "imagegen",
+          "newma-lemon-illustrations"
+        ]
+      },
+      {
+        "project": "minimax-skills",
+        "role": "official_model_visual_and_brand_suite",
+        "availability": "ready",
+        "execution_mode": "official_model_and_local_skills",
+        "installed_skills": [
+          "brandkit",
+          "high-end-visual-design",
+          "image-to-code",
+          "minimalist-ui"
+        ],
+        "allowed_providers": [
+          "minimax",
+          "mmx",
+          "codex",
+          "openai",
+          "google",
+          "gemini"
+        ],
+        "fallback": [
+          "design-taste-frontend",
+          "brand-guidelines"
+        ]
+      },
+      {
+        "project": "seedance2-skill",
+        "role": "official_generated_broll_prompt_route",
+        "availability": "ready",
+        "execution_mode": "official_model_skill",
+        "installed_skills": [
+          "seedance2-skill"
+        ],
+        "allowed_providers": [
+          "seedance",
+          "jimeng"
+        ],
+        "fallback": [
+          "newma-video-broll-generator",
+          "remotion-video-toolkit"
+        ],
+        "notes": "Model access is optional configuration; generated footage cannot replace factual evidence."
+      },
+      {
+        "project": "claude-code-video-toolkit",
+        "role": "local_remotion_template_and_transition_reference",
+        "availability": "cloned_not_promoted",
+        "execution_mode": "local_reference_only",
+        "fallback": [
+          "remotion-video-toolkit",
+          "newma-html-video-bridge"
+        ],
+        "excluded_routes": [
+          "modal",
+          "runpod",
+          "elevenlabs",
+          "cloudflare_r2"
+        ],
+        "blockers": [
+          "local_template_adapter_required"
+        ]
+      },
+      {
+        "project": "video-shotcraft",
+        "role": "shot_design_and_remotion_reserve",
+        "availability": "adapter_ready",
+        "execution_mode": "newma_vox_adapter",
+        "adapter": "skills/dasheng-vox-skills/scripts/shotcraft_adapter.py",
+        "fallback": [
+          "remotion-video-toolkit",
+          "newma-video-director"
+        ],
+        "blockers": []
+      },
+      {
+        "project": "openchatcut",
+        "role": "primary_collaborative_editor_runtime",
+        "availability": "adapter_ready",
+        "execution_mode": "complete_upstream_thin_adapter",
+        "adapter": "configs/workflow/newma_creator_studio_registry.json#editor_adapters/openchatcut",
+        "target_node": "transwrite.manual_edit",
+        "agent_protocol": "begin_edit_session -> draft commands -> review_edit_session -> human apply/reject -> artifact callback",
+        "template_lifecycle": [
+          "pre_edit_collection",
+          "in_edit_apply",
+          "post_edit_save_project_template"
+        ],
+        "fallback": [
+          "roughcut_review",
+          "html_video_project_studio",
+          "newma-video-editing-bridge"
+        ],
+        "blockers": []
+      },
+      {
+        "project": "video-autopilot-kit",
+        "role": "batch_video_production_adapter_reserve",
+        "availability": "blocked",
+        "execution_mode": "adapter_required",
+        "fallback": [
+          "newma-stage-transwrite",
+          "newma-video-editing-bridge"
+        ],
+        "blockers": [
+          "no_standard_skill_md",
+          "capcut_schema_review_required",
+          "output_contract_guard_required",
+          "smoke_test_required"
+        ]
+      },
+      {
+        "project": "gsap-skills",
+        "role": "html_motion_suite_reserve",
+        "availability": "cloned_not_promoted",
+        "execution_mode": "suite_router",
+        "suite_skills": [
+          "gsap-core",
+          "gsap-frameworks",
+          "gsap-performance",
+          "gsap-plugins",
+          "gsap-react",
+          "gsap-scrolltrigger",
+          "gsap-timeline",
+          "gsap-utils"
+        ],
+        "fallback": [
+          "hyperframes:gsap",
+          "animation-vocabulary",
+          "improve-animations"
+        ],
+        "blockers": [
+          "suite_router_adapter_required",
+          "html_video_performance_smoke_test_required"
+        ]
+      },
+      {
+        "project": "taste-skill",
+        "role": "scene_visual_review",
+        "availability": "ready",
+        "execution_mode": "advisory_skill",
+        "installed_skills": [
+          "design-taste-frontend"
+        ],
+        "fallback": [
+          "high-end-visual-design"
+        ]
+      },
+      {
+        "project": "impeccable",
+        "role": "html_scene_browser_qc_reserve",
+        "availability": "ready",
+        "execution_mode": "advisory_skill",
+        "fallback": [
+          "design-taste-frontend",
+          "review-animations"
+        ],
+        "blockers": [
+          "newma_adapter_required",
+          "browser_audit_smoke_test_required"
+        ],
+        "adapter": "scripts/run_impeccable_visual_qc.py",
+        "promoted_at": "2026-08-22"
+      }
+    ],
+    "publish": [
+      {
+        "project": "impeccable",
+        "role": "cover_and_publish_surface_visual_qc_reserve",
+        "availability": "ready",
+        "execution_mode": "advisory_skill",
+        "fallback": [
+          "design-taste-frontend",
+          "newma-stage-publish"
+        ],
+        "blockers": [
+          "newma_adapter_required",
+          "browser_audit_smoke_test_required"
+        ],
+        "adapter": "scripts/run_impeccable_visual_qc.py",
+        "promoted_at": "2026-08-22"
+      },
+      {
+        "project": "video-autopilot-kit",
+        "role": "batch_delivery_and_capcut_handoff_reserve",
+        "availability": "blocked",
+        "execution_mode": "adapter_required",
+        "fallback": [
+          "newma-stage-publish",
+          "qianfan-sync"
+        ],
+        "blockers": [
+          "no_standard_skill_md",
+          "capcut_schema_review_required",
+          "output_contract_guard_required"
+        ]
+      }
+    ],
+    "postmortem": [
+      {
+        "project": "opencli",
+        "role": "authenticated_platform_readback",
+        "availability": "ready",
+        "execution_mode": "browser_cli",
+        "target_node": "postmortem.metrics_collect",
+        "fallback": ["manual_platform_snapshot"],
+        "notes": "Reuse authenticated browser sessions for platform readback; normalize only visible, verified metrics."
+      },
+      {
+        "project": "postiz",
+        "role": "multi_platform_metrics_console",
+        "availability": "cloned_not_promoted",
+        "execution_mode": "external_server_adapter",
+        "target_node": "postmortem.metrics_collect",
+        "fallback": ["opencli", "manual_platform_snapshot"],
+        "blockers": ["server_stack_not_installed", "analytics_export_adapter_required"]
+      },
+      {
+        "project": "wechatpy",
+        "role": "official_wechat_datacube_metrics",
+        "availability": "blocked",
+        "execution_mode": "official_api_python_dependency",
+        "target_node": "postmortem.metrics_collect",
+        "fallback": ["manual_wechat_backend_snapshot"],
+        "blockers": ["candidate_not_cloned", "wechat_account_permission_required"]
+      },
+      {
+        "project": "mixpost",
+        "role": "platform_analytics_console_reserve",
+        "availability": "blocked",
+        "execution_mode": "external_server_adapter",
+        "target_node": "postmortem.metrics_collect",
+        "fallback": ["postiz", "opencli"],
+        "blockers": ["candidate_not_cloned", "analytics_contract_smoke_test_required"]
+      },
+      {
+        "project": "xhs-downloader",
+        "role": "xiaohongshu_competitor_metrics_collector",
+        "availability": "cloned_not_promoted",
+        "execution_mode": "cli_adapter",
+        "target_node": "postmortem.competitor_benchmark",
+        "fallback": ["zeeschuimer", "manual_competitor_capture"],
+        "blockers": ["login_state_required", "metric_field_normalizer_required"]
+      },
+      {
+        "project": "4cat",
+        "role": "cross_platform_competitor_analysis_runtime",
+        "availability": "blocked",
+        "execution_mode": "external_service_dataset_handoff",
+        "target_node": "postmortem.competitor_benchmark",
+        "dependencies": ["zeeschuimer"],
+        "fallback": ["minet", "xhs-downloader"],
+        "blockers": ["candidate_not_cloned", "dataset_handoff_adapter_required"]
+      },
+      {
+        "project": "mediacrawler",
+        "role": "domestic_multi_platform_competitor_worker",
+        "availability": "blocked",
+        "execution_mode": "isolated_collection_worker",
+        "target_node": "postmortem.competitor_benchmark",
+        "fallback": ["xhs-downloader", "zeeschuimer", "manual_competitor_capture"],
+        "blockers": ["candidate_not_cloned", "login_state_guard_required", "collection_rate_policy_required"]
+      },
+      {
+        "project": "minet",
+        "role": "public_competitor_discovery_cli",
+        "availability": "blocked",
+        "execution_mode": "cli_adapter",
+        "target_node": "postmortem.competitor_benchmark",
+        "fallback": ["opencli", "manual_competitor_search"],
+        "blockers": ["candidate_not_cloned", "competitor_dataset_adapter_required"]
+      },
+      {
+        "project": "tiktok-api",
+        "role": "tiktok_public_metrics_adapter",
+        "availability": "blocked",
+        "execution_mode": "optional_python_adapter",
+        "target_node": "postmortem.metrics_collect",
+        "fallback": ["zeeschuimer", "manual_platform_snapshot"],
+        "blockers": ["candidate_not_cloned", "unofficial_api_change_risk"]
+      },
+      {
+        "project": "twscrape",
+        "role": "x_public_metrics_adapter",
+        "availability": "blocked",
+        "execution_mode": "optional_python_adapter",
+        "target_node": "postmortem.competitor_benchmark",
+        "fallback": ["opencli", "manual_competitor_capture"],
+        "blockers": ["candidate_not_cloned", "account_rotation_policy_required"]
+      },
+      {
+        "project": "youtube-operational-api",
+        "role": "youtube_public_data_fallback",
+        "availability": "blocked",
+        "execution_mode": "fallback_service",
+        "target_node": "postmortem.metrics_collect",
+        "fallback": ["official_youtube_data_api", "minet"],
+        "blockers": ["candidate_not_cloned", "official_api_must_remain_primary"]
+      },
+      {
+        "project": "yt-dlp",
+        "role": "public_video_sample_and_metadata_cli",
+        "availability": "blocked",
+        "execution_mode": "cli_json_adapter",
+        "target_node": "postmortem.competitor_benchmark",
+        "fallback": ["minet", "official_youtube_data_api"],
+        "blockers": ["candidate_not_cloned", "competitor_dataset_adapter_required"]
+      },
+      {
+        "project": "bertopic",
+        "role": "comment_theme_and_question_clustering",
+        "availability": "blocked",
+        "execution_mode": "analysis_dependency",
+        "target_node": "postmortem.performance_analysis",
+        "fallback": ["llm_topic_summary"],
+        "blockers": ["candidate_not_cloned", "chinese_embedding_selection_required"]
+      },
+      {
+        "project": "pyabsa",
+        "role": "aspect_level_comment_opinion_analysis",
+        "availability": "blocked",
+        "execution_mode": "analysis_dependency",
+        "target_node": "postmortem.performance_analysis",
+        "fallback": ["llm_aspect_summary"],
+        "blockers": ["candidate_not_cloned", "chinese_domain_calibration_required"]
+      },
+      {
+        "project": "dowhy",
+        "role": "cross_run_causal_hypothesis_refutation",
+        "availability": "blocked",
+        "execution_mode": "gated_analysis_dependency",
+        "target_node": "postmortem.performance_analysis",
+        "fallback": ["descriptive_comparison"],
+        "blockers": ["candidate_not_cloned", "minimum_sample_gate_required", "causal_graph_required"]
+      }
+    ]
+  }
+}

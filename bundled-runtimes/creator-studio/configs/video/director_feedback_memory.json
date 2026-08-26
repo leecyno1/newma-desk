@@ -1,0 +1,360 @@
+{
+  "schema_version": "dasheng.video.director_feedback_memory.v1",
+  "updated_at": "2026-08-12",
+  "priority": "user_approved_default",
+  "entries": [
+    {
+      "id": "2026-08-12-vox-text-sync-emphasis-entity-labels",
+      "scope": "vox_explainer_video",
+      "status": "active",
+      "feedback": "VOX 成片的文字层必须承担三种不同职责：底部字幕精确跟随原旁白；中心判断、反转、关键数字和结论用短花字强调；人物、机构、地点和关键物件出现时，在对应贴纸附近同步显示名称说明。三种文字不能互相替代。",
+      "director_defaults": {
+        "subtitle_policy": "Use original narration text with ASR word/sentence timestamps; never distribute caption chunks evenly across a shot.",
+        "subtitle_required_fields": ["text", "startMs", "endMs", "timingSource"],
+        "preferred_subtitle_timing_source": "asr-aligned-to-script",
+        "emphasis_policy": "Add concise 2-8 character emphasis cues for central claims, reversals, key numbers and conclusion beats; do not repeat full captions.",
+        "entity_label_policy": "Label each newly introduced person, institution, place and key object near its corresponding sticker while it is visible.",
+        "entity_label_examples": ["央行建筑 -> 央行", "人物贴纸 -> 真实姓名"],
+        "generated_text_policy": "Render subtitles, emphasis cues and entity labels only in Remotion; keep generated reference images and generated clips text-free."
+      },
+      "quality_guardrails": [
+        "Reject subtitles that visibly lead or lag the spoken phrase.",
+        "Reject a main claim, reversal, key number or conclusion with no emphasis cue.",
+        "Reject an introduced person or key sticker with no readable nearby label.",
+        "Labels must not cover faces, evidence, motion paths or bottom captions."
+      ]
+    },
+    {
+      "id": "2026-08-10-vox-question-led-investigation-lane",
+      "scope": "vox_explainer_video",
+      "status": "active",
+      "feedback": "VOX 必须成为平行于普通无头口播的独立调查解释线。全片由一个中心问题驱动，用证据地图、历史资料、机制动画、新闻/访谈/现场证据、反证或边界条件逐步收窄答案，最后只给有限结论。",
+      "director_defaults": {
+        "default_format": "1920x1080_16:9_30fps",
+        "narrative_state_machine": [
+          "cold_open",
+          "central_question",
+          "evidence_map",
+          "historical_context",
+          "mechanism_explainer",
+          "field_or_human_evidence",
+          "counterargument",
+          "data_resolution",
+          "qualified_conclusion"
+        ],
+        "evidence_pillars_target": [3, 6],
+        "real_material_runtime_share_target": [0.35, 0.55],
+        "direct_material_priority": [
+          "news_report",
+          "interview_or_speech",
+          "historical_archive",
+          "on_site_footage",
+          "source_document",
+          "verified_data"
+        ],
+        "counterargument_required": true,
+        "epistemic_labels_required": ["fact", "opinion", "inference", "unknown"],
+        "opening_grammar": "real_video + animated_title + central_question + evidence_map + data_or_rule_layer + captions",
+        "human_anchor_policy": "pip_or_split_by_default; fullscreen only when the original statement or lower third is direct evidence",
+        "technology_budget": "Use maps, timelines, shared elements, depth motion, annotations, and sound bridges only where they clarify evidence."
+      },
+      "evidence_guardrails": [
+        "Generic background footage cannot prove a named event, company, person, policy, price, valuation, or causal claim.",
+        "Generated footage may explain mechanisms or bridge scenes but must not impersonate real news, interviews, historical records, or on-site evidence.",
+        "A source chart must first appear complete and readable before any detail crop or animated reconstruction.",
+        "Contradictory evidence and boundary conditions cannot be removed merely to make the conclusion cleaner.",
+        "The final conclusion must state what is known, inferred, conditional, and still unknown."
+      ]
+    },
+    {
+      "id": "2026-08-10-vox-image2-scene-production",
+      "scope": "vox_explainer_video",
+      "status": "active",
+      "source": {
+        "platform": "xiaohongshu",
+        "reference_ids": [
+          "6a6436d7000000000f02ae8d",
+          "6a5efd4b000000001101568d",
+          "6a6ca0df0000000005020818",
+          "6a6745fd000000001c00fcbe",
+          "6a5f7d94000000000401ce65"
+        ]
+      },
+      "feedback": "VOX 第三条链路不能复用无头口播的卡片轮播。先生成风格板，锁定配色、纸张材质、字体、英雄物件和空间世界；再把口播拆成微分镜。每个微分镜先生成完整 Image2 场景图，再按焦点和景别裁切，导演必须在真实场景图和横方竖裁切接触表上审核；审核通过后才逐镜图生视频，最终由 Remotion 叠加精确文字、数据、图表和证据素材。",
+      "director_defaults": {
+        "visual_system": "continuous_editorial_paper_collage",
+        "style_board_required": true,
+        "micro_shots_per_scene_min": 3,
+        "micro_shot_duration_sec": [2.5, 5],
+        "spatial_mechanism_interval_sec": [12, 20],
+        "image2_scene_policy": "one complete scene still per micro-shot; first approved scene locks the world",
+        "crop_storyboard_policy": "review SOURCE + 16:9 + 1:1 + 9:16 before image-to-video",
+        "generated_motion_policy": "one approved crop drives one generated shot; Remotion remains the master compositor",
+        "continuity_anchors": [
+          "paper_material_family",
+          "palette",
+          "hero_objects",
+          "red_thread_relationships",
+          "tabletop_depth",
+          "camera_grammar"
+        ],
+        "chart_policy": "physicalize verified data inside the editorial world; do not cut to isolated white dashboards"
+      },
+      "quality_guardrails": [
+        "A style board is required before scene image or video generation.",
+        "Every approved micro-shot requires a complete Image2 scene still.",
+        "Image-to-video cannot start before SOURCE and aspect crops pass director review.",
+        "A normal VOX scene cannot hold one large card for the whole narration paragraph.",
+        "Generated motion plates cannot impersonate direct evidence.",
+        "Generated shot motion must preserve the approved scene subject, material system and spatial layout.",
+        "The final composite must visibly differ from explainer_html_video in scene grammar and renderer family."
+      ]
+    },
+    {
+      "id": "2026-08-11-vox-image2-20s-production-test",
+      "scope": "vox_explainer_video",
+      "status": "active",
+      "feedback": "20 秒黄金实测确认：VOX Image2 必须逐镜图生视频，再由 Remotion 加精确标题和字幕。模型原片不能整段照用，要抽查开头、中段、结尾并在后段强光、文字变形或物件漂移前裁切。同一证据世界优先干净切；需要叠化时只让入镜预叠 3-4 帧，避免双影，同时保持出镜不透明以消除黑白闪屏。",
+      "director_defaults": {
+        "mmx_preflight": "mmx --base-url https://api.minimaxi.com quota show",
+        "mmx_base_url_policy": "explicit root URL without /v1",
+        "image_to_video_fallback_model": "MiniMax-Hailuo-2.3-Fast when H3 returns TokenPlan/Credit code 2013",
+        "generated_clip_review_points": [0.05, 0.5, 0.95],
+        "generated_clip_policy": "trim to the semantic action before late drift or excessive effects; normalize to 1920x1080_30fps",
+        "transition_policy": "clean match cut by default; otherwise 3-4 incoming prelap frames over an opaque outgoing shot",
+        "text_policy": "generated paper labels stay blank; exact title, number and caption are fitted and rendered in Remotion"
+      },
+      "quality_guardrails": [
+        "Do not use a long dissolve between two detailed evidence tableaux.",
+        "Do not accept a title merely because it fits the source still; inspect the final rendered frame with captions present.",
+        "Do not keep the late portion of a generated clip when it introduces a flare, new object, mutated text or unstable ending.",
+        "Encoded delivery must pass black-frame, white-frame and freeze scans at every scene boundary."
+      ]
+    },
+    {
+      "id": "2026-07-25-real-video-depth-and-opening-composite",
+      "scope": "explainer_html_video",
+      "status": "active",
+      "feedback": "真实下载视频叠加动画、互动图表、标题和大纲的分镜效果很好。以后开头优先使用这种复合镜头，扩大真实视频素材池和成片占比，并允许真实视频作为多个类型分镜的连续背景。",
+      "director_defaults": {
+        "opening_grammar": "real_video_base + animated_title + outline_or_question_map + interactive_data_or_diagram + captions",
+        "opening_window_sec": [15, 35],
+        "candidate_download_target_for_4_6_min": [10, 18],
+        "usable_local_clip_target_for_4_6_min": [6, 12],
+        "visual_category_target_min": 4,
+        "publisher_or_source_target_min": 2,
+        "real_video_runtime_share_target": [0.2, 0.35],
+        "real_video_windows_target": [6, 12],
+        "continuity_policy": "Reuse a coherent footage family across hook, explanation, chapter bridges, calculations, and recap with different time ranges, crops, overlays, and focus states; avoid replaying the same exact shot treatment.",
+        "composition_policy": "Real video may be fullscreen, split-screen, masked panel, soft background, or evidence-adjacent context while HTML Video and Remotion supply titles, outlines, charts, rules, timelines, numbers, annotations, and captions.",
+        "exception_policy": "If semantically relevant or publishable footage cannot be obtained, document the search attempts, rights limitation, and substitute route instead of silently falling back to a static title-card opening."
+      },
+      "evidence_guardrails": [
+        "Contextual footage does not prove financial, regulatory, valuation, allocation, or return claims unless the visible frames directly show the claimed fact.",
+        "A source chart used as evidence must remain fully readable; do not turn it into an illegible overlay merely to preserve a video background.",
+        "Every downloaded clip must retain provenance, time range, local path, intended use, and rights-review status.",
+        "Runtime share is a target, not permission to add unrelated footage or repeat one clip mechanically."
+      ]
+    },
+    {
+      "id": "2026-08-01-product-explainer-core-canvas-rhythm",
+      "scope": "product_explainer_html_video",
+      "status": "active",
+      "source": {
+        "creator": "神烦老狗",
+        "video_id": "BV1bx3C6eE6d",
+        "title": "一部AI短剧，怎么同时做成多个国家版本？｜OiiOii 一键出海！",
+        "analysis_note": "~/Desktop/自媒体创作/00_范式学习/视频训练/每日博主自学习/notes/<creator>/<video>/analysis.md"
+      },
+      "feedback": "产品解释片的节奏不依赖频繁硬切，而依赖同一核心画布中的状态推进。导演应先展示结果，再用机制动画建立心智模型，随后在连续真实界面中完成操作与验证，并补充失败或限制场，避免成片滑向宣传片。",
+      "director_defaults": {
+        "opening_result_first_sec": [
+          10,
+          15
+        ],
+        "hard_cut_per_min_target": [
+          4,
+          7
+        ],
+        "internal_visual_beat_per_min_target": [
+          20,
+          30
+        ],
+        "primary_canvases": [
+          "presenter_or_thesis",
+          "mechanism_animation",
+          "product_walkthrough"
+        ],
+        "canvas_switch_policy": "Only switch the primary canvas when narrative responsibility changes. Within one responsibility, maintain rhythm with card expansion, path growth, local zoom, PIP, shared-element transitions, and UI state progression.",
+        "walkthrough_sequence": [
+          "upload",
+          "decompose",
+          "replace_character_or_language",
+          "generate",
+          "review",
+          "before_after_validation"
+        ],
+        "ui_scene_policy": "Each screen-recording scene keeps one operation objective and a persistent step marker. PIP must avoid the active control, result area, chart evidence, and captions.",
+        "comparison_policy": "Before-and-after proof must use the same action moment, similar framing, persistent labels, and at least one complete action cycle.",
+        "semantic_motion_policy": "Decompose uses separation, copy uses expansion, distribute uses branching, and replace uses shared-element transition. Generic particles or light sweeps cannot substitute for mechanism explanation.",
+        "boundary_test_required": true,
+        "boundary_test_policy": "Every product evaluation includes at least one complete evidence scene showing failure, limitation, manual correction, or an inapplicable condition."
+      },
+      "director_routing": {
+        "remotion": "Chapter structure, persistent step state, comparison labels, numeric replacement, captions, and evidence-safe composition.",
+        "html_video": "Mechanism diagrams, path growth, branching, card expansion, and interface-adjacent explanatory animation.",
+        "screen_recording": "Continuous real product operation and verifiable output review; do not repeatedly exit and re-enter the interface.",
+        "ffmpeg": "Silence compression, loudness normalization, shot assembly, and final technical quality control."
+      },
+      "evidence_guardrails": [
+        "Do not start a product explainer with menus or feature lists when a recognizable result can be shown first.",
+        "Mechanism-animation labels, colors, and step names must match the following real interface demonstration.",
+        "Do not compare mismatched source clips as if they were generated under identical conditions.",
+        "Keep chart titles, axes, legends, values, and conclusion context fully readable whenever a chart is used as evidence.",
+        "A positive demo without a boundary test is incomplete and must fail director review."
+      ]
+    },
+    {
+      "id": "2026-08-01-learning-footage-rights-and-direct-evidence-priority",
+      "scope": "learning_only_video_production",
+      "status": "active",
+      "feedback": "当前生成的视频全部用于学习，不用于商业发布。素材搜索与下载阶段不因版权授权状态中断制作；相比泛化背景视频，应优先寻找与标题和具体论点高度吻合的新闻播报、访谈、历史影像、现场资料和真人出镜内容，以增强可信度与说服力。",
+      "director_defaults": {
+        "usage_context": "private_learning_noncommercial",
+        "rights_clearance_blocks_search_or_download": false,
+        "rights_clearance_blocks_learning_render": false,
+        "public_or_commercial_publish_requires_separate_review": true,
+        "provenance_recording_required": true,
+        "material_search_priority": [
+          "direct_news_report_or_broadcast",
+          "subject_matter_interview_or_speech",
+          "event_specific_archival_or_on_site_footage",
+          "named_person_or_company_real_appearance",
+          "direct_product_process_or_documentary_evidence",
+          "topic_specific_contextual_broll",
+          "generic_background_video"
+        ],
+        "selection_policy": "Search by the exact title entity, event, person, company, date, and claim before broad topic keywords. Use generic background footage only when direct audiovisual evidence cannot be found or when a short visual bridge is needed.",
+        "composition_policy": "Direct news, interview, archival, and on-site footage may serve as the primary evidence canvas. Add source labels, dates, speaker identity, quoted keywords, subtitles, timelines, or data overlays without obscuring the recognizable evidence.",
+        "credibility_policy": "Prefer material whose visible subject directly matches the narration. A visually attractive but weakly related clip must not replace a less polished clip that directly documents the claimed event or speaker."
+      },
+      "evidence_guardrails": [
+        "Noncommercial learning use does not mean the material is licensed; preserve the source URL, creator or publisher, download time, local path, and used time range.",
+        "Do not label downloaded footage as authorized, public-domain, or commercially reusable unless that status has been independently verified.",
+        "Do not use a generic semiconductor factory, trading screen, city skyline, or office scene as direct proof of a named company, event, interview statement, or financial claim.",
+        "When direct footage is unavailable, mark the substitute as contextual rather than evidentiary.",
+        "Any future public or commercial publication requires a separate rights review even if the learning render was allowed to proceed."
+      ]
+    },
+    {
+      "id": "2026-08-02-flash-free-evidence-composition-and-spoken-rhythm",
+      "scope": "explainer_html_video",
+      "status": "superseded_in_part",
+      "superseded_by": "2026-08-02-anchor-pip-background-visibility-and-selective-tech",
+      "feedback": "无头口播必须消除逐句结尾和分镜边界闪屏。真人新闻、访谈和人像报道不得默认压在动画图表后方充当背景；优先作为全屏主素材，再进入人物或新闻画面与动画互补的分屏构图。口播稿需要按真人换气、数字落点、反问和结论重新组织，而不是只调整全局语速。",
+      "director_defaults": {
+        "caption_continuity_policy": "相邻字幕间隔不超过0.45秒时，字幕底板持续存在，只替换文字；禁止每条cue单独弹入并在句尾退到透明。只有长停顿、章节开始和整段结束允许150到200毫秒的轻微透明度变化。",
+        "scene_transition_policy": "普通分镜使用干净硬切或可见物体的transform过渡。禁止在每个场景头尾统一覆盖黑幕、深色帘幕、白闪或全画布闪光。",
+        "background_visibility_policy": "任意一帧至少有一个完全可见的基础画面层。多视频背景切换不得存在所有图层同时透明的窗口；优先每场使用一条连续背景，或用有重叠保护的交叉切换。",
+        "human_news_material_policy": "新闻主播、采访人物、真人讲解和带显著人像PIP的报道不得作为被图表覆盖的暗背景。它们优先作为完整全屏证据镜头，其次作为独立PIP或分屏主素材。",
+        "direct_evidence_shot_grammar": [
+          "真实新闻或访谈先全屏保持4到5秒，保留主体、原始下三分之一和报道语境",
+          "随后在约0.4到0.5秒内通过transform缩到右侧或右下约38%的独立面板",
+          "HTML动画或动态图表同步缩到左上约55%到60%，两个面板各自承担证据与解释职责",
+          "解释完成后真实素材移出画面，动画扩回全屏；全过程不经过黑场"
+        ],
+        "split_composition_variants": [
+          "animation_top_left + person_bottom_right",
+          "chart_left + interview_right",
+          "document_or_source_left + speaker_or_anchor_right",
+          "full_evidence -> split_explanation -> full_animation"
+        ],
+        "spoken_rhythm_policy": {
+          "recommended_speed_range": [
+            1.08,
+            1.12
+          ],
+          "same_semantic_phrase_pause_ms": [
+            80,
+            140
+          ],
+          "comma_breath_pause_ms": [
+            150,
+            220
+          ],
+          "sentence_end_pause_ms": [
+            280,
+            380
+          ],
+          "question_conclusion_number_landing_pause_ms": [
+            450,
+            650
+          ],
+          "scene_tail_pause_ms": [
+            500,
+            700
+          ],
+          "language_policy": "长句拆成完整语义块；数字前先交代口径，数字后补一句解释或结论；反问单独成句；结论使用短句落地。不要把原稿机械加逗号，也不要生成只有序号、连接词、单位或两三个字的独立字幕。",
+          "caption_fragment_policy": "合并第一、第二、最后、当然、科技、估值、单位尾巴等超短片段到相邻完整语义字幕；可见正文通常不少于4个汉字或一个完整术语。"
+        },
+        "flash_qc_required": true,
+        "flash_qc_policy": "最终成片必须扫描全片单帧亮度脉冲，并单独检查每个字幕结束点前后约7帧和每个分镜边界前后约7帧。发现单帧掉画时必须修复或重渲染，并在同一检测口径下重新扫描到零失败。"
+      },
+      "director_routing": {
+        "remotion": "调度真实素材全屏、PIP、分屏面板、字幕连续底板、场景变换和全片进度。",
+        "html_video": "只承担动画、图表、机制解释和无人物背景；不得把真人新闻当作被覆盖的底层纹理。",
+        "minimax_cli": "按重写后的语义句和停顿层级生成音频及服务端SRT，推荐速度1.08到1.12。",
+        "ffmpeg": "响度归一、单帧掉画修复、流检查、联系表和最终封装。"
+      },
+      "quality_guardrails": [
+        "真人全屏阶段不得叠加大面积动画图表遮住面部、原始标题或新闻下三分之一。",
+        "分屏阶段人物、动画、字幕必须位于互不冲突的安全区，并保留清晰主次。",
+        "字幕底板逐句弹入退出、统一压黑转场、背景全透明窗口，任一出现都必须阻断发布。",
+        "硬切允许亮度发生持续变化，但不允许只出现一帧黑底或白底后立即恢复。"
+      ]
+    },
+    {
+      "id": "2026-08-02-anchor-pip-background-visibility-and-selective-tech",
+      "scope": "explainer_html_video",
+      "status": "active",
+      "feedback": "画面中央有主播或主持人的新闻类素材默认直接使用画中画，不先全屏，也不得作为压暗背景。全画布动态背景优先选择工厂、市场、社会场景、风景、人群、采访环境等可感知的真实空间。背景亮度和遮罩要让观众明确感到画面在运动。新技术只用于少量关键镜头，服务于层级、证据和节奏，而不是全片炫技。",
+      "director_defaults": {
+        "human_anchor_default": "pip_only",
+        "human_anchor_fullscreen_exception": "仅当人物原始发言、新闻下三分之一或现场语境本身就是当前核心证据，且需要完整阅读时，才允许先全屏；普通中央主播、主持人串场、演播室播报默认直接PIP。",
+        "human_anchor_background_forbidden": true,
+        "preferred_background_materials": [
+          "factory_or_production_scene",
+          "market_or_trading_environment",
+          "social_context_or_public_space",
+          "landscape_or_city_motion",
+          "crowd_or_large_group",
+          "interview_environment_without_dominant_face",
+          "servers_machinery_or_process_footage"
+        ],
+        "background_visibility_policy": "动态背景需肉眼可感知。默认视频亮度约0.68到0.76，避免大面积黑色遮罩高于约0.82；暗角和投影只承担分层，不得把背景压成近似静态黑底。具体数值按素材曝光调整，并以字幕和图表可读性为上限。",
+        "pip_composition_policy": "PIP优先放在右侧或右下安全区，避开主标题、数据落点和字幕；人物与动画各自承担不同叙事职责。PIP可使用0.45到0.6秒弹入、轻微悬浮和克制轮廓光，但不得连续多镜头重复。",
+        "selective_new_technology_policy": "新Skill或新动效先在开场、章节转折或核心数据镜头中试用，每条片控制在少量关键镜头。优先使用分阶段时间线、深度层移动、聚光轮廓和共享元素过渡；禁止把同一种高存在感特效铺满全片。",
+        "scene_technology_budget": {
+          "high_salience_new_tech_shots_max": 3,
+          "spotlight_pip_shots_max": 1,
+          "timeline_chart_shots_target": [
+            1,
+            2
+          ]
+        }
+      },
+      "director_routing": {
+        "remotion": "负责PIP-only调度、安全区、轮廓光、轻悬浮、共享元素和无黑场退出。",
+        "html_video": "负责持续可见的场景类真实背景、标题、图表和机制动画；不得将中央主播嵌入背景层。",
+        "gsap_or_shotcraft": "只在少量关键镜头做分阶段时间线、聚光层级或深度移动。",
+        "ffmpeg": "检查背景可见度、单帧亮度脉冲、人物遮挡和最终封装。"
+      },
+      "quality_guardrails": [
+        "中央主播先全屏再缩小不再是默认语法；若无证据阅读需求，必须直接PIP。",
+        "人物素材不得被低透明度压在大面积图表后方。",
+        "背景不能因亮度过低、遮罩过黑或阴影过重而失去动态感。",
+        "新技术使用数量服从叙事，不得造成全片节奏同质化或视觉疲劳。"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+# 默认路径配置模板
+# 项目根目录（自动检测，无需配置）
+project_root: auto
+
+# 工作目录
+# outputs 默认输出到桌面，避免产物堆积在项目目录下
+# 可通过 NEWMA_OUTPUT_ROOT 环境变量覆盖
+work_dirs:
+  materials: "${NEWMA_OUTPUT_ROOT:-~/Desktop/自媒体创作}/素材"
+  video_training: "${NEWMA_OUTPUT_ROOT:-~/Desktop/自媒体创作}/00_范式学习/视频训练"
+  projects: "项目"
+  engines: "引擎"
+  outputs: "${NEWMA_OUTPUT_ROOT:-~/Desktop/自媒体创作}"
+
+# 外部依赖路径（通过环境变量覆盖）
+external:
+  feishu_config: "${FEISHU_CONFIG_PATH:-~/.config/feishu/api.conf}"
+  openclaw_skills: "${OPENCLAW_SKILLS_DIR:-~/.openclaw/skills}"
+  worldmonitor_root: "${NEWMA_WORLDMONITOR_ROOT:-}"  # 可选：Layer 5 交互页面项目路径
+  openclaw_installer: "${NEWMA_OPENCLAW_INSTALLER:-~/.openclaw/OpenClawInstaller}"
+
+# 数据源端点
+data_sources:
+  intake_5173: "${NEWMA_INTAKE_5173_BASE:-http://127.0.0.1:18000}"
+  intake_reports: "${NEWMA_INTAKE_REPORTS_BASE:-http://127.0.0.1:8080}"
+  intake_8001: "${NEWMA_INTAKE_8001_BASE:-http://127.0.0.1:8001}"

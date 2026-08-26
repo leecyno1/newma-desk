@@ -1,0 +1,268 @@
+schema_version: dasheng.video.pipeline.v1
+id: vox_explainer
+lane: vox_explainer_video
+director_id: vox_investigation_director
+standard_flow_ref: configs/video/director_registry.json#standard_flow
+title: VOX 调查型解释视频流水线
+orchestrator_skill: dasheng-vox-skills
+standard_flow_mapping:
+  intake: [investigation_intake]
+  script_rewrite: [investigation_intake]
+  scene_plan: [scene_plan, claim_evidence]
+  asset_build: [asset_build, omni_reference_frames, reference_storyboard_review, shot_video_generation]
+  edit_composite: [edit_decisions]
+  render: [render_qc]
+  qc_delivery: [render_qc]
+default_output_stage: video
+default_format:
+  aspect_ratio: "16:9"
+  width: 1920
+  height: 1080
+  fps: 30
+  alternate_profiles:
+    - "1:1"
+    - "9:16"
+external_output_policy:
+  required_root: "~/Desktop/自媒体创作"
+  forbid_paths:
+    - "skills/"
+    - ".codex/skills/"
+    - "node_modules/"
+human_approval_default: true
+style_reference:
+  primary: VOX 类问题驱动调查解释片
+  principle: 先提出一个可调查的问题，再用资料、人物、历史、机制、数据和反证逐步收窄答案。
+stage_groups:
+  director:
+    includes: [investigation_intake, scene_plan]
+    sequence: [content_distillation, script_rewrite, retention_design, story_segment_storyboard, approval, production_shot_split]
+    approval_rule: 重写口播和 10-25 秒审核分镜获批前，不得拆生产镜或生成视觉资产。
+stages:
+  - name: investigation_intake
+    description: 从 Draft 提炼中心问题、递进观点和关键证据，并重写为带钩子、博主介绍、互动和留存兑现的自然口播稿。
+    skill: dasheng-video-vox
+    required_artifacts_in: [brief]
+    produces: [script]
+    tools_available: [video_vox_storyboard, video_explainer_storyboard]
+    checkpoint_required: true
+    review_focus:
+      - 全片只能有一个中心问题。
+      - 事实、观点、推演和未知项必须分开。
+      - 不能把文章章节目录直接当 VOX 结构。
+      - 默认核心对应，不逐段复述文章；逐段对齐稿只用于查漏。
+      - 前 8 秒有钩子，首条有效信息之后才用一句话介绍博主。
+      - 每 45-60 秒有一次推动叙事的互动或认知刷新，至少两次留存兑现。
+      - 每个关键数据后解释比较对象、量级和它意味着什么。
+    success_criteria:
+      - schema-valid script artifact
+      - approved independently rewritten narration
+      - one central question and three to five progressive claims
+      - four to eight decisive evidence items with meaning explained
+      - hook, creator introduction, interaction and retention plan are present
+      - counterargument or boundary condition is planned
+  - name: scene_plan
+    description: 先把重写口播整理为 10-25 秒审核叙事段；用户批准后才拆成平均 8-12 秒生产导演镜，并建立视觉圣经、生产路线和 Shotcraft/Omni 执行方案。
+    skill: dasheng-video-director
+    required_artifacts_in: [script]
+    produces: [scene_plan, visual_bible, review, tool_routing_plan]
+    tools_available:
+      - video_vox_storyboard
+      - video_director_tool_router
+      - build_storyboard_template_review_table
+      - extract_template_preview_frames
+      - validate_storyboard_review_gate
+      - shotcraft_adapter
+    checkpoint_required: true
+    review_focus:
+      - 状态机必须覆盖 cold_open、central_question、evidence_map、historical_context、mechanism_explainer、counterargument、data_resolution、qualified_conclusion。
+      - 先审核 10-25 秒叙事段的完整口播、论点、证据、主画面、插入素材、花字、实体标签和留存作用。
+      - 审核分镜批准后，才拆平均 8-12 秒生产镜；每镜回指叙事段、核心观点和证据编号。
+      - 内容获批后再生成风格板，锁定配色、纸张材质、字体、英雄物件、空间世界、相机语言和声音词汇。
+      - 每个生产导演镜声明完成构图、物件清单、组装顺序和连续性锚点。
+      - 网页、文档、图表、重点字卡和高价值转场可绑定 Shotcraft；卡片、样式和准确 demo 必须通过适配器校验。
+      - Shotcraft 镜头锁定本地 Remotion，抽象隐喻和解释性 B-roll 才进入 Gemini；不得所有镜头无差别生图。
+      - 开头优先真实视频、动画标题、问题地图、数据层和完整字幕同镜头合成。
+      - 新闻主播默认 PIP 或分屏；只有原始发言本身是证据时才全屏。
+      - 地图、时间线、圈注和共享元素服务解释，不得全片炫技。
+    success_criteria:
+      - schema-valid scene_plan artifact
+      - rewritten narration review decision approved
+      - story-segment storyboard review decision approved
+      - every production shot traces to an approved story segment, core claim and evidence
+      - one visual bible controls the complete film
+      - every director shot has a completed composition and ordered assembly choreography
+      - every Shotcraft scene has a validated card, style, demo source and local Remotion route
+      - counterargument and qualified conclusion scenes exist
+  - name: claim_evidence
+    description: 将每个证据支柱绑定到可定位来源，并登记反证、未知项和口播修订。
+    skill: dasheng-video-director
+    required_artifacts_in: [scene_plan]
+    produces: [claim_evidence_ledger, spoken_revision_sheet, review]
+    tools_available: [video_claim_evidence_ledger, video_finance_evidence, video_official_evidence, video_model_evidence]
+    checkpoint_required: true
+    review_focus:
+      - 新闻、访谈、历史影像和现场资料标明 direct 或 context。
+      - 反证不得被剪掉；证据冲突时先改口播。
+      - 结论必须保留条件、概率或未知项。
+    success_criteria:
+      - schema-valid claim_evidence_ledger artifact
+      - claim_evidence_gate status is pass
+      - spoken_revision_sheet pending_count is 0
+  - name: asset_build
+    description: 下载直接证据，并生成参考母图、地图、时间线、物理化图表和文档圈注，为 Image2 场景生图提供真实输入。
+    skill: dasheng-video-vox
+    required_artifacts_in: [scene_plan, claim_evidence_ledger]
+    produces: [asset_manifest]
+    tools_available:
+      - media_downloader
+      - dasheng-video-broll-generator
+      - render_html_anything_timeline_pack
+      - render_html_anything_scene_pack_animated
+      - shotcraft_adapter
+      - mmx_cli
+    checkpoint_required: true
+    review_focus:
+      - 精确实体、事件、人物、时间和论点搜索优先于泛关键词。
+      - 真实素材保留来源、时间段、本地路径、用途和证据关系。
+      - 原图表先完整 contain，再局部聚焦；可重建数据只展示一次。
+      - 生成式素材只能解释机制或补过渡，不能冒充新闻和事实证据。
+      - 重点镜头优先使用起始帧+结束帧+运动提示词；自由文生视频只做不要求连续性的短过渡。
+    success_criteria:
+      - schema-valid asset_manifest artifact
+      - direct footage and source documents have provenance
+      - production narration uses MiniMax CLI unless explicitly overridden
+  - name: omni_reference_frames
+    description: 只为 Gemini 路由的约 10 秒导演分镜生成 Codex 生图提示词和 Omni 提示词；Shotcraft 和真实证据 Remotion 镜头跳过本阶段。
+    skill: dasheng-vox-skills
+    required_artifacts_in: [scene_plan, visual_bible, claim_evidence_ledger, asset_manifest]
+    produces: [omni_shot_manifest]
+    tools_available: [vox_manifest, video_vox_omni_pack, image2]
+    checkpoint_required: false
+    review_focus:
+      - 每个 Gemini 路由的 8-12 秒分镜必须有独立生图提示词、完整构图、物件清单和有序组装动作。
+      - 参考图只能由 Codex 内置 Image 生成并落盘；Chrome/Gemini 在本阶段禁止使用。
+      - 第一镜先锁定材质、配色、光线、相机高度和重复物件；后续镜头不得另起一套风格。
+      - 参考图是 Omni 最终需要组装完成的物件地图：一层纯纸背景、至多一层底板、4-6 组边界清楚的独立物件。
+      - 禁止写实立体场景、桌面微缩景观、房间、城市沙盘和密集报纸世界；复杂概念必须拆成下一镜。
+      - 参考图不承担最终标题、数字、日期、引用和图表文字，保留空白标签供 Remotion 覆盖。
+    success_criteria:
+      - schema-valid omni_shot_manifest artifact
+      - every Gemini-routed shot has a Codex image prompt, Omni prompt and reference-image path
+      - every Shotcraft-routed shot is marked ready_for_remotion without a generated reference image
+      - every shot preserves the visual bible and 16:9 safe area
+  - name: reference_storyboard_review
+    description: 将全部 Gemini 横版参考图生成接触表；Shotcraft 镜头改为审核卡片、demo 和 qa_frames 静帧。
+    skill: dasheng-vox-skills
+    required_artifacts_in: [omni_shot_manifest]
+    produces: [omni_shot_manifest, review]
+    tools_available: [video_vox_omni_pack]
+    checkpoint_required: true
+    review_focus:
+      - 人物、证据物件、图表和运动路径不能被截断。
+      - 相邻镜头必须改变空间机制、焦点或组装动作，不能连续使用同一张海报构图。
+      - 每张参考图必须能明确拆出至少三步独立物件动作。
+    success_criteria:
+      - all approved Gemini shots have complete reference frames and a storyboard contact sheet
+      - all approved Shotcraft shots have validated demo bindings and QA frames
+      - storyboard review decision approved
+      - no reference frame cuts the primary evidence object or required safe text area
+  - name: shot_video_generation
+    description: 只对 Gemini 路由镜头调用官方 API 或 Chrome Omni；Shotcraft 镜头直接进入本地 Remotion，MMX 和 Seedance 仅为单镜失败后备。
+    skill: dasheng-vox-skills
+    required_artifacts_in: [omni_shot_manifest, review]
+    produces: [asset_manifest, renderer_asset_gate]
+    tools_available: [video_vox_omni_pack, gemini_omni_browser, vox_manifest, gemini_video_api, vox_shot_qc, video_vox_mmx_generate, mmx_cli, dasheng-video-broll-generator, build_remotion_renderer_pack]
+    checkpoint_required: true
+    review_focus:
+      - 一镜一视频，禁止让模型一次生成完整成片。
+      - "`ready_for_remotion` 镜头禁止上传参考图或调用生成模型，必须按卡片和 demo 在本地实现。"
+      - 优先使用可用的官方 Gemini API；无 API 凭据或单镜失败时改走 Chrome 已登录 Gemini Omni，不读取 cookies、本地存储或密码。
+      - 视频从同色背景和可选底板开始，其他物件从画外一次性进入；禁止先展示完整海报再拆散重组。
+      - 9 秒前完成组装，最后 1 秒稳定保持参考图完成构图。
+      - 禁止新增人物、改写文字、改变证据关系、全画面推拉或重绘核心物件。
+      - 生成失败只重跑该镜头，不重做已通过镜头。
+      - 逐镜抽查开头、中段和结尾；出现强光、文字变形、镜头漂移或物件融化时只重跑该镜头。
+      - 下载后统一转为 1920x1080、30fps，再进入 Remotion 二剪。
+    success_criteria:
+      - renderer_asset_gate status is pass
+      - every approved shot has a generated scene video or a validated programmatic Remotion implementation
+      - exact factual text remains a Remotion overlay
+  - name: edit_decisions
+    description: 编排资料主画布、PIP、分屏、地图路径、环境音桥、ASR 对齐字幕、重点花字、实体说明标签和音乐层次。
+    skill: dasheng-vox-skills
+    required_artifacts_in: [scene_plan, omni_shot_manifest, asset_manifest]
+    produces: [edit_decisions]
+    tools_available: [convert_director_storyboard_to_video_timeline, video_driver_rules, build_remotion_renderer_pack]
+    checkpoint_required: true
+    review_focus:
+      - 画面变化来自调查推进和证据切换，不来自机械转场。
+      - 相邻镜头始终保留可见底层，禁止黑场或白闪。
+      - 同一证据世界优先干净切；需要叠化时只让入镜预叠 3-4 帧，出镜保持不透明，禁止长叠化形成双影。
+      - 环境音、采访原声和旁白用音桥连接资料段落。
+      - 字幕必须使用原旁白/ASR 时间戳，不得按镜头时长平均切分文字。
+      - 中心判断、反转、关键数字和结论落点要有同步花字，避免逐句都加造成噪声。
+      - 人物、机构、地点和关键物件首次出现时，标签要同步出现并贴近对应贴纸；人物使用真实姓名，机构使用清楚简称。
+      - 真实网页镜头使用 2× 全页图、元素切片和 layout.json；PageCam 推近后文字必须保持清晰。
+      - Shotcraft SFX 使用相对镜头起点或 beatF(n) 钉帧，禁止裸绝对帧号。
+    success_criteria:
+      - schema-valid edit_decisions artifact
+      - no blank-frame transition plan
+      - subtitles cover the complete narration
+      - subtitle cues are ASR-aligned and include start/end timestamps
+      - emphasis cues cover the main argument beats without duplicating full captions
+      - new people, institutions and key objects have timed entity labels
+  - name: render_qc
+    description: 用 Remotion 合成主时间轴，执行渲染器门禁、闪屏检查、证据抽检和最终交付绑定。
+    skill: dasheng-vox-skills
+    required_artifacts_in: [edit_decisions, asset_manifest, renderer_asset_gate]
+    produces: [render_report, review]
+    tools_available:
+      - build_remotion_renderer_pack
+      - render_html_anything_scene_pack_animated
+      - video_renderer_contract_gate
+      - build_video_review_suite_strict
+      - video_render_qc
+      - video_final_delivery
+    checkpoint_required: true
+    review_focus:
+      - 接触表抽查来源可读性、人物遮挡、图表完整性、字幕和事实标签。
+      - 抽查字幕与发音同步、重点花字落点、人物和关键贴纸说明标签。
+      - 对照 Shotcraft 卡片的动作语法、关键时值、已知坑和 qa_frames；不要求像素级复刻 Gallery。
+      - 检查每个场景边界和字幕结尾前后 7 帧，不允许单帧闪屏。
+      - 最终有限结论必须与证据和反证一致。
+    success_criteria:
+      - schema-valid render_report artifact
+      - video_qc_report status is pass
+      - renderer contract gate status is pass
+      - final delivery manifest points to the exact QC-passed video hash
+fail_conditions:
+  - no single central question
+  - no independently rewritten narration
+  - article paragraph or chapter mapping is used as the default storyboard
+  - article chapter list is used as the final VOX narrative
+  - creator introduction appears before the first useful information
+  - audience interaction is an empty prompt that does not advance the narrative
+  - opening hook or promised retention payoff is missing
+  - assets or visual bible are generated before rewritten narration and story-segment storyboard approval
+  - evidence map has fewer than three pillars without a documented source limitation
+  - counterargument or boundary condition is missing
+  - generic background footage is presented as direct evidence
+  - direct news, interview, archival, or on-site footage is declared without a downloaded local asset and provenance
+  - Codex reference image is missing for an approved VOX director shot
+  - a VOX reference image is generated through Chrome or Gemini instead of Codex built-in Image
+  - a director shot is not approximately 8-12 seconds without a documented reason
+  - Omni generation runs before the reference storyboard gate passes
+  - generated footage impersonates a real event, speaker, news report, or historical record
+  - source chart is cropped before a complete contain reading state
+  - static screenshot stitching or FFmpeg zoompan is used as production animation
+  - visual bible or shared continuity anchor is missing
+  - an Omni shot has fewer than three independent assembly actions
+  - isolated white chart cards replace the continuous editorial world
+  - claim/evidence ledger not approved before asset generation
+  - blank, black, or white transition frame appears at a scene or caption boundary
+  - VOX subtitles are evenly distributed by text length instead of aligned to narration timestamps
+  - a central claim, reversal, key number, or conclusion has no planned emphasis cue
+  - a newly introduced person, institution, place, or key object lacks a timed explanatory label
+  - conclusion removes uncertainty, conditions, or contradictory evidence
+  - final delivery manifest points to a different file, duration, or hash than the QC report
+  - final media written under skills directory

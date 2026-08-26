@@ -1,0 +1,31 @@
+{
+  "name": "dasheng-html-video-bridge",
+  "version": "0.1.0",
+  "description": "Bridge Newma transwrite video manifests to the local html-video renderer.",
+  "type": "bridge",
+  "external_project": "${HTML_VIDEO_ROOT:-vendor/reserved/render/html-video}",
+  "external_dependency": {
+    "name": "html-video",
+    "repo": "https://github.com/nexu-io/html-video.git",
+    "version_locked": false,
+    "installer": "scripts/ensure_video_external_deps.py --dep html-video --mode install --install-node-deps"
+  },
+  "entry": "scripts/transwrite_html_video_bridge.py",
+  "inputs": {
+    "required": [
+      "explainer_html_video_manifest.json or talking_head_video_manifest.json",
+      "html_video_project_plan.json",
+      "html_video_project_vars.json"
+    ],
+    "optional": [
+      "human video",
+      "human audio",
+      "srt subtitles"
+    ]
+  },
+  "outputs": [
+    "html_video_execution.json",
+    "html-video preview html",
+    "scene MP4 render when explicitly executed for Remotion composition"
+  ]
+}

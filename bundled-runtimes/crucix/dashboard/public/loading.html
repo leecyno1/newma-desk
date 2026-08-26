@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRUCIX — Initializing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#020408;--text:#e8f4f0;--dim:#6a8a82;--accent:#64f0c8;
+  --border:rgba(100,240,200,0.12);--mono:'IBM Plex Mono',monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--mono);display:flex;align-items:center;justify-content:center}
+
+.logo-ring{width:120px;height:120px;border:2px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative}
+.logo-ring::before{content:'';position:absolute;inset:-8px;border:1px solid var(--border);border-radius:50%;border-top-color:var(--accent);animation:spin 2s linear infinite}
+.logo-ring::after{content:'';position:absolute;inset:-16px;border:1px solid rgba(100,240,200,0.06);border-radius:50%;border-bottom-color:rgba(100,240,200,0.15);animation:spin 3s linear infinite reverse}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse-blink{0%,100%{opacity:1}50%{opacity:0.3}}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.logo-text{font-size:18px;font-weight:700;letter-spacing:0.2em;color:var(--accent)}
+.container{display:flex;flex-direction:column;align-items:center;gap:32px}
+
+#bootLines{font-size:12px;color:var(--dim);text-align:left;line-height:2;min-width:340px}
+#bootLines .line{opacity:0;animation:fadein 0.3s ease forwards}
+#bootLines .ok{color:var(--accent)}
+
+#status{font-size:12px;color:var(--accent);letter-spacing:0.15em;margin-top:4px;min-height:20px;display:flex;align-items:center;gap:8px}
+#status .blink{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse-blink 1.5s ease-in-out infinite;flex-shrink:0}
+
+#countdown{margin-top:8px;font-size:11px;color:var(--dim);letter-spacing:0.1em;text-align:center;min-height:16px}
+#countdown .eta{color:var(--text)}
+#countdown .bar-wrap{width:340px;height:2px;background:rgba(100,240,200,0.08);margin-top:8px;overflow:hidden}
+#countdown .bar-fill{height:100%;background:var(--accent);width:0%;transition:width 1s linear;box-shadow:0 0 6px var(--accent)}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo-ring">
+    <span class="logo-text">CX</span>
+  </div>
+
+  <div id="bootLines"></div>
+
+  <div id="status">
+    <span class="blink"></span>
+    <span id="statusText">COLLECTING DATA...</span>
+  </div>
+
+  <div id="countdown">
+    <span id="etaText"></span>
+    <div class="bar-wrap"><div class="bar-fill" id="barFill"></div></div>
+  </div>
+</div>
+
+<script>
+const SWEEP_ESTIMATE_S = 50; // estimated sweep duration in seconds
+
+const lines = [
+  'CRUCIX INTELLIGENCE ENGINE v2.0.0',
+  'INITIATING FIRST SWEEP...',
+  '├── CONNECTING 25 OSINT SOURCES',
+  '├── GDELT · OPENSKY · FIRMS · MARITIME · SAFECAST',
+  '├── FRED · BLS · EIA · TREASURY · GSCPI',
+  '└── TELEGRAM · WHO · OFAC · ACLED · REDDIT · BLUESKY',
+  '<span class="ok">AWAITING SWEEP COMPLETION...</span>',
+];
+
+const container = document.getElementById('bootLines');
+lines.forEach((text, i) => {
+  setTimeout(() => {
+    const div = document.createElement('div');
+    div.className = 'line';
+    div.innerHTML = text;
+    container.appendChild(div);
+  }, i * 220);
+});
+
+const statusMessages = [
+  'COLLECTING DATA...',
+  'PROCESSING SOURCES...',
+  'SYNTHESIZING SIGNALS...',
+  'CORRELATING FEEDS...',
+  'AWAITING COMPLETION...',
+];
+let statusIdx = 0;
+const statusText = document.getElementById('statusText');
+setInterval(() => {
+  statusIdx = (statusIdx + 1) % statusMessages.length;
+  statusText.textContent = statusMessages[statusIdx];
+}, 4000);
+
+// === Countdown ===
+const etaText = document.getElementById('etaText');
+const barFill = document.getElementById('barFill');
+let countdownInterval = null;
+
+function startCountdown(elapsedSeconds) {
+  let remaining = Math.max(0, SWEEP_ESTIMATE_S - elapsedSeconds);
+
+  function tick() {
+    if (remaining <= 0) {
+      etaText.textContent = 'FINALIZING...';
+      barFill.style.width = '99%';
+      return;
+    }
+    const pct = Math.min(99, ((SWEEP_ESTIMATE_S - remaining) / SWEEP_ESTIMATE_S) * 100);
+    barFill.style.width = pct + '%';
+    etaText.innerHTML = `EST. READY IN <span class="eta">~${remaining}s</span>`;
+    remaining--;
+  }
+
+  tick();
+  countdownInterval = setInterval(tick, 1000);
+}
+
+// Fetch health to get elapsed time since sweep started
+fetch('/api/health')
+  .then(r => r.json())
+  .then(h => {
+    let elapsed = 0;
+    if (h.sweepStartedAt) {
+      elapsed = Math.floor((Date.now() - new Date(h.sweepStartedAt).getTime()) / 1000);
+    }
+    startCountdown(elapsed);
+  })
+  .catch(() => startCountdown(0));
+
+// === SSE — wait for sweep to complete, then redirect ===
+let redirected = false;
+function goToDashboard() {
+  if (redirected) return;
+  redirected = true;
+  clearInterval(countdownInterval);
+  clearInterval(pollInterval);
+  barFill.style.transition = 'width 0.4s ease';
+  barFill.style.width = '100%';
+  etaText.textContent = '';
+  statusText.textContent = 'TERMINAL READY — LOADING DASHBOARD';
+  setTimeout(() => location.replace('/'), 800);
+}
+
+const es = new EventSource('/events');
+es.onmessage = (e) => {
+  try {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'update') {
+      es.close();
+      goToDashboard();
+    }
+  } catch {}
+};
+es.onerror = () => {
+  es.close();
+  setTimeout(() => location.reload(), 3000);
+};
+
+// === Fallback polling — in case SSE misses the update ===
+const pollInterval = setInterval(() => {
+  fetch('/api/data').then(r => {
+    if (r.ok) goToDashboard();
+  }).catch(() => {});
+}, 5000);
+</script>
+</body>
+</html>

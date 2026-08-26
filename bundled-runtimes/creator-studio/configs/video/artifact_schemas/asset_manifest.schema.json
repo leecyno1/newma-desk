@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.asset_manifest.v1",
+  "title": "Newma Video Asset Manifest",
+  "type": "object",
+  "required": ["schema_version", "assets"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "dasheng.video.asset_manifest.v1"
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "path", "source"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "enum": ["html_scene", "chart", "table", "image", "video", "audio", "lottie", "subtitle", "template_preview"]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "enum": ["article", "verified_data", "user_upload", "mmx", "html_anything", "html_video", "lottie", "public_asset", "manual"]
+          },
+          "scene_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "license": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

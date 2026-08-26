@@ -1,0 +1,4 @@
+interface:
+  display_name: "Newma FFmpeg Toolkit"
+  short_description: "Run guarded repeatable FFmpeg media operations"
+  default_prompt: "Use the guarded FFmpeg wrapper for this media engineering task."

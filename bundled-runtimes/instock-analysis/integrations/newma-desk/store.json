@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-analysis-mods",
+  "name": "InStock Analysis Mods",
+  "git": {
+    "repository": "https://github.com/myhhub/stock",
+    "ref": "master",
+    "pathPrefix": "integrations/newma-desk",
+    "rawBaseUrls": [
+      "https://raw.githubusercontent.com/myhhub/stock/master/integrations/newma-desk"
+    ]
+  },
+  "mods": [],
+  "suites": [
+    {
+      "id": "instock-suite",
+      "path": "instock-suite/suite.json",
+      "defaultInstall": true
+    }
+  ]
+}

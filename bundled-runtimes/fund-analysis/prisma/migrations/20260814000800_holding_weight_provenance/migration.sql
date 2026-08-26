@@ -1,0 +1,8 @@
+ALTER TABLE "holdings"
+  ADD COLUMN IF NOT EXISTS "source" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "weight_source" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "weight_source_url" TEXT,
+  ADD COLUMN IF NOT EXISTS "fund_net_asset" DECIMAL(24, 4),
+  ADD COLUMN IF NOT EXISTS "fund_net_asset_basis" VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS "fund_net_asset_date" DATE,
+  ADD COLUMN IF NOT EXISTS "synced_at" TIMESTAMP NOT NULL DEFAULT NOW();

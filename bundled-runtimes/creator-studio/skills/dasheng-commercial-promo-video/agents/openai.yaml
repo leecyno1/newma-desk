@@ -1,0 +1,4 @@
+interface:
+  display_name: "Newma 广告宣传片"
+  short_description: "生成品牌片、产品宣传片、新品预告与效果广告的完整导演生产包"
+  default_prompt: "使用 $dasheng-commercial-promo-video 把品牌与产品 Brief 生成可审核的广告脚本、分镜和制作包。"

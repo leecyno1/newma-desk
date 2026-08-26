@@ -1,0 +1,3 @@
+display_name: Jiebang
+short_description: Shared handoff protocol for cc, cx, and ag
+default_prompt: Handle cross-agent context handoff through the project's .jiebang runtime files.

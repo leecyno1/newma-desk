@@ -1,0 +1,187 @@
+version: c2-asset-exposure-v1
+modeling_dimension: underlying_market
+allowed_c2_tracks: [GLOBAL, CHN, USA, JPN, GBR]
+
+default:
+  listing_market: UNKNOWN
+  underlying_market: GLOBAL
+  revenue_exposure: unknown
+  production_exposure: unknown
+  funding_currency: unknown
+  rate_sensitivity: not_estimated
+  exposure_confidence: low
+  weight_basis: global_c2_fallback
+  c2_weights: {GLOBAL: 1.0}
+
+category_rules:
+  A股宽基指数:
+    listing_market: CN
+    underlying_market: CN
+    revenue_exposure: cn_constituent_domicile_proxy
+    production_exposure: cn_constituent_domicile_proxy
+    funding_currency: CNY
+    exposure_confidence: medium
+    weight_basis: underlying_market_country
+    c2_weights: {CHN: 1.0}
+
+  风格/规模指数:
+    listing_market: CN
+    underlying_market: CN
+    revenue_exposure: cn_constituent_domicile_proxy
+    production_exposure: cn_constituent_domicile_proxy
+    funding_currency: CNY
+    exposure_confidence: medium
+    weight_basis: underlying_market_country
+    c2_weights: {CHN: 1.0}
+
+  申万一级行业:
+    listing_market: CN
+    underlying_market: CN
+    revenue_exposure: cn_constituent_domicile_proxy
+    production_exposure: cn_constituent_domicile_proxy
+    funding_currency: CNY
+    exposure_confidence: medium
+    weight_basis: underlying_market_country
+    c2_weights: {CHN: 1.0}
+
+  各类债券指数:
+    listing_market: CN
+    underlying_market: CN
+    revenue_exposure: not_applicable
+    production_exposure: not_applicable
+    funding_currency: CNY
+    rate_sensitivity: direct_rate_asset
+    exposure_confidence: high
+    weight_basis: issuer_market_country
+    c2_weights: {CHN: 1.0}
+
+  FF 17行业组合(US):
+    listing_market: US
+    underlying_market: US
+    revenue_exposure: us_constituent_domicile_proxy
+    production_exposure: unknown
+    funding_currency: USD
+    exposure_confidence: medium
+    weight_basis: underlying_market_country
+    c2_weights: {USA: 1.0}
+
+  美股行业ETF:
+    listing_market: US
+    underlying_market: US
+    revenue_exposure: us_constituent_domicile_proxy
+    production_exposure: unknown
+    funding_currency: USD
+    exposure_confidence: medium
+    weight_basis: underlying_market_country
+    c2_weights: {USA: 1.0}
+
+  商品:
+    listing_market: GLOBAL_FUTURES
+    underlying_market: GLOBAL
+    revenue_exposure: not_applicable
+    production_exposure: global_supply
+    funding_currency: USD
+    exposure_confidence: medium
+    weight_basis: global_physical_market
+    c2_weights: {GLOBAL: 1.0}
+
+  外汇:
+    listing_market: GLOBAL_FX
+    underlying_market: GLOBAL
+    revenue_exposure: not_applicable
+    production_exposure: not_applicable
+    funding_currency: USD
+    rate_sensitivity: funding_currency_channel
+    exposure_confidence: medium
+    weight_basis: global_funding_market
+    c2_weights: {GLOBAL: 1.0}
+
+  海外指数/ETF:
+    listing_market: MIXED
+    underlying_market: GLOBAL
+    revenue_exposure: unknown
+    production_exposure: unknown
+    funding_currency: unknown
+    exposure_confidence: low
+    weight_basis: global_c2_due_unmodeled_country
+    c2_weights: {GLOBAL: 1.0}
+
+asset_overrides:
+  商品||中国大宗商品价格综合指数:
+    listing_market: CN
+    underlying_market: CN
+    production_exposure: cn_commodity_market_proxy
+    funding_currency: CNY
+    exposure_confidence: medium
+    weight_basis: underlying_market_country
+    c2_weights: {CHN: 1.0}
+
+  海外指数/ETF||标普500(SPY):
+    listing_market: US
+    underlying_market: US
+    revenue_exposure: us_constituent_domicile_proxy
+    production_exposure: unknown
+    funding_currency: USD
+    exposure_confidence: medium
+    weight_basis: underlying_market_country
+    c2_weights: {USA: 1.0}
+
+  海外指数/ETF||纳指100(QQQ):
+    listing_market: US
+    underlying_market: US
+    revenue_exposure: us_constituent_domicile_proxy
+    production_exposure: unknown
+    funding_currency: USD
+    exposure_confidence: medium
+    weight_basis: underlying_market_country
+    c2_weights: {USA: 1.0}
+
+  海外指数/ETF||罗素2000(IWM):
+    listing_market: US
+    underlying_market: US
+    revenue_exposure: us_constituent_domicile_proxy
+    production_exposure: us_constituent_domicile_proxy
+    funding_currency: USD
+    exposure_confidence: medium
+    weight_basis: underlying_market_country
+    c2_weights: {USA: 1.0}
+
+  海外指数/ETF||英国富时100(^FTSE):
+    listing_market: GB
+    underlying_market: GB
+    revenue_exposure: gb_constituent_domicile_proxy
+    production_exposure: unknown
+    funding_currency: GBP
+    exposure_confidence: medium
+    weight_basis: underlying_market_country
+    c2_weights: {GBR: 1.0}
+
+  海外指数/ETF||德国ETF(EWG):
+    listing_market: US
+    underlying_market: DE
+    revenue_exposure: de_constituent_domicile_proxy
+    production_exposure: unknown
+    funding_currency: USD
+    exposure_confidence: low
+    weight_basis: global_c2_due_unmodeled_country
+    c2_weights: {GLOBAL: 1.0}
+
+  海外指数/ETF||法国CAC40(^FCHI):
+    listing_market: FR
+    underlying_market: FR
+    revenue_exposure: fr_constituent_domicile_proxy
+    production_exposure: unknown
+    funding_currency: EUR
+    exposure_confidence: low
+    weight_basis: global_c2_due_unmodeled_country
+    c2_weights: {GLOBAL: 1.0}
+
+  海外指数/ETF||印度ETF(INDA):
+    listing_market: US
+    underlying_market: IN
+    revenue_exposure: in_constituent_domicile_proxy
+    production_exposure: unknown
+    funding_currency: USD
+    exposure_confidence: low
+    weight_basis: global_c2_due_unmodeled_country
+    c2_weights: {GLOBAL: 1.0}

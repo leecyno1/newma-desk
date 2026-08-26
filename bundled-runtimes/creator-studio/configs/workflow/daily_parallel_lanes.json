@@ -1,0 +1,71 @@
+{
+  "schema_version": "newma.daily_parallel_lanes.v1",
+  "updated_at": "2026-08-20T19:16:34",
+  "note": "日度并行编排：文章先于视频（用户定调）；lane 数量与发布平台可增删；每 lane 独立 CI 推进。",
+  "ordering": {
+    "rule": "article_before_video",
+    "description": "每个 lane 内文章先发布，视频/音频口播在文章完成后接力"
+  },
+  "lanes": [
+    {
+      "lane_id": "lane-a",
+      "ci_workflow": "daily-lane-a.yml",
+      "purpose_group": "invest-market",
+      "article": {
+        "channel": "wechat_article",
+        "account_slot": "slot-1",
+        "topics_per_day": 1
+      },
+      "video": {
+        "channel": "wechat_channels_video",
+        "account_slot": "slot-1",
+        "follows": "article",
+        "topics_per_day": 1
+      },
+      "enabled": true
+    },
+    {
+      "lane_id": "lane-b",
+      "ci_workflow": "daily-lane-b.yml",
+      "purpose_group": "fin-business",
+      "article": {
+        "channel": "wechat_article",
+        "account_slot": "slot-2",
+        "topics_per_day": 1
+      },
+      "video": {
+        "channel": "bilibili_video",
+        "account_slot": "slot-2",
+        "follows": "article",
+        "topics_per_day": 1
+      },
+      "enabled": true
+    },
+    {
+      "lane_id": "lane-c",
+      "ci_workflow": "daily-lane-c.yml",
+      "purpose_group": "ai-tech",
+      "article": {
+        "channel": "wechat_article",
+        "account_slot": "slot-3",
+        "topics_per_day": 1
+      },
+      "video": {
+        "channel": "xiaohongshu_video",
+        "account_slot": "slot-3",
+        "follows": "article",
+        "topics_per_day": 1
+      },
+      "enabled": true
+    }
+  ],
+  "customization": {
+    "add_lane": "复制一条 lane 配置，改 lane_id/ci_workflow/account_slot/purpose_group；CI workflow 复用 daily-lane-template",
+    "remove_lane": "删除 lane 配置或将 enabled 置 false；CI 文件保留可复用",
+    "register_platform": "在 configs/publish/account_registry.json 对应 channel 增加 slot，并在此引用"
+  },
+  "runner": {
+    "script": "scripts/run_daily_lane.py",
+    "usage": "python scripts/run_daily_lane.py --lane lane-a [--dry-run]"
+  }
+}

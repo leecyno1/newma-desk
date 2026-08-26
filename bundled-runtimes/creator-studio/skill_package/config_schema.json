@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dasheng Media Platform Configuration",
+  "type": "object",
+  "required": ["project", "ai_capabilities"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+        "description": {"type": "string"}
+      }
+    },
+    "default_style": {
+      "type": "object",
+      "properties": {
+        "primary": {
+          "type": "string",
+          "enum": ["luxun", "lemon", "academic", "hot", "normal"]
+        },
+        "fallback": {
+          "type": "string",
+          "enum": ["luxun", "lemon", "academic", "hot", "normal"]
+        },
+        "auto_select": {"type": "boolean"}
+      }
+    },
+    "default_structure": {
+      "type": "object",
+      "properties": {
+        "template": {
+          "type": "string",
+          "enum": ["PAS", "PCIS", "CCS", "Timeline", "MultiDimension"]
+        },
+        "h2_count": {"type": "integer", "minimum": 2, "maximum": 6},
+        "word_count": {"type": "integer", "minimum": 500, "maximum": 5000},
+        "auto_select": {"type": "boolean"}
+      }
+    },
+    "visual_defaults": {
+      "type": "object",
+      "properties": {
+        "image_style": {
+          "type": "string",
+          "enum": ["realistic", "flat_illustration", "comic", "data_chart"]
+        },
+        "color_palette": {
+          "type": "string",
+          "enum": ["professional", "warm", "cool", "elegant", "vibrant"]
+        },
+        "cover_template": {"type": "string"},
+        "image_per_h2": {"type": "integer", "minimum": 0, "maximum": 5},
+        "chart_generation": {"type": "boolean"}
+      }
+    },
+    "quality_thresholds": {
+      "type": "object",
+      "properties": {
+        "draft_min_score": {"type": "number", "minimum": 0, "maximum": 10},
+        "rewrite_min_score": {"type": "number", "minimum": 0, "maximum": 10},
+        "publish_min_score": {"type": "number", "minimum": 0, "maximum": 10},
+        "auto_retry": {"type": "boolean"},
+        "max_retry": {"type": "integer", "minimum": 1, "maximum": 5}
+      }
+    },
+    "ai_capabilities": {
+      "type": "object",
+      "required": ["reasoning_model", "writing_model"],
+      "properties": {
+        "reasoning_model": {"type": "string"},
+        "writing_model": {"type": "string"},
+        "image_model": {"type": "string"},
+        "video_script_model": {"type": "string"},
+        "max_tokens": {"type": "integer", "minimum": 1024, "maximum": 8192},
+        "temperature": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "automation": {
+      "type": "object",
+      "properties": {
+        "intake_auto": {"type": "boolean"},
+        "brief_auto": {"type": "boolean"},
+        "draft_auto": {"type": "boolean"},
+        "material_auto": {"type": "boolean"},
+        "rewrite_auto": {"type": "boolean"},
+        "publish_auto": {"type": "boolean"},
+        "postmortem_auto": {"type": "boolean"}
+      }
+    },
+    "platforms": {
+      "type": "object",
+      "properties": {
+        "wechat": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "word_count_hot": {"type": "integer"},
+            "word_count_normal": {"type": "integer"}
+          }
+        },
+        "xiaohongshu": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "word_count_hot": {"type": "integer"},
+            "word_count_normal": {"type": "integer"}
+          }
+        },
+        "douyin": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "word_count_hot": {"type": "integer"}
+          }
+        }
+      }
+    },
+    "evolution": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "learning_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "min_samples": {"type": "integer", "minimum": 1},
+        "update_frequency": {
+          "type": "string",
+          "enum": ["daily", "weekly", "monthly"]
+        }
+      }
+    }
+  }
+}

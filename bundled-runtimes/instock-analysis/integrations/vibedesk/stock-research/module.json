@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.1",
+  "id": "instock-stock-research",
+  "name": "股票研究档案",
+  "version": "0.17.0",
+  "category": "research",
+  "navigation": {
+    "groupLabel": "量化研究",
+    "groupOrder": 120,
+    "itemOrder": 6,
+    "label": "股票研究档案",
+    "directory": {"id": "instock-suite", "label": "InStock 分析", "order": 20},
+    "project": {"id": "quant-research", "name": "量化研究", "order": 120, "description": "A 股候选、单股研究、结构、轮动与验证。"},
+    "icon": "research"
+  },
+  "entry": {"type": "external", "url": "http://127.0.0.1:9988/mods/stock-research"},
+  "compatibility": {"level": 2, "bridgeProtocol": "1.0"},
+  "permissions": ["analysis.read"],
+  "dataServices": [],
+  "actions": {
+    "analysis.stock-research": {
+      "binding": {"type": "data", "capability": "analysis.stock-research"},
+      "execution": "request",
+      "permission": "analysis.read",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["symbol"],
+        "properties": {
+          "symbol": {"type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"},
+          "period": {"enum": ["daily", "weekly", "monthly"]},
+          "bars": {"enum": [120, 240, 480, 800]},
+          "asOf": {"type": "string", "format": "date"},
+          "industryChainSnapshotId": {"type": "string", "minLength": 1, "maxLength": 160},
+          "eventFlowSnapshotId": {"type": "string", "minLength": 1, "maxLength": 160},
+          "refresh": {"enum": ["0", "1"]}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+      "confirmation": "none",
+      "timeoutSeconds": 120
+    }
+  },
+  "events": {"emits": ["security.selected"], "accepts": ["security.selected"]},
+  "refresh": {"mode": "manual"}
+}

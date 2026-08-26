@@ -1,0 +1,102 @@
+# 公众号封面风格库（ImageGen 适配版）
+# 来源：md2wechat-skill（github.com/geekjourneyx/md2wechat-skill）11 个 cover preset 改造
+# 改造原则：
+#   1. 模板变量（ARTICLE_TITLE/SUMMARY/KEYWORDS）→ 使用时由会话填入文章语义
+#   2. 「标题文字渲染」要求 → 改为「标题安全区留白」（文字后期叠加，规避生图文字翻车）；
+#      唯一例外 semantic-concept：巨型核心词嵌入构图是风格本体，保留（实测中文渲染可成功）
+#   3. 画幅 → ImageGen 尺寸枚举（21:9→2560x1080，16:9→1792x1024）
+# 使用：transwrite/publish 环节封面生成时，选一组风格，替换「{{}}」语义槽后调用 ImageGen
+# 实测：2026-08-20 T02（黄金ETF齐跌夜）四组全部合格，style3 语义概念为最优单张
+
+version: "1.0"
+provenance: adapted from geekjourneyx/md2wechat-skill internal/assets/builtin/prompts/image/
+
+styles:
+  - id: black-gold-suspense
+    name: 黑金悬念
+    source_preset: cover-suspense-black-gold
+    best_for: 贵金属/宏观/重大观点文
+    aspect: 2560x1080
+    prompt_template: |
+      黑金悬念风格公众号封面，21:9 超宽横版。纯黑背景 #050505，整体平均亮度 15%。
+      画面正中央是 {{核心隐喻物：暖金色 #D4A84B 断续轮廓线，高度约占 50%，内部透明或保持黑色}}。
+      {{隐喻动作：主体正在坠落/倾斜/碎裂，微粒洒落消散于黑暗}}。
+      轮廓周围极少量暖金微粒与低透明度光雾，仿佛视觉从虚无中凝聚。
+      中心向边缘强径向暗角+极淡放射细线，电影预告悬念感。中心聚焦、四周消散。
+      负向：无文字/字母/数字/logo/水印；无明亮背景、蓝紫渐变、霓虹赛博、电商促销感、多主体、卡通。
+
+  - id: data-visual
+    name: 数据可视化
+    source_preset: cover-data-visual
+    best_for: 数据驱动/行情复盘/研究报告
+    aspect: 1792x1024
+    prompt_template: |
+      专业数据可视化风格公众号封面，16:9 横版。深墨绿背景 #0F2019。
+      主体：{{核心数据隐喻：金色 #C89A5A 主线（K线/趋势线）坠落碎裂成散点}}，
+      辅以半透明 {{辅助图表元素：蜡烛图/相关性网格/柱状图剪影}}，细网格线与准星点缀，
+      像高级财经终端 HUD 但克制干净。上方三分之一深色留白作标题安全区。
+      负向：无真实文字/字母/数字/logo/水印；无廉价科技渐变、赛博霓虹、拥挤堆砌、卡通。
+
+  - id: semantic-concept
+    name: 语义概念海报
+    source_preset: cover-semantic-concept
+    best_for: 概念张力强的观点文（本文风格最优实测）
+    aspect: 2560x1080
+    prompt_template: |
+      高级语义概念海报风格公众号封面，21:9 超宽横版。
+      核心创意：两个巨大汉字「{{核心词 2-4 字}}」作为背景建筑块/石碑矗立，字形厚重、笔画准确（标准黑体或宋体）。
+      {{主体动作：一个微型金色小人/物体穿越字形的笔画缺口，拖出金色轨迹}}，
+      字前方地面散落 {{领域道具：金币/K线柱/文档}}。
+      文字与图像咬合成完整视觉句子：主体穿越字形演绎词义。横向台基地平线清晰。
+      暖金 #C89A5A + 深墨绿 #0F2019 双色系，电影级打光，一眼有冲击、二眼能读懂、三眼发现人与字的关系。
+      负向：除核心词外无任何文字/字母/数字/水印；无卡通、写实人脸、杂乱拼贴。
+
+  - id: warm-editorial
+    name: 暖色编辑
+    source_preset: cover-claude-warm
+    best_for: 历史叙事/复盘长文/个人判断文
+    aspect: 2560x1080
+    prompt_template: |
+      暖色高级编辑感公众号封面，21:9 超宽横版。羊皮纸/象牙白背景 #F2EAD8，细腻纸张颗粒+轻微印刷质感。
+      视觉锚点（画面右侧）：{{复古物件上的单一隐喻：账本上的黄铜天平两端同时倾泻金币}}。
+      陶土色 #A0522D 与低饱和金色小面积强调。构图大量负空间在左侧作标题区。
+      手工编辑气质，高级财经杂志内页插画感，缩略图仍可识别主体。
+      负向：无文字/字母/数字/logo/水印；无蓝紫渐变、廉价商业海报、拥挤拼贴、写实人脸、多主体。
+
+  # 未实测但已改造的备选（按 md2wechat preset 目录补全）
+  - id: editorial-magazine
+    name: 杂志编辑
+    source_preset: cover-editorial
+    best_for: 评论/观点文
+    aspect: 1792x1024
+    note: 版式感+高级感+明确留白，待实测
+  - id: editorial-collage
+    name: 手撕拼贴
+    source_preset: cover-editorial-collage
+    best_for: 复古印刷质感文
+    aspect: 2560x1080
+    note: 巨型主视觉文字+拼贴，文字渲染风险高，待实测
+  - id: hero
+    name: 英雄图
+    source_preset: cover-hero
+    best_for: 单一强视觉锚点
+    aspect: 1792x1024
+    note: 待实测
+  - id: illustrated
+    name: 插画亲和
+    source_preset: cover-illustrated
+    best_for: 轻松科普
+    aspect: 1792x1024
+    note: 待实测
+  - id: metaphor
+    name: 视觉隐喻
+    source_preset: cover-metaphor
+    best_for: 抽象主题具象化
+    aspect: 1792x1024
+    note: 待实测
+  - id: minimal
+    name: 极简留白
+    source_preset: cover-minimal
+    best_for: 克制风格
+    aspect: 1792x1024
+    note: 待实测

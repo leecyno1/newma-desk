@@ -1,0 +1,8 @@
+{
+  "name": "dasheng-video-self-learning",
+  "version": "1.0.0",
+  "entrypoint": "scripts/run_video_creator_self_learning.py",
+  "default_config": "configs/video/creator_learning_watchlist.json",
+  "output_policy": "desktop_only",
+  "approval_policy": "candidate_rules_require_human_review"
+}

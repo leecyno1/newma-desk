@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-strategy-validation",
+  "name": "策略验证",
+  "description": "统一点时信号、下一交易日开盘执行、成本、样本外和回撤语义。",
+  "version": "0.17.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["策略验证", "样本外", "回撤", "成本", "点时数据"],
+  "agentWorkspace": {"type": "runtime", "runtimeId": "instock", "workspaceName": "source"},
+  "runtime": {"type": "external", "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:9988", "route": "/mods/strategy-validation"},
+  "manifest": {
+    "schemaVersion": "1.1",
+    "category": "quant",
+    "navigation": {
+      "groupLabel": "量化研究", "groupOrder": 120, "itemOrder": 10, "label": "策略验证",
+      "directory": {"id": "instock-suite", "label": "InStock 分析", "order": 20},
+      "project": {"id": "quant-research", "name": "量化研究", "order": 120, "description": "A 股候选、单股研究、结构、轮动与验证。"},
+      "icon": "quant"
+    },
+    "compatibility": {"level": 2, "bridgeProtocol": "1.0"},
+    "permissions": ["analysis.read"],
+    "dataServices": [],
+    "actions": {
+      "analysis.strategy-validation": {
+        "binding": {"type": "data", "capability": "analysis.strategy-validation"},
+        "execution": "request",
+        "permission": "analysis.read",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "required": ["schema_version", "strategy", "as_of", "benchmark", "holding_period_sessions", "cost_bps_per_side", "signals"],
+          "properties": {
+            "schema_version": {"const": "instock-strategy-validation-packet-v1"},
+            "strategy": {"type": "object", "required": ["id", "source_module"], "properties": {"id": {"type": "string", "minLength": 1}, "name": {"type": "string"}, "source_module": {"enum": ["stock-candidates", "czsc", "rotation"]}}, "additionalProperties": false},
+            "as_of": {"type": "string", "format": "date"},
+            "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
+            "holding_period_sessions": {"type": "integer", "minimum": 1, "maximum": 60},
+            "cost_bps_per_side": {"type": "integer", "minimum": 0, "maximum": 100},
+            "signals": {"type": "array", "minItems": 2, "maxItems": 200, "items": {"type": "object"}}
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+        "confirmation": "none",
+        "timeoutSeconds": 120
+      }
+    },
+    "events": {"emits": [], "accepts": []},
+    "refresh": {"mode": "manual"}
+  }
+}

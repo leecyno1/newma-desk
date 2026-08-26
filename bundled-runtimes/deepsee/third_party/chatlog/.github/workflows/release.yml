@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  release:
+    name: Release Binary
+    runs-on: ubuntu-latest
+    container:
+      image: goreleaser/goreleaser-cross:v1.24
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Fix git permissions
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install UPX
+        uses: crazy-max/ghaction-upx@v3
+        with:
+          install-only: true
+
+      - name: Run GoReleaser (Release)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: goreleaser release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run GoReleaser (Main Branch Build)
+        if: github.ref == 'refs/heads/main'
+        run: goreleaser release --snapshot --clean
+
+      - name: Update Latest Release
+        if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest Development Build"
+          body: "这是来自 main 分支的最新自动构建版本。仅供开发测试使用。"
+          prerelease: true
+          make_latest: false
+          files: |
+            dist/**/*.exe
+            dist/**/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifacts
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatlog-snapshot
+          path: dist/chatlog_windows_amd64_v1/chatlog.exe

@@ -1,0 +1,158 @@
+# ══════════════════════════════════════════════════════════════
+# 基金筛选系统 - Docker Compose 配置
+# 启动命令: docker compose up -d
+# 停止命令: docker compose down
+# 查看日志: docker compose logs -f backend
+# ══════════════════════════════════════════════════════════════
+
+services:
+  # ─────────────────────────────────────────────
+  # PostgreSQL - 核心业务数据存储 + pgvector 向量检索
+  # ─────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: fund_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: fundanalysis2024
+      POSTGRES_DB: fund_analysis
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # Redis - 缓存层（加速数据查询）
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: fund_redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # MongoDB - 调研报告等非结构化数据存储（可选）
+  # ─────────────────────────────────────────────
+  mongo:
+    image: mongo:6
+    container_name: fund_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # Qdrant - 调研报告向量检索（可选）
+  # ─────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: fund_qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # FastAPI 后端 - 端口 8005
+  # ─────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fund_backend
+    environment:
+      DATA_SOURCE: tushare
+      TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
+      DATABASE_URL: postgresql://postgres:fundanalysis2024@postgres:5432/fund_analysis
+      MONGO_URI: mongodb://mongo:27017
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-4-7}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: "*"
+    ports:
+      - "8005:8005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mongo:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8005/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────
+  # Next.js 前端 - 端口 3000
+  # ─────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fund_frontend
+    environment:
+      BACKEND_API_URL: http://backend:8005
+      DATABASE_URL: postgresql://postgres:fundanalysis2024@postgres:5432/fund_analysis
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+# ─────────────────────────────────────────────
+# 持久化卷
+# ─────────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+  mongo_data:
+  qdrant_data:
+
+networks:
+  default:
+    name: fund_network
+    driver: bridge

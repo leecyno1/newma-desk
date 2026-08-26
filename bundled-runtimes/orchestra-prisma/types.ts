@@ -1,0 +1,142 @@
+import type OpenAI from 'openai';
+
+export type AIClient = GoogleGenAIClient | OpenAIClient;
+
+export interface GoogleGenAIClient {
+  provider: 'google';
+  models: {
+    generateContent(params: Record<string, unknown>): Promise<GoogleGenAIResponse>;
+    generateContentStream(
+      params: Record<string, unknown>,
+    ): Promise<AsyncIterable<GoogleGenAIStreamChunk>>;
+  };
+}
+
+export interface GoogleGenAIResponse {
+  text: string;
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>;
+}
+
+export interface GoogleGenAIStreamChunk {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>;
+}
+
+export type OpenAIClient = Pick<OpenAI, 'chat'>;
+
+export type OpenAIChatCompletion = OpenAI.Chat.ChatCompletion;
+
+export type ModelOption = string;
+export type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
+export type ApiProvider = 'google' | 'openai';
+
+export type ModelCatalogItem = {
+  value: ModelOption;
+  label: string;
+  desc: string;
+  provider: ApiProvider;
+};
+
+export type ModelPreferences = {
+  planningLevel?: ThinkingLevel;
+  expertLevel?: ThinkingLevel;
+  synthesisLevel?: ThinkingLevel;
+  expertConcurrency?: number;
+  enableRecursiveLoop?: boolean;
+};
+
+export type CustomModel = {
+  id: string;
+  name: string; // The Actual Model ID (e.g., 'gpt-4o')
+  displayName?: string; // Friendly name for UI (e.g., 'My GPT-4')
+  provider: ApiProvider;
+  apiKey?: string;
+  baseUrl?: string;
+};
+
+export type ExpertConfig = {
+  id: string;
+  role: string;
+  description: string;
+  temperature: number;
+  prompt: string;
+};
+
+export type ExpertResult = ExpertConfig & {
+  status: 'pending' | 'thinking' | 'completed' | 'error';
+  content?: string;
+  thoughts?: string;
+  thoughtProcess?: string;
+  startTime?: number;
+  endTime?: number;
+  round?: number; // Track which iteration this expert belongs to
+};
+
+export type AnalysisResult = {
+  thought_process: string;
+  experts: Omit<ExpertConfig, 'id'>[];
+};
+
+export type ReviewResult = {
+  satisfied: boolean;
+  critique: string;
+  next_round_strategy?: string;
+  refined_experts?: Omit<ExpertConfig, 'id'>[];
+};
+
+export type AppState =
+  | 'idle'
+  | 'analyzing'
+  | 'experts_working'
+  | 'reviewing'
+  | 'synthesizing'
+  | 'completed';
+
+export type AppConfig = {
+  planningLevel: ThinkingLevel;
+  expertLevel: ThinkingLevel;
+  synthesisLevel: ThinkingLevel;
+  enableRecursiveLoop?: boolean;
+  customModels?: CustomModel[];
+  expertConcurrency?: number;
+  /** Per-model preference overrides. Key = model name (e.g. 'glm-5-turbo'). */
+  modelPreferences?: Record<string, ModelPreferences>;
+};
+
+export type MessageAttachment = {
+  id: string;
+  type: 'image' | 'pdf' | 'video' | 'audio' | 'document';
+  name?: string;
+  mimeType: string;
+  data: string; // Base64 string
+  url?: string; // For display
+};
+
+export type ChatMessage = {
+  id: string;
+  role: 'user' | 'model';
+  content: string;
+  attachments?: MessageAttachment[];
+  // DeepThink Artifacts (only for model messages)
+  analysis?: AnalysisResult | null;
+  experts?: ExpertResult[];
+  synthesisThoughts?: string;
+  isThinking?: boolean;
+  totalDuration?: number; // Total time in ms
+};
+
+export type ChatGroup = {
+  id: string;
+  title: string;
+  createdAt: number;
+  isExpanded?: boolean;
+};
+
+export type ChatSession = {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  model: ModelOption;
+  groupId?: string | null;
+  isPinned?: boolean;
+};

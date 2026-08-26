@@ -1,0 +1,90 @@
+{% extends "../common/meta.html" %}
+{% extends "../common/header.html" %}
+{% extends "../common/footer.html" %}
+
+{% extends "main.html" %}
+
+{% block header %}
+<link rel="stylesheet" href="{{ static_url('css/stock-suite-shell.css') }}">
+<header class="stock-suite-header" data-instock-suite-nav>
+    <div class="stock-suite-topbar">
+        <a class="stock-suite-brand" href="/mods/market-workbench" aria-label="InStock 研究终端首页">
+            <span class="stock-suite-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span><strong>InStock</strong><small>股票研究终端</small></span>
+        </a>
+
+        <div class="stock-suite-page-title">
+            <span>当前功能</span>
+            <strong id="stock-suite-current-title">市场复盘</strong>
+        </div>
+
+        <div class="stock-suite-tools">
+            <form class="stock-suite-search" id="stock-suite-search" role="search">
+                <label class="sr-only" for="stock-suite-symbol">股票代码</label>
+                <input id="stock-suite-symbol" inputmode="numeric" autocomplete="off" maxlength="13" placeholder="输入股票代码">
+                <button type="submit">研究</button>
+            </form>
+            <button class="stock-suite-history-button" id="stock-suite-history-button" type="button" aria-expanded="false" aria-controls="stock-suite-history">
+                历史 <b data-stock-suite-history-count hidden>0</b>
+            </button>
+            <div class="stock-suite-runtime"><i></i><span>数据</span><b id="stock-suite-runtime-state">连接中</b></div>
+            <button class="stock-suite-menu-button" id="stock-suite-menu-button" type="button" aria-expanded="false" aria-controls="stock-suite-directory">
+                <span></span><span></span><span></span><em>模块</em>
+            </button>
+        </div>
+    </div>
+</header>
+<aside class="stock-suite-directory" id="stock-suite-directory" aria-label="功能目录">
+    <div class="stock-suite-directory-head">
+        <div><strong>功能目录</strong><span>11 项</span></div>
+        <button id="stock-suite-directory-close" type="button" aria-label="关闭功能目录">×</button>
+    </div>
+    <nav>
+        <section data-suite-section="market">
+            <h2>市场</h2>
+            <a href="/mods/market-workbench" data-suite-page="market-workbench"><i>01</i><span><b>市场复盘</b><small>宽度、情绪、异动和当日结论</small></span></a>
+            <a href="/mods/market-map" data-suite-page="market-map"><i>02</i><span><b>大盘云图</b><small>一级行业与个股</small></span></a>
+            <a href="/mods/rotation" data-suite-page="rotation"><i>03</i><span><b>行业与 ETF 轮动</b><small>31 个行业强弱与 ETF</small></span></a>
+        </section>
+        <section data-suite-section="screen">
+            <h2>选股</h2>
+            <a href="/mods/stock-candidates" data-suite-page="stock-candidates"><i>04</i><span><b>A/H 股候选</b><small>宽覆盖、基本面与风险筛选</small></span></a>
+            <a href="/mods/technical-signals" data-suite-page="technical-signals"><i>05</i><span><b>选股中心</b><small>硬条件、形态和经典策略</small></span></a>
+        </section>
+        <section data-suite-section="stock">
+            <h2>个股</h2>
+            <a href="/mods/stock-research" data-suite-page="stock-research"><i>06</i><span><b>公司档案</b><small>财务、事件和结构结论</small></span></a>
+            <a href="/mods/czsc" data-suite-page="czsc"><i>07</i><span><b>缠论结构分析</b><small>笔、线段、中枢和信号</small></span></a>
+            <a href="/mods/event-flow" data-suite-page="event-flow"><i>08</i><span><b>公司事件</b><small>公告、研报和资金证据</small></span></a>
+        </section>
+        <section data-suite-section="industry">
+            <h2>产业</h2>
+            <a href="/mods/industry-chain" data-suite-page="industry-chain"><i>09</i><span><b>产业链研究</b><small>环节、瓶颈和候选公司</small></span></a>
+        </section>
+        <section data-suite-section="review">
+            <h2>验证与组合</h2>
+            <a href="/mods/strategy-validation" data-suite-page="strategy-validation"><i>10</i><span><b>策略验证</b><small>历史回放与样本外检验</small></span></a>
+            <a href="/mods/research-book" data-suite-page="research-book"><i>11</i><span><b>研究组合</b><small>研究理由、证伪和暴露</small></span></a>
+        </section>
+    </nav>
+</aside>
+<button class="stock-suite-history-fab" id="stock-suite-history-fab" type="button" aria-expanded="false" aria-controls="stock-suite-history">
+    历史 <b data-stock-suite-history-count hidden>0</b>
+</button>
+<aside class="stock-suite-history" id="stock-suite-history" aria-label="分析历史" aria-hidden="true">
+    <div class="stock-suite-history-head">
+        <div><strong>分析历史</strong><span id="stock-suite-history-module">当前模块</span></div>
+        <button id="stock-suite-history-close" type="button" aria-label="关闭分析历史">×</button>
+    </div>
+    <div class="stock-suite-history-banner" id="stock-suite-history-banner" hidden>
+        <span>正在浏览历史版本</span>
+        <button id="stock-suite-history-latest" type="button">返回最新</button>
+    </div>
+    <div class="stock-suite-history-list" id="stock-suite-history-list">
+        <p>尚无历史记录。刷新或运行一次分析后会自动保留。</p>
+    </div>
+    <p class="stock-suite-history-note">刷新最新数据不会覆盖旧结果；默认保留 7 天，分析服务重启后仍可浏览。</p>
+</aside>
+<div class="stock-suite-backdrop" id="stock-suite-backdrop" hidden></div>
+<script src="{{ static_url('js/stock-suite-shell.js') }}" defer></script>
+{% end %}

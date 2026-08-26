@@ -1,0 +1,127 @@
+import { materializeTimelineExport } from '../export/materializeBlobMedia';
+import type { ProjectDoc, TimelineState } from '../editor/types';
+
+export interface SubmitMediaExportArgs {
+  format: 'video' | 'audio';
+  codec?: 'h264' | 'vp8' | 'mp3' | 'wav';
+  name?: string;
+  startFrame?: number;
+  endFrameExclusive?: number;
+  startSeconds?: number;
+  endSeconds?: number;
+  /** Output fps override. Frame counts stay fixed while real-time duration scales. */
+  fps?: number;
+  /** Target max-height ladder: 480p | 720p | 1080p. */
+  resolution?: '480p' | '720p' | '1080p';
+  /** Exact video bitrate in bits per second. */
+  videoBitrate?: number;
+}
+
+export interface MediaExportResult {
+  status: 'completed';
+  format: 'video' | 'audio';
+  codec: 'h264' | 'vp8' | 'mp3' | 'wav';
+  name: string;
+  sizeBytes: number;
+  startFrame?: number;
+  endFrameExclusive?: number;
+  startSeconds?: number;
+  endSeconds?: number;
+  fps?: number;
+  resolution?: string;
+  width?: number;
+  height?: number;
+}
+
+const RES_HEIGHT: Record<NonNullable<SubmitMediaExportArgs['resolution']>, number> = {
+  '480p': 480,
+  '720p': 720,
+  '1080p': 1080,
+};
+
+/** Scale canvas to fit resolution ladder while preserving aspect ratio. */
+export function applyExportGeometry(
+  state: TimelineState,
+  opts: { fps?: number; resolution?: SubmitMediaExportArgs['resolution'] },
+): TimelineState {
+  let next: TimelineState = { ...state };
+  if (opts.resolution && RES_HEIGHT[opts.resolution]) {
+    const targetH = RES_HEIGHT[opts.resolution];
+    const aspect = state.width / Math.max(1, state.height);
+    const height = targetH;
+    const width = Math.max(2, Math.round(height * aspect / 2) * 2); // even
+    next = { ...next, width, height };
+  }
+  if (typeof opts.fps === 'number' && [24, 25, 30, 50, 60].includes(opts.fps)) {
+    next = { ...next, fps: opts.fps };
+  }
+  return next;
+}
+
+export async function submitMediaExport(
+  args: SubmitMediaExportArgs,
+  project: ProjectDoc,
+  timelineId: string,
+): Promise<MediaExportResult> {
+  const codec = args.codec ?? (args.format === 'video' ? 'h264' : 'mp3');
+  const ext = codec === 'h264' ? 'mp4' : codec === 'vp8' ? 'webm' : codec;
+  const selected = project.timelines.find((timeline) => timeline.id === timelineId);
+  if (!selected) throw new Error(`timeline not found: ${timelineId}`);
+  const geometry = applyExportGeometry(selected, { fps: args.fps, resolution: args.resolution });
+  const exportProject: ProjectDoc = {
+    ...project,
+    timelines: project.timelines.map((timeline) =>
+      timeline.id === timelineId ? { ...timeline, ...geometry } : timeline),
+  };
+  const snapshot = await materializeTimelineExport(exportProject, timelineId);
+  const exportState = snapshot.state;
+  const response = await fetch('/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      state: exportState,
+      project: snapshot.project,
+      timelineId: snapshot.timelineId,
+      format: args.format,
+      codec: args.codec,
+      name: args.name,
+      startFrame: args.startFrame,
+      endFrameExclusive: args.endFrameExclusive,
+      startSeconds: args.startSeconds,
+      endSeconds: args.endSeconds,
+      videoBitrate: args.format === 'video' ? args.videoBitrate : undefined,
+    }),
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(result.error ?? `media export failed (${response.status})`);
+  }
+  const blob = await response.blob();
+  // The client already has the correct UTF-8 name, and it can be used directly as anchor.download (anchor uses JS strings,
+  // Chinese security); no longer parse the Content-Disposition header of the server (headers.get will be garbled according to ISO-8859-1).
+  const base = (args.name ?? 'export').replace(/\.(?:mp4|webm|mp3|wav)$/i, '');
+  const name = `${base}.${ext}`;
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = name;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  return {
+    status: 'completed',
+    format: args.format,
+    codec,
+    name,
+    sizeBytes: blob.size,
+    startFrame: args.startFrame,
+    endFrameExclusive: args.endFrameExclusive,
+    startSeconds: args.startSeconds,
+    endSeconds: args.endSeconds,
+    fps: exportState.fps,
+    resolution: args.resolution,
+    width: exportState.width,
+    height: exportState.height,
+  };
+}

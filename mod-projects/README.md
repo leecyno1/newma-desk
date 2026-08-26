@@ -1,19 +1,7 @@
-# Built-in Mod projects
+# Local Mod overrides
 
-Newma-Desk keeps its pinned built-in business and intelligence runtimes inside this directory
-while preserving their independent repositories and runtimes:
+该目录只用于开发者临时覆盖仓内运行时，并保留外部项目自己的 Git 历史。
 
-- `vibe-research/` provides the default investment and research Mods.
-- `vibe-trading/` provides the default quant and trading Mods.
-- `world-intel-mcp/` provides the managed global intelligence data plane used by
-  the Market global-situation map and the Event workspace.
-- `rsshub-policy/` is the pinned RSSHub upstream used as the independent policy
-  collection foundation. Policy scoring and the Desk UI remain Newma-owned.
+公开仓库和干净 clone 所需的完整源码位于 `bundled-runtimes/`。统一启动器优先使用仓内快照；只有显式设置 `NEWMA_DESK_*_WORKSPACE` 时才使用这里或其他外部目录。
 
-The unified launcher discovers both directories automatically. Environment
-variables are only needed when intentionally overriding these in-tree defaults.
-The unified launcher creates `world-intel-mcp/.venv`, installs its dashboard
-extra, and manages its local service on port `8501`.
-
-Each child project retains its own `.git`, dependencies, backend, frontend, and
-working tree. Do not flatten their history into the Newma-Desk repository.
+此目录中的项目不是 Newma-Desk 正常启动依赖。

@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: "Newma 视频风格训练"
+  short_description: "从样板视频学习可复用剪辑风格 DNA"
+  default_prompt: "Use $dasheng-video-style-trainer to learn a reusable video style DNA from a folder of sample videos."

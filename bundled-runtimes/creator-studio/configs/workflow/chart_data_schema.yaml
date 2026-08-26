@@ -1,0 +1,37 @@
+# 动态图表数据契约（chart_data.v1）
+# 用途：draft/evidence_base 沉淀图表原始数据 → transwrite/asset_build 生成动态图表（HTML 动画/视频段）
+# 原则：静态 PNG（文章用）与动态版（视频用）从同一份数据渲染，口径一致
+
+schema_version: "newma.chart_data.v1"
+
+fields:
+  chart_id: string          # 唯一 ID（如 T06-debt-milestones）
+  topic_id: string          # 所属选题（T01/T06/T09）
+  title: string             # 图表标题
+  subtitle: string          # 副标题/口径说明
+  chart_type: enum          # bar | line | bar_line | dual_panel | scatter | area
+  orientation: enum         # landscape | portrait（视频用 portrait 1080x1920）
+  x_axis: {label: string, values: [num|str]}
+  y_axis: {label: string, values: [num]}     # 单序列；多序列用 series
+  series:                   # 多序列（可空）
+    - {name: string, values: [num], color: string, type: enum}
+  annotations:              # 关键标注（动态图的高亮时刻）
+    - {at: num|str, label: string, emphasis: bool}
+  data_labels: [string]     # 每个数据点的显示标签（可空）
+  source: string            # 数据来源（Tushare/财政部/快讯+日期）
+  notes: string             # 口径备注
+  animation: enum           # 动画风格：grow（柱生长）| draw（线绘制）| count_up（数字滚动）| progressive（逐条出现）
+
+example_T06:
+  chart_id: T06-debt-milestones
+  topic_id: T06
+  title: 美国联邦债务里程碑
+  subtitle: 财政部公开数据（万亿美元）
+  chart_type: bar
+  orientation: portrait
+  x_axis: {label: 年份, values: [2008, 2017, 2022, 2026]}
+  y_axis: {label: 万亿美元, values: [10, 20, 30, 40]}
+  annotations:
+    - {at: 2026, label: "30→40 万亿仅用约 4.5 年", emphasis: true}
+  source: 美国财政部 Debt to the Penny（2026-08-17 官方值 $39.99T）
+  animation: grow

@@ -1,0 +1,3297 @@
+{
+  "schema_version": "dasheng.video.tool_registry.v2",
+  "updated_at": "2026-08-22",
+  "catalog_sources": {
+    "reserved_projects": "configs/external/reserved_projects.json",
+    "reserve_candidates": "configs/external/reserved_projects.json",
+    "upstream_video_skills": "configs/video/upstream_video_skills.json",
+    "director_registry": "configs/video/director_registry.json",
+    "local_skills_root": "skills",
+    "global_skills_root": "~/.codex/skills"
+  },
+  "routing_policy": {
+    "primary_tier_order": [
+      "production_candidate",
+      "existing_bridge",
+      "preferred_local_experiment",
+      "backup",
+      "experimental",
+      "reference",
+      "reference_only",
+      "catalog_source"
+    ],
+    "blocked_status_tokens": [
+      "missing",
+      "runtime_incomplete",
+      "needs_login",
+      "needs_desktop_app",
+      "server_stack_not_installed",
+      "reference_only"
+    ],
+    "fallback_status_tokens": [
+      "experimental",
+      "warning",
+      "audit",
+      "reference",
+      "benchmark",
+      "optional"
+    ],
+    "provider_policy": {
+      "allowed_first_party_model_providers": [
+        {
+          "id": "openai",
+          "aliases": [
+            "gpt",
+            "codex"
+          ],
+          "credential_policy": "provider_key_or_signed_in_cli_allowed"
+        },
+        {
+          "id": "moonshot",
+          "aliases": [
+            "kimi"
+          ],
+          "credential_policy": "provider_key_or_signed_in_cli_allowed"
+        },
+        {
+          "id": "google",
+          "aliases": [
+            "gemini"
+          ],
+          "credential_policy": "provider_key_or_signed_in_cli_allowed"
+        },
+        {
+          "id": "bytedance",
+          "aliases": [
+            "seedance",
+            "jimeng",
+            "seedream"
+          ],
+          "credential_policy": "provider_key_or_model_access_allowed"
+        },
+        {
+          "id": "minimax",
+          "aliases": [
+            "mmx"
+          ],
+          "credential_policy": "provider_key_or_signed_in_cli_allowed"
+        }
+      ],
+      "blocked_third_party_service_providers": [
+        "atlascloud",
+        "openrouter",
+        "replicate",
+        "runpod",
+        "modal",
+        "elevenlabs",
+        "higgsfield"
+      ],
+      "desktop_app_policy": "Exclude projects that require an additional desktop app or local app backend.",
+      "status_policy": "needs_provider_keys, needs_api_key and needs_model_access are configuration states, not deletion criteria, when the route is restricted to an allowed first-party model provider."
+    },
+    "production_profiles": {
+      "explainer_html_video": {
+        "default_aspect": "16:9",
+        "alternate_aspects": [
+          "1:1",
+          "9:16"
+        ],
+        "core_route": [
+          "dasheng-video-director",
+          "media-downloader",
+          "mmx_cli",
+          "html_video_local",
+          "remotion_renderer_families",
+          "ffmpeg"
+        ],
+        "reserve_route": [
+          "hyperframes",
+          "text-to-lottie",
+          "video-use",
+          "freecut",
+          "seedance2-skill",
+          "remotion-video-toolkit"
+        ],
+        "reserve_policy": "Keep all registered alternatives. Activate them only for a director-routed scene, a format adaptation, or a documented primary-route failure."
+      },
+      "vox_explainer_video": {
+        "default_aspect": "16:9",
+        "alternate_aspects": [
+          "1:1",
+          "9:16"
+        ],
+        "core_route": [
+          "dasheng-vox-skills",
+          "dasheng-video-director",
+          "media-downloader",
+          "shotcraft_adapter",
+          "vox_manifest",
+          "image2",
+          "gemini_video_api",
+          "gemini_omni_browser",
+          "vox_shot_qc",
+          "html_video_local",
+          "build_remotion_renderer_pack",
+          "dasheng_ffmpeg_toolkit"
+        ],
+        "reserve_route": [
+          "video_vox_image2_pipeline",
+          "video_vox_mmx_generate",
+          "mmx_cli",
+          "hyperframes_local",
+          "text_to_lottie_local",
+          "seedance2-skill",
+          "remotion-video-toolkit",
+          "video-use"
+        ],
+        "reserve_policy": "Keep all registered alternatives, but use generated footage only for explanation or transitions and never as real-world evidence."
+      },
+      "talking_head_video": {
+        "core_route": [
+          "dasheng-video-roughcut",
+          "cut_talking_head_skill",
+          "dasheng-video-director",
+          "media-downloader",
+          "html_video_local",
+          "build_remotion_renderer_pack",
+          "dasheng_ffmpeg_toolkit",
+          "video_render_qc"
+        ],
+        "reserve_route": [
+          "finish_talking_head_skill",
+          "freecut_skill",
+          "video-use",
+          "video-wrapper",
+          "claude-shorts",
+          "talking_head_editor_reference",
+          "auto_editor_cli"
+        ],
+        "reserve_policy": "Use approved real-person footage and its original human audio as the only presenter source. Digital-human work migrates to digital_human_video."
+      },
+      "digital_human_video": {
+        "default_aspect": "9:16",
+        "alternate_aspects": [
+          "16:9",
+          "1:1",
+          "4:5"
+        ],
+        "core_route": [
+          "image2",
+          "build_digital_human_job",
+          "luma_dream_machine_browser",
+          "digital_human_dialogue_router",
+          "digital_human_qc",
+          "build_remotion_renderer_pack",
+          "dasheng_ffmpeg_toolkit"
+        ],
+        "reserve_route": [
+          "render_joyvasa_digital_human",
+          "whisperx_diarization",
+          "mmx_cli",
+          "seedance2-skill",
+          "text_to_lottie_local"
+        ],
+        "reserve_policy": "Generate each presenter independently, approve a short sample for each, keep generated presenter videos silent, and composite single or dual-speaker turns on the Remotion master timeline."
+      },
+      "commercial_promo_video": {
+        "default_aspect": "9:16",
+        "alternate_aspects": [
+          "16:9",
+          "1:1",
+          "4:5"
+        ],
+        "default_durations_sec": [
+          15,
+          30,
+          60
+        ],
+        "core_route": [
+          "dasheng-commercial-promo-video",
+          "commercial_promo_package_builder",
+          "dasheng-video-director",
+          "media-downloader",
+          "image2",
+          "shotcraft_adapter",
+          "html_video_local",
+          "build_remotion_renderer_pack",
+          "mmx_cli",
+          "dasheng_ffmpeg_toolkit",
+          "video_render_qc"
+        ],
+        "reserve_route": [
+          "brandkit",
+          "brand-guidelines",
+          "high-end-visual-design",
+          "hyperframes_local",
+          "text_to_lottie_local",
+          "seedance2-skill",
+          "gemini_video_api",
+          "remotion-video-toolkit"
+        ],
+        "reserve_policy": "Official brand and product assets are primary. Generated visuals may create concepts, atmosphere, or transitions, but cannot prove product capability, customer results, price, or offer."
+      },
+      "cinematic_short_drama_video": {
+        "default_aspect": "9:16",
+        "alternate_aspects": [
+          "16:9",
+          "2.39:1"
+        ],
+        "core_route": [
+          "cinematic_planning_router",
+          "dasheng-video-director"
+        ],
+        "reserve_route": [
+          "cinematic_external_api_router",
+          "image2",
+          "gemini_video_api",
+          "mmx_cli",
+          "seedance2-skill",
+          "video_vox_mmx_generate",
+          "gemini_omni_browser",
+          "build_remotion_renderer_pack",
+          "dasheng_ffmpeg_toolkit"
+        ],
+        "reserve_policy": "Planning and registration only. Paid external generation remains disabled until the user explicitly approves provider, budget, rights, and safety preflight."
+      }
+    },
+    "stage_capabilities": {
+      "intake_and_analysis": [
+        "video_reading",
+        "scene_detection",
+        "transcript",
+        "contact_sheet",
+        "reference_download",
+        "content_distillation",
+        "creator_script_rewrite",
+        "retention_design"
+      ],
+      "roughcut": [
+        "talking_head_cut",
+        "roughcut_plan",
+        "local_asr",
+        "silence_cleanup",
+        "timeline_edit"
+      ],
+      "scene_design": [
+        "director_scene_plan",
+        "motion_design",
+        "visual_design",
+        "storyboard_review",
+        "story_segment_storyboard",
+        "production_shot_split"
+      ],
+      "asset_generation": [
+        "conceptual_illustration",
+        "generated_broll",
+        "lottie_asset",
+        "social_card",
+        "reusable_footage"
+      ],
+      "render_and_composite": [
+        "html_video",
+        "remotion_render",
+        "dynamic_chart",
+        "talking_head_packaging",
+        "final_render"
+      ],
+      "caption_and_audio": [
+        "subtitle_motion",
+        "vertical_caption_render",
+        "tts",
+        "bgm",
+        "audio_mastering"
+      ],
+      "quality_control": [
+        "render_qc",
+        "motion_review",
+        "evidence_gate",
+        "media_probe"
+      ],
+      "distribution": [
+        "platform_upload",
+        "cloud_draft",
+        "short_clip_distribution"
+      ]
+    },
+    "lane_stage_capabilities": {
+      "explainer_html_video": {
+        "intake_and_analysis": [
+          "video_reading",
+          "scene_detection",
+          "transcript",
+          "contact_sheet",
+          "reference_download"
+        ],
+        "scene_design": [
+          "director_scene_plan",
+          "motion_design",
+          "visual_design",
+          "storyboard_review"
+        ],
+        "asset_generation": [
+          "conceptual_illustration",
+          "generated_broll",
+          "lottie_asset",
+          "social_card",
+          "reusable_footage"
+        ],
+        "render_and_composite": [
+          "html_video",
+          "remotion_render",
+          "dynamic_chart",
+          "final_render"
+        ],
+        "caption_and_audio": [
+          "subtitle_motion",
+          "tts",
+          "bgm"
+        ],
+        "quality_control": [
+          "render_qc",
+          "motion_review",
+          "evidence_gate",
+          "media_probe"
+        ],
+        "distribution": [
+          "platform_upload",
+          "cloud_draft",
+          "short_clip_distribution"
+        ]
+      },
+      "vox_explainer_video": {
+        "intake_and_analysis": [
+          "reference_download",
+          "video_reading",
+          "transcript",
+          "contact_sheet",
+          "vox_investigation",
+          "content_distillation",
+          "creator_script_rewrite",
+          "retention_design"
+        ],
+        "scene_design": [
+          "director_scene_plan",
+          "storyboard_review",
+          "story_segment_storyboard",
+          "production_shot_split",
+          "visual_bible",
+          "image2_shot_design",
+          "crop_storyboard",
+          "continuous_editorial_world",
+          "editorial_collage",
+          "document_visualization",
+          "camera_choreography",
+          "motion_design",
+          "shot_recipe_library",
+          "shotcraft_binding",
+          "cinematic_camera"
+        ],
+        "asset_generation": [
+          "video_download",
+          "archive_footage",
+          "reusable_footage",
+          "dynamic_chart",
+          "conceptual_illustration",
+          "reference_image_generation",
+          "storyboard_contact_sheet",
+          "omni_browser_shot_generation",
+          "image_to_video_shots",
+          "real_page_capture"
+        ],
+        "render_and_composite": [
+          "html_video",
+          "remotion_render",
+          "dynamic_chart",
+          "final_render"
+        ],
+        "caption_and_audio": [
+          "subtitle_motion",
+          "tts",
+          "bgm",
+          "audio_mastering",
+          "beat_sync",
+          "sound_design"
+        ],
+        "quality_control": [
+          "render_qc",
+          "motion_review",
+          "evidence_gate",
+          "media_probe",
+          "shotcraft_review"
+        ],
+        "distribution": [
+          "platform_upload",
+          "cloud_draft",
+          "short_clip_distribution"
+        ]
+      },
+      "talking_head_video": {
+        "intake_and_analysis": [
+          "video_reading",
+          "scene_detection",
+          "transcript",
+          "contact_sheet",
+          "reference_download"
+        ],
+        "roughcut": [
+          "talking_head_cut",
+          "roughcut_plan",
+          "local_asr",
+          "silence_cleanup",
+          "timeline_edit"
+        ],
+        "scene_design": [
+          "director_scene_plan",
+          "motion_design",
+          "visual_design",
+          "storyboard_review"
+        ],
+        "asset_generation": [
+          "conceptual_illustration",
+          "generated_broll",
+          "lottie_asset",
+          "social_card",
+          "reusable_footage"
+        ],
+        "render_and_composite": [
+          "remotion_render",
+          "dynamic_chart",
+          "talking_head_packaging",
+          "final_render"
+        ],
+        "caption_and_audio": [
+          "subtitle_motion",
+          "vertical_caption_render",
+          "audio_mastering",
+          "bgm"
+        ],
+        "quality_control": [
+          "render_qc",
+          "motion_review",
+          "evidence_gate",
+          "media_probe"
+        ],
+        "distribution": [
+          "platform_upload",
+          "cloud_draft",
+          "short_clip_distribution"
+        ]
+      },
+      "digital_human_video": {
+        "intake_and_analysis": [
+          "portrait_consent",
+          "transcript",
+          "reference_image_conditioning"
+        ],
+        "script_rewrite": [
+          "dialogue_script_rewrite",
+          "speaker_turn_plan",
+          "single_presenter_plan",
+          "dual_interview_plan"
+        ],
+        "presenter_source": [
+          "image_generation",
+          "animal_head_image_edit",
+          "audio_driven_lip_sync",
+          "portrait_audio_animation",
+          "identity_review",
+          "lip_sync_review"
+        ],
+        "scene_design": [
+          "director_scene_plan",
+          "storyboard_review",
+          "dual_presenter_composition",
+          "speaker_label_plan",
+          "motion_design"
+        ],
+        "asset_generation": [
+          "reference_download",
+          "dynamic_chart",
+          "conceptual_illustration",
+          "lottie_asset",
+          "reusable_footage"
+        ],
+        "render_and_composite": [
+          "digital_human_composition",
+          "dual_presenter_composition",
+          "remotion_render",
+          "subtitle_motion",
+          "final_render"
+        ],
+        "caption_and_audio": [
+          "subtitle_motion",
+          "tts",
+          "audio_mastering"
+        ],
+        "quality_control": [
+          "identity_review",
+          "lip_sync_review",
+          "ai_disclosure_check",
+          "render_qc",
+          "motion_review",
+          "media_probe"
+        ],
+        "distribution": [
+          "platform_upload",
+          "cloud_draft",
+          "short_clip_distribution"
+        ]
+      },
+      "commercial_promo_video": {
+        "intake_and_analysis": [
+          "brand_asset_intake",
+          "reference_download",
+          "content_distillation",
+          "brand_system"
+        ],
+        "script_rewrite": [
+          "commercial_script_rewrite",
+          "offer_design",
+          "retention_design",
+          "cta_design",
+          "claims_compliance"
+        ],
+        "scene_design": [
+          "director_scene_plan",
+          "storyboard_review",
+          "product_showcase",
+          "brand_system",
+          "visual_design",
+          "motion_design",
+          "shot_recipe_library"
+        ],
+        "asset_generation": [
+          "product_asset_routing",
+          "reference_download",
+          "video_download",
+          "image_generation",
+          "generated_broll",
+          "html_video",
+          "gsap_motion",
+          "lottie_asset",
+          "music_generation",
+          "sound_design"
+        ],
+        "render_and_composite": [
+          "commercial_edit",
+          "remotion_render",
+          "subtitle_motion",
+          "kinetic_typography",
+          "beat_sync",
+          "sound_design",
+          "final_render"
+        ],
+        "quality_control": [
+          "brand_consistency_review",
+          "claims_compliance",
+          "render_qc",
+          "motion_review",
+          "media_probe"
+        ],
+        "distribution": [
+          "platform_upload",
+          "short_clip_distribution"
+        ]
+      },
+      "cinematic_short_drama_video": {
+        "intake_and_analysis": [
+          "content_distillation",
+          "reference_download"
+        ],
+        "script_rewrite": [
+          "cinematic_screenplay",
+          "character_bible",
+          "dialogue_script_rewrite"
+        ],
+        "scene_design": [
+          "cinematic_shot_list",
+          "cinematic_camera",
+          "continuity_bible",
+          "storyboard_review"
+        ],
+        "asset_generation": [
+          "reference_image_generation",
+          "video_prompt_design",
+          "image_to_video_shots",
+          "external_video_generation",
+          "sound_design"
+        ],
+        "render_and_composite": [
+          "continuity_edit",
+          "remotion_render",
+          "subtitle_motion",
+          "sound_design",
+          "final_render"
+        ],
+        "quality_control": [
+          "continuity_review",
+          "render_qc",
+          "media_probe"
+        ]
+      }
+    }
+  },
+  "skills": [
+    {
+      "name": "dasheng-video-director",
+      "path": "skills/dasheng-video-director/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "director_scene_plan",
+        "storyboard_review",
+        "composition_policy",
+        "transition_policy",
+        "evidence_gate"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-commercial-promo-video",
+      "path": "skills/dasheng-commercial-promo-video/SKILL.md",
+      "scope": "execution",
+      "priority": 80,
+      "capabilities": [
+        "brand_asset_intake",
+        "commercial_script_rewrite",
+        "offer_design",
+        "retention_design",
+        "cta_design",
+        "claims_compliance",
+        "product_showcase",
+        "product_asset_routing",
+        "commercial_edit",
+        "brand_system",
+        "visual_design",
+        "motion_design",
+        "brand_consistency_review",
+        "motion_review"
+      ],
+      "lanes": [
+        "commercial_promo_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-video-roughcut",
+      "path": "skills/dasheng-video-roughcut/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "talking_head_cut",
+        "roughcut_plan",
+        "local_asr",
+        "timeline_edit",
+        "spoken_script_rewrite"
+      ],
+      "lanes": [
+        "talking_head_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-video-talking-head",
+      "path": "skills/dasheng-video-talking-head/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "presenter_source_routing",
+        "talking_head_packaging",
+        "speaker_pip",
+        "subtitle_motion",
+        "final_render",
+        "digital_human_composition"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "digital_human_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-digital-human-talking-head",
+      "path": "skills/dasheng-digital-human-talking-head/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "portrait_consent",
+        "animal_head_image_edit",
+        "luma_audio_lip_sync",
+        "audio_driven_lip_sync",
+        "portrait_audio_animation",
+        "minimax_audio_master",
+        "identity_review",
+        "lip_sync_review",
+        "presenter_source_manifest",
+        "single_presenter_plan",
+        "dual_interview_plan",
+        "digital_human_composition"
+      ],
+      "lanes": [
+        "digital_human_video"
+      ],
+      "status": "ready_requires_signed_in_luma"
+    },
+    {
+      "name": "dasheng-video-explainer-html",
+      "path": "skills/dasheng-video-explainer-html/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "html_video",
+        "motion_design",
+        "motion_explainer",
+        "dynamic_chart",
+        "final_render"
+      ],
+      "lanes": [
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-vox-skills",
+      "path": "skills/dasheng-vox-skills/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "vox_orchestration",
+        "content_distillation",
+        "creator_script_rewrite",
+        "retention_design",
+        "story_segment_storyboard",
+        "production_shot_split",
+        "shot_recipe_library",
+        "shotcraft_binding",
+        "real_page_capture",
+        "cinematic_camera",
+        "beat_sync",
+        "sound_design",
+        "provider_routing",
+        "generation_resume",
+        "gemini_api_video",
+        "omni_browser_shot_generation",
+        "remotion_reedit",
+        "shotcraft_review",
+        "vox_qc"
+      ],
+      "lanes": [
+        "vox_explainer_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-video-vox",
+      "path": "skills/dasheng-video-vox/SKILL.md",
+      "scope": "component",
+      "capabilities": [
+        "vox_investigation",
+        "content_distillation",
+        "creator_script_rewrite",
+        "retention_design",
+        "story_segment_storyboard",
+        "production_shot_split",
+        "visual_bible",
+        "image2_scene_generation",
+        "shot_crop",
+        "storyboard_contact_sheet",
+        "image_to_video_shots",
+        "continuous_editorial_world",
+        "camera_choreography",
+        "editorial_collage",
+        "archive_footage",
+        "document_visualization",
+        "counterargument_design",
+        "qualified_conclusion"
+      ],
+      "lanes": [
+        "vox_explainer_video"
+      ],
+      "status": "ready_internal_component"
+    },
+    {
+      "name": "dasheng-video-omni-browser",
+      "path": "docs/archive/skills-video-omni-browser/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "omni_browser_shot_generation",
+        "signed_in_chrome_session",
+        "reference_image_to_video",
+        "shot_download"
+      ],
+      "lanes": [
+        "vox_explainer_video"
+      ],
+      "status": "archived_superseded_by_omni_video_bridge"
+    },
+    {
+      "name": "dasheng-html-video-bridge",
+      "path": "skills/dasheng-html-video-bridge/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "html_video",
+        "motion_design",
+        "remotion_render",
+        "gsap_motion",
+        "lottie_overlay"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-html-anything-bridge",
+      "path": "skills/dasheng-html-anything-bridge/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "html_template",
+        "visual_design",
+        "social_card",
+        "document_visualization"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-video-broll-generator",
+      "path": "skills/dasheng-video-broll-generator/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "generated_broll",
+        "broll_routing",
+        "editorial_collage",
+        "reusable_footage"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-caption-motion",
+      "path": "skills/dasheng-caption-motion/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "subtitle_motion",
+        "kinetic_typography",
+        "timed_caption",
+        "speaker_label_plan"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-video-editing-bridge",
+      "path": "skills/dasheng-video-editing-bridge/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "full_edit_provider_routing",
+        "fallback_selection",
+        "continuity_edit",
+        "commercial_edit"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-ffmpeg-toolkit",
+      "path": "skills/dasheng-ffmpeg-toolkit/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "media_probe",
+        "transcode",
+        "clip",
+        "audio_extract",
+        "audio_mastering",
+        "watermark",
+        "render_qc"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-lemon-illustrations",
+      "path": "skills/dasheng-lemon-illustrations/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "conceptual_illustration",
+        "character_ip",
+        "transparent_overlay"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-video-style-trainer",
+      "path": "skills/dasheng-video-style-trainer/SKILL.md",
+      "scope": "advisory",
+      "capabilities": [
+        "reference_video_analysis",
+        "style_training",
+        "composition_signature"
+      ],
+      "lanes": [
+        "style_training",
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-video-self-learning",
+      "path": "skills/dasheng-video-self-learning/SKILL.md",
+      "scope": "advisory",
+      "capabilities": [
+        "reference_video_analysis",
+        "style_training",
+        "technical_stack_mapping"
+      ],
+      "lanes": [
+        "style_training"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "dasheng-media-sop",
+      "path": "skills/dasheng-media-sop/SKILL.md",
+      "scope": "advisory",
+      "capabilities": [
+        "workflow_governance",
+        "artifact_contract",
+        "quality_control"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "media-downloader",
+      "path": "~/.codex/skills/media-downloader/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "reference_download",
+        "public_asset_collection",
+        "video_download",
+        "reusable_footage"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "video-use",
+      "path": "~/.codex/skills/video-use/SKILL.md",
+      "source_project": "video-use",
+      "scope": "execution",
+      "capabilities": [
+        "video_edit",
+        "roughcut_plan",
+        "transcript",
+        "color_grade",
+        "subtitle_burnin",
+        "overlay_animation",
+        "final_render"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video"
+      ],
+      "status": "experimental_ready",
+      "enabled_by_default": false
+    },
+    {
+      "name": "freecut",
+      "path": "~/.codex/skills/freecut/SKILL.md",
+      "source_project": "freecut",
+      "scope": "execution",
+      "capabilities": [
+        "video_edit",
+        "roughcut_plan",
+        "local_asr",
+        "color_grade",
+        "subtitle_burnin",
+        "overlay_animation"
+      ],
+      "lanes": [
+        "talking_head_video"
+      ],
+      "status": "preferred_experiment_ready",
+      "enabled_by_default": false
+    },
+    {
+      "name": "video-wrapper",
+      "path": "~/.codex/skills/video-wrapper/SKILL.md",
+      "source_project": "video-wrapper",
+      "scope": "execution",
+      "capabilities": [
+        "talking_head_packaging",
+        "lower_thirds",
+        "quote_cards",
+        "chapter_titles",
+        "data_callout"
+      ],
+      "lanes": [
+        "talking_head_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "claude-shorts",
+      "path": "~/.codex/skills/claude-shorts/SKILL.md",
+      "source_project": "claude-shorts",
+      "scope": "execution",
+      "capabilities": [
+        "highlight_detection",
+        "long_to_short",
+        "vertical_caption_render",
+        "short_clip_distribution"
+      ],
+      "lanes": [
+        "talking_head_video"
+      ],
+      "status": "ready_with_upstream_npm_audit_warnings",
+      "enabled_by_default": false
+    },
+    {
+      "name": "seedance2-skill",
+      "path": "~/.codex/skills/seedance2-skill/SKILL.md",
+      "source_project": "seedance2-skill",
+      "scope": "advisory",
+      "capabilities": [
+        "generated_broll",
+        "video_prompt_design",
+        "reference_to_video",
+        "image_to_video_shots",
+        "cinematic_camera"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "skill_ready_official_model_access_optional",
+      "provider_class": "first_party_model",
+      "provider_family": "bytedance",
+      "allowed_providers": [
+        "seedance",
+        "jimeng"
+      ],
+      "enabled_by_default": false
+    },
+    {
+      "name": "remotion-video-skill",
+      "path": "~/.codex/skills/remotion-video-skill/SKILL.md",
+      "source_project": "remotion-video-skill",
+      "scope": "execution",
+      "capabilities": [
+        "remotion_render",
+        "programmatic_video",
+        "tts",
+        "caption_render",
+        "final_render"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "reference_runtime_not_promoted",
+      "enabled_by_default": false
+    },
+    {
+      "name": "remotion-video-toolkit",
+      "path": "~/.codex/skills/remotion-video-toolkit/SKILL.md",
+      "source_project": "remotion-video-toolkit",
+      "scope": "execution",
+      "capabilities": [
+        "remotion_render",
+        "programmatic_video",
+        "dynamic_chart",
+        "caption_render",
+        "three_d",
+        "final_render",
+        "dual_presenter_composition",
+        "continuity_edit",
+        "commercial_edit"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "cut-talking-head",
+      "path": "~/.codex/skills/cut-talking-head/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "talking_head_cut",
+        "word_level_transcript",
+        "mistake_detection",
+        "roughcut_plan",
+        "subtitle_rebuild"
+      ],
+      "lanes": [
+        "talking_head_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "finish-talking-head",
+      "path": "~/.codex/skills/finish-talking-head/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "talking_head_packaging",
+        "storyboard_review",
+        "motion_design",
+        "timeline_composite",
+        "final_render"
+      ],
+      "lanes": [
+        "talking_head_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "gif-sticker-maker",
+      "path": "~/.codex/skills/gif-sticker-maker/SKILL.md",
+      "source_project": "text-to-lottie",
+      "scope": "execution",
+      "capabilities": [
+        "lottie_asset",
+        "animated_sticker",
+        "transparent_overlay",
+        "gif_asset"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "digital_human_video",
+        "vox_explainer_video",
+        "commercial_promo_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "ian-xiaohei-illustrations",
+      "path": "~/.codex/skills/ian-xiaohei-illustrations/SKILL.md",
+      "source_project": "ian-xiaohei-illustrations",
+      "scope": "execution",
+      "capabilities": [
+        "conceptual_illustration",
+        "hand_drawn_illustration",
+        "shot_list",
+        "transparent_overlay"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "video-frames",
+      "path": "~/.codex/skills/video-frames/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "video_reading",
+        "frame_extract",
+        "contact_sheet",
+        "preview_clip"
+      ],
+      "lanes": [
+        "style_training",
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "reusable-footage-material",
+      "path": "~/.codex/skills/reusable-footage-material/SKILL.md",
+      "scope": "execution",
+      "capabilities": [
+        "reusable_footage",
+        "archive_footage",
+        "material_quality_review"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "remotion-best-practices",
+      "path": "~/.codex/skills/remotion-best-practices/SKILL.md",
+      "scope": "advisory",
+      "capabilities": [
+        "remotion_render",
+        "programmatic_video",
+        "motion_design",
+        "render_performance"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "commercial_promo_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "animated-financial-display",
+      "path": "~/.codex/skills/animated-financial-display/SKILL.md",
+      "source_project": "hyperframes",
+      "scope": "execution",
+      "capabilities": [
+        "dynamic_chart",
+        "animated_financial_display",
+        "number_ticker",
+        "data_callout"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "canvas-design",
+      "path": "~/.codex/skills/canvas-design/SKILL.md",
+      "source_project": "anthropics-skills",
+      "scope": "execution",
+      "capabilities": [
+        "visual_design",
+        "poster_design",
+        "static_asset",
+        "art_direction"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "commercial_promo_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "algorithmic-art",
+      "path": "~/.codex/skills/algorithmic-art/SKILL.md",
+      "source_project": "anthropics-skills",
+      "scope": "execution",
+      "capabilities": [
+        "generative_art",
+        "algorithmic_background",
+        "procedural_visual"
+      ],
+      "lanes": [
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "brand-guidelines",
+      "path": "~/.codex/skills/brand-guidelines/SKILL.md",
+      "source_project": "anthropics-skills",
+      "scope": "advisory",
+      "capabilities": [
+        "brand_system",
+        "color_typography",
+        "visual_consistency",
+        "brand_consistency_review"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "commercial_promo_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "animation-vocabulary",
+      "path": "~/.codex/skills/animation-vocabulary/SKILL.md",
+      "source_project": "emilkowalski-skills",
+      "scope": "advisory",
+      "capabilities": [
+        "motion_design",
+        "animation_naming",
+        "motion_reference"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "apple-design",
+      "path": "~/.codex/skills/apple-design/SKILL.md",
+      "source_project": "inference-skills",
+      "scope": "advisory",
+      "capabilities": [
+        "motion_design",
+        "spring_motion",
+        "gesture_motion",
+        "visual_design"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "emil-design-eng",
+      "path": "~/.codex/skills/emil-design-eng/SKILL.md",
+      "source_project": "emilkowalski-skills",
+      "scope": "advisory",
+      "capabilities": [
+        "motion_design",
+        "visual_polish",
+        "interaction_design"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "find-animation-opportunities",
+      "path": "~/.codex/skills/find-animation-opportunities/SKILL.md",
+      "source_project": "emilkowalski-skills",
+      "scope": "advisory",
+      "capabilities": [
+        "motion_design",
+        "animation_opportunity_audit"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "improve-animations",
+      "path": "~/.codex/skills/improve-animations/SKILL.md",
+      "source_project": "emilkowalski-skills",
+      "scope": "advisory",
+      "capabilities": [
+        "motion_design",
+        "animation_audit",
+        "motion_optimization"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "review-animations",
+      "path": "~/.codex/skills/review-animations/SKILL.md",
+      "source_project": "emilkowalski-skills",
+      "scope": "review",
+      "capabilities": [
+        "motion_review",
+        "animation_audit",
+        "accessibility_motion"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "vox_explainer_video",
+        "digital_human_video",
+        "commercial_promo_video",
+        "cinematic_short_drama_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "pick-ui-library",
+      "path": "~/.codex/skills/pick-ui-library/SKILL.md",
+      "source_project": "inference-skills",
+      "scope": "advisory",
+      "capabilities": [
+        "renderer_library_selection",
+        "chart_library_selection",
+        "motion_library_selection"
+      ],
+      "lanes": [
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "brandkit",
+      "path": "~/.codex/skills/brandkit/SKILL.md",
+      "source_project": "minimax-skills",
+      "scope": "execution",
+      "capabilities": [
+        "brand_system",
+        "visual_design",
+        "identity_board",
+        "static_asset",
+        "brand_consistency_review"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "commercial_promo_video"
+      ],
+      "status": "ready_with_allowed_first_party_provider",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "codex",
+        "openai",
+        "gemini",
+        "minimax"
+      ],
+      "blocked_providers": [
+        "openrouter",
+        "replicate"
+      ],
+      "enabled_by_default": false
+    },
+    {
+      "name": "high-end-visual-design",
+      "path": "~/.codex/skills/high-end-visual-design/SKILL.md",
+      "source_project": "minimax-skills",
+      "scope": "advisory",
+      "capabilities": [
+        "visual_design",
+        "art_direction",
+        "premium_layout",
+        "motion_design"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "commercial_promo_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "image-to-code",
+      "path": "~/.codex/skills/image-to-code/SKILL.md",
+      "source_project": "minimax-skills",
+      "scope": "execution",
+      "capabilities": [
+        "image_to_html",
+        "visual_reconstruction",
+        "html_template"
+      ],
+      "lanes": [
+        "explainer_html_video"
+      ],
+      "status": "ready_with_allowed_first_party_provider",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "codex",
+        "openai",
+        "gemini",
+        "minimax"
+      ],
+      "blocked_providers": [
+        "openrouter",
+        "replicate"
+      ],
+      "enabled_by_default": false
+    },
+    {
+      "name": "minimalist-ui",
+      "path": "~/.codex/skills/minimalist-ui/SKILL.md",
+      "source_project": "minimax-skills",
+      "scope": "advisory",
+      "capabilities": [
+        "visual_design",
+        "editorial_layout",
+        "minimalist_style"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "baoyu-imagine",
+      "path": "~/.codex/skills/baoyu-imagine/SKILL.md",
+      "source_project": "baoyu-skills",
+      "scope": "execution",
+      "capabilities": [
+        "image_generation",
+        "conceptual_illustration",
+        "static_asset"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready_with_allowed_first_party_provider",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "codex",
+        "openai",
+        "google",
+        "minimax",
+        "jimeng",
+        "seedream"
+      ],
+      "blocked_providers": [
+        "openrouter",
+        "replicate"
+      ],
+      "enabled_by_default": false
+    },
+    {
+      "name": "baoyu-cover-image",
+      "path": "~/.codex/skills/baoyu-cover-image/SKILL.md",
+      "source_project": "baoyu-skills",
+      "scope": "execution",
+      "capabilities": [
+        "cover_design",
+        "social_card",
+        "static_asset"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready_with_allowed_first_party_provider",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "codex",
+        "openai",
+        "google",
+        "minimax",
+        "jimeng",
+        "seedream"
+      ],
+      "blocked_providers": [
+        "openrouter",
+        "replicate"
+      ]
+    },
+    {
+      "name": "baoyu-article-illustrator",
+      "path": "~/.codex/skills/baoyu-article-illustrator/SKILL.md",
+      "source_project": "baoyu-skills",
+      "scope": "execution",
+      "capabilities": [
+        "article_illustration",
+        "conceptual_illustration",
+        "static_asset"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready_with_allowed_first_party_provider",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "codex",
+        "openai",
+        "google",
+        "minimax",
+        "jimeng",
+        "seedream"
+      ],
+      "blocked_providers": [
+        "openrouter",
+        "replicate"
+      ]
+    },
+    {
+      "name": "baoyu-infographic",
+      "path": "~/.codex/skills/baoyu-infographic/SKILL.md",
+      "source_project": "baoyu-skills",
+      "scope": "execution",
+      "capabilities": [
+        "infographic",
+        "data_visualization",
+        "static_asset"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready_with_allowed_first_party_provider",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "codex",
+        "openai",
+        "google",
+        "minimax",
+        "jimeng",
+        "seedream"
+      ],
+      "blocked_providers": [
+        "openrouter",
+        "replicate"
+      ]
+    },
+    {
+      "name": "design-taste-frontend",
+      "path": "~/.codex/skills/design-taste-frontend/SKILL.md",
+      "source_project": "taste-skill",
+      "scope": "advisory",
+      "capabilities": [
+        "visual_design",
+        "art_direction",
+        "anti_slop_review",
+        "layout_design"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "web-animation-design",
+      "path": "~/.codex/skills/web-animation-design/SKILL.md",
+      "source_project": "inference-skills",
+      "scope": "execution",
+      "capabilities": [
+        "motion_design",
+        "web_animation",
+        "easing_timing",
+        "gsap_motion"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "commercial_promo_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "guizang-social-card-skill",
+      "path": "~/.codex/skills/guizang-social-card-skill/SKILL.md",
+      "source_project": "guizang-social-card-skill",
+      "scope": "execution",
+      "capabilities": [
+        "social_card",
+        "live_photo",
+        "poster_design",
+        "data_card",
+        "cover_design"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "impeccable",
+      "path": "vendor/reserved/design/impeccable/skill/SKILL.src.md",
+      "source_project": "impeccable",
+      "scope": "advisory",
+      "capabilities": [
+        "html_audit",
+        "responsive_review",
+        "motion_review",
+        "design_system",
+        "browser_visual_qa"
+      ],
+      "lanes": [
+        "talking_head_video",
+        "explainer_html_video",
+        "digital_human_video",
+        "vox_explainer_video"
+      ],
+      "status": "ready",
+      "notes": "视觉 QC 顾问：补足 design-taste-frontend 与 review-animations，不替代二者；warning 不阻断，error 阻断。"
+    },
+    {
+      "name": "dasheng-omni-video-bridge",
+      "path": "skills/dasheng-omni-video-bridge/SKILL.md",
+      "source_project": "newma-local",
+      "scope": "execution",
+      "capabilities": [
+        "generated_broll",
+        "image_to_video_segment",
+        "presenter_generation",
+        "reference_to_video"
+      ],
+      "lanes": [
+        "vox_explainer_video",
+        "digital_human_video"
+      ],
+      "status": "ready"
+    }
+  ],
+  "tools": [
+    {
+      "name": "video_director_tool_router",
+      "type": "script",
+      "path": "scripts/video_director_tool_router.py",
+      "capabilities": [
+        "director_tool_routing",
+        "capability_routing",
+        "fallback_selection",
+        "dependency_gate",
+        "technical_stack_mapping"
+      ],
+      "inputs": [
+        "scene_plan"
+      ],
+      "outputs": [
+        "tool_routing_plan",
+        "scene_plan"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "build_video_technical_site",
+      "type": "script",
+      "path": "scripts/build_video_technical_site.py",
+      "capabilities": [
+        "technical_registry_site",
+        "technical_stack_mapping",
+        "registry_review"
+      ],
+      "inputs": [],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "dasheng_video_director",
+      "type": "script",
+      "path": "scripts/dasheng_video_director.py",
+      "skill": "dasheng-video-director",
+      "capabilities": [
+        "director_scene_plan",
+        "composition_policy",
+        "transition_policy",
+        "storyboard_gate",
+        "vox_investigation"
+      ],
+      "inputs": [
+        "brief",
+        "script",
+        "scene_plan"
+      ],
+      "outputs": [
+        "scene_plan",
+        "edit_decisions",
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "commercial_promo_package_builder",
+      "type": "script",
+      "path": "skills/dasheng-commercial-promo-video/scripts/build_commercial_promo_package.py",
+      "skill": "dasheng-commercial-promo-video",
+      "lanes": [
+        "commercial_promo_video"
+      ],
+      "capabilities": [
+        "brand_asset_intake",
+        "commercial_script_rewrite",
+        "offer_design",
+        "retention_design",
+        "cta_design",
+        "claims_compliance",
+        "product_showcase",
+        "product_asset_routing",
+        "director_scene_plan",
+        "storyboard_review",
+        "brand_system",
+        "visual_design",
+        "motion_design",
+        "tool_routing_plan"
+      ],
+      "inputs": [
+        "brief"
+      ],
+      "outputs": [
+        "script",
+        "scene_plan",
+        "tool_routing_plan",
+        "review"
+      ],
+      "requires_external_dependency": false,
+      "status": "ready"
+    },
+    {
+      "name": "video_director_timeline",
+      "type": "script",
+      "path": "scripts/video_director_timeline.py",
+      "capabilities": [
+        "talking_head_scene_plan",
+        "caption_grouping",
+        "director_state_machine"
+      ],
+      "inputs": [
+        "script",
+        "subtitle",
+        "speaker_video"
+      ],
+      "outputs": [
+        "scene_plan"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "build_video_director_storyboard",
+      "type": "script",
+      "path": "scripts/build_video_director_storyboard.py",
+      "capabilities": [
+        "storyboard_review",
+        "talking_head_director_table"
+      ],
+      "inputs": [
+        "scene_plan"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "video_explainer_storyboard",
+      "type": "script",
+      "path": "scripts/video_explainer_storyboard.py",
+      "capabilities": [
+        "article_parse",
+        "content_distillation",
+        "creator_script_rewrite",
+        "retention_design",
+        "explainer_scene_plan",
+        "template_intent"
+      ],
+      "inputs": [
+        "brief",
+        "script"
+      ],
+      "outputs": [
+        "scene_plan"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "video_vox_storyboard",
+      "type": "script",
+      "path": "scripts/video_vox_storyboard.py",
+      "skill": "dasheng-video-vox",
+      "capabilities": [
+        "vox_investigation",
+        "visual_bible",
+        "image2_shot_design",
+        "crop_storyboard",
+        "continuous_editorial_world",
+        "camera_choreography",
+        "editorial_collage",
+        "archive_footage",
+        "counterargument_design",
+        "qualified_conclusion"
+      ],
+      "inputs": [
+        "brief",
+        "script"
+      ],
+      "outputs": [
+        "scene_plan",
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "video_vox_image2_pipeline",
+      "type": "script",
+      "path": "scripts/video_vox_image2_pipeline.py",
+      "skill": "dasheng-video-vox",
+      "capabilities": [
+        "image2_scene_generation",
+        "shot_crop",
+        "storyboard_contact_sheet",
+        "image_to_video_prompt_pack"
+      ],
+      "inputs": [
+        "scene_plan",
+        "visual_bible"
+      ],
+      "outputs": [
+        "image2_shot_manifest",
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "image2",
+      "type": "builtin_model",
+      "skill": "imagegen",
+      "capabilities": [
+        "image_generation",
+        "reference_image_generation",
+        "image2_scene_generation",
+        "reference_image_conditioning",
+        "horizontal_scene_still"
+      ],
+      "inputs": [
+        "image_prompt",
+        "style_reference"
+      ],
+      "outputs": [
+        "scene_still"
+      ],
+      "requires_external_dependency": false,
+      "provider_class": "first_party_model",
+      "provider": "codex",
+      "provider_engine": "codex_builtin_imagegen",
+      "allowed_providers": [
+        "openai",
+        "codex"
+      ],
+      "browser_use": false
+    },
+    {
+      "name": "video_vox_omni_pack",
+      "type": "script",
+      "path": "scripts/video_vox_omni_pack.py",
+      "skill": "dasheng-video-omni-browser",
+      "capabilities": [
+        "director_shot_packet",
+        "reference_image_prompt",
+        "omni_motion_prompt",
+        "shot_status"
+      ],
+      "inputs": [
+        "scene_plan",
+        "visual_bible"
+      ],
+      "outputs": [
+        "omni_shot_manifest"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "vox_manifest",
+      "type": "script",
+      "path": "skills/dasheng-vox-skills/scripts/vox_manifest.py",
+      "skill": "dasheng-vox-skills",
+      "capabilities": [
+        "provider_routing",
+        "generation_resume",
+        "shot_attempt_history"
+      ],
+      "inputs": [
+        "scene_plan",
+        "visual_bible"
+      ],
+      "outputs": [
+        "vox_manifest"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "shotcraft_adapter",
+      "type": "script",
+      "path": "skills/dasheng-vox-skills/scripts/shotcraft_adapter.py",
+      "skill": "dasheng-vox-skills",
+      "root": "vendor/reserved/video/video-shotcraft",
+      "capabilities": [
+        "shot_recipe_library",
+        "shotcraft_binding",
+        "real_page_capture",
+        "cinematic_camera",
+        "dynamic_chart",
+        "document_visualization",
+        "kinetic_typography",
+        "beat_sync",
+        "sound_design",
+        "shotcraft_review"
+      ],
+      "inputs": [
+        "approved_scene_plan",
+        "visual_bible"
+      ],
+      "outputs": [
+        "scene_plan"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "Local video-shotcraft repository",
+      "priority": 40,
+      "status": "ready_smoke_rendered"
+    },
+    {
+      "name": "gemini_video_api",
+      "type": "script",
+      "path": "skills/dasheng-vox-skills/scripts/gemini_video_api.py",
+      "skill": "dasheng-vox-skills",
+      "capabilities": [
+        "gemini_api_video",
+        "veo_image_to_video",
+        "shot_download"
+      ],
+      "inputs": [
+        "vox_manifest",
+        "reference_image",
+        "video_prompt"
+      ],
+      "outputs": [
+        "generated_scene_video"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "Official google-genai SDK and GEMINI_API_KEY or GOOGLE_API_KEY",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "google",
+        "gemini"
+      ]
+    },
+    {
+      "name": "vox_shot_qc",
+      "type": "script",
+      "path": "skills/dasheng-vox-skills/scripts/shot_qc.py",
+      "skill": "dasheng-vox-skills",
+      "capabilities": [
+        "shot_contact_sheet",
+        "first_middle_last_review",
+        "black_frame_screen"
+      ],
+      "inputs": [
+        "generated_scene_video"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "ffmpeg and ffprobe"
+    },
+    {
+      "name": "gemini_omni_browser",
+      "type": "signed_in_browser_model",
+      "skill": "dasheng-video-omni-browser",
+      "capabilities": [
+        "omni_browser_shot_generation",
+        "reference_image_to_video",
+        "shot_download"
+      ],
+      "inputs": [
+        "omni_shot_manifest",
+        "reference_image",
+        "omni_prompt"
+      ],
+      "outputs": [
+        "generated_scene_video"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "Chrome with an authenticated Google Gemini session",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "google",
+        "gemini"
+      ]
+    },
+    {
+      "name": "video_vox_mmx_generate",
+      "type": "script",
+      "path": "scripts/video_vox_mmx_generate.py",
+      "skill": "dasheng-video-vox",
+      "capabilities": [
+        "image_to_video_shots",
+        "mmx_preflight",
+        "resume_generation",
+        "video_normalization"
+      ],
+      "inputs": [
+        "image2_shot_manifest",
+        "approved_review"
+      ],
+      "outputs": [
+        "generated_scene_video",
+        "image2_shot_manifest"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "MiniMax CLI, ffmpeg and ffprobe"
+    },
+    {
+      "name": "build_html_anything_template_router",
+      "type": "script",
+      "path": "scripts/build_html_anything_template_router.py",
+      "capabilities": [
+        "template_catalog",
+        "content_part_routing"
+      ],
+      "inputs": [],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "html-anything"
+    },
+    {
+      "name": "build_storyboard_template_review_table",
+      "type": "script",
+      "path": "scripts/build_storyboard_template_review_table.py",
+      "capabilities": [
+        "human_review_table",
+        "template_preview_column"
+      ],
+      "inputs": [
+        "scene_plan"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "extract_template_preview_frames",
+      "type": "script",
+      "path": "scripts/extract_template_preview_frames.py",
+      "capabilities": [
+        "template_preview_frames",
+        "review_visuals"
+      ],
+      "inputs": [
+        "asset_manifest"
+      ],
+      "outputs": [
+        "asset_manifest"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "ffmpeg"
+    },
+    {
+      "name": "validate_storyboard_review_gate",
+      "type": "script",
+      "path": "scripts/validate_storyboard_review_gate.py",
+      "capabilities": [
+        "human_gate",
+        "render_blocker"
+      ],
+      "inputs": [
+        "scene_plan",
+        "review"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "render_html_anything_timeline_pack",
+      "type": "script",
+      "path": "scripts/render_html_anything_timeline_pack.py",
+      "capabilities": [
+        "html_scene_pack",
+        "gsap_lottie_inline"
+      ],
+      "inputs": [
+        "scene_plan"
+      ],
+      "outputs": [
+        "asset_manifest"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "html-video"
+    },
+    {
+      "name": "render_html_anything_scene_pack_animated",
+      "type": "script",
+      "path": "scripts/render_html_anything_scene_pack_animated.py",
+      "capabilities": [
+        "live_html_animation_recording",
+        "tts",
+        "bgm",
+        "final_render"
+      ],
+      "inputs": [
+        "scene_plan",
+        "asset_manifest"
+      ],
+      "outputs": [
+        "render_report"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "html-video"
+    },
+    {
+      "name": "align_video_subtitles_to_asr",
+      "type": "script",
+      "path": "scripts/align_video_subtitles_to_asr.py",
+      "capabilities": [
+        "subtitle_alignment",
+        "arabic_number_readability"
+      ],
+      "inputs": [
+        "asset_manifest"
+      ],
+      "outputs": [
+        "asset_manifest"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "asr"
+    },
+    {
+      "name": "build_video_review_suite_strict",
+      "type": "script",
+      "path": "scripts/build_video_review_suite_strict.py",
+      "capabilities": [
+        "director_qc",
+        "contact_sheet",
+        "multi_round_review"
+      ],
+      "inputs": [
+        "render_report"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "learn_blogger_video_style_local",
+      "type": "script",
+      "path": "scripts/learn_blogger_video_style_local.py",
+      "capabilities": [
+        "local_style_training",
+        "reference_video_analysis",
+        "composition_signature",
+        "crv_manifest_aggregation"
+      ],
+      "inputs": [
+        "brief",
+        "asset_manifest"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "claude-real-video"
+    },
+    {
+      "name": "run_video_creator_self_learning",
+      "type": "script",
+      "path": "scripts/run_video_creator_self_learning.py",
+      "skill": "dasheng-video-self-learning",
+      "capabilities": [
+        "creator_update_discovery",
+        "incremental_video_learning",
+        "knowledge_base_update",
+        "rolling_style_profile",
+        "technical_stack_mapping"
+      ],
+      "inputs": [
+        "reference_video"
+      ],
+      "outputs": [
+        "review",
+        "asset_manifest"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "yt-dlp + claude-real-video + Codex native review"
+    },
+    {
+      "name": "video_roughcut_funasr",
+      "type": "script",
+      "path": "scripts/video_roughcut_funasr.py",
+      "capabilities": [
+        "asr",
+        "roughcut_candidates"
+      ],
+      "inputs": [
+        "brief"
+      ],
+      "outputs": [
+        "script",
+        "review"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "funasr"
+    },
+    {
+      "name": "video_roughcut_agent_align",
+      "type": "script",
+      "path": "scripts/video_roughcut_agent_align.py",
+      "capabilities": [
+        "roughcut_review",
+        "spoken_script_alignment",
+        "spoken_script_rewrite"
+      ],
+      "inputs": [
+        "script"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "cut_talking_head_skill",
+      "type": "skill",
+      "skill": "cut-talking-head",
+      "capabilities": [
+        "talking_head_cut",
+        "word_level_transcript",
+        "mistake_detection",
+        "roughcut_plan",
+        "subtitle_rebuild"
+      ],
+      "lanes": [
+        "talking_head_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "finish_talking_head_skill",
+      "type": "skill",
+      "skill": "finish-talking-head",
+      "capabilities": [
+        "talking_head_packaging",
+        "storyboard_review",
+        "motion_design",
+        "timeline_composite",
+        "final_render"
+      ],
+      "lanes": [
+        "talking_head_video"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "freecut_skill",
+      "type": "skill",
+      "skill": "freecut",
+      "capabilities": [
+        "video_edit",
+        "roughcut_plan",
+        "local_asr",
+        "color_grade",
+        "subtitle_burnin",
+        "overlay_animation"
+      ],
+      "lanes": [
+        "talking_head_video"
+      ],
+      "status": "preferred_experiment_ready",
+      "enabled_by_default": false
+    },
+    {
+      "name": "video_timeline_edl",
+      "type": "script",
+      "path": "scripts/video_timeline_edl.py",
+      "capabilities": [
+        "roughcut_edl_mapping",
+        "timeline_lock",
+        "deleted_scene_removal"
+      ],
+      "inputs": [
+        "scene_plan",
+        "edit_decisions"
+      ],
+      "outputs": [
+        "scene_plan",
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "video_claim_evidence_ledger",
+      "type": "script",
+      "path": "scripts/video_claim_evidence_ledger.py",
+      "skill": "dasheng-video-director",
+      "capabilities": [
+        "claim_evidence_ledger",
+        "core_claim_grouping",
+        "evidence_gap_gate",
+        "spoken_revision_gate",
+        "claim_review_html",
+        "spoken_revision_review_html"
+      ],
+      "inputs": [
+        "scene_plan"
+      ],
+      "outputs": [
+        "claim_evidence_ledger",
+        "scene_plan",
+        "spoken_revision_sheet",
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "video_finance_evidence",
+      "type": "script",
+      "path": "scripts/video_finance_evidence.py",
+      "skill": "dasheng-video-director",
+      "capabilities": [
+        "market_series_evidence",
+        "southbound_flow_evidence",
+        "same_provider_valuation_comparison"
+      ],
+      "inputs": [
+        "finance_evidence_request"
+      ],
+      "outputs": [
+        "asset_manifest",
+        "data_table",
+        "chart"
+      ],
+      "requires_external_dependency": true
+    },
+    {
+      "name": "video_official_evidence",
+      "type": "script",
+      "path": "scripts/video_official_evidence.py",
+      "skill": "dasheng-video-director",
+      "capabilities": [
+        "official_pdf_verification",
+        "page_excerpt_gate",
+        "official_results_matrix"
+      ],
+      "inputs": [
+        "official_evidence_request"
+      ],
+      "outputs": [
+        "asset_manifest",
+        "data_table",
+        "review"
+      ],
+      "requires_external_dependency": true
+    },
+    {
+      "name": "video_model_evidence",
+      "type": "script",
+      "path": "scripts/video_model_evidence.py",
+      "skill": "dasheng-video-director",
+      "capabilities": [
+        "model_price_history",
+        "same_leaderboard_model_comparison",
+        "numeric_claim_verification"
+      ],
+      "inputs": [
+        "web_snapshot",
+        "official_pricing_asset"
+      ],
+      "outputs": [
+        "asset_manifest",
+        "data_table"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "convert_director_storyboard_to_video_timeline",
+      "type": "script",
+      "path": "scripts/convert_director_storyboard_to_video_timeline.py",
+      "capabilities": [
+        "edit_decisions",
+        "timeline_conversion"
+      ],
+      "inputs": [
+        "scene_plan"
+      ],
+      "outputs": [
+        "edit_decisions"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "video_driver_rules",
+      "type": "script",
+      "path": "scripts/video_driver_rules.py",
+      "capabilities": [
+        "beat_classification",
+        "shot_selection",
+        "transition_policy"
+      ],
+      "inputs": [
+        "script"
+      ],
+      "outputs": [
+        "scene_plan",
+        "edit_decisions"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "video_renderer_contract_gate",
+      "type": "script",
+      "path": "scripts/video_renderer_contract_gate.py",
+      "capabilities": [
+        "template_implementation_coverage",
+        "director_field_consumption",
+        "fake_template_diversity_detection"
+      ],
+      "inputs": [
+        "scene_plan",
+        "asset_manifest"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "build_remotion_renderer_pack",
+      "type": "script",
+      "path": "scripts/build_remotion_renderer_pack.py",
+      "skill": "dasheng-video-talking-head",
+      "capabilities": [
+        "remotion_render",
+        "final_render",
+        "remotion_renderer_families",
+        "master_timeline_compositor",
+        "data_native_chart_animation",
+        "speaker_pip_composition",
+        "digital_human_composition",
+        "dual_presenter_composition",
+        "continuity_edit"
+      ],
+      "inputs": [
+        "scene_plan",
+        "claim_evidence_ledger",
+        "asset_manifest"
+      ],
+      "outputs": [
+        "render_report",
+        "review"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "Remotion"
+    },
+    {
+      "name": "video_render_qc",
+      "type": "script",
+      "path": "scripts/video_render_qc.py",
+      "capabilities": [
+        "render_probe",
+        "dark_frame_detection",
+        "timeline_duration_check",
+        "loudness_check"
+      ],
+      "inputs": [
+        "render_report",
+        "scene_plan"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "ffmpeg"
+    },
+    {
+      "name": "video_final_delivery",
+      "type": "script",
+      "path": "scripts/video_final_delivery.py",
+      "capabilities": [
+        "final_delivery_manifest",
+        "qc_video_identity_check",
+        "delivery_hash",
+        "publish_gate"
+      ],
+      "inputs": [
+        "final_video",
+        "render_qc",
+        "storyboard_review_gate",
+        "claim_evidence_gate",
+        "renderer_asset_gate",
+        "renderer_contract_gate"
+      ],
+      "outputs": [
+        "final_delivery_manifest"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "ffprobe"
+    },
+    {
+      "name": "ensure_video_external_deps",
+      "type": "script",
+      "path": "scripts/ensure_video_external_deps.py",
+      "capabilities": [
+        "dependency_check",
+        "external_repo_install"
+      ],
+      "inputs": [],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "read_video_with_crv",
+      "type": "script",
+      "path": "scripts/read_video_with_crv.py",
+      "capabilities": [
+        "local_video_reading",
+        "scene_aware_keyframes",
+        "contact_sheets",
+        "manifest_for_llm",
+        "optional_transcript"
+      ],
+      "inputs": [
+        "video_file"
+      ],
+      "outputs": [
+        "asset_manifest",
+        "review"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "claude-real-video"
+    },
+    {
+      "name": "mmx_cli",
+      "type": "cli",
+      "command": "mmx",
+      "capabilities": [
+        "tts",
+        "bgm",
+        "music_generation",
+        "image_generation",
+        "video_generation",
+        "image_to_video",
+        "first_frame_conditioning",
+        "voiceover_audio",
+        "provider_timestamps",
+        "subtitle_alignment"
+      ],
+      "inputs": [
+        "script",
+        "approved_scene_still",
+        "motion_prompt"
+      ],
+      "outputs": [
+        "asset_manifest",
+        "generated_scene_video"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "MiniMax CLI",
+      "invocation_defaults": {
+        "china_base_url": "https://api.minimaxi.com",
+        "base_url_policy": "pass_explicitly_without_v1",
+        "image_to_video_fallback_model": "MiniMax-Hailuo-2.3-Fast"
+      }
+    },
+    {
+      "name": "dasheng-lemon-illustrations",
+      "type": "skill",
+      "skill": "dasheng-lemon-illustrations",
+      "capabilities": [
+        "conceptual_illustration",
+        "lemon_character_ip",
+        "transparent_overlay_source",
+        "full_canvas_metaphor"
+      ],
+      "inputs": [
+        "script",
+        "scene_plan"
+      ],
+      "outputs": [
+        "asset_manifest"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "MiniMax CLI and ian-xiaohei-illustrations reference"
+    },
+    {
+      "name": "dasheng-video-broll-generator",
+      "type": "skill",
+      "skill": "dasheng-video-broll-generator",
+      "capabilities": [
+        "broll_manifest",
+        "editorial_collage_routing",
+        "generated_cutaway_routing",
+        "sticker_animation_routing"
+      ],
+      "inputs": [
+        "scene_plan",
+        "asset_manifest",
+        "claim_evidence_ledger"
+      ],
+      "outputs": [
+        "asset_manifest",
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "dasheng-caption-motion",
+      "type": "skill",
+      "skill": "dasheng-caption-motion",
+      "capabilities": [
+        "subtitle_motion_plan",
+        "kinetic_typography",
+        "timed_callouts",
+        "renderer_routing"
+      ],
+      "inputs": [
+        "subtitle",
+        "scene_plan",
+        "claim_evidence_ledger"
+      ],
+      "outputs": [
+        "edit_decisions",
+        "review"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "HyperFrames or Remotion"
+    },
+    {
+      "name": "dasheng-video-editing-bridge",
+      "type": "skill",
+      "skill": "dasheng-video-editing-bridge",
+      "capabilities": [
+        "full_edit_provider_routing",
+        "external_edit_guard",
+        "fallback_selection"
+      ],
+      "inputs": [
+        "brief",
+        "script",
+        "scene_plan",
+        "asset_manifest"
+      ],
+      "outputs": [
+        "edit_decisions",
+        "render_report",
+        "review"
+      ],
+      "requires_external_dependency": false
+    },
+    {
+      "name": "dasheng_ffmpeg_toolkit",
+      "type": "script",
+      "path": "skills/dasheng-ffmpeg-toolkit/scripts/ffmpeg_toolkit.py",
+      "skill": "dasheng-ffmpeg-toolkit",
+      "capabilities": [
+        "media_probe",
+        "transcode",
+        "clip",
+        "audio_extract",
+        "audio_mastering",
+        "image_watermark",
+        "render_qc"
+      ],
+      "inputs": [
+        "video_file_or_url"
+      ],
+      "outputs": [
+        "asset_manifest",
+        "render_report"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "ffmpeg",
+      "priority": 50
+    },
+    {
+      "name": "media_downloader",
+      "type": "skill",
+      "skill": "media-downloader",
+      "capabilities": [
+        "reference_download",
+        "public_asset_collection",
+        "video_download",
+        "reusable_footage"
+      ],
+      "inputs": [
+        "brief"
+      ],
+      "outputs": [
+        "asset_manifest"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "browser/cookies"
+    },
+    {
+      "name": "video_use_local",
+      "type": "python_project",
+      "root": "vendor/reserved/video/video-use",
+      "python": "vendor/reserved/video/video-use/.venv/bin/python",
+      "skill": "video-use",
+      "capabilities": [
+        "folder_ingest",
+        "roughcut_plan",
+        "local_video_edit"
+      ],
+      "status": "experimental_ready",
+      "enabled_by_default": false
+    },
+    {
+      "name": "freecut_local",
+      "type": "python_project",
+      "root": "vendor/reserved/video/freecut",
+      "python": "vendor/reserved/video/freecut/.venv/bin/python",
+      "skill": "freecut",
+      "capabilities": [
+        "local_asr",
+        "roughcut_plan",
+        "low_cost_video_edit"
+      ],
+      "status": "preferred_experiment_ready",
+      "enabled_by_default": false
+    },
+    {
+      "name": "video_wrapper_local",
+      "type": "python_project",
+      "root": "vendor/reserved/video/video-wrapper",
+      "python": "vendor/reserved/video/video-wrapper/.venv/bin/python",
+      "skill": "video-wrapper",
+      "capabilities": [
+        "lower_thirds",
+        "quote_cards",
+        "talking_head_packaging"
+      ],
+      "status": "ready",
+      "enabled_by_default": false
+    },
+    {
+      "name": "claude_shorts_local",
+      "type": "hybrid_project",
+      "root": "vendor/reserved/video/claude-shorts",
+      "python": "vendor/reserved/video/claude-shorts/.venv/bin/python",
+      "remotion_root": "vendor/reserved/video/claude-shorts/remotion",
+      "skill": "claude-shorts",
+      "capabilities": [
+        "highlight_detection",
+        "long_to_short",
+        "vertical_caption_render"
+      ],
+      "status": "ready_with_upstream_npm_audit_warnings",
+      "enabled_by_default": false
+    },
+    {
+      "name": "claude_real_video_local",
+      "type": "python_project",
+      "root": "vendor/reserved/video/claude-real-video",
+      "python": "vendor/reserved/video/claude-real-video/.venv/bin/python",
+      "command": "vendor/reserved/video/claude-real-video/.venv/bin/crv",
+      "skill": "video-frames",
+      "capabilities": [
+        "scene_detection",
+        "keyframes",
+        "contact_sheet",
+        "transcript"
+      ],
+      "status": "ready"
+    },
+    {
+      "name": "hyperframes_local",
+      "type": "bun_project",
+      "root": "vendor/reserved/video/hyperframes",
+      "skill": "animated-financial-display",
+      "capabilities": [
+        "html_video",
+        "gsap_motion",
+        "timed_caption",
+        "dynamic_chart"
+      ],
+      "status": "dependency_ready"
+    },
+    {
+      "name": "html_video_local",
+      "type": "pnpm_project",
+      "root": "vendor/reserved/render/html-video",
+      "skill": "dasheng-html-video-bridge",
+      "capabilities": [
+        "html_video",
+        "remotion_render",
+        "gsap_motion",
+        "lottie_overlay"
+      ],
+      "status": "built"
+    },
+    {
+      "name": "text_to_lottie_local",
+      "type": "npm_project",
+      "root": "vendor/reserved/video/text-to-lottie",
+      "skill": "gif-sticker-maker",
+      "capabilities": [
+        "lottie_asset",
+        "transparent_motion_graphic",
+        "animated_sticker"
+      ],
+      "status": "ready",
+      "promoted_at": "2026-08-22",
+      "smoke_test": "newma-lower-thirds/scene-1 人物名牌（1080x1920 透明，FZHei 原生中文，slots: presenterName/presenterTitle）帧 0/12/45/89 官方播放器验证通过"
+    },
+    {
+      "name": "presenter_source_router",
+      "type": "workflow_router",
+      "skill": "dasheng-video-talking-head",
+      "capabilities": [
+        "presenter_source_routing",
+        "human_video_source"
+      ],
+      "inputs": [
+        "speaker_video_or_authorized_portrait",
+        "master_audio",
+        "consent"
+      ],
+      "outputs": [
+        "presenter_source_manifest"
+      ],
+      "requires_external_dependency": false,
+      "status": "ready"
+    },
+    {
+      "name": "digital_human_dialogue_router",
+      "type": "workflow_router",
+      "skill": "dasheng-digital-human-talking-head",
+      "capabilities": [
+        "dialogue_script_rewrite",
+        "speaker_turn_plan",
+        "single_presenter_plan",
+        "dual_interview_plan",
+        "dual_presenter_composition",
+        "digital_human_composition",
+        "speaker_label_plan"
+      ],
+      "inputs": [
+        "script",
+        "authorized_presenters",
+        "speaker_audio_tracks",
+        "subtitle_or_turn_timestamps"
+      ],
+      "outputs": [
+        "digital_human_job",
+        "presenter_source_manifest",
+        "scene_plan",
+        "edit_decisions"
+      ],
+      "requires_external_dependency": false,
+      "status": "ready"
+    },
+    {
+      "name": "whisperx_diarization",
+      "type": "cli",
+      "command": "whisperx",
+      "capabilities": [
+        "speaker_diarization",
+        "speaker_turn_plan",
+        "subtitle_alignment"
+      ],
+      "lanes": [
+        "digital_human_video"
+      ],
+      "status": "optional_cli_not_preflighted",
+      "enabled_by_default": false
+    },
+    {
+      "name": "digital_human_preflight",
+      "type": "script",
+      "path": "skills/dasheng-digital-human-talking-head/scripts/digital_human_preflight.py",
+      "skill": "dasheng-digital-human-talking-head",
+      "capabilities": [
+        "local_hardware_preflight",
+        "mps_check",
+        "runtime_check"
+      ],
+      "inputs": [],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": false,
+      "status": "ready"
+    },
+    {
+      "name": "build_digital_human_job",
+      "type": "script",
+      "path": "skills/dasheng-digital-human-talking-head/scripts/build_digital_human_job.py",
+      "skill": "dasheng-digital-human-talking-head",
+      "capabilities": [
+        "portrait_consent",
+        "digital_human_job",
+        "presenter_source_manifest"
+      ],
+      "inputs": [
+        "authorized_portrait",
+        "minimax_audio",
+        "subtitle"
+      ],
+      "outputs": [
+        "digital_human_job",
+        "presenter_source_manifest"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "ffprobe",
+      "status": "ready"
+    },
+    {
+      "name": "luma_dream_machine_browser",
+      "type": "signed_in_browser_model",
+      "skill": "dasheng-digital-human-talking-head",
+      "capabilities": [
+        "animal_head_image_to_video",
+        "animal_head_image_edit",
+        "audio_driven_lip_sync",
+        "luma_audio_lip_sync",
+        "subtle_body_motion"
+      ],
+      "inputs": [
+        "imagegen_animal_head_portrait",
+        "minimax_audio"
+      ],
+      "outputs": [
+        "presenter_video"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "signed-in Luma Dream Machine account and generation credits",
+      "provider_class": "first_party_model_web_app",
+      "status": "ready_requires_signed_in_browser"
+    },
+    {
+      "name": "render_joyvasa_digital_human",
+      "type": "local_model_script",
+      "path": "skills/dasheng-digital-human-talking-head/scripts/render_joyvasa.py",
+      "setup": "skills/dasheng-digital-human-talking-head/scripts/setup_joyvasa_macos.sh",
+      "skill": "dasheng-digital-human-talking-head",
+      "capabilities": [
+        "portrait_audio_animation",
+        "local_digital_human",
+        "minimax_audio_master",
+        "mps_inference"
+      ],
+      "inputs": [
+        "digital_human_job"
+      ],
+      "outputs": [
+        "presenter_video",
+        "presenter_source_manifest"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "JoyVASA, LivePortrait weights, PyTorch MPS, ffmpeg",
+      "runtime_root": "${DASHENG_DIGITAL_HUMAN_HOME:-~/AI_MODELS/digital-human}",
+      "provider_class": "local_open_source_model",
+      "video_generation_api": false,
+      "status": "fallback_only"
+    },
+    {
+      "name": "digital_human_qc",
+      "type": "script",
+      "path": "skills/dasheng-digital-human-talking-head/scripts/digital_human_qc.py",
+      "skill": "dasheng-digital-human-talking-head",
+      "capabilities": [
+        "duration_sync_check",
+        "identity_review",
+        "lip_sync_review",
+        "ai_disclosure_check",
+        "render_qc"
+      ],
+      "inputs": [
+        "digital_human_job",
+        "presenter_video"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "ffprobe",
+      "status": "ready"
+    },
+    {
+      "name": "cinematic_planning_router",
+      "type": "script",
+      "path": "scripts/build_stage4_transwrite.py",
+      "skill": "dasheng-stage-transwrite",
+      "lanes": [
+        "cinematic_short_drama_video"
+      ],
+      "capabilities": [
+        "cinematic_screenplay",
+        "character_bible",
+        "dialogue_script_rewrite",
+        "cinematic_shot_list",
+        "cinematic_camera",
+        "continuity_bible",
+        "storyboard_review",
+        "continuity_review"
+      ],
+      "inputs": [
+        "draft_manifest",
+        "transwrite_decision"
+      ],
+      "outputs": [
+        "script",
+        "scene_plan",
+        "review"
+      ],
+      "requires_external_dependency": false,
+      "status": "ready_planning_only"
+    },
+    {
+      "name": "cinematic_external_api_router",
+      "type": "workflow_router",
+      "lanes": [
+        "cinematic_short_drama_video"
+      ],
+      "capabilities": [
+        "external_video_generation",
+        "video_prompt_design",
+        "image_to_video_shots"
+      ],
+      "inputs": [
+        "approved_script",
+        "character_bible",
+        "approved_scene_plan",
+        "provider_budget_preflight"
+      ],
+      "outputs": [
+        "asset_manifest",
+        "generated_scene_video"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "Explicitly approved official Seedance, Gemini/Veo, or MiniMax API route",
+      "provider_class": "first_party_model",
+      "allowed_providers": [
+        "google",
+        "gemini",
+        "bytedance",
+        "seedance",
+        "minimax"
+      ],
+      "status": "deferred_external_api",
+      "execution_enabled": false,
+      "enabled_by_default": false
+    },
+    {
+      "name": "talking_head_editor_reference",
+      "type": "reference_project",
+      "root": "vendor/reserved/video/talking-head-editor",
+      "python": "vendor/reserved/video/talking-head-editor/.venv/bin/python",
+      "capabilities": [
+        "silence_removal",
+        "zoom_pattern",
+        "multi_angle_reference",
+        "caption_pipeline_reference"
+      ],
+      "status": "reference_only",
+      "enabled_by_default": false
+    },
+    {
+      "name": "auto_editor_cli",
+      "type": "cli",
+      "command": "auto-editor",
+      "capabilities": [
+        "silence_cleanup",
+        "pacing_cleanup"
+      ],
+      "status": "optional_cli_ready_29.3.1",
+      "enabled_by_default": false
+    },
+    {
+      "name": "jianying_cloud_draft",
+      "type": "manual_computer_use",
+      "skill": "video-rough-cut",
+      "capabilities": [
+        "jianying_upload",
+        "cloud_draft_save",
+        "manual_review"
+      ],
+      "inputs": [
+        "render_report"
+      ],
+      "outputs": [
+        "review"
+      ],
+      "requires_external_dependency": true,
+      "dependency": "Jianying desktop login",
+      "status": "needs_login",
+      "enabled_by_default": false
+    },
+    {
+      "name": "impeccable_visual_qc",
+      "type": "cli_adapter",
+      "root": "vendor/reserved/design/impeccable",
+      "adapter": "scripts/run_impeccable_visual_qc.py",
+      "capabilities": [
+        "html_audit",
+        "responsive_review",
+        "browser_visual_qa",
+        "slop_detection"
+      ],
+      "status": "ready",
+      "promoted_at": "2026-08-22",
+      "smoke_test": "T06 article_final.html 文件模式（4 warning/0 error）+ lottie 播放器 URL 模式（0 finding）通过"
+    },
+    {
+      "name": "omni_video_bridge",
+      "type": "skill_package",
+      "root": "skills/dasheng-omni-video-bridge",
+      "adapter": "skills/dasheng-omni-video-bridge/run_omni_batch.py",
+      "capabilities": [
+        "generated_broll",
+        "image_to_video_segment",
+        "presenter_generation",
+        "reference_to_video"
+      ],
+      "status": "ready",
+      "note": "omni（Gemini 图生视频）引擎桥——VOX 底片 + 数字人人物源（2026-08-22 用户裁决：替代已废弃的 Luma）"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+# 0913 Platform — .gitignore
+
+# Environment & secrets
+.env
+.env.production
+.env.production-lite
+*.env.local
+
+# Database (contains credentials in gateway config)
+data/app.db
+data/app.db.*
+data/*
+!data/
+!data/ai_config.json.example
+*.db
+*.sqlite
+
+# Runtime
+uvicorn.log
+*.log
+.uvicorn.pid
+.chatlog-gray.pid
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.local/
+chatlog_*/
+chatlog_alpha/
+
+# Backups
+backups/
+*.bak
+*.bak-*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+.jiebang/
+.playwright-mcp/
+.hermes/
+scripts/_tmp_*.py
+scripts/*_tmp.py
+scripts/remark_formatter.py
+scripts/zombie_*.py
+media-collector/.cache/

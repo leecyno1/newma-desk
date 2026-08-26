@@ -1,0 +1,49 @@
+{
+  "name": "dasheng-paradigm-profiler",
+  "version": "1.0.0",
+  "description": "Stage 0.5 Paradigm Learning - 从标准文章/模板学习文章范式（可选前置资产）",
+  "stage": "paradigm",
+  "stage_number": 0.5,
+  "runner": "node",
+  "entry": "index.js",
+  "upstream_gate": null,
+  "output_gate": "paradigm_manifest.json",
+  "hitl": true,
+  "trigger": "manual",
+  "canonical": false,
+  "optional_asset": true,
+  "dependencies": {
+    "python": ">=3.10",
+    "node": ">=18.0.0",
+    "packages": ["PyYAML"]
+  },
+  "inputs": {
+    "required": [
+      "sample .md/.txt files",
+      "run_id"
+    ],
+    "optional": [
+      "profile_name",
+      "sample_type",
+      "scenario",
+      "channel",
+      "bind_style_dna",
+      "no_ai"
+    ]
+  },
+  "outputs": {
+    "documents": [
+      "00_范式画像.md",
+      "paradigm_prompt_block.md"
+    ],
+    "manifests": [
+      "paradigm_profile.yaml",
+      "paradigm_manifest.json"
+    ],
+    "gates": []
+  },
+  "quality_requirements": {
+    "separate_from_style_dna": "ParadigmProfile controls structure; Style DNA controls expression",
+    "no_sample_fact_reuse": "Never reuse sample facts as article evidence"
+  }
+}

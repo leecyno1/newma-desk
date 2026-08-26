@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0",
+  "snapshotDate": "2026-08-26",
+  "runtimes": [
+    {
+      "id": "vibe-research",
+      "path": "bundled-runtimes/vibe-research",
+      "upstream": "https://github.com/simonlin1212/Vibe-Research.git",
+      "revision": "cf14f8bd7519cc786a97353c63203a60cef6dfcf",
+      "license": "MIT",
+      "requiredFiles": ["backend/app.py", "backend/requirements.txt", "frontend/package-lock.json"]
+    },
+    {
+      "id": "vibe-trading",
+      "path": "bundled-runtimes/vibe-trading",
+      "upstream": "https://github.com/HKUDS/Vibe-Trading.git",
+      "revision": "b53435b1689db4643dba2e9ca1b297853a956194",
+      "license": "MIT",
+      "requiredFiles": ["agent/api_server.py", "pyproject.toml", "frontend/package-lock.json"]
+    },
+    {
+      "id": "world-intel-mcp",
+      "path": "bundled-runtimes/world-intel-mcp",
+      "upstream": "https://github.com/marc-shade/world-intel-mcp.git",
+      "revision": "0f8885db1c413bef747bbd577afb84c3d8b0be67",
+      "license": "MIT",
+      "requiredFiles": ["pyproject.toml", "src/world_intel_mcp/dashboard/app.py"]
+    },
+    {
+      "id": "rsshub-policy",
+      "path": "bundled-runtimes/rsshub-policy",
+      "upstream": "https://github.com/DIYgod/RSSHub.git",
+      "revision": "986552fea771967a873aecdee366d7872b35cf89",
+      "license": "AGPL-3.0",
+      "requiredFiles": ["package.json", "pnpm-lock.yaml", "lib/index.ts"]
+    },
+    {
+      "id": "crucix",
+      "path": "bundled-runtimes/crucix",
+      "upstream": "https://github.com/calesthio/Crucix.git",
+      "revision": "3db7068817e0c815df353fa0f19657c85142789d",
+      "license": "AGPL-3.0-only",
+      "requiredFiles": ["package.json", "server.mjs", "LICENSE"]
+    },
+    {
+      "id": "creator-studio",
+      "path": "bundled-runtimes/creator-studio",
+      "upstream": "https://github.com/leecyno1/newma-media-studio.git",
+      "revision": "ac79dec9b4ac859d24fdbab80445e0d72e06e222+working-tree",
+      "license": "MIT",
+      "requiredFiles": ["requirements.txt", "configs/workflow/stage_reserve_registry.json", "LICENSE"]
+    },
+    {
+      "id": "openchatcut",
+      "path": "bundled-runtimes/openchatcut",
+      "upstream": "https://github.com/0xsline/OpenChatCut.git",
+      "revision": "1585143931372fc50673f05b717ddfa95e09bf6f",
+      "license": "AGPL-3.0-or-later",
+      "requiredFiles": ["package.json", "package-lock.json", "config/vite.config.ts"]
+    },
+    {
+      "id": "deepsee",
+      "path": "bundled-runtimes/deepsee",
+      "upstream": "https://github.com/leecyno1/Deepsee.git",
+      "revision": "d0ca50abf8923ba19a4e38244f84d06702a90dec+working-tree",
+      "license": "Apache-2.0",
+      "requiredFiles": ["requirements.txt", "app/main.py", "static/index.html"]
+    },
+    {
+      "id": "seven-cycle",
+      "path": "bundled-runtimes/seven-cycle",
+      "upstream": "https://github.com/leecyno1/circle.git",
+      "revision": "b54dae62c3421d2c64bde3a459e756e954ec4d60+working-tree",
+      "license": "source snapshot has no root license file",
+      "requiredFiles": [
+        "pyproject.toml",
+        "uv.lock",
+        "web/package-lock.json",
+        "scripts/build_seed_catalog.py",
+        "products/circle/latest.json",
+        "products/circle/runs/2026-08-14-7180d6f1dc9e-20baa334825c/manifest.json"
+      ]
+    },
+    {
+      "id": "instock-analysis",
+      "path": "bundled-runtimes/instock-analysis",
+      "upstream": "https://github.com/myhhub/stock.git",
+      "revision": "d80d9874eef545d17bce3561443ef0a6291ed35a",
+      "license": "Apache-2.0",
+      "requiredFiles": ["requirements-attached.txt", "requirements-attached.constraints.txt", "instock/web/web_service.py"]
+    },
+    {
+      "id": "fund-analysis",
+      "path": "bundled-runtimes/fund-analysis",
+      "upstream": "https://github.com/leecyno1/fund-analysis.git",
+      "revision": "82ee4f3994881c5d3f76f4136a7af93daec08c2f+working-tree",
+      "license": "source snapshot has no root license file",
+      "requiredFiles": ["package-lock.json", "backend/requirements.txt", "backend/main.py"]
+    },
+    {
+      "id": "orchestra-prisma",
+      "path": "bundled-runtimes/orchestra-prisma",
+      "upstream": "https://github.com/yeahhe365/Prisma.git",
+      "revision": "fbbb0c2cc74675396a71a7d99b516c2bc005050c+working-tree",
+      "license": "MIT",
+      "requiredFiles": ["package.json", "package-lock.json", "vite.config.ts"]
+    },
+    {
+      "id": "orchestra-agentscope",
+      "path": "bundled-runtimes/orchestra-agentscope",
+      "upstream": "https://github.com/agentscope-ai/agentscope.git",
+      "revision": "999f64db8126f2ded2c9271505d384b911c37943+working-tree",
+      "license": "Apache-2.0",
+      "requiredFiles": ["pyproject.toml", "orchestra_app/main.py", "agent_profiles.json", "agents/宏观-政策-林雅横.md", "LICENSE"]
+    }
+  ]
+}

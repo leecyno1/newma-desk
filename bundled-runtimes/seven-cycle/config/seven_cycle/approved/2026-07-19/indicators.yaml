@@ -1,0 +1,804 @@
+indicators:
+  - indicator_id: cn_pmi_manufacturing
+    name_zh: 中国制造业采购经理指数
+    name_en: China Manufacturing PMI
+    concept: pmi
+    concept_scope: systemic
+    source: 国家统计局
+    backend: akshare.macro_china_pmi
+    frequency: M
+    unit: index_points
+    timezone: Asia/Shanghai
+    transform: level_centered_at_50
+    release_rule: 月后首个工作日按官方发布时间入库。
+    revision_rule: 通常不修订；官方更正作为新 vintage 保存。
+    quality_tier: A
+    timing: coincident
+    allowed_cycles: [C3, C4, C5, C6]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: &primary_series
+      is_proxy: false
+      proxy_for: null
+      effective_from: null
+      effective_to: null
+      is_current: false
+      notes: 官方主序列，不使用代理。
+    active: true
+
+  - indicator_id: cn_pmi_new_orders
+    name_zh: 中国制造业PMI新订单指数
+    name_en: China Manufacturing PMI New Orders
+    concept: new_orders
+    concept_scope: systemic
+    source: 国家统计局
+    backend: akshare.macro_china_pmi
+    frequency: M
+    unit: index_points
+    timezone: Asia/Shanghai
+    transform: level_centered_at_50
+    release_rule: 月后首个工作日按官方发布时间入库。
+    revision_rule: 通常不修订；官方更正作为新 vintage 保存。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C3, C4, C5, C6]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_real_gdp
+    name_zh: 中国实际国内生产总值
+    name_en: China Real GDP
+    concept: gdp
+    concept_scope: systemic
+    source: 国家统计局
+    backend: tushare.cn_gdp
+    frequency: Q
+    unit: percent_yoy
+    timezone: Asia/Shanghai
+    transform: real_yoy_and_qoq_annualized
+    release_rule: 季后国家统计局新闻发布会公布时入库。
+    revision_rule: 保存初值、年度核算和经济普查修订 vintage。
+    quality_tier: A
+    timing: lagging
+    allowed_cycles: [C1, C2, C3, C4]
+    allowed_lags: [0, 1, 2]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_industrial_output
+    name_zh: 规模以上工业增加值
+    name_en: China Industrial Production
+    concept: industrial_output
+    concept_scope: systemic
+    source: 国家统计局
+    backend: akshare.macro_china_industrial_production_yoy
+    frequency: M
+    unit: percent_yoy
+    timezone: Asia/Shanghai
+    transform: yoy_and_three_month_momentum
+    release_rule: 月度国民经济运行发布时入库。
+    revision_rule: 官方修订或口径调整均保存新 vintage 与说明。
+    quality_tier: A
+    timing: coincident
+    allowed_cycles: [C2, C3, C4]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_retail_sales
+    name_zh: 社会消费品零售总额
+    name_en: China Retail Sales
+    concept: consumption
+    concept_scope: systemic
+    source: 国家统计局
+    backend: akshare.macro_china_consumer_goods_retail
+    frequency: M
+    unit: percent_yoy
+    timezone: Asia/Shanghai
+    transform: real_yoy_and_three_month_momentum
+    release_rule: 月度国民经济运行发布时入库。
+    revision_rule: 保存历史修订，并记录价格平减口径版本。
+    quality_tier: A
+    timing: coincident
+    allowed_cycles: [C2, C3, C4, C5]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_exports
+    name_zh: 中国出口金额
+    name_en: China Exports
+    concept: exports
+    concept_scope: systemic
+    source: 海关总署
+    backend: akshare.macro_china_exports_yoy
+    frequency: M
+    unit: percent_yoy_usd
+    timezone: Asia/Shanghai
+    transform: yoy_and_three_month_momentum
+    release_rule: 海关月度进出口数据发布时入库。
+    revision_rule: 保存快报与后续海关修订 vintage。
+    quality_tier: A
+    timing: coincident
+    allowed_cycles: [C2, C3, C4, C5]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_surveyed_unemployment
+    name_zh: 全国城镇调查失业率
+    name_en: China Surveyed Urban Unemployment Rate
+    concept: employment
+    concept_scope: systemic
+    source: 国家统计局
+    backend: akshare.macro_china_urban_unemployment
+    frequency: M
+    unit: percent
+    timezone: Asia/Shanghai
+    transform: level_and_twelve_month_change
+    release_rule: 月度国民经济运行发布时入库。
+    revision_rule: 口径或季节调整变化保存独立 vintage。
+    quality_tier: A
+    timing: lagging
+    allowed_cycles: [C2, C3, C4]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: -1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_cpi
+    name_zh: 居民消费价格指数
+    name_en: China Consumer Price Index
+    concept: cpi
+    concept_scope: systemic
+    source: 国家统计局
+    backend: akshare.macro_china_cpi_monthly
+    frequency: M
+    unit: percent_yoy
+    timezone: Asia/Shanghai
+    transform: yoy_and_six_month_annualized
+    release_rule: 国家统计局月度价格数据发布时入库。
+    revision_rule: 保存官方更正和权重基期调整 vintage。
+    quality_tier: A
+    timing: lagging
+    allowed_cycles: [C2, C3, C4, C5, C6]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: null
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_ppi
+    name_zh: 工业生产者出厂价格指数
+    name_en: China Producer Price Index
+    concept: ppi
+    concept_scope: systemic
+    source: 国家统计局
+    backend: akshare.macro_china_ppi_yearly
+    frequency: M
+    unit: percent_yoy
+    timezone: Asia/Shanghai
+    transform: yoy_and_six_month_annualized
+    release_rule: 国家统计局月度价格数据发布时入库。
+    revision_rule: 保存官方更正和权重基期调整 vintage。
+    quality_tier: A
+    timing: coincident
+    allowed_cycles: [C3, C4, C5, C6]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: null
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: global_crb_commodity
+    name_zh: CRB现货商品指数
+    name_en: CRB Spot Commodity Index
+    concept: commodity_prices
+    concept_scope: systemic
+    source: Commodity Research Bureau
+    backend: stooq.crb_spot
+    frequency: D
+    unit: index_points
+    timezone: America/New_York
+    transform: monthly_log_return_and_yoy
+    release_rule: 交易日收盘后入库，月末形成正式月频值。
+    revision_rule: 市场数据更正覆盖前保留原始抓取 vintage。
+    quality_tier: B
+    timing: leading
+    allowed_cycles: [C3, C4, C5, C7]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: null
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_policy_rate_7d
+    name_zh: 央行七天政策利率
+    name_en: PBOC Seven-Day Policy Rate
+    concept: policy_rate
+    concept_scope: systemic
+    source: 中国人民银行
+    backend: akshare.pbc_policy_rate
+    frequency: D
+    unit: annualized_percent
+    timezone: Asia/Shanghai
+    transform: month_end_level_and_change
+    release_rule: 央行公开市场操作公告发布时入库。
+    revision_rule: 公告更正作为新 vintage，历史值不静默覆盖。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C5, C6]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: -1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_gov_bond_yield_10y
+    name_zh: 中国十年期国债收益率
+    name_en: China 10-Year Government Bond Yield
+    concept: government_bond_yield
+    concept_scope: systemic
+    source: 中债估值中心
+    backend: akshare.bond_china_yield
+    frequency: D
+    unit: annualized_percent
+    timezone: Asia/Shanghai
+    transform: month_end_level_and_change
+    release_rule: 交易日估值发布后入库，月末形成正式月频值。
+    revision_rule: 数据更正作为新 vintage 并保留原始值。
+    quality_tier: A
+    timing: coincident
+    allowed_cycles: [C2, C3, C5, C6]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: -1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_real_rate_10y
+    name_zh: 中国十年期实际利率
+    name_en: China 10-Year Real Rate
+    concept: real_rate
+    concept_scope: systemic
+    source: 内部派生
+    backend: derived.cn_real_rate_10y
+    frequency: M
+    unit: annualized_percent
+    timezone: Asia/Shanghai
+    transform: ten_year_yield_minus_expected_inflation
+    release_rule: 所有输入在当时可见后按月重算。
+    revision_rule: 输入 vintage 变化产生新的派生 vintage，不回写旧结果。
+    quality_tier: B
+    timing: coincident
+    allowed_cycles: [C2, C3, C5, C6]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: -1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_social_financing_flow
+    name_zh: 社会融资规模增量
+    name_en: China Aggregate Financing Flow
+    concept: social_financing
+    concept_scope: systemic
+    source: 中国人民银行
+    backend: akshare.macro_china_shrzgm
+    frequency: M
+    unit: cny_100m
+    timezone: Asia/Shanghai
+    transform: twelve_month_sum_and_credit_impulse
+    release_rule: 央行金融统计数据发布时入库。
+    revision_rule: 保存初值和后续口径修订 vintage。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C2, C3, C4, C5, C6]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_new_rmb_loans
+    name_zh: 人民币贷款新增
+    name_en: China New RMB Loans
+    concept: loans
+    concept_scope: systemic
+    source: 中国人民银行
+    backend: akshare.macro_china_new_financial_credit
+    frequency: M
+    unit: cny_100m
+    timezone: Asia/Shanghai
+    transform: twelve_month_sum_and_yoy_change
+    release_rule: 央行金融统计数据发布时入库。
+    revision_rule: 保存初值和后续口径修订 vintage。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C2, C3, C4, C5, C6]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_m1
+    name_zh: 中国狭义货币供应量M1
+    name_en: China M1 Money Supply
+    concept: m1
+    concept_scope: systemic
+    source: 中国人民银行
+    backend: akshare.macro_china_m1_yearly
+    frequency: M
+    unit: percent_yoy
+    timezone: Asia/Shanghai
+    transform: yoy_and_m1_minus_m2
+    release_rule: 央行金融统计数据发布时入库。
+    revision_rule: 保存历史修订和统计口径变化 vintage。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C2, C3, C4, C5]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_m2
+    name_zh: 中国广义货币供应量M2
+    name_en: China M2 Money Supply
+    concept: m2
+    concept_scope: systemic
+    source: 中国人民银行
+    backend: akshare.macro_china_m2_yearly
+    frequency: M
+    unit: percent_yoy
+    timezone: Asia/Shanghai
+    transform: yoy_and_six_month_momentum
+    release_rule: 央行金融统计数据发布时入库。
+    revision_rule: 保存历史修订和统计口径变化 vintage。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C2, C3, C4, C5]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_lpr_1y
+    name_zh: 一年期贷款市场报价利率
+    name_en: China One-Year Loan Prime Rate
+    concept: lpr
+    concept_scope: systemic
+    source: 全国银行间同业拆借中心
+    backend: akshare.macro_china_lpr
+    frequency: M
+    unit: annualized_percent
+    timezone: Asia/Shanghai
+    transform: level_and_change
+    release_rule: 每月LPR报价发布时入库。
+    revision_rule: 发布后通常不修订；更正保留新 vintage。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C2, C3, C5, C6]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: -1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_rrr_large_bank
+    name_zh: 大型存款类金融机构法定准备金率
+    name_en: China Large-Bank Reserve Requirement Ratio
+    concept: rrr
+    concept_scope: systemic
+    source: 中国人民银行
+    backend: akshare.macro_china_reserve_requirement_ratio
+    frequency: M
+    unit: percent
+    timezone: Asia/Shanghai
+    transform: effective_level_and_change
+    release_rule: 央行公告后按生效日期入库。
+    revision_rule: 政策公告更正作为新 vintage，保留公告日与生效日。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C2, C3, C5, C6]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: -1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_reverse_repo_7d
+    name_zh: 央行七天逆回购操作
+    name_en: PBOC Seven-Day Reverse Repo Operations
+    concept: reverse_repo
+    concept_scope: systemic
+    source: 中国人民银行
+    backend: akshare.bond_repo_7d
+    frequency: D
+    unit: cny_100m
+    timezone: Asia/Shanghai
+    transform: monthly_net_injection_and_rate_change
+    release_rule: 每次公开市场操作公告后入库。
+    revision_rule: 公告更正作为新 vintage，操作量与利率分别保留。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C5, C6, C7]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_mlf_1y
+    name_zh: 一年期中期借贷便利
+    name_en: PBOC One-Year MLF
+    concept: mlf
+    concept_scope: systemic
+    source: 中国人民银行
+    backend: akshare.pbc_mlf
+    frequency: M
+    unit: annualized_percent
+    timezone: Asia/Shanghai
+    transform: rate_change_and_net_injection
+    release_rule: MLF操作公告后入库。
+    revision_rule: 公告更正作为新 vintage，操作量与利率分别保留。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C3, C5, C6]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_fiscal_deficit
+    name_zh: 全国一般公共预算收支缺口
+    name_en: China General Public Budget Deficit
+    concept: fiscal_deficit
+    concept_scope: systemic
+    source: 财政部
+    backend: akshare.macro_china_fiscal_revenue
+    frequency: M
+    unit: cny_100m
+    timezone: Asia/Shanghai
+    transform: twelve_month_rolling_share_of_gdp
+    release_rule: 财政收支月报发布时入库。
+    revision_rule: 保存快报、决算和历史口径修订 vintage。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C1, C2, C3, C6]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_fiscal_spending
+    name_zh: 全国一般公共预算支出
+    name_en: China General Public Budget Expenditure
+    concept: fiscal_spending
+    concept_scope: systemic
+    source: 财政部
+    backend: akshare.macro_china_fiscal_expenditure
+    frequency: M
+    unit: percent_yoy
+    timezone: Asia/Shanghai
+    transform: yoy_and_three_month_momentum
+    release_rule: 财政收支月报发布时入库。
+    revision_rule: 保存快报、决算和历史口径修订 vintage。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C2, C3, C4, C6]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_government_bond_net_financing
+    name_zh: 政府债券净融资
+    name_en: China Government Bond Net Financing
+    concept: government_bonds
+    concept_scope: systemic
+    source: 中国人民银行
+    backend: tushare.cn_sf_month
+    frequency: M
+    unit: cny_100m
+    timezone: Asia/Shanghai
+    transform: three_month_sum_and_twelve_month_change
+    release_rule: 社融分项发布时入库。
+    revision_rule: 保存社融历史修订和分类变化 vintage。
+    quality_tier: A
+    timing: leading
+    allowed_cycles: [C2, C3, C5, C6]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: usd_cny_spot
+    name_zh: 美元兑人民币即期汇率
+    name_en: USD/CNY Spot Rate
+    concept: fx
+    concept_scope: systemic
+    source: 中国外汇交易中心
+    backend: akshare.currency_boc_sina
+    frequency: D
+    unit: cny_per_usd
+    timezone: Asia/Shanghai
+    transform: month_end_log_change_and_real_effective_gap
+    release_rule: 交易日收盘后入库，月末形成正式月频值。
+    revision_rule: 市场数据更正保留抓取 vintage，不静默覆盖。
+    quality_tier: A
+    timing: coincident
+    allowed_cycles: [C2, C3, C5, C7]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: null
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: dxy_index
+    name_zh: 美元指数
+    name_en: U.S. Dollar Index
+    concept: dxy
+    concept_scope: systemic
+    source: ICE
+    backend: stooq.dxy
+    frequency: D
+    unit: index_points
+    timezone: America/New_York
+    transform: month_end_log_change
+    release_rule: 交易日收盘后入库，月末形成正式月频值。
+    revision_rule: 市场数据更正保留抓取 vintage，不静默覆盖。
+    quality_tier: B
+    timing: leading
+    allowed_cycles: [C3, C5, C7]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: -1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: global_manufacturing_pmi
+    name_zh: 全球制造业采购经理指数
+    name_en: Global Manufacturing PMI
+    concept: external_demand
+    concept_scope: systemic
+    source: S&P Global
+    backend: external.sp_global_pmi
+    frequency: M
+    unit: index_points
+    timezone: UTC
+    transform: level_centered_at_50
+    release_rule: 全球PMI正式发布日期后入库。
+    revision_rule: 初值与终值分别保存 vintage。
+    quality_tier: B
+    timing: leading
+    allowed_cycles: [C2, C3, C4, C5]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_industrial_profits
+    name_zh: 规模以上工业企业利润总额
+    name_en: China Industrial Enterprise Profits
+    concept: profits
+    concept_scope: systemic
+    source: 国家统计局
+    backend: akshare.macro_china_enterprise_boom_index
+    frequency: M
+    unit: percent_yoy
+    timezone: Asia/Shanghai
+    transform: year_to_date_yoy_and_monthly_implied_growth
+    release_rule: 工业企业效益数据发布时入库。
+    revision_rule: 保存累计值修订与年度口径调整 vintage。
+    quality_tier: A
+    timing: lagging
+    allowed_cycles: [C3, C4, C5]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_nonfinancial_roe
+    name_zh: A股非金融企业净资产收益率
+    name_en: China A-Share Non-Financial ROE
+    concept: roe
+    concept_scope: systemic
+    source: Tushare
+    backend: derived.tushare_nonfinancial_roe
+    frequency: Q
+    unit: percent
+    timezone: Asia/Shanghai
+    transform: trailing_twelve_month_median
+    release_rule: 仅在财报披露后按当时可见成分重算。
+    revision_rule: 财报更正和成分 vintage 产生新的派生 vintage。
+    quality_tier: B
+    timing: lagging
+    allowed_cycles: [C3, C4, C5]
+    allowed_lags: [0, 1, 2]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_industrial_profit_margin
+    name_zh: 工业企业营业收入利润率
+    name_en: China Industrial Profit Margin
+    concept: margins
+    concept_scope: systemic
+    source: 国家统计局
+    backend: derived.nbs_industrial_profit_margin
+    frequency: M
+    unit: percent
+    timezone: Asia/Shanghai
+    transform: trailing_twelve_month_margin_and_change
+    release_rule: 工业企业效益数据发布时入库。
+    revision_rule: 输入累计值修订产生新的派生 vintage。
+    quality_tier: A
+    timing: lagging
+    allowed_cycles: [C3, C4, C5]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_capacity_utilization
+    name_zh: 全国工业产能利用率
+    name_en: China Industrial Capacity Utilization
+    concept: capacity_utilization
+    concept_scope: systemic
+    source: 国家统计局
+    backend: akshare.macro_china_capacity_utilization
+    frequency: Q
+    unit: percent
+    timezone: Asia/Shanghai
+    transform: level_and_year_over_year_change
+    release_rule: 季度国民经济运行发布时入库。
+    revision_rule: 官方历史修订和行业权重变化保存新 vintage。
+    quality_tier: A
+    timing: coincident
+    allowed_cycles: [C2, C3, C4]
+    allowed_lags: [0, 1, 2]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_equity_market_breadth
+    name_zh: A股市场宽度
+    name_en: China A-Share Market Breadth
+    concept: market_breadth
+    concept_scope: systemic
+    source: Tushare
+    backend: derived.tushare_market_breadth
+    frequency: D
+    unit: share_of_constituents
+    timezone: Asia/Shanghai
+    transform: above_200d_share_and_advance_decline
+    release_rule: 每个交易日收盘后按当时可见股票池计算。
+    revision_rule: 成分、停牌和复权 vintage 均随结果保存。
+    quality_tier: B
+    timing: leading
+    allowed_cycles: [C4, C5, C7]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_equity_turnover
+    name_zh: A股市场换手率
+    name_en: China A-Share Market Turnover
+    concept: turnover
+    concept_scope: systemic
+    source: Tushare
+    backend: derived.tushare_market_turnover
+    frequency: D
+    unit: percent
+    timezone: Asia/Shanghai
+    transform: twenty_day_median_and_zscore
+    release_rule: 每个交易日收盘后按当时可见股票池计算。
+    revision_rule: 成分、停牌和复权 vintage 均随结果保存。
+    quality_tier: B
+    timing: coincident
+    allowed_cycles: [C4, C5, C7]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: null
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_equity_valuation
+    name_zh: A股市场估值
+    name_en: China A-Share Market Valuation
+    concept: valuation
+    concept_scope: systemic
+    source: Tushare
+    backend: derived.tushare_market_valuation
+    frequency: D
+    unit: percentile
+    timezone: Asia/Shanghai
+    transform: cross_market_pe_pb_percentile
+    release_rule: 每个交易日收盘后按当时已披露财务数据计算。
+    revision_rule: 财报与成分 vintage 均随估值结果保存。
+    quality_tier: B
+    timing: lagging
+    allowed_cycles: [C2, C3, C5, C7]
+    allowed_lags: [0, 1, 2, 3, 6]
+    direction_prior: -1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_margin_financing_balance
+    name_zh: A股融资余额
+    name_en: China A-Share Margin Financing Balance
+    concept: financing
+    concept_scope: systemic
+    source: 上海证券交易所和深圳证券交易所
+    backend: akshare.stock_margin_sse_szse
+    frequency: D
+    unit: cny_100m
+    timezone: Asia/Shanghai
+    transform: twenty_day_change_and_market_cap_share
+    release_rule: 交易所日度融资融券数据发布后入库。
+    revision_rule: 交易所更正保留新 vintage，不覆盖原始抓取。
+    quality_tier: A
+    timing: coincident
+    allowed_cycles: [C4, C5, C7]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_equity_etf_flow
+    name_zh: A股股票ETF资金流
+    name_en: China Equity ETF Flow
+    concept: etf_flow
+    concept_scope: systemic
+    source: Tushare
+    backend: derived.tushare_equity_etf_flow
+    frequency: D
+    unit: cny_100m
+    timezone: Asia/Shanghai
+    transform: twenty_day_net_flow_and_assets_share
+    release_rule: 份额和净值数据可见后按交易日计算。
+    revision_rule: 份额、净值和基金分类 vintage 均随结果保存。
+    quality_tier: B
+    timing: coincident
+    allowed_cycles: [C5, C7]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: 1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_equity_volatility
+    name_zh: A股市场实现波动率
+    name_en: China A-Share Realized Volatility
+    concept: volatility
+    concept_scope: systemic
+    source: Tushare
+    backend: derived.tushare_realized_volatility
+    frequency: D
+    unit: annualized_percent
+    timezone: Asia/Shanghai
+    transform: twenty_day_realized_volatility_and_skew
+    release_rule: 每个交易日收盘后按当时可见收益率计算。
+    revision_rule: 复权和成分 vintage 均随结果保存。
+    quality_tier: B
+    timing: coincident
+    allowed_cycles: [C4, C5, C7]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: -1.0
+    proxy: *primary_series
+    active: true
+
+  - indicator_id: cn_pmi_finished_goods_inventory
+    name_zh: 中国制造业PMI产成品库存指数
+    name_en: China Manufacturing PMI Finished Goods Inventory
+    concept: inventory
+    concept_scope: systemic
+    source: 国家统计局
+    backend: akshare.macro_china_pmi
+    frequency: M
+    unit: index_points
+    timezone: Asia/Shanghai
+    transform: level_centered_at_50_and_new_orders_gap
+    release_rule: 月后首个工作日按官方发布时间入库。
+    revision_rule: 通常不修订；官方更正作为新 vintage 保存。
+    quality_tier: A
+    timing: coincident
+    allowed_cycles: [C3, C4, C5]
+    allowed_lags: [0, 1, 2, 3]
+    direction_prior: null
+    proxy: *primary_series
+    active: true

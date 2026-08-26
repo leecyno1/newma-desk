@@ -1,0 +1,74 @@
+{
+  "name": "dasheng-daily-phase2",
+  "version": "3.0.0",
+  "description": "Stage 2 Brief - 第二环节 AI-only Brief：读取 canonical intake 产物，输出 8-10 个独立题卡",
+  "stage": "brief",
+  "stage_number": 2,
+  "runner": "python",
+  "upstream_gate": "intake_manifest.json",
+  "output_gate": "selected_topics.json",
+  "hitl": true,
+  "trigger": {
+    "keyword": "第二环节",
+    "previous_step": "dasheng-daily-intake"
+  },
+  "aliases": [
+    "phase2",
+    "daily phase2",
+    "clustering+brief",
+    "第二环节",
+    "聚类brief",
+    "编辑brief",
+    "brief库"
+  ],
+  "dependencies": {
+    "python": ">=3.10",
+    "anthropic": ">=0.18.0"
+  },
+  "inputs": {
+    "required": [
+      "intake_manifest.json",
+      "brief_input.json"
+    ],
+    "optional": [
+      "channel_top10.json",
+      "event_clusters.json",
+      "raw/intake_records.json"
+    ]
+  },
+  "outputs": {
+    "documents": [
+      "02_编辑Brief库.md",
+      "02_编辑Brief_报告.md",
+      "02_研究Brief库.md"
+    ],
+    "manifests": [
+      "topic_cards.json",
+      "selected_topics.json",
+      "brief_manifest.json"
+    ],
+    "gates": [
+      "selected_topics.json"
+    ]
+  },
+  "metadata": {
+    "phase2": {
+      "script": "${OPENCLAW_WORKSPACE}/scripts/phase2_rebuilder.py",
+      "input_stage_root": "${DASHENG_OUTPUT_ROOT:-~/Desktop/自媒体创作}/01_内容采集",
+      "output_stage_root": "${DASHENG_OUTPUT_ROOT:-~/Desktop/自媒体创作}/02_内容聚合及选题分析",
+      "default_candidate_count": 10,
+      "manual_topic_flag": "--manual-topic",
+      "manual_topic_supported": true
+    },
+    "output": {
+      "subdir": "{run_id}/02_选题",
+      "brief_library": "02_编辑Brief库.md",
+      "brief_report": "02_编辑Brief_报告.md",
+      "research_brief": "02_研究Brief库.md",
+      "topic_cards": "topic_cards.json",
+      "selected_topics": "selected_topics.json",
+      "manifest": "brief_manifest.json",
+      "generation_mode": "ai_only"
+    }
+  }
+}

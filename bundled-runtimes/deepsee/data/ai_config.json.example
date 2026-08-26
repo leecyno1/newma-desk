@@ -1,0 +1,49 @@
+{
+  "api_key": "",
+  "api_url": "https://df.dawnloadai.com:9888/v1",
+  "model": "deepseek-ai/DeepSeek-V4-Pro",
+  "main_model": "deepseek-ai/DeepSeek-V4-Pro",
+  "tool_model": "MiniMax-M3",
+  "tool_model_messages": "MiniMax-M3",
+  "tool_model_emails": "MiniMax-M3",
+  "max_tokens": 4096,
+  "model_temperature": 0.7,
+  "message_filters": {"external_only": true, "exclude_short": true, "exclude_system": true},
+  "derive_defaults": {"batch_size": 100, "concurrency": 3, "temperature": 0.1, "force": false},
+  "model_router": {
+    "enabled": true,
+    "prefer_router": true,
+    "dynamic_weighting": true,
+    "breaker_failures": 3,
+    "cooldown_seconds": 45,
+    "latency_ref_ms": 3000,
+    "main_channels": [
+      {"id": "dasheng-main-deepseek-v4-pro", "name": "\u5927\u5723Cloud \u4e3b\u6a21\u578b DeepSeek V4 Pro", "model": "deepseek-ai/DeepSeek-V4-Pro", "weight": 8, "enabled": true, "api_url": "https://df.dawnloadai.com:9888/v1", "api_key": "", "max_inflight": 4},
+      {"id": "dasheng-onepage-minimax-m3", "name": "\u5927\u5723Cloud \u4e00\u9875\u901a MiniMax M3", "model": "MiniMax-M3", "weight": 4, "enabled": true, "api_url": "https://df.dawnloadai.com:9888/v1", "api_key": "", "max_inflight": 4}
+    ],
+    "tool_channels": [
+      {"id": "dasheng-tool-minimax-m3", "name": "\u5927\u5723Cloud \u5c0f\u6a21\u578b MiniMax M3", "model": "MiniMax-M3", "weight": 8, "enabled": true, "api_url": "https://df.dawnloadai.com:9888/v1", "api_key": "", "max_inflight": 8},
+      {"id": "dasheng-email-minimax-m3", "name": "\u5927\u5723Cloud \u90ae\u4ef6 MiniMax M3", "model": "MiniMax-M3", "weight": 4, "enabled": true, "api_url": "https://df.dawnloadai.com:9888/v1", "api_key": "", "max_inflight": 8}
+    ],
+    "main_module_channels": {
+      "default": ["dasheng-main-deepseek-v4-pro"],
+      "onepage": ["dasheng-onepage-minimax-m3"],
+      "market": ["dasheng-main-deepseek-v4-pro"],
+      "meetings": ["dasheng-main-deepseek-v4-pro"],
+      "counter": ["dasheng-main-deepseek-v4-pro"],
+      "contacts": ["dasheng-main-deepseek-v4-pro"],
+      "newswatch": ["dasheng-main-deepseek-v4-pro"],
+      "socialwatch": ["dasheng-main-deepseek-v4-pro"],
+      "mediawatch": ["dasheng-main-deepseek-v4-pro"],
+      "mpwatch": ["dasheng-main-deepseek-v4-pro"],
+      "minuteswatch": ["dasheng-main-deepseek-v4-pro"]
+    },
+    "tool_route_channels": {
+      "default": ["dasheng-tool-minimax-m3"],
+      "messages": ["dasheng-tool-minimax-m3"],
+      "emails": ["dasheng-email-minimax-m3"],
+      "minutes": ["dasheng-tool-minimax-m3"],
+      "reply": ["dasheng-tool-minimax-m3"]
+    }
+  }
+}

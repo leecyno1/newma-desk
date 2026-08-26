@@ -1,0 +1,52 @@
+generated: 2026-07-19
+source_document: output/seven_cycle_retest_summary_2026-07-19.md
+cycles:
+  - cycle_id: C1
+    evidence_status: scenario_supported
+    center_prior_months: 600
+    empirical_band_months: [510, 708]
+    family_centers_months: [510, 612, 708]
+    reason_codes: [long_sample_only, annual_frequency, family_balanced]
+    summary: 高置信家族集中在42.5至51年，利率债务给出59年条件候选。
+  - cycle_id: C2
+    evidence_status: unidentified
+    center_prior_months: 200
+    empirical_band_months: null
+    family_centers_months: []
+    reason_codes: [scale_sensitive, red_noise_not_significant]
+    summary: 原始水平约16.8年，对数口径移至20至27年，经验中心暂不发布。
+  - cycle_id: C3
+    evidence_status: unidentified
+    center_prior_months: 100
+    empirical_band_months: null
+    family_centers_months: []
+    reason_codes: [scale_sensitive, red_noise_not_significant]
+    summary: 原始水平约8.9年，对数或增长口径多移至10.7至15年。
+  - cycle_id: C4
+    evidence_status: supported
+    center_prior_months: 42
+    empirical_band_months: [40, 42.2]
+    family_centers_months: [41.55, 40, 42.05, 42.2]
+    reason_codes: [cross_family_consensus, cutoff_stable, leave_one_out_stable]
+    summary: 生产、库存、价格和贸易四家族稳定集中在40.0至42.2个月。
+  - cycle_id: C5
+    evidence_status: unidentified
+    center_prior_months: 20
+    empirical_band_months: null
+    family_centers_months: []
+    reason_codes: [red_noise_not_significant, transformation_sensitive]
+    summary: 水平与脉冲口径分散在12至27个月，没有家族稳定通过检验。
+  - cycle_id: C6
+    evidence_status: calendar_defined
+    center_prior_months: 12
+    empirical_band_months: [12, 12]
+    family_centers_months: [12]
+    reason_codes: [calendar_frequency, amplitude_only]
+    summary: 12个月由日历定义，仅估计季节振幅与月份结构。
+  - cycle_id: C7
+    evidence_status: unidentified
+    center_prior_months: 6
+    empirical_band_months: null
+    family_centers_months: [5.6]
+    reason_codes: [conditional_candidate, search_boundary]
+    summary: 风格风险偏好约5.6个月为条件候选，市场收益与广度触及9个月上界。

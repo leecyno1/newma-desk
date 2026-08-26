@@ -17,6 +17,7 @@ class CreatorModel(BaseModel):
 
 class CreatorMaterialInput(CreatorModel):
     type: str = Field(min_length=1, max_length=80)
+    slot: str | None = Field(default=None, min_length=1, max_length=160)
     path: str = Field(min_length=1, max_length=2048)
     source: Literal["manual", "upstream"] = "manual"
     label: str | None = Field(default=None, min_length=1, max_length=160)

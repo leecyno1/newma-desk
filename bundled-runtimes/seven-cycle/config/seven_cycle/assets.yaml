@@ -1,0 +1,210 @@
+assets:
+  - asset_id: cn_equity_hs300
+    name_zh: 沪深300
+    name_en: CSI 300
+    asset_class: equity
+    region: CN
+    tier: core
+    currency: CNY
+    calendar: SSE_SZSE
+    unit: index_points
+    source: Tushare
+    backend: tushare.index_daily
+    symbol: 000300.SH
+    minimum_history_months: 120
+    minimum_quality_tier: A
+    maximum_missing_ratio: 0.02
+    proxy_chain: []
+    active: true
+
+  - asset_id: cn_equity_csi500
+    name_zh: 中证500
+    name_en: CSI 500
+    asset_class: equity
+    region: CN
+    tier: core
+    currency: CNY
+    calendar: SSE_SZSE
+    unit: index_points
+    source: Tushare
+    backend: tushare.index_daily
+    symbol: 000905.SH
+    minimum_history_months: 120
+    minimum_quality_tier: A
+    maximum_missing_ratio: 0.02
+    proxy_chain: []
+    active: true
+
+  - asset_id: cn_equity_csi1000
+    name_zh: 中证1000
+    name_en: CSI 1000
+    asset_class: equity
+    region: CN
+    tier: core
+    currency: CNY
+    calendar: SSE_SZSE
+    unit: index_points
+    source: Tushare
+    backend: tushare.index_daily
+    symbol: 000852.SH
+    minimum_history_months: 120
+    minimum_quality_tier: A
+    maximum_missing_ratio: 0.02
+    proxy_chain: []
+    active: true
+
+  - asset_id: cn_equity_baijiu
+    name_zh: 中证白酒
+    name_en: CSI Baijiu
+    asset_class: equity
+    region: CN
+    tier: core
+    currency: CNY
+    calendar: SSE_SZSE
+    unit: index_points
+    source: Tushare
+    backend: tushare.index_daily
+    symbol: 399997.SZ
+    minimum_history_months: 60
+    minimum_quality_tier: A
+    maximum_missing_ratio: 0.03
+    proxy_chain:
+      - proxy_id: cn_equity_baijiu_citic_food_beverage
+        proxy_for: cn_equity_baijiu
+        name_zh: 中信食品饮料指数
+        name_en: CITIC Food and Beverage Index
+        source: CITIC Securities
+        backend: tushare.ci_index_daily
+        symbol: CI005019.CI
+        effective_from: 2005-01-04
+        effective_to: 2014-12-31
+        is_current: false
+        overlap_calibration: 使用可获得的重叠样本单独校准收益尺度，并保留代理标记，禁止静默拼接。
+        confidence_discount: 0.25
+    active: true
+
+  - asset_id: cn_bond_government_index
+    name_zh: 上证国债指数
+    name_en: SSE Government Bond Index
+    asset_class: bond
+    region: CN
+    tier: core
+    currency: CNY
+    calendar: SSE
+    unit: index_points
+    source: Eastmoney
+    backend: akshare.stock_zh_index_daily_em
+    symbol: sh000012
+    minimum_history_months: 120
+    minimum_quality_tier: A
+    maximum_missing_ratio: 0.02
+    proxy_chain: []
+    active: true
+
+  - asset_id: gold
+    name_zh: 黄金
+    name_en: Gold Futures
+    asset_class: commodity
+    region: GLOBAL
+    tier: core
+    currency: USD
+    calendar: CME
+    unit: usd_per_troy_ounce
+    source: Yahoo Finance
+    backend: yfinance.download
+    symbol: GC=F
+    minimum_history_months: 120
+    minimum_quality_tier: B
+    maximum_missing_ratio: 0.03
+    proxy_chain: []
+    active: true
+
+  - asset_id: copper
+    name_zh: 铜
+    name_en: Copper Futures
+    asset_class: commodity
+    region: GLOBAL
+    tier: core
+    currency: USD
+    calendar: CME
+    unit: usd_per_pound
+    source: Yahoo Finance
+    backend: yfinance.download
+    symbol: HG=F
+    minimum_history_months: 120
+    minimum_quality_tier: B
+    maximum_missing_ratio: 0.03
+    proxy_chain: []
+    active: true
+
+  - asset_id: crude_oil
+    name_zh: 原油
+    name_en: WTI Crude Oil Futures
+    asset_class: commodity
+    region: GLOBAL
+    tier: core
+    currency: USD
+    calendar: NYMEX
+    unit: usd_per_barrel
+    source: Yahoo Finance
+    backend: yfinance.download
+    symbol: CL=F
+    minimum_history_months: 120
+    minimum_quality_tier: B
+    maximum_missing_ratio: 0.03
+    proxy_chain: []
+    active: true
+
+  - asset_id: usd_cny
+    name_zh: 美元兑人民币
+    name_en: USD/CNY
+    asset_class: fx
+    region: CN
+    tier: core
+    currency: CNY
+    calendar: FX_24X5
+    unit: cny_per_usd
+    source: Yahoo Finance
+    backend: yfinance.download
+    symbol: CNY=X
+    minimum_history_months: 120
+    minimum_quality_tier: B
+    maximum_missing_ratio: 0.03
+    proxy_chain: []
+    active: true
+
+  - asset_id: us_equity_sp500
+    name_zh: 标普500
+    name_en: S&P 500
+    asset_class: equity
+    region: US
+    tier: core
+    currency: USD
+    calendar: NYSE_NASDAQ
+    unit: index_points
+    source: Yahoo Finance
+    backend: yfinance.download
+    symbol: ^GSPC
+    minimum_history_months: 120
+    minimum_quality_tier: B
+    maximum_missing_ratio: 0.02
+    proxy_chain: []
+    active: true
+
+  - asset_id: cny_cash
+    name_zh: 人民币现金
+    name_en: CNY Cash
+    asset_class: cash
+    region: CN
+    tier: core
+    currency: CNY
+    calendar: CN_INTERBANK
+    unit: annualized_percent
+    source: CFETS
+    backend: derived.cash_total_return
+    symbol: DR007
+    minimum_history_months: 60
+    minimum_quality_tier: A
+    maximum_missing_ratio: 0.02
+    proxy_chain: []
+    active: true

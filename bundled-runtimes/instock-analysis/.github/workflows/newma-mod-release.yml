@@ -1,0 +1,49 @@
+name: Newma Mod Release Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - "codex/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: newma-mod-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-attached.txt
+            requirements-attached.constraints.txt
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install project dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check
+          -r requirements-dev.txt
+          -c requirements-attached.constraints.txt
+
+      - name: Run attached Mod release gate
+        run: python scripts/newma_release_check.py

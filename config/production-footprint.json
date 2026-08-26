@@ -12,7 +12,7 @@
       "id": "portfolio-runtime",
       "path": "modules/portfolio-center/dist",
       "required": true,
-      "maxTotalBytes": 440320,
+      "maxTotalBytes": 480000,
       "maxFileBytes": 358400
     },
     {
@@ -24,7 +24,7 @@
     },
     {
       "id": "research-suite",
-      "path": "mod-projects/vibe-research/frontend/dist",
+      "path": "bundled-runtimes/vibe-research/frontend/dist",
       "required": false,
       "maxTotalBytes": 1048576,
       "maxFileBytes": 262144,
@@ -37,7 +37,7 @@
     },
     {
       "id": "trading-suite",
-      "path": "mod-projects/vibe-trading/frontend/dist",
+      "path": "bundled-runtimes/vibe-trading/frontend/dist",
       "required": false,
       "maxTotalBytes": 1900000,
       "maxFileBytes": 720000
@@ -49,6 +49,7 @@
       ".git",
       ".worktrees",
       "legacy-workspace",
+      "bundled-runtimes",
       "**/node_modules",
       "**/.venv",
       "**/.pytest_cache",

@@ -1,0 +1,161 @@
+{% extends "layout/mod.html" %}
+{% block main_content %}
+<link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/research-workbench.css') }}">
+<style>
+:root { --terminal-accent: #b36b19; }
+.screen-filter-panel { padding:14px 16px 12px; border-top:3px solid var(--terminal-accent); }
+.screen-filter-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:12px; }
+.screen-filter-head h2 { margin:0; font-size:13px; }
+.screen-preset-note { max-width:620px; margin:0; color:var(--instock-text-muted); font-size:9px; line-height:1.5; text-align:right; }
+.screen-primary-grid,.screen-rule-grid { display:grid; width:100%; gap:9px; }
+.screen-primary-grid { grid-template-columns:repeat(6,minmax(110px,1fr)); }
+.screen-rule-grid { grid-template-columns:repeat(5,minmax(120px,1fr)); padding-top:10px; }
+.screen-filter-panel .desk-control { min-width:0; }
+.screen-filter-panel .desk-control input,.screen-filter-panel .desk-control select { width:100%; min-width:0; }
+.screen-more { margin-top:11px; border-top:1px solid var(--instock-border); }
+.screen-more summary { display:flex; align-items:center; gap:7px; width:max-content; padding-top:10px; color:var(--instock-text-muted); font-size:9px; font-weight:800; cursor:pointer; list-style:none; }
+.screen-more summary::-webkit-details-marker { display:none; }
+.screen-more summary::before { content:'+'; display:grid; width:14px; height:14px; place-items:center; border:1px solid var(--instock-border-strong); border-radius:3px; font-family:var(--instock-font-mono); }
+.screen-more[open] summary::before { content:'−'; }
+.screen-actions { display:grid; grid-template-columns:minmax(160px,260px) auto auto minmax(180px,1fr); align-items:end; gap:9px; margin-top:12px; padding-top:11px; border-top:1px solid var(--instock-border); }
+.screen-actions .desk-meta { width:auto; align-self:center; text-align:right; line-height:1.45; }
+.screen-stat-grid { grid-template-columns:repeat(5,minmax(0,1fr)); }
+.screen-results-grid { grid-template-columns:minmax(0,1.6fr) minmax(320px,.7fr); }
+.screen-results-grid > aside { align-self:start; position:sticky; top:10px; }
+@media (max-width:1100px) {
+    .screen-primary-grid { grid-template-columns:repeat(3,minmax(130px,1fr)); }
+    .screen-rule-grid { grid-template-columns:repeat(3,minmax(130px,1fr)); }
+    .screen-actions { grid-template-columns:minmax(150px,1fr) auto auto; }
+    .screen-actions .desk-meta { grid-column:1/-1; text-align:left; }
+    .screen-stat-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .screen-results-grid { grid-template-columns:1fr; }
+    .screen-results-grid > aside { position:static; }
+}
+@media (max-width:720px) {
+    .screen-filter-head { display:block; }
+    .screen-preset-note { margin-top:5px; text-align:left; }
+    .screen-primary-grid,.screen-rule-grid { grid-template-columns:1fr 1fr; }
+}
+@media (max-width:460px) {
+    .screen-primary-grid,.screen-rule-grid { grid-template-columns:1fr; }
+    .screen-actions { grid-template-columns:1fr 1fr; }
+    .screen-actions .desk-control,.screen-actions .desk-meta { grid-column:1/-1; }
+    .screen-stat-grid { grid-template-columns:1fr 1fr; }
+}
+</style>
+
+<main class="desk-workbench">
+    <section class="desk-panel screen-filter-panel" aria-labelledby="screen-filter-title">
+        <header class="screen-filter-head">
+            <h2 id="screen-filter-title">筛选条件</h2>
+            <p id="signal-preset-note" class="screen-preset-note">自定义条件，不限制技术方向、估值或经典策略。</p>
+        </header>
+        <div class="screen-primary-grid">
+            <div class="desk-control"><label for="signal-preset">常用方案</label><select id="signal-preset"><option value="custom">自定义 / 不限</option><option value="trend_breakout">趋势突破</option><option value="stable_growth">低波动成长</option><option value="fundamental_growth">基本面成长</option><option value="value_liquid">低估值流动性</option><option value="volume_strength">放量强势</option></select></div>
+            <div class="desk-control"><label for="signal-market">市场</label><select id="signal-market"><option value="CN">A 股</option><option value="HK">港股</option><option value="CN_HK">A + H</option></select></div>
+            <div class="desk-control"><label for="signal-mode">覆盖方式</label><select id="signal-mode"><option value="broad">多维宽覆盖</option><option value="quick">成交活跃池</option></select></div>
+            <div class="desk-control"><label for="signal-universe">深度计算池</label><select id="signal-universe"><option value="50">50 只</option><option value="100">100 只</option><option value="200">200 只</option><option value="30">30 只（快速）</option></select></div>
+            <div class="desk-control"><label for="signal-bars">历史窗口</label><select id="signal-bars"><option value="260">260 日</option><option value="120">120 日（快速）</option></select></div>
+            <div class="desk-control"><label for="signal-bias">硬筛方向</label><select id="signal-bias"><option value="all">不限</option><option value="bullish">偏强</option><option value="neutral">中性</option><option value="bearish">偏弱</option></select></div>
+        </div>
+        <details class="screen-more">
+            <summary>扩展条件</summary>
+            <div class="screen-rule-grid">
+            <div class="desk-control"><label for="signal-min-score">最低技术分</label><input id="signal-min-score" type="number" min="0" max="100" step="1" placeholder="如 65"></div>
+            <div class="desk-control"><label for="signal-strategy">必须命中策略</label><select id="signal-strategy"><option value="">不限</option><option value="volume_rise">放量上涨</option><option value="ma_bull">均线多头</option><option value="parking_apron">停机坪</option><option value="backtrace_ma250">回踩年线</option><option value="breakthrough_platform">突破平台</option><option value="low_backtrace_increase">无大幅回撤</option><option value="turtle_trade">海龟交易</option><option value="high_tight_flag">高而窄旗形</option><option value="climax_limitdown">放量跌停</option><option value="low_atr_growth">低 ATR 成长</option></select></div>
+            <div class="desk-control"><label for="signal-industry">行业</label><input id="signal-industry" type="text" placeholder="精确名称，可逗号分隔"></div>
+            <div class="desk-control"><label for="signal-min-amount">最低成交额（亿）</label><input id="signal-min-amount" type="number" min="0" step="0.1" placeholder="如 2"></div>
+            <div class="desk-control"><label for="signal-max-pe">最高 PE</label><input id="signal-max-pe" type="number" min="0" step="1" placeholder="如 30"></div>
+            <div class="desk-control"><label for="signal-max-pb">最高 PB</label><input id="signal-max-pb" type="number" min="0" step="0.1" placeholder="如 5"></div>
+            <div class="desk-control"><label for="signal-min-roe">最低 ROE（%）</label><input id="signal-min-roe" type="number" step="0.1" placeholder="如 12"></div>
+            <div class="desk-control"><label for="signal-min-revenue-growth">最低营收增长（%）</label><input id="signal-min-revenue-growth" type="number" step="0.1" placeholder="如 10"></div>
+            <div class="desk-control"><label for="signal-min-profit-growth">最低净利润增长（%）</label><input id="signal-min-profit-growth" type="number" step="0.1" placeholder="如 15"></div>
+            <div class="desk-control"><label for="signal-min-volume">最低量比</label><input id="signal-min-volume" type="number" min="0" step="0.1" placeholder="如 1.2"></div>
+            </div>
+        </details>
+        <div class="screen-actions">
+            <div class="desk-control"><label for="signal-search">证券</label><input id="signal-search" type="search" placeholder="代码 / 名称"></div>
+            <button id="signal-run" class="desk-button" type="button">运行选股</button>
+            <button id="signal-reset" class="desk-button desk-button-secondary" type="button">清空条件</button>
+            <div id="signal-meta" class="desk-meta">等待 Desk 日线</div>
+        </div>
+    </section>
+    <div id="signal-alert" class="desk-alert" role="alert"></div>
+
+    <section class="desk-stat-grid screen-stat-grid">
+        <article class="desk-panel desk-stat"><span>通过规则</span><strong id="signal-matched" class="desk-positive">--</strong><small>硬条件全部满足</small></article>
+        <article class="desk-panel desk-stat"><span>中性</span><strong id="signal-neutral">--</strong><small>技术分 36–64</small></article>
+        <article class="desk-panel desk-stat"><span>偏弱</span><strong id="signal-bear" class="desk-negative">--</strong><small>技术分 ≤ 35</small></article>
+        <article class="desk-panel desk-stat"><span>策略命中</span><strong id="signal-strategies">--</strong><small>10 类规则合计</small></article>
+        <article class="desk-panel desk-stat"><span>K 线形态</span><strong id="signal-patterns">--</strong><small>当前交易日识别</small></article>
+    </section>
+
+    <section class="desk-grid screen-results-grid">
+        <article class="desk-panel">
+            <header class="desk-section-head"><h2>选股结果</h2><span>只展示通过硬筛选的股票 · 点击展开</span></header>
+            <div class="desk-table-wrap" style="max-height:690px"><table class="desk-table"><thead><tr><th>#</th><th>标的</th><th>行业</th><th>技术分</th><th>方向</th><th>指标提示</th><th>K 线形态</th><th>经典策略</th></tr></thead><tbody id="signal-body"></tbody></table></div>
+        </article>
+        <aside class="desk-panel">
+            <header class="desk-section-head"><h2>证据拆解</h2><span>指标 · 形态 · 规则状态</span></header>
+            <div id="signal-detail" class="desk-detail"><div class="desk-empty">运行扫描后选择标的</div></div>
+        </aside>
+    </section>
+    <section id="signal-watch-panel" class="desk-panel" hidden>
+        <header class="desk-section-head"><h2>短历史观察</h2><span>不足 80 根日线，不参与正式技术排名</span></header>
+        <div class="desk-table-wrap"><table class="desk-table"><thead><tr><th>标的</th><th>行业</th><th>日线</th><th>可见区间</th><th>状态</th></tr></thead><tbody id="signal-watch-body"></tbody></table></div>
+    </section>
+    <section id="signal-excluded-panel" class="desk-panel" hidden>
+        <header class="desk-section-head"><h2>排除记录</h2><span id="signal-excluded-note">查看股票未通过的具体规则</span></header>
+        <div class="desk-table-wrap" style="max-height:360px"><table class="desk-table"><thead><tr><th>标的</th><th>市场</th><th>阶段</th><th>排除原因</th></tr></thead><tbody id="signal-excluded-body"></tbody></table></div>
+    </section>
+    <p class="desk-footnote">基本面条件只对完成日线深算的股票读取 Desk 财务数据；启用条件后，缺失指标会明确排除。新上市股票会进入短历史观察，不会误记为 Desk 取数失败。</p>
+</main>
+
+<script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script>
+(function () {
+    if (window.location.protocol === 'file:') { window.location.replace('http://127.0.0.1:9988/mods/technical-signals/'); return; }
+    const deskBridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+    const actionId = 'analysis.technical-signals';
+    const state = {data: null, selected: null};
+    const runButton = document.getElementById('signal-run');
+    const alertBox = document.getElementById('signal-alert');
+    const presetDescriptions = {
+        custom: '自定义条件，不限制技术方向、估值或经典策略。',
+        trend_breakout: '偏强且技术分 ≥ 65，必须突破近 20 日平台，量比 ≥ 1.2，成交额 ≥ 2 亿。',
+        stable_growth: '技术分 ≥ 60，必须命中低 ATR 成长：20 日动量 > 5%、ATR ≤ 4%、价格在 MA60 上方。',
+        fundamental_growth: 'ROE ≥ 12%、营收增长 ≥ 10%、净利润增长 ≥ 15%，技术分 ≥ 55、成交额 ≥ 2 亿。',
+        value_liquid: '技术分 ≥ 50、PE ≤ 20、PB ≤ 3、量比 ≥ 0.8、成交额 ≥ 5 亿；缺估值数据会被排除。',
+        volume_strength: '偏强且技术分 ≥ 65，必须命中放量上涨，量比 ≥ 2、成交额 ≥ 5 亿。'
+    };
+    const initialSymbol = new URLSearchParams(window.location.search).get('symbol') || '';
+    if (/^\d{5,6}(?:\.(?:SH|SZ|BJ|HK))?$/.test(initialSymbol.toUpperCase())) document.getElementById('signal-search').value = initialSymbol.split('.')[0];
+    function setText(id, value) { document.getElementById(id).textContent = value == null || value === '' ? '--' : String(value); }
+    function unwrap(payload) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-technical-signal-center') throw new Error('技术信号返回格式不受支持'); return data; }
+    async function request(input) { if (deskBridge && deskBridge.whenReady) await deskBridge.whenReady(); if (deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId)) return deskBridge.invokeAction(actionId, input); const response = await fetch('/api/v1/technical-signals/snapshots?' + new URLSearchParams(input)); const body = await response.json(); if (!response.ok) throw new Error(body && body.error && body.error.message || '技术信号扫描失败'); return body; }
+    function buildContext() { const data = state.data || {}; const selected = state.selected || {}; return {view: {id: 'technical-signals', title: '选股中心'}, visibleBlocks: [{id: 'signal-matrix', type: 'table', title: '选股结果'}, {id: 'signal-evidence', type: 'research-evidence', title: '规则与信号证据'}, ...(data.excluded_by_rules && data.excluded_by_rules.length ? [{id: 'signal-excluded', type: 'table', title: '排除记录'}] : []), ...(data.short_history_watchlist && data.short_history_watchlist.length ? [{id: 'signal-short-history-watch', type: 'table', title: '短历史观察'}] : [])], selectedSecurity: selected.symbol ? {market: selected.market || 'CN', symbol: selected.symbol, name: selected.name} : null, data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, summary: data.summary, screeningModel: data.screening_model, screeningCoverage: data.screening_coverage, selectedSignal: selected, catalog: data.catalog, excludedByRules: data.excluded_by_rules || [], shortHistoryWatchlist: data.short_history_watchlist || [], snapshot: data.snapshot, limitations: data.limitations || []} : {}, actions: [{id: actionId, label: '运行选股', available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId))}]}; }
+    function publish() { if (!deskBridge) return; deskBridge.setContextProvider && deskBridge.setContextProvider(buildContext); deskBridge.publishContext && deskBridge.publishContext(); }
+    function emit(row) { if (deskBridge && deskBridge.emit) deskBridge.emit('security.selected', {market: row.market || 'CN', symbol: row.symbol, name: row.name, source: 'instock-technical-signals', technicalScore: row.technical_score, snapshotId: state.data && state.data.snapshot && state.data.snapshot.snapshot_id}); }
+    function researchUrl(path, row, extra) { const query = new URLSearchParams({symbol: row.symbol, industry: row.industry || '', sourceModule: 'instock-technical-signals', ...(state.data && state.data.snapshot ? {sourceSnapshotId: state.data.snapshot.snapshot_id} : {}), ...(state.data && state.data.as_of ? {asOf: state.data.as_of} : {}), ...(extra || {})}); return `${path}?${query.toString()}`; }
+    function researchLink(label, href) { const link = document.createElement('a'); link.className = 'desk-research-link'; link.href = href; link.target = '_blank'; link.rel = 'noopener'; link.textContent = label; return link; }
+    function badge(text, className) { const span = document.createElement('span'); span.className = `desk-pill ${className || ''}`; span.textContent = text; return span; }
+    function appendFundamentals(root, row) { const data = row.fundamentals; if (!data) return; const title = document.createElement('div'); title.className = 'desk-subtitle'; title.textContent = '基本面核验'; root.appendChild(title); const grid = document.createElement('div'); grid.className = 'desk-detail-grid'; [['ROE', data.roe_pct], ['营收增长', data.revenue_growth_pct], ['净利润增长', data.net_profit_growth_pct]].forEach(([label, value]) => { const card = document.createElement('div'); card.className = 'desk-detail-card'; const span = document.createElement('span'); span.textContent = label; const strong = document.createElement('strong'); strong.textContent = value == null ? '缺失' : `${Number(value).toFixed(2)}%`; card.append(span, strong); grid.appendChild(card); }); root.appendChild(grid); }
+    function renderDetail(row) { state.selected = row; const root = document.getElementById('signal-detail'); root.replaceChildren(); const head = document.createElement('div'); head.className = 'desk-detail-title'; head.innerHTML = '<div><h3></h3><p></p></div><div class="desk-score"></div>'; head.querySelector('h3').textContent = row.name; head.querySelector('p').textContent = `${row.market || 'CN'}:${row.symbol} · ${row.industry} · ${row.bias} · ${row.history_bars || '--'} 根日线`; head.querySelector('.desk-score').textContent = Number(row.technical_score).toFixed(0); root.appendChild(head); const indicators = document.createElement('div'); indicators.className = 'desk-detail-grid'; [['MACD', row.indicators.macd_hist], ['RSI', row.indicators.rsi], ['KDJ K/D', `${Number(row.indicators.kdj_k).toFixed(1)} / ${Number(row.indicators.kdj_d).toFixed(1)}`], ['ATR%', row.indicators.atr_pct], ['CCI', row.indicators.cci], ['MFI', row.indicators.mfi], ['20日动量%', row.indicators.roc_20], ['5日量比', row.indicators.volume_ratio_5]].forEach(([label, value]) => { const card = document.createElement('div'); card.className = 'desk-detail-card'; const span = document.createElement('span'); span.textContent = label; const strong = document.createElement('strong'); strong.textContent = typeof value === 'number' ? value.toFixed(2) : value; card.append(span, strong); indicators.appendChild(card); }); root.appendChild(indicators); appendFundamentals(root, row); const signalTitle = document.createElement('div'); signalTitle.className = 'desk-subtitle'; signalTitle.textContent = '指标与形态'; root.appendChild(signalTitle); const badges = document.createElement('div'); (row.indicator_signals.buy || []).forEach(item => badges.appendChild(badge(item, 'is-active'))); (row.indicator_signals.sell || []).forEach(item => badges.appendChild(badge(item, 'is-risk'))); (row.patterns || []).forEach(item => badges.appendChild(badge(item.name, item.direction === 'bullish' ? 'is-active' : 'is-risk'))); if (!badges.childNodes.length) badges.appendChild(badge('当前无显著指标或 K 线触发')); root.appendChild(badges); const strategyTitle = document.createElement('div'); strategyTitle.className = 'desk-subtitle'; strategyTitle.textContent = '10 个经典策略'; root.appendChild(strategyTitle); const list = document.createElement('div'); list.className = 'signal-strategy-list'; (row.strategies || []).forEach(item => { const card = document.createElement('div'); card.className = 'signal-strategy'; const content = document.createElement('div'); const name = document.createElement('b'); name.textContent = item.name; const evidence = document.createElement('p'); evidence.textContent = [...(item.evidence || []), ...(item.missing || [])].join(' · ') || '未触发'; content.append(name, evidence); const stateTag = document.createElement('span'); stateTag.className = `signal-state ${item.state}`; stateTag.textContent = {active: '命中', inactive: '未命中', needs_evidence: '待证据', unavailable: '不可用'}[item.state] || item.state; card.append(content, stateTag); list.appendChild(card); }); root.appendChild(list); const actions = document.createElement('div'); actions.className = 'desk-research-actions'; if ((row.market || 'CN') === 'CN') actions.append(researchLink('进入股票研究', researchUrl('/mods/stock-research', row, {period: 'daily', bars: '240'})), researchLink('查看 CZSC', researchUrl('/mods/czsc', row, {code: row.symbol, period: 'daily', bars: '480'}))); else { const note = document.createElement('span'); note.className = 'candidate-note'; note.textContent = '港股已完成技术筛选；股票研究与 CZSC 页面当前只支持 A 股。'; actions.append(note); } root.appendChild(actions); emit(row); publish(); }
+    function visibleRows() { const query = document.getElementById('signal-search').value.trim().toLowerCase(); return (state.data && state.data.rows || []).filter(row => !query || row.symbol.includes(query) || row.name.toLowerCase().includes(query)); }
+    function renderTable() { const rows = visibleRows(); const body = document.getElementById('signal-body'); body.replaceChildren(); rows.forEach(row => { const tr = document.createElement('tr'); if (state.selected && state.selected.symbol === row.symbol) tr.className = 'is-selected'; const rank = document.createElement('td'); rank.textContent = row.rank; const security = document.createElement('td'); security.className = 'desk-symbol'; const name = document.createElement('strong'); name.textContent = row.name; const code = document.createElement('span'); code.textContent = row.symbol; security.append(name, code); const industry = document.createElement('td'); industry.textContent = row.industry; const score = document.createElement('td'); score.textContent = Number(row.technical_score).toFixed(0); score.className = row.bias === 'bullish' ? 'desk-positive' : row.bias === 'bearish' ? 'desk-negative' : ''; const bias = document.createElement('td'); bias.appendChild(badge({bullish: '偏强', neutral: '中性', bearish: '偏弱'}[row.bias])); const indicators = document.createElement('td'); [...(row.indicator_signals.buy || []).slice(0, 2), ...(row.indicator_signals.sell || []).slice(0, 1)].forEach(item => indicators.appendChild(badge(item))); const patterns = document.createElement('td'); (row.patterns || []).slice(0, 2).forEach(item => patterns.appendChild(badge(item.name, item.direction === 'bullish' ? 'is-active' : 'is-risk'))); if (!patterns.childNodes.length) patterns.textContent = '--'; const strategies = document.createElement('td'); (row.strategies || []).filter(item => item.state === 'active').slice(0, 3).forEach(item => strategies.appendChild(badge(item.name, item.id === 'climax_limitdown' ? 'is-risk' : 'is-active'))); const missing = (row.strategies || []).find(item => ['needs_evidence', 'unavailable'].includes(item.state)); if (missing) strategies.appendChild(badge(missing.state === 'unavailable' ? '长周期不足' : '待龙虎榜', 'is-missing')); if (!strategies.childNodes.length) strategies.textContent = '--'; tr.append(rank, security, industry, score, bias, indicators, patterns, strategies); tr.addEventListener('click', () => { renderDetail(row); renderTable(); }); body.appendChild(tr); }); if (!state.selected && rows[0]) renderDetail(rows[0]); }
+    function renderWatchlist(data) { const rows = data.short_history_watchlist || []; const panel = document.getElementById('signal-watch-panel'); const body = document.getElementById('signal-watch-body'); body.replaceChildren(); panel.hidden = !rows.length; rows.forEach(row => { const tr = document.createElement('tr'); const security = document.createElement('td'); security.className = 'desk-symbol'; const name = document.createElement('strong'); name.textContent = row.name; const code = document.createElement('span'); code.textContent = row.symbol; security.append(name, code); const industry = document.createElement('td'); industry.textContent = row.industry; const bars = document.createElement('td'); bars.textContent = `${row.available_bars}/${row.required_bars}`; const range = document.createElement('td'); range.textContent = row.data_start && row.data_end ? `${row.data_start} 至 ${row.data_end}` : '--'; const status = document.createElement('td'); status.textContent = row.history_has_more === false ? '全部上市历史' : row.history_has_more === true ? '历史仍可补齐' : '分页状态未知'; tr.append(security, industry, bars, range, status); body.appendChild(tr); }); }
+    function renderExcluded(data) { const rows = data.excluded_by_rules || []; const visible = rows.slice(0, 200); const panel = document.getElementById('signal-excluded-panel'); const body = document.getElementById('signal-excluded-body'); body.replaceChildren(); panel.hidden = !rows.length; setText('signal-excluded-note', rows.length > visible.length ? `共 ${rows.length} 只，展示前 ${visible.length} 只` : `共 ${rows.length} 只`); visible.forEach(row => { const tr = document.createElement('tr'); const security = document.createElement('td'); security.className = 'desk-symbol'; const name = document.createElement('strong'); name.textContent = row.name; const code = document.createElement('span'); code.textContent = row.symbol; security.append(name, code); const market = document.createElement('td'); market.textContent = row.market || 'CN'; const stage = document.createElement('td'); stage.textContent = {market_prefilter: '市场预筛', fundamental_rules: '基本面核验', technical_rules: '技术深算'}[row.stage] || row.stage; const reasons = document.createElement('td'); reasons.textContent = (row.reasons || []).join('；') || '--'; tr.append(security, market, stage, reasons); body.appendChild(tr); }); }
+    function render(data, source) { state.data = data; state.selected = null; const summary = data.summary || {}; const coverage = data.coverage || {}; setText('signal-matched', coverage.matched_count || 0); setText('signal-neutral', summary.neutral_count); setText('signal-bear', summary.bearish_count); setText('signal-strategies', summary.active_strategy_signals); setText('signal-patterns', summary.active_pattern_signals); const watch = Number(coverage.short_history_watch_count || 0); const failed = Number(coverage.failed_count || 0); const excluded = Number(coverage.excluded_by_rules_count || 0); const fundamental = coverage.fundamental_requested ? ` · 基本面 ${coverage.fundamental_available_count || 0}/${coverage.fundamental_evaluated_count || 0}` : ''; const fallback = coverage.requested_universe_mode === 'broad' && coverage.effective_universe_mode === 'quick'; const broad = coverage.broad_eligible_count || coverage.scan_count || 0; const marketPool = coverage.market_prefilter_count == null ? broad : coverage.market_prefilter_count; setText('signal-meta', `${source === 'history' ? '历史版本 · ' : ''}${fallback ? '宽覆盖不可用，已降级 · ' : ''}${data.as_of} · ${data.data_source} · 宽池 ${broad} · 市场预筛 ${marketPool} · 深算 ${coverage.analyzed_count || 0}${fundamental} · 通过 ${coverage.matched_count || 0}${excluded ? ` · 排除 ${excluded}` : ''}${watch ? ` · 短历史 ${watch}` : ''}${failed ? ` · 失败 ${failed}` : ''}`); renderWatchlist(data); renderExcluded(data); renderTable(); if (!(data.rows || []).length) document.getElementById('signal-detail').innerHTML = '<div class="desk-empty">当前没有股票通过全部硬筛条件，请放宽条件后重试。</div>'; publish(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
+    function setControl(id, value) { document.getElementById(id).value = value == null ? '' : String(value); }
+    function clearScreeningFields() { setControl('signal-bias', 'all'); setControl('signal-min-score', ''); setControl('signal-strategy', ''); setControl('signal-industry', ''); setControl('signal-min-amount', ''); setControl('signal-max-pe', ''); setControl('signal-max-pb', ''); setControl('signal-min-roe', ''); setControl('signal-min-revenue-growth', ''); setControl('signal-min-profit-growth', ''); setControl('signal-min-volume', ''); }
+    function applyPreset(name) { clearScreeningFields(); setControl('signal-mode', 'broad'); setControl('signal-bars', '260'); document.querySelector('.screen-more').open = name !== 'custom'; if (name !== 'custom') setControl('signal-universe', '100'); if (name === 'trend_breakout') { setControl('signal-bias', 'bullish'); setControl('signal-min-score', '65'); setControl('signal-strategy', 'breakthrough_platform'); setControl('signal-min-amount', '2'); setControl('signal-min-volume', '1.2'); } if (name === 'stable_growth') { setControl('signal-min-score', '60'); setControl('signal-strategy', 'low_atr_growth'); setControl('signal-min-amount', '2'); } if (name === 'fundamental_growth') { setControl('signal-min-score', '55'); setControl('signal-min-amount', '2'); setControl('signal-min-roe', '12'); setControl('signal-min-revenue-growth', '10'); setControl('signal-min-profit-growth', '15'); } if (name === 'value_liquid') { setControl('signal-min-score', '50'); setControl('signal-min-amount', '5'); setControl('signal-max-pe', '20'); setControl('signal-max-pb', '3'); setControl('signal-min-volume', '0.8'); } if (name === 'volume_strength') { setControl('signal-bias', 'bullish'); setControl('signal-min-score', '65'); setControl('signal-strategy', 'volume_rise'); setControl('signal-min-amount', '5'); setControl('signal-min-volume', '2'); } setText('signal-preset-note', presetDescriptions[name] || presetDescriptions.custom); }
+    function markCustomPreset() { const preset = document.getElementById('signal-preset'); if (preset.value !== 'custom') { preset.value = 'custom'; setText('signal-preset-note', '已修改预设条件，当前按自定义规则运行。'); } }
+    function numericValue(id, scale) { const value = document.getElementById(id).value.trim(); return value === '' ? null : Number(value) * (scale || 1); }
+    function collectInput(refresh) { const strategy = document.getElementById('signal-strategy').value; const industries = document.getElementById('signal-industry').value.split(/[,，]/).map(item => item.trim()).filter(Boolean); const input = {universeSize: Number(document.getElementById('signal-universe').value), bars: Number(document.getElementById('signal-bars').value), market: document.getElementById('signal-market').value, universeMode: document.getElementById('signal-mode').value, bias: document.getElementById('signal-bias').value, maxWorkers: 6}; const optional = {minTechnicalScore: numericValue('signal-min-score'), minAmount: numericValue('signal-min-amount', 1e8), maxPE: numericValue('signal-max-pe'), maxPB: numericValue('signal-max-pb'), minROE: numericValue('signal-min-roe'), minRevenueGrowth: numericValue('signal-min-revenue-growth'), minNetProfitGrowth: numericValue('signal-min-profit-growth'), minVolumeRatio: numericValue('signal-min-volume')}; Object.entries(optional).forEach(([key, value]) => { if (value !== null && Number.isFinite(value)) input[key] = value; }); if (strategy) input.requiredStrategies = strategy; if (industries.length) input.industries = industries.join(','); if (refresh) input.refresh = '1'; return input; }
+    async function run(refresh) { runButton.disabled = true; alertBox.style.display = 'none'; try { render(unwrap(await request(collectInput(refresh)))); } catch (error) { alertBox.textContent = error.message || String(error); alertBox.style.display = 'block'; } finally { runButton.disabled = false; } }
+    function handleSecuritySelected(envelope) { const payload = envelope && envelope.payload || {}; if (!payload.symbol) return; document.getElementById('signal-search').value = String(payload.symbol).split('.')[0]; renderTable(); }
+    document.getElementById('signal-preset').addEventListener('change', event => applyPreset(event.target.value)); ['signal-mode', 'signal-universe', 'signal-bars', 'signal-bias', 'signal-strategy'].forEach(id => document.getElementById(id).addEventListener('change', markCustomPreset)); ['signal-min-score', 'signal-industry', 'signal-min-amount', 'signal-max-pe', 'signal-max-pb', 'signal-min-roe', 'signal-min-revenue-growth', 'signal-min-profit-growth', 'signal-min-volume'].forEach(id => document.getElementById(id).addEventListener('input', markCustomPreset)); document.getElementById('signal-reset').addEventListener('click', () => { setControl('signal-preset', 'custom'); applyPreset('custom'); setControl('signal-search', ''); renderTable(); }); runButton.addEventListener('click', () => run(true)); document.getElementById('signal-search').addEventListener('input', renderTable); document.addEventListener('instock:history-selected', event => render(unwrap(event.detail.payload), event.detail.view_source || 'history')); if (deskBridge && deskBridge.subscribe) deskBridge.subscribe(envelope => { if (envelope.event === 'security.selected' && envelope.source !== 'instock-technical-signals') handleSecuritySelected(envelope); }); run(false);
+})();
+</script>
+{% end %}

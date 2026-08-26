@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.1",
+  "id": "instock-market-map",
+  "name": "大盘云图",
+  "version": "0.17.0",
+  "category": "quant",
+  "navigation": {
+    "groupLabel": "量化研究", "groupOrder": 120, "itemOrder": 2, "label": "大盘云图",
+    "directory": {"id": "instock-suite", "label": "InStock 分析", "order": 20},
+    "project": {"id": "quant-research", "name": "量化研究", "order": 120, "description": "市场、选股、技术、结构、轮动与验证。"},
+    "icon": "quant"
+  },
+  "entry": {"type": "external", "url": "http://127.0.0.1:9988/mods/market-map"},
+  "compatibility": {"level": 2, "bridgeProtocol": "1.0"},
+  "permissions": ["analysis.read"],
+  "dataServices": [],
+  "actions": {
+    "analysis.market-map": {
+      "binding": {"type": "data", "capability": "analysis.market-map"},
+      "execution": "request", "permission": "analysis.read",
+      "inputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"capacity": {"enum": [100, 500]}, "refresh": {"enum": ["0", "1"]}}, "additionalProperties": false},
+      "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+      "confirmation": "none", "timeoutSeconds": 90
+    }
+  },
+  "events": {"emits": ["security.selected"], "accepts": []},
+  "refresh": {"mode": "manual"}
+}

@@ -25,9 +25,19 @@ output/
 release-artifacts/
 mods/*.bak-*
 
-# In-tree upstream Mod workspaces keep their own Git history and dependencies.
+# Legacy local overrides remain outside the public repository. The complete
+# portable snapshots live under bundled-runtimes/.
 mod-projects/*
 !mod-projects/README.md
+bundled-runtimes/**/runs/
+bundled-runtimes/**/.orchestra/
+bundled-runtimes/fund-analysis/docs/history/ARCHITECTURE.md
+!bundled-runtimes/seven-cycle/products/
+!bundled-runtimes/seven-cycle/products/circle/
+!bundled-runtimes/seven-cycle/products/circle/latest.json
+!bundled-runtimes/seven-cycle/products/circle/runs/
+!bundled-runtimes/seven-cycle/products/circle/runs/2026-08-14-7180d6f1dc9e-20baa334825c/
+!bundled-runtimes/seven-cycle/products/circle/runs/2026-08-14-7180d6f1dc9e-20baa334825c/**
 
 # Preserved files from the pre-migration parent workspace.
 legacy-workspace/

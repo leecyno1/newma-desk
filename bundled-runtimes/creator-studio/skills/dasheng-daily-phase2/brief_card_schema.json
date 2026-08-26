@@ -1,0 +1,126 @@
+{
+  "type": "object",
+  "required": ["topic_cards"],
+  "properties": {
+    "topic_cards": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "required": [
+          "topic_id",
+          "topic_kind",
+          "title",
+          "one_line_judgment",
+          "core_proposition",
+          "why_now",
+          "reader_payoff",
+          "source_material_summary",
+          "controversy_points",
+          "viewpoint_notes",
+          "question_units",
+          "opinion_units",
+          "case_units",
+          "solution_units",
+          "article_use",
+          "distinctiveness_reason",
+          "evidence_gap_summary",
+          "proof_requirements",
+          "recommended_data_angles",
+          "recommended_visual_angles",
+          "priority_people",
+          "priority_orgs",
+          "priority_news_queries",
+          "structure_hint"
+        ],
+        "properties": {
+          "topic_id": { "type": "string" },
+          "topic_kind": { "type": "string", "enum": ["independent"] },
+          "title": { "type": "string" },
+          "one_line_judgment": { "type": "string" },
+          "core_proposition": { "type": "string" },
+          "why_now": { "type": "string" },
+          "reader_payoff": { "type": "string" },
+          "source_material_summary": { "type": "string" },
+          "controversy_points": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "viewpoint_notes": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "question_units": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "opinion_units": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "case_units": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "solution_units": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "article_use": { "type": "string" },
+          "distinctiveness_reason": { "type": "string" },
+          "evidence_gap_summary": { "type": "string" },
+          "proof_requirements": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "recommended_data_angles": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "recommended_visual_angles": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "priority_people": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "priority_orgs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "priority_news_queries": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "existing_evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["title", "url"],
+              "properties": {
+                "title": { "type": "string" },
+                "url": { "type": "string" },
+                "source_type": { "type": "string" },
+                "source_tier": { "type": "string" },
+                "note": { "type": "string" }
+              }
+            }
+          },
+          "structure_hint": {
+            "type": "object",
+            "required": ["opening", "part_1", "part_2", "part_3", "ending"],
+            "properties": {
+              "opening": { "type": "string" },
+              "part_1": { "type": "string" },
+              "part_2": { "type": "string" },
+              "part_3": { "type": "string" },
+              "ending": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

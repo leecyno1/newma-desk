@@ -1,0 +1,39 @@
+{
+  "schema_version": "newma.namespace_aliases.v1",
+  "updated_at": "2026-08-14",
+  "canonical_namespace": "newma",
+  "policy": {
+    "public_ids_must_use_canonical_namespace": true,
+    "legacy_ids_are_runtime_only": true,
+    "legacy_ids_must_not_be_rendered_in_ui": true
+  },
+  "skill_aliases": {
+    "newma-media-sop": "dasheng-media-sop",
+    "newma-daily-intake": "dasheng-daily-intake",
+    "newma-daily-phase2": "dasheng-daily-phase2",
+    "newma-daily-draft": "dasheng-daily-draft",
+    "newma-stage-transwrite": "dasheng-stage-transwrite",
+    "newma-stage-publish": "dasheng-stage-publish",
+    "newma-daily-postmortem": "dasheng-daily-postmortem",
+    "newma-paradigm-profiler": "dasheng-paradigm-profiler",
+    "newma-video-style-trainer": "dasheng-video-style-trainer",
+    "newma-video-self-learning": "dasheng-video-self-learning",
+    "newma-finance-data": "dasheng-finance-data",
+    "newma-video-director": "dasheng-video-director",
+    "newma-video-vox": "dasheng-video-vox",
+    "newma-video-talking-head": "dasheng-video-talking-head",
+    "newma-digital-human-talking-head": "dasheng-digital-human-talking-head",
+    "newma-commercial-promo-video": "dasheng-commercial-promo-video",
+    "newma-video-roughcut": "dasheng-video-roughcut",
+    "newma-video-broll-generator": "dasheng-video-broll-generator",
+    "newma-lemon-illustrations": "dasheng-lemon-illustrations",
+    "newma-video-editing-bridge": "dasheng-video-editing-bridge",
+    "newma-html-anything-bridge": "dasheng-html-anything-bridge",
+    "newma-html-video-bridge": "dasheng-html-video-bridge",
+    "newma-caption-motion": "dasheng-caption-motion",
+    "newma-ffmpeg-toolkit": "dasheng-ffmpeg-toolkit"
+  },
+  "script_aliases": {
+    "scripts/newma_video_director.py": "scripts/dasheng_video_director.py"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-07-13",
+  "default_variant": "editorial_blue_left",
+  "available_variants": [
+    "editorial_blue_left",
+    "bloomberg_black_gold",
+    "minimal_gray_report",
+    "red_signal_left"
+  ],
+  "hard_rules": {
+    "h2": {
+      "numbering": "arabic_2_digit",
+      "alignment": "left",
+      "avoid": [
+        "centered_display_table_heading",
+        "large_colored_center_badge"
+      ]
+    },
+    "tables": {
+      "font_size_px": 12,
+      "line_height": 1.35,
+      "cell_padding_px": "5px 6px",
+      "avoid": [
+        "large_table_text",
+        "wide_padding",
+        "forced_keep_all_word_break_that_breaks_mobile_layout"
+      ]
+    },
+    "paragraphs": {
+      "avoid": [
+        "global_blue_text",
+        "global_bold_text"
+      ]
+    },
+    "conceptual_illustrations": {
+      "skill": "dasheng-lemon-illustrations",
+      "intent_source": "03_IllustrationIntents_<topic>.json",
+      "placement": "immediately_after_matching_paragraph",
+      "aspect_ratio": "16:9",
+      "max_width_percent": 100,
+      "caption": "optional_one_line_without_repeating_paragraph",
+      "avoid": [
+        "all_illustrations_appended_at_article_end",
+        "cute_mascot_without_explanatory_action",
+        "comic_replacing_real_evidence",
+        "one_comic_per_paragraph"
+      ]
+    }
+  },
+  "tooling": {
+    "preview_script": "scripts/wechat_layout_variants.py",
+    "publish_preferred_input": "wechat_article.final.html after layout post-process"
+  }
+}

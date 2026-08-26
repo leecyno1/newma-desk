@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd 模板：Next.js 前端常驻生产进程（127.0.0.1:3000，next start）。
+  前置条件：已执行 npm run build（.next 为生产构建产物）。
+  直接以 node 运行 next 入口，launchd 持有 node 进程本身，无 bash/npm 中间层。
+
+  用法：
+    cp scripts/launchd/com.fund-analysis.frontend.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.fund-analysis.frontend.plist
+
+  停止：
+    launchctl bootout gui/$(id -u)/com.fund-analysis.frontend
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fund-analysis.frontend</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>node_modules/next/dist/bin/next</string>
+    <string>start</string>
+    <string>--hostname</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>3000</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/absolute/path/to/fund-analysis</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/fund-analysis.frontend.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/fund-analysis.frontend.stderr.log</string>
+</dict>
+</plist>

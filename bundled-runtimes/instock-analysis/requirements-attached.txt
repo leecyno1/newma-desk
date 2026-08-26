@@ -1,0 +1,8 @@
+# Newma-Desk attached runtime. CZSC's declared dependency closure is retained.
+numpy==2.4.1
+pandas==2.3.3
+requests==2.32.5
+tornado==6.5.4
+TA_Lib==0.6.8
+rs-czsc==0.1.26.post260402
+czsc==0.10.12

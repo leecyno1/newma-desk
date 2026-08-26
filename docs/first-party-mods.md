@@ -1,13 +1,13 @@
 # 官方 Mod 商店与原生 Mods 接入说明
 
-更新日期：2026-08-18
+更新日期：2026-08-26
 
 ## 接入原则
 
 市场行情终端的图表、数据协议、Agent 上下文和与其他 Mods 的边界见
 [`market-terminal.md`](./market-terminal.md)。
 
-Vibe Research 与 Vibe Trading 的源码工程已收纳到 `mod-projects/`，作为 Newma-Desk 的内置领域运行时。构建产物、领域 API 和静态页面都由 Newma-Desk 统一挂载，每个侧边栏入口加载对应的内置路由：
+Vibe Research、Vibe Trading 和其他可见 Mod 的运行源码已收纳到 `bundled-runtimes/`。构建产物、领域 API 和静态页面由 Newma-Desk 统一挂载，每个侧边栏入口加载对应运行时：
 
 ```text
 Newma-Desk
@@ -38,10 +38,11 @@ Vibe Research 与 Vibe Trading 保留为完整源码和运行来源。导航描�
 ```text
 newma-desk/
 ├── mods/                         # Mod 商店与路由 Manifest
-├── mod-projects/
+├── bundled-runtimes/
 │   ├── vibe-research/             # 投研 Mods 源码和独立后端
 │   ├── vibe-trading/              # 量化/交易 Mods 源码和独立后端
-│   └── world-intel-mcp/            # 全球态势与事件数据平面
+│   ├── world-intel-mcp/            # 全球态势与事件数据平面
+│   └── ...                         # Deepsee、InStock、基金、投决、创作等运行时
 └── services/                     # Newma-Desk 中台与通用能力
 ```
 
@@ -188,9 +189,10 @@ Desk 右侧 Agent 会使用 Orchestra 前后端的共同项目目录，因此同
 
 ## 本地启动
 
-推荐从 Newma-Desk 根目录统一启动。该命令会构建 `mod-projects/` 中的 Research / Trading 前端，并把两套领域 API 与静态运行时挂载到 Newma-Desk；Deepsee 仍保持独立运行：
+首次克隆先安装全部仓内运行时依赖，再统一启动：
 
 ```bash
+npm run runtime:bootstrap
 npm run dev:stack
 ```
 
@@ -208,12 +210,12 @@ Research / Trading 不再占用独立端口，也不再作为独立产品入口�
 
 统一启动器会先完成核心运行时，再并行启动可选 Mod。Seven Cycle 的健康端点返回 `409` 且声明数据 freshness 不可用时，表示进程存活但数据降级，不再被误判为整套 Newma-Desk 启动失败。
 
-### 外部 Mod 运行时发现
+### Mod 运行时发现
 
-外部 Mod 的路径、入口和健康检查统一声明在
+仓内及可覆盖 Mod 的路径、入口和健康检查统一声明在
 [`config/external-mod-runtimes.json`](../config/external-mod-runtimes.json)。该 Runtime Descriptor 不保存账号、密钥或个人绝对路径；Node 启动器与 Python Agent Gateway 使用不同 Adapter 读取同一个 Interface，避免同一 Mod 的工作区和端口散落在多份配置里。
 
-默认发现根目录：
+默认优先使用 `bundled-runtimes/`。以下根目录只作为开发覆盖候选：
 
 | 环境变量 | 默认值 | 用途 |
 | --- | --- | --- |
@@ -287,7 +289,7 @@ npm run mods:register
 
 ## 商店与上游同步
 
-- Newma-Desk 根仓库保存路由与导航 Manifest；两个内置 Mod 工程位于 `mod-projects/` 并保留各自独立 Git 历史。
+- Newma-Desk 根仓库同时保存路由 Manifest、运行源码快照和依赖锁文件；`mod-projects/` 仅用于本地覆盖测试。
 - 上游新增可独立运行页面时，在现有 Suite 的 `pages[]` 中追加页面；单页项目才使用 `mods/<mod-id>/mod.json`。新增页面继承同一栏目和完整项目身份，不新增一级栏目，也不另建 Suite。
 - 上游页面内部实现更新时，Newma-Desk 无需同步页面代码。
 - 上游路由变化时，修改对应 Mod 的 `runtime.route`。已安装用户可在商店点击“从 Git 更新”。

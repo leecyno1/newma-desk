@@ -1,0 +1,144 @@
+{
+  "schema_version": "newma.module_registry.v2",
+  "updated_at": "2026-08-14",
+  "project": {
+    "name": "Newma Media Studio",
+    "slug": "newma-media-studio",
+    "repository": "https://github.com/leecyno1/newma-media-studio",
+    "license": "MIT",
+    "namespace": "newma",
+    "compatibility_aliases": "configs/workflow/newma_namespace_aliases.json",
+    "legacy_namespace_policy": "runtime_only_never_rendered_in_ui",
+    "canonical_entry": "scripts/run_mainline_stage.py",
+    "orchestrator_skill": "newma-media-sop",
+    "output_root": "${NEWMA_OUTPUT_ROOT:-~/Desktop/自媒体创作}"
+  },
+  "system_dependencies": [
+    {"name": "Python", "minimum": "3.10", "required": true},
+    {"name": "Git", "minimum": "2.x", "required": true},
+    {"name": "Node.js", "minimum": "18", "required": false},
+    {"name": "FFmpeg/ffprobe", "minimum": "5.x", "required": false},
+    {"name": "pnpm", "minimum": "9", "required": false},
+    {"name": "bun", "minimum": "1.x", "required": false},
+    {"name": "yt-dlp", "minimum": "current", "required": false}
+  ],
+  "optional_assets": [
+    {
+      "id": "paradigm-learning",
+      "purpose": "从参考文章或模板提炼结构范式",
+      "entry": "newma-paradigm-profiler",
+      "outputs": ["paradigm_profile.yaml", "paradigm_manifest.json"]
+    },
+    {
+      "id": "video-style-training",
+      "purpose": "从样片提炼剪辑、构图、转场和视觉 DNA",
+      "entry": "newma-video-style-trainer",
+      "outputs": ["style_profile.json", "training_manifest.json"]
+    },
+    {
+      "id": "video-self-learning",
+      "purpose": "持续追踪样板创作者并更新候选导演知识",
+      "entry": "newma-video-self-learning",
+      "outputs": ["analysis.json", "style_profile.rolling.json", "run_manifest.json"]
+    }
+  ],
+  "workflow_registries": {
+    "creator_studio": "configs/workflow/newma_creator_studio_registry.json",
+    "namespace_aliases": "configs/workflow/newma_namespace_aliases.json",
+    "stage_reserves": "configs/workflow/stage_reserve_registry.json",
+    "creator_technology_candidates": "configs/workflow/creator_technology_candidates.json",
+    "upstream_projects": "configs/external/reserved_projects.json",
+    "video_tools": "configs/video/tool_registry.json",
+    "video_directors": "configs/video/director_registry.json",
+    "video_upstreams": "configs/video/upstream_video_skills.json"
+  },
+  "stages": [
+    {
+      "order": 1,
+      "id": "intake",
+      "name": "内容采集",
+      "entry_skill": "newma-daily-intake",
+      "builder": "scripts/run_stage1_intake.py",
+      "inputs": ["网页、公众号、热点数据源、人工指定素材"],
+      "process": ["采集", "标准化", "去重", "聚类", "保留来源"],
+      "outputs": ["intake_manifest.json", "raw/intake_records.json", "01_内容采集_报告.md"],
+      "gate": null
+    },
+    {
+      "order": 2,
+      "id": "brief",
+      "name": "选题与研究 Brief",
+      "entry_skill": "newma-daily-phase2",
+      "builder": "scripts/phase2_rebuilder.py",
+      "inputs": ["intake_manifest.json", "raw/intake_records.json"],
+      "process": ["事件归并", "角度分流", "证据缺口识别", "题卡排序"],
+      "outputs": ["brief_manifest.json", "topic_cards.json", "selected_topics.json"],
+      "gate": "selected_topics.json"
+    },
+    {
+      "order": 3,
+      "id": "draft",
+      "name": "初稿与证据底稿",
+      "entry_skill": "newma-daily-draft",
+      "builder": "scripts/build_stage3_draft.py",
+      "inputs": ["brief_manifest.json", "selected_topics.json"],
+      "process": ["事实底稿", "数据/图表", "长文结构", "HTML", "封面与插图意图"],
+      "outputs": ["draft_manifest.json", "final_structure_snapshot.json", "每题 Markdown/HTML"],
+      "gate": "final_structure_snapshot.json"
+    },
+    {
+      "order": 4,
+      "id": "transwrite",
+      "name": "多通路转写生产",
+      "entry_skill": "newma-stage-transwrite",
+      "builder": "scripts/build_stage4_transwrite.py",
+      "inputs": ["draft_manifest.json", "final_structure_snapshot.json", "transwrite_decision.json"],
+      "process": ["公众号文章", "普通无头 HTML 视频", "VOX 调查解释视频", "真人出镜口播", "AI 数字人口播或双人访谈", "电影短剧规划包（默认暂缓执行）", "广告宣传片", "播客包", "导演与渲染 QC"],
+      "outputs": ["transwrite_manifest.json", "lane manifests", "可发布文章/视频/音频包"],
+      "gate": "publish_decision.json"
+    },
+    {
+      "order": 5,
+      "id": "publish",
+      "name": "账号路由与发布",
+      "entry_skill": "newma-stage-publish",
+      "builder": "scripts/build_stage5_publish.py",
+      "inputs": ["transwrite_manifest.json", "publish_decision.json"],
+      "process": ["平台包装", "账号矩阵", "表单预检", "本地 API/CLI/浏览器执行", "回执验真"],
+      "outputs": ["publish_manifest.json", "channel packs", "publish_verification_report.json", "平台链接/稿件 ID"],
+      "gate": "Publish Guard"
+    },
+    {
+      "order": 6,
+      "id": "postmortem",
+      "name": "复盘与知识回写",
+      "entry_skill": "newma-daily-postmortem",
+      "builder": "scripts/postmortem_writeback.py",
+      "inputs": ["publish_manifest.json", "publish verification", "平台数据", "人工反馈"],
+      "process": ["效果聚合", "差异归因", "继续/停止/试验建议", "DNA 与规则回写"],
+      "outputs": ["postmortem_manifest.json", "08_复盘报告.md", "08_L1回写建议.md"],
+      "gate": null
+    }
+  ],
+  "modules": [
+    {"id": "creator_control", "name": "Creator Studio 运行控制", "paths": ["configs/workflow/newma_creator_studio_registry.json", "scripts/newma_creator_control.py", "configs/workflow/project_run_manifest.schema.json"], "responsibilities": ["六阶段与节点注册", "状态快照", "素材校验", "交付物转接", "本地能力检测与调用", "通知投影"]},
+    {"id": "orchestration", "name": "总控与契约", "paths": ["scripts/run_mainline_stage.py", "scripts/canonical_workflow.py", "skills/dasheng-media-sop"], "responsibilities": ["阶段路由", "manifest/gate", "输出路径", "失败恢复"]},
+    {"id": "content", "name": "采集、选题与写作", "paths": ["skills/dasheng-daily-intake", "skills/dasheng-daily-phase2", "skills/dasheng-daily-draft"], "responsibilities": ["来源池", "题卡", "研究底稿", "文章 HTML"]},
+    {"id": "evidence", "name": "财经数据与证据", "paths": ["skills/dasheng-finance-data", "scripts/video_claim_evidence_ledger.py", "scripts/video_finance_evidence.py", "scripts/video_official_evidence.py"], "responsibilities": ["数据表", "图表", "官方文档", "命题-证据台账"]},
+    {"id": "video_director", "name": "视频导演与分镜", "paths": ["skills/dasheng-video-director", "skills/dasheng-digital-human-talking-head", "skills/dasheng-commercial-promo-video", "configs/video/director_registry.json", "configs/video/pipelines", "scripts/dasheng_video_director.py"], "responsibilities": ["六类导演注册与阶段工具路由", "真人/数字人人物源", "广告品牌与产品资产", "口播节奏", "分镜", "构图", "真实 B-roll", "工具路由"]},
+    {"id": "render", "name": "动画与渲染", "paths": ["skills/dasheng-html-video-bridge", "skills/dasheng-caption-motion", "scripts/build_remotion_renderer_pack.py"], "responsibilities": ["HTML Video", "Remotion", "HyperFrames", "GSAP/Lottie", "字幕与动态图表"]},
+    {"id": "media", "name": "剪辑与媒体处理", "paths": ["skills/dasheng-video-roughcut", "skills/dasheng-ffmpeg-toolkit", "skills/dasheng-video-editing-bridge"], "responsibilities": ["ASR", "粗剪", "EDL", "FFmpeg", "媒体 QC"]},
+    {"id": "publish", "name": "发布与账号中心", "paths": ["skills/dasheng-stage-publish", "configs/publish", "scripts/start_publish_console.py"], "responsibilities": ["多账号", "多平台", "封面/标签/声明", "发布队列", "链接回收"]},
+    {"id": "learning", "name": "范式学习与进化", "paths": ["skills/dasheng-paradigm-profiler", "skills/dasheng-video-style-trainer", "skills/dasheng-video-self-learning"], "responsibilities": ["文章范式", "视频 DNA", "每日增量学习", "导演笔记"]},
+    {"id": "governance", "name": "质量门禁与治理", "paths": ["tests", "scripts/workflow_doctor.py", "scripts/video_render_qc.py", "scripts/publish_guard.py"], "responsibilities": ["契约测试", "渲染 QC", "发布验真", "仓库卫生"]}
+  ],
+  "publish_routes": [
+    {"priority": 1, "id": "qianfan_local_api", "status": "current_default", "path": "local payload -> POST http://127.0.0.1:5409/postVideo -> platform adapter -> CloakBrowser/Playwright -> verification"},
+    {"priority": 2, "id": "qianfan_async_queue", "status": "batch_candidate", "path": "draft -> /api/v2/drafts/batch-publish -> task queue -> task verification"},
+    {"priority": 3, "id": "social_auto_upload_cli", "status": "fallback", "path": "channel pack -> guarded CLI -> named account session -> result callback"}
+  ],
+  "public_repository_policy": {
+    "tracked": ["skills", "scripts", "configs without secrets", "tests", "docs", "upstream registries and patches"],
+    "ignored": ["vendor source checkouts", "node_modules", "virtualenvs", "cookies and browser profiles", "API keys", "scraped source snapshots", "rendered media", "creator project outputs"]
+  }
+}

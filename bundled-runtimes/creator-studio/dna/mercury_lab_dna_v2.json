@@ -1,0 +1,34 @@
+{
+  "schema_version": "newma.account_dna.v2",
+  "account_id": "slot-2",
+  "name": "墨丘利实验室",
+  "updated_at": "2026-08-24",
+  "writing": {
+    "opening": "当天事件或行情异动直接开场，三段内给判断",
+    "body": "1、2、3 连续推进；每节包含事件、数字、机制、反方和市场影响",
+    "paragraphs": "短段落，通常一至三句",
+    "ending": "给基准路径、上下行触发、失效条件和组合动作",
+    "forbidden_phrases": [
+      "不是……而是……",
+      "先把……说清楚",
+      "值得注意的是",
+      "总而言之",
+      "这意味着",
+      "本质上"
+    ]
+  },
+  "illustration": {
+    "character": "原版小黑",
+    "rule": "小黑承担核心动作，一图一个认知结构",
+    "palette": ["#090909", "#D4AF37", "#F2D98B", "#F6F0E2", "#7D1E1E"],
+    "forbidden": ["PPT卡片", "正式流程图", "商业矢量", "3D", "黄色柠檬人", "站桩角色"]
+  },
+  "charts": {
+    "engine": "Meta Pilot Lab",
+    "renderer": "newma.meta-pilot-lab.local-v1",
+    "watermark": "墨丘利实验室",
+    "source_required": true,
+    "one_question_per_chart": true,
+    "mixed_units_on_one_axis": false
+  }
+}

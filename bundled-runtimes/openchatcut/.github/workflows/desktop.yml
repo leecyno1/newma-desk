@@ -1,0 +1,396 @@
+# Desktop release workflow. It only runs when manually dispatched.
+# Run it against a branch to build Actions artifacts, or against a v* tag to
+# publish a GitHub Release with installers and SHA-256 checksums.
+# GitHub automatically adds source archives to every release.
+name: desktop
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --loglevel=error
+        env:
+          # onnxruntime-node@1.22.0 postinstall fails on ubuntu CI runners (NuGet
+          # misses the win-x64 CUDA runtime). CI validates logic only, so skip it.
+          ONNXRUNTIME_NODE_INSTALL: 'skip'
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [[ "$GITHUB_REF_NAME" != "$expected" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $expected" >&2
+            exit 1
+          fi
+      - run: npm run lint
+      - run: npm test
+      - run: npm run verify:agent-skill
+      - run: npm run build
+
+  package:
+    name: Package ${{ matrix.name }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS-arm64
+            os: macos-latest
+            script: desktop:dist
+            artifact: |
+              release/*.dmg
+              release/*.zip
+              release/latest-arm64-mac.yml
+              release/*.blockmap
+          - name: macOS-x64
+            os: macos-15-intel
+            script: desktop:dist:mac-x64
+            artifact: |
+              release/*.dmg
+              release/*.zip
+              release/latest-x64-mac.yml
+              release/*.blockmap
+          - name: Windows-x64
+            os: windows-latest
+            script: desktop:dist:win
+            artifact: |
+              release/*.exe
+              release/latest-x64.yml
+              release/*.blockmap
+          - name: Linux-x64
+            os: ubuntu-latest
+            script: desktop:dist:linux
+            artifact: |
+              release/*.AppImage
+              release/latest-x64-linux.yml
+              release/*.blockmap
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --loglevel=error
+        env:
+          # onnxruntime-node@1.22.0 postinstall fails on linux CI runners; skip the
+          # NuGet runtime download (real ORT bytes ship separately for packaging).
+          ONNXRUNTIME_NODE_INSTALL: 'skip'
+
+      # First write the browser version corresponding to Remotion, and then use desktop:dist
+      # The prepare-target step puts the target platform browser and compositor into the installation package.
+      - name: Ensure Remotion browser
+        run: node -e "import('@remotion/renderer').then(m => m.ensureBrowser()).then(() => console.log('browser ready'))"
+
+      - name: Verify Windows hardware encoders
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          npx tsx desktop/remotion-binaries.verify.ts
+          node remotion/direct-hardware.verify.mjs
+          $ffmpeg = node -p "require('ffmpeg-static')"
+          $encoders = & $ffmpeg -hide_banner -encoders 2>&1 | Out-String
+          foreach ($encoder in @('h264_nvenc', 'h264_qsv', 'h264_amf')) {
+            if ($encoders -notmatch [regex]::Escape($encoder)) {
+              throw "Bundled FFmpeg is missing $encoder"
+            }
+          }
+
+      - name: Package
+        run: npm run ${{ matrix.script }}
+
+      - name: Smoke test macOS distribution
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CC_SMOKE: '1'
+          CC_SMOKE_RENDER: '1'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          dmgs=(release/*.dmg)
+          zips=(release/*.zip)
+          [[ "${#dmgs[@]}" -eq 1 ]]
+          [[ "${#zips[@]}" -eq 1 ]]
+
+          mount_dir="$(mktemp -d "$RUNNER_TEMP/openchatcut-dmg.XXXXXX")"
+          zip_dir="$(mktemp -d "$RUNNER_TEMP/openchatcut-zip.XXXXXX")"
+          mounted=false
+          cleanup() {
+            if [[ "$mounted" == true ]]; then
+              hdiutil detach "$mount_dir" || hdiutil detach -force "$mount_dir"
+            fi
+            rm -rf "$mount_dir"
+            rm -rf "$zip_dir"
+          }
+          trap cleanup EXIT
+
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount_dir" "${dmgs[0]}"
+          mounted=true
+          mounted_app="$mount_dir/OpenChatCut.app"
+          test -x "$mounted_app/Contents/MacOS/OpenChatCut"
+          # The DMG and ZIP contain the same app; execute it from the writable ZIP below.
+          hdiutil detach "$mount_dir"
+          mounted=false
+
+          unzip -tq "${zips[0]}"
+          test "$(unzip -Z1 "${zips[0]}" 'OpenChatCut.app/Contents/MacOS/OpenChatCut')" = \
+            'OpenChatCut.app/Contents/MacOS/OpenChatCut'
+          test "$(unzip -Z1 "${zips[0]}" \
+            'OpenChatCut.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework')" = \
+            'OpenChatCut.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework'
+          unzip -q "${zips[0]}" -d "$zip_dir"
+          zipped_app="$zip_dir/OpenChatCut.app"
+          test -x "$zipped_app/Contents/MacOS/OpenChatCut"
+          "$zipped_app/Contents/MacOS/OpenChatCut"
+          case "$(uname -m)" in
+            arm64) runtime_arch='mac-arm64' ;;
+            x86_64) runtime_arch='mac-x64' ;;
+            *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          render_runtime="OpenChatCut.app/Contents/Resources/chrome-headless-shell/$runtime_arch/chrome-headless-shell-$runtime_arch/chrome-headless-shell"
+          test "$(unzip -Z1 "${zips[0]}" "$render_runtime")" = "$render_runtime"
+          test -x "$zip_dir/$render_runtime"
+
+      - name: Smoke test Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CC_SMOKE: '1'
+          CC_SMOKE_RENDER: '1'
+          CC_SMOKE_MCP_RECOVERY: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installers = @(Get-ChildItem -LiteralPath release -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected one NSIS installer, found $($installers.Count)"
+          }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "openchatcut-smoke-$PID"
+          Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          $installed = $false
+          try {
+            $install = Start-Process -FilePath $installers[0].FullName `
+              -ArgumentList @('/S', "/D=$installDir") -Wait -PassThru
+            if ($install.ExitCode -ne 0) {
+              throw "NSIS installer exited with $($install.ExitCode)"
+            }
+
+            $installedExe = Join-Path $installDir 'OpenChatCut.exe'
+            if (-not (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
+              throw "NSIS installer did not create $installedExe"
+            }
+            $installed = $true
+            $smoke = Start-Process -FilePath $installedExe -Wait -PassThru
+            if ($smoke.ExitCode -ne 0) {
+              throw "Installed OpenChatCut smoke exited with $($smoke.ExitCode)"
+            }
+          } finally {
+            $cleanupError = $null
+            if ($installed) {
+              try {
+                $uninstallers = @(Get-ChildItem -LiteralPath $installDir -Filter 'Uninstall*.exe' -File)
+                if ($uninstallers.Count -ne 1) {
+                  throw "Expected one NSIS uninstaller, found $($uninstallers.Count)"
+                }
+                $uninstall = Start-Process -FilePath $uninstallers[0].FullName `
+                  -ArgumentList '/S' -Wait -PassThru
+                if ($uninstall.ExitCode -ne 0) {
+                  throw "NSIS uninstaller exited with $($uninstall.ExitCode)"
+                }
+              } catch {
+                $cleanupError = $_.Exception.Message
+              }
+            }
+            Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $installDir) {
+              $cleanupError = "Failed to clean installed application at $installDir"
+            }
+            if ($cleanupError) {
+              throw $cleanupError
+            }
+          }
+
+      - name: Smoke test Linux AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CC_SMOKE: '1'
+          CC_SMOKE_RENDER: '1'
+          ELECTRON_DISABLE_SANDBOX: '1'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          appimages=(release/*.AppImage)
+          [[ "${#appimages[@]}" -eq 1 ]]
+          chmod +x "${appimages[0]}"
+          # Ubuntu runners do not expose FUSE, so execute the shipped AppImage through its runtime extraction path.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+          xvfb-run --auto-servernum "${appimages[0]}" --appimage-extract-and-run
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.name }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download installers
+        uses: actions/download-artifact@v7
+        with:
+          pattern: desktop-*
+          path: release-files
+          merge-multiple: true
+
+      - name: Validate installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_VERSION="${GITHUB_REF_NAME#v}"
+          test "$(find release-files -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' \) | wc -l | tr -d ' ')" = 4
+          test "$(find release-files -type f -name '*.zip' | wc -l | tr -d ' ')" = 2
+          test "$(find release-files -type f -name '*.yml' | wc -l | tr -d ' ')" = 4
+          test -f release-files/latest-arm64-mac.yml
+          test -f release-files/latest-x64-mac.yml
+          test -f release-files/latest-x64.yml
+          test -f release-files/latest-x64-linux.yml
+          test -f "release-files/OpenChatCut-${EXPECTED_VERSION}-arm64.zip.blockmap"
+          test -f "release-files/OpenChatCut-${EXPECTED_VERSION}-x64.zip.blockmap"
+          test -f "release-files/OpenChatCut-${EXPECTED_VERSION}-x64.exe.blockmap"
+
+      - name: Generate checksums
+        working-directory: release-files
+        run: sha256sum ./* > SHA256SUMS.txt
+
+      - name: Create or reuse draft release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_ready=false
+
+          for attempt in {1..8}; do
+            if is_draft="$(gh release view "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json isDraft \
+              --jq '.isDraft' 2>/dev/null)"; then
+              if [[ "$is_draft" != "true" ]]; then
+                echo "Release $GITHUB_REF_NAME is already public; refusing to replace it" >&2
+                exit 1
+              fi
+              release_ready=true
+              break
+            fi
+            if gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              --draft; then
+              release_ready=true
+              break
+            fi
+            if [[ "$attempt" == 8 ]]; then
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
+          [[ "$release_ready" == "true" ]]
+
+      - name: Upload and verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          uploaded=false
+
+          for attempt in {1..8}; do
+            if gh release upload "$GITHUB_REF_NAME" \
+              release-files/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber; then
+              uploaded=true
+              break
+            fi
+            if [[ "$attempt" == 8 ]]; then
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
+          [[ "$uploaded" == "true" ]]
+
+          local_manifest="$RUNNER_TEMP/local-release-assets.tsv"
+          remote_manifest="$RUNNER_TEMP/remote-release-assets.tsv"
+          : > "$local_manifest"
+          for asset in release-files/*; do
+            digest="$(sha256sum "$asset" | cut -d ' ' -f1)"
+            printf '%s\tsha256:%s\n' "${asset##*/}" "$digest" >> "$local_manifest"
+          done
+          LC_ALL=C sort -o "$local_manifest" "$local_manifest"
+
+          verified=false
+          for attempt in {1..8}; do
+            if release_json="$(gh release view "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json isDraft,assets)"; then
+              if [[ "$(jq -r '.isDraft' <<<"$release_json")" != "true" ]]; then
+                echo "Release $GITHUB_REF_NAME became public before asset verification" >&2
+                exit 1
+              fi
+              jq -r '.assets[] | [.name, (.digest // "")] | @tsv' \
+                <<<"$release_json" | LC_ALL=C sort > "$remote_manifest"
+              if cmp -s "$local_manifest" "$remote_manifest"; then
+                verified=true
+                break
+              fi
+              echo "Release asset names or SHA-256 digests do not match local files" >&2
+              diff -u "$local_manifest" "$remote_manifest" || true
+            fi
+            if [[ "$attempt" == 8 ]]; then
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
+          [[ "$verified" == "true" ]]
+
+      - name: Publish verified draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          is_draft="$(gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json isDraft \
+            --jq '.isDraft')"
+          if [[ "$is_draft" != "true" ]]; then
+            echo "Release $GITHUB_REF_NAME is already public; refusing to republish it" >&2
+            exit 1
+          fi
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false

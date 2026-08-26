@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Blogger Video Style DNA",
+  "description": "从目标博主视频中学习得到的可复用风格DNA，供Newma视频生产流水线调用。",
+  "type": "object",
+  "required": ["schema_version", "style_id", "source_count", "visual_dna", "editing_dna", "template_preferences"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "dasheng.blogger_style_dna.v1"
+    },
+    "style_id": {
+      "type": "string",
+      "description": "风格唯一标识，如 xiaolin_finance_v1"
+    },
+    "blogger_name": {
+      "type": "string"
+    },
+    "blogger_platform": {
+      "type": "string"
+    },
+    "source_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source_videos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "filename": { "type": "string" },
+          "duration_sec": { "type": "number" },
+          "width": { "type": "integer" },
+          "height": { "type": "integer" },
+          "fps": { "type": "number" },
+          "analyzed_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "visual_dna": {
+      "type": "object",
+      "required": ["aspect_ratio", "resolution", "color_palette", "typography", "composition_patterns"],
+      "properties": {
+        "aspect_ratio": { "type": "string", "examples": ["9:16", "16:9", "1:1"] },
+        "resolution": { "type": "string", "examples": ["1080x1920", "1920x1080"] },
+        "color_palette": {
+          "type": "object",
+          "properties": {
+            "dominant": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
+            },
+            "background": { "type": "string" },
+            "accent": { "type": "string" },
+            "text": { "type": "string" },
+            "mood": { "type": "string" }
+          }
+        },
+        "typography": {
+          "type": "object",
+          "properties": {
+            "title_style": { "type": "string" },
+            "body_style": { "type": "string" },
+            "number_style": { "type": "string" },
+            "hierarchy": { "type": "string" },
+            "chinese_english_mix": { "type": "string" }
+          }
+        },
+        "composition_patterns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "visual_signature": {
+          "type": "string",
+          "description": "一句话概括的视觉标签"
+        }
+      }
+    },
+    "editing_dna": {
+      "type": "object",
+      "required": ["pacing", "transitions", "motion_style", "audio_mood"],
+      "properties": {
+        "pacing": {
+          "type": "object",
+          "properties": {
+            "avg_scene_duration_sec": { "type": "number" },
+            "median_scene_duration_sec": { "type": "number" },
+            "min_scene_duration_sec": { "type": "number" },
+            "max_scene_duration_sec": { "type": "number" },
+            "cuts_per_minute": { "type": "number" },
+            "speaker_return_interval_sec": { "type": "number" },
+            "evidence_interval_sec": { "type": "number" },
+            "chapter_interval_sec": { "type": "number" }
+          }
+        },
+        "transitions": {
+          "type": "object",
+          "properties": {
+            "primary": { "type": "string" },
+            "secondary": { "type": "string" },
+            "hook_transition": { "type": "string" },
+            "chapter_transition": { "type": "string" },
+            "recap_transition": { "type": "string" },
+            "signature": { "type": "string" }
+          }
+        },
+        "motion_style": {
+          "type": "object",
+          "properties": {
+            "framework": { "type": "string", "enum": ["hyperframes", "motion-frames", "gsap", "lottie", "hyperscreen", "mixed"] },
+            "animation_signature": { "type": "string" },
+            "entrance": { "type": "string" },
+            "focus_change": { "type": "string" },
+            "exit": { "type": "string" },
+            "continuous_motion": { "type": "boolean" }
+          }
+        },
+        "audio_mood": {
+          "type": "object",
+          "properties": {
+            "bgm_genre": { "type": "string" },
+            "bgm_energy": { "type": "string", "enum": ["low", "mid", "high", "dynamic"] },
+            "sfx_density": { "type": "string", "enum": ["sparse", "moderate", "dense"] },
+            "voice_style": { "type": "string" }
+          }
+        },
+        "hook_pattern": { "type": "string" },
+        "outro_pattern": { "type": "string" },
+        "evidence_style": { "type": "string" },
+        "talking_head_policy": {
+          "type": "object",
+          "properties": {
+            "presence": { "type": "boolean" },
+            "placement": { "type": "string", "enum": ["full_screen", "bottom_pip", "side_pip", "none"] },
+            "blank_placeholder": { "type": "boolean" },
+            "notes": { "type": "string" }
+          }
+        },
+        "b_roll_density": { "type": "string", "enum": ["low", "medium", "high"] }
+      }
+    },
+    "template_preferences": {
+      "type": "object",
+      "description": "content_part -> 优先模板与运动策略",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "primary": { "type": "string" },
+          "alternates": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "motion_policy": {
+            "type": "object",
+            "properties": {
+              "framework": { "type": "string" },
+              "animation": { "type": "string" },
+              "lottie_role": { "type": "string" },
+              "lottie_keywords": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          },
+          "duration_range_sec": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "beat_class_distribution": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "reference_prompt": {
+      "type": "string",
+      "description": "给后续生成模型使用的自然语言风格提示"
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.lemon_illustration_intents.v1",
+  "type": "object",
+  "required": ["schema_version", "topic_id", "skill", "status", "intents"],
+  "properties": {
+    "schema_version": {"const": "dasheng.lemon_illustration_intents.v1"},
+    "topic_id": {"type": ["string", "null"]},
+    "skill": {"const": "dasheng-lemon-illustrations"},
+    "status": {"type": "string"},
+    "intents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["intent_id", "trigger_type", "source_text", "skill", "status", "channel_adaptation"],
+        "properties": {
+          "intent_id": {"type": "string"},
+          "trigger_type": {"enum": ["example", "metaphor", "financial_metaphor", "agent_semantic"]},
+          "source_text": {"type": "string", "minLength": 1},
+          "core_meaning": {"type": "string"},
+          "visual_metaphor_brief": {"type": "string"},
+          "character_action": {"type": "string"},
+          "skill": {"const": "dasheng-lemon-illustrations"},
+          "evidence_authenticity": {"const": "schematic"},
+          "status": {"type": "string"},
+          "required": {"type": "boolean"},
+          "channel_adaptation": {"type": "object"}
+        }
+      }
+    },
+    "unresolved": {"type": "array"}
+  }
+}

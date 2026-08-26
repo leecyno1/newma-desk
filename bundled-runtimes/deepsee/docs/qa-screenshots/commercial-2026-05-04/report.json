@@ -1,0 +1,71 @@
+{
+  "url": "http://127.0.0.1:8000/",
+  "viewport": "1440x1000",
+  "screenshots_dir": "docs/qa-screenshots/commercial-2026-05-04",
+  "console_errors": [],
+  "results": [
+    {
+      "module": "ai-summary",
+      "label": "AI总结",
+      "screenshot": "docs/qa-screenshots/commercial-2026-05-04/ai-summary.png",
+      "active_count": 1,
+      "active_panel": "ai-summary",
+      "body_text_len": 534,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "module": "dashboard",
+      "label": "数据看板",
+      "screenshot": "docs/qa-screenshots/commercial-2026-05-04/dashboard.png",
+      "active_count": 1,
+      "active_panel": "dashboard",
+      "body_text_len": 447,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "module": "message-list",
+      "label": "微信聚合",
+      "screenshot": "docs/qa-screenshots/commercial-2026-05-04/message-list.png",
+      "active_count": 1,
+      "active_panel": "message-list",
+      "body_text_len": 613,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "module": "contact-management",
+      "label": "分析师评分",
+      "screenshot": "docs/qa-screenshots/commercial-2026-05-04/contact-management.png",
+      "active_count": 1,
+      "active_panel": "contact-management",
+      "body_text_len": 686,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "module": "send-management",
+      "label": "消息群发",
+      "screenshot": "docs/qa-screenshots/commercial-2026-05-04/send-management.png",
+      "active_count": 1,
+      "active_panel": "send-management",
+      "body_text_len": 504,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "module": "function-settings",
+      "label": "功能设置",
+      "screenshot": "docs/qa-screenshots/commercial-2026-05-04/function-settings.png",
+      "active_count": 1,
+      "active_panel": "function-settings",
+      "body_text_len": 3447,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "module": "mp-agg",
+      "label": "公众号聚合",
+      "screenshot": "docs/qa-screenshots/commercial-2026-05-04/mp-agg.png",
+      "active_count": 1,
+      "active_panel": "mp-agg",
+      "body_text_len": 215,
+      "horizontal_overflow_px": 0
+    }
+  ]
+}

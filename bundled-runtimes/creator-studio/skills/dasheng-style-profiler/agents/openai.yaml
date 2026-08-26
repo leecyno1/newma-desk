@@ -1,0 +1,4 @@
+interface:
+  display_name: "文风DNA"
+  short_description: "Build a reusable WeChat writing DNA from sample articles."
+  default_prompt: "Use $wechat-style-profiler to analyze my sample articles and build a reusable style DNA."

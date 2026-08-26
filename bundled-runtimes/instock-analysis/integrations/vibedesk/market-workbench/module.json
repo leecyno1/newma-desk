@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.1",
+  "id": "instock-market-workbench",
+  "name": "市场概览",
+  "version": "0.17.0",
+  "category": "quant",
+  "navigation": {
+    "groupLabel": "量化研究", "groupOrder": 120, "itemOrder": 1, "label": "市场概览",
+    "directory": {"id": "instock-suite", "label": "InStock 分析", "order": 20},
+    "project": {"id": "quant-research", "name": "量化研究", "order": 120, "description": "市场、选股、技术、结构、轮动与验证。"},
+    "icon": "quant"
+  },
+  "entry": {"type": "external", "url": "http://127.0.0.1:9988/mods/market-workbench"},
+  "compatibility": {"level": 2, "bridgeProtocol": "1.0"},
+  "permissions": ["analysis.read"],
+  "dataServices": [],
+  "actions": {
+    "analysis.market-workbench": {
+      "binding": {"type": "data", "capability": "analysis.market-workbench"},
+      "execution": "request", "permission": "analysis.read",
+      "inputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"scanLimit": {"enum": [50, 100, 200]}, "refresh": {"enum": ["0", "1"]}}, "additionalProperties": false},
+      "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}},
+      "confirmation": "none", "timeoutSeconds": 60
+    }
+  },
+  "events": {"emits": ["security.selected"], "accepts": []},
+  "refresh": {"mode": "manual"}
+}

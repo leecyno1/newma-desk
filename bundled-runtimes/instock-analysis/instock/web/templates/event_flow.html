@@ -1,0 +1,208 @@
+{% extends "layout/mod.html" %}
+
+{% block main_content %}
+<!-- Event & Flow Radar -->
+<script>
+if (window.location.protocol === 'file:') {
+    window.location.replace('http://127.0.0.1:9988/mods/event-flow/' + window.location.search);
+}
+</script>
+<link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
+<style>
+    :root {
+        --event-accent: #c86c2f;
+        --event-accent-soft: color-mix(in srgb, var(--event-accent) 13%, transparent);
+        --event-positive: var(--instock-positive);
+        --event-negative: var(--instock-negative);
+    }
+    * { box-sizing: border-box; }
+    .event-shell { min-width: 0; min-height: 100%; padding: 20px; color: var(--instock-text); background: var(--instock-bg); background-image: linear-gradient(90deg, transparent 0 49px, var(--event-accent-soft) 50px, transparent 51px); background-size: 52px 100%; }
+    .event-panel { min-width: 0; border: 1px solid var(--instock-border); border-radius: 13px; background: color-mix(in srgb, var(--instock-surface) 96%, transparent); box-shadow: var(--instock-shadow); }
+    .event-hero { position: relative; overflow: hidden; padding: 22px 24px 20px; border-top: 3px solid var(--event-accent); }
+    .event-hero::after { position: absolute; top: -78px; right: -42px; width: 220px; height: 220px; border: 1px solid color-mix(in srgb, var(--event-accent) 34%, transparent); border-radius: 50%; box-shadow: 0 0 0 22px color-mix(in srgb, var(--event-accent) 5%, transparent), 0 0 0 54px color-mix(in srgb, var(--event-accent) 3%, transparent); content: ''; pointer-events: none; }
+    .event-kicker { display: flex; gap: 9px; align-items: center; color: var(--event-accent); font-family: var(--instock-font-mono); font-size: 9px; font-weight: 900; letter-spacing: .17em; text-transform: uppercase; }
+    .event-kicker::before { width: 25px; height: 1px; background: var(--event-accent); content: ''; }
+    .event-title { position: relative; z-index: 1; margin: 8px 0 0; font-size: 27px; letter-spacing: -.04em; }
+    .event-copy { position: relative; z-index: 1; max-width: 820px; margin: 7px 0 0; color: var(--instock-text-muted); font-size: 11px; line-height: 1.72; }
+    .event-query { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(160px, 220px) minmax(150px, 190px) auto auto minmax(0, 1fr); gap: 9px; align-items: end; margin-top: 17px; }
+    .event-field { min-width: 0; }
+    .event-field label { display: block; margin-bottom: 5px; color: var(--instock-text-muted); font-size: 9px; font-weight: 900; letter-spacing: .04em; }
+    .event-field input, .event-filter, .event-packet { width: 100%; border: 1px solid var(--instock-border-strong); color: var(--instock-text); background: var(--instock-surface-raised); outline: none; }
+    .event-field input { height: 37px; padding: 0 10px; border-radius: 7px; font-family: var(--instock-font-mono); font-size: 11px; }
+    .event-field input:focus, .event-filter:focus, .event-packet:focus { border-color: var(--event-accent); box-shadow: 0 0 0 3px var(--event-accent-soft); }
+    .event-run { height: 37px; padding: 0 17px; border: 1px solid var(--event-accent); border-radius: 7px; color: #fff; background: var(--event-accent); font-size: 10px; font-weight: 900; white-space: nowrap; cursor: pointer; transition: transform .18s ease, filter .18s ease; }
+    .event-run:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    .event-run:disabled { cursor: wait; filter: grayscale(.2); opacity: .7; transform: none; }
+    .event-research-link { display: none; height: 37px; padding: 0 14px; align-items: center; border: 1px solid var(--event-accent); border-radius: 7px; color: var(--event-accent); background: var(--event-accent-soft); font-size: 9px; font-weight: 900; text-decoration: none; white-space: nowrap; }
+    .event-research-link:hover, .event-research-link:focus { color: #fff; background: var(--event-accent); text-decoration: none; }
+    .event-query-meta { min-width: 0; padding-bottom: 7px; color: var(--instock-text-faint); font-family: var(--instock-font-mono); font-size: 8px; line-height: 1.55; overflow-wrap: anywhere; }
+    .event-alert { display: none; margin-top: 11px; padding: 10px 12px; border: 1px solid var(--instock-error-border); border-radius: 8px; color: var(--instock-error-text); background: var(--instock-error-bg); font-size: 10px; line-height: 1.55; }
+    .event-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-top: 12px; }
+    .event-stat { position: relative; overflow: hidden; min-width: 0; padding: 12px 13px; border: 1px solid var(--instock-border); border-radius: 9px; background: var(--instock-surface); }
+    .event-stat::before { position: absolute; top: 0; right: 0; left: 0; height: 2px; background: var(--event-accent-soft); content: ''; }
+    .event-stat span { color: var(--instock-text-muted); font-size: 8px; font-weight: 800; }
+    .event-stat strong { display: block; margin-top: 6px; overflow: hidden; font-family: var(--instock-font-mono); font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+    .event-stat small { display: block; margin-top: 4px; color: var(--instock-text-faint); font-size: 8px; }
+    .event-workspace { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .72fr); gap: 12px; margin-top: 12px; }
+    .event-section-head { display: flex; min-height: 48px; gap: 10px; padding: 10px 13px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--instock-border); }
+    .event-section-head h2 { margin: 0; font-size: 12px; letter-spacing: .01em; }
+    .event-section-head p { margin: 3px 0 0; color: var(--instock-text-faint); font-size: 8px; }
+    .event-filters { display: flex; gap: 6px; }
+    .event-filter { width: auto; min-width: 92px; height: 30px; padding: 0 8px; border-radius: 6px; font-size: 9px; }
+    .event-list { display: grid; gap: 8px; min-height: 280px; padding: 11px; }
+    .event-item { position: relative; min-width: 0; padding: 12px 13px 11px 16px; border: 1px solid var(--instock-border); border-radius: 9px; background: var(--instock-surface-raised); transition: border-color .18s ease, transform .18s ease, background .18s ease; }
+    .event-item::before { position: absolute; top: 13px; bottom: 13px; left: 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--instock-border-strong); content: ''; }
+    .event-item.is-positive::before { background: var(--event-positive); }
+    .event-item.is-negative::before { background: var(--event-negative); }
+    .event-item:hover { border-color: var(--instock-border-strong); background: var(--instock-surface-hover); transform: translateY(-1px); }
+    .event-item-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+    .event-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; }
+    .event-badge { display: inline-flex; min-height: 21px; padding: 2px 7px; align-items: center; border: 1px solid var(--instock-border); border-radius: 99px; color: var(--instock-text-muted); background: var(--instock-surface); font-size: 8px; font-weight: 800; }
+    .event-badge.is-positive { color: var(--event-positive); border-color: color-mix(in srgb, var(--event-positive) 34%, var(--instock-border)); }
+    .event-badge.is-negative { color: var(--event-negative); border-color: color-mix(in srgb, var(--event-negative) 34%, var(--instock-border)); }
+    .event-item h3 { margin: 0; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+    .event-item-meta { margin: 5px 0 0; color: var(--instock-text-faint); font-family: var(--instock-font-mono); font-size: 8px; line-height: 1.55; }
+    .event-score { min-width: 50px; color: var(--event-accent); font-family: var(--instock-font-mono); font-size: 18px; font-weight: 900; text-align: right; }
+    .event-score small { display: block; margin-top: 1px; color: var(--instock-text-faint); font-family: var(--instock-font-ui); font-size: 7px; font-weight: 700; }
+    .event-details { display: flex; flex-wrap: wrap; gap: 5px 11px; margin-top: 9px; padding-top: 8px; border-top: 1px dashed var(--instock-border); color: var(--instock-text-muted); font-family: var(--instock-font-mono); font-size: 8px; }
+    .event-details span { overflow-wrap: anywhere; }
+    .event-source-link { display: inline-block; margin-top: 8px; color: var(--event-accent); font-size: 8px; text-decoration: none; }
+    .event-source-link:hover { text-decoration: underline; }
+    .event-empty { display: grid; min-height: 230px; padding: 26px; place-items: center; color: var(--instock-text-muted); text-align: center; font-size: 10px; line-height: 1.7; }
+    .event-side { display: grid; align-content: start; gap: 12px; min-width: 0; }
+    .event-coverage { padding: 9px 11px 11px; }
+    .event-source { display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; gap: 8px; padding: 9px 2px; align-items: start; border-bottom: 1px solid var(--instock-border); }
+    .event-source:last-child { border-bottom: 0; }
+    .event-source-dot { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: var(--instock-border-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--instock-border-strong) 13%, transparent); }
+    .event-source-dot.available { background: var(--event-positive); }
+    .event-source-dot.empty { background: var(--instock-warning); }
+    .event-source-dot.failed { background: var(--instock-error-text); }
+    .event-source b { display: block; font-size: 9px; }
+    .event-source small { display: block; margin-top: 3px; color: var(--instock-text-faint); font-family: var(--instock-font-mono); font-size: 7px; line-height: 1.5; overflow-wrap: anywhere; }
+    .event-source strong { color: var(--instock-text-muted); font-family: var(--instock-font-mono); font-size: 9px; font-weight: 800; text-align: right; }
+    .event-note { padding: 14px; }
+    .event-note h2 { margin: 0 0 8px; font-size: 11px; }
+    .event-note ul { margin: 0; padding-left: 16px; color: var(--instock-text-muted); font-size: 9px; line-height: 1.7; }
+    .event-failures { display: none; margin: 0 11px 11px; padding: 10px; border: 1px solid var(--instock-warning-border); border-radius: 7px; color: var(--instock-warning-text); background: var(--instock-warning-bg); font-size: 8px; line-height: 1.6; }
+    .event-advanced { margin-top: 12px; overflow: hidden; }
+    .event-advanced summary { padding: 12px 14px; color: var(--instock-text-muted); font-size: 9px; font-weight: 900; cursor: pointer; }
+    .event-advanced-body { display: grid; grid-template-columns: minmax(0, 1fr) 140px; gap: 9px; padding: 0 13px 13px; }
+    .event-packet { min-height: 190px; padding: 10px; border-radius: 8px; resize: vertical; font-family: var(--instock-font-mono); font-size: 8px; line-height: 1.6; }
+    .event-advanced-copy { color: var(--instock-text-muted); font-size: 8px; line-height: 1.65; }
+    .event-advanced-copy .event-run { width: 100%; margin-top: 9px; }
+    .event-footnote { margin: 10px 2px 0; color: var(--instock-text-faint); font-size: 8px; line-height: 1.65; }
+    @media (max-width: 900px) { .event-query { grid-template-columns: 1fr 1fr auto auto; } .event-query-meta { grid-column: 1 / -1; padding: 0; } .event-workspace { grid-template-columns: 1fr; } .event-side { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 620px) { .event-shell { padding: 11px; background-image: none; } .event-hero { padding: 17px; } .event-hero::after { opacity: .35; } .event-title { font-size: 23px; } .event-query { grid-template-columns: 1fr 1fr; } .event-run, .event-research-link { width: 100%; } .event-query-meta { grid-column: 1 / -1; } .event-stats { grid-template-columns: 1fr 1fr; } .event-section-head { align-items: flex-start; } .event-filters { display: grid; width: 116px; } .event-filter { width: 100%; min-width: 0; } .event-side { grid-template-columns: 1fr; } .event-advanced-body { grid-template-columns: 1fr; } }
+    @media (max-width: 360px) { .event-query { grid-template-columns: 1fr; } .event-query-meta { grid-column: 1; } .event-item-head { grid-template-columns: 1fr; } .event-score { text-align: left; } .event-section-head { display: grid; } .event-filters { display: grid; width: 100%; grid-template-columns: 1fr 1fr; } }
+</style>
+
+<main class="event-shell">
+    <section class="event-panel event-hero">
+        <div class="event-kicker">Event &amp; Flow Radar / evidence ledger</div>
+        <h1 class="event-title">公司事件</h1>
+        <p class="event-copy">输入 A 股代码后，直接读取 Desk 已托管的公司公告、研报、新闻、主力资金、融资融券、龙虎榜、大宗交易、股东、分红和解禁数据。方向只描述已观察证据，优先级评分不是涨跌预测。</p>
+        <form id="event-query" class="event-query">
+            <div class="event-field"><label for="event-symbol">股票代码</label><input id="event-symbol" name="symbol" inputmode="numeric" autocomplete="off" maxlength="9" pattern="[0-9]{6}([.](SH|SZ|BJ))?" value="300502" aria-label="股票代码"></div>
+            <div class="event-field"><label for="event-date">历史截止日（可选）</label><input id="event-date" name="asOf" type="date" aria-label="历史截止日"></div>
+            <button id="event-run" class="event-run" type="submit">读取 Desk 证据</button>
+            <a id="event-research-link" class="event-research-link" href="/mods/stock-research" target="_blank" rel="noopener">带事件证据进入公司档案</a>
+            <div id="event-query-meta" class="event-query-meta" aria-live="polite">准备读取 Desk 事件与资金接口…</div>
+        </form>
+        <div id="event-alert" class="event-alert" role="alert"></div>
+    </section>
+
+    <section class="event-stats" aria-label="事件资金摘要">
+        <div class="event-stat"><span>有效事件</span><strong id="event-count">--</strong><small>统一去重后的证据条目</small></div>
+        <div class="event-stat"><span>30 日内</span><strong id="event-fresh">--</strong><small>新鲜事件，不等于有效信号</small></div>
+        <div class="event-stat"><span>数据源响应</span><strong id="event-sources">--</strong><small>空结果与失败分开计算</small></div>
+        <div class="event-stat"><span>原始记录</span><strong id="event-records">--</strong><small>Desk 返回的原始覆盖数量</small></div>
+    </section>
+
+    <section class="event-workspace">
+        <article class="event-panel">
+            <header class="event-section-head">
+                <div><h2>证据时间线</h2><p>按研究优先级排序，可筛选证据类型与观察方向</p></div>
+                <div class="event-filters">
+                    <select id="event-type-filter" class="event-filter" aria-label="证据类型"><option value="all">全部类型</option><option value="disclosure">公告 / 研报 / 新闻</option><option value="capital">资金 / 交易</option><option value="ownership">股东 / 分红 / 解禁</option></select>
+                    <select id="event-direction-filter" class="event-filter" aria-label="观察方向"><option value="all">全部方向</option><option value="positive">观察正向</option><option value="negative">观察负向</option><option value="neutral">中性记录</option></select>
+                </div>
+            </header>
+            <div id="event-list" class="event-list"><div class="event-empty">正在建立事件与资金证据账本…</div></div>
+        </article>
+
+        <aside class="event-side">
+            <section class="event-panel">
+                <header class="event-section-head"><div><h2>数据覆盖</h2><p>来源、最新日期、记录数与字段单位</p></div></header>
+                <div id="event-coverage" class="event-coverage"></div>
+                <div id="event-failures" class="event-failures"></div>
+            </section>
+            <section class="event-panel event-note">
+                <h2>解读边界</h2>
+                <ul><li>公告和新闻不做自动情绪判断，默认按中性证据记录。</li><li>资金方向来自公开净额，不能单独推出未来收益。</li><li>接口返回空表示本次未取到记录，不等于不存在相关活动。</li><li>历史截止日使用 Desk 最新窗口客户端过滤，不是历史快照数据库。</li></ul>
+            </section>
+        </aside>
+    </section>
+
+    <details class="event-panel event-advanced">
+        <summary>高级模式：分析宿主提供的结构化事件包</summary>
+        <div class="event-advanced-body">
+            <textarea id="event-packet" class="event-packet" aria-label="结构化事件包"></textarea>
+            <div class="event-advanced-copy">保留原有 <code>instock-event-flow-packet-v1</code> 合同，便于 Desk Agent 直接提交已核验的点时证据。<button id="event-packet-run" class="event-run" type="button">分析事件包</button></div>
+        </div>
+    </details>
+    <p class="event-footnote">生产数据只通过 Newma-Desk 托管的 Research HTTP Interface 与 <code>market.announcements</code>、<code>market.reports</code>、<code>market.news</code> capability 读取；本项目不连接旧 MySQL，不恢复原抓取任务。</p>
+</main>
+
+<script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script>
+(function () {
+    const bridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+    const actionId = 'analysis.event-flow';
+    const state = {data: null, running: false};
+    const typeLabels = {announcement: '公司公告', report: '机构研报', news: '市场新闻', fund_flow: '主力资金', margin: '融资融券', dragon_tiger: '龙虎榜', block_trade: '大宗交易', holder_change: '股东户数', dividend: '分红送转', lockup: '限售解禁', limit_up: '涨停原因', northbound: '北向资金', institutional_flow: '机构资金'};
+    const directionLabels = {positive: '观察正向', negative: '观察负向', neutral: '中性记录'};
+    const detailLabels = {main_net_5d_cny: '5日主力净额', main_net_20d_cny: '20日主力净额', latest_main_net_cny: '最新主力净额', five_day_abs_percentile_pct: '绝对值分位', financing_balance_cny: '融资余额', financing_net_5d_cny: '5日融资净额', securities_lending_balance_cny: '融券余额', net_buy_cny_10k: '榜单净买', institution_net_cny_10k: '机构席位净额', turnover_pct: '换手率', trade_count: '交易笔数', amount_cny: '成交额', weighted_premium_pct: '加权折溢价', holder_count: '股东户数', holder_change_pct: '户数环比', average_shares_per_holder: '户均持股', cash_dividend_cny_per_10_shares: '每10股派息', transfer_shares_per_10: '每10股转增', bonus_shares_per_10: '每10股送股', effective_at: '生效日期', able_shares_10k: '可流通万股', unlock_ratio: '解禁占比', category: '公告类型', organization: '研究机构', rating: '原始评级', publisher: '来源', plan: '实施进度', share_type: '股份类型'};
+    const symbolInput = document.getElementById('event-symbol');
+    const dateInput = document.getElementById('event-date');
+    const runButton = document.getElementById('event-run');
+    const packetButton = document.getElementById('event-packet-run');
+    const alertBox = document.getElementById('event-alert');
+    const queryMeta = document.getElementById('event-query-meta');
+    const packetInput = document.getElementById('event-packet');
+    const researchLink = document.getElementById('event-research-link');
+
+    const params = new URLSearchParams(window.location.search);
+    symbolInput.value = (params.get('symbol') || params.get('code') || '300502').toUpperCase();
+    dateInput.value = params.get('asOf') || '';
+    packetInput.value = JSON.stringify({schema_version: 'instock-event-flow-packet-v1', as_of: new Date().toISOString().slice(0, 10), market: 'CN', events: [{id: 'desk-event-1', type: 'announcement', symbol: symbolInput.value.split('.')[0], occurred_at: new Date().toISOString().slice(0, 10), title: '由 Desk Agent 替换为已核验事件', direction: 'neutral', magnitude_score: 50, evidence_strength: 'medium', source_ref: 'desk://agent/event-1'}]}, null, 2);
+
+    function setText(id, value) { document.getElementById(id).textContent = value == null || value === '' ? '--' : String(value); }
+    function unwrap(payload) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-event-flow') throw new Error('事件资金返回格式不受支持'); return data; }
+    function errorMessage(body, fallback) { return body && body.error && typeof body.error === 'object' ? body.error.message || fallback : fallback; }
+    async function request(input) { if (bridge && bridge.whenReady) await bridge.whenReady(); if (bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)) return bridge.invokeAction(actionId, input); const response = await fetch('/api/v1/event-flows', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input)}); const body = await response.json(); if (!response.ok) throw new Error(errorMessage(body, '事件与资金读取失败')); return body; }
+    function formatMoney(value) { const number = Number(value) || 0; const sign = number > 0 ? '+' : number < 0 ? '-' : ''; const amount = Math.abs(number); if (amount >= 1e8) return `${sign}${(amount / 1e8).toFixed(2)}亿`; if (amount >= 1e4) return `${sign}${(amount / 1e4).toFixed(0)}万`; return `${sign}${amount.toFixed(0)}元`; }
+    function formatDetail(key, value) { if (value == null || value === '') return '--'; if (key.endsWith('_cny')) return formatMoney(value); if (key.endsWith('_cny_10k')) return `${Number(value).toLocaleString('zh-CN', {maximumFractionDigits: 1})}万元`; if (key.endsWith('_pct') || key.includes('percentile')) return `${Number(value).toFixed(2)}%`; if (key === 'unlock_ratio') return `${(Number(value) * 100).toFixed(2)}%`; if (typeof value === 'number') return Number(value).toLocaleString('zh-CN', {maximumFractionDigits: 2}); return String(value); }
+    function groupFor(type) { if (['announcement', 'report', 'news'].includes(type)) return 'disclosure'; if (['fund_flow', 'margin', 'dragon_tiger', 'block_trade', 'northbound', 'institutional_flow'].includes(type)) return 'capital'; return 'ownership'; }
+    function badge(text, className) { const node = document.createElement('span'); node.className = `event-badge ${className || ''}`; node.textContent = text; return node; }
+    function emitSelection(item) { if (!bridge || !bridge.emit || !state.data) return; const snapshotId = state.data.snapshot && state.data.snapshot.snapshot_id; bridge.emit('security.selected', {market: state.data.market || 'CN', symbol: item.symbol, source: 'instock-event-flow', snapshotId, eventFlowSnapshotId: snapshotId}); }
+    function renderEvents() { const data = state.data; const typeFilter = document.getElementById('event-type-filter').value; const directionFilter = document.getElementById('event-direction-filter').value; const rows = (data && data.alerts || []).filter(item => (typeFilter === 'all' || groupFor(item.type) === typeFilter) && (directionFilter === 'all' || item.direction === directionFilter)); const root = document.getElementById('event-list'); root.replaceChildren(); if (!rows.length) { const empty = document.createElement('div'); empty.className = 'event-empty'; empty.textContent = data && data.alerts && data.alerts.length ? '当前筛选条件下没有证据。' : 'Desk 数据源已返回，但没有形成可展示的事件记录。请查看右侧覆盖与失败项。'; root.appendChild(empty); return; } rows.forEach(item => { const card = document.createElement('article'); card.className = `event-item is-${item.direction}`; const head = document.createElement('div'); head.className = 'event-item-head'; const content = document.createElement('div'); const badges = document.createElement('div'); badges.className = 'event-badges'; badges.append(badge(typeLabels[item.type] || item.type), badge(directionLabels[item.direction] || item.direction, `is-${item.direction}`), badge(item.freshness === 'fresh' ? '30日内' : `距今${item.age_days}日`)); const title = document.createElement('h3'); title.textContent = item.title; const meta = document.createElement('p'); meta.className = 'event-item-meta'; meta.textContent = `${item.occurred_at} · ${item.symbol} · 证据强度 ${item.evidence_strength}`; content.append(badges, title, meta); const score = document.createElement('div'); score.className = 'event-score'; score.textContent = Number(item.intensity_score).toFixed(1); const scoreLabel = document.createElement('small'); scoreLabel.textContent = '研究优先级'; score.appendChild(scoreLabel); head.append(content, score); card.appendChild(head); const detailEntries = Object.entries(item.details || {}).filter(([key, value]) => key !== 'url' && value != null && value !== '').slice(0, 5); if (detailEntries.length) { const details = document.createElement('div'); details.className = 'event-details'; detailEntries.forEach(([key, value]) => { const line = document.createElement('span'); line.textContent = `${detailLabels[key] || key} ${formatDetail(key, value)}`; details.appendChild(line); }); card.appendChild(details); } const sourceUrl = item.details && item.details.url || (/^https?:\/\//.test(item.source_ref || '') ? item.source_ref : ''); if (sourceUrl) { const link = document.createElement('a'); link.className = 'event-source-link'; link.href = sourceUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = '打开原始证据 ↗'; link.addEventListener('click', event => event.stopPropagation()); card.appendChild(link); } card.addEventListener('click', () => emitSelection(item)); root.appendChild(card); }); }
+    function renderCoverage(data) { const root = document.getElementById('event-coverage'); root.replaceChildren(); (data.coverage && data.coverage.sources || []).forEach(item => { const row = document.createElement('div'); row.className = 'event-source'; const dot = document.createElement('span'); dot.className = `event-source-dot ${item.state}`; const body = document.createElement('div'); const label = document.createElement('b'); label.textContent = item.label; const endpoint = document.createElement('small'); const unitValues = [...new Set(Object.values(item.units || {}))].join(' / '); endpoint.textContent = `${item.endpoint}${unitValues ? ` · ${unitValues}` : ''}`; body.append(label, endpoint); const count = document.createElement('strong'); count.textContent = item.state === 'failed' ? '失败' : item.state === 'empty' ? '空' : `${item.records} 条`; const latest = document.createElement('small'); latest.textContent = item.latest_date || '--'; count.appendChild(latest); row.append(dot, body, count); root.appendChild(row); }); const failures = document.getElementById('event-failures'); const failureRows = data.failures || []; failures.style.display = failureRows.length ? 'block' : 'none'; failures.textContent = failureRows.map(item => `${item.label || item.source}：${item.message}`).join('；'); }
+    function render(payload, source) { const data = unwrap(payload); state.data = data; alertBox.style.display = 'none'; setText('event-count', data.summary.deduplicated_events); setText('event-fresh', data.summary.fresh_events); const coverage = data.coverage || {}; setText('event-sources', `${Math.max(0, Number(coverage.requested_sources || 0) - Number(coverage.failed_sources || 0))}/${coverage.requested_sources || 0}`); setText('event-records', Number(coverage.records || 0).toLocaleString('zh-CN')); const stateLabel = data.data_state === 'complete' ? '完整' : '部分'; queryMeta.textContent = `${source === 'history' ? '历史版本 · ' : ''}${data.query && data.query.symbol || data.market} · ${data.as_of} · ${stateLabel}覆盖 · ${data.snapshot.snapshot_id}`; renderEvents(); renderCoverage(data); const symbol = data.query && data.query.symbol; if (data.input_mode === 'desk_symbol' && symbol) { if (source !== 'history') { const next = new URL(window.location.href); next.searchParams.set('symbol', symbol); if (dateInput.value) next.searchParams.set('asOf', dateInput.value); else next.searchParams.delete('asOf'); window.history.replaceState(null, '', next); } const researchParams = new URLSearchParams({symbol, period: 'daily', bars: '240', sourceModule: 'instock-event-flow', sourceSnapshotId: data.snapshot.snapshot_id, eventFlowSnapshotId: data.snapshot.snapshot_id, ...(data.as_of ? {asOf: data.as_of} : {})}); researchLink.href = `/mods/stock-research?${researchParams.toString()}`; researchLink.style.display = 'inline-flex'; } else researchLink.style.display = 'none'; publish(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
+    function buildContext() { const data = state.data || {}; const selected = data.query && data.query.symbol ? {market: data.market || 'CN', symbol: data.query.symbol} : null; return {view: {id: 'event-flow', title: '公司事件'}, visibleBlocks: [{id: 'event-timeline', type: 'event-radar', title: '公司事件时间线'}, {id: 'source-coverage', type: 'coverage-ledger', title: '数据覆盖'}], selectedSecurity: selected, data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, summary: data.summary, coverage: data.coverage, topAlerts: data.alerts.slice(0, 12), failures: data.failures, snapshot: data.snapshot, limitations: data.limitations} : {}, actions: [{id: actionId, label: '读取公司事件', available: Boolean(bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)), inputSchema: {oneOf: [{type: 'object', required: ['symbol'], properties: {symbol: {type: 'string'}, asOf: {type: 'string', format: 'date'}}}, {type: 'object', required: ['schema_version', 'as_of', 'market', 'events']}]}}]}; }
+    function publish() { if (!bridge) return; bridge.setContextProvider && bridge.setContextProvider(buildContext); bridge.publishContext && bridge.publishContext(); }
+    async function run(input, button) { if (state.running) return; state.running = true; button.disabled = true; alertBox.style.display = 'none'; queryMeta.textContent = '正在读取 Desk 公告、资金与筹码证据…'; try { render(await request(input)); } catch (error) { alertBox.textContent = error && error.message ? error.message : String(error); alertBox.style.display = 'block'; queryMeta.textContent = '事件与资金读取失败'; } finally { state.running = false; button.disabled = false; } }
+    function symbolParameters() { const symbol = symbolInput.value.trim().toUpperCase(); if (!/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol)) throw new Error('请输入 6 位 A 股代码'); return {symbol, ...(dateInput.value ? {asOf: dateInput.value} : {})}; }
+    function handleSecuritySelected(envelope) { const payload = envelope && envelope.payload || {}; const symbol = String(payload.symbol || payload.code || '').toUpperCase(); if (!/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol) || envelope.source === 'instock-event-flow') return; symbolInput.value = symbol; run(symbolParameters(), runButton); }
+
+    document.getElementById('event-query').addEventListener('submit', event => { event.preventDefault(); try { run(symbolParameters(), runButton); } catch (error) { alertBox.textContent = error.message; alertBox.style.display = 'block'; } });
+    packetButton.addEventListener('click', () => { try { run(JSON.parse(packetInput.value), packetButton); } catch (error) { alertBox.textContent = error.message || String(error); alertBox.style.display = 'block'; } });
+    document.getElementById('event-type-filter').addEventListener('change', renderEvents);
+    document.getElementById('event-direction-filter').addEventListener('change', renderEvents);
+    document.addEventListener('instock:history-selected', event => render(event.detail.payload, event.detail.view_source || 'history'));
+    if (bridge && bridge.subscribe) bridge.subscribe(envelope => { if (envelope.event === 'security.selected') handleSecuritySelected(envelope); });
+    window.InStockEventFlow = Object.freeze({load: () => run(symbolParameters(), runButton), acceptActionResult: render});
+    publish();
+    run(symbolParameters(), runButton);
+})();
+</script>
+{% end %}

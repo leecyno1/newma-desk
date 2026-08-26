@@ -1,0 +1,23 @@
+{
+  "name": "dasheng-video-explainer-html",
+  "version": "0.1.0",
+  "stage": "video",
+  "description": "无真人出镜HTML文章科普视频分镜与html-video工作流。",
+  "runner": "python",
+  "entry": "../../scripts/video_explainer_storyboard.py",
+  "inputs": {
+    "required": [
+      "article HTML"
+    ],
+    "optional": [
+      "TTS provider config",
+      "music preference"
+    ]
+  },
+  "outputs": [
+    "explainer_storyboard.json",
+    "storyboard_preview.html",
+    "final_explainer_vertical.mp4"
+  ],
+  "hitl": true
+}

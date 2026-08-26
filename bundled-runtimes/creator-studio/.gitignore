@@ -1,0 +1,177 @@
+# local secrets
+.env
+.tushare_token
+/configs/image_generation/providers.local.env
+/configs/image_generation/*.local.env
+/configs/feishu/*_bot_config.json
+/configs/feishu/*_migration_status_*.md
+/configs/publish/account_registry.local.json
+
+# OS/editor noise
+.DS_Store
+._*
+.playwright-cli/
+.qoder/
+
+# python
+.venv/
+.venv_media/
+.venv-qc/
+__pycache__/
+*.pyc
+
+# local caches/runtime outputs
+.cache/
+.pytest_cache/
+.tmp/
+.tmp_test/
+.codex_work/
+skills/dasheng-daily-shared/runtime-data/runs/
+
+# generated charts
+figures/
+
+# generated workflow/content outputs (canonical output root: ~/Desktop/自媒体创作)
+/产物/
+/素材/
+/项目/运行产物/
+/项目/临时产物/
+/项目/视频产物/
+/项目/音频产物/
+
+# temporary files and build artifacts
+/tmp/
+/交付镜像/
+/scratch/
+/quarantine/
+
+# one-off scripts (use scripts/ directory for project scripts)
+feishu_image_refill.py
+feishu_image_upload.py
+feishu_refill_final.py
+feishu_refill_v2.py
+generate_infographics.py
+scripts_wechat_fetch.py
+scripts_wechat_fetch_urls.py
+/director_samples_*.tsx
+/scripts/build_conversational_video_production.py
+/scripts/build_director_samples_v3.py
+/scripts/build_wechat_article_v3.py
+/scripts/clean_stage3_outputs.py
+/scripts/extract_imagegen_from_session.py
+/scripts/refine_caption_timing_from_silence.py
+/scripts/render_current_article_diagrams.py
+/scripts/render_wechat_assets.py
+
+# archive exports
+newma-media-studio-*.tar.gz
+
+# data snapshots
+/data/tushare/
+configs/paths.local.yaml
+
+# local external skill candidates downloaded for evaluation.
+# Promote with `git add -f` only after registry review and stage integration.
+/skills/a-stock-data/
+/skills/agent-browser/
+/skills/agentmail/
+/skills/alphaear-*/
+/skills/anthropic-fs-*/
+/skills/backtest-expert/
+/skills/brainstorming/
+/skills/breadth-chart-analyst/
+/skills/breakout-trade-planner/
+/skills/canslim-screener/
+/skills/content-strategy/
+/skills/data-analyst/
+/skills/data-quality-checker/
+/skills/dividend-growth-pullback-screener/
+/skills/downtrend-duration-analyzer/
+/skills/dual-axis-skill-reviewer/
+/skills/earnings-calendar/
+/skills/earnings-preview/
+/skills/earnings-recap/
+/skills/earnings-trade-analyzer/
+/skills/economic-calendar-fetcher/
+/skills/edge-*/
+/skills/etf-premium/
+/skills/exposure-coach/
+/skills/find-skills/
+/skills/finviz-screener/
+/skills/ftd-detector/
+/skills/fullstack-dev/
+/skills/gemini-image-service/
+/skills/generative-ui/
+/skills/github/
+/skills/html-anything/
+/skills/ibd-distribution-day-monitor/
+/skills/ima/
+/skills/institutional-flow-tracker/
+/skills/kanchi-*/
+/skills/llmquant-*/
+/skills/macro-regime-detector/
+/skills/market-*/
+/skills/mcp-builder/
+/skills/media-downloader/
+/skills/minimax-docx/
+/skills/minimax-xlsx/
+/skills/model-usage/
+/skills/multi-search-engine/
+/skills/nano-pdf/
+/skills/news-radar/
+/skills/openclaw-stock-kb/
+/skills/options-strategy-advisor/
+/skills/pair-trade-screener/
+/skills/parabolic-short-trade-planner/
+/skills/pead-screener/
+/skills/planning-with-files/
+/skills/policy-monitor/
+/skills/position-sizer/
+/skills/pptx-generator/
+/skills/proactive-agent/
+/skills/pybroker-backtest-skill/
+/skills/scenario-analyzer/
+/skills/sector-analyst/
+/skills/sepa-strategy/
+/skills/signal-postmortem/
+/skills/skill-*/
+/skills/stanley-druckenmiller-investment/
+/skills/stock-analysis/
+/skills/stock-monitor-skill/
+/skills/strategy-pivot-designer/
+/skills/task/
+/skills/technical-analyst/
+/skills/theme-detector/
+/skills/trade-hypothesis-ideator/
+/skills/trader-memory-core/
+/skills/tushare-openclaw-skill/
+/skills/uptrend-analyzer/
+/skills/url-to-markdown/
+/skills/us-*/
+/skills/value-dividend-screener/
+/skills/vcp-screener/
+/skills/verification-before-completion/
+/skills/weather/
+/skills/writing-skills/
+/skills/yfinance-data/
+
+# archived duplicate global skills kept out of active project skill surface
+/skills/.archive_global_duplicates/
+/skills/.archive_official_overlaps/
+/skills/.archive_external_candidates/
+
+# project-local upstream dependencies (independent repositories and runtime state)
+/vendor/publish/social-auto-upload/
+/vendor/reserved/
+
+# generated distributable mirrors; rebuild with scripts/export_skill_suite.py
+/openclaw-skill-exports/
+
+# local source snapshots and creator projects
+/data/wechat_scrapes/
+/data/xiaohongshu_scrapes/
+/项目/进行中/
+
+# generated local review sites
+/docs/technical/*.review.html
+/docs/technical/video-technical-stack-registry.html

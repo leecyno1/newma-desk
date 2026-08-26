@@ -1,0 +1,165 @@
+{
+  "skill_id": "dasheng-media-platform",
+  "version": "2.0.0",
+  "name": "大声自媒体创作工作台",
+  "name_en": "Dasheng Media Creation Platform",
+  "description": "高度自动化的7环节自媒体创作系统，支持从内容采集到分析复盘的完整流程",
+  "author": "Dasheng Team",
+  "license": "MIT",
+  "homepage": "https://github.com/dasheng/media-platform",
+
+  "compatible_platforms": [
+    "lobster",
+    "claude",
+    "openai",
+    "custom"
+  ],
+
+  "dependencies": {
+    "python": ">=3.10",
+    "anthropic": ">=0.18.0",
+    "openai": ">=1.0.0",
+    "pyyaml": ">=6.0",
+    "pillow": ">=10.0.0",
+    "requests": ">=2.31.0"
+  },
+
+  "entry_point": "core/orchestrator.py",
+  "config_schema": "skill_package/config_schema.json",
+
+  "stages": [
+    {
+      "id": "intake",
+      "name": "内容采集",
+      "name_en": "Content Intake",
+      "auto": true,
+      "hitl": false,
+      "executor": "scripts/run_stage1_intake.py",
+      "inputs": [],
+      "outputs": ["intake_records.json", "entity_rankings.json", "event_clusters.json"]
+    },
+    {
+      "id": "brief",
+      "name": "选题分析",
+      "name_en": "Topic Brief",
+      "auto": false,
+      "hitl": true,
+      "executor": "skills/dasheng-stage-brief-ai",
+      "inputs": ["intake_records.json"],
+      "outputs": ["topic_cards.json", "selected_topics.json"]
+    },
+    {
+      "id": "draft",
+      "name": "初稿生成",
+      "name_en": "Draft Generation",
+      "auto": true,
+      "hitl": false,
+      "executor": "skills/dasheng-stage-draft",
+      "inputs": ["selected_topics.json"],
+      "outputs": ["drafts/", "reasoning_sheets/", "draft_manifest.json"]
+    },
+    {
+      "id": "material",
+      "name": "素材收集",
+      "name_en": "Material Collection",
+      "auto": false,
+      "hitl": true,
+      "executor": "scripts/material_execute_pack.py",
+      "inputs": ["draft_manifest.json"],
+      "outputs": ["material_pack/", "material_manifest.json"]
+    },
+    {
+      "id": "rewrite",
+      "name": "改写",
+      "name_en": "Rewrite",
+      "auto": false,
+      "hitl": true,
+      "executor": "scripts/rewrite_execute_stage5.py",
+      "inputs": ["draft_manifest.json", "material_manifest.json"],
+      "outputs": ["rewrite_versions/", "rewrite_manifest.json"]
+    },
+    {
+      "id": "publish",
+      "name": "渠道分发",
+      "name_en": "Publishing",
+      "auto": true,
+      "hitl": false,
+      "executor": "skills/dasheng-stage-publish",
+      "inputs": ["rewrite_manifest.json"],
+      "outputs": ["publish_packages/", "publish_manifest.json"]
+    },
+    {
+      "id": "postmortem",
+      "name": "分析复盘",
+      "name_en": "Postmortem",
+      "auto": true,
+      "hitl": false,
+      "executor": "skills/dasheng-daily-postmortem",
+      "inputs": ["publish_manifest.json"],
+      "outputs": ["postmortem_report.md", "dna_updates.json"]
+    }
+  ],
+
+  "features": [
+    "7环节完整流程",
+    "DNA风格系统",
+    "AI能力深度集成",
+    "质量自动评分",
+    "HITL检查点",
+    "多平台适配",
+    "可配置化",
+    "可扩展架构"
+  ],
+
+  "dna_system": {
+    "styles": ["luxun", "lemon", "academic", "hot", "normal"],
+    "structures": ["PAS", "PCIS", "CCS", "Timeline", "MultiDimension"],
+    "visual_styles": ["realistic", "flat_illustration", "comic", "data_chart"],
+    "quality_dimensions": 6
+  },
+
+  "ai_capabilities": {
+    "reasoning": true,
+    "writing": true,
+    "image_generation": true,
+    "video_script": true
+  },
+
+  "installation": {
+    "method": "pip",
+    "command": "pip install dasheng-media-platform",
+    "post_install": "python -m dasheng.setup"
+  },
+
+  "configuration": {
+    "config_file": "dna/dna_config.yaml",
+    "required_keys": ["project", "ai_capabilities"],
+    "optional_keys": ["default_style", "default_structure", "visual_defaults"]
+  },
+
+  "api": {
+    "orchestrator": "core.orchestrator.Orchestrator",
+    "dna_engine": "core.dna_engine.DNAEngine",
+    "ai_integrator": "core.ai_integrator.AIIntegrator"
+  },
+
+  "changelog": {
+    "2.0.0": {
+      "date": "2026-04-13",
+      "changes": [
+        "全新DNA系统",
+        "AI能力深度集成",
+        "流程编排器",
+        "增强版Prompt系统",
+        "Skill打包支持"
+      ]
+    },
+    "1.0.0": {
+      "date": "2026-04-01",
+      "changes": [
+        "初始版本",
+        "7环节基础实现"
+      ]
+    }
+  }
+}

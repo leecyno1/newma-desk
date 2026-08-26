@@ -1,0 +1,85 @@
+{
+  "schema_version": "dasheng.lemon_illustration_router.v1",
+  "updated_at": "2026-08-14",
+  "default_skill": "dasheng-lemon-illustrations",
+  "trigger_policy": {
+    "semantic_scan_required": true,
+    "explicit_triggers": {
+      "example": ["比如", "例如", "举个例子", "举例来说", "假设一下", "想象一下", "试想", "打个比方"],
+      "metaphor": ["就像", "好比", "仿佛", "如同", "可以把...看作", "把...比作"],
+      "financial_metaphor": ["抽血", "虹吸", "踩刹车", "开闸", "蓄水池", "地心引力", "安全绳", "接力", "吞噬", "黑洞", "跷跷板", "温度计", "发动机", "传送带", "漏斗", "闸门"]
+    },
+    "generate_when": [
+      "the source explicitly uses a metaphor or example and the visual makes the mechanism easier to understand",
+      "the idea can be expressed as one concrete action by the lemon character",
+      "the image adds a cognitive anchor instead of repeating the paragraph"
+    ],
+    "skip_when": [
+      "the sentence is literal despite matching a trigger word",
+      "real evidence or a real chart is the correct visual",
+      "the proposed image is only a decorative mascot",
+      "the same metaphor or pose has already appeared nearby"
+    ]
+  },
+  "story_grammars": {
+    "literalized_metaphor": "Turn an abstract phrase into one absurd physical action.",
+    "example_micro_story": "Use setup -> action -> result, normally one image or 2-3 panels.",
+    "contrast": "Show two systems or choices with one stable left/right comparison.",
+    "causal_machine": "Use a machine, relay, pipe, gate, conveyor, or bridge to show transmission.",
+    "constraint_risk": "Use weight, bottleneck, thin bridge, leak, pit, or stuck mechanism.",
+    "scale_ratio": "Use exaggerated object size while keeping labels sparse.",
+    "cycle_time": "Use a wheel, loop, season, or conveyor with one highlighted phase.",
+    "counterintuitive_twist": "Reveal a reversed direction, upside-down rule, or unexpected operator action."
+  },
+  "channel_rules": {
+    "wechat_article": {
+      "mode": "full_canvas",
+      "placement": "immediately_after_source_paragraph",
+      "aspect_ratio": "16:9",
+      "density": "normally 1 illustration per 500-900 Chinese characters; 4-8 for a long article",
+      "caption": "optional one-line interpretation; never repeat the paragraph"
+    },
+    "talking_head_video": {
+      "modes": ["transparent_overlay", "full_canvas_with_speaker_hidden", "pip_morph"],
+      "simple_duration_sec": [4, 7],
+      "example_duration_sec": [7, 12],
+      "motion": "setup -> character action -> result -> speaker or evidence return",
+      "max_consecutive": 2
+    },
+    "explainer_html_video": {
+      "modes": ["full_canvas", "layered_character_prop_path"],
+      "simple_duration_sec": [4, 7],
+      "example_duration_sec": [7, 12],
+      "motion": "setup -> character action -> result -> evidence or chapter continuation",
+      "max_consecutive": 2
+    },
+    "vox_explainer_video": {
+      "modes": ["editorial_schematic", "transparent_overlay"],
+      "simple_duration_sec": [4, 7],
+      "example_duration_sec": [7, 12],
+      "motion": "setup -> character action -> result -> direct evidence return",
+      "max_consecutive": 1
+    },
+    "digital_human_video": {
+      "modes": ["evidence_fullscreen", "transparent_presenter_overlay", "speaker_hidden_full_canvas"],
+      "simple_duration_sec": [4, 7],
+      "example_duration_sec": [7, 12],
+      "motion": "setup -> character action -> result -> active presenter or evidence return",
+      "max_consecutive": 1
+    },
+    "cinematic_short_drama_video": {
+      "modes": ["planning_reference_only"],
+      "motion": "director_decides_after_pipeline_activation",
+      "max_consecutive": 0
+    }
+  },
+  "evidence_policy": {
+    "authenticity": "schematic",
+    "never_replace": ["real chart", "article chart", "table", "official webpage", "source document", "product UI", "map", "speaker"]
+  },
+  "output_policy": {
+    "required_root": "~/Desktop/自媒体创作",
+    "intent_artifact": "03_IllustrationIntents_<topic>.json",
+    "runtime_asset_dir": "<stage-topic-dir>/lemon_illustrations"
+  }
+}

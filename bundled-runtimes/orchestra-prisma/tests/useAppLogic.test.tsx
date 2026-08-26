@@ -1,0 +1,592 @@
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { AppConfig, ChatGroup, ChatMessage, ChatSession, ExpertResult } from '@/types';
+
+const chatSessionsMock = vi.hoisted(() => ({
+  sessions: [] as ChatSession[],
+  groups: [] as ChatGroup[],
+  currentSessionId: null as string | null,
+  setCurrentSessionId: vi.fn<(id: string | null) => void>(),
+  createSession: vi.fn<(messages: ChatMessage[], model: string) => string>(),
+  updateSessionMessages: vi.fn<(id: string, messages: ChatMessage[]) => void>(),
+  deleteSession: vi.fn<(id: string) => void>(),
+  renameSession: vi.fn<(id: string, title: string) => void>(),
+  togglePinSession: vi.fn<(id: string) => void>(),
+  duplicateSession: vi.fn<(id: string) => string | null>(),
+  createGroup: vi.fn<() => string>(),
+  deleteGroup: vi.fn<(id: string) => void>(),
+  renameGroup: vi.fn<(id: string, title: string) => void>(),
+  moveSessionToGroup: vi.fn<(sessionId: string, groupId: string | null) => void>(),
+  toggleGroupExpansion: vi.fn<(id: string) => void>(),
+  getSession: vi.fn<(id: string) => ChatSession | undefined>(),
+}));
+
+const deepThinkMock = vi.hoisted(() => ({
+  appState: 'idle' as 'idle' | 'completed',
+  managerAnalysis: null as { thought_process: string; experts: Omit<ExpertResult, 'id'>[] } | null,
+  experts: [] as ExpertResult[],
+  finalOutput: '',
+  synthesisThoughts: '',
+  runDynamicDeepThink: vi.fn(),
+  stopDeepThink: vi.fn(),
+  resetDeepThink: vi.fn(),
+  processStartTime: null as number | null,
+  processEndTime: null as number | null,
+}));
+
+vi.mock('@/hooks/useChatSessions', () => ({
+  useChatSessions: () => ({
+    sessions: chatSessionsMock.sessions,
+    groups: chatSessionsMock.groups,
+    currentSessionId: chatSessionsMock.currentSessionId,
+    setCurrentSessionId: chatSessionsMock.setCurrentSessionId,
+    createSession: chatSessionsMock.createSession,
+    updateSessionMessages: chatSessionsMock.updateSessionMessages,
+    deleteSession: chatSessionsMock.deleteSession,
+    renameSession: chatSessionsMock.renameSession,
+    togglePinSession: chatSessionsMock.togglePinSession,
+    duplicateSession: chatSessionsMock.duplicateSession,
+    createGroup: chatSessionsMock.createGroup,
+    deleteGroup: chatSessionsMock.deleteGroup,
+    renameGroup: chatSessionsMock.renameGroup,
+    moveSessionToGroup: chatSessionsMock.moveSessionToGroup,
+    toggleGroupExpansion: chatSessionsMock.toggleGroupExpansion,
+    getSession: chatSessionsMock.getSession,
+  }),
+}));
+
+vi.mock('@/hooks/useDeepThink', () => ({
+  useDeepThink: () => ({
+    appState: deepThinkMock.appState,
+    managerAnalysis: deepThinkMock.managerAnalysis,
+    experts: deepThinkMock.experts,
+    finalOutput: deepThinkMock.finalOutput,
+    synthesisThoughts: deepThinkMock.synthesisThoughts,
+    runDynamicDeepThink: deepThinkMock.runDynamicDeepThink,
+    stopDeepThink: deepThinkMock.stopDeepThink,
+    resetDeepThink: deepThinkMock.resetDeepThink,
+    processStartTime: deepThinkMock.processStartTime,
+    processEndTime: deepThinkMock.processEndTime,
+  }),
+}));
+
+import { DEFAULT_CONFIG, DEFAULT_MODEL, STORAGE_KEYS } from '@/config';
+import { useAppLogic } from '@/hooks/useAppLogic';
+
+const baseConfig: AppConfig = {
+  ...DEFAULT_CONFIG,
+  customModels: [{ id: 'glm-1', name: 'glm-5-turbo', displayName: 'GLM 5', provider: 'openai' }],
+};
+
+const legacyBundledConfig: AppConfig = {
+  ...DEFAULT_CONFIG,
+  customModels: [
+    {
+      id: 'custom-glm-5-turbo',
+      name: 'glm-5-turbo',
+      displayName: 'GLM-5 Turbo',
+      provider: 'openai',
+    },
+    {
+      id: 'custom-glm-5-turbo-nothinking',
+      name: 'glm-5-turbo-nothinking',
+      displayName: 'GLM-5 Turbo Nothinking',
+      provider: 'openai',
+    },
+  ],
+  modelPreferences: {
+    'glm-5-turbo': { planningLevel: 'low' },
+  },
+};
+
+const session: ChatSession = {
+  id: 'session-1',
+  title: 'Saved chat',
+  createdAt: 1,
+  model: 'glm-5-turbo',
+  messages: [{ id: 'saved-user', role: 'user', content: 'saved prompt' }],
+};
+
+describe('useAppLogic', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    chatSessionsMock.sessions = [];
+    chatSessionsMock.groups = [];
+    chatSessionsMock.currentSessionId = null;
+    chatSessionsMock.setCurrentSessionId.mockReset().mockImplementation((id) => {
+      chatSessionsMock.currentSessionId = id;
+    });
+    chatSessionsMock.createSession.mockReset().mockReturnValue('created-session');
+    chatSessionsMock.updateSessionMessages.mockReset();
+    chatSessionsMock.deleteSession.mockReset();
+    chatSessionsMock.renameSession.mockReset();
+    chatSessionsMock.togglePinSession.mockReset();
+    chatSessionsMock.duplicateSession.mockReset().mockReturnValue('duplicated-session');
+    chatSessionsMock.createGroup.mockReset().mockReturnValue('group-1');
+    chatSessionsMock.deleteGroup.mockReset();
+    chatSessionsMock.renameGroup.mockReset();
+    chatSessionsMock.moveSessionToGroup.mockReset();
+    chatSessionsMock.toggleGroupExpansion.mockReset();
+    chatSessionsMock.getSession
+      .mockReset()
+      .mockImplementation((id) => chatSessionsMock.sessions.find((entry) => entry.id === id));
+
+    deepThinkMock.appState = 'idle';
+    deepThinkMock.managerAnalysis = null;
+    deepThinkMock.experts = [];
+    deepThinkMock.finalOutput = '';
+    deepThinkMock.synthesisThoughts = '';
+    deepThinkMock.runDynamicDeepThink.mockReset();
+    deepThinkMock.stopDeepThink.mockReset();
+    deepThinkMock.resetDeepThink.mockReset();
+    deepThinkMock.processStartTime = null;
+    deepThinkMock.processEndTime = null;
+
+    vi.spyOn(Date, 'now').mockReturnValue(2000);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+  });
+
+  it('loads the selected session and model from session state', async () => {
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(baseConfig));
+    chatSessionsMock.sessions = [session];
+    chatSessionsMock.currentSessionId = 'session-1';
+
+    const { result } = renderHook(() => useAppLogic());
+
+    await waitFor(() => {
+      expect(result.current.messages).toEqual(session.messages);
+      expect(result.current.selectedModel).toBe('glm-5-turbo');
+    });
+  });
+
+  it('keeps the cached active session id until async sessions are available', async () => {
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(baseConfig));
+    localStorage.setItem(STORAGE_KEYS.SESSION_ID, 'session-1');
+    chatSessionsMock.sessions = [];
+
+    const { rerender } = renderHook(() => useAppLogic());
+
+    expect(localStorage.getItem(STORAGE_KEYS.SESSION_ID)).toBe('session-1');
+    expect(chatSessionsMock.setCurrentSessionId).not.toHaveBeenCalledWith('session-1');
+
+    chatSessionsMock.sessions = [session];
+    rerender();
+
+    await waitFor(() => {
+      expect(chatSessionsMock.setCurrentSessionId).toHaveBeenCalledWith('session-1');
+    });
+  });
+
+  it('migrates legacy bundled models out of cached settings', async () => {
+    localStorage.setItem(STORAGE_KEYS.MODEL, 'glm-5-turbo');
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(legacyBundledConfig));
+
+    const { result } = renderHook(() => useAppLogic());
+
+    expect(result.current.selectedModel).toBe(DEFAULT_MODEL);
+    expect(result.current.config.customModels).toEqual([]);
+    expect(result.current.config.modelPreferences).not.toHaveProperty('glm-5-turbo');
+
+    await waitFor(() => {
+      expect(localStorage.getItem(STORAGE_KEYS.MODEL)).toBeNull();
+    });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}')).toEqual(
+      expect.objectContaining({
+        customModels: [],
+        modelPreferences: {},
+      }),
+    );
+  });
+
+  it('keeps the sidebar open by default on desktop and closed by default on mobile', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+    const desktop = renderHook(() => useAppLogic());
+
+    expect(desktop.result.current.isSidebarOpen).toBe(true);
+
+    desktop.unmount();
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 640 });
+    const mobile = renderHook(() => useAppLogic());
+
+    expect(mobile.result.current.isSidebarOpen).toBe(false);
+  });
+
+  it('restores and persists the sidebar expanded state across reloads', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+    localStorage.setItem(STORAGE_KEYS.SIDEBAR_OPEN, 'false');
+
+    const desktop = renderHook(() => useAppLogic());
+
+    expect(desktop.result.current.isSidebarOpen).toBe(false);
+
+    act(() => {
+      desktop.result.current.setIsSidebarOpen(true);
+    });
+
+    await waitFor(() => {
+      expect(localStorage.getItem(STORAGE_KEYS.SIDEBAR_OPEN)).toBe('true');
+    });
+
+    desktop.unmount();
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 640 });
+    const mobile = renderHook(() => useAppLogic());
+
+    expect(mobile.result.current.isSidebarOpen).toBe(true);
+  });
+
+  it('blocks unsupported attachments for openai-compatible models', async () => {
+    localStorage.setItem('prisma-selected-model', 'glm-5-turbo');
+    localStorage.setItem('prisma-settings', JSON.stringify(baseConfig));
+
+    const { result } = renderHook(() => useAppLogic());
+
+    act(() => {
+      result.current.setQuery('read this');
+    });
+
+    let didRun = true;
+    act(() => {
+      didRun = result.current.handleRun([
+        {
+          id: 'pdf-1',
+          type: 'pdf',
+          mimeType: 'application/pdf',
+          data: 'fake',
+          name: 'paper.pdf',
+        },
+      ]);
+    });
+
+    expect(didRun).toBe(false);
+    expect(result.current.inputError).toContain('paper.pdf');
+    expect(chatSessionsMock.createSession).not.toHaveBeenCalled();
+    expect(deepThinkMock.runDynamicDeepThink).not.toHaveBeenCalled();
+  });
+
+  it('creates a new session and starts deep thinking for successful runs', async () => {
+    localStorage.setItem('prisma-settings', JSON.stringify(baseConfig));
+    const { result } = renderHook(() => useAppLogic());
+
+    act(() => {
+      result.current.setQuery('hello world');
+    });
+
+    let didRun = false;
+    act(() => {
+      didRun = result.current.handleRun();
+    });
+
+    expect(didRun).toBe(true);
+    expect(chatSessionsMock.createSession).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          role: 'user',
+          content: 'hello world',
+        }),
+      ],
+      'glm-5-turbo',
+    );
+    expect(deepThinkMock.runDynamicDeepThink).toHaveBeenCalledWith(
+      'hello world',
+      [
+        expect.objectContaining({
+          role: 'user',
+          content: 'hello world',
+        }),
+      ],
+      'glm-5-turbo',
+      expect.objectContaining({ planningLevel: DEFAULT_CONFIG.planningLevel }),
+    );
+    expect(result.current.query).toBe('');
+  });
+
+  it('finalizes a completed deep-think response into session messages', async () => {
+    chatSessionsMock.sessions = [session];
+    chatSessionsMock.currentSessionId = 'session-1';
+
+    const { result, rerender } = renderHook(() => useAppLogic());
+
+    await waitFor(() => {
+      expect(result.current.messages).toEqual(session.messages);
+    });
+
+    deepThinkMock.appState = 'completed';
+    deepThinkMock.finalOutput = 'final answer';
+    deepThinkMock.managerAnalysis = { thought_process: 'analysis', experts: [] };
+    deepThinkMock.experts = [
+      {
+        id: 'expert-1',
+        role: 'Analyst',
+        description: 'Analyzes',
+        temperature: 0.2,
+        prompt: 'analyze',
+        status: 'completed',
+      },
+    ];
+    deepThinkMock.synthesisThoughts = 'combined thoughts';
+    deepThinkMock.processStartTime = 1000;
+    deepThinkMock.processEndTime = 1500;
+
+    rerender();
+
+    await waitFor(() => {
+      expect(chatSessionsMock.updateSessionMessages).toHaveBeenCalledWith(
+        'session-1',
+        expect.arrayContaining([
+          expect.objectContaining({ content: 'saved prompt' }),
+          expect.objectContaining({
+            role: 'model',
+            content: 'final answer',
+            totalDuration: 500,
+          }),
+        ]),
+      );
+    });
+
+    expect(deepThinkMock.resetDeepThink).toHaveBeenCalled();
+    expect(result.current.focusTrigger).toBe(1);
+  });
+
+  it('resets app state and closes the sidebar on mobile for new chats and selection', async () => {
+    const { result } = renderHook(() => useAppLogic());
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 640 });
+    localStorage.setItem(STORAGE_KEYS.SESSION_ID, 'session-1');
+
+    act(() => {
+      result.current.setIsSidebarOpen(true);
+      result.current.setQuery('draft');
+      result.current.handleNewChat();
+    });
+
+    expect(deepThinkMock.stopDeepThink).toHaveBeenCalled();
+    expect(deepThinkMock.resetDeepThink).toHaveBeenCalled();
+    expect(chatSessionsMock.setCurrentSessionId).toHaveBeenCalledWith(null);
+    expect(result.current.isSidebarOpen).toBe(false);
+    expect(result.current.query).toBe('');
+    expect(localStorage.getItem(STORAGE_KEYS.SESSION_ID)).toBeNull();
+
+    act(() => {
+      result.current.handleSelectSession('session-2');
+    });
+
+    expect(chatSessionsMock.setCurrentSessionId).toHaveBeenCalledWith('session-2');
+    expect(result.current.isSidebarOpen).toBe(false);
+  });
+
+  it('updates per-model settings helpers and deletes the active session through the new-chat path', async () => {
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(baseConfig));
+    chatSessionsMock.sessions = [session];
+    chatSessionsMock.currentSessionId = 'session-1';
+
+    const { result } = renderHook(() => useAppLogic());
+
+    await waitFor(() => {
+      expect(result.current.messages).toEqual(session.messages);
+    });
+
+    act(() => {
+      result.current.handleSetThinkingLevel('planningLevel', 'low');
+      result.current.handleSetRecursiveLoop(false);
+      result.current.clearInputError();
+    });
+
+    expect(result.current.config.modelPreferences?.['glm-5-turbo']).toMatchObject({
+      planningLevel: 'low',
+      enableRecursiveLoop: false,
+    });
+    expect(result.current.inputError).toBeNull();
+
+    act(() => {
+      result.current.handleDeleteSession('session-1', {
+        stopPropagation: vi.fn(),
+      } as unknown as React.MouseEvent);
+    });
+
+    expect(chatSessionsMock.deleteSession).toHaveBeenCalledWith('session-1');
+    expect(deepThinkMock.stopDeepThink).toHaveBeenCalled();
+    expect(chatSessionsMock.setCurrentSessionId).toHaveBeenCalledWith(null);
+  });
+
+  it('deletes a message from the active session', async () => {
+    const messageSession: ChatSession = {
+      ...session,
+      messages: [
+        { id: 'user-1', role: 'user', content: 'question' },
+        { id: 'model-1', role: 'model', content: 'answer' },
+      ],
+    };
+    chatSessionsMock.sessions = [messageSession];
+    chatSessionsMock.currentSessionId = 'session-1';
+
+    const { result } = renderHook(() => useAppLogic());
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(2);
+    });
+
+    act(() => {
+      result.current.handleDeleteMessage('model-1');
+    });
+
+    expect(result.current.messages).toEqual([{ id: 'user-1', role: 'user', content: 'question' }]);
+    expect(chatSessionsMock.updateSessionMessages).toHaveBeenCalledWith('session-1', [
+      { id: 'user-1', role: 'user', content: 'question' },
+    ]);
+  });
+
+  it('prepares a user message for resend by trimming later messages into the input', async () => {
+    const messageSession: ChatSession = {
+      ...session,
+      messages: [
+        { id: 'user-1', role: 'user', content: 'first question' },
+        { id: 'model-1', role: 'model', content: 'first answer' },
+        { id: 'user-2', role: 'user', content: 'rewrite this' },
+        { id: 'model-2', role: 'model', content: 'second answer' },
+      ],
+    };
+    chatSessionsMock.sessions = [messageSession];
+    chatSessionsMock.currentSessionId = 'session-1';
+
+    const { result } = renderHook(() => useAppLogic());
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(4);
+    });
+
+    act(() => {
+      result.current.handleEditMessage('user-2', 'resend');
+    });
+
+    expect(result.current.query).toBe('rewrite this');
+    expect(result.current.messages).toEqual([
+      { id: 'user-1', role: 'user', content: 'first question' },
+      { id: 'model-1', role: 'model', content: 'first answer' },
+    ]);
+    expect(result.current.focusTrigger).toBe(1);
+    expect(chatSessionsMock.updateSessionMessages).toHaveBeenCalledWith('session-1', [
+      { id: 'user-1', role: 'user', content: 'first question' },
+      { id: 'model-1', role: 'model', content: 'first answer' },
+    ]);
+  });
+
+  it('retries a model message from the previous user message', async () => {
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(baseConfig));
+    const messageSession: ChatSession = {
+      ...session,
+      messages: [
+        { id: 'user-1', role: 'user', content: 'first question' },
+        { id: 'model-1', role: 'model', content: 'first answer' },
+        { id: 'user-2', role: 'user', content: 'retry me' },
+        { id: 'model-2', role: 'model', content: 'stale answer' },
+      ],
+    };
+    chatSessionsMock.sessions = [messageSession];
+    chatSessionsMock.currentSessionId = 'session-1';
+
+    const { result } = renderHook(() => useAppLogic());
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(4);
+    });
+
+    act(() => {
+      result.current.handleRetryMessage('model-2');
+    });
+
+    const expectedHistory = [
+      { id: 'user-1', role: 'user', content: 'first question' },
+      { id: 'model-1', role: 'model', content: 'first answer' },
+      { id: 'user-2', role: 'user', content: 'retry me' },
+    ];
+    expect(result.current.messages).toEqual(expectedHistory);
+    expect(chatSessionsMock.updateSessionMessages).toHaveBeenCalledWith(
+      'session-1',
+      expectedHistory,
+    );
+    expect(deepThinkMock.stopDeepThink).toHaveBeenCalled();
+    expect(deepThinkMock.resetDeepThink).toHaveBeenCalled();
+    expect(deepThinkMock.runDynamicDeepThink).toHaveBeenCalledWith(
+      'retry me',
+      expectedHistory,
+      'glm-5-turbo',
+      expect.objectContaining({ planningLevel: DEFAULT_CONFIG.planningLevel }),
+    );
+  });
+
+  it('retries a model message when the previous user message only has attachments', async () => {
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(baseConfig));
+    const attachment = {
+      id: 'image-1',
+      type: 'image' as const,
+      name: 'diagram.png',
+      mimeType: 'image/png',
+      data: 'ZmFrZQ==',
+    };
+    const messageSession: ChatSession = {
+      ...session,
+      messages: [
+        { id: 'user-1', role: 'user', content: '', attachments: [attachment] },
+        { id: 'model-1', role: 'model', content: 'stale answer' },
+      ],
+    };
+    chatSessionsMock.sessions = [messageSession];
+    chatSessionsMock.currentSessionId = 'session-1';
+
+    const { result } = renderHook(() => useAppLogic());
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(2);
+    });
+
+    act(() => {
+      result.current.handleRetryMessage('model-1');
+    });
+
+    const expectedHistory = [{ id: 'user-1', role: 'user', content: '', attachments: [attachment] }];
+    expect(result.current.messages).toEqual(expectedHistory);
+    expect(chatSessionsMock.updateSessionMessages).toHaveBeenCalledWith(
+      'session-1',
+      expectedHistory,
+    );
+    expect(deepThinkMock.runDynamicDeepThink).toHaveBeenCalledWith(
+      '',
+      expectedHistory,
+      'glm-5-turbo',
+      expect.objectContaining({ planningLevel: DEFAULT_CONFIG.planningLevel }),
+    );
+  });
+
+  it('forks the conversation by keeping messages through the selected message', async () => {
+    const messageSession: ChatSession = {
+      ...session,
+      messages: [
+        { id: 'user-1', role: 'user', content: 'first question' },
+        { id: 'model-1', role: 'model', content: 'first answer' },
+        { id: 'user-2', role: 'user', content: 'later question' },
+      ],
+    };
+    chatSessionsMock.sessions = [messageSession];
+    chatSessionsMock.currentSessionId = 'session-1';
+
+    const { result } = renderHook(() => useAppLogic());
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(3);
+    });
+
+    act(() => {
+      result.current.handleForkMessage('model-1');
+    });
+
+    const forkedHistory = [
+      { id: 'user-1', role: 'user', content: 'first question' },
+      { id: 'model-1', role: 'model', content: 'first answer' },
+    ];
+    expect(result.current.messages).toEqual(forkedHistory);
+    expect(result.current.focusTrigger).toBe(1);
+    expect(chatSessionsMock.updateSessionMessages).toHaveBeenCalledWith('session-1', forkedHistory);
+  });
+});

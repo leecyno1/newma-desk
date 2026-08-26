@@ -1,0 +1,54 @@
+{
+  "name": "dasheng-hotspot-radar",
+  "version": "1.0.0",
+  "description": "Standalone public hotspot/news radar for Newma intake and other agents.",
+  "stage": "hotspot_radar",
+  "stage_number": 1,
+  "runner": "python",
+  "upstream_gate": null,
+  "output_gate": "hotspot_radar_manifest.json",
+  "hitl": false,
+  "aliases": [
+    "hotspot-radar",
+    "public-hotspot",
+    "热点捕捉"
+  ],
+  "dependencies": {
+    "python": ">=3.10",
+    "packages": [
+      "requests"
+    ]
+  },
+  "inputs": {
+    "required": [],
+    "optional": [
+      "--output-dir"
+    ]
+  },
+  "outputs": {
+    "documents": [],
+    "manifests": [
+      "hotspot_radar_manifest.json",
+      "hotspot_radar.json",
+      "raw/hotspot_radar.json",
+      "raw/public_news_fallback_items.json",
+      "raw/public_fallback_items.json"
+    ],
+    "gates": [
+      "hotspot_radar_manifest.json"
+    ]
+  },
+  "metadata": {
+    "runner": {
+      "script": "${OPENCLAW_WORKSPACE}/scripts/run_hotspot_radar.py",
+      "stage_root": "${DASHENG_OUTPUT_ROOT:-~/Desktop/自媒体创作}/00_热点捕捉",
+      "manifest": "hotspot_radar_manifest.json"
+    },
+    "requirements": {
+      "no_login_sources": true,
+      "no_topic_hard_filter": true,
+      "preserve_heat_score": true,
+      "preserve_source_health": true
+    }
+  }
+}

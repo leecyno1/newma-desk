@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "id": "instock-technical-signals",
+  "name": "选股中心",
+  "description": "按市场、行情、基本面、形态和经典策略执行硬条件选股。",
+  "version": "0.17.0",
+  "publisher": "InStock Integration",
+  "upstream": "https://github.com/myhhub/stock",
+  "tags": ["硬条件选股", "基本面", "技术指标", "K线形态", "经典策略"],
+  "agentWorkspace": {"type": "runtime", "runtimeId": "instock", "workspaceName": "source"},
+  "runtime": {"type": "external", "baseUrlEnv": "NEWMA_DESK_INSTOCK_WEB_URL", "defaultBaseUrl": "http://127.0.0.1:9988", "route": "/mods/technical-signals"},
+  "manifest": {
+    "schemaVersion": "1.1", "category": "quant",
+    "navigation": {"groupLabel": "量化研究", "groupOrder": 120, "itemOrder": 5, "label": "选股中心", "directory": {"id": "instock-suite", "label": "InStock 分析", "order": 20}, "project": {"id": "quant-research", "name": "量化研究", "order": 120, "description": "市场、选股、技术、结构、轮动与验证。"}, "icon": "quant"},
+    "compatibility": {"level": 2, "bridgeProtocol": "1.0"}, "permissions": ["analysis.read"], "dataServices": [],
+    "actions": {"analysis.technical-signals": {"binding": {"type": "data", "capability": "analysis.technical-signals"}, "execution": "request", "permission": "analysis.read", "inputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"market": {"enum": ["CN", "HK", "CN_HK"]}, "universeMode": {"enum": ["broad", "quick"]}, "universeSize": {"enum": [30, 50, 100, 200]}, "bars": {"enum": [120, 260]}, "bias": {"enum": ["all", "bullish", "neutral", "bearish"]}, "requiredStrategies": {"type": ["string", "array"]}, "requiredPatterns": {"type": ["string", "array"]}, "industries": {"type": ["string", "array"]}, "minTechnicalScore": {"type": "number"}, "minAmount": {"type": "number"}, "minMarketCap": {"type": "number"}, "maxMarketCap": {"type": "number"}, "maxPE": {"type": "number"}, "maxPB": {"type": "number"}, "minROE": {"type": "number"}, "minRevenueGrowth": {"type": "number"}, "minNetProfitGrowth": {"type": "number"}, "minTurnover": {"type": "number"}, "maxTurnover": {"type": "number"}, "minVolumeRatio": {"type": "number"}, "maxVolumeRatio": {"type": "number"}, "maxWorkers": {"type": "integer", "minimum": 1, "maximum": 8}, "refresh": {"enum": ["0", "1"]}}, "additionalProperties": false}, "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object"}, "meta": {"type": "object"}}}, "confirmation": "none", "timeoutSeconds": 120}},
+    "events": {"emits": ["security.selected"], "accepts": ["security.selected"]}, "refresh": {"mode": "manual"}
+  }
+}

@@ -1,0 +1,121 @@
+catalog_version: seven-cycle-scenarios-v1
+scenarios:
+  - scenario_id: baseline
+    name: Baseline
+    version: baseline-v1
+    shocks: []
+
+  - scenario_id: easing
+    name: Monetary and credit easing
+    version: easing-v1
+    shocks:
+      - shock_id: easing_real_rate
+        channel_id: real_rate_discount
+        effective_date_rule: forecast_month:1
+        duration_months: 6
+        end_date_rule: inclusive_duration
+        value: -0.30
+        unit: channel_innovation
+        direction: decrease
+        path: step
+        version: easing-real-rate-v1
+      - shock_id: easing_liquidity
+        channel_id: liquidity_credit
+        effective_date_rule: forecast_month:1
+        duration_months: 6
+        end_date_rule: inclusive_duration
+        value: 0.25
+        unit: channel_innovation
+        direction: increase
+        path: step
+        version: easing-liquidity-v1
+
+  - scenario_id: tightening
+    name: Monetary and credit tightening
+    version: tightening-v1
+    shocks:
+      - shock_id: tightening_real_rate
+        channel_id: real_rate_discount
+        effective_date_rule: forecast_month:1
+        duration_months: 6
+        end_date_rule: inclusive_duration
+        value: 0.30
+        unit: channel_innovation
+        direction: increase
+        path: step
+        version: tightening-real-rate-v1
+      - shock_id: tightening_liquidity
+        channel_id: liquidity_credit
+        effective_date_rule: forecast_month:1
+        duration_months: 6
+        end_date_rule: inclusive_duration
+        value: -0.25
+        unit: channel_innovation
+        direction: decrease
+        path: step
+        version: tightening-liquidity-v1
+
+  - scenario_id: growth
+    name: Positive growth demand shock
+    version: growth-v1
+    shocks:
+      - shock_id: growth_demand_upside
+        channel_id: growth_demand
+        effective_date_rule: forecast_month:1
+        duration_months: 9
+        end_date_rule: inclusive_duration
+        value: 0.35
+        unit: channel_innovation
+        direction: increase
+        path: step
+        version: growth-demand-v1
+
+  - scenario_id: inflation
+    name: Inflation and discount-rate shock
+    version: inflation-v1
+    shocks:
+      - shock_id: inflation_prices_upside
+        channel_id: inflation_prices
+        effective_date_rule: forecast_month:1
+        duration_months: 9
+        end_date_rule: inclusive_duration
+        value: 0.40
+        unit: channel_innovation
+        direction: increase
+        path: step
+        version: inflation-prices-v1
+      - shock_id: inflation_real_rate_response
+        channel_id: real_rate_discount
+        effective_date_rule: forecast_month:3
+        duration_months: 6
+        end_date_rule: inclusive_duration
+        value: 0.15
+        unit: channel_innovation
+        direction: increase
+        path: linear
+        version: inflation-real-rate-v1
+
+  - scenario_id: geopolitical_supply
+    name: Geopolitical supply disruption
+    version: geopolitical-supply-v1
+    shocks:
+      - shock_id: geopolitical_supply_disruption
+        channel_id: supply_inventory_geopolitics
+        effective_date_rule: forecast_month:1
+        duration_months: 6
+        end_date_rule: inclusive_duration
+        value: 0.50
+        unit: channel_innovation
+        direction: increase
+        path: step
+        version: geopolitical-supply-channel-v1
+      - shock_id: geopolitical_inflation_pass_through
+        channel_id: inflation_prices
+        effective_date_rule: forecast_month:2
+        duration_months: 5
+        end_date_rule: inclusive_duration
+        value: 0.20
+        unit: channel_innovation
+        direction: increase
+        path: linear
+        version: geopolitical-inflation-v1

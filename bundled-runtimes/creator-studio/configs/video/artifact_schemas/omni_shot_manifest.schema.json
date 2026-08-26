@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.omni_shot_manifest.v1",
+  "title": "Newma Routed VOX Shot Manifest",
+  "type": "object",
+  "required": ["schema_version", "provider", "reference_image_provider", "workflow", "aspect_ratio", "jobs"],
+  "properties": {
+    "schema_version": {"const": "dasheng.video.omni_shot_manifest.v1"},
+    "provider": {"enum": ["google_gemini_omni_signed_in_chrome", "routed_official_google_or_signed_in_chrome"]},
+    "reference_image_provider": {"const": "codex_builtin_imagegen"},
+    "video_provider": {"type": "string"},
+    "provider_order": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"enum": ["gemini_api_omni", "gemini_api_veo", "gemini_browser_omni", "remotion_local_motion", "minimax_mmx", "seedance"]}
+    },
+    "workflow": {
+      "oneOf": [
+        {"const": ["director_shot", "codex_builtin_imagegen_reference", "gemini_omni_browser_video", "download", "remotion_edit"]},
+        {"const": ["director_shots", "codex_reference_images", "provider_routed_video_generation", "remotion_edit", "automated_qc"]},
+        {"const": ["director_shots", "shotcraft_binding", "conditional_codex_reference_images", "provider_or_local_motion", "remotion_edit", "automated_qc"]}
+      ]
+    },
+    "aspect_ratio": {"const": "16:9"},
+    "reference_contract": {
+      "type": "object",
+      "required": ["visual_mode", "major_group_range", "persistent_base_layer", "first_frame_policy", "motion_policy", "final_hold_sec"],
+      "properties": {
+        "visual_mode": {"const": "flat_separable_collage"},
+        "major_group_range": {"const": [4, 6]},
+        "persistent_base_layer": {"const": true},
+        "first_frame_policy": {"const": "assemble_to_reference"},
+        "motion_policy": {"const": "named_groups_appear_once"},
+        "final_hold_sec": {"const": 1.0}
+      }
+    },
+    "jobs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "start_sec", "end_sec", "generation_duration_sec", "reference_image_required", "reference_image", "reference_image_provider", "clip_path", "status"],
+        "properties": {
+          "generation_duration_sec": {"const": 10},
+          "production_route": {"enum": ["gemini_video", "shotcraft_remotion", "real_evidence_remotion", "hybrid"]},
+          "reference_image_required": {"type": "boolean"},
+          "reference_image": {"type": ["string", "null"]},
+          "reference_image_provider": {"enum": ["codex_builtin_imagegen", null]},
+          "video_prompt_file": {"type": ["string", "null"]},
+          "video_provider": {"type": "string"},
+          "provider_order": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"enum": ["gemini_api_omni", "gemini_api_veo", "gemini_browser_omni", "remotion_local_motion", "minimax_mmx", "seedance"]}
+          },
+          "selected_provider": {"type": ["string", "null"]},
+          "attempts": {"type": "array"},
+          "assembly_order": {"type": "array", "minItems": 3},
+          "motion_beats": {"type": "array", "minItems": 3},
+          "status": {"enum": ["pending_reference", "ready_for_omni", "ready_for_generation", "ready_for_remotion", "generating", "clip_ready", "rejected", "approved", "fallback_ready"]}
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

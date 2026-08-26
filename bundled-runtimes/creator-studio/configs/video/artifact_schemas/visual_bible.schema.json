@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dasheng.video.vox_visual_bible.v1",
+  "title": "Newma VOX Visual Bible",
+  "type": "object",
+  "required": ["schema_version", "system", "world", "materials", "palette", "continuity_rules", "generation_route"],
+  "properties": {
+    "schema_version": {"const": "dasheng.video.vox_visual_bible.v1"},
+    "system": {"const": "vox_editorial_paper_collage"},
+    "world": {"type": "string", "minLength": 1},
+    "materials": {"type": "array", "minItems": 3, "items": {"type": "string"}},
+    "palette": {"type": "object", "minProperties": 4},
+    "type_system": {"type": "string"},
+    "continuity_rules": {"type": "array", "minItems": 3, "items": {"type": "string"}},
+    "generation_route": {"type": "object"}
+  },
+  "additionalProperties": true
+}

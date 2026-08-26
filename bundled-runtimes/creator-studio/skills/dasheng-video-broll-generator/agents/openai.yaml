@@ -1,0 +1,4 @@
+interface:
+  display_name: "Newma Video B-roll Generator"
+  short_description: "Route B-roll and animated inserts for Newma videos"
+  default_prompt: "Plan and generate evidence-safe B-roll, sticker animation, and editorial inserts for a Newma video."

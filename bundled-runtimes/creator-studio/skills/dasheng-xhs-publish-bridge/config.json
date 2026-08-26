@@ -1,0 +1,66 @@
+{
+  "name": "dasheng-xhs-publish-bridge",
+  "version": "0.1.0",
+  "type": "publish_bridge",
+  "description": "Bridge Newma Xiaohongshu channel packs to API-first CLI, MCP, or browser fallback upstreams.",
+  "external_dependencies": [
+    {
+      "name": "all-in-one",
+      "repo": "https://github.com/cv-cat/All-IN-ONE.git",
+      "default_root": "${ALL_IN_ONE_ROOT:-vendor/reserved/publish/all-in-one}",
+      "version_locked": false,
+      "role": "primary"
+    },
+    {
+      "name": "xhs-skills",
+      "repo": "https://github.com/cv-cat/XhsSkills.git",
+      "default_root": "${XHS_SKILLS_ROOT:-vendor/reserved/publish/xhs-skills}",
+      "version_locked": false,
+      "role": "api_first"
+    },
+    {
+      "name": "spider-xhs",
+      "repo": "https://github.com/cv-cat/Spider_XHS.git",
+      "default_root": "${SPIDER_XHS_ROOT:-vendor/reserved/publish/spider-xhs}",
+      "version_locked": false,
+      "role": "api_core"
+    },
+    {
+      "name": "xiaohongshu-mcp",
+      "repo": "https://github.com/xpzouying/xiaohongshu-mcp.git",
+      "default_root": "${XIAOHONGSHU_MCP_ROOT:-vendor/reserved/publish/xiaohongshu-mcp}",
+      "version_locked": false,
+      "role": "mcp_fallback"
+    },
+    {
+      "name": "rednote-mcp",
+      "repo": "https://github.com/TimeCyber/mcp-xiaohongshu.git",
+      "default_root": "${REDNOTE_MCP_ROOT:-}",
+      "version_locked": false,
+      "role": "mcp_fallback"
+    }
+  ],
+  "upstream_registry": "configs/publish/upstream_repos.json",
+  "inputs": {
+    "required": [
+      "channel_pack.json",
+      "execution_request.json",
+      "final video or image assets"
+    ],
+    "optional": [
+      "cover image",
+      "subtitle",
+      "tags",
+      "scheduled_at"
+    ]
+  },
+  "outputs": [
+    "execution_request.json",
+    "platform response",
+    "verification_request.json",
+    "fallback manual package"
+  ],
+  "supported_platforms": [
+    "xiaohongshu"
+  ]
+}

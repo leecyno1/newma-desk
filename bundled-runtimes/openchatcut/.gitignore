@@ -1,0 +1,94 @@
+# dependencies / build output
+node_modules/
+dist/
+desktop-dist/
+release/
+coverage/
+.nyc_output/
+playwright-report/
+.playwright-cli/
+test-results/
+/output/
+.vite/
+*.tsbuildinfo
+
+# OS / editor / temporary files
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+/.cache/
+/.tmp/
+/tmp/
+/temp/
+
+# export output
+/out.*
+/exports/
+/*.ccproj.json
+/*.fcpxml
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# user-imported / AI-generated media (dev upload endpoint) — product static lives in assets/
+public/media/uploads/*
+!public/media/uploads/.gitkeep
+# On-device ASR model cache — runtime downloads, never committed
+public/media/asr-models/
+
+# DeepFilterNet3 local venv
+.venv-df/
+.venv/
+
+# Local Wrangler CLI cache used for R2 bucket setup
+.wrangler/
+
+# ── Private workspace (ignored since 2026-07-18) ──────────────
+# AI assistant project rules, session configuration, skills, and hooks
+CLAUDE.md
+AGENTS.md
+.codex/
+.agents/
+.claude/
+# Impeccable design-hook state and configuration
+.impeccable/
+# Private working documents such as TODOs and design notes; publishable docs belong elsewhere
+docs/
+# Local model-optimization plan / notes (was mistakenly committed; keep out of the public repo)
+MODEL-OPT-PLAN.md
+/MODEL-OPT-PLAN*/
+*.opt-plan.md
+
+# Keep local and temporary check scripts out of the repository; stable regressions use *.verify.* via npm test.
+*.check.ts
+*.check.mjs
+# Keep the external MCP bridge protocol regression with its implementation; the legacy name is intentional.
+!server/external-agent/broker.check.ts
+
+# Local development and verification scripts
+/scripts/
+!/scripts/sync-mediapipe.mjs
+
+# Local marketing assets and drafts
+/marketing/
+.pi-*
+node_modules
+public/mediapipe/
+public/whisper-cli/
+
+
+# Local npm cache
+.npm-cache/
+# Root-level local runtime files
+/etc/

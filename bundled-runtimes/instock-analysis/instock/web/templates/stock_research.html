@@ -1,0 +1,197 @@
+{% extends "layout/mod.html" %}
+
+{% block main_content %}
+<link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
+<style>
+    :root { --dossier-accent: #2f6f61; --dossier-gold: #b37a31; --dossier-soft: color-mix(in srgb, var(--dossier-accent) 12%, transparent); }
+    .dossier-shell { min-height: 100%; padding: 20px; color: var(--instock-text); background: var(--instock-bg); background-image: radial-gradient(circle at 92% 0, var(--dossier-soft), transparent 32%); }
+    .dossier-panel { border: 1px solid var(--instock-border); border-radius: 13px; background: var(--instock-surface); box-shadow: var(--instock-shadow); }
+    .dossier-hero { padding: 22px 24px; border-top: 4px solid var(--dossier-accent); }
+    .dossier-kicker { color: var(--dossier-accent); font-family: var(--instock-font-mono); font-size: 10px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+    .dossier-title { margin: 7px 0 0; font-size: 27px; letter-spacing: -.035em; }
+    .dossier-copy { max-width: 820px; margin: 7px 0 0; color: var(--instock-text-muted); font-size: 12px; line-height: 1.7; }
+    .dossier-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 18px; }
+    .dossier-control label { display: block; margin-bottom: 5px; color: var(--instock-text-muted); font-size: 10px; font-weight: 800; }
+    .dossier-control input, .dossier-control select { height: 35px; padding: 0 10px; border: 1px solid var(--instock-border-strong); border-radius: 7px; color: var(--instock-text); background: var(--instock-surface-raised); }
+    .dossier-code { width: 132px; font-family: var(--instock-font-mono); }
+    .dossier-run, .dossier-link { height: 35px; padding: 0 17px; border: 0; border-radius: 7px; color: #f7f2e7; background: var(--dossier-accent); font-size: 11px; font-weight: 900; }
+    .dossier-link { display: none; background: var(--dossier-gold); }
+    .dossier-run:disabled { cursor: wait; opacity: .55; }
+    .dossier-meta { margin-left: auto; padding-bottom: 8px; color: var(--instock-text-muted); font-family: var(--instock-font-mono); font-size: 9px; }
+    .dossier-advanced { width: 100%; margin-top: 1px; border-top: 1px solid color-mix(in srgb, var(--instock-border) 70%, transparent); }
+    .dossier-advanced summary { width: fit-content; padding-top: 10px; color: var(--dossier-accent); font-size: 9px; font-weight: 900; cursor: pointer; }
+    .dossier-advanced-body { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; padding-top: 10px; }
+    .dossier-advanced-note { max-width: 480px; padding-bottom: 8px; color: var(--instock-text-muted); font-size: 9px; line-height: 1.55; }
+    .dossier-handoff { display: none; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--instock-border); border-radius: 8px; color: var(--instock-text-muted); background: var(--instock-surface-raised); font-size: 10px; line-height: 1.65; }
+    .dossier-handoff strong { color: var(--dossier-accent); }
+    .dossier-handoff code { overflow-wrap: anywhere; color: var(--instock-text); }
+    .dossier-integrity { display: none; margin-top: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--dossier-gold) 45%, var(--instock-border)); border-radius: 8px; color: var(--instock-text-muted); background: color-mix(in srgb, var(--dossier-gold) 8%, var(--instock-surface-raised)); font-size: 10px; line-height: 1.65; }
+    .dossier-integrity strong { color: var(--dossier-gold); }
+    .dossier-alert { display: none; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--instock-error-border); border-radius: 9px; color: var(--instock-error-text); background: var(--instock-error-bg); font-size: 11px; }
+    .dossier-stats { display: grid; grid-template-columns: 1.35fr repeat(4, 1fr); gap: 10px; margin-top: 13px; }
+    .dossier-stat { padding: 13px 14px; }
+    .dossier-stat span { color: var(--instock-text-muted); font-size: 9px; }
+    .dossier-stat strong { display: block; margin-top: 8px; overflow: hidden; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+    .dossier-stat:first-child strong { color: var(--dossier-accent); font-size: 19px; }
+    .dossier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; margin-top: 13px; }
+    .dossier-section-title { display: flex; min-height: 45px; margin: 0; padding: 0 15px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--instock-border); font-size: 13px; }
+    .dossier-section-title span { color: var(--instock-text-muted); font-family: var(--instock-font-mono); font-size: 9px; font-weight: 500; }
+    .dossier-body { padding: 14px; }
+    .dossier-assessment { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+    .dossier-assessment section { padding: 11px; border: 1px solid var(--instock-border); border-radius: 8px; background: var(--instock-surface-raised); }
+    .dossier-assessment h3 { margin: 0 0 8px; color: var(--instock-text-muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+    .dossier-assessment ul { margin: 0; padding-left: 16px; color: var(--instock-text-muted); font-size: 10px; line-height: 1.7; }
+    .dossier-headline { margin: 0 0 12px; padding: 11px; border-left: 3px solid var(--dossier-accent); background: var(--dossier-soft); font-size: 12px; line-height: 1.65; }
+    .dossier-balance { display: flex; flex-wrap: wrap; gap: 7px; margin: -3px 0 12px; }
+    .dossier-balance span { padding: 4px 8px; border: 1px solid var(--instock-border); border-radius: 99px; color: var(--instock-text-muted); background: var(--instock-surface-raised); font-size: 9px; }
+    .dossier-invalidation { margin-top: 11px; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--dossier-gold) 42%, var(--instock-border)); border-radius: 8px; background: color-mix(in srgb, var(--dossier-gold) 7%, var(--instock-surface-raised)); }
+    .dossier-invalidation h3 { margin: 0 0 7px; color: var(--dossier-gold); font-size: 9px; letter-spacing: .08em; }
+    .dossier-invalidation ol { margin: 0; padding-left: 18px; color: var(--instock-text-muted); font-size: 10px; line-height: 1.7; }
+    .dossier-scorecards { display: grid; gap: 8px; }
+    .dossier-score { display: grid; grid-template-columns: 78px minmax(0, 1fr) 42px; gap: 8px; align-items: center; color: var(--instock-text-muted); font-size: 10px; }
+    .dossier-track { height: 6px; overflow: hidden; border-radius: 99px; background: var(--instock-border); }
+    .dossier-track i { display: block; height: 100%; background: linear-gradient(90deg, var(--dossier-accent), var(--dossier-gold)); }
+    .dossier-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 13px; }
+    .dossier-metric { padding: 10px; border: 1px solid var(--instock-border); border-radius: 8px; background: var(--instock-surface-raised); }
+    .dossier-metric span { color: var(--instock-text-muted); font-size: 9px; }
+    .dossier-metric b { display: block; margin-top: 6px; font-family: var(--instock-font-mono); font-size: 14px; }
+    .dossier-list { display: grid; gap: 8px; }
+    .dossier-item { padding: 10px 11px; border: 1px solid var(--instock-border); border-radius: 8px; background: var(--instock-surface-raised); }
+    .dossier-item b { display: block; font-size: 10px; line-height: 1.5; }
+    .dossier-item span { display: block; margin-top: 5px; color: var(--instock-text-muted); font-size: 9px; }
+    .dossier-empty { padding: 28px 10px; color: var(--instock-text-muted); text-align: center; font-size: 10px; }
+    .dossier-market-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(270px, .55fr); gap: 13px; margin-top: 13px; }
+    .dossier-chart { width: 100%; height: 390px; }
+    .dossier-cost-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .dossier-cost-card { padding: 10px; border: 1px solid var(--instock-border); border-radius: 8px; background: var(--instock-surface-raised); }
+    .dossier-cost-card span { color: var(--instock-text-muted); font-size: 8px; }
+    .dossier-cost-card b { display: block; margin-top: 5px; font-family: var(--instock-font-mono); font-size: 13px; }
+    .dossier-cost-note { margin: 10px 0 0; padding: 9px 10px; border-left: 3px solid var(--dossier-gold); color: var(--instock-text-muted); background: color-mix(in srgb, var(--dossier-gold) 8%, var(--instock-surface-raised)); font-size: 9px; line-height: 1.65; }
+    .dossier-footnote { margin: 11px 2px 0; color: var(--instock-text-muted); font-size: 9px; line-height: 1.7; }
+    @media (max-width: 900px) { .dossier-stats { grid-template-columns: repeat(3, 1fr); } .dossier-stat:first-child { grid-column: 1 / -1; } .dossier-grid, .dossier-market-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 620px) { .dossier-shell { padding: 11px; } .dossier-hero { padding: 17px; } .dossier-controls { display: grid; grid-template-columns: 1fr 1fr; } .dossier-control input, .dossier-control select, .dossier-run, .dossier-link { width: 100%; } .dossier-meta, .dossier-advanced { grid-column: 1 / -1; margin-left: 0; } .dossier-advanced-body { display: grid; grid-template-columns: 1fr; } .dossier-stats { grid-template-columns: 1fr 1fr; } .dossier-assessment, .dossier-metrics, .dossier-cost-summary { grid-template-columns: 1fr; } .dossier-chart { height: 320px; } }
+</style>
+
+<main class="dossier-shell">
+    <section class="dossier-panel dossier-hero">
+        <div class="dossier-kicker">Company Research Dossier / evidence ledger</div>
+        <h1 class="dossier-title">公司档案</h1>
+        <p class="dossier-copy">把公司的技术结构、财务估值快照、公告、研报、新闻与产业链证据收进一份可审计档案。页面只组织证据与冲突，不是评级或买卖建议。</p>
+        <div class="dossier-controls">
+            <div class="dossier-control"><label for="dossier-symbol">股票代码</label><input id="dossier-symbol" class="dossier-code" value="300502" maxlength="13"></div>
+            <div class="dossier-control"><label for="dossier-period">技术周期</label><select id="dossier-period"><option value="daily">日线</option><option value="weekly">周线</option><option value="monthly">月线</option></select></div>
+            <div class="dossier-control"><label for="dossier-bars">历史窗口</label><select id="dossier-bars"><option value="240">240 根</option><option value="120">120 根</option><option value="480">480 根</option><option value="800">800 根</option></select></div>
+            <div class="dossier-control"><label for="dossier-date">截止日（可选）</label><input id="dossier-date" type="date"></div>
+            <button id="dossier-run" class="dossier-run" type="button">生成档案</button>
+            <button id="dossier-link" class="dossier-link" type="button">加入研究组合</button>
+            <span id="dossier-meta" class="dossier-meta">等待 Desk 证据</span>
+            <details id="dossier-advanced" class="dossier-advanced">
+                <summary>关联已有研究证据</summary>
+                <div class="dossier-advanced-body">
+                    <div class="dossier-control"><label for="dossier-event-flow">事件证据 ID</label><input id="dossier-event-flow" type="text" placeholder="由公司事件页面自动带入"></div>
+                    <div class="dossier-control"><label for="dossier-industry-chain-snapshot">产业链证据 ID</label><input id="dossier-industry-chain-snapshot" type="text" placeholder="由产业链研究页面自动带入"></div>
+                    <div class="dossier-advanced-note">直接输入股票代码即可生成档案。只有跨模块复用已生成证据时才需要填写这里。</div>
+                </div>
+            </details>
+        </div>
+        <div id="dossier-handoff" class="dossier-handoff"></div>
+        <div id="dossier-integrity" class="dossier-integrity"></div>
+    </section>
+    <div id="dossier-alert" class="dossier-alert" role="alert"></div>
+
+    <section class="dossier-stats">
+        <div class="dossier-panel dossier-stat"><span>研究标的</span><strong id="dossier-name">--</strong></div>
+        <div class="dossier-panel dossier-stat"><span>技术结构</span><strong id="dossier-bias">--</strong></div>
+        <div class="dossier-panel dossier-stat"><span>财务质量</span><strong id="dossier-quality">--</strong></div>
+        <div class="dossier-panel dossier-stat"><span>证据覆盖</span><strong id="dossier-coverage">--</strong></div>
+        <div class="dossier-panel dossier-stat"><span>数据状态</span><strong id="dossier-state">--</strong></div>
+    </section>
+
+    <section class="dossier-grid">
+        <article class="dossier-panel">
+            <h2 class="dossier-section-title">综合判断 <span>优势 · 张力 · 缺口</span></h2>
+            <div class="dossier-body"><p id="dossier-conclusion" class="dossier-headline">生成档案后显示证据冲突</p><div id="dossier-balance" class="dossier-balance"></div><div id="dossier-assessment" class="dossier-assessment"></div><section class="dossier-invalidation"><h3>停止跟踪 / 重新评估条件</h3><ol id="dossier-invalidation"></ol></section></div>
+        </article>
+        <article class="dossier-panel">
+            <h2 class="dossier-section-title">财务与估值 <span>Desk equity snapshot</span></h2>
+            <div class="dossier-body"><div id="dossier-scorecards" class="dossier-scorecards"></div><div id="dossier-metrics" class="dossier-metrics"></div></div>
+        </article>
+    </section>
+    <section class="dossier-market-grid">
+        <article class="dossier-panel">
+            <h2 class="dossier-section-title">K 线结构 <span>Desk 前复权行情 · CZSC 标注</span></h2>
+            <div id="dossier-kline-chart" class="dossier-chart"></div>
+        </article>
+        <article class="dossier-panel">
+            <h2 class="dossier-section-title">成交成本分布 <span>量价代理，不是持仓筹码</span></h2>
+            <div class="dossier-body"><div id="dossier-cost-summary" class="dossier-cost-summary"></div><div id="dossier-cost-chart" class="dossier-chart"></div><p class="dossier-cost-note">按典型价格与成交量估算成交密集区。由于 Desk K 线暂缺逐日换手率和点时流通股本，本图不做换手衰减，不能解释为当前股东真实持仓成本。</p></div>
+        </article>
+    </section>
+    <section class="dossier-grid">
+        <article class="dossier-panel"><h2 class="dossier-section-title">事件与资金证据 <span>不参与收益预测</span></h2><div class="dossier-body"><div id="dossier-events" class="dossier-list"></div></div></article>
+        <article class="dossier-panel"><h2 class="dossier-section-title">产业链暴露 <span>证券级 Snapshot 引用</span></h2><div class="dossier-body"><div id="dossier-industry-chain" class="dossier-list"></div></div></article>
+    </section>
+
+    <section class="dossier-grid">
+        <article class="dossier-panel"><h2 class="dossier-section-title">公告与研报 <span>最新点时证据</span></h2><div class="dossier-body"><div id="dossier-reports" class="dossier-list"></div></div></article>
+        <article class="dossier-panel"><h2 class="dossier-section-title">新闻与风险线索 <span>不自动做情绪预测</span></h2><div class="dossier-body"><div id="dossier-news" class="dossier-list"></div></div></article>
+    </section>
+    <p class="dossier-footnote">生产数据只通过 Desk 的 <code>research.equity-snapshot</code>、<code>market.announcements</code>、<code>market.reports</code>、<code>market.news</code> 与 <code>market.ohlcv</code> 获取；项目不恢复原抓取器和 MySQL。</p>
+</main>
+
+<script src="{{ static_url('js/echarts.min-6.1.0.js') }}"></script>
+<script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script>
+(function () {
+    const deskBridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+    const actionId = 'analysis.stock-research';
+    const sourceLabels = {'instock-market-workbench': '市场复盘', 'instock-stock-candidates': '综合选股', 'instock-technical-signals': '策略筛选', 'instock-czsc': '缠论结构分析', 'instock-event-flow': '公司事件', 'instock-industry-chain': '产业链证据', 'instock-research-book': '选股观察组合'};
+    const state = {data: null, running: false, klineChart: null, costChart: null, handoff: {sourceModule: '', sourceSnapshotId: '', industry: ''}};
+    const metricLabels = {pe: 'PE(TTM)', pb: 'PB', valuationPercentile: '估值历史分位', revenueGrowthPct: '营收同比', netProfitGrowthPct: '净利润同比', roePct: 'ROE', grossMarginPct: '毛利率', netMarginPct: '净利率', cashConversionPct: '现金转化率', debtRatioPct: '资产负债率'};
+    const runButton = document.getElementById('dossier-run');
+    const linkButton = document.getElementById('dossier-link');
+    const alertBox = document.getElementById('dossier-alert');
+    const meta = document.getElementById('dossier-meta');
+    const handoffBox = document.getElementById('dossier-handoff');
+    const integrityBox = document.getElementById('dossier-integrity');
+    function setText(id, value) { document.getElementById(id).textContent = value == null || value === '' ? '--' : String(value); }
+    function validSymbol(value) { return /^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(String(value || '').trim().toUpperCase()); }
+    function cleanParam(value, maximum) { const text = String(value || '').trim(); return text.slice(0, maximum); }
+    function applyUrlParameters() { const query = new URLSearchParams(window.location.search); const symbol = cleanParam(query.get('symbol') || query.get('code'), 13).toUpperCase(); const period = cleanParam(query.get('period'), 10).toLowerCase(); const bars = cleanParam(query.get('bars'), 4); const asOf = cleanParam(query.get('asOf') || query.get('as_of'), 10); if (validSymbol(symbol)) document.getElementById('dossier-symbol').value = symbol; if (['daily', 'weekly', 'monthly'].includes(period)) document.getElementById('dossier-period').value = period; if (['120', '240', '480', '800'].includes(bars)) document.getElementById('dossier-bars').value = bars; if (/^\d{4}-\d{2}-\d{2}$/.test(asOf)) document.getElementById('dossier-date').value = asOf; document.getElementById('dossier-event-flow').value = cleanParam(query.get('eventFlowSnapshotId'), 160); document.getElementById('dossier-industry-chain-snapshot').value = cleanParam(query.get('industryChainSnapshotId'), 160); if (query.get('eventFlowSnapshotId') || query.get('industryChainSnapshotId')) document.getElementById('dossier-advanced').open = true; state.handoff = {sourceModule: cleanParam(query.get('sourceModule'), 80), sourceSnapshotId: cleanParam(query.get('sourceSnapshotId'), 160), industry: cleanParam(query.get('industry'), 120)}; renderHandoff(); }
+    function renderHandoff(result) { const eventId = document.getElementById('dossier-event-flow').value.trim(); const chainId = document.getElementById('dossier-industry-chain-snapshot').value.trim(); const parts = []; if (state.handoff.sourceModule) parts.push(`交接来源：${sourceLabels[state.handoff.sourceModule] || state.handoff.sourceModule}`); if (state.handoff.sourceSnapshotId) parts.push(`来源快照 ${state.handoff.sourceSnapshotId} 仅用于追溯，不进入本次计算`); if (eventId) parts.push(result ? (result.event_flow && result.event_flow.snapshot_id === eventId ? `事件快照 ${eventId} 已进入本次计算` : `事件快照 ${eventId} 未解析，未进入本次计算`) : `事件快照 ${eventId} 将参与档案计算`); if (chainId) parts.push(result ? (result.industry_chain && result.industry_chain.snapshot_id === chainId ? `产业链快照 ${chainId} 已进入本次计算` : `产业链快照 ${chainId} 未解析，未进入本次计算`) : `产业链快照 ${chainId} 将参与档案计算`); handoffBox.replaceChildren(); if (!parts.length) { handoffBox.style.display = 'none'; return; } const strong = document.createElement('strong'); strong.textContent = parts.shift(); handoffBox.appendChild(strong); parts.forEach(text => { handoffBox.appendChild(document.createTextNode(` · ${text}`)); }); handoffBox.style.display = 'block'; }
+    function renderIntegrity(data) { const fundamentals = data.fundamentals || {}; const technical = data.technical || {}; const disclosures = data.disclosures || {}; const excluded = disclosures.excluded_after_as_of || {}; const historical = fundamentals.mode === 'historical_evidence_only'; const filtered = Object.values(excluded).reduce((sum, value) => sum + Number(value || 0), 0); const parts = []; if (technical.conclusion_state === 'insufficient_history') parts.push(`CZSC 仅取得 ${technical.actual_bars || 0} 根 K 线，少于 ${technical.minimum_direction_bars || 80} 根，结构图保留但不形成方向结论`); if (historical) parts.push('Desk 没有截止日点时基本面快照，已排除当前估值和当前综合评分，只保留截止日前有日期锚点的财务证据'); if (disclosures.as_of_mode === 'client_filter') parts.push(`公告、研报、新闻已按 ${data.as_of} 过滤，排除截止日后或无日期记录 ${filtered} 条`); if (data.event_flow && data.event_flow.as_of_mode === 'historical_replay') parts.push(`事件证据已回放到 ${data.event_flow.as_of} 并重算时效强度`); integrityBox.replaceChildren(); if (!parts.length) { integrityBox.style.display = 'none'; return; } const strong = document.createElement('strong'); strong.textContent = '数据完整性：'; integrityBox.appendChild(strong); integrityBox.appendChild(document.createTextNode(parts.join('；'))); integrityBox.style.display = 'block'; }
+    function parameters() { const asOf = document.getElementById('dossier-date').value; const eventFlowSnapshotId = document.getElementById('dossier-event-flow').value.trim(); const industryChainSnapshotId = document.getElementById('dossier-industry-chain-snapshot').value.trim(); return {symbol: document.getElementById('dossier-symbol').value.trim(), period: document.getElementById('dossier-period').value, bars: Number(document.getElementById('dossier-bars').value), ...(asOf ? {asOf} : {}), ...(eventFlowSnapshotId ? {eventFlowSnapshotId} : {}), ...(industryChainSnapshotId ? {industryChainSnapshotId} : {})}; }
+    function unwrap(payload) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-stock-research-dossier') throw new Error('研究档案缺少受支持的 engine 标识'); return data; }
+    function errorMessage(body, fallback) { return body && body.error && typeof body.error === 'object' ? body.error.message || fallback : fallback; }
+    async function request(input) { if (deskBridge && deskBridge.whenReady) await deskBridge.whenReady(); if (deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId)) return deskBridge.invokeAction(actionId, input); const response = await fetch('/api/v1/stock-research/dossiers?' + new URLSearchParams(input)); const body = await response.json(); if (!response.ok) throw new Error(errorMessage(body, '研究档案生成失败')); return body; }
+    function buildContext() { const data = state.data || {}; const identity = data.identity || {}; return {view: {id: 'stock-research', title: '公司档案'}, visibleBlocks: [{id: 'assessment', type: 'research-evidence', title: '综合判断'}, {id: 'fundamentals', type: 'scorecard', title: '财务与估值'}, {id: 'kline-structure', type: 'chart', title: 'K 线结构'}, {id: 'cost-distribution', type: 'chart', title: '成交成本分布代理'}, {id: 'disclosures', type: 'evidence-list', title: '公告研报新闻'}, {id: 'event-flow', type: 'evidence-list', title: '公司事件'}, {id: 'industry-chain', type: 'research-evidence', title: '产业链暴露'}], selectedSecurity: identity.symbol ? {market: identity.market || 'CN', symbol: identity.symbol, name: identity.name} : null, data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, assessment: data.assessment, fundamentals: data.fundamentals, technical: data.technical, disclosures: data.disclosures && data.disclosures.coverage, eventFlow: data.event_flow, industryChain: data.industry_chain, handoff: state.handoff, snapshot: data.snapshot, limitations: data.limitations || []} : {handoff: state.handoff}, actions: [{id: actionId, label: '生成公司档案', available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId)), inputSchema: {type: 'object', properties: {symbol: {type: 'string'}, period: {enum: ['daily', 'weekly', 'monthly']}, bars: {enum: [120, 240, 480, 800]}, asOf: {type: 'string', format: 'date'}, eventFlowSnapshotId: {type: 'string'}, industryChainSnapshotId: {type: 'string'}}}}]}; }
+    function publishContext() { if (!deskBridge) return; deskBridge.setContextProvider && deskBridge.setContextProvider(buildContext); deskBridge.publishContext && deskBridge.publishContext(); }
+    function updateUrl(input) { const next = new URL(window.location.href); ['symbol', 'period', 'bars', 'asOf', 'eventFlowSnapshotId', 'industryChainSnapshotId', 'sourceModule', 'sourceSnapshotId', 'industry'].forEach(key => next.searchParams.delete(key)); Object.entries({...input, ...state.handoff}).forEach(([key, value]) => { if (value != null && value !== '') next.searchParams.set(key, String(value)); }); window.history.replaceState(null, '', next); }
+    function handleSecuritySelected(envelope) { if (!envelope || envelope.event !== 'security.selected' || envelope.source === 'instock-stock-research') return; const payload = envelope.payload || {}; const symbol = String(payload.symbol || payload.code || '').trim().toUpperCase(); if ((payload.market && payload.market !== 'CN') || ['etf', 'index', 'fund'].includes(String(payload.assetType || '').toLowerCase()) || !validSymbol(symbol)) return; document.getElementById('dossier-symbol').value = symbol; const eventAsOf = cleanParam(payload.asOf, 10); document.getElementById('dossier-date').value = /^\d{4}-\d{2}-\d{2}$/.test(eventAsOf) ? eventAsOf : ''; document.getElementById('dossier-event-flow').value = cleanParam(payload.eventFlowSnapshotId, 160); document.getElementById('dossier-industry-chain-snapshot').value = cleanParam(payload.industryChainSnapshotId, 160); state.handoff = {sourceModule: cleanParam(payload.source || envelope.source, 80), sourceSnapshotId: cleanParam(payload.snapshotId, 160), industry: cleanParam(payload.industry || payload.sector, 120)}; renderHandoff(); load(false); }
+    function researchBookUrl(data) { const identity = data.identity || {}; const assessment = data.assessment || {}; const exposure = data.industry_chain && data.industry_chain.exposure || {}; const layer = exposure.layer || {}; const sector = identity.industry || identity.sector || state.handoff.industry || layer.name || ''; const invalidation = (assessment.invalidation_conditions || []).filter(Boolean).slice(0, 8); const risks = [...(assessment.tensions || []), ...(assessment.gaps || [])].map(item => String(item).split('：')[0]).filter(Boolean).slice(0, 6); const snapshotIds = [data.snapshot && data.snapshot.snapshot_id, data.event_flow && data.event_flow.snapshot_id, data.industry_chain && data.industry_chain.snapshot_id].filter(Boolean); const query = new URLSearchParams({symbol: identity.symbol || '', name: identity.name || '', sector, thesis: assessment.conclusion || '', invalidation: invalidation.join('\n'), risks: [...new Set(risks)].join(','), snapshotIds: [...new Set(snapshotIds)].join(','), asOf: data.as_of || '', sourceModule: 'instock-stock-research'}); return `/mods/research-book?${query.toString()}`; }
+    function renderAssessment(data) { const assessment = data.assessment || {}; setText('dossier-conclusion', assessment.conclusion); const balance = assessment.evidence_balance || {}; const balanceRoot = document.getElementById('dossier-balance'); balanceRoot.replaceChildren(); [[`优势 ${balance.strength_count || 0}`], [`张力 ${balance.tension_count || 0}`], [`缺口 ${balance.gap_count || 0}`], [`事件 ${balance.event_count || 0}`], [balance.industry_chain_attached ? '产业链已接入' : '产业链未接入']].forEach(([text]) => { const item = document.createElement('span'); item.textContent = text; balanceRoot.appendChild(item); }); const root = document.getElementById('dossier-assessment'); root.replaceChildren(); [['优势', assessment.strengths || []], ['张力', assessment.tensions || []], ['证据缺口', assessment.gaps || []]].forEach(([title, items]) => { const section = document.createElement('section'); const h = document.createElement('h3'); h.textContent = title; const ul = document.createElement('ul'); (items.length ? items : ['暂无明确项目']).forEach(text => { const li = document.createElement('li'); li.textContent = text; ul.appendChild(li); }); section.append(h, ul); root.appendChild(section); }); const invalidation = document.getElementById('dossier-invalidation'); invalidation.replaceChildren(); (assessment.invalidation_conditions || ['证伪条件尚未形成']).forEach(text => { const li = document.createElement('li'); li.textContent = text; invalidation.appendChild(li); }); }
+    function renderFundamentals(data) { const cards = document.getElementById('dossier-scorecards'); cards.replaceChildren(); (data.fundamentals.scorecard || []).forEach(item => { const row = document.createElement('div'); row.className = 'dossier-score'; const name = document.createElement('span'); name.textContent = item.title || item.id; const track = document.createElement('span'); track.className = 'dossier-track'; const fill = document.createElement('i'); fill.style.width = `${Math.max(0, Math.min(100, Number(item.score) || 0))}%`; track.appendChild(fill); const score = document.createElement('b'); score.textContent = item.score == null ? '--' : Number(item.score).toFixed(1); row.append(name, track, score); cards.appendChild(row); }); const metrics = document.getElementById('dossier-metrics'); metrics.replaceChildren(); Object.entries(data.fundamentals.metrics || {}).filter(([, value]) => value != null).slice(0, 12).forEach(([key, value]) => { const item = document.createElement('div'); item.className = 'dossier-metric'; const label = document.createElement('span'); label.textContent = metricLabels[key] || key; const amount = document.createElement('b'); amount.textContent = typeof value === 'number' ? Number(value).toFixed(2) : value; item.append(label, amount); metrics.appendChild(item); }); }
+    function chartToken(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+    function themeKlineOption(raw) { const option = JSON.parse(JSON.stringify(raw || {})); const text = chartToken('--instock-text-muted'); const grid = chartToken('--instock-chart-grid'); option.backgroundColor = 'transparent'; option.textStyle = {...(option.textStyle || {}), color: text}; option.title = {...(option.title || {}), textStyle: {...((option.title || {}).textStyle || {}), color: chartToken('--instock-text')}, subtextStyle: {...((option.title || {}).subtextStyle || {}), color: text}}; option.legend = {...(option.legend || {}), type: 'scroll', textStyle: {...((option.legend || {}).textStyle || {}), color: text}}; option.xAxis = (option.xAxis || []).map(axis => ({...axis, axisLabel: {...(axis.axisLabel || {}), color: text}, axisLine: {...(axis.axisLine || {}), lineStyle: {...((axis.axisLine || {}).lineStyle || {}), color: grid}}, splitLine: {...(axis.splitLine || {}), lineStyle: {...((axis.splitLine || {}).lineStyle || {}), color: grid}}})); option.yAxis = (option.yAxis || []).map(axis => ({...axis, axisLabel: {...(axis.axisLabel || {}), color: text}, splitLine: {...(axis.splitLine || {}), lineStyle: {...((axis.splitLine || {}).lineStyle || {}), color: grid}}, splitArea: {...(axis.splitArea || {}), areaStyle: {color: [chartToken('--instock-surface'), chartToken('--instock-surface-muted')]}}})); option.tooltip = {...(option.tooltip || {}), backgroundColor: chartToken('--instock-surface-raised'), borderColor: chartToken('--instock-border-strong'), textStyle: {color: chartToken('--instock-text')}}; return option; }
+    function renderTechnical(data) { const technical = data.technical || {}; const klineRoot = document.getElementById('dossier-kline-chart'); if (technical.chart && (technical.chart.series || []).length) { if (!state.klineChart) { klineRoot.replaceChildren(); state.klineChart = echarts.init(klineRoot); } state.klineChart.setOption(themeKlineOption(technical.chart), true); } else { if (state.klineChart) { state.klineChart.dispose(); state.klineChart = null; } klineRoot.replaceChildren(empty('K 线结构图暂不可用')); } const cost = technical.cost_distribution || {}; const cards = document.getElementById('dossier-cost-summary'); const costRoot = document.getElementById('dossier-cost-chart'); cards.replaceChildren(); if (cost.state !== 'available') { if (state.costChart) { state.costChart.dispose(); state.costChart = null; } costRoot.replaceChildren(empty(cost.reason || '成交成本分布暂不可用')); return; } const interval70 = cost.intervals && cost.intervals['70'] || {}; [['当前价', cost.current_price], ['平均成本', cost.average_cost], ['成交中位成本', cost.median_cost], ['成交密集成本', cost.dominant_cost], ['当前价下成交占比', `${Number(cost.profit_volume_pct || 0).toFixed(1)}%`], ['70% 成本区间', `${Number(interval70.low || 0).toFixed(2)}–${Number(interval70.high || 0).toFixed(2)}`]].forEach(([label, value]) => { const card = document.createElement('div'); card.className = 'dossier-cost-card'; const span = document.createElement('span'); span.textContent = label; const strong = document.createElement('b'); strong.textContent = typeof value === 'number' ? Number(value).toFixed(2) : value; card.append(span, strong); cards.appendChild(card); }); if (!state.costChart) { costRoot.replaceChildren(); state.costChart = echarts.init(costRoot); } const rows = cost.profile || []; state.costChart.setOption({animationDuration: 350, grid: {left: 55, right: 26, top: 18, bottom: 32}, tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'}, backgroundColor: chartToken('--instock-surface-raised'), borderColor: chartToken('--instock-border-strong'), textStyle: {color: chartToken('--instock-text')}, formatter: params => `价格 ${Number(params[0].name).toFixed(2)}<br>成交量占比 ${Number(params[0].value).toFixed(2)}%`}, xAxis: {type: 'value', name: '成交量占比 %', nameTextStyle: {color: chartToken('--instock-text-muted')}, axisLabel: {color: chartToken('--instock-text-muted')}, splitLine: {lineStyle: {color: chartToken('--instock-chart-grid')}}}, yAxis: {type: 'category', data: rows.map(row => Number(row.price).toFixed(2)), axisLabel: {color: chartToken('--instock-text-muted'), fontSize: 8}}, series: [{type: 'bar', data: rows.map(row => row.volume_share_pct), barWidth: 6, itemStyle: {color: chartToken('--dossier-accent')}}]}, true); }
+    function evidenceItem(title, metaText) { const item = document.createElement('div'); item.className = 'dossier-item'; const name = document.createElement('b'); name.textContent = title || '未命名证据'; const metaLine = document.createElement('span'); metaLine.textContent = metaText || ''; item.append(name, metaLine); return item; }
+    function renderDisclosures(data) { const reports = document.getElementById('dossier-reports'); reports.replaceChildren(); const combined = [...(data.disclosures.announcements || []).map(item => ({title: item.title, meta: `${item.date} · ${item.type || '公告'}`})), ...(data.disclosures.reports || []).map(item => ({title: item.title, meta: `${item.date} · ${item.organization || '研报'} · ${item.rating || '未评级'}`}))]; if (!combined.length) reports.appendChild(empty('暂无公告或研报')); else combined.slice(0, 12).forEach(item => reports.appendChild(evidenceItem(item.title, item.meta))); const news = document.getElementById('dossier-news'); news.replaceChildren(); if (!(data.disclosures.news || []).length) news.appendChild(empty('暂无新闻证据')); else data.disclosures.news.slice(0, 10).forEach(item => news.appendChild(evidenceItem(item.title, `${item.date} · ${item.source || '未知来源'}`))); }
+    function renderEvents(data) { const root = document.getElementById('dossier-events'); root.replaceChildren(); const alerts = data.event_flow && data.event_flow.alerts || []; if (!alerts.length) root.appendChild(empty('未引用事件快照或当前标的暂无相关事件')); else alerts.forEach(item => root.appendChild(evidenceItem(item.title, `${item.occurred_at} · ${item.type} · ${item.direction} · 强度 ${item.intensity_score}`))); }
+    function renderIndustryChain(data) { const root = document.getElementById('dossier-industry-chain'); root.replaceChildren(); const exposure = data.industry_chain && data.industry_chain.exposure; if (!exposure) { root.appendChild(empty('未引用产业链快照或当前标的没有已核验证券暴露')); return; } const layer = exposure.layer || {}; root.appendChild(evidenceItem(`${layer.name || exposure.layer_id} · ${exposure.research_priority}`, `优先分 ${exposure.priority_score} · 置信度 ${exposure.confidence}`)); (exposure.invalidation || []).forEach(text => root.appendChild(evidenceItem(text, '证伪条件'))); }
+    function empty(text) { const node = document.createElement('div'); node.className = 'dossier-empty'; node.textContent = text; return node; }
+    function render(payload, source) { const data = unwrap(payload); state.data = data; alertBox.style.display = 'none'; setText('dossier-name', `${data.identity.name} · ${data.identity.symbol}`); setText('dossier-bias', data.assessment.technical_bias); setText('dossier-quality', data.fundamentals.quality.score == null ? (data.fundamentals.mode === 'historical_evidence_only' ? '历史证据' : data.fundamentals.quality.level) : `${data.fundamentals.quality.score}/100`); const coverage = data.fundamentals.coverage || {}; setText('dossier-coverage', `${coverage.coveredDimensions || 0}/${coverage.totalDimensions || 0}`); setText('dossier-state', data.data_state === 'complete' ? '完整' : '部分'); meta.textContent = `${source === 'history' ? '历史版本 · ' : ''}${data.data_source} · ${data.as_of} · ${data.snapshot.snapshot_id}`; linkButton.style.display = 'inline-block'; renderHandoff(data); renderIntegrity(data); renderAssessment(data); renderFundamentals(data); renderTechnical(data); renderDisclosures(data); renderEvents(data); renderIndustryChain(data); publishContext(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
+    async function load(refresh) { if (state.running) return; state.running = true; runButton.disabled = true; runButton.textContent = '生成中…'; meta.textContent = '正在组合 Desk 证据与 CZSC 结构…'; alertBox.style.display = 'none'; const input = parameters(); updateUrl(input); renderHandoff(); if (refresh) input.refresh = '1'; try { render(await request(input)); } catch (error) { alertBox.textContent = error && error.message ? error.message : String(error); alertBox.style.display = 'block'; meta.textContent = '档案生成失败'; } finally { state.running = false; runButton.disabled = false; runButton.textContent = '生成档案'; } }
+    runButton.addEventListener('click', () => load(true));
+    document.addEventListener('instock:history-selected', event => render(event.detail.payload, event.detail.view_source || 'history'));
+    linkButton.addEventListener('click', () => { if (!state.data) return; const identity = state.data.identity || {}; if (deskBridge && deskBridge.emit) deskBridge.emit('security.selected', {market: identity.market || 'CN', symbol: identity.symbol, name: identity.name, industry: identity.industry || identity.sector || state.handoff.industry, source: 'instock-stock-research', snapshotId: state.data.snapshot.snapshot_id}); window.location.assign(researchBookUrl(state.data)); });
+    document.getElementById('dossier-event-flow').addEventListener('change', renderHandoff);
+    document.getElementById('dossier-industry-chain-snapshot').addEventListener('change', renderHandoff);
+    if (deskBridge && deskBridge.subscribe) deskBridge.subscribe(handleSecuritySelected);
+    window.addEventListener('resize', () => { state.klineChart && state.klineChart.resize(); state.costChart && state.costChart.resize(); });
+    document.addEventListener('instock:themechange', () => state.data && renderTechnical(state.data));
+    applyUrlParameters();
+    publishContext();
+    load(false);
+})();
+</script>
+{% end %}

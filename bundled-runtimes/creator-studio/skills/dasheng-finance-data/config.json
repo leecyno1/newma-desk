@@ -1,0 +1,15 @@
+{
+  "name": "dasheng-finance-data",
+  "version": "0.1.0",
+  "stage": "on-demand",
+  "description": "Draft 阶段金融数据增强工具，将 A 股/指数行情请求转成 Chart.js chart_specs。",
+  "runner": "python",
+  "entry": "../../scripts/finance_data_adapter.py",
+  "inputs": [
+    "finance_chart_requests"
+  ],
+  "outputs": [
+    "chart_specs"
+  ],
+  "hitl": false
+}

@@ -1,0 +1,925 @@
+"""RSS news aggregation, keyword trending, and GDELT search for world-intel-mcp.
+
+Provides multi-category RSS feed aggregation from 20+ high-quality intelligence
+and news sources, keyword spike detection from recent headlines, and full-text
+search via the GDELT 2.0 Doc API. No API keys required.
+"""
+
+import asyncio
+import html
+import logging
+import re
+import string
+from datetime import datetime, timezone
+
+from ..fetcher import Fetcher
+
+try:
+    import feedparser
+except ImportError:
+    feedparser = None  # type: ignore[assignment]
+
+logger = logging.getLogger("world-intel-mcp.sources.news")
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_RSS_FEEDS: dict[str, list[tuple[str, str]]] = {
+    "geopolitics": [
+        ("BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"),
+        ("Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml"),
+        ("AP Top News", "https://feedx.net/rss/ap.xml"),
+        (
+            "Reuters World",
+            "https://news.google.com/rss/search?q=source:Reuters&hl=en-US&gl=US&ceid=US:en",
+        ),
+        ("The Guardian World", "https://www.theguardian.com/world/rss"),
+        ("DW News", "https://rss.dw.com/rss/en/top_news/rss-en-top"),
+        ("France24", "https://www.france24.com/en/rss"),
+        ("NPR World", "https://feeds.npr.org/1004/rss.xml"),
+        ("VOA News", "https://www.voanews.com/api/zyrttemnuq"),
+    ],
+    "security": [
+        ("BleepingComputer", "https://www.bleepingcomputer.com/feed/"),
+        ("Krebs on Security", "https://krebsonsecurity.com/feed/"),
+        ("The Hacker News", "https://feeds.feedburner.com/TheHackersNews"),
+        ("Schneier on Security", "https://www.schneier.com/feed/atom/"),
+        ("Dark Reading", "https://www.darkreading.com/rss.xml"),
+        ("CISA Alerts", "https://www.cisa.gov/cybersecurity-advisories/all.xml"),
+        ("The Record", "https://therecord.media/feed"),
+        ("Security Week", "https://www.securityweek.com/feed/"),
+    ],
+    "technology": [
+        ("Ars Technica", "https://feeds.arstechnica.com/arstechnica/index"),
+        ("TechCrunch", "https://techcrunch.com/feed/"),
+        ("The Verge", "https://www.theverge.com/rss/index.xml"),
+        ("Wired", "https://www.wired.com/feed/rss"),
+        ("MIT Tech Review", "https://www.technologyreview.com/feed/"),
+        ("The Register", "https://www.theregister.com/headlines.atom"),
+    ],
+    "finance": [
+        (
+            "CNBC",
+            "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
+        ),
+        ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
+        ("FT World", "https://www.ft.com/rss/home/uk"),
+        ("Bloomberg", "https://feeds.bloomberg.com/markets/news.rss"),
+        ("WSJ Markets", "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"),
+        ("Zero Hedge", "https://feeds.feedburner.com/zerohedge/feed"),
+    ],
+    "military": [
+        ("Defense One", "https://www.defenseone.com/rss/all/"),
+        ("War on the Rocks", "https://warontherocks.com/feed/"),
+        ("The War Zone", "https://www.twz.com/feed"),
+        ("Breaking Defense", "https://breakingdefense.com/feed/"),
+        (
+            "Military Times",
+            "https://www.militarytimes.com/arc/outboundfeeds/rss/?outputType=xml",
+        ),
+        ("USNI News", "https://news.usni.org/feed"),
+    ],
+    "science": [
+        ("Nature", "https://www.nature.com/nature.rss"),
+        (
+            "Science",
+            "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=science",
+        ),
+        ("Phys.org", "https://phys.org/rss-feed/"),
+        ("New Scientist", "https://www.newscientist.com/feed/home/"),
+        ("Scientific American", "https://rss.sciam.com/ScientificAmerican-Global"),
+        ("SpaceNews", "https://spacenews.com/feed/"),
+    ],
+    "think_tanks": [
+        ("RAND", "https://www.rand.org/blog.xml"),
+        ("Brookings", "https://www.brookings.edu/feed/"),
+        ("Carnegie", "https://carnegieendowment.org/rss/solr.xml"),
+        ("CFR", "https://www.cfr.org/rss/all"),
+        ("CSIS", "https://www.csis.org/rss/all"),
+        ("Atlantic Council", "https://www.atlanticcouncil.org/feed/"),
+        ("Chatham House", "https://www.chathamhouse.org/rss/all"),
+    ],
+    "middle_east": [
+        ("Middle East Eye", "https://www.middleeasteye.net/rss"),
+        (
+            "The National UAE",
+            "https://www.thenationalnews.com/arc/outboundfeeds/rss/?outputType=xml",
+        ),
+        ("Times of Israel", "https://www.timesofisrael.com/feed/"),
+        ("Iran Intl", "https://www.iranintl.com/en/feed"),
+    ],
+    "asia_pacific": [
+        ("SCMP", "https://www.scmp.com/rss/91/feed"),
+        ("Nikkei Asia", "https://asia.nikkei.com/rss/feed/nar"),
+        ("The Diplomat", "https://thediplomat.com/feed/"),
+        (
+            "Channel News Asia",
+            "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml",
+        ),
+        ("Lowy Interpreter", "https://www.lowyinstitute.org/the-interpreter/rss.xml"),
+    ],
+    "africa": [
+        ("allAfrica", "https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf"),
+        ("The Africa Report", "https://www.theafricareport.com/feed/"),
+        ("African Arguments", "https://africanarguments.org/feed/"),
+        ("ISS Africa", "https://issafrica.org/iss-today/feed"),
+        ("Daily Maverick", "https://www.dailymaverick.co.za/article/feed/"),
+    ],
+    "latin_america": [
+        ("MercoPress", "https://en.mercopress.com/rss"),
+        ("Dialogo Americas", "https://dialogo-americas.com/feed/"),
+        ("Americas Quarterly", "https://www.americasquarterly.org/feed/"),
+        ("Buenos Aires Times", "https://www.batimes.com.ar/feed"),
+        ("Tico Times", "https://ticotimes.net/feed"),
+        ("InSight Crime", "https://insightcrime.org/feed/"),
+        ("Brazil Reports", "https://brazilian.report/feed/"),
+        ("Mexico News Daily", "https://mexiconewsdaily.com/feed/"),
+    ],
+    "multilingual": [
+        ("BBC Mundo", "https://feeds.bbci.co.uk/mundo/rss.xml"),
+        ("DW Español", "https://rss.dw.com/rss/es/top_news/rss-es-top"),
+        ("DW Deutsch", "https://rss.dw.com/rss/de/top_news/rss-de-top"),
+        ("France24 Français", "https://www.france24.com/fr/rss"),
+        ("RFI Français", "https://www.rfi.fr/fr/rss"),
+        ("UN News Español", "https://news.un.org/feed/subscribe/es/news/all/rss.xml"),
+        ("UN News Français", "https://news.un.org/feed/subscribe/fr/news/all/rss.xml"),
+    ],
+    "energy": [
+        ("Oil Price", "https://oilprice.com/rss/main"),
+        ("Rigzone", "https://www.rigzone.com/news/rss/rigzone_latest.aspx"),
+        ("Utility Dive", "https://www.utilitydive.com/feeds/news/"),
+        ("Carbon Brief", "https://www.carbonbrief.org/feed/"),
+        ("CleanTechnica", "https://cleantechnica.com/feed/"),
+    ],
+    "government": [
+        ("State Dept", "https://www.state.gov/rss-feed/press-releases/feed/"),
+        (
+            "DoD News",
+            "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=10",
+        ),
+        ("UN News", "https://news.un.org/feed/subscribe/en/news/all/rss.xml"),
+        ("White House", "https://www.whitehouse.gov/feed/"),
+    ],
+    "crisis": [
+        ("ReliefWeb", "https://reliefweb.int/updates/rss.xml"),
+        ("ICG", "https://www.crisisgroup.org/rss.xml"),
+        ("Amnesty Intl", "https://www.amnesty.org/en/feed/"),
+        ("HRW", "https://www.hrw.org/rss/news_releases"),
+    ],
+    "europe": [
+        ("EurActiv", "https://www.euractiv.com/feed/"),
+        ("Politico EU", "https://www.politico.eu/feed/"),
+        ("EU Observer", "https://euobserver.com/rss"),
+        ("DW Europe", "https://rss.dw.com/rss/en/eu/rss-en-eu"),
+    ],
+    "south_asia": [
+        ("NDTV", "https://feeds.feedburner.com/ndtvnews-top-stories"),
+        ("Dawn Pakistan", "https://www.dawn.com/feeds/home"),
+        ("Scroll India", "https://scroll.in/feed"),
+    ],
+    "health": [
+        ("STAT News", "https://www.statnews.com/feed/"),
+        ("WHO News", "https://www.who.int/rss-feeds/news-english.xml"),
+        ("Medical Xpress", "https://medicalxpress.com/rss-feed/"),
+        ("The Lancet", "https://www.thelancet.com/rssfeed/lancet_current.xml"),
+    ],
+    "central_asia": [
+        ("Eurasianet", "https://eurasianet.org/feed"),
+        ("The Astana Times", "https://astanatimes.com/feed/"),
+        ("Radio Free Europe", "https://www.rferl.org/api/zyrttemnuq"),
+    ],
+    "arctic": [
+        ("The Barents Observer", "https://thebarentsobserver.com/en/rss.xml"),
+        ("Arctic Today", "https://www.arctictoday.com/feed/"),
+        ("High North News", "https://www.highnorthnews.com/en/rss.xml"),
+    ],
+    "maritime": [
+        ("Maritime Executive", "https://maritime-executive.com/feed"),
+        ("gCaptain", "https://gcaptain.com/feed/"),
+        ("Lloyd's List", "https://lloydslist.maritimeintelligence.informa.com/rss/all"),
+    ],
+    "space": [
+        ("SpaceRef", "https://spaceref.com/feed/"),
+        ("NASASpaceFlight", "https://www.nasaspaceflight.com/feed/"),
+        ("Space.com", "https://www.space.com/feeds/all"),
+    ],
+    "nuclear": [
+        ("World Nuclear News", "https://world-nuclear-news.org/rss"),
+        ("Arms Control Assn", "https://www.armscontrol.org/rss/all"),
+        ("Nuclear Threat Initiative", "https://www.nti.org/feed/"),
+    ],
+    "climate": [
+        ("Climate Home News", "https://www.climatechangenews.com/feed/"),
+        ("InsideClimate News", "https://insideclimatenews.org/feed/"),
+        ("E&E News", "https://www.eenews.net/feed/"),
+    ],
+}
+
+# Source tier classification for propaganda/reliability scoring
+SOURCE_TIERS: dict[str, str] = {
+    "AP Top News": "wire",
+    "Reuters World": "wire",
+    "BBC World": "major",
+    "Al Jazeera": "major",
+    "The Guardian World": "major",
+    "DW News": "major",
+    "France24": "major",
+    "CNBC": "major",
+    "FT World": "major",
+    "Bloomberg": "major",
+    "WSJ Markets": "major",
+    "Nature": "major",
+    "Science": "major",
+    "Defense One": "specialty",
+    "Breaking Defense": "specialty",
+    "USNI News": "specialty",
+    "War on the Rocks": "specialty",
+    "The War Zone": "specialty",
+    "Military Times": "specialty",
+    "RAND": "think_tank",
+    "Brookings": "think_tank",
+    "Carnegie": "think_tank",
+    "ICG": "think_tank",
+    "BleepingComputer": "specialty",
+    "Krebs on Security": "specialty",
+    "The Hacker News": "specialty",
+    "CISA Alerts": "government",
+    "State Dept": "government",
+    "DoD News": "government",
+    "UN News": "government",
+    "ReliefWeb": "intl_org",
+    "Lowy Interpreter": "think_tank",
+    "Dialogo Americas": "specialty",
+    "InSight Crime": "specialty",
+    "Brazil Reports": "specialty",
+    "Mexico News Daily": "specialty",
+    "BBC Mundo": "major",
+    "DW Español": "major",
+    "DW Deutsch": "major",
+    "France24 Français": "major",
+    "RFI Français": "major",
+    "UN News Español": "government",
+    "UN News Français": "government",
+    "Nikkei Asia": "major",
+    "The National UAE": "major",
+    "Zero Hedge": "aggregator",
+    # Phase 15 additions
+    "NPR World": "major",
+    "VOA News": "government",
+    "The Record": "specialty",
+    "Security Week": "specialty",
+    "Scientific American": "major",
+    "SpaceNews": "specialty",
+    "CFR": "think_tank",
+    "CSIS": "think_tank",
+    "Atlantic Council": "think_tank",
+    "Chatham House": "think_tank",
+    "The Africa Report": "specialty",
+    "African Arguments": "specialty",
+    "ISS Africa": "think_tank",
+    "Daily Maverick": "major",
+    "Carbon Brief": "specialty",
+    "CleanTechnica": "specialty",
+    "EurActiv": "specialty",
+    "Politico EU": "major",
+    "EU Observer": "specialty",
+    "DW Europe": "major",
+    "NDTV": "major",
+    "Dawn Pakistan": "major",
+    "Scroll India": "specialty",
+    "STAT News": "specialty",
+    "WHO News": "intl_org",
+    "Medical Xpress": "specialty",
+    "Amnesty Intl": "intl_org",
+    "HRW": "intl_org",
+    "The Register": "specialty",
+    "White House": "government",
+    # Phase 16 additions
+    "The Lancet": "major",
+    "Eurasianet": "specialty",
+    "The Astana Times": "specialty",
+    "Radio Free Europe": "government",
+    "The Barents Observer": "specialty",
+    "Arctic Today": "specialty",
+    "High North News": "specialty",
+    "Maritime Executive": "specialty",
+    "gCaptain": "specialty",
+    "Lloyd's List": "specialty",
+    "SpaceRef": "specialty",
+    "NASASpaceFlight": "specialty",
+    "Space.com": "major",
+    "World Nuclear News": "specialty",
+    "Arms Control Assn": "think_tank",
+    "Nuclear Threat Initiative": "think_tank",
+    "Climate Home News": "specialty",
+    "InsideClimate News": "specialty",
+    "E&E News": "specialty",
+}
+
+_STOPWORDS: set[str] = {
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "shall",
+    "should",
+    "may",
+    "might",
+    "must",
+    "can",
+    "could",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "and",
+    "or",
+    "but",
+    "nor",
+    "not",
+    "no",
+    "so",
+    "yet",
+    "both",
+    "either",
+    "neither",
+    "with",
+    "from",
+    "by",
+    "as",
+    "into",
+    "through",
+    "during",
+    "before",
+    "after",
+    "above",
+    "below",
+    "between",
+    "under",
+    "over",
+    "about",
+    "against",
+    "out",
+    "off",
+    "up",
+    "down",
+    "then",
+    "once",
+    "here",
+    "there",
+    "when",
+    "where",
+    "why",
+    "how",
+    "all",
+    "each",
+    "every",
+    "any",
+    "few",
+    "more",
+    "most",
+    "some",
+    "such",
+    "only",
+    "own",
+    "same",
+    "than",
+    "too",
+    "very",
+    "just",
+    "also",
+    "now",
+    "it",
+    "its",
+    "he",
+    "she",
+    "they",
+    "them",
+    "their",
+    "his",
+    "her",
+    "we",
+    "you",
+    "your",
+    "our",
+    "my",
+    "me",
+    "him",
+    "us",
+    "that",
+    "this",
+    "these",
+    "those",
+    "which",
+    "who",
+    "whom",
+    "what",
+    "if",
+    "while",
+    "because",
+    "until",
+    "although",
+    "since",
+    "whether",
+    "new",
+    "says",
+    "said",
+    "one",
+    "two",
+    "first",
+    "last",
+    "many",
+    "much",
+    "get",
+    "got",
+    "back",
+    "even",
+    "still",
+    "well",
+    "way",
+    "s",
+    "t",
+    "re",
+    "ve",
+    "d",
+    "ll",
+    "m",
+}
+
+_GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+
+# Regex to strip punctuation from words
+_PUNCT_RE = re.compile(f"[{re.escape(string.punctuation)}]")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_published(entry: dict) -> str | None:
+    """Parse an RSS entry's published date to ISO 8601 UTC string.
+
+    feedparser stores the parsed time struct in ``published_parsed``.
+    Falls back to the raw ``published`` string if parsing fails.
+    """
+    import time as _time
+
+    parsed_tuple = entry.get("published_parsed")
+    if parsed_tuple is not None:
+        try:
+            epoch = _time.mktime(parsed_tuple[:9])
+            dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
+            return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        except (ValueError, TypeError, OverflowError):
+            pass
+
+    # Fallback: try updated_parsed
+    updated_tuple = entry.get("updated_parsed")
+    if updated_tuple is not None:
+        try:
+            epoch = _time.mktime(updated_tuple[:9])
+            dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
+            return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        except (ValueError, TypeError, OverflowError):
+            pass
+
+    # Last resort: return raw string or None
+    return entry.get("published") or entry.get("updated")
+
+
+def _truncate(text: str | None, max_len: int = 200) -> str:
+    """Truncate text to max_len characters, appending '...' if trimmed."""
+    if not text:
+        return ""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
+def _clean_rss_text(text: str | None) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r"<[^>]+>", " ", html.unescape(text))
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _balanced_news_sample(items: list[dict], limit: int) -> list[dict]:
+    """Keep the feed recent while preventing one timestamp/source from taking over."""
+    if limit <= 0 or len(items) <= limit:
+        return items[:max(0, limit)]
+
+    selected: list[dict] = []
+    selected_ids: set[int] = set()
+    per_source: dict[str, int] = {}
+    per_category: dict[str, int] = {}
+    multilingual = [item for item in items if item.get("category") == "multilingual"]
+
+    def add(item: dict) -> bool:
+        identity = id(item)
+        if identity in selected_ids or len(selected) >= limit:
+            return False
+        selected.append(item)
+        selected_ids.add(identity)
+        source = str(item.get("feed_name") or "")
+        category = str(item.get("category") or "")
+        per_source[source] = per_source.get(source, 0) + 1
+        per_category[category] = per_category.get(category, 0) + 1
+        return True
+
+    # Reserve a small multilingual floor when those feeds are available.
+    for item in multilingual[:min(6, max(2, limit // 12))]:
+        add(item)
+
+    # First pass maximises breadth across source and category.
+    for item in items:
+        source = str(item.get("feed_name") or "")
+        category = str(item.get("category") or "")
+        if per_source.get(source, 0) >= 2 or per_category.get(category, 0) >= 8:
+            continue
+        add(item)
+
+    # Second pass fills remaining space in original recency order.
+    for item in items:
+        if len(selected) >= limit:
+            break
+        source = str(item.get("feed_name") or "")
+        if per_source.get(source, 0) < 4:
+            add(item)
+
+    for item in items:
+        if len(selected) >= limit:
+            break
+        add(item)
+
+    selected.sort(key=lambda item: item.get("published") or "", reverse=True)
+    return selected
+
+
+# ---------------------------------------------------------------------------
+# Function 1: RSS News Feed Aggregation
+# ---------------------------------------------------------------------------
+
+
+async def fetch_news_feed(
+    fetcher: Fetcher,
+    category: str | None = None,
+    limit: int = 50,
+) -> dict:
+    """Aggregate news from 20+ RSS feeds across intelligence/news categories.
+
+    Uses ``feedparser`` to parse RSS/Atom feeds fetched via the shared HTTP
+    fetcher. Feeds within each category are fetched in parallel.
+
+    Args:
+        fetcher: Shared HTTP fetcher with caching and circuit breaking.
+        category: Optional category key (geopolitics, security, technology,
+                  finance, military, science). If None, fetches all categories.
+        limit: Maximum number of items to return.
+
+    Returns:
+        Dict with items list, count, categories fetched, source, and timestamp.
+    """
+    if feedparser is None:
+        return {
+            "error": "feedparser not installed — run: pip install feedparser",
+            "items": [],
+            "count": 0,
+        }
+
+    now = datetime.now(timezone.utc)
+
+    # Determine which categories to fetch
+    if category is not None:
+        if category not in _RSS_FEEDS:
+            return {
+                "items": [],
+                "count": 0,
+                "categories_fetched": [],
+                "error": f"Unknown category '{category}'. Valid: {list(_RSS_FEEDS.keys())}",
+                "source": "rss-aggregator",
+                "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        categories_to_fetch = {category: _RSS_FEEDS[category]}
+    else:
+        categories_to_fetch = dict(_RSS_FEEDS)
+
+    all_items: list[dict] = []
+
+    def _parse_feed(xml_text: str, feed_name: str, cat: str) -> list[dict]:
+        parsed = feedparser.parse(xml_text)
+        items: list[dict] = []
+        for entry in parsed.get("entries", []):
+            published = _parse_published(entry)
+            summary_raw = _clean_rss_text(entry.get("summary") or entry.get("description") or "")
+            content_entries = entry.get("content") or []
+            content_raw = ""
+            if isinstance(content_entries, list) and content_entries:
+                first_content = content_entries[0]
+                if isinstance(first_content, dict):
+                    content_raw = _clean_rss_text(first_content.get("value"))
+            content = content_raw if len(content_raw) > len(summary_raw) else summary_raw
+            items.append({
+                "title": entry.get("title", ""),
+                "link": entry.get("link", ""),
+                "published": published,
+                "summary": _truncate(summary_raw, 500),
+                "content": _truncate(content, 3000),
+                "feed_name": feed_name,
+                "category": cat,
+                "source_tier": SOURCE_TIERS.get(feed_name, "unknown"),
+            })
+        return items
+
+    async def _fetch_single_feed(
+        feed_name: str,
+        url: str,
+        cat: str,
+    ) -> list[dict]:
+        """Fetch and parse a single RSS feed, returning extracted items."""
+        safe_name = feed_name.lower().replace(" ", "_")
+        xml_text = await fetcher.get_xml(
+            url,
+            source=f"rss:{safe_name}",
+            cache_key=f"news:rss:{safe_name}",
+            cache_ttl=300,
+            timeout=8.0,
+        )
+
+        if xml_text is None:
+            logger.debug("No data from RSS feed %s (%s)", feed_name, url)
+            return []
+
+        return _parse_feed(xml_text, feed_name, cat)
+
+    async def _safe_fetch(feed_name: str, url: str, cat: str) -> list[dict]:
+        """Wrap single feed fetch with a hard timeout."""
+        try:
+            return await asyncio.wait_for(
+                _fetch_single_feed(feed_name, url, cat),
+                timeout=12.0,
+            )
+        except asyncio.TimeoutError:
+            logger.debug("RSS feed %s timed out", feed_name)
+            safe_name = feed_name.lower().replace(" ", "_")
+            stale_xml = fetcher.cache.get_stale(f"news:rss:{safe_name}")
+            return _parse_feed(stale_xml, feed_name, cat) if isinstance(stale_xml, str) else []
+
+    # Fetch feeds with concurrency cap to avoid saturating the httpx pool.
+    # Without this, 119 RSS feeds + other source calls exceed the 50-connection
+    # pool limit, causing cascade timeouts across the entire dashboard.
+    sem = asyncio.Semaphore(25)
+
+    async def _throttled(feed_name: str, url: str, cat: str) -> list[dict]:
+        async with sem:
+            return await _safe_fetch(feed_name, url, cat)
+
+    all_tasks = [
+        _throttled(feed_name, url, cat)
+        for cat, feeds in categories_to_fetch.items()
+        for feed_name, url in feeds
+    ]
+    results = await asyncio.gather(*all_tasks)
+    for items in results:
+        all_items.extend(items)
+
+    # Keep the world browser useful during transient network or proxy stalls.
+    # Stale RSS is clearly timestamped per article and is preferable to an
+    # empty global news surface.
+    if not all_items:
+        for cat, feeds in categories_to_fetch.items():
+            for feed_name, _ in feeds:
+                safe_name = feed_name.lower().replace(" ", "_")
+                stale_xml = fetcher.cache.get_stale(f"news:rss:{safe_name}")
+                if isinstance(stale_xml, str):
+                    all_items.extend(_parse_feed(stale_xml, feed_name, cat))
+
+    # Sort by published date descending (entries without dates go last)
+    all_items.sort(
+        key=lambda item: item.get("published") or "",
+        reverse=True,
+    )
+
+    # Preserve recency, but do not let a single publisher or product launch
+    # crowd out the world-browser view and all multilingual reporting.
+    all_items = _balanced_news_sample(all_items, limit)
+
+    return {
+        "items": all_items,
+        "count": len(all_items),
+        "categories_fetched": list(categories_to_fetch.keys()),
+        "source": "rss-aggregator",
+        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Function 2: Keyword Trending / Spike Detection
+# ---------------------------------------------------------------------------
+
+
+async def fetch_trending_keywords(
+    fetcher: Fetcher,
+    hours: int = 6,
+    min_count: int = 3,
+) -> dict:
+    """Detect trending keywords from recent news headlines.
+
+    Fetches up to 200 recent news items via ``fetch_news_feed``, extracts
+    words from titles, removes stopwords and short tokens, and returns the
+    most frequently occurring keywords sorted by count.
+
+    Args:
+        fetcher: Shared HTTP fetcher with caching and circuit breaking.
+        hours: Not used for time-windowing (RSS feeds are inherently recent),
+               but kept for API symmetry with other source functions.
+        min_count: Minimum occurrences for a keyword to be included.
+
+    Returns:
+        Dict with keywords list (word + count), total items analyzed,
+        source, and timestamp.
+    """
+    # Fetch a broad set of recent items
+    feed_data = await fetch_news_feed(fetcher, limit=200)
+    return analyze_trending_keywords(feed_data.get("items", []), min_count=min_count)
+
+
+def analyze_trending_keywords(items: list[dict], min_count: int = 3) -> dict:
+    """Build keyword trends from an already fetched news batch."""
+    now = datetime.now(timezone.utc)
+
+    # Count word frequencies across all titles
+    word_counts: dict[str, int] = {}
+    for item in items:
+        title = item.get("title") or ""
+        # Lowercase, strip punctuation, split into words
+        cleaned = _PUNCT_RE.sub(" ", title.lower())
+        words = cleaned.split()
+        for word in words:
+            word = word.strip()
+            if len(word) < 3:
+                continue
+            if word in _STOPWORDS:
+                continue
+            word_counts[word] = word_counts.get(word, 0) + 1
+
+    # Filter by min_count and sort descending
+    keywords = [
+        {"word": word, "count": count}
+        for word, count in word_counts.items()
+        if count >= min_count
+    ]
+    keywords.sort(key=lambda k: k["count"], reverse=True)
+
+    # Return top 50
+    keywords = keywords[:50]
+
+    return {
+        "keywords": keywords,
+        "total_items_analyzed": len(items),
+        "source": "keyword-analysis",
+        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+async def fetch_news_bundle(
+    fetcher: Fetcher,
+    feed_limit: int = 50,
+    analysis_limit: int = 200,
+    min_count: int = 3,
+    social_posts: list[dict] | None = None,
+) -> dict:
+    """Fetch RSS once and derive feed, keyword, and media-monitor views."""
+    from ..analysis.media_monitor import analyze_media_monitor
+
+    feed_data = await fetch_news_feed(
+        fetcher,
+        limit=max(feed_limit, analysis_limit),
+    )
+    items = feed_data.get("items", [])
+    visible_items = _balanced_news_sample(items, feed_limit)
+    return {
+        "news_feed": {
+            **feed_data,
+            "items": visible_items,
+            "count": len(visible_items),
+        },
+        "trending_keywords": analyze_trending_keywords(
+            items[:analysis_limit],
+            min_count=min_count,
+        ),
+        "media_monitor": analyze_media_monitor(
+            items[:analysis_limit],
+            social_posts or [],
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Function 3: GDELT 2.0 Doc API Search
+# ---------------------------------------------------------------------------
+
+
+async def fetch_gdelt_search(
+    fetcher: Fetcher,
+    query: str = "conflict",
+    mode: str = "artlist",
+    limit: int = 50,
+) -> dict:
+    """Search the GDELT 2.0 Doc API for articles or volume timelines.
+
+    No API key required. Supports article list and timeline volume modes.
+
+    Args:
+        fetcher: Shared HTTP fetcher with caching and circuit breaking.
+        query: Search query string.
+        mode: Either ``artlist`` (article list) or ``timelinevol``
+              (volume timeline).
+        limit: Maximum number of records (artlist mode).
+
+    Returns:
+        Dict with articles/timeline data, count, query info, source,
+        and timestamp.
+    """
+    now = datetime.now(timezone.utc)
+
+    params: dict = {
+        "query": query,
+        "mode": mode,
+        "maxrecords": limit,
+        "format": "json",
+    }
+
+    safe_query = re.sub(r"[^a-zA-Z0-9_-]", "_", query)[:64]
+    data = await fetcher.get_json(
+        _GDELT_DOC_URL,
+        source="gdelt",
+        cache_key=f"news:gdelt:{safe_query}:{mode}",
+        cache_ttl=600,
+        params=params,
+    )
+
+    if data is None:
+        logger.warning("GDELT API returned no data for query=%s mode=%s", query, mode)
+        return {
+            "articles": [] if mode == "artlist" else None,
+            "timeline": None if mode == "artlist" else [],
+            "count": 0,
+            "query": query,
+            "mode": mode,
+            "source": "gdelt",
+            "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+
+    if mode == "artlist":
+        articles = []
+        for article in data.get("articles", []):
+            articles.append(
+                {
+                    "title": article.get("title"),
+                    "url": article.get("url"),
+                    "seendate": article.get("seendate"),
+                    "socialimage": article.get("socialimage"),
+                    "domain": article.get("domain"),
+                    "language": article.get("language"),
+                    "sourcecountry": article.get("sourcecountry"),
+                }
+            )
+
+        return {
+            "articles": articles,
+            "count": len(articles),
+            "query": query,
+            "mode": mode,
+            "source": "gdelt",
+            "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+
+    # timelinevol mode — return timeline data as-is
+    timeline = data.get("timeline", [])
+    return {
+        "timeline": timeline,
+        "count": len(timeline) if isinstance(timeline, list) else 0,
+        "query": query,
+        "mode": mode,
+        "source": "gdelt",
+        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
