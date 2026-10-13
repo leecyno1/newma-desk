@@ -1,243 +1,311 @@
 from typing import Any
 
 
-def _manifest_fingerprint(manifest: dict[str, Any]) -> str:
-    return " ".join(
-        str(value)
-        for value in [
-            manifest.get("id", ""),
-            manifest.get("name", ""),
-            manifest.get("category", ""),
-            *(manifest.get("dataServices", []) or []),
-        ]
-    ).lower()
+Lens = dict[str, str]
 
 
-def _is_catalyst_calendar(manifest: dict[str, Any]) -> bool:
-    fingerprint = _manifest_fingerprint(manifest)
-    return any(
-        token in fingerprint
-        for token in (
-            "catalyst-calendar",
-            "catalyst",
-            "催化剂",
-            "事件日历",
-        )
-    )
+SPECIALIZED_PROFILES_BY_ID = {
+    "catalyst-calendar": "catalyst-calendar",
+    "macro-monitor": "macro-monitor",
+    "seven-cycle-research": "cycle-research",
+    "thesis-tracker": "thesis-tracker",
+    "earnings-workbench": "earnings-workbench",
+    "peer-comparison": "peer-comparison",
+    "valuation-workbench": "valuation-workbench",
+    "research-memo": "research-memo",
+    "idea-funnel": "idea-funnel",
+    "news-radar": "news",
+    "fed-rates": "macro",
+}
+
+SPECIALIZED_PROFILES_BY_NAME = {
+    "催化剂日历": "catalyst-calendar",
+    "宏观观察": "macro-monitor",
+    "周期叠加": "cycle-research",
+    "投资逻辑": "thesis-tracker",
+    "财报研究": "earnings-workbench",
+    "同业比较": "peer-comparison",
+    "预测与估值": "valuation-workbench",
+    "研究备忘录": "research-memo",
+    "研究机会池": "idea-funnel",
+    "新闻与舆情": "news",
+    "联储加息": "macro",
+}
+
+PROJECT_PROFILES = {
+    "global-intelligence": "global",
+    "fundamentals": "macro",
+    "policy-intelligence": "policy",
+    "capital-flow": "capital",
+    "market-surface": "market",
+    "industry-research": "research",
+    "equity-research": "research",
+    "fund-research": "fund",
+    "professional-fund-research": "fund",
+    "asset-allocation": "portfolio",
+    "quant-research": "quant",
+    "trading": "trading",
+    "risk-management": "risk",
+    "strategy-research": "strategy",
+    "investment-committee": "decision",
+    "creator-studio": "creator",
+    "deepsee": "deepsee",
+    "workflow-center": "workflow",
+    "workflow-center-suite": "workflow",
+}
+
+GROUP_PROFILES = {
+    "全球": "global",
+    "宏观": "macro",
+    "政策": "policy",
+    "资金": "capital",
+    "市场": "market",
+    "行业": "research",
+    "公司": "research",
+    "基金": "fund",
+    "配置": "portfolio",
+    "量化": "quant",
+    "交易": "trading",
+    "投决": "decision",
+    "策略": "strategy",
+    "风险": "risk",
+    "创作": "creator",
+    "深瞳": "deepsee",
+    "工作流": "workflow",
+}
+
+CATEGORY_PROFILES = {
+    "event": "global",
+    "research": "research",
+    "market": "market",
+    "quant": "quant",
+    "trading": "trading",
+    "decision": "decision",
+    "creator": "creator",
+    "deepsee": "deepsee",
+    "workflow": "workflow",
+    "system": "settings",
+}
 
 
-def _is_macro_monitor(manifest: dict[str, Any]) -> bool:
-    fingerprint = _manifest_fingerprint(manifest)
-    return any(
-        token in fingerprint
-        for token in (
-            "macro-monitor",
-            "macro",
-            "宏观观察",
-            "经济日历",
-        )
-    )
+def _mapping(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
-def _is_thesis_tracker(manifest: dict[str, Any]) -> bool:
-    fingerprint = _manifest_fingerprint(manifest)
-    return any(
-        token in fingerprint
-        for token in (
-            "thesis-tracker",
-            "investment-thesis",
-            "投资逻辑",
-            "逻辑跟踪",
-        )
-    )
+def _text(value: object) -> str:
+    return str(value or "").strip()
 
 
-def _is_earnings_workbench(manifest: dict[str, Any]) -> bool:
-    fingerprint = _manifest_fingerprint(manifest)
-    return any(
-        token in fingerprint
-        for token in (
-            "earnings-workbench",
-            "earnings-research",
-            "财报研究",
-            "业绩预期",
-        )
-    )
+def _copilot_profile(manifest: dict[str, Any]) -> str:
+    navigation = _mapping(manifest.get("navigation"))
+    project = _mapping(navigation.get("project"))
+    if navigation.get("role") == "settings":
+        return "settings"
 
+    module_id = _text(manifest.get("id")).lower()
+    name = _text(manifest.get("name"))
+    specialized = SPECIALIZED_PROFILES_BY_ID.get(module_id)
+    if specialized:
+        return specialized
+    specialized = SPECIALIZED_PROFILES_BY_NAME.get(name)
+    if specialized:
+        return specialized
 
-def _is_peer_comparison(manifest: dict[str, Any]) -> bool:
-    fingerprint = _manifest_fingerprint(manifest)
-    return any(
-        token in fingerprint
-        for token in (
-            "peer-comparison",
-            "comparable-company",
-            "同业比较",
-            "可比公司",
-            "竞争分析",
-        )
-    )
+    project_profile = PROJECT_PROFILES.get(_text(project.get("id")).lower())
+    if project_profile:
+        return project_profile
+    group_profile = GROUP_PROFILES.get(_text(navigation.get("groupLabel")))
+    if group_profile:
+        return group_profile
 
-
-def _is_valuation_workbench(manifest: dict[str, Any]) -> bool:
-    fingerprint = _manifest_fingerprint(manifest)
-    return any(
-        token in fingerprint
-        for token in (
-            "valuation-workbench",
-            "driver-based-dcf",
-            "预测与估值",
-            "财务预测",
-            "敏感性分析",
-        )
-    )
-
-
-def _is_research_memo(manifest: dict[str, Any]) -> bool:
-    fingerprint = _manifest_fingerprint(manifest)
-    return any(
-        token in fingerprint
-        for token in (
-            "research-memo",
-            "research synthesis",
-            "研究备忘录",
-            "研究收敛",
-        )
-    )
-
-
-def _is_idea_funnel(manifest: dict[str, Any]) -> bool:
-    fingerprint = _manifest_fingerprint(manifest)
-    return any(
-        token in fingerprint
-        for token in (
-            "idea-funnel",
-            "idea generation",
-            "研究机会池",
-            "研究队列",
-        )
-    )
-
-
-def _domain_lens(manifest: dict[str, Any]) -> dict[str, str]:
-    fingerprint = _manifest_fingerprint(manifest)
-
-    if _is_idea_funnel(manifest):
-        return {
-            "evidence": "核验筛选条件、证券身份、报告期、市场与同业口径；区分量化信号、主题判断、催化剂、反方证据和研究推断，并保留来源与截至日期。",
-            "risk": "重点检查样本偏差、筛选条件过拟合、拥挤交易、陈旧数据、把相关性当因果、只记录支持证据、没有可观察催化剂或证伪条件的问题。",
-            "extension": "补充更长周期财务、估值、同业、产业链、公司公告、新闻舆情、所有权与拥挤度、催化剂和反方证据，说明它们如何改变候选优先级。",
-            "validation": "至少覆盖搜索条件、来源、双向假设、支持与挑战信号、研究优先级评分、催化剂、风险、证伪条件、研究任务、交接目标，以及流程总览中的到期复核、陈旧来源和档案缺口。",
-        }
-
-    if _is_research_memo(manifest):
-        return {
-            "evidence": "逐条区分已报告事实、管理层指引、市场一致预期和研究推断；核验每个关联档案 ID、来源、截至日期、新鲜度与冲突证据，不要把底层档案复制成无来源摘要。",
-            "risk": "重点检查结论先行但证据不足、引用档案陈旧或缺失、三情景概率失真、估值输出被误当确定性结论、反方证据缺失，以及逻辑断点不可观察的问题。",
-            "extension": "按需补充投资逻辑、财报、同业、估值、催化剂、产业链、宏观和新闻证据，并说明新增信息增强、削弱还是不改变哪一项判断。",
-            "validation": "至少覆盖研究边界、执行结论、关联档案、关键驱动、三情景、差异认知、催化剂、反方风险、逻辑断点、监控指标、来源缺口和版本变化。",
-        }
-
-    if _is_valuation_workbench(manifest):
-        return {
-            "evidence": "将历史事实、管理层指引、研究假设和模型计算分开；核验收入基期、EBIT、折旧摊销、资本开支、营运资本、债务、现金、稀释股数及每项来源和截至日期。",
-            "risk": "重点检查单位与币种错位、WACC 资本结构、终值增长高于折现率、终值占比过高、情景层级反常、负利润或周期高点外推，以及把模型输出误当确定性结论的风险。",
-            "extension": "补充更长周期三表数据、财报与附注、管理层指引、同业经营和估值区间、无风险利率、Beta、债务成本及行业稳态假设。",
-            "validation": "至少覆盖历史基期来源、三情景驱动、WACC 组成、UFCF 计算、EV 到股权价值桥接、终值占比、5×5 敏感性中心格、情景层级和缺失输入。",
-        }
-
-    if _is_peer_comparison(manifest):
-        return {
-            "evidence": "先审计业务模式、地区、客户、产品结构、财年、币种和指标定义是否真正可比；所有公司数字必须保留来源、报告期、单位和覆盖缺口。",
-            "risk": "重点识别混入非纯业务公司、财年错位、会计口径差异、并购或一次性项目、负利润导致倍数失真，以及把相关性误当因果的风险。",
-            "extension": "补充行业特定经营指标、竞争定位、护城河、市场份额、战略变化和能解释估值溢价或折价的证据。",
-            "validation": "至少覆盖同业选择理由与例外、统一期间和币种、5–10 个关键指标、缺失值、最大/75分位/中位/25分位/最小统计、来源、口径和数据缺口。",
-        }
-
-    if _is_earnings_workbench(manifest):
-        return {
-            "evidence": "先核验最新报告期、披露日期、原始财报和管理层材料，再比较实际、内部预期和一致预期；所有关键数字必须保留来源与截至日期。",
-            "risk": "重点检查一次性项目、会计口径、基数、季节性、并购与汇率影响，以及指引是否发生维持、上调、下调、撤回或口径变化。",
-            "extension": "补充更长周期财务、公司特定经营指标、公告、电话会、研报与新闻，并说明新增证据如何改变预测假设和投资逻辑支柱。",
-            "validation": "至少覆盖报告期核验、实际与预期差、差异驱动、利润率和经营指标、当前与上次指引、预测修订、Thesis 影响、来源、新鲜度和数据缺口。",
-        }
-
-    if _is_thesis_tracker(manifest):
-        return {
-            "evidence": "逐项核验核心论点、支柱、反方证据、来源、截至日期、新鲜度、可信度和信息缺口；不得只统计支持性证据。",
-            "risk": "重点检查论点是否可证伪、证伪条件是否可观察、风险是否已经触发，以及确信度变化是否有新增证据支持。",
-            "extension": "补充更长时间区间的行情与财务、公司公告、新闻、宏观与产业链证据，并明确新增信息增强、削弱还是不改变哪个支柱。",
-            "validation": "至少覆盖 3–5 个支柱与风险、证据引用、催化剂关联、更新日志、下次复盘日期、证伪状态和 Desk Storage 持久化。",
-        }
-
-    if _is_catalyst_calendar(manifest):
-        return {
-            "evidence": "按重要性、紧迫度和证据质量排序，区分已确认日期事件与不确定观察窗；核验原始来源、日期变更、更新时间和覆盖缺口。",
-            "risk": "逐项对照原始假设、确认条件、失效条件与实际结果；将过期来源、日期漂移、事件取消和观察窗未兑现列为风险。",
-            "extension": "补充财报预期与历史财务、公司公告、新闻舆情、行业事件和相关宏观背景，但不得把周期概率解释成精确转折日期。",
-            "validation": "至少覆盖确定日期与观察窗分类、来源和证据编号、日期变更、新鲜度、确认/失效状态、结果归档与公司/行业/宏观覆盖缺口。",
-        }
-
-    if _is_macro_monitor(manifest):
-        return {
-            "evidence": "核验指标发布机构、统计口径、发布日期、修订值、新鲜度和聚合源与原始源的差异；不要把陈旧数据当成当前状态。",
-            "risk": "重点检查增长、价格和流动性信号是否分化，识别数据修订、预期差、事件聚集与跨地区传导失效风险。",
-            "extension": "补充官方原始数据、利率与汇率、就业、信用、贸易、商品和政策背景，并解释其向行业和资产的传导路径。",
-            "validation": "至少覆盖指标值与前值、发布时间、新鲜度、证据编号、经济事件时区、来源降级、修订风险和缺失地区或指标。",
-        }
-
-    if any(
-        token in fingerprint
-        for token in ("quant", "trading", "backtest", "factor", "量化", "交易", "回测", "因子")
+    for prefix, profile in (
+        ("policy-", "policy"),
+        ("capital-", "capital"),
+        ("fund-", "fund"),
+        ("workflow-", "workflow"),
+        ("creator-", "creator"),
+        ("deepsee-", "deepsee"),
+        ("orchestra-", "decision"),
     ):
-        return {
-            "evidence": "重点核验样本区间、基准、复权、信号时点、交易成本，以及是否存在前视偏差、幸存者偏差或数据泄漏。",
-            "risk": "重点检查过拟合、容量、流动性、滑点、极端行情、参数敏感性和样本外失效风险。",
-            "extension": "补充样本外测试、分层归因、参数稳定性、容量约束和不同市场状态下的表现。",
-            "validation": "至少覆盖确定性测试、样本外或回放验证、边界条件、交易成本与关键回归检查。",
-        }
+        if module_id.startswith(prefix):
+            return profile
 
-    if any(
-        token in fingerprint
-        for token in ("market", "quote", "watchlist", "行情", "看盘", "自选")
-    ):
-        return {
-            "evidence": "重点核验行情源、时间戳、交易时段、币种、复权方式、价格口径和跨数据源一致性。",
-            "risk": "重点检查数据延迟、停牌或低流动性、公司行动、异常点和跨市场口径差异。",
-            "extension": "补充量价结构、市场宽度、相对强弱、事件催化和同类资产对照。",
-            "validation": "至少覆盖数据源可用性、时间与复权口径、空数据、异常行情和刷新链路。",
-        }
+    return CATEGORY_PROFILES.get(
+        _text(manifest.get("category")).lower(),
+        "general",
+    )
 
-    if any(
-        token in fingerprint
-        for token in ("research", "industry", "stock", "report", "研究", "产业", "个股", "研报")
-    ):
-        return {
-            "evidence": "将事实、计算、推断和假设分开，核验来源、发布日期、统计口径、引用链和不同来源之间的一致性。",
-            "risk": "重点寻找产业链传导断点、竞争替代、需求证伪、政策变化、估值约束和催化不兑现风险。",
-            "extension": "补充产业链上下游、关键公司、可跟踪指标、催化日历和能够证伪当前观点的信号。",
-            "validation": "至少覆盖来源可追溯性、关键数字复算、关系链完整性、反例与过期信息检查。",
-        }
 
-    if any(
-        token in fingerprint
-        for token in ("setting", "config", "system", "设置", "配置", "连接")
-    ):
-        return {
-            "evidence": "核验配置来源、默认值、生效范围、环境覆盖顺序、权限和依赖服务状态。",
-            "risk": "重点检查错误配置、敏感信息暴露、权限越界、环境冲突和不可逆操作。",
-            "extension": "补充健康检查、配置继承、迁移兼容、故障恢复和最小权限方案。",
-            "validation": "至少覆盖配置解析、默认与覆盖优先级、权限、失败降级和重启后的持久化结果。",
-        }
-
-    return {
+DOMAIN_LENSES: dict[str, Lens] = {
+    "idea-funnel": {
+        "evidence": "核验筛选条件、证券身份、报告期、市场与同业口径；区分量化信号、主题判断、催化剂、反方证据和研究推断，并保留来源与截至日期。",
+        "risk": "重点检查样本偏差、筛选条件过拟合、拥挤交易、陈旧数据、把相关性当因果、只记录支持证据、没有可观察催化剂或证伪条件的问题。",
+        "extension": "补充更长周期财务、估值、同业、产业链、公司公告、新闻舆情、所有权与拥挤度、催化剂和反方证据，说明它们如何改变候选优先级。",
+        "validation": "至少覆盖搜索条件、来源、双向假设、支持与挑战信号、研究优先级评分、催化剂、风险、证伪条件、研究任务、交接目标，以及流程总览中的到期复核、陈旧来源和档案缺口。",
+    },
+    "research-memo": {
+        "evidence": "逐条区分已报告事实、管理层指引、市场一致预期和研究推断；核验每个关联档案 ID、来源、截至日期、新鲜度与冲突证据，不要把底层档案复制成无来源摘要。",
+        "risk": "重点检查结论先行但证据不足、引用档案陈旧或缺失、三情景概率失真、估值输出被误当确定性结论、反方证据缺失，以及逻辑断点不可观察的问题。",
+        "extension": "按需补充投资逻辑、财报、同业、估值、催化剂、产业链、宏观和新闻证据，并说明新增信息增强、削弱还是不改变哪一项判断。",
+        "validation": "至少覆盖研究边界、执行结论、关联档案、关键驱动、三情景、差异认知、催化剂、反方风险、逻辑断点、监控指标、来源缺口和版本变化。",
+    },
+    "valuation-workbench": {
+        "evidence": "将历史事实、管理层指引、研究假设和模型计算分开；核验收入基期、EBIT、折旧摊销、资本开支、营运资本、债务、现金、稀释股数及每项来源和截至日期。",
+        "risk": "重点检查单位与币种错位、WACC 资本结构、终值增长高于折现率、终值占比过高、情景层级反常、负利润或周期高点外推，以及把模型输出误当确定性结论的风险。",
+        "extension": "补充更长周期三表数据、财报与附注、管理层指引、同业经营和估值区间、无风险利率、Beta、债务成本及行业稳态假设。",
+        "validation": "至少覆盖历史基期来源、三情景驱动、WACC 组成、UFCF 计算、EV 到股权价值桥接、终值占比、5×5 敏感性中心格、情景层级和缺失输入。",
+    },
+    "peer-comparison": {
+        "evidence": "先审计业务模式、地区、客户、产品结构、财年、币种和指标定义是否真正可比；所有公司数字必须保留来源、报告期、单位和覆盖缺口。",
+        "risk": "重点识别混入非纯业务公司、财年错位、会计口径差异、并购或一次性项目、负利润导致倍数失真，以及把相关性误当因果的风险。",
+        "extension": "补充行业特定经营指标、竞争定位、护城河、市场份额、战略变化和能解释估值溢价或折价的证据。",
+        "validation": "至少覆盖同业选择理由与例外、统一期间和币种、5–10 个关键指标、缺失值、最大/75分位/中位/25分位/最小统计、来源、口径和数据缺口。",
+    },
+    "earnings-workbench": {
+        "evidence": "先核验最新报告期、披露日期、原始财报和管理层材料，再比较实际、内部预期和一致预期；所有关键数字必须保留来源与截至日期。",
+        "risk": "重点检查一次性项目、会计口径、基数、季节性、并购与汇率影响，以及指引是否发生维持、上调、下调、撤回或口径变化。",
+        "extension": "补充更长周期财务、公司特定经营指标、公告、电话会、研报与新闻，并说明新增证据如何改变预测假设和投资逻辑支柱。",
+        "validation": "至少覆盖报告期核验、实际与预期差、差异驱动、利润率和经营指标、当前与上次指引、预测修订、Thesis 影响、来源、新鲜度和数据缺口。",
+    },
+    "thesis-tracker": {
+        "evidence": "逐项核验核心论点、支柱、反方证据、来源、截至日期、新鲜度、可信度和信息缺口；不得只统计支持性证据。",
+        "risk": "重点检查论点是否可证伪、证伪条件是否可观察、风险是否已经触发，以及确信度变化是否有新增证据支持。",
+        "extension": "补充更长时间区间的行情与财务、公司公告、新闻、宏观与产业链证据，并明确新增信息增强、削弱还是不改变哪个支柱。",
+        "validation": "至少覆盖 3–5 个支柱与风险、证据引用、催化剂关联、更新日志、下次复盘日期、证伪状态和 Desk Storage 持久化。",
+    },
+    "catalyst-calendar": {
+        "evidence": "按重要性、紧迫度和证据质量排序，区分已确认日期事件与不确定观察窗；核验原始来源、日期变更、更新时间和覆盖缺口。",
+        "risk": "逐项对照原始假设、确认条件、失效条件与实际结果；将过期来源、日期漂移、事件取消和观察窗未兑现列为风险。",
+        "extension": "补充财报预期与历史财务、公司公告、新闻舆情、行业事件和相关宏观背景，但不得把周期概率解释成精确转折日期。",
+        "validation": "至少覆盖确定日期与观察窗分类、来源和证据编号、日期变更、新鲜度、确认/失效状态、结果归档与公司/行业/宏观覆盖缺口。",
+    },
+    "macro-monitor": {
+        "evidence": "核验指标发布机构、统计口径、发布日期、修订值、新鲜度和聚合源与原始源的差异；不要把陈旧数据当成当前状态。",
+        "risk": "重点检查增长、价格和流动性信号是否分化，识别数据修订、预期差、事件聚集与跨地区传导失效风险。",
+        "extension": "补充官方原始数据、利率与汇率、就业、信用、贸易、商品和政策背景，并解释其向行业和资产的传导路径。",
+        "validation": "至少覆盖指标值与前值、发布时间、新鲜度、证据编号、经济事件时区、来源降级、修订风险和缺失地区或指标。",
+    },
+    "cycle-research": {
+        "evidence": "先核验当前视图、时间范围、历史或预测图层、聚焦轨道、坐标轴、归一化和校准状态，再区分页面字段、图形读取与研究推断。",
+        "risk": "重点检查不同周期信号背离、样本窗口敏感、视觉误读、预测区间被当成确定路径、数据校准失效和跨资产映射过度。",
+        "extension": "补充各周期轨道的原始指标、校准方法、历史相似阶段、跨资产表现和能够确认或证伪拐点判断的后续数据。",
+        "validation": "至少覆盖 2D/3D 状态、时间范围、历史/预测图层、聚焦轨道、图形快照、数据源、校准结果、切换操作和空数据降级。",
+    },
+    "fund": {
+        "evidence": "先核验基金代码、名称、类型、币种、净值日期、业绩区间、比较基准、分红复权、持仓报告期和数据来源；区分基金披露事实、穿透计算和研究推断。",
+        "risk": "重点检查净值或持仓滞后、基准错配、幸存者偏差、风格漂移、集中度、流动性、回撤、申赎冲击、费用以及把短期排名外推为长期能力的问题。",
+        "extension": "补充基金经理与任职区间、规模和份额变化、费用、持仓穿透、行业与因子暴露、业绩归因、同类基金和基准对照；不要套用产业链公司分析模板。",
+        "validation": "至少覆盖基金身份、净值与持仓日期、复权和基准口径、区间收益、回撤、风险调整收益、规模份额、费用、来源和空数据状态。",
+    },
+    "workflow": {
+        "evidence": "核验工作流版本、节点、连线、过程参数、输入输出、负责人、授权范围、运行状态、上下文和交付物；箭头必须作为可配置过程读取，不能只看节点标题。",
+        "risk": "重点检查断链、环路、孤立节点、参数未映射、权限越界、多人覆盖冲突、重复执行、重试不幂等、上下文分叉、交付物丢失和审计链不完整。",
+        "extension": "补充模板复用、版本差异、审批门、SLA、失败恢复、人工接管、跨 Agent 授权、共同上下文合并、交付物归档和可观测性。",
+        "validation": "至少覆盖节点增删改、连线和过程参数、保存重载、版本、授权、并发编辑、运行恢复、交付物持久化、审计记录和失败状态。",
+    },
+    "policy": {
+        "evidence": "优先核验原始政策文件、发布机构、文号、发布日期、生效日期、适用对象、关键条款和官方附件；区分原文、执行细则、历史类比和 AI 解读。",
+        "risk": "重点检查文件真伪、版本替换、适用范围误读、地方与中央口径差异、执行细则缺失、时点错配和把政策目标直接等同于实际效果。",
+        "extension": "补充官方答记者问、配套细则、历史政策、执行数据、受影响主体和传导路径，并标明仍待确认的实施条件。",
+        "validation": "至少覆盖原文可访问性、文号与机构、发布日期和生效日、条款引用、版本、影响对象、AI 分析失败降级和来源追溯。",
+    },
+    "creator": {
+        "evidence": "核验创作简报、输入素材、素材权利、目标平台、受众、阶段、版本、生成参数、人工修改和最终交付物；不要把占位素材当成已完成作品。",
+        "risk": "重点检查事实错误、来源缺失、版权和肖像权、品牌偏差、平台规格不符、版本覆盖、生成失败、发布误操作和交付物不可复现。",
+        "extension": "补充素材清单、分镜、文案版本、品牌规范、平台适配、审核意见、发布计划、效果数据和复用模板。",
+        "validation": "至少覆盖素材导入、阶段流转、版本保存、预览导出、规格、字幕与音画、权限、审核、失败恢复和交付物归档。",
+    },
+    "decision": {
+        "evidence": "核验议题、对象、参会角色、证据包、正反观点、假设、表决、决议、负责人、截止时间和版本；区分讨论意见与最终决策。",
+        "risk": "重点检查证据缺口、角色缺席、观点重复、共识偏差、利益冲突、未解决异议、决议不可执行、责任人缺失和会后审计断点。",
+        "extension": "补充反方席位、风险复核、情景分析、待办、条件触发、复盘日期、决议变更和关联研究交接。",
+        "validation": "至少覆盖议程、证据引用、角色权限、发言与表决、决议生成、待办交接、版本、审计和复盘闭环。",
+    },
+    "capital": {
+        "evidence": "先区分真实成交、持仓、申赎、融资融券、龙虎榜、估算主力资金和模型信号；核验标的、市场、日期、频率、币种、单位、来源和覆盖范围。",
+        "risk": "重点检查把估算流量当真实资金、数据空窗、跨市场时区错位、重复计数、敞口穿透不足、集中度、流动性、杠杆、回撤和权限越界。",
+        "extension": "补充资金来源说明、组合穿透、行业与因子暴露、压力测试、限额、预警、处置流程、交易流水和数据缺口。",
+        "validation": "至少覆盖标的输入、数据源与真实性标记、日期频率、空数据、刷新、组合敞口、限额预警、处置闭环和审计记录。",
+    },
+    "news": {
+        "evidence": "核验每条新闻的真实标题、原始来源、发布时间、语言、正文或摘要、聚类依据和多源合并关系；分类标签不能替代标题。",
+        "risk": "重点检查无标题记录、聚类误合并、转载重复、时间错位、来源失效、情绪误判、传闻当事实、单一来源和待核验线索被忽略。",
+        "extension": "补充原文、交叉来源、时间线、传播范围、来源分歧、相关对象和后续确认信号。",
+        "validation": "至少覆盖标题提取、去重聚类、来源与时间、正文可用性、情绪、待核验状态、刷新和空标题降级显示。",
+    },
+    "deepsee": {
+        "evidence": "核验渠道、账号或联系人、同步时间、消息时间、会话范围、聚合规则、来源链接和数据新鲜度；区分原始消息、摘要和 AI 推断。",
+        "risk": "重点检查同步中断、重复消息、联系人错配、跨账号串线、隐私泄露、权限越界、摘要丢失语境和群发误触。",
+        "extension": "补充同步状态、渠道覆盖、联系人关系、主题聚类、待处理事项、授权范围和留痕策略。",
+        "validation": "至少覆盖连接、同步、去重、搜索筛选、联系人映射、权限、隐私、群发确认、错误恢复和审计。",
+    },
+    "quant": {
+        "evidence": "重点核验样本区间、基准、复权、信号时点、交易成本，以及是否存在前视偏差、幸存者偏差或数据泄漏。",
+        "risk": "重点检查过拟合、容量、流动性、滑点、极端行情、参数敏感性和样本外失效风险。",
+        "extension": "补充样本外测试、分层归因、参数稳定性、容量约束和不同市场状态下的表现。",
+        "validation": "至少覆盖确定性测试、样本外或回放验证、边界条件、交易成本与关键回归检查。",
+    },
+    "trading": {
+        "evidence": "核验账户、标的、委托、成交、持仓、资金、费用、时间戳和券商回报，明确模拟、待确认与真实执行状态。",
+        "risk": "重点检查重复下单、部分成交、撤单失败、状态回退、价格或数量越界、持仓与资金不一致、费用漏记和对账断点。",
+        "extension": "补充执行质量、滑点、成交率、订单生命周期、资金占用、日终对账、异常处置和人工确认记录。",
+        "validation": "至少覆盖标的输入、订单创建到终态、部分成交与撤单、持仓资金联动、强确认、失败恢复、回放和审计。",
+    },
+    "market": {
+        "evidence": "重点核验行情源、时间戳、交易时段、币种、复权方式、价格口径和跨数据源一致性。",
+        "risk": "重点检查数据延迟、停牌或低流动性、公司行动、异常点和跨市场口径差异。",
+        "extension": "补充量价结构、市场宽度、相对强弱、事件催化和同类资产对照。",
+        "validation": "至少覆盖数据源可用性、时间与复权口径、空数据、异常行情和刷新链路。",
+    },
+    "research": {
+        "evidence": "将事实、计算、推断和假设分开，核验来源、发布日期、统计口径、引用链和不同来源之间的一致性。",
+        "risk": "重点寻找产业链传导断点、竞争替代、需求证伪、政策变化、估值约束和催化不兑现风险。",
+        "extension": "补充产业链上下游、关键公司、可跟踪指标、催化日历和能够证伪当前观点的信号。",
+        "validation": "至少覆盖来源可追溯性、关键数字复算、关系链完整性、反例与过期信息检查。",
+    },
+    "strategy": {
+        "evidence": "核验候选范围、筛选条件、证券身份、信号时点、研究理由、证伪条件和来源，区分观察名单、研究结论与交易动作。",
+        "risk": "重点检查筛选偏差、信号陈旧、条件漂移、重复暴露、拥挤度、反方证据缺失和把观察对象误当推荐标的。",
+        "extension": "补充基本面、估值、技术结构、行业暴露、催化剂、反方证据和下一次复核条件。",
+        "validation": "至少覆盖标的增删、筛选条件、来源与时点、证伪条件、跨 Mod 交接、持久化、空状态和权限边界。",
+    },
+    "portfolio": {
+        "evidence": "核验资产池、预期收益、协方差、基准、约束、目标权重、再平衡规则、数据日期和模型假设，区分输入、计算结果与人工判断。",
+        "risk": "重点检查模型敏感性、权重集中、相关性突变、流动性、汇率、杠杆、约束冲突、换手和交易成本。",
+        "extension": "补充风险贡献、情景压力、历史区间、基准对照、约束变化、再平衡成本和模型稳定性。",
+        "validation": "至少覆盖权重合计、约束满足、输入日期、模型复算、情景结果、再平衡、空数据和持久化。",
+    },
+    "risk": {
+        "evidence": "核验持仓与穿透敞口、限额、集中度、回撤、流动性、杠杆、压力测试、预警状态、责任人和处置记录。",
+        "risk": "重点检查限额未生效、穿透遗漏、行情陈旧、压力场景失真、预警重复或漏报、处置超时和授权越界。",
+        "extension": "补充多层限额、情景库、风险归因、流动性分层、预警升级、人工接管、处置闭环和审计记录。",
+        "validation": "至少覆盖限额设置与触发、组合穿透、压力测试、预警确认、升级处置、恢复条件、权限和审计。",
+    },
+    "macro": {
+        "evidence": "核验指标发布机构、统计口径、发布日期、修订值、新鲜度和聚合源与原始源的差异；不要把陈旧数据当成当前状态。",
+        "risk": "重点检查增长、价格和流动性信号是否分化，识别数据修订、预期差、事件聚集与跨地区传导失效风险。",
+        "extension": "补充官方原始数据、利率与汇率、就业、信用、贸易、商品和政策背景，并解释其向行业和资产的传导路径。",
+        "validation": "至少覆盖指标值与前值、发布时间、新鲜度、证据编号、经济事件时区、来源降级、修订风险和缺失地区或指标。",
+    },
+    "global": {
+        "evidence": "核验事件原始来源、发生与发布时间、地点、对象、状态、证据编号和多源一致性，区分已确认事实、传闻、模型推演与人工判断。",
+        "risk": "重点检查误报、重复事件、地理或时间错位、来源失效、单一来源、状态未更新和把情景推演当成已发生事实。",
+        "extension": "补充官方来源、地区时间线、关联主体、跨市场传导、后续确认信号和相互冲突的证据。",
+        "validation": "至少覆盖来源、时间地点、对象身份、去重、事件状态、刷新、新鲜度、跨源核验和空数据降级。",
+    },
+    "settings": {
+        "evidence": "核验配置来源、默认值、生效范围、环境覆盖顺序、权限和依赖服务状态。",
+        "risk": "重点检查错误配置、敏感信息暴露、权限越界、环境冲突和不可逆操作。",
+        "extension": "补充健康检查、配置继承、迁移兼容、故障恢复和最小权限方案。",
+        "validation": "至少覆盖配置解析、默认与覆盖优先级、权限、失败降级和重启后的持久化结果。",
+    },
+    "general": {
         "evidence": "核验数据来源、更新时间、统计口径、缺失值和交叉一致性。",
         "risk": "同时寻找反方证据、边界条件、依赖项和可能失效的假设。",
         "extension": "补充当前页面没有覆盖、但会显著改变结论的信息维度。",
         "validation": "给出可复现的检查步骤、实际结果和仍未覆盖的验证范围。",
-    }
-
-
+    },
+}
 def _build_catalyst_calendar_prompt_groups(
     scope: str,
 ) -> list[dict[str, Any]]:
@@ -309,7 +377,7 @@ def _build_macro_monitor_prompt_groups(scope: str) -> list[dict[str, Any]]:
                     "id": "summary",
                     "intent": "summary",
                     "label": "总览 · 判断增长、价格与流动性",
-                    "prompt": f"请基于{scope}，分别判断增长、价格和流动性处于偏强、平稳、偏弱还是分化状态。逐项引用指标值、前值、发布时间、新鲜度和证据编号，并明确哪些判断受陈旧数据或聚合来源限制。不要直接给出资产买卖建议。",
+                    "prompt": f"请基于{scope}和页面 decisionReview，分别判断增长、价格和流动性的已观测状态，列出支撑证据、反证、待补缺口与下一次复议事件。引用数据期、可核实的发布日期、来源及证据编号；发布日期缺失时直说未知。数据时效覆盖率不是判断正确概率，流动性 assessment 不是预测；不要直接给出资产买卖建议。",
                 },
                 {
                     "id": "evidence",
@@ -333,7 +401,7 @@ def _build_macro_monitor_prompt_groups(scope: str) -> list[dict[str, Any]]:
                     "id": "scenario",
                     "intent": "scenario",
                     "label": "传导 · 推演超预期、符合与低预期",
-                    "prompt": f"请为{scope}中的重点指标或事件构建超预期、符合预期和低于预期三种路径，说明其对利率、汇率、信用、商品、行业景气和风险偏好的可能传导顺序，并列出能够确认或证伪传导的后续数据。",
+                    "prompt": f"请为{scope}中的重点指标或事件构建超预期、符合预期和低于预期三种条件式情景：先核对实际值与预期值的单位、口径和来源冲突，再说明可能影响利率、汇率、信用、商品与行业景气的路径和反证。混合日频/月频数据不得外推成五日预测，情景不是交易指令。",
                 },
             ],
         },
@@ -352,6 +420,65 @@ def _build_macro_monitor_prompt_groups(scope: str) -> list[dict[str, Any]]:
                     "intent": "next-step",
                     "label": "跟踪 · 形成未来两周更新清单",
                     "prompt": f"请把{scope}转化为未来两周的宏观跟踪清单，按立即复核、等待发布和条件触发分组，为每项给出时间、所需数据、官方来源、预期差观察点、更新标准和停止跟踪条件。",
+                },
+            ],
+        },
+    ]
+
+
+def _build_cycle_research_prompt_groups(scope: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "read-view",
+            "label": "当前曲面",
+            "suggestions": [
+                {
+                    "id": "cycle-view-summary",
+                    "intent": "summary",
+                    "label": "读图 · 说明当前视图与周期状态",
+                    "prompt": f"请基于{scope}读取当前真实视图。先明确 2D/3D、时间范围、历史或预测图层、聚焦轨道和可见曲线，再总结当前周期状态与主要背离。页面没有提供的数据必须标记为未知，不得用 Manifest 或模型记忆补齐。",
+                },
+                {
+                    "id": "cycle-evidence-audit",
+                    "intent": "evidence",
+                    "label": "证据 · 核验轨道、坐标与校准",
+                    "prompt": f"请对{scope}做图形与数据证据审计：逐项核验轨道名称、坐标轴、时间窗口、归一化、历史/预测边界、数据源和校准状态，并区分结构化页面字段、视觉快照读取与研究推断。",
+                },
+            ],
+        },
+        {
+            "id": "judge-cycle",
+            "label": "背离与路径",
+            "suggestions": [
+                {
+                    "id": "cycle-divergence",
+                    "intent": "risk",
+                    "label": "背离 · 找出冲突与误读风险",
+                    "prompt": f"请基于{scope}识别各周期轨道之间的一致、领先、滞后和背离关系，重点指出样本窗口敏感、视觉误读、校准失效、预测区间被当成确定路径和跨资产映射过度的风险。",
+                },
+                {
+                    "id": "cycle-scenarios",
+                    "intent": "scenario",
+                    "label": "路径 · 推演延续、收敛与反转",
+                    "prompt": f"请基于{scope}构建周期延续、背离收敛和方向反转三条条件路径。每条说明先变化的轨道、需要观察的原始指标、确认或证伪条件及对跨资产判断的影响；不得把图中预测层解释成确定性时间点。",
+                },
+            ],
+        },
+        {
+            "id": "advance-cycle",
+            "label": "补证与跟踪",
+            "suggestions": [
+                {
+                    "id": "cycle-extension",
+                    "intent": "extension",
+                    "label": "补证 · 连接原始指标与历史样本",
+                    "prompt": f"请围绕{scope}补充各轨道对应的原始指标、校准方法、历史相似阶段和跨资产表现。逐项说明来源、截至日期、与当前图形的对应关系，以及新增证据会增强、削弱还是不改变当前判断。",
+                },
+                {
+                    "id": "cycle-next-step",
+                    "intent": "next-step",
+                    "label": "跟踪 · 形成下一轮校准清单",
+                    "prompt": f"请把{scope}转化为下一轮校准与跟踪清单：列出需要刷新的轨道、原始数据、校准检查、关键切换视图、确认条件、失效条件和复核时间，并优先处理当前页面已显示的数据缺口或异常状态。",
                 },
             ],
         },
@@ -445,7 +572,7 @@ def _build_earnings_workbench_prompt_groups(scope: str) -> list[dict[str, Any]]:
                     "id": "variance-analysis",
                     "intent": "scenario",
                     "label": "复盘 · 解释 Beat / Miss 驱动",
-                    "prompt": f"请基于{scope}做财报后预期差分析：逐项比较实际、内部预期和一致预期，计算金额、百分比或基点差异，并解释差异来自销量、价格、结构、成本、费用、汇率、并购、税率还是一次性项目。所有关键数字注明来源和截至日期；缺少一致预期时必须明确标记。",
+                    "prompt": f"请基于{scope}做财报后预期差分析：先核对实际、内部预期和一致预期的期末、币种、累计/单季/年度/TTM 及会计口径，仅明确一致时计算金额、百分比或基点差异。未知或不一致时列为待核对，不得自行换算或声称超预期；内部预期为人工研究输入，必须单独核验。尚未采用的候选不属于实际值，公告列表不等于原文已核验。再依据已读取的证据解释销量、价格、结构、成本、费用、汇率、并购、税率或一次性项目的影响；不能把推测当成已证实驱动。所有关键数字注明来源和截至日期；缺少一致预期时必须明确标记。",
                 },
                 {
                     "id": "guidance-change",
@@ -545,13 +672,13 @@ def _build_valuation_workbench_prompt_groups(scope: str) -> list[dict[str, Any]]
                     "id": "input-audit",
                     "intent": "evidence",
                     "label": "基期 · 审计历史与资本输入",
-                    "prompt": f"请基于{scope}审计模型输入。将历史事实、管理层指引和研究假设分开，逐项核验收入基期、EBIT 率、折旧摊销、资本开支、营运资本、债务、现金、稀释股数、币种、单位、来源和截至日期；缺失值保持缺失，不得用无来源数字静默补齐。",
+                    "prompt": f"请基于{scope}审计模型输入。先查看 reviewStatus 与 capitalEvidence，区分人工关联原文、输入变化后失效的确认和独立核验；用户粘贴摘录不代表系统已读取或审计原文。将历史事实、管理层指引和研究假设分开，逐项核验收入基期、EBIT 率、折旧摊销、资本开支、营运资本、有息债务（非负债合计）、可归属现金、稀释股数、币种、单位、来源和截至日期；缺失值保持缺失，不得用无来源数字静默补齐。",
                 },
                 {
                     "id": "scenario-review",
                     "intent": "summary",
                     "label": "情景 · 检查悲观、基准与乐观驱动",
-                    "prompt": f"请基于{scope}审查三种经营情景。比较逐年收入增长、EBIT 率、税率、D&A、CapEx 和 ΔNWC 假设，说明每条路径的业务依据、与历史及同业是否一致，以及乐观、基准、悲观的 FCF 层级是否合理。不要把情景名称当作概率结论。",
+                    "prompt": f"请基于{scope}审查三种经营情景。先检查当前基期、预测年份是否连续，以及 reviewStatus 中假设是否已确认；其他情景不能继承当前情景的确认。比较逐年收入增长、EBIT 率、税率、D&A、CapEx 和 ΔNWC 假设，说明每条路径的业务依据、与历史及同业是否一致，以及乐观、基准、悲观的 FCF 层级是否合理。不要把模板参数当作研究结论，也不要把情景名称当作概率结论。",
                 },
             ],
         },
@@ -563,13 +690,13 @@ def _build_valuation_workbench_prompt_groups(scope: str) -> list[dict[str, Any]]
                     "id": "wacc-bridge",
                     "intent": "validation",
                     "label": "WACC · 复核资本成本与价值桥接",
-                    "prompt": f"请基于{scope}复核 WACC 与估值桥接：检查无风险利率、Beta、权益风险溢价、债务成本、税率和资本结构权重，再复算显式期 FCF 现值、终值、企业价值、净债务、股权价值和每股价值。明确指出单位、符号和净现金处理是否正确。",
+                    "prompt": f"请基于{scope}复核 WACC 与估值桥接：先检查 reviewStatus.ready，若缺失或未就绪，只解释现金流试算、计算口径与待核验项，不得绕过页面确认计算每股价值或目标价。输入与确认完整时，检查无风险利率、Beta、权益风险溢价、债务成本、税率和资本结构权重，再复算显式期 FCF 现值、终值、企业价值、净债务、股权价值和每股价值。核对 equityBridgePolicy：经营 EV 减有息债务，加可用现金与未纳入经营预测的非经营资产价值，再扣少数股东权益价值及其他优先权益。现金按 cashBasis 处理：adjusted 为已调整净额，不重复扣 excludedCashM；gross 才从现金余额扣剔除额。少数权益须匹配合并预测范围，账面值不是估值；其他索偿勿与债务、现金扣减或稀释股数重计，调整项缺失不能填零。先检查 priceComparisonIssue 与 currentPriceAsOf；股价日期缺失或与估值基期不同，不得自行计算上涨空间或模型差异百分比。财报资本参考仅是原始会计项目：股本金额不是稀释股数，货币资金不是可归属现金，不得把空白借款当零。人工确认不等于正式估值意见。",
                 },
                 {
                     "id": "sensitivity",
                     "intent": "scenario",
                     "label": "敏感性 · 找出最主要的估值驱动",
-                    "prompt": f"请基于{scope}分析 WACC × 终值增长 5×5 敏感性矩阵，确认中心格与当前基准假设完全一致，并识别价值对折现率、终值增长、收入增长和 EBIT 率最敏感的区间。解释变化原因，但不得把模型差异直接转换为买卖建议。",
+                    "prompt": f"请基于{scope}分析 WACC × 终值增长 5×5 敏感性矩阵。先检查 reviewStatus.ready；尚未确认或矩阵为空时，说明原因与需要补齐的依据，不自行填造矩阵。已就绪时确认中心格与当前基准假设完全一致，并识别价值对折现率、终值增长、收入增长和 EBIT 率最敏感的区间。解释变化原因，但不得把模型差异直接转换为买卖建议。",
                 },
             ],
         },
@@ -732,7 +859,8 @@ def build_mod_copilot_prompt_groups(
         f"当前「{name}」Mod 的页面上下文（包括已选对象、筛选条件、时间范围、"
         "可见数据、数据新鲜度和可用操作）"
     )
-    lens = _domain_lens(manifest)
+    profile = _copilot_profile(manifest)
+    lens = DOMAIN_LENSES[profile]
 
     if mode == "edit":
         return [
@@ -774,29 +902,32 @@ def build_mod_copilot_prompt_groups(
             },
         ]
 
-    if _is_idea_funnel(manifest):
+    if profile == "idea-funnel":
         return _build_idea_funnel_prompt_groups(scope)
 
-    if _is_research_memo(manifest):
+    if profile == "research-memo":
         return _build_research_memo_prompt_groups(scope)
 
-    if _is_valuation_workbench(manifest):
+    if profile == "valuation-workbench":
         return _build_valuation_workbench_prompt_groups(scope)
 
-    if _is_peer_comparison(manifest):
+    if profile == "peer-comparison":
         return _build_peer_comparison_prompt_groups(scope)
 
-    if _is_earnings_workbench(manifest):
+    if profile == "earnings-workbench":
         return _build_earnings_workbench_prompt_groups(scope)
 
-    if _is_thesis_tracker(manifest):
+    if profile == "thesis-tracker":
         return _build_thesis_tracker_prompt_groups(scope)
 
-    if _is_catalyst_calendar(manifest):
+    if profile == "catalyst-calendar":
         return _build_catalyst_calendar_prompt_groups(scope)
 
-    if _is_macro_monitor(manifest):
+    if profile == "macro-monitor":
         return _build_macro_monitor_prompt_groups(scope)
+
+    if profile == "cycle-research":
+        return _build_cycle_research_prompt_groups(scope)
 
     return [
         {

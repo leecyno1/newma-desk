@@ -815,16 +815,6 @@ def load_ai_config() -> Dict[str, Any]:
             "onepage_image_quality": settings.ONEPAGE_IMAGE_QUALITY,
             "message_filters": {"external_only": True, "exclude_short": True, "exclude_system": True},
             "derive_defaults": {"batch_size": 100, "concurrency": 3, "temperature": 0.1, "force": False},
-            "desk_agent": {
-                "enabled": bool(getattr(settings, "DESK_AGENT_ENABLED", False)),
-                "base_url": str(getattr(settings, "DESK_AGENT_BASE_URL", "http://127.0.0.1:8911") or "").strip(),
-                "token": str(getattr(settings, "DESK_AGENT_TOKEN", "") or "").strip(),
-                "module_id": str(getattr(settings, "DESK_AGENT_MODULE_ID", "deepsee-news") or "deepsee-news").strip(),
-                "adapter": "",
-                "model": "",
-                "command_profile": "batch",
-                "timeout_seconds": int(getattr(settings, "DESK_AGENT_TIMEOUT_SECONDS", 180) or 180),
-            },
         }
     else:
         conf.setdefault("api_key", settings.SILICONFLOW_API_KEY or conf.get("api_key", ""))
@@ -850,16 +840,10 @@ def load_ai_config() -> Dict[str, Any]:
         conf.setdefault("onepage_image_quality", settings.ONEPAGE_IMAGE_QUALITY or conf.get("onepage_image_quality", "medium"))
         conf.setdefault("message_filters", conf.get("message_filters", {"external_only": True, "exclude_short": True, "exclude_system": True}))
         conf.setdefault("derive_defaults", conf.get("derive_defaults", {"batch_size": 100, "concurrency": 3, "temperature": 0.1, "force": False}))
-        desk_agent = conf.get("desk_agent") if isinstance(conf.get("desk_agent"), dict) else {}
-        desk_agent.setdefault("enabled", bool(getattr(settings, "DESK_AGENT_ENABLED", False)))
-        desk_agent.setdefault("base_url", str(getattr(settings, "DESK_AGENT_BASE_URL", "http://127.0.0.1:8911") or "").strip())
-        desk_agent.setdefault("token", str(getattr(settings, "DESK_AGENT_TOKEN", "") or "").strip())
-        desk_agent.setdefault("module_id", str(getattr(settings, "DESK_AGENT_MODULE_ID", "deepsee-news") or "deepsee-news").strip())
-        desk_agent.setdefault("adapter", "")
-        desk_agent.setdefault("model", "")
-        desk_agent.setdefault("command_profile", "batch")
-        desk_agent.setdefault("timeout_seconds", int(getattr(settings, "DESK_AGENT_TIMEOUT_SECONDS", 180) or 180))
-        conf["desk_agent"] = desk_agent
+
+    # Agent execution belongs to the hosting Newma Runtime. Ignore legacy
+    # Deepsee settings so they cannot revive a second Agent route.
+    conf.pop("desk_agent", None)
 
     stored = conf.get("module_prompts") or {}
     merged_prompts: Dict[str, Dict[str, str]] = {}
@@ -959,20 +943,7 @@ def save_ai_config(conf: Dict[str, Any]) -> None:
         dd["temperature"] = 0.1
     dd["force"] = bool(dd.get("force", False))
     normalized["derive_defaults"] = dd
-    desk_agent = normalized.get("desk_agent") if isinstance(normalized.get("desk_agent"), dict) else {}
-    desk_agent["enabled"] = bool(desk_agent.get("enabled", False))
-    desk_agent["base_url"] = str(desk_agent.get("base_url") or "").strip().rstrip("/")
-    desk_agent["token"] = str(desk_agent.get("token") or "").strip()
-    desk_agent["module_id"] = str(desk_agent.get("module_id") or "deepsee-news").strip()
-    desk_agent["adapter"] = str(desk_agent.get("adapter") or "").strip()
-    desk_agent["model"] = str(desk_agent.get("model") or "").strip()
-    command_profile = str(desk_agent.get("command_profile") or "batch").strip()
-    desk_agent["command_profile"] = command_profile if command_profile in {"quick", "batch", "deep", "edit"} else "batch"
-    try:
-        desk_agent["timeout_seconds"] = max(10, min(900, int(desk_agent.get("timeout_seconds") or 180)))
-    except Exception:
-        desk_agent["timeout_seconds"] = 180
-    normalized["desk_agent"] = desk_agent
+    normalized.pop("desk_agent", None)
     # ensure module prompts always contain defaults when missing
     stored = normalized.get("module_prompts") or {}
     merged_prompts: Dict[str, Dict[str, str]] = {}

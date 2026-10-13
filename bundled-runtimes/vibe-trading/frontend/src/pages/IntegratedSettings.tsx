@@ -53,7 +53,7 @@ export function IntegratedSettings() {
       <header className="space-y-2" data-mod-page-title>
         <h1 className="text-2xl font-semibold tracking-tight">量化系统设置</h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
-          Vibe Trading 只保留量化数据与运行配置；模型、会话和工具选择统一继承 Newma-Desk Agent。
+          Vibe Trading 只保留量化数据与运行配置；模型、会话、Skills 和工具权限统一继承当前 Agent Runtime Adapter。
         </p>
       </header>
 
@@ -62,7 +62,7 @@ export function IntegratedSettings() {
           <div className="flex items-start gap-3">
             <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
             <div className="space-y-1">
-              <h2 className="font-semibold">统一 Agent 已接管</h2>
+              <h2 className="font-semibold">统一 Agent Runtime 已接管</h2>
               <p className="text-sm text-muted-foreground">
                 此 Mod 不再保存独立模型密钥，也不会启动原生 Agent、频道或会话进程。
               </p>
@@ -73,7 +73,7 @@ export function IntegratedSettings() {
             onClick={() => void openVibeDeskCopilot()}
             className="shrink-0 rounded-md border px-3 py-2 text-sm font-medium transition hover:bg-muted"
           >
-            打开 Desk Agent
+            打开统一 Copilot
           </button>
         </div>
       </section>

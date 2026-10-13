@@ -12,6 +12,8 @@ import { exec } from 'child_process';
 import config from '../crucix.config.mjs';
 import { createLLMProvider } from '../lib/llm/index.mjs';
 import { generateLLMIdeas } from '../lib/llm/ideas.mjs';
+import { energySnapshot } from './energy.mjs';
+import { sourceHealth } from '../apis/utils/source-health.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -441,13 +443,7 @@ export async function synthesize(data) {
     momChange: f.momChange, momChangePct: f.momChangePct
   }));
   const energyData = data.sources.EIA || {};
-  const oilPrices = energyData.oilPrices || {};
-  const wtiRecent = (oilPrices.wti?.recent || []).map(d => d.value);
-  const energy = {
-    wti: oilPrices.wti?.value, brent: oilPrices.brent?.value,
-    natgas: energyData.gasPrice?.value, crudeStocks: energyData.inventories?.crudeStocks?.value,
-    wtiRecent, signals: energyData.signals || []
-  };
+  const energy = energySnapshot(energyData, data.sources.YFinance?.quotes);
   const bls = data.sources.BLS?.indicators || [];
   const treasuryData = data.sources.Treasury || {};
   const debtArr = treasuryData.debt || [];
@@ -539,9 +535,7 @@ export async function synthesize(data) {
     }))
   };
 
-  const health = Object.entries(data.sources).map(([name, src]) => ({
-    n: name, err: Boolean(src.error), stale: Boolean(src.stale)
-  }));
+  const { health, counts } = sourceHealth(data);
 
   // === Yahoo Finance live market data ===
   const yfData = data.sources.YFinance || {};
@@ -584,20 +578,11 @@ export async function synthesize(data) {
     silverRecent: yfSilver?.history?.map(h => h.close) || [],
   };
 
-  // Override stale EIA prices with live Yahoo Finance data if available
-  const yfWti = yfQuotes['CL=F'];
-  const yfBrent = yfQuotes['BZ=F'];
-  const yfNatgas = yfQuotes['NG=F'];
-  if (yfWti?.price) energy.wti = yfWti.price;
-  if (yfBrent?.price) energy.brent = yfBrent.price;
-  if (yfNatgas?.price) energy.natgas = yfNatgas.price;
-  if (yfWti?.history?.length) energy.wtiRecent = yfWti.history.map(h => h.close);
-
   // Fetch RSS
   const news = await fetchAllNews();
 
   const V2 = {
-    meta: data.crucix, air, thermal, tSignals, chokepoints, nuke, nukeSignals,
+    meta: { ...data.crucix, ...counts }, air, thermal, tSignals, chokepoints, nuke, nukeSignals,
     airMeta: {
       fallback: Boolean(airFallback),
       liveTotal: sumAirHotspots(liveAirHotspots),
@@ -619,7 +604,7 @@ export async function synthesize(data) {
 }
 
 // === Unified News Feed for Ticker ===
-function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop) {
+export function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop) {
   const feed = [];
 
   // RSS news
@@ -634,9 +619,14 @@ function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop) {
   for (const a of (gdeltData.allArticles || []).slice(0, 10)) {
     if (a.title) {
       const geo = geoTagText(a.title);
+      // GDELT seendate is an indexing time, not the article's publication date.
+      const date = typeof a.date === 'string' ? a.date.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, '$1-$2-$3T$4:$5:$6Z') : '';
+      const indexedAt = Date.parse(date);
       feed.push({
         headline: a.title.substring(0, 100), source: 'GDELT', type: 'gdelt',
-        timestamp: new Date().toISOString(), region: geo?.region || 'Global', urgent: false, url: sanitizeExternalUrl(a.url)
+        timestamp: Number.isFinite(indexedAt) ? new Date(indexedAt).toISOString() : null,
+        timestampBasis: Number.isFinite(indexedAt) ? 'indexed' : 'unknown',
+        region: geo?.region || 'Global', urgent: false, url: sanitizeExternalUrl(a.url)
       });
     }
   }

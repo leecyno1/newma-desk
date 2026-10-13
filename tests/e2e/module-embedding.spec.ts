@@ -45,11 +45,12 @@ test("Newma-Desk embeds the demo Mod with its isolation contract", async ({
     .getAttribute("href");
   expect(standaloneHref).toBeTruthy();
   const standaloneUrl = new URL(standaloneHref!);
-  const expectedDemoUrl = new URL(demoModuleUrl);
   expect(`${standaloneUrl.origin}${standaloneUrl.pathname}`).toBe(
-    `${expectedDemoUrl.origin}${expectedDemoUrl.pathname}`,
+    `${shellOrigin}/`,
   );
-  expect(standaloneUrl.searchParams.get("__newma_mod_version")).toBe("0.1.0");
+  expect(standaloneUrl.searchParams.get("mod")).toBe("demo");
+  expect(standaloneUrl.searchParams.get("standalone")).toBe("1");
+  expect(standaloneUrl.searchParams.get("copilot")).toBeNull();
 
   const sandbox =
     (await frameElement.getAttribute("sandbox"))?.split(/\s+/) ?? [];

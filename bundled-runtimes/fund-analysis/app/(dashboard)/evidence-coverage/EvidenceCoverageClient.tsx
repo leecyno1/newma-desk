@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useFundPageData } from '@/lib/newma-desk/page-data'
 import Link from 'next/link'
 import {
   AlertCircle,
@@ -161,7 +162,7 @@ type CoveragePayload = {
 const groupOrder: Dimension['group'][] = ['基础研究', '经理评价', '研究复核', '研究增强']
 
 function formatNumber(value: number | null | undefined) {
-  if (value === null || value === undefined || Number.isNaN(value)) return '0'
+  if (value === null || value === undefined || Number.isNaN(value)) return '—'
   return value.toLocaleString('zh-CN')
 }
 
@@ -233,6 +234,7 @@ function salesRulesHrefForEvidenceCoverage(codes: string[] = [], extraParams?: R
 }
 
 export default function EvidenceCoverageClient() {
+  const requestSequence = useRef(0)
   const [payload, setPayload] = useState<CoveragePayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -240,21 +242,25 @@ export default function EvidenceCoverageClient() {
   const [remediationTsvStatus, setRemediationTsvStatus] = useState<'idle' | 'copied' | 'fallback'>('idle')
 
   const fetchCoverage = useCallback(async () => {
+    const sequence = ++requestSequence.current
     try {
       setLoading(true)
+      setPayload(null)
       setErrorMessage(null)
       const response = await fetch('/api/evidence-coverage', { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
+      if (sequence !== requestSequence.current) return
       if (!response.ok) {
         throw new Error(data.error || '证据覆盖率暂时不可用')
       }
       setPayload(data)
     } catch (error) {
+      if (sequence !== requestSequence.current) return
       console.error('读取证据覆盖率失败:', error)
       setPayload(null)
       setErrorMessage(error instanceof Error ? error.message : '读取证据覆盖率失败')
     } finally {
-      setLoading(false)
+      if (sequence === requestSequence.current) setLoading(false)
     }
   }, [])
 
@@ -262,7 +268,7 @@ export default function EvidenceCoverageClient() {
     const timer = window.setTimeout(() => {
       void fetchCoverage()
     }, 0)
-    return () => window.clearTimeout(timer)
+    return () => { window.clearTimeout(timer); requestSequence.current++ }
   }, [fetchCoverage])
 
   const filteredDimensions = useMemo(() => {
@@ -270,6 +276,16 @@ export default function EvidenceCoverageClient() {
     if (activeGroup === '全部') return payload.dimensions
     return payload.dimensions.filter((item) => item.group === activeGroup)
   }, [activeGroup, payload])
+
+  useFundPageData(useMemo(() => ({ title: '研究证据覆盖', selection: null,
+    filters: { group: activeGroup }, visibleBlocks: [{ id: 'coverage', type: 'table', title: '研究证据覆盖与缺口' }],
+    summary: { view: 'evidence-coverage', status: loading ? 'loading' : errorMessage ? 'error' : 'ready', error: errorMessage,
+      result: !loading && !errorMessage && payload ? { totalFunds: payload.totalFunds, coverageScore: payload.coverageScore,
+        generatedAt: payload.generatedAt, source: payload.source, dimensions: filteredDimensions, groupSummary: payload.groupSummary,
+        priorityQueue: payload.priorityQueue, gapFunds: payload.gapFunds.slice(0, 30), gapFundCount: payload.gapFunds.length,
+        dataHealth: payload.dataHealth, buyReadiness: payload.buyReadiness } : null,
+      boundary: '覆盖率是研究字段覆盖而非投资安全评分，统计生成时间不等于底层材料日期。后台调度与待确认面板不在此数据快照内。' },
+  }), [activeGroup, loading, errorMessage, payload, filteredDimensions]))
 
   const requiredGapTotal = useMemo(() => {
     if (!payload) return 0
@@ -509,7 +525,12 @@ export default function EvidenceCoverageClient() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="fund-report space-y-6">
+      <nav className="flex flex-wrap gap-5 text-sm">
+        <Link href="/reports">返回报告列表</Link>
+        <Link href="/evidence-coverage?section=review-events">研究复查</Link>
+        <Link href="/evidence-coverage?section=materials">材料证据</Link>
+      </nav>
       <SchedulerAndPendingPanel />
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start lg:justify-end">
         <button

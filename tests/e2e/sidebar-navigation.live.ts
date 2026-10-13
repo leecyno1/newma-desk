@@ -27,7 +27,7 @@ test("embedded Desk reuses the host navigation and conversation surfaces", async
       <body style="margin:0">
         <iframe
           title="Newma WebUI Desk host"
-          src="${shellOrigin}/?mod=quant-overview&copilot=1"
+          src="${shellOrigin}/?mod=quant-overview"
           style="width:100vw;height:100vh;border:0"
         ></iframe>
       </body>
@@ -328,7 +328,7 @@ test("project navigation supports switching, scoped sections, freezing, persiste
   expect(consoleIssues).toEqual([]);
 });
 
-test("Agent drawer preserves the current Mod layout and bound navigation releases space", async ({
+test("standalone Desk omits Agent controls and collapsed navigation releases space", async ({
   page,
 }, testInfo) => {
   const pageErrors: string[] = [];
@@ -352,14 +352,8 @@ test("Agent drawer preserves the current Mod layout and bound navigation release
   await expect(frame).toHaveAttribute("data-vibedesk-frame-state", "ready");
   const before = await frame.boundingBox();
   expect(before).not.toBeNull();
-
-  await page.getByRole("button", { name: "问当前 Mod" }).click();
-  const copilot = page.getByRole("complementary", { name: "多周期分析 Agent" });
-  await expect(copilot).toBeVisible();
-  await expect(copilot).toHaveCSS("position", "absolute");
-  const after = await frame.boundingBox();
-  expect(after).not.toBeNull();
-  expect(Math.abs((after?.width ?? 0) - (before?.width ?? 0))).toBeLessThan(1);
+  await expect(page.getByRole("button", { name: "问当前 Mod" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Agent 设置" })).toHaveCount(0);
 
   const innerOverflow = await frame.evaluate((element) =>
     element.scrollWidth - element.clientWidth,
@@ -378,9 +372,9 @@ test("Agent drawer preserves the current Mod layout and bound navigation release
     "true",
   );
   const expandedFrame = await frame.boundingBox();
-  expect((expandedFrame?.width ?? 0)).toBeGreaterThan(after?.width ?? 0);
+  expect((expandedFrame?.width ?? 0)).toBeGreaterThan(before?.width ?? 0);
   await page.screenshot({
-    path: testInfo.outputPath("multi-timeframe-agent-overlay.png"),
+    path: testInfo.outputPath("multi-timeframe-collapsed-navigation.png"),
     fullPage: true,
   });
 

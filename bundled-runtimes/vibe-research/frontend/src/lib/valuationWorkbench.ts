@@ -1,4 +1,5 @@
 import { waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
+import { normalizeCapitalEvidence, normalizeCapitalDrafts, normalizeReviewStamp, valuationReadiness, eligibleCash, priceComparisonIssue, latestValuationHistorical, type CapitalEvidence, type CapitalEvidenceDraft, type CapitalField, type ReviewStamp } from './valuationReview';
 
 export type ValuationScenarioId = "bear" | "base" | "bull";
 export type ValuationCheckStatus = "pass" | "warning" | "fail";
@@ -37,13 +38,20 @@ export interface ValuationScenario {
   terminalGrowthPct: number;
   rationale: string;
   drivers: ForecastDriver[];
+  review?: ReviewStamp;
 }
 
 export interface CapitalInputs {
   currentPrice: number | null;
+  currentPriceAsOf?: string;
   dilutedSharesM: number | null;
   totalDebtM: number | null;
   cashM: number | null;
+  cashBasis?: 'adjusted' | 'gross';
+  excludedCashM?: number | null;
+  nonOperatingAssetsM?: number | null;
+  minorityInterestM?: number | null;
+  otherClaimsM?: number | null;
   riskFreeRatePct: number | null;
   beta: number | null;
   equityRiskPremiumPct: number | null;
@@ -71,6 +79,8 @@ export interface ValuationResult {
   pvTerminalValueM: number | null;
   enterpriseValueM: number | null;
   netDebtM: number | null;
+  eligibleCashM?: number | null;
+  equityAdjustmentsM?: number | null;
   equityValueM: number | null;
   impliedPrice: number | null;
   currentPrice: number | null;
@@ -111,6 +121,8 @@ export interface ValuationModel {
   selectedScenario: ValuationScenarioId;
   historicals: HistoricalDriver[];
   capitalInputs: CapitalInputs;
+  capitalEvidence: Partial<Record<CapitalField, CapitalEvidence>>;
+  capitalEvidenceDrafts?: Partial<Record<CapitalField, CapitalEvidenceDraft>>;
   scenarios: ValuationScenario[];
   projections: ProjectionRow[];
   result: ValuationResult;
@@ -180,6 +192,8 @@ function blankResult(scenarioId: ValuationScenarioId): ValuationResult {
     pvTerminalValueM: null,
     enterpriseValueM: null,
     netDebtM: null,
+    eligibleCashM: null,
+    equityAdjustmentsM: null,
     equityValueM: null,
     impliedPrice: null,
     currentPrice: null,
@@ -208,6 +222,7 @@ export function blankValuationModel(): ValuationModel {
     asOf: timestamp.slice(0, 10),
     unitScale: "百万元",
     selectedScenario: "base",
+    capitalEvidence: {},
     historicals: [{
       period: `${firstYear - 1}A`,
       revenue: null,
@@ -222,6 +237,11 @@ export function blankValuationModel(): ValuationModel {
       dilutedSharesM: null,
       totalDebtM: null,
       cashM: null,
+      cashBasis: 'adjusted',
+      excludedCashM: null,
+      nonOperatingAssetsM: null,
+      minorityInterestM: null,
+      otherClaimsM: null,
       riskFreeRatePct: 2,
       beta: 1,
       equityRiskPremiumPct: 6,
@@ -250,9 +270,11 @@ export function emptyValuationWorkspace(): ValuationWorkspace {
 
 export function calculateWacc(inputs: CapitalInputs) {
   const { riskFreeRatePct, beta, equityRiskPremiumPct, preTaxCostDebtPct, taxRatePct, currentPrice, dilutedSharesM, totalDebtM } = inputs;
-  if ([riskFreeRatePct, beta, equityRiskPremiumPct, preTaxCostDebtPct, taxRatePct, currentPrice, dilutedSharesM, totalDebtM].some((value) => value === null)) return null;
+  if ([riskFreeRatePct, beta, equityRiskPremiumPct, currentPrice, dilutedSharesM, totalDebtM].some((value) => value === null || !Number.isFinite(value))) return null;
+  if (currentPrice! <= 0 || dilutedSharesM! <= 0 || totalDebtM! < 0) return null;
+  if (totalDebtM! > 0 && (preTaxCostDebtPct === null || taxRatePct === null || !Number.isFinite(preTaxCostDebtPct) || !Number.isFinite(taxRatePct) || preTaxCostDebtPct < 0 || taxRatePct < 0 || taxRatePct > 100)) return null;
   const marketCap = (currentPrice ?? 0) * (dilutedSharesM ?? 0);
-  const debt = Math.max(0, totalDebtM ?? 0);
+  const debt = totalDebtM!;
   const capital = marketCap + debt;
   if (marketCap <= 0 || capital <= 0) return null;
   const costEquity = (riskFreeRatePct ?? 0) + (beta ?? 0) * (equityRiskPremiumPct ?? 0);
@@ -266,10 +288,10 @@ interface ScenarioRun {
 }
 
 function runScenario(model: ValuationModel, scenario: ValuationScenario, waccOverride?: number, terminalGrowthOverride?: number): ScenarioRun {
-  const baseRevenue = [...model.historicals].reverse().find((row) => typeof row.revenue === "number" && row.revenue > 0)?.revenue ?? null;
+  const baseRevenue = latestValuationHistorical(model)?.revenue ?? null;
   const waccPct = waccOverride ?? scenario.waccPct;
   const terminalGrowthPct = terminalGrowthOverride ?? scenario.terminalGrowthPct;
-  if (baseRevenue === null || waccPct <= terminalGrowthPct || waccPct <= 0) {
+  if (model.unitScale !== "百万元" || baseRevenue === null || waccPct <= terminalGrowthPct || waccPct <= 0) {
     return { projections: [], result: { ...blankResult(scenario.id), currentPrice: model.capitalInputs.currentPrice } };
   }
   let previousRevenue = baseRevenue;
@@ -306,10 +328,14 @@ function runScenario(model: ValuationModel, scenario: ValuationScenario, waccOve
   const terminalDiscountPeriod = Math.max(0.5, projections.length - 0.5);
   const pvTerminal = terminalValue === null ? null : terminalValue / (1 + waccPct / 100) ** terminalDiscountPeriod;
   const enterpriseValue = pvTerminal === null ? null : pvExplicit + pvTerminal;
-  const netDebt = model.capitalInputs.totalDebtM !== null && model.capitalInputs.cashM !== null
-    ? model.capitalInputs.totalDebtM - model.capitalInputs.cashM
+  const cash = eligibleCash(model);
+  const netDebt = model.capitalInputs.totalDebtM !== null && Number.isFinite(model.capitalInputs.totalDebtM) && model.capitalInputs.totalDebtM >= 0 && cash !== null
+    ? model.capitalInputs.totalDebtM - cash
     : null;
-  const equityValue = enterpriseValue !== null && netDebt !== null ? enterpriseValue - netDebt : null;
+  const {nonOperatingAssetsM, minorityInterestM, otherClaimsM} = model.capitalInputs;
+  const equityAdjustments = [nonOperatingAssetsM,minorityInterestM,otherClaimsM].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+    ? nonOperatingAssetsM! - minorityInterestM! - otherClaimsM! : null;
+  const equityValue = enterpriseValue !== null && netDebt !== null && equityAdjustments !== null ? enterpriseValue - netDebt + equityAdjustments : null;
   const shares = model.capitalInputs.dilutedSharesM;
   const impliedPrice = equityValue !== null && shares !== null && shares > 0 ? equityValue / shares : null;
   const currentPrice = model.capitalInputs.currentPrice;
@@ -322,10 +348,12 @@ function runScenario(model: ValuationModel, scenario: ValuationScenario, waccOve
       pvTerminalValueM: pvTerminal === null ? null : round(pvTerminal),
       enterpriseValueM: enterpriseValue === null ? null : round(enterpriseValue),
       netDebtM: netDebt === null ? null : round(netDebt),
+      eligibleCashM: cash === null ? null : round(cash),
+      equityAdjustmentsM: equityAdjustments === null ? null : round(equityAdjustments),
       equityValueM: equityValue === null ? null : round(equityValue),
       impliedPrice: impliedPrice === null ? null : round(impliedPrice, 4),
       currentPrice,
-      impliedReturnPct: impliedPrice !== null && currentPrice !== null && currentPrice > 0 ? round((impliedPrice / currentPrice - 1) * 100, 4) : null,
+      impliedReturnPct: impliedPrice !== null && !priceComparisonIssue(model) && currentPrice !== null && currentPrice > 0 ? round((impliedPrice / currentPrice - 1) * 100, 4) : null,
       terminalValueSharePct: enterpriseValue !== null && enterpriseValue > 0 && pvTerminal !== null ? round(pvTerminal / enterpriseValue * 100, 4) : null,
     },
   };
@@ -336,10 +364,13 @@ function centeredAxis(base: number, step: number) {
 }
 
 function buildAuditChecks(model: ValuationModel, scenarioRuns: Record<ValuationScenarioId, ScenarioRun>): AuditCheck[] {
+  const readiness = valuationReadiness(model);
   const selected = model.scenarios.find((item) => item.id === model.selectedScenario)!;
   const result = scenarioRuns[model.selectedScenario].result;
   const hasActual = model.historicals.some((row) => row.revenue !== null && row.revenue > 0);
-  const hasSources = model.sourceMaterials.length > 0 && model.historicals.some((row) => row.sourceIds.length > 0);
+  const actualRows = model.historicals.filter(row => row.revenue !== null);
+  const hasSources = actualRows.length > 0 && actualRows.every(row => row.sourceIds.length > 0
+    && row.sourceIds.every(id => model.sourceMaterials.some(source => source.id === id && ["available", "verified"].includes(source.status))));
   const hierarchy = ["bear", "base", "bull"].map((id) => {
     const projections = scenarioRuns[id as ValuationScenarioId].projections;
     return projections[projections.length - 1]?.unleveredFcf ?? null;
@@ -347,16 +378,21 @@ function buildAuditChecks(model: ValuationModel, scenarioRuns: Record<ValuationS
   const hierarchyReady = hierarchy.every((value) => value !== null);
   const hierarchyPass = hierarchyReady && (hierarchy[0] ?? 0) <= (hierarchy[1] ?? 0) && (hierarchy[1] ?? 0) <= (hierarchy[2] ?? 0);
   return [
+    { id: 'price-date', label: '股价与估值时点', status: priceComparisonIssue(model) ? 'warning' : 'pass', message: priceComparisonIssue(model) || '股价日期与估值基期末一致；模型差异不是未来收益预测' },
+    { id: 'scenario-review', label: '当前情景确认', status: readiness.assumptionsConfirmed ? 'pass' : 'warning', message: readiness.assumptionsConfirmed ? '用户已确认当前基期和情景假设；不代表独立审计' : '模板或已修改的假设待确认；每股价值暂不输出' },
+    { id: 'capital-evidence', label: '资本来源与口径', status: readiness.capital.every(row => !row.issue) ? 'pass' : 'warning', message: readiness.capital.filter(row => row.issue).map(row => `${row.label}：${row.issue}`).join('；') || '适用资本输入及股权调整已人工关联原文；并非机器审计结论' },
+    { id: "amount-unit", label: "金额单位", status: model.unitScale === "百万元" ? "pass" : "fail", message: model.unitScale === "百万元" ? "金额按百万元、股数按百万股；股价不缩放" : "旧模型金额单位不受支持，请核对并以百万元新建，已暂停计算" },
     { id: "historical-base", label: "历史基期", status: hasActual ? "pass" : "fail", message: hasActual ? "已提供收入基期" : "缺少可用于滚动预测的历史收入" },
     { id: "source-trace", label: "来源追溯", status: hasSources ? "pass" : "warning", message: hasSources ? "历史输入已关联来源" : "历史输入尚未完整关联 Evidence Ledger" },
     { id: "terminal-growth", label: "终值增长", status: selected.terminalGrowthPct < selected.waccPct ? "pass" : "fail", message: selected.terminalGrowthPct < selected.waccPct ? "终值增长低于 WACC" : "终值增长必须低于 WACC" },
-    { id: "capital-bridge", label: "股权桥接", status: model.capitalInputs.dilutedSharesM && model.capitalInputs.totalDebtM !== null && model.capitalInputs.cashM !== null ? "pass" : "fail", message: result.impliedPrice !== null ? "EV、净债务与稀释股数已完成桥接" : "需要稀释股数、债务与现金才能得到每股价值" },
+    { id: "capital-bridge", label: "股权桥接", status: result.impliedPrice !== null ? "pass" : "fail", message: result.impliedPrice !== null ? "已按可用现金、非经营资产、少数股东及其他优先权益桥接；仍须核验估值与现金流范围" : "需要股数、债务、可用现金、三项股权调整及有效预测；缺失调整项不默认零" },
     { id: "terminal-share", label: "终值占比", status: result.terminalValueSharePct === null ? "warning" : result.terminalValueSharePct <= 75 ? "pass" : "warning", message: result.terminalValueSharePct === null ? "尚不能计算终值占比" : `终值占企业价值 ${result.terminalValueSharePct.toFixed(1)}%` },
     { id: "scenario-hierarchy", label: "情景层级", status: !hierarchyReady ? "warning" : hierarchyPass ? "pass" : "warning", message: !hierarchyReady ? "补齐基期后检查悲观/基准/乐观 FCF 层级" : hierarchyPass ? "乐观、基准、悲观的末期 FCF 层级一致" : "情景末期 FCF 层级异常，需要核验假设" },
   ];
 }
 
 export function calculateValuationModel(model: ValuationModel): ValuationModel {
+  const ready = valuationReadiness(model).ready;
   const scenarios = Object.fromEntries(model.scenarios.map((scenario) => [scenario.id, runScenario(model, scenario)])) as Record<ValuationScenarioId, ScenarioRun>;
   const selectedScenario = model.scenarios.find((scenario) => scenario.id === model.selectedScenario) ?? model.scenarios[1]!;
   const selected = scenarios[selectedScenario.id];
@@ -366,13 +402,13 @@ export function calculateValuationModel(model: ValuationModel): ValuationModel {
     waccPct,
     terminalGrowthPct,
     impliedPrices: waccPct.map((wacc) => terminalGrowthPct.map((growth) =>
-      wacc > growth ? runScenario(model, selectedScenario, wacc, growth).result.impliedPrice : null)),
+      ready && wacc > growth ? runScenario(model, selectedScenario, wacc, growth).result.impliedPrice : null)),
     center: { row: 2, column: 2 },
   };
   const next = {
     ...model,
     projections: selected.projections,
-    result: selected.result,
+    result: ready ? selected.result : { ...selected.result, impliedPrice: null, impliedReturnPct: null },
     sensitivity,
   };
   return { ...next, auditChecks: buildAuditChecks(next, scenarios) };
@@ -437,6 +473,7 @@ function normalizeModel(value: unknown): ValuationModel | null {
       terminalGrowthPct: finiteOrNull(item.terminalGrowthPct) ?? base.terminalGrowthPct,
       rationale: textValue(item.rationale, base.rationale, 2_000),
       drivers: drivers.length >= 3 ? drivers : base.drivers,
+      ...(normalizeReviewStamp(item.review) ? { review: normalizeReviewStamp(item.review) } : {}),
     };
   });
   const capital = isRecord(value.capitalInputs) ? value.capitalInputs : {};
@@ -470,15 +507,23 @@ function normalizeModel(value: unknown): ValuationModel | null {
     historicals: historicals.length ? historicals : fallback.historicals,
     capitalInputs: {
       currentPrice: finiteOrNull(capital.currentPrice),
+      currentPriceAsOf: typeof capital.currentPriceAsOf === 'string' ? capital.currentPriceAsOf.slice(0,10) : '',
       dilutedSharesM: finiteOrNull(capital.dilutedSharesM),
       totalDebtM: finiteOrNull(capital.totalDebtM),
       cashM: finiteOrNull(capital.cashM),
+      cashBasis: capital.cashBasis === 'gross' ? 'gross' : 'adjusted',
+      excludedCashM: finiteOrNull(capital.excludedCashM),
+      nonOperatingAssetsM: finiteOrNull(capital.nonOperatingAssetsM),
+      minorityInterestM: finiteOrNull(capital.minorityInterestM),
+      otherClaimsM: finiteOrNull(capital.otherClaimsM),
       riskFreeRatePct: finiteOrNull(capital.riskFreeRatePct),
       beta: finiteOrNull(capital.beta),
       equityRiskPremiumPct: finiteOrNull(capital.equityRiskPremiumPct),
       preTaxCostDebtPct: finiteOrNull(capital.preTaxCostDebtPct),
       taxRatePct: finiteOrNull(capital.taxRatePct),
     },
+    capitalEvidence: normalizeCapitalEvidence(value.capitalEvidence),
+    capitalEvidenceDrafts: normalizeCapitalDrafts(value.capitalEvidenceDrafts),
     scenarios,
     sourceMaterials: sources,
     gaps: stringList(value.gaps, 30),
@@ -496,9 +541,13 @@ function normalizeWorkspace(value: unknown): ValuationWorkspace {
   };
 }
 
-export function loadLocalValuationWorkspace() {
+function localKey(config: VibeDeskConfig | null) {
+  return config ? `${LOCAL_KEY}:${encodeURIComponent(config.userId)}:${encodeURIComponent(config.workspaceId)}` : LOCAL_KEY;
+}
+
+export function loadLocalValuationWorkspace(config: VibeDeskConfig | null = null) {
   try {
-    return normalizeWorkspace(JSON.parse(localStorage.getItem(LOCAL_KEY) || "null"));
+    return normalizeWorkspace(JSON.parse(localStorage.getItem(localKey(config)) || "null"));
   } catch {
     return emptyValuationWorkspace();
   }
@@ -533,8 +582,8 @@ async function readRemote(config: VibeDeskConfig) {
 }
 
 export async function hydrateValuationWorkspace() {
-  const local = loadLocalValuationWorkspace();
   const config = await waitForVibeDeskConfig();
+  const local = loadLocalValuationWorkspace(config);
   if (!canRead(config)) return local;
   try {
     const remote = await readRemote(config);
@@ -546,13 +595,18 @@ export async function hydrateValuationWorkspace() {
 
 export async function persistValuationWorkspace(workspace: ValuationWorkspace) {
   const normalized = normalizeWorkspace(workspace);
+  const config = await waitForVibeDeskConfig();
+  let localSaved = false;
   try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
+    localStorage.setItem(localKey(config), JSON.stringify(normalized));
+    localSaved = true;
   } catch {
     // Keep the current model usable when browser persistence is disabled.
   }
-  const config = await waitForVibeDeskConfig();
-  if (!canWrite(config)) return;
+  if (!canWrite(config)) {
+    if (!localSaved) throw new Error("估值草稿未能保存");
+    return "local" as const;
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const current = await readRemote(config);
@@ -563,9 +617,11 @@ export async function persistValuationWorkspace(workspace: ValuationWorkspace) {
       });
       if (response.status === 409 && attempt === 0) continue;
       if (!response.ok) throw new Error(`valuation workspace write failed: ${response.status}`);
-      return;
+      return "desk" as const;
     } catch {
-      return;
+      if (!localSaved) throw new Error("估值草稿未能保存");
+      return "local" as const;
     }
   }
+  return "local" as const;
 }

@@ -51,7 +51,7 @@ assert(
   'research mode should expose a near-purchasable sales-rule unlock queue',
 )
 assert(
-  bulkSalesRulesUrl.pathname === '/sales-rules' && Boolean(bulkSalesRulesUrl.searchParams.get('codes')),
+  bulkSalesRulesUrl.pathname === '/evidence-coverage' && Boolean(bulkSalesRulesUrl.searchParams.get('codes')),
   'near-purchasable queue should expose a batch sales-rule evidence link',
 )
 assert(
@@ -86,7 +86,7 @@ assert(
 const strictPayload = await fetchJson(investorSelectionUrl({ requireSalesRule: 'true' }))
 assert(strictPayload.total === 0, 'strict sales-rule mode must not include funds with sales-rule hard gaps')
 assert(
-  (strictPayload.filters?.filterStats?.sales_rule_incomplete || 0) > 0,
+  (strictPayload.filters?.filterStats?.sales_rule_incomplete || 0) + (strictPayload.filters?.filterStats?.sales_rule_missing || 0) > 0,
   'strict sales-rule mode should explain that local rules are incomplete, not silently return empty',
 )
 assert(

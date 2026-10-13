@@ -26,7 +26,7 @@ def grade_for_score(score: float) -> str:
 def build_scoring_output(
     target_type: str,
     target_id: str,
-    total_score: float,
+    total_score: Optional[float],
     dimensions: Dict[str, Any],
     metric_scores: Optional[Dict[str, Any]] = None,
     positive_factors: Optional[List[str]] = None,
@@ -38,12 +38,12 @@ def build_scoring_output(
 ) -> Dict[str, Any]:
     """构建稳定评分输出。"""
     missing = missing_data or []
-    score = float(Decimal(str(total_score)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    score = float(Decimal(str(total_score)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) if total_score is not None else None
     return serialize_scoring_output({
         "target_type": target_type,
         "target_id": target_id,
         "overall_score": score,
-        "overall_grade": grade_for_score(score),
+        "overall_grade": grade_for_score(score) if score is not None else None,
         "dimension_scores": dimensions,
         "metric_scores": metric_scores or {},
         "positive_factors": positive_factors or [],

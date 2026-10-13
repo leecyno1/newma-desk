@@ -29,7 +29,7 @@ assertIncludes(actionBar, 'function purchaseContextParams', 'report action bar c
 assertIncludes(actionBar, "params.set('plannedAmount', normalizedAmount)", 'report action bar preserves planned amount')
 assertIncludes(actionBar, "params.set(purchasePlan === 'lump_sum' ? 'lumpSumAmount' : 'monthlyAmount', normalizedAmount)", 'report action bar preserves plan-specific amount alias')
 assertIncludes(actionBar, 'safeReturnPath(context.returnTo)', 'report action bar sanitizes return path')
-assertIncludes(actionBar, 'appendSearchParams(`/sales-rules?codes=${encodeURIComponent(safeTargetId)}`, contextParams)', 'report action bar sales-rule link carries context')
+assertIncludes(actionBar, 'appendSearchParams(materialEvidenceHref({ codes: safeTargetId }), contextParams)', 'report action bar sales-rule link carries context')
 assertIncludes(actionBar, 'appendSearchParams(`/analysis/comparison?codes=${encodeURIComponent(safeTargetId)}&autoReplay=1`, contextParams)', 'report action bar comparison link carries context and auto replay')
 assertIncludes(actionBar, 'appendSearchParams(`/reports/${reportId}`, contextParams)', 'report action bar report link carries context')
 assertIncludes(actionBar, '按当前计划金额补费率、申赎、风险等级', 'report action bar explains amount-aware rules')

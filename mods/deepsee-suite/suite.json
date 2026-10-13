@@ -80,7 +80,7 @@
     {
       "id": "deepsee-ai-insights",
       "name": "Deepsee AI 分析",
-      "description": "在 Newma-Desk 中使用 Deepsee 的摘要、观点、趋势和风险机会分析页面。",
+      "description": "在 Newma-Desk 中汇集当前页面证据，并交给 Newma Agent 生成摘要、趋势和风险机会分析。",
       "tags": [
         "Deepsee",
         "AI",
@@ -93,99 +93,14 @@
       },
       "manifest": {
         "permissions": [
-          "deepsee.read",
-          "deepsee.ai"
-        ],
-        "actions": {
-          "deepsee.insights.analyze": {
-            "binding": {
-              "type": "agent",
-              "capability": "deepsee.insights.analyze",
-              "profile": "deep",
-              "memoryScope": "user-agent-mod"
-            },
-            "execution": "task",
-            "permission": "deepsee.ai",
-            "inputSchema": {
-              "type": "object",
-              "required": ["prompt"],
-              "properties": {
-                "prompt": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 4000
-                },
-                "topic": {
-                  "type": "string",
-                  "maxLength": 200
-                },
-                "period": {
-                  "enum": ["1day", "3days", "1week", "1month"]
-                },
-                "modules": {
-                  "type": "array",
-                  "maxItems": 8,
-                  "items": {
-                    "enum": [
-                      "market",
-                      "meetings",
-                      "newswatch",
-                      "mediawatch",
-                      "mpwatch",
-                      "minuteswatch",
-                      "counter",
-                      "contacts"
-                    ]
-                  }
-                },
-                "itemIds": {
-                  "type": "array",
-                  "maxItems": 200,
-                  "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200
-                  }
-                },
-                "evidence": {
-                  "type": "array",
-                  "maxItems": 80,
-                  "items": {
-                    "type": "object",
-                    "required": ["id", "text"],
-                    "properties": {
-                      "id": {"type": "string", "minLength": 1, "maxLength": 200},
-                      "type": {"type": "string", "maxLength": 40},
-                      "source": {"type": "string", "maxLength": 120},
-                      "time": {"type": "string", "maxLength": 80},
-                      "text": {"type": "string", "minLength": 1, "maxLength": 600}
-                    },
-                    "additionalProperties": false
-                  }
-                }
-              },
-              "additionalProperties": false
-            },
-            "outputSchema": {
-              "type": "object",
-              "required": ["id", "status"],
-              "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "status": {
-                  "enum": ["queued", "running", "completed", "failed", "cancelled"]
-                }
-              }
-            },
-            "confirmation": "none",
-            "timeoutSeconds": 300
-          }
-        }
+          "deepsee.read"
+        ]
       }
     },
     {
       "id": "deepsee-news",
       "name": "Deepsee 新闻",
-      "description": "在 Newma-Desk 中查看 Deepsee 的新闻聚合、搜索、热点排序和摘要结果。",
+      "description": "在 Newma-Desk 中查看 Deepsee 的新闻聚合、搜索和热点排序，并把当前样本交给 Newma Agent 解读。",
       "tags": [
         "Deepsee",
         "新闻",
@@ -198,54 +113,8 @@
       },
       "manifest": {
         "permissions": [
-          "deepsee.read",
-          "deepsee.ai"
-        ],
-        "actions": {
-          "deepsee.news.batch-analyze": {
-            "binding": {
-              "type": "agent",
-              "capability": "deepsee.news.batch-analyze",
-              "profile": "batch",
-              "memoryScope": "task"
-            },
-            "execution": "task",
-            "permission": "deepsee.ai",
-            "inputSchema": {
-              "type": "object",
-              "required": ["prompt"],
-              "properties": {
-                "prompt": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 120000
-                },
-                "itemIds": {
-                  "type": "array",
-                  "maxItems": 200,
-                  "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200
-                  }
-                }
-              },
-              "additionalProperties": false
-            },
-            "outputSchema": {
-              "type": "object",
-              "required": ["id", "status"],
-              "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "status": {
-                  "enum": ["queued", "running", "completed", "failed", "cancelled"]
-                }
-              }
-            },
-            "confirmation": "none",
-            "timeoutSeconds": 300
-          }
-        }
+          "deepsee.read"
+        ]
       }
     },
     {
@@ -264,45 +133,8 @@
       },
       "manifest": {
         "permissions": [
-          "deepsee.read",
-          "deepsee.ai"
-        ],
-        "actions": {
-          "deepsee.wechat.batch-summarize": {
-            "binding": {
-              "type": "agent",
-              "capability": "deepsee.wechat.batch-summarize",
-              "profile": "batch",
-              "memoryScope": "task"
-            },
-            "execution": "task",
-            "permission": "deepsee.ai",
-            "inputSchema": {
-              "type": "object",
-              "required": ["prompt", "itemIds"],
-              "properties": {
-                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
-                "itemIds": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 100,
-                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
-                }
-              },
-              "additionalProperties": false
-            },
-            "outputSchema": {
-              "type": "object",
-              "required": ["id", "status"],
-              "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
-              }
-            },
-            "confirmation": "none",
-            "timeoutSeconds": 300
-          }
-        }
+          "deepsee.read"
+        ]
       }
     },
     {
@@ -322,45 +154,8 @@
       "manifest": {
         "permissions": [
           "deepsee.read",
-          "deepsee.write",
-          "deepsee.ai"
-        ],
-        "actions": {
-          "deepsee.email.batch-summarize": {
-            "binding": {
-              "type": "agent",
-              "capability": "deepsee.email.batch-summarize",
-              "profile": "batch",
-              "memoryScope": "task"
-            },
-            "execution": "task",
-            "permission": "deepsee.ai",
-            "inputSchema": {
-              "type": "object",
-              "required": ["prompt", "itemIds"],
-              "properties": {
-                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
-                "itemIds": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 50,
-                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
-                }
-              },
-              "additionalProperties": false
-            },
-            "outputSchema": {
-              "type": "object",
-              "required": ["id", "status"],
-              "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
-              }
-            },
-            "confirmation": "none",
-            "timeoutSeconds": 300
-          }
-        }
+          "deepsee.write"
+        ]
       }
     },
     {
@@ -380,79 +175,8 @@
       "manifest": {
         "permissions": [
           "deepsee.read",
-          "deepsee.write",
-          "deepsee.ai"
-        ],
-        "actions": {
-          "deepsee.minutes.batch-summarize": {
-            "binding": {
-              "type": "agent",
-              "capability": "deepsee.minutes.batch-summarize",
-              "profile": "batch",
-              "memoryScope": "task"
-            },
-            "execution": "task",
-            "permission": "deepsee.ai",
-            "inputSchema": {
-              "type": "object",
-              "required": ["prompt", "itemIds"],
-              "properties": {
-                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
-                "itemIds": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 50,
-                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
-                }
-              },
-              "additionalProperties": false
-            },
-            "outputSchema": {
-              "type": "object",
-              "required": ["id", "status"],
-              "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
-              }
-            },
-            "confirmation": "none",
-            "timeoutSeconds": 300
-          },
-          "deepsee.minutes.batch-refine": {
-            "binding": {
-              "type": "agent",
-              "capability": "deepsee.minutes.batch-refine",
-              "profile": "batch",
-              "memoryScope": "task"
-            },
-            "execution": "task",
-            "permission": "deepsee.ai",
-            "inputSchema": {
-              "type": "object",
-              "required": ["prompt", "itemIds"],
-              "properties": {
-                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
-                "itemIds": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 50,
-                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
-                }
-              },
-              "additionalProperties": false
-            },
-            "outputSchema": {
-              "type": "object",
-              "required": ["id", "status"],
-              "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
-              }
-            },
-            "confirmation": "none",
-            "timeoutSeconds": 300
-          }
-        }
+          "deepsee.write"
+        ]
       }
     },
     {
@@ -471,45 +195,8 @@
       },
       "manifest": {
         "permissions": [
-          "deepsee.read",
-          "deepsee.ai"
-        ],
-        "actions": {
-          "deepsee.media.batch-summarize": {
-            "binding": {
-              "type": "agent",
-              "capability": "deepsee.media.batch-summarize",
-              "profile": "batch",
-              "memoryScope": "task"
-            },
-            "execution": "task",
-            "permission": "deepsee.ai",
-            "inputSchema": {
-              "type": "object",
-              "required": ["prompt", "itemIds"],
-              "properties": {
-                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
-                "itemIds": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 10,
-                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
-                }
-              },
-              "additionalProperties": false
-            },
-            "outputSchema": {
-              "type": "object",
-              "required": ["id", "status"],
-              "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
-              }
-            },
-            "confirmation": "none",
-            "timeoutSeconds": 300
-          }
-        }
+          "deepsee.read"
+        ]
       }
     },
     {
@@ -528,45 +215,8 @@
       },
       "manifest": {
         "permissions": [
-          "deepsee.read",
-          "deepsee.ai"
-        ],
-        "actions": {
-          "deepsee.official-accounts.batch-summarize": {
-            "binding": {
-              "type": "agent",
-              "capability": "deepsee.official-accounts.batch-summarize",
-              "profile": "batch",
-              "memoryScope": "task"
-            },
-            "execution": "task",
-            "permission": "deepsee.ai",
-            "inputSchema": {
-              "type": "object",
-              "required": ["prompt", "itemIds"],
-              "properties": {
-                "prompt": {"type": "string", "minLength": 1, "maxLength": 120000},
-                "itemIds": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 10,
-                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
-                }
-              },
-              "additionalProperties": false
-            },
-            "outputSchema": {
-              "type": "object",
-              "required": ["id", "status"],
-              "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]}
-              }
-            },
-            "confirmation": "none",
-            "timeoutSeconds": 300
-          }
-        }
+          "deepsee.read"
+        ]
       }
     },
     {
@@ -614,7 +264,7 @@
     {
       "id": "deepsee-settings",
       "name": "Deepsee 设置",
-      "description": "在 Newma-Desk 中管理 Deepsee 的数据源、同步策略、模型、微信网关和运行状态。",
+      "description": "在 Newma-Desk 中管理 Deepsee 的数据源、同步策略、微信网关和运行状态；模型与 Agent 由 Newma Runtime 管理。",
       "tags": [
         "Deepsee",
         "设置",

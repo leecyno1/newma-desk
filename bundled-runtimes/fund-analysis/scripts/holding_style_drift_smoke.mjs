@@ -38,7 +38,7 @@ assertIncludes(detailPage, "styleDriftEvidence: {", 'fund detail maps style drif
 // 数据管道：快照生成脚本与每日评价快照积累注册进调度
 assertIncludes(syncScript, 'include-existing', 'holding style snapshot sync supports include-existing rerun')
 assertIncludes(scheduledUpdate, 'evaluation:snapshots|daily|.venv/bin/python backend/scripts/save_evaluation_snapshots.py', 'scheduled update runs daily evaluation snapshots')
-assertIncludes(evaluationSnapshotScript, 'ORDER BY MAX(created_at) DESC', 'evaluation snapshot candidates prefer continuity')
-assertIncludes(evaluationSnapshotScript, 'NOT IN (SELECT wind_code FROM fund_evaluation_snapshots)', 'evaluation snapshot script adds fresh funds only after continuity pool')
+assertIncludes(evaluationSnapshotScript, 'record_attempt(code, args.window)', 'evaluation snapshot batch records rotation progress')
+assertIncludes(evaluationSnapshotScript, 'evaluation_window = :window', 'evaluation snapshot candidates respect the requested window')
 
 console.log('OK holding style drift evidence chain stays wired from snapshots to fund detail with daily accumulation')

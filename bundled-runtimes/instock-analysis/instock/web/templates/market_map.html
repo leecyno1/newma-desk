@@ -119,8 +119,14 @@
         return {
             view: {id: 'market-map', title: '大盘云图'},
             visibleBlocks: [{id: 'market-map-chart', type: 'treemap', title: '行业与个股云图'}, {id: 'market-map-coverage', type: 'evidence-list', title: '覆盖池说明'}],
-            selectedSecurity: selected.symbol ? {market: 'CN', symbol: selected.symbol, name: selected.name} : null,
-            data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, capacity: state.capacity, sizeMode: state.sizeMode, industry: state.industry, coverage: data.coverage, summary: data.summary, selectedSecurity: selected, snapshot: data.snapshot, limitations: data.limitations || []} : {},
+            selection: selected.symbol ? {security: {market: 'CN', symbol: selected.symbol, name: selected.name}} : {},
+            filters: {capacity: state.capacity, sizeMode: state.sizeMode, industry: state.industry},
+            data: {
+                ...(data.as_of ? {asOf: data.as_of} : {}),
+                source: 'instock-market-map',
+                freshness: 'unknown',
+                summary: data.snapshot ? {dataState: data.data_state, coverage: data.coverage, summary: data.summary, selectedSecurity: selected, snapshot: data.snapshot, limitations: data.limitations || []} : {status: 'loading'},
+            },
             actions: [{id: actionId, label: '刷新大盘云图', available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId))}],
         };
     }

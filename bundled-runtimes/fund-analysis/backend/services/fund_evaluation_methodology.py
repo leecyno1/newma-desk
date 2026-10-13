@@ -166,6 +166,9 @@ class FundEvaluationMethodology:
             {"metric_name": "annualized_volatility", "label": "1Y 年化波动", "unit": "percent", "higher_is_better": False, "paths": [("selected", "annualized_volatility")], "required_for_sample": False},
             {"metric_name": "calmar_ratio", "label": "1Y Calmar", "unit": "number", "higher_is_better": True, "paths": [("selected", "calmar_ratio")], "required_for_sample": False},
             {"metric_name": "positive_return_ratio", "label": "1Y 正收益占比", "unit": "percent", "higher_is_better": True, "paths": [("selected", "positive_return_ratio")], "required_for_sample": False},
+            {"metric_name": "sortino_ratio", "label": "1Y 索提诺", "unit": "number", "higher_is_better": True, "paths": [("selected", "sortino_ratio")], "required_for_sample": False},
+            {"metric_name": "var_95", "label": "1Y VaR95", "unit": "percent", "higher_is_better": True, "paths": [("selected", "var_95")], "required_for_sample": False},
+            {"metric_name": "monthly_win_rate", "label": "1Y 月度胜率", "unit": "percent", "higher_is_better": True, "paths": [("selected", "monthly_win_rate")], "required_for_sample": False},
             {"metric_name": "expense_ratio", "label": "基础费率", "unit": "percent", "higher_is_better": False, "paths": [("latest", "expense_ratio"), ("selected", "expense_ratio")], "valid_range": (0.0, 0.05), "required_for_sample": False},
             {"metric_name": "aum", "label": "基金规模", "unit": "cny_100m", "higher_is_better": True, "paths": [("latest", "aum"), ("selected", "aum")], "valid_range": (0.000001, 1000000.0), "required_for_sample": False},
         ],
@@ -175,6 +178,9 @@ class FundEvaluationMethodology:
             {"metric_name": "sharpe_ratio", "label": "1Y 夏普比率", "unit": "number", "higher_is_better": True, "paths": [("selected", "sharpe_ratio")], "required_for_sample": True},
             {"metric_name": "annualized_volatility", "label": "1Y 年化波动", "unit": "percent", "higher_is_better": False, "paths": [("selected", "annualized_volatility")], "required_for_sample": False},
             {"metric_name": "positive_return_ratio", "label": "1Y 正收益占比", "unit": "percent", "higher_is_better": True, "paths": [("selected", "positive_return_ratio")], "required_for_sample": False},
+            {"metric_name": "sortino_ratio", "label": "1Y 索提诺", "unit": "number", "higher_is_better": True, "paths": [("selected", "sortino_ratio")], "required_for_sample": False},
+            {"metric_name": "var_95", "label": "1Y VaR95", "unit": "percent", "higher_is_better": True, "paths": [("selected", "var_95")], "required_for_sample": False},
+            {"metric_name": "monthly_win_rate", "label": "1Y 月度胜率", "unit": "percent", "higher_is_better": True, "paths": [("selected", "monthly_win_rate")], "required_for_sample": False},
             {"metric_name": "expense_ratio", "label": "基础费率", "unit": "percent", "higher_is_better": False, "paths": [("latest", "expense_ratio"), ("selected", "expense_ratio")], "valid_range": (0.0, 0.05), "required_for_sample": False},
             {"metric_name": "aum", "label": "基金规模", "unit": "cny_100m", "higher_is_better": True, "paths": [("latest", "aum"), ("selected", "aum")], "valid_range": (0.000001, 1000000.0), "required_for_sample": False},
         ],
@@ -904,6 +910,7 @@ class FundEvaluationMethodology:
             "tracking_difference", "excess_return", "information_ratio", "expense_ratio", "aum",
             "seven_day_annualized_yield", "income_per_10000",
             "benchmark_annualized_rate", "benchmark_yield_spread",
+            "sortino_ratio", "downside_risk", "var_95", "cvar_95", "monthly_win_rate",
         }
         return {
             f"{window}.{metric_name}": value

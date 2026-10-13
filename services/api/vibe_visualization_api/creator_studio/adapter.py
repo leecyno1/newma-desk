@@ -79,25 +79,6 @@ class CreatorControlAdapter:
             allow_failure=True,
         )
 
-    def test_agent(self, agent_id: str, bin_override: str = "") -> dict[str, Any]:
-        """Invoke a short hello prompt via the specified agent to verify it works."""
-        args = [
-            "--agent", agent_id,
-            "--prompt", "Reply with exactly: AGENT_TEST_OK",
-            "--timeout", "30",
-            "--workdir", str(self.workspace),
-        ]
-        if bin_override.strip():
-            args.extend(["--bin-override", bin_override.strip()])
-        # A failed CLI check is a usable result for the settings page; it should
-        # not turn into a transport-level HTTP 500/503.
-        return self._invoke(
-            "invoke-cli",
-            *args,
-            timeout=45,
-            allow_failure=True,
-        )
-
     def marketplace(self) -> dict[str, Any]:
         return self._invoke("marketplace", timeout=30)
 

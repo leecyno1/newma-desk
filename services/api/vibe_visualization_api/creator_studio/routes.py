@@ -210,17 +210,6 @@ async def detect_creator_capabilities(request: Request):
     return await execute(request.app.state.creator_studio_service.detect_capabilities)
 
 
-@router.post("/capabilities/test")
-async def test_creator_agent(request: Request):
-    body = await request.json()
-    return await execute(
-        lambda: request.app.state.creator_studio_service.test_agent(
-            agent_id=str(body.get("agentId") or ""),
-            bin_override=str(body.get("binOverride") or ""),
-        )
-    )
-
-
 @router.get("/artifacts/preview")
 async def preview_creator_artifact(request: Request, path: str):
     return await execute(

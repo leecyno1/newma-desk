@@ -89,11 +89,11 @@ export function summarizeTemplateVersionDiff(
     const existing = currentNodes.get(node.id);
     return existing && JSON.stringify(existing) !== JSON.stringify(node);
   }).length;
-  const edgeSet = (edges: WorkflowEdge[]) => new Set(edges.map((edge) => `${edge.source}->${edge.target}`));
-  const currentEdges = edgeSet(current.edges);
-  const candidateEdges = edgeSet(candidate.edges);
-  const changedEdges = [...candidateEdges].filter((edge) => !currentEdges.has(edge)).length
-    + [...currentEdges].filter((edge) => !candidateEdges.has(edge)).length;
+  const edgeMap = (edges: WorkflowEdge[]) => new Map(edges.map((edge) => [`${edge.source}->${edge.target}`, JSON.stringify(edge)]));
+  const currentEdges = edgeMap(current.edges);
+  const candidateEdges = edgeMap(candidate.edges);
+  const changedEdges = [...new Set([...currentEdges.keys(), ...candidateEdges.keys()])]
+    .filter((key) => currentEdges.get(key) !== candidateEdges.get(key)).length;
   return {
     addedNodes,
     removedNodes,

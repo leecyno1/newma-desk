@@ -2,9 +2,12 @@ import {
   Activity, ArrowRight, BookOpenCheck, ExternalLink, Gauge,
   GitCompareArrows, RefreshCw, SlidersHorizontal,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createModSnapshotCache } from "@newma-desk/mod-sdk";
 
-export type GlobalTopicId = "fed-rates" | "hormuz" | "us-china-trade";
+import { GLOBAL_TOPICS, TOPIC_BASELINE_WARNING, type GlobalTopicId } from "./topicContext";
+import { buildMaritimeView, DEFAULT_MARITIME_FILTERS, MARITIME_SCOPES, TopicMaritime, type MaritimeEvidence, type MaritimeFilters } from "./TopicMaritime";
+export type { GlobalTopicId } from "./topicContext";
 
 interface TopicFactor {
   id: string; label: string; min: number; max: number; value: number;
@@ -19,90 +22,102 @@ interface TopicForecast {
   disclaimer: string;
 }
 
-interface TopicSnapshot {
+export interface TopicSnapshot {
   topicId: GlobalTopicId;
   title: string;
   subtitle: string;
   question: string;
   accent: string;
-  metrics: Array<{ label: string; value: string; change: string }>;
+  metrics: Array<{ label: string; value: string; change: string; unit?: string; date?: string; frequency?: string; dateBasis?: string; source?: string; sourceUrl?: string; status?: string }>;
   factors: TopicFactor[];
   series: Array<{ id: string; label: string; color: string }>;
   transmission: string[];
   sources: string[];
   observations: Array<{ seriesId: string; date: string; value: number; unit: string; source: string }>;
-  events: Array<{ id: string; date: string; title: string; summary: string; source: string; sourceUrl: string; impact: string; confidence: number }>;
+  events: Array<{ id: string; date: string; title: string; summary: string; source: string; sourceUrl: string; evidenceKey?: string; publishedAt?: string | null; collectedAt?: string | null; sourceStatus?: string; impact?: string; confidence?: number; evidenceType?: string; note?: string }>;
+  eventCoverage?: { count: number; readySourceCount: number; staleSourceCount: number };
   forecast: TopicForecast;
   dataMode: string;
+  dataWarning?: string;
+  generatedAt?: string;
+  freshness?: "fresh" | "stale" | "unknown";
+  sourceStatus?: Array<{ id: string; label: string; status: string; url: string; collectedAt?: string; reason?: string }>;
+  gaps?: string[];
+  maritime?: MaritimeEvidence;
+  factorSource?: string;
   updatedAt: string;
 }
 
-function chartPath(values: number[], width: number, height: number) {
-  if (!values.length) return "";
+export function chartPath(rows: Array<{ date: string; value: number }>, width: number, height: number) {
+  if (!rows.length) return "";
+  const values = rows.map((row) => row.value);
   const min = Math.min(...values);
-  const range = Math.max(...values) - min || 1;
+  const range = Math.max(...values) - min;
+  const times = rows.map((row) => Date.parse(row.date));
+  const first = Math.min(...times);
+  const span = Math.max(...times) - first;
   return values.map((value, index) => {
-    const x = values.length === 1 ? 0 : (index / (values.length - 1)) * width;
-    const y = height - ((value - min) / range) * height;
+    const x = span ? (((times[index] ?? first) - first) / span) * width : width / 2;
+    const y = range ? height - ((value - min) / range) * height : height / 2;
     return (index ? "L" : "M") + x.toFixed(1) + "," + y.toFixed(1);
   }).join(" ");
 }
 
+function collectedLabel(value?: string | null) {
+  if (!value || !Number.isFinite(Date.parse(value))) return "采集时间未知";
+  return `采集 ${new Date(value).toLocaleString("zh-CN", { hour12: false })}`;
+}
+
 function TopicChart({ snapshot }: { snapshot: TopicSnapshot }) {
-  const dates = [...new Set(snapshot.observations.map((item) => item.date))];
   return (
     <section className="topic-panel topic-chart-panel">
-      <header><span><Activity size={15} />核心变量</span><small>标准化趋势 · 参考基线</small></header>
-      <div className="topic-chart-legend">
-        {snapshot.series.map((series) => <span key={series.id}><i style={{ background: series.color }} />{series.label}</span>)}
-      </div>
-      <svg className="topic-line-chart" viewBox="0 0 720 240" preserveAspectRatio="none" role="img" aria-label="专题核心变量趋势图">
-        {[0, 1, 2, 3, 4].map((line) => <line key={line} x1="0" x2="720" y1={line * 55 + 10} y2={line * 55 + 10} />)}
+      <header><span><Activity size={15} />核心变量</span><small>各图独立量程 · 按真实日期排列</small></header>
         {snapshot.series.map((series) => {
-          const values = snapshot.observations.filter((item) => item.seriesId === series.id).map((item) => item.value);
-          return <path key={series.id} d={chartPath(values, 720, 200)} transform="translate(0 15)" style={{ stroke: series.color }} />;
+          const rows = snapshot.observations.filter((item) => item.seriesId === series.id && Number.isFinite(item.value) && Number.isFinite(Date.parse(item.date))).sort((a, b) => a.date.localeCompare(b.date));
+          const latest = rows.at(-1);
+          return <div className="topic-series-chart" key={series.id}>
+            <div><strong style={{ color: series.color }}>{series.label}</strong><span>{latest ? `${latest.value.toFixed(2)} ${latest.unit} · ${latest.date}` : "暂无有效观测"}</span></div>
+            {rows.length > 1 ? <>
+              <svg viewBox="0 0 720 70" preserveAspectRatio="none" role="img" aria-label={`${series.label}趋势图`}>
+                <path d={chartPath(rows, 720, 60)} transform="translate(0 5)" style={{ stroke: series.color }} />
+              </svg>
+              <div className="topic-chart-axis"><span>{rows[0]?.date}</span><span>范围 {Math.min(...rows.map((row) => row.value)).toFixed(2)}–{Math.max(...rows.map((row) => row.value)).toFixed(2)} {latest?.unit} · {rows.length} 个点</span><span>{latest?.date}</span></div>
+            </> : <p>{rows.length ? "仅 1 个观测，暂无连续曲线" : "数据源尚未返回可用的历史序列"}</p>}
+          </div>;
         })}
-      </svg>
-      <div className="topic-chart-axis">{dates.map((date) => <span key={date}>{date}</span>)}</div>
     </section>
   );
 }
 
-function ForecastPanel({ snapshot, onForecast }: { snapshot: TopicSnapshot; onForecast: (forecast: TopicForecast) => void }) {
-  const [factors, setFactors] = useState(() => Object.fromEntries(snapshot.factors.map((factor) => [factor.id, factor.value])));
-  const [forecast, setForecast] = useState(snapshot.forecast);
-  const [running, setRunning] = useState(false);
-
-  const run = async () => {
-    setRunning(true);
-    try {
-      const response = await fetch("/api/global-topics/" + snapshot.topicId + "/forecast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ factors }),
-      });
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      const next = await response.json() as TopicForecast;
-      setForecast(next);
-      onForecast(next);
-    } finally {
-      setRunning(false);
-    }
-  };
+function ForecastPanel({ snapshot, factors, pending, running, loading, error, onFactorChange, onRun }: {
+  snapshot: TopicSnapshot;
+  factors: Record<string, number>;
+  pending: boolean;
+  running: boolean;
+  loading: boolean;
+  error: string;
+  onFactorChange(id: string, value: number): void;
+  onRun(): void;
+}) {
+  const forecast = snapshot.forecast;
 
   return (
     <section className="topic-panel topic-forecast">
       <header><span><SlidersHorizontal size={15} />情景推演</span><small>{forecast.method}</small></header>
       <p className="topic-question">{snapshot.question}</p>
+      <p className="topic-disclaimer">手动假设参数 · 不代表实时指标，未与来源观测自动校准。</p>
       <div className="topic-factor-list">
         {snapshot.factors.map((factor) => (
           <label key={factor.id}>
             <span>{factor.label}<b>{Math.round(factors[factor.id] ?? factor.value)}</b></span>
-            <input type="range" min={factor.min} max={factor.max} value={factors[factor.id] ?? factor.value} onChange={(event) => setFactors((current) => ({ ...current, [factor.id]: Number(event.target.value) }))} />
+            <input aria-label={factor.label} type="range" min={factor.min} max={factor.max} value={factors[factor.id] ?? factor.value} disabled={running || loading} onChange={(event) => onFactorChange(factor.id, Number(event.target.value))} />
           </label>
         ))}
       </div>
-      <button className="topic-run-button" type="button" onClick={run} disabled={running}><RefreshCw size={14} className={running ? "spin" : ""} />{running ? "计算中" : "重新推演"}</button>
+      <button className="topic-run-button" type="button" onClick={onRun} disabled={running || loading}><RefreshCw size={14} className={running ? "spin" : ""} />{running ? "计算中" : "重新推演"}</button>
+      {pending ? <p className="topic-notice" role="status">参数已修改，当前结果仍对应上次参数；请重新推演。</p> : null}
+      {error ? <p className="topic-notice" role="alert">{error}</p> : null}
+      <p className="topic-disclaimer">以下百分比是手动参数产生的情景权重，不是事件发生概率。</p>
       <div className="topic-probabilities">
         {forecast.probabilities.map((item) => (
           <div key={item.label} className={item.label === forecast.dominantScenario ? "is-dominant" : ""}>
@@ -111,51 +126,164 @@ function ForecastPanel({ snapshot, onForecast }: { snapshot: TopicSnapshot; onFo
           </div>
         ))}
       </div>
-      <small className="topic-disclaimer">置信度 {Math.round(forecast.confidence * 100)}% · {forecast.disclaimer}</small>
+      <small className="topic-disclaimer">{forecast.disclaimer}</small>
     </section>
   );
 }
 
-export function GlobalTopicDashboard({ topicId, refreshNonce, embedded = false, onContextChange }: {
+interface TopicDashboardProps {
   topicId: GlobalTopicId;
   refreshNonce: number;
+  gatewayBaseUrl?: string;
   embedded?: boolean;
+  cacheIdentity?: { userId: string; workspaceId: string };
   onContextChange?: (state: Record<string, unknown>) => void;
-}) {
-  const [snapshot, setSnapshot] = useState<TopicSnapshot>();
+}
+
+export function GlobalTopicDashboard(props: TopicDashboardProps) {
+  return <TopicWorkspace key={JSON.stringify([props.topicId, props.cacheIdentity?.userId, props.cacheIdentity?.workspaceId])} {...props} />;
+}
+
+function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.location.origin, embedded = false, cacheIdentity, onContextChange }: TopicDashboardProps) {
+  const [view, setView] = useState<{
+    snapshot: TopicSnapshot;
+    factors: Record<string, number>;
+    forecastFactors: Record<string, number>;
+  }>();
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [forecastError, setForecastError] = useState("");
+  const maritimeCache = useMemo(() => topicId === "hormuz" && cacheIdentity ? createModSnapshotCache<MaritimeFilters>({
+    modId: GLOBAL_TOPICS[topicId].id, ...cacheIdentity, resourceKey: "maritime-reading", schemaVersion: 1,
+  }) : undefined, [topicId, cacheIdentity?.userId, cacheIdentity?.workspaceId]);
+  const [maritimeFilters, setMaritimeFilters] = useState(() => {
+    const saved = maritimeCache?.read()?.value;
+    return saved && Object.hasOwn(MARITIME_SCOPES, saved.scope) && typeof saved.query === "string"
+      && (saved.sort === "relevance" || saved.sort === "newest")
+      && (saved.selectedId === null || typeof saved.selectedId === "string") ? saved : DEFAULT_MARITIME_FILTERS;
+  });
+  const forecastRequest = useRef<AbortController | null>(null);
+  const snapshot = view?.snapshot;
+  const maritimeView = useMemo(() => snapshot?.maritime ? buildMaritimeView(snapshot.maritime, maritimeFilters) : undefined, [snapshot?.maritime, maritimeFilters]);
+  const forecastPending = Boolean(view && Object.keys(view.factors).some((id) => view.factors[id] !== view.forecastFactors[id]));
+  const endpoint = new URL(`/api/global-topics/${topicId}`, gatewayBaseUrl).toString();
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    // Persist reading controls, never source text or a claim of current validity.
+    maritimeCache?.write(maritimeFilters);
+  }, [maritimeCache, maritimeFilters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    forecastRequest.current?.abort();
+    setRunning(false);
+    setForecastError("");
+    setLoading(true);
     setError("");
-    try {
-      const response = await fetch("/api/global-topics/" + topicId);
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      const next = await response.json() as TopicSnapshot;
-      setSnapshot(next);
-      onContextChange?.({ topicId, title: next.title, metrics: next.metrics, forecast: next.forecast, events: next.events.slice(0, 5), lastUpdate: next.updatedAt });
-    } catch {
-      setError("专题数据暂时不可用");
-    }
-  }, [onContextChange, topicId]);
+    void (async () => {
+      try {
+        const response = await fetch(endpoint, { signal: controller.signal });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const next = await response.json() as TopicSnapshot;
+        if (controller.signal.aborted) return;
+        const factors = Object.fromEntries(next.factors.map((factor) => [factor.id, factor.value]));
+        setView({ snapshot: next, factors, forecastFactors: factors });
+        setMaritimeFilters((current) => current.selectedId && (!next.maritime || !buildMaritimeView(next.maritime, current).selectedWarning)
+          ? { ...current, selectedId: null } : current);
+      } catch {
+        if (!controller.signal.aborted) setError("专题数据暂时不可用");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => {
+      controller.abort();
+      forecastRequest.current?.abort();
+    };
+  }, [endpoint, refreshNonce, retryNonce]);
 
-  useEffect(() => { void load(); }, [load, refreshNonce]);
-  if (error) return <div className="topic-state"><Gauge size={20} />{error}<button type="button" onClick={() => void load()}>重试</button></div>;
-  if (!snapshot) return <div className="topic-state"><RefreshCw size={20} className="spin" />加载专题</div>;
+  useEffect(() => {
+    const dates = snapshot?.observations.map((item) => item.date).sort() ?? [];
+    onContextChange?.({
+      topicId, title: GLOBAL_TOPICS[topicId].title,
+      loadState: loading ? "loading" : error ? "error" : "ready",
+      refreshError: error || null,
+      displayingPreviousData: Boolean(snapshot && error),
+      ...(snapshot && view ? {
+        metrics: snapshot.metrics, series: snapshot.series, observations: snapshot.observations,
+        question: snapshot.question, events: snapshot.events, sources: snapshot.sources,
+        transmission: snapshot.transmission,
+        dataMode: snapshot.dataMode, dataWarning: snapshot.dataWarning ?? TOPIC_BASELINE_WARNING,
+        eventCoverage: snapshot.eventCoverage ?? { count: snapshot.events.length, readySourceCount: 0, staleSourceCount: 0 },
+        freshness: snapshot.freshness, sourceStatus: snapshot.sourceStatus, gaps: snapshot.gaps,
+        maritime: snapshot.maritime,
+        maritimeView,
+        factorSource: snapshot.factorSource ?? "user-assumptions",
+        generatedAt: snapshot.generatedAt ?? snapshot.updatedAt,
+        timeRange: dates.length ? { start: dates[0], end: dates.at(-1) } : null,
+        factors: view.factors, factorDefinitions: snapshot.factors,
+        forecast: snapshot.forecast, forecastFactors: view.forecastFactors, forecastPending,
+        forecastStatus: running ? "running" : forecastError ? "error" : "idle",
+        forecastError: forecastError || null,
+      } : {}),
+    });
+  }, [topicId, view, snapshot, loading, error, running, forecastError, forecastPending, maritimeView, onContextChange]);
+
+  const runForecast = async () => {
+    if (!view || running || loading) return;
+    const controller = new AbortController();
+    forecastRequest.current = controller;
+    const factors = { ...view.factors };
+    setRunning(true);
+    setForecastError("");
+    try {
+      const response = await fetch(`${endpoint}/forecast`, {
+        method: "POST", signal: controller.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ factors }),
+      });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const next = await response.json() as TopicForecast;
+      if (!controller.signal.aborted) setView((current) => current ? {
+        ...current, snapshot: { ...current.snapshot, forecast: next }, forecastFactors: factors,
+      } : current);
+    } catch {
+      if (!controller.signal.aborted) setForecastError("推演失败，已保留上次结果和当前参数，可重试。");
+    } finally {
+      if (!controller.signal.aborted) setRunning(false);
+    }
+  };
+
+  if (!snapshot || !view) return error
+    ? <div className="topic-state" role="alert"><Gauge size={20} />{error}<button type="button" onClick={() => setRetryNonce((value) => value + 1)} disabled={loading}>重试</button></div>
+    : <div className="topic-state" role="status"><RefreshCw size={20} className="spin" />加载专题</div>;
 
   return (
-    <div className="global-topic-root" data-accent={snapshot.accent}>
+    <div className="global-topic-root" data-accent={snapshot.accent} aria-busy={loading}>
       <section className="topic-heading" data-embedded={embedded || undefined}>
         {!embedded ? <div data-mod-page-title><span>GLOBAL THEMATIC RESEARCH</span><h1>{snapshot.title}</h1><p>{snapshot.subtitle}</p></div> : null}
-        <div className="topic-data-badge"><i />参考基线 <small>等待实时连接</small></div>
+        <div className="topic-data-badge"><i />{snapshot.dataMode === "reference-baseline" ? "内置示例 · 非实时数据" : snapshot.dataMode === "unavailable" ? "来源暂不可用" : `来源观测 · ${snapshot.events.length ? `${snapshot.events.length} 条事件` : "暂无相关事件"}`}</div>
+        <button className="topic-refresh-button" type="button" onClick={() => setRetryNonce((value) => value + 1)} disabled={loading}><RefreshCw size={14} />{loading ? "刷新中" : "刷新专题"}</button>
       </section>
+      <p className="topic-data-warning">{snapshot.dataWarning ?? TOPIC_BASELINE_WARNING}</p>
+      {error ? <div className="topic-notice" role="alert">刷新失败，当前保留上次数据与参数。<button type="button" onClick={() => setRetryNonce((value) => value + 1)}>重试</button></div> : null}
 
       <section className="topic-metrics">
-        {snapshot.metrics.map((metric) => <article key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong><small>{metric.change}</small></article>)}
+        {snapshot.metrics.map((metric) => <article key={metric.label}>
+          <span>{metric.label}</span><strong>{metric.value}<em>{metric.unit}</em></strong>
+          {metric.date ? <span>{metric.dateBasis === "query-time" ? "检索日" : "数据期"} {metric.date.slice(0, metric.frequency === "monthly" ? 7 : 10)}{metric.status === "stale" ? " · 旧数据" : ""}</span> : null}
+          {metric.sourceUrl ? <a href={metric.sourceUrl} target="_blank" rel="noreferrer">{metric.source} ↗</a> : null}
+          <small title={metric.change}>{metric.change}</small>
+        </article>)}
       </section>
+
+      {snapshot.maritime && maritimeView ? <TopicMaritime evidence={snapshot.maritime} view={maritimeView} onChange={setMaritimeFilters} /> : null}
 
       <div className="topic-primary-grid">
         <TopicChart snapshot={snapshot} />
-        <ForecastPanel snapshot={snapshot} onForecast={(forecast) => onContextChange?.({ topicId, title: snapshot.title, forecast, metrics: snapshot.metrics })} />
+        <ForecastPanel snapshot={snapshot} factors={view.factors} pending={forecastPending} running={running} loading={loading} error={forecastError} onRun={() => void runForecast()} onFactorChange={(id, value) => setView((current) => current ? { ...current, factors: { ...current.factors, [id]: value } } : current)} />
       </div>
 
       <section className="topic-panel topic-transmission">
@@ -165,18 +293,22 @@ export function GlobalTopicDashboard({ topicId, refreshNonce, embedded = false, 
 
       <div className="topic-secondary-grid">
         <section className="topic-panel topic-events">
-          <header><span><BookOpenCheck size={15} />事件与证据</span><small>按可信度排序</small></header>
+          <header><span><BookOpenCheck size={15} />来源事件与文件</span><small>{snapshot.events.length} 条 · 发布日期不等于生效日期</small></header>
+          {!snapshot.events.length ? <p className="topic-empty">当前来源未返回相关记录，不代表没有发生事件。</p> : null}
           {snapshot.events.map((event) => (
             <article key={event.id}>
-              <time>{event.date}</time>
-              <div><strong>{event.title}</strong><p>{event.summary}</p><span>{event.source} · 置信度 {Math.round(event.confidence * 100)}%</span></div>
+              <time title={event.publishedAt || undefined}>{event.date || "日期未知"}</time>
+              <div><strong>{event.title}</strong><p>{event.summary}</p><span>{event.source} · {snapshot.dataMode === "reference-baseline" ? "示例记录，待核验" : event.evidenceType === "news-report" ? "媒体报道，待核验" : event.evidenceType === "official-document" || event.evidenceType === "official-release" ? "官方原文" : "来源记录，待核验"} · {event.sourceStatus === "stale" ? "旧来源 · " : ""}{collectedLabel(event.collectedAt)}</span>{event.note ? <p>{event.note}</p> : null}</div>
               <a href={event.sourceUrl} target="_blank" rel="noreferrer" aria-label={"查看 " + event.title + " 来源"}><ExternalLink size={14} /></a>
             </article>
           ))}
         </section>
         <section className="topic-panel topic-sources">
           <header><span><Gauge size={15} />数据接入</span><small>专题数据库</small></header>
-          {snapshot.sources.map((source, index) => <div key={source}><i className={index < 2 ? "is-reference" : ""} /><span>{source}</span><small>{index < 2 ? "已建基线" : "待实时接入"}</small></div>)}
+          {snapshot.sourceStatus ? snapshot.sourceStatus.map((source) => <div key={source.id} title={source.reason}>
+            <i className={source.status === "ready" ? "is-reference" : ""} /><span>{source.label}<small className="topic-source-reason">{collectedLabel(source.collectedAt)}{source.reason ? ` · ${source.reason}` : ""}</small></span><small>{source.status === "ready" ? "已读取" : source.status === "stale" ? "旧缓存" : "不可用"}</small>
+          </div>) : snapshot.sources.map((source) => <div key={source}><i /><span>{source}</span><small>待接入</small></div>)}
+          {snapshot.gaps?.length ? <section className="topic-gaps"><strong>数据缺口与边界</strong><ul>{snapshot.gaps.map((gap) => <li key={gap}>{gap}</li>)}</ul></section> : null}
         </section>
       </div>
     </div>

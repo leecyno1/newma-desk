@@ -9,6 +9,7 @@ from uuid import UUID
 
 from services.fund_manager_research_service import FundManagerResearchService
 from services.metric_factory import MetricFactory
+from services.performance_nav_series import normalize_performance_rows, performance_evidence, daily_risk_rows
 
 
 class FundManagerComparisonService:
@@ -38,6 +39,7 @@ class FundManagerComparisonService:
         self.research_service = research_service or FundManagerResearchService()
         self._nav_repo = nav_repo
         self.metric_factory = metric_factory or MetricFactory()
+        self._nav_rows_by_code: Dict[str, List[Dict[str, Any]]] = {}
 
     def build(
         self,
@@ -45,6 +47,7 @@ class FundManagerComparisonService:
         category: Optional[str] = None,
         product_codes: Optional[Iterable[str]] = None,
     ) -> Dict[str, Any]:
+        self._nav_rows_by_code.clear()
         normalized_ids = list(dict.fromkeys(
             str(manager_id or "").strip()
             for manager_id in manager_ids
@@ -361,15 +364,25 @@ class FundManagerComparisonService:
 
         metrics_by_manager: Dict[str, Dict[str, Any]] = {}
         for manager_id, points in nav_by_manager.items():
-            series = [{"date": item_date, "nav": points[item_date]} for item_date in shared_dates]
+            series = [{"date": item_date, "nav": points[item_date], "risk_calendar": self._nav_rows_by_code[actual_codes[manager_id]][0].get("risk_calendar")} for item_date in shared_dates]
+            source_rows = [row for row in self._nav_rows_by_code[actual_codes[manager_id]]
+                           if shared_dates[0] <= row["date"] <= shared_dates[-1]]
+            evidence = performance_evidence(source_rows)
+            evidence["daily_risk_eligible"] = evidence["daily_risk_eligible"] and {row["date"] for row in daily_risk_rows(source_rows)} <= set(shared_dates)
+            if not evidence["daily_risk_eligible"]:
+                evidence["risk_annualization"] = "unavailable"
             metrics: Dict[str, Any] = {}
             metrics.update(self.metric_factory.calculate_return_metrics(series))
-            metrics.update(self.metric_factory.calculate_risk_metrics(series))
+            if evidence["daily_risk_eligible"]:
+                metrics.update(self.metric_factory.calculate_risk_metrics(series))
+            else:
+                metrics["max_drawdown"] = self.metric_factory._max_drawdown([(row["date"], row["nav"]) for row in series])
             metrics_by_manager[manager_id] = {
                 **metrics,
                 "fund_code": actual_codes[manager_id],
                 "fund_name": selected_products[manager_id].get("fund_name"),
                 "category": selected_products[manager_id].get("category"),
+                "methodology": evidence,
             }
         leaders = self._leaders(metrics_by_manager)
         return {
@@ -492,6 +505,7 @@ class FundManagerComparisonService:
         fallback: tuple[str, Dict[date, float]] = (candidates[0] if candidates else "", {})
         for code in candidates:
             rows = self.nav_repo.get_nav_series(code, start_date.isoformat(), end_date.isoformat())
+            self._nav_rows_by_code[code] = normalize_performance_rows(rows)
             points = self._points(rows)
             if points and not fallback[1]:
                 fallback = (code, points)
@@ -501,15 +515,7 @@ class FundManagerComparisonService:
 
     @staticmethod
     def _points(rows: List[Dict[str, Any]]) -> Dict[date, float]:
-        points: Dict[date, float] = {}
-        for row in rows:
-            item_date = FundManagerComparisonService._date(row.get("date") or row.get("trade_date"))
-            value = FundManagerComparisonService._positive_number(
-                row.get("accum_nav") or row.get("adj_nav") or row.get("nav") or row.get("unit_nav")
-            )
-            if item_date and value is not None:
-                points[item_date] = value
-        return points
+        return {row["date"]: row["nav"] for row in normalize_performance_rows(rows) if row["nav"] is not None}
 
     def _leaders(self, metrics_by_manager: Dict[str, Dict[str, Any]]) -> Dict[str, List[str]]:
         leaders: Dict[str, List[str]] = {}
@@ -519,7 +525,7 @@ class FundManagerComparisonService:
                 for manager_id, metrics in metrics_by_manager.items()
             }
             values = {key: value for key, value in values.items() if value is not None}
-            if len(values) < 2:
+            if len(values) < 2 or len(values) != len(metrics_by_manager):
                 continue
             best = min(values.values()) if meta["direction"] == "lower" else max(values.values())
             leaders[metric_name] = [

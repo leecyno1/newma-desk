@@ -63,6 +63,7 @@ import {
   calculateGlobalIntelRouteAlerts,
   calculateGlobalIntelRouteImpacts,
   clusterGlobalIntelEvents,
+  globalIntelEventActivityTimestamp as eventActivityTimestamp,
   globalIntelEventIdentity,
   findGlobalMediaMonitorAnnotation,
   findGlobalMediaMonitorTopic,
@@ -514,6 +515,9 @@ function loadEventHistory(): GlobalIntelEventHistoryEntry[] {
     return Array.isArray(saved)
       ? saved.map((item) => ({
         ...item as GlobalIntelEventHistoryEntry,
+        // These legacy records may contain a collection-time fallback or local-time RSS conversion.
+        ...((item.source === "NGA 航行警告" || item.source === "USGS" || item.recordKind === "news" || item.source === "World Intel 服务状态") && !item.timestampBasis
+          ? { timestamp: "", timestampBasis: "unknown" as const, sourceFreshness: "unknown" as const } : {}),
         lastChangedAt: (item as GlobalIntelEventHistoryEntry).lastChangedAt
           || (item as GlobalIntelEventHistoryEntry).firstSeenAt
           || (item as GlobalIntelEventHistoryEntry).timestamp,
@@ -642,12 +646,37 @@ function safeExternalUrl(value?: string) {
 function relativeTime(timestamp: string) {
   const delta = Date.now() - Date.parse(timestamp);
   if (!Number.isFinite(delta)) return "时间未知";
+  if (delta < -60_000) return "未来时间，待核验";
   const minutes = Math.max(0, Math.round(delta / 60_000));
   if (minutes < 1) return "刚刚";
   if (minutes < 60) return `${minutes} 分钟前`;
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours} 小时前`;
   return `${Math.round(hours / 24)} 天前`;
+}
+
+function sourceTimeFieldLabel(record?: GlobalIntelEvent | GlobalIntelPoint) {
+  if (record?.timestampBasis === "indexed") return "来源收录时间";
+  if (record?.timestampBasis === "updated") return "来源更新时间";
+  if (record?.timestampBasis === "occurred" || record?.source === "USGS") return "发生时间";
+  if (record?.timestampBasis === "collected") return "采集时间";
+  if (record?.timestampBasis === "published" || record?.source === "NGA 航行警告" || (record && "recordKind" in record && record.recordKind === "news")) return "发布日期";
+  return "来源时间";
+}
+
+function eventTimeLabel(event: GlobalIntelEvent) {
+  if (event.timestampBasis === "unknown") return `${sourceTimeFieldLabel(event)}未知`;
+  const label = event.timestampBasis === "indexed" ? "来源收录"
+    : event.timestampBasis === "updated" ? "来源更新"
+    : event.timestampBasis === "occurred" ? "发生"
+    : event.timestampBasis === "published" || event.recordKind === "news" ? "发布"
+    : event.timestampBasis === "collected" ? "采集" : "来源时间";
+  return `${label} ${relativeTime(event.timestamp)}`;
+}
+
+function absoluteTime(timestamp?: string) {
+  return timestamp && Number.isFinite(Date.parse(timestamp))
+    ? new Date(timestamp).toLocaleString("zh-CN") : "未知";
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -729,14 +758,16 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
     const crucixHealth = recordValue(crucix.sourceHealth);
     const crucixFreshness = recordValue(crucix.freshness);
     const failed = Number(crucixHealth.failed ?? 0);
+    const partial = Number(crucixHealth.partial ?? 0);
+    const unknown = Number(crucixHealth.unknown ?? 0);
+    const queried = Number(crucixHealth.queried ?? 0);
+    const ok = Number(crucixHealth.ok ?? 0);
     const freshnessStatus = typeof crucixFreshness.status === "string"
       ? crucixFreshness.status
       : "unknown";
     const status: SourceHealthItem["status"] = freshnessStatus === "stale"
       ? "stale"
-      : freshnessStatus === "fresh" && failed === 0 ? "healthy" : "degraded";
-    const queried = Number(crucixHealth.queried ?? 0);
-    const ok = Number(crucixHealth.ok ?? 0);
+      : freshnessStatus === "fresh" && queried > 0 && ok === queried ? "healthy" : "degraded";
     const ageSeconds = typeof crucixFreshness.ageSeconds === "number"
       ? crucixFreshness.ageSeconds
       : Number.NaN;
@@ -745,7 +776,7 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
       label: sourceLabel("crucix"),
       status,
       statusLabel: status === "healthy" ? "正常" : status === "stale" ? "数据过期" : "部分降级",
-      reason: queried > 0 ? `${ok}/${queried} 个来源正常${failed > 0 ? `，${failed} 个失败` : ""}` : "等待 Crucix 首轮扫描",
+      reason: queried > 0 ? `${ok}/${queried} 个来源采集正常，${failed} 不可用、${partial} 部分可用、${Number(crucixHealth.stale ?? 0)} 陈旧、${unknown} 待核验` : "等待 Crucix 首轮扫描",
       ...(Number.isFinite(ageSeconds) ? { freshness: freshnessLabel(ageSeconds) } : {}),
     });
     total += 1;
@@ -946,7 +977,7 @@ function inTimeWindow(timestamp: string, timeWindow: TimeWindow) {
   if (!Number.isFinite(parsed)) return false;
   const hours = timeWindow === "24h" ? 24 : 24 * 7;
   const span = hours * 60 * 60 * 1000;
-  return parsed >= Date.now() - span && parsed <= Date.now() + span;
+  return parsed >= Date.now() - span && parsed <= Date.now();
 }
 
 function mergeSnapshot(
@@ -977,12 +1008,16 @@ function confidenceLabel(cluster?: GlobalIntelEventCluster) {
 }
 
 function recordKindLabel(event: GlobalIntelEvent) {
+  if (event.source === "NGA 航行警告") return "航行警告";
   if (event.recordKind === "observation") return "原始观测";
   if (event.recordKind === "news") return "新闻报道";
   return "异常事件";
 }
 
 function recordKindExplanation(event: GlobalIntelEvent) {
+  if (event.source === "NGA 航行警告") {
+    return "这是来源仍列出的航行警告，不等同于新发生事故。发布日期与采集、首次收录时间分开；旧缓存里的未取消状态不能证明当前仍有效。";
+  }
   if (event.recordKind === "observation") {
     return "这是传感器、行情或周期指标的当前读数，不等同于新闻，也未自动判定为异常事件。";
   }
@@ -1018,8 +1053,8 @@ function eventMonitorState(
 }
 
 function eventMonitorLabel(state: EventMonitorState) {
-  if (state === "new") return "新出现";
-  if (state === "ongoing") return "持续中";
+  if (state === "new") return "首次收录";
+  if (state === "ongoing") return "持续跟踪";
   return "已离开";
 }
 
@@ -1066,19 +1101,6 @@ function dispositionAcknowledged(
     disposition,
     currentIdentities,
   ));
-}
-
-function eventActivityTimestamp(
-  event: GlobalIntelEvent,
-  history?: GlobalIntelEventHistoryEntry,
-) {
-  const eventTimestamp = Date.parse(event.timestamp);
-  const changedTimestamp = Date.parse(history?.lastChangedAt || "");
-  if (!Number.isFinite(changedTimestamp)) return event.timestamp;
-  if (!Number.isFinite(eventTimestamp) || changedTimestamp > eventTimestamp) {
-    return history!.lastChangedAt;
-  }
-  return event.timestamp;
 }
 
 function pointInRegion(point: GlobalIntelPoint, region: IntelligenceRegion) {
@@ -1273,9 +1295,7 @@ export function GlobalIntelligenceDashboard({
   useEffect(() => {
     if (!events.length) return;
     if (progress.total > 0 && progress.done < progress.total) return;
-    const observedAt = typeof snapshot.timestamp === "string"
-      ? snapshot.timestamp
-      : new Date().toISOString();
+    const observedAt = new Date().toISOString();
     setEventHistory((current) => mergeGlobalIntelEventHistory(current, events, observedAt));
     setEventHistoryObservedAt(observedAt);
   }, [events, progress.done, progress.total, snapshot.timestamp]);
@@ -1283,7 +1303,7 @@ export function GlobalIntelligenceDashboard({
     const merged = new Map<string, GlobalIntelEvent>();
     for (const event of eventHistory) merged.set(globalIntelEventIdentity(event), event);
     for (const event of events) merged.set(globalIntelEventIdentity(event), event);
-    return [...merged.values()].sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp));
+    return [...merged.values()].sort((left, right) => (Date.parse(right.timestamp) || 0) - (Date.parse(left.timestamp) || 0));
   }, [eventHistory, events]);
   const currentEventIdentities = useMemo(
     () => new Set(events.map(globalIntelEventIdentity)),
@@ -1494,11 +1514,11 @@ export function GlobalIntelligenceDashboard({
   const playbackTime = playbackRange.start
     + (playbackRange.end - playbackRange.start) * playbackCursor / 100;
   const visibleEvents = useMemo(
-    () => changeFocusedEvents.filter((event) => Date.parse(eventActivityTimestamp(
+    () => changeFocusedEvents.filter((event) => playbackCursor === 100 || Date.parse(eventActivityTimestamp(
       event,
       historyByIdentity.get(globalIntelEventIdentity(event)),
     )) <= playbackTime),
-    [changeFocusedEvents, historyByIdentity, playbackTime],
+    [changeFocusedEvents, historyByIdentity, playbackCursor, playbackTime],
   );
   const eventClusters = useMemo(() => clusterGlobalIntelEvents(actionableEvents), [actionableEvents]);
   const visibleEventClusters = useMemo(
@@ -1744,7 +1764,14 @@ export function GlobalIntelligenceDashboard({
       highPriorityCount,
       situationPreset: activePreset?.id ?? "custom",
       activeLayers: [...activeLayers],
-      filters: { categoryFilter, severityFilter, timeWindow, query, showObservations, eventFeedMode },
+      filters: { categoryFilter, severityFilter, timeWindow, timeBasis: "tracking-activity", query, showObservations, eventFeedMode },
+      timeSemantics: {
+        sourceTime: "timestamp 为来源时间；timestampBasis=published 是发布日期，updated 是来源更新时间，indexed 是来源收录时间（并非发布），occurred 是发生时间，collected 是采集时间，unknown 表示无可靠来源时间。updatedAt 单独保留来源更新时间，不能当作重新发生。",
+        collection: "collectedAt 为该批源数据最近成功采集时间，不是本次尝试刷新时间。",
+        futureDates: "来源时间在未来时，可能为预告或来源日期异常，须核验；不能描述成已经发生，也不计入近期风险。",
+        tracking: "跟踪窗口与回放按浏览器首次收录或内容变化筛选；首次收录不等于新发生。",
+        validity: "sourceFreshness=stale 时，警告未取消仅代表旧缓存状态，当前有效性待核验。",
+      },
       mapMode,
       routes: {
         visible: activeRouteKinds.size > 0,
@@ -1766,7 +1793,11 @@ export function GlobalIntelligenceDashboard({
         alertCount: region.alertCount,
       })),
       playback: { cursor: playbackCursor, playing: playbackPlaying, timestamp: new Date(playbackTime).toISOString() },
-      selectedEvent: selectedEvent ?? null,
+      selectedEvent: selectedEvent ? {
+        ...selectedEvent,
+        firstSeenAt: selectedHistory?.firstSeenAt ?? null,
+        lastChangedAt: selectedHistory?.lastChangedAt ?? null,
+      } : null,
       selectedPoint: selectedPoint ?? null,
       selectedRoute: selectedRoute ?? null,
       sourceHealth: {
@@ -1774,6 +1805,7 @@ export function GlobalIntelligenceDashboard({
         total: health.total,
         issueCount: health.issueCount,
         cache: health.cache,
+        items: health.items,
       },
       strategicBriefing: {
         score: briefing.score ?? null,
@@ -1811,11 +1843,14 @@ export function GlobalIntelligenceDashboard({
         topTopics: mediaAttentionTopics.slice(0, 6),
       },
       lastUpdate: lastUpdate || null,
-      events: visibleEvents.slice(0, 30),
+      events: visibleEvents.slice(0, 30).map((event) => {
+        const history = historyByIdentity.get(globalIntelEventIdentity(event));
+        return { ...event, firstSeenAt: history?.firstSeenAt ?? null, lastChangedAt: history?.lastChangedAt ?? null };
+      }),
       dataContract: GLOBAL_INTELLIGENCE_CONTRACT,
       source: "world-intel-mcp",
     });
-  }, [activeLayers, activePreset?.id, activeRouteKinds, affectedRouteCount, briefing, categoryFilter, countryRisk, currentActionableEvents.length, eventClusters.length, eventFeedMode, eventHistory.length, eventTimeline.length, health.cache, health.healthy, health.issueCount, health.total, highPriorityCount, highRouteAlertCount, lastUpdate, mapFocus, mapMode, marketConfirmedRouteCount, mediaAttentionTopics, mediaMonitor, mediaWatchRules.length, newEventCount, observationEvents.length, ongoingEventCount, onContextChange, playbackCursor, playbackPlaying, playbackTime, points.length, progress, query, recentlyResolvedEventCount, routeAlerts.length, routes.length, selectedEvent, selectedPoint, selectedRegion, selectedRoute, severityFilter, showCountryRisk, showObservations, status, timeWindow, trend, unacknowledgedEventCount, visibleEventClusters.length, visibleEvents, visiblePoints.length, visibleRoutes.length, watchedMediaTopicChanges.length, watchedMediaTopics.length, watchedRegionViews, watchingAttentionCount, watchingEventCount]);
+  }, [activeLayers, activePreset?.id, activeRouteKinds, affectedRouteCount, briefing, categoryFilter, countryRisk, currentActionableEvents.length, eventClusters.length, eventFeedMode, eventHistory.length, eventTimeline.length, health.cache, health.healthy, health.issueCount, health.items, health.total, historyByIdentity, highPriorityCount, highRouteAlertCount, lastUpdate, mapFocus, mapMode, marketConfirmedRouteCount, mediaAttentionTopics, mediaMonitor, mediaWatchRules.length, newEventCount, observationEvents.length, ongoingEventCount, onContextChange, playbackCursor, playbackPlaying, playbackTime, points.length, progress, query, recentlyResolvedEventCount, routeAlerts.length, routes.length, selectedEvent, selectedHistory, selectedPoint, selectedRegion, selectedRoute, severityFilter, showCountryRisk, showObservations, status, timeWindow, trend, unacknowledgedEventCount, visibleEventClusters.length, visibleEvents, visiblePoints.length, visibleRoutes.length, watchedMediaTopicChanges.length, watchedMediaTopics.length, watchedRegionViews, watchingAttentionCount, watchingEventCount]);
 
   const applySituationPreset = (preset: SituationPreset) => {
     setActiveLayers(new Set(preset.activeLayers));
@@ -2422,10 +2457,10 @@ export function GlobalIntelligenceDashboard({
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事件、国家、来源" />
           {query ? <button type="button" onClick={() => setQuery("")} aria-label="清除搜索"><X size={13} /></button> : null}
         </label>
-        <div className="intel-segments" aria-label="时间范围">
+        <div className="intel-segments" aria-label="跟踪时间范围" title="按首次收录或内容变化筛选，不代表发布时间">
           {(["24h", "7d", "all"] as const).map((value) => (
             <button key={value} type="button" aria-pressed={timeWindow === value} onClick={() => setTimeWindow(value)}>
-              {value === "24h" ? "24 小时" : value === "7d" ? "7 天" : "全部"}
+              {value === "24h" ? "24 小时跟踪" : value === "7d" ? "7 天跟踪" : "全部"}
             </button>
           ))}
         </div>
@@ -2674,13 +2709,6 @@ export function GlobalIntelligenceDashboard({
               const Icon = meta.icon;
               const clusterIsCurrent = currentClusterEvents.length > 0;
               const monitorState = clusterMonitorState(cluster, currentEventIdentities, historyByIdentity);
-              const clusterActivityAt = cluster.events.reduce((latest, item) => {
-                const activityAt = eventActivityTimestamp(
-                  item,
-                  historyByIdentity.get(globalIntelEventIdentity(item)),
-                );
-                return Date.parse(activityAt) > Date.parse(latest) ? activityAt : latest;
-              }, cluster.updatedAt);
               const clusterNeedsAttention = cluster.events.some((item) => (
                 eventRequiresAttention(
                   item,
@@ -2710,7 +2738,8 @@ export function GlobalIntelligenceDashboard({
                     <i style={{ "--event-color": meta.color } as CSSProperties}><Icon size={13} /></i>
                     <span>
                       <small>
-                        {recordKindLabel(event)} · {meta.label} · {relativeTime(clusterActivityAt)}
+                        {recordKindLabel(event)} · {meta.label} · {eventTimeLabel(event)}
+                        {event.sourceFreshness === "stale" ? <mark data-verify="true">旧缓存</mark> : null}
                         {cluster.events.length > 1 ? <mark>{cluster.events.length} 条证据</mark> : null}
                         <mark data-state={monitorState}>{eventMonitorLabel(monitorState)}</mark>
                         {clusterWatching ? <mark data-state={clusterNeedsAttention ? "watching-change" : "watching"}>{clusterNeedsAttention ? "关注有变化" : "关注中"}</mark> : null}
@@ -2839,7 +2868,9 @@ export function GlobalIntelligenceDashboard({
                   {selectedEventState ? <div><dt>监控状态</dt><dd>{eventMonitorLabel(selectedEventState)}</dd></div> : null}
                   <div><dt>严重度</dt><dd>{selectedEvent?.severity ?? selectedPoint?.severity}</dd></div>
                   <div><dt>来源</dt><dd>{selectedEvent?.source ?? selectedPoint?.source}</dd></div>
-                  <div><dt>时间</dt><dd>{selectedEvent ? new Date(selectedEvent.timestamp).toLocaleString("zh-CN") : selectedPoint?.timestamp ? new Date(selectedPoint.timestamp).toLocaleString("zh-CN") : "静态情报层"}</dd></div>
+                  <div><dt>{sourceTimeFieldLabel(selectedEvent ?? selectedPoint)}</dt><dd>{absoluteTime((selectedEvent ?? selectedPoint)?.timestamp)}</dd></div>
+                  {selectedEvent?.updatedAt && selectedEvent.timestampBasis !== "updated" ? <div><dt>来源更新时间</dt><dd>{absoluteTime(selectedEvent.updatedAt)}</dd></div> : null}
+                  {(selectedEvent ?? selectedPoint)?.collectedAt ? <div><dt>最近成功采集</dt><dd>{absoluteTime((selectedEvent ?? selectedPoint)?.collectedAt)}</dd></div> : null}
                   <div><dt>位置</dt><dd>{selectedPoint ? `${selectedPoint.latitude.toFixed(3)}, ${selectedPoint.longitude.toFixed(3)}` : selectedEvent?.country || "未标注"}</dd></div>
                   {selectedFacts?.map((fact) => (
                     <div key={`${fact.label}-${fact.value}`}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>
@@ -3059,7 +3090,7 @@ export function GlobalIntelligenceDashboard({
                     {selectedCluster.events.slice(0, 8).map((evidence) => (
                       <li key={evidence.id} data-current={evidence.id === selectedEventId}>
                         <button type="button" onClick={() => selectEvent(evidence)}>
-                          <time>{new Date(evidence.timestamp).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</time>
+                          <time>{eventTimeLabel(evidence)} · {absoluteTime(evidence.timestamp)}</time>
                           <strong>{evidence.source}</strong>
                           <span>{evidence.title}</span>
                         </button>

@@ -4,6 +4,7 @@ Tushare 数据服务 - 替代 Wind API 获取基金和经理数据
 import os
 import re
 import time
+import math
 import logging
 import hashlib
 import csv
@@ -17,6 +18,10 @@ from dataclasses import dataclass
 import pandas as pd
 
 from services.fund_nav_evidence_service import FundNavEvidenceService
+from services.metric_factory import MetricFactory
+from services.performance_nav_series import positive_number
+from services.fund_trading_calendar import fund_risk_calendar
+from services.source_fund_metrics import SOURCE_METHODOLOGY_VERSION, source_window, published_metric
 from lib.holding_weight_validation import normalize_holding_weights
 
 logger = logging.getLogger(__name__)
@@ -143,6 +148,7 @@ class TushareDataService:
         self._stock_profile_cache: Dict[str, Dict[str, Any]] = {}
         self._stock_profile_cache_loaded = False
         self._benchmark_nav_cache: Dict[tuple, List[Dict[str, Any]]] = {}
+        self._fund_risk_calendars: Dict[str, Optional[str]] = {}
 
         if not self.mock_mode and TUSHARE_AVAILABLE:
             try:
@@ -246,7 +252,7 @@ class TushareDataService:
                 except Exception as share_error:
                     logger.warning(f"Tushare fund_share unavailable for {wind_code}: {share_error}")
 
-            return {
+            info = {
                 "wind_code": wind_code,
                 "name": row.get("name", ""),
                 "full_name": row.get("name", ""),
@@ -275,6 +281,10 @@ class TushareDataService:
                 "nav_date": _format_tushare_date(nav_data.get("nav_date")),
                 "state": row.get("state", ""),
             }
+            if not hasattr(self, "_fund_risk_calendars"):
+                self._fund_risk_calendars = {}
+            self._fund_risk_calendars[wind_code] = fund_risk_calendar(info)
+            return info
         except Exception as e:
             logger.error(f"Tushare get_fund_info error for {wind_code}: {e}")
             self._strict_fail(f"Tushare get_fund_info failed for {wind_code}: {e}")
@@ -358,46 +368,52 @@ class TushareDataService:
                 self._strict_fail(f"Tushare fund_nav returned empty nav series for {wind_code}")
                 return self._normalize_nav_series(self._mock_nav_series(wind_code, start_date, end_date))
 
+            df, adjusted_source = self._prepare_adjusted_nav(df)
+
             result = []
             df = df.sort_values("nav_date")
             minimum_source_rows = max(2, int(len(df) * 0.6))
-            metric_nav_source = next(
-                (
-                    column
-                    for column in ("accum_nav", "adj_nav", "unit_nav")
-                    if column in df.columns
-                    and pd.to_numeric(df[column], errors="coerce").notna().sum() >= minimum_source_rows
-                ),
-                None,
-            )
+            metric_nav_source = None
+            for column in ("adj_nav", "accum_nav", "unit_nav"):
+                if column not in df.columns:
+                    continue
+                values = pd.to_numeric(df[column], errors="coerce")
+                usable_values = values.where((values > 0) & (values < float("inf")))
+                if usable_values.notna().sum() >= minimum_source_rows:
+                    metric_nav_source = column
+                    break
             if metric_nav_source is None:
-                self._strict_fail(f"Tushare fund_nav has no consistent NAV column for {wind_code}")
-                return []
-            previous_accum_nav = None
+                metric_nav_source = "adj_nav"
+            metric_nav_lineage = (
+                adjusted_source
+                if metric_nav_source == "adj_nav"
+                else f"tushare.fund_nav.{metric_nav_source}"
+            )
+            previous_adjusted_nav = None
             for _, row in df.iterrows():
                 date_str = str(row.get("nav_date", ""))
                 if len(date_str) == 8:
                     date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-                metric_nav = _as_float(row.get(metric_nav_source))
-                if metric_nav is None or metric_nav <= 0:
-                    continue
-                unit_nav = _as_float(row.get("unit_nav")) or metric_nav
-                adjusted_nav = _as_float(row.get("adj_nav"))
+                metric_nav = positive_number(row.get(metric_nav_source))
+                unit_nav = positive_number(row.get("unit_nav"))
+                adjusted_nav = positive_number(row.get("adj_nav"))
                 accum_nav = metric_nav
                 daily_return = None
-                if previous_accum_nav and accum_nav:
-                    daily_return = (accum_nav / previous_accum_nav) - 1
-                if accum_nav:
-                    previous_accum_nav = accum_nav
+                if previous_adjusted_nav is not None and adjusted_nav is not None:
+                    daily_return = (adjusted_nav / previous_adjusted_nav) - 1
+                previous_adjusted_nav = adjusted_nav
                 result.append({
                     "date": date_str,
+                    "announcement_date": self._format_date_value(row.get("ann_date")),
                     "nav": unit_nav,
                     "unit_nav": unit_nav,
                     "accum_nav": accum_nav,
                     "adj_nav": adjusted_nav,
+                    "adj_nav_source": adjusted_source if adjusted_nav is not None else None,
                     "reported_accum_nav": _as_float(row.get("accum_nav")),
-                    "metric_nav_source": f"tushare.fund_nav.{metric_nav_source}",
+                    "metric_nav_source": metric_nav_lineage,
                     "daily_return": daily_return,
+                    "daily_return_source": "tushare.fund_nav.adj_nav",
                     "net_asset": _as_float(row.get("net_asset")),
                     "total_netasset": _as_float(row.get("total_netasset")),
                 })
@@ -406,6 +422,53 @@ class TushareDataService:
             logger.error(f"Tushare get_fund_nav error for {wind_code}: {e}")
             self._strict_fail(f"Tushare get_fund_nav failed for {wind_code}: {e}")
             return self._normalize_nav_series(self._mock_nav_series(wind_code, start_date, end_date))
+
+    def _prepare_adjusted_nav(self, frame: pd.DataFrame):
+        """保留供应商复权净值；ETF行情复权因子不能当作净值复权因子。"""
+        frame = frame.copy()
+        if 'ann_date' in frame.columns:
+            frame['ann_date'] = frame['ann_date'].map(self._format_date_value)
+        sort_columns = ["nav_date"] + (["ann_date"] if "ann_date" in frame.columns else [])
+        frame = frame.sort_values(sort_columns, kind="stable", na_position="first").drop_duplicates("nav_date", keep="last")
+        native = pd.to_numeric(frame.get("adj_nav", pd.Series(index=frame.index, dtype=float)), errors="coerce")
+        native = native.where((native > 0) & (native < float("inf")))
+        frame["adj_nav"] = native
+        # fund_adj 文档描述的是行情价格复权，不保证与基金净值分红再投口径一致。
+        # 累计净值/单位净值也不得填入 adj_nav，缺失交由下游证据门槛处理。
+        return frame, "tushare.fund_nav.adj_nav"
+
+    def get_fund_dividends(self, wind_code: str) -> List[Dict[str, Any]]:
+        """获取基金全历史分红事件（tushare fund_div）。从未分红的基金返回空列表，属正常情况。"""
+        if self.mock_mode:
+            return []
+        ts_code = _to_ts_code(wind_code)
+        df = self.pro.fund_div(ts_code=ts_code)
+        if df is None or df.empty:
+            return []
+        rows: List[Dict[str, Any]] = []
+        seen_keys = set()
+        for _, raw in df.iterrows():
+            record = raw.to_dict()
+            div_proc_raw = record.get("div_proc")
+            div_proc = None if div_proc_raw is None or pd.isna(div_proc_raw) else (str(div_proc_raw).strip() or None)
+            item = {
+                "ann_date": _format_tushare_date(record.get("ann_date")),
+                "record_date": _format_tushare_date(record.get("record_date")),
+                "ex_date": _format_tushare_date(record.get("ex_date")),
+                "pay_date": _format_tushare_date(record.get("pay_date")),
+                "net_ex_date": _format_tushare_date(record.get("net_ex_date")),
+                "div_proc": div_proc,
+                "div_cash": _as_float(record.get("div_cash")),
+                "ear_amount": _as_float(record.get("ear_amount")),
+                "source": "tushare.fund_div",
+                "raw_data": {key: (None if pd.isna(value) else value) for key, value in record.items()},
+            }
+            natural_key = (item["ann_date"], item["record_date"], item["ex_date"], item["pay_date"], item["div_cash"])
+            if natural_key in seen_keys:
+                continue
+            seen_keys.add(natural_key)
+            rows.append(item)
+        return rows
 
     def get_benchmark_nav(self, benchmark_code: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
         """获取可核验的指数基准序列；不支持的基准代码显式返回空集。"""
@@ -736,175 +799,85 @@ class TushareDataService:
             return []
 
     def get_fund_performance(self, wind_code: str) -> Dict[str, Any]:
-        """获取基金业绩指标"""
+        """复权净值的自然日窗口；短历史不作为完整1/3年业绩。"""
         if self.mock_mode:
             return self._mock_performance(wind_code)
 
         try:
-            ts_code = _to_ts_code(wind_code)
-            end_date = datetime.now().strftime("%Y%m%d")
-            start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
-            start_3y = (datetime.now() - timedelta(days=1095)).strftime("%Y%m%d")
-
-            nav_df = self.pro.fund_nav(ts_code=ts_code, start_date=start_3y, end_date=end_date)
-            if nav_df is None or nav_df.empty or len(nav_df) < 10:
-                self._strict_fail(f"Tushare fund_nav returned insufficient performance rows for {wind_code}")
-                return self._mock_performance(wind_code)
-
-            nav_df = nav_df.sort_values("nav_date").copy()
-            metric_nav = pd.Series(index=nav_df.index, dtype="float64")
-            for column in ("accum_nav", "adj_nav", "unit_nav"):
-                if column in nav_df.columns:
-                    metric_nav = metric_nav.combine_first(pd.to_numeric(nav_df[column], errors="coerce"))
-            nav_df["metric_nav"] = metric_nav
-            nav_df = nav_df[nav_df["metric_nav"].notna() & (nav_df["metric_nav"] > 0)]
-            if len(nav_df) < 10:
-                self._strict_fail(f"Tushare fund_nav returned insufficient usable performance rows for {wind_code}")
-                return self._mock_performance(wind_code)
-
-            nav_1y = nav_df[nav_df["nav_date"] >= start_1y]
-            if len(nav_1y) >= 2:
-                nav_start = float(nav_1y.iloc[0]["metric_nav"])
-                nav_end = float(nav_1y.iloc[-1]["metric_nav"])
-                ret_1y = (nav_end / nav_start - 1) if nav_start > 0 else 0
-            else:
-                ret_1y = 0
-
-            if len(nav_df) >= 2:
-                nav_start_3y = float(nav_df.iloc[0]["metric_nav"])
-                nav_end_3y = float(nav_df.iloc[-1]["metric_nav"])
-                ret_3y = (nav_end_3y / nav_start_3y - 1) if nav_start_3y > 0 else 0
-                years = (datetime.strptime(end_date, "%Y%m%d") - datetime.strptime(nav_df.iloc[0]["nav_date"], "%Y%m%d")).days / 365
-                ret_3y_annualized = ((1 + ret_3y) ** (1 / max(years, 0.1)) - 1) if years > 0 else 0
-            else:
-                ret_3y_annualized = 0
-
-            peak = nav_df["metric_nav"].cummax()
-            drawdown = (nav_df["metric_nav"] - peak) / peak
-            max_dd = drawdown.min()
-
-            daily_returns = nav_df["metric_nav"].pct_change(fill_method=None).dropna()
-            if len(daily_returns) > 0:
-                annual_return = daily_returns.mean() * 252
-                annual_vol = daily_returns.std() * (252 ** 0.5)
-                sharpe = (annual_return / annual_vol) if annual_vol > 0 else 0
-                volatility = annual_vol
-            else:
-                sharpe = 0
-                volatility = 0
-
+            as_of = datetime.now().date()
+            rows = self._source_adjusted_rows(wind_code, as_of, 1095)
+            windows = {key: source_window(rows, days, as_of) for key, days in (("1y", 365), ("3y", 1095))}
+            one_year = windows["1y"]
             performance = {
-                "annualized_return_1y": round(ret_1y, 4),
-                "annualized_return_3y": round(ret_3y_annualized, 4),
-                "max_drawdown": round(max_dd, 4),
-                "sharpe_ratio": round(sharpe, 4),
-                "volatility": round(volatility, 4),
-                "sortino": round(sharpe * 1.2, 4),
-                "calmar_ratio": round(abs(ret_1y / max_dd), 4) if max_dd != 0 else 0,
-                "win_rate_1y": round((daily_returns > 0).sum() / len(daily_returns), 4) if len(daily_returns) > 0 else 0,
+                "methodology_version": SOURCE_METHODOLOGY_VERSION,
+                "metric_nav_source": "tushare.fund_nav.adj_nav", "metric_unit": "ratio",
+                "status": "available" if one_year["coverage_status"] == "full" else one_year["coverage_status"],
+                "risk_status": "available" if one_year["coverage_status"] == "full" and one_year["methodology"]["daily_risk_eligible"] else "unavailable",
+                "periods": windows,
+                "return_1y": published_metric(one_year, "total_return"),
+                "annualized_return_1y": published_metric(one_year, "annualized_return"),
+                "annualized_return_3y": published_metric(windows["3y"], "annualized_return"),
+                "max_drawdown": published_metric(one_year, "max_drawdown"),
+                "sharpe_ratio": published_metric(one_year, "sharpe_ratio"),
+                "volatility": published_metric(one_year, "annualized_volatility"),
+                "sortino": published_metric(one_year, "sortino_ratio"),
+                "calmar_ratio": published_metric(one_year, "calmar_ratio"),
+                "win_rate_1y": published_metric(one_year, "positive_return_ratio"),
             }
-            performance.update(FundNavEvidenceService().derive_money_market_facts([
-                {
-                    "date": row.get("nav_date"),
-                    "unit_nav": _as_float(row.get("unit_nav")),
-                    "accum_nav": _as_float(row.get("adj_nav")) or _as_float(row.get("accum_nav")),
-                    "adj_nav": _as_float(row.get("adj_nav")),
-                    "reported_accum_nav": _as_float(row.get("accum_nav")),
-                }
-                for _, row in nav_df.iterrows()
-            ]))
+            performance.update(FundNavEvidenceService().derive_money_market_facts(rows))
             return performance
         except Exception as e:
             logger.error(f"Tushare get_fund_performance error for {wind_code}: {e}")
             self._strict_fail(f"Tushare get_fund_performance failed for {wind_code}: {e}")
-            return self._mock_performance(wind_code)
+            return {"status": "unavailable", "methodology_version": SOURCE_METHODOLOGY_VERSION,
+                    "reason": "source_fetch_failed", "periods": {}}
 
     def get_fund_risk_metrics(self, wind_code: str) -> Dict[str, Any]:
-        """获取基金风险指标"""
+        """使用真实复权净值；未指定真实基准时不生成相对指标。"""
         if self.mock_mode:
             return self._mock_risk_metrics(wind_code)
 
         try:
-            ts_code = _to_ts_code(wind_code)
-            end_date = datetime.now().strftime("%Y%m%d")
-            start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
-            start_2y = (datetime.now() - timedelta(days=730)).strftime("%Y%m%d")
-
-            nav_df = self.pro.fund_nav(ts_code=ts_code, start_date=start_2y, end_date=end_date)
-            if nav_df is None or nav_df.empty:
-                self._strict_fail(f"Tushare fund_nav returned empty risk rows for {wind_code}")
-                return self._mock_risk_metrics(wind_code)
-
-            nav_df = nav_df.sort_values("nav_date")
-            nav_df["accum_nav"] = nav_df["accum_nav"].ffill()
-
-            daily_returns = nav_df["accum_nav"].pct_change(fill_method=None).dropna()
-            vol_1y = daily_returns[-252:].std() * (252 ** 0.5) if len(daily_returns) >= 252 else 0
-            vol_2y = daily_returns.std() * (252 ** 0.5)
-
-            peak = nav_df["accum_nav"].cummax()
-            drawdown = (nav_df["accum_nav"] - peak) / peak
-            max_dd_1y = drawdown[-252:].min() if len(drawdown) >= 252 else drawdown.min()
-            max_dd_2y = drawdown.min()
-
-            var_95 = daily_returns[-252:].quantile(0.05) if len(daily_returns) >= 252 else 0
-
-            beta = self._calculate_beta(wind_code, start_1y, end_date)
-            alpha = self._calculate_alpha(wind_code, start_1y, end_date)
-
+            as_of = datetime.now().date()
+            rows = self._source_adjusted_rows(wind_code, as_of, 730)
+            windows = {key: source_window(rows, days, as_of) for key, days in (("1y", 365), ("2y", 730))}
             return {
-                "annualized_volatility_1y": round(vol_1y, 4),
-                "annualized_volatility_2y": round(vol_2y, 4),
-                "max_drawdown_1y": round(max_dd_1y, 4),
-                "max_drawdown_2y": round(max_dd_2y, 4),
-                "var_95": round(var_95, 4),
-                "beta": round(beta, 4),
-                "alpha": round(alpha, 4),
-                "tracking_error": round(vol_1y * 0.8, 4),
-                "information_ratio": round(alpha / (vol_1y * 0.8), 4) if vol_1y > 0 else 0,
+                "methodology_version": SOURCE_METHODOLOGY_VERSION,
+                "metric_nav_source": "tushare.fund_nav.adj_nav", "metric_unit": "ratio",
+                "status": ("available" if windows["1y"]["methodology"]["daily_risk_eligible"] else "partial")
+                    if windows["1y"]["coverage_status"] == "full" else windows["1y"]["coverage_status"],
+                "periods": windows,
+                "annualized_volatility_1y": published_metric(windows["1y"], "annualized_volatility"),
+                "annualized_volatility_2y": published_metric(windows["2y"], "annualized_volatility"),
+                "max_drawdown_1y": published_metric(windows["1y"], "max_drawdown"),
+                "max_drawdown_2y": published_metric(windows["2y"], "max_drawdown"),
+                "var_95": published_metric(windows["1y"], "var_95"),
+                "beta": None, "alpha": None, "tracking_error": None, "information_ratio": None,
+                "relative_metrics_status": "requires_explicit_real_benchmark",
             }
         except Exception as e:
             logger.error(f"Tushare get_fund_risk_metrics error for {wind_code}: {e}")
             self._strict_fail(f"Tushare get_fund_risk_metrics failed for {wind_code}: {e}")
-            return self._mock_risk_metrics(wind_code)
+            return {"status": "unavailable", "methodology_version": SOURCE_METHODOLOGY_VERSION,
+                    "reason": "source_fetch_failed", "periods": {}}
 
-    def _calculate_beta(self, wind_code: str, start_date: str, end_date: str) -> float:
-        try:
-            ts_code = _to_ts_code(wind_code)
-            fund_nav = self.pro.fund_nav(ts_code=ts_code, start_date=start_date, end_date=end_date)
-            if fund_nav is None or fund_nav.empty:
-                return 1.0
-
-            index_nav = self.pro.index_dailybasic(ts_code="000300.SH", start_date=start_date, end_date=end_date)
-            if index_nav is None or index_nav.empty:
-                return 1.0
-
-            fund_ret = fund_nav["accum_nav"].pct_change(fill_method=None).dropna()
-            index_ret = index_nav["pct_change"].dropna()
-
-            if len(fund_ret) > 5 and len(index_ret) > 5:
-                cov = fund_ret.cov(index_ret)
-                var = index_ret.var()
-                return round(cov / var, 4) if var != 0 else 1.0
-        except:
-            pass
-        return 1.0
-
-    def _calculate_alpha(self, wind_code: str, start_date: str, end_date: str) -> float:
-        try:
-            beta = self._calculate_beta(wind_code, start_date, end_date)
-            ts_code = _to_ts_code(wind_code)
-            fund_nav = self.pro.fund_nav(ts_code=ts_code, start_date=start_date, end_date=end_date)
-            if fund_nav is None or fund_nav.empty or len(fund_nav) < 2:
-                return 0.0
-
-            fund_ret = (float(fund_nav.iloc[-1]["accum_nav"]) / float(fund_nav.iloc[0]["accum_nav"]) - 1)
-            rf = 0.02
-            market_ret = 0.05
-            alpha = fund_ret - (rf + beta * (market_ret - rf))
-            return round(alpha, 4)
-        except:
-            return 0.0
+    def _source_adjusted_rows(self, wind_code: str, as_of, days: int) -> List[Dict[str, Any]]:
+        """一次有界请求，保留日期缺口；不额外查询基金类型或默认猜市场。"""
+        frame = self.pro.fund_nav(ts_code=_to_ts_code(wind_code),
+            start_date=(as_of - timedelta(days=days + 15)).strftime("%Y%m%d"),
+            end_date=as_of.strftime("%Y%m%d"), fields="ts_code,ann_date,nav_date,unit_nav,accum_nav,adj_nav")
+        if frame is None or frame.empty:
+            raise ValueError(f"Tushare fund_nav returned empty for {wind_code}")
+        frame, _ = self._prepare_adjusted_nav(frame)
+        calendar = getattr(self, "_fund_risk_calendars", {}).get(wind_code)
+        return [{"date": day,
+                 "unit_nav": positive_number(row.get("unit_nav")),
+                 "adj_nav": positive_number(row.get("adj_nav")),
+                 "reported_accum_nav": positive_number(row.get("accum_nav")),
+                 "risk_calendar": calendar}
+                for _, row in frame.iterrows()
+                if (day := _format_tushare_date(row.get("nav_date")))
+                and (as_of - timedelta(days=days + 15)).isoformat() <= day <= as_of.isoformat()]
 
     # ==================== 持仓数据 ====================
 
@@ -1040,10 +1013,17 @@ class TushareDataService:
 
     @staticmethod
     def _format_date_value(value: Any) -> Optional[str]:
-        text = str(value or "").strip()
-        if len(text) == 8 and text.isdigit():
-            return f"{text[:4]}-{text[4:6]}-{text[6:]}"
-        return text or None
+        if value is None or pd.isna(value):
+            return None
+        text = str(value).strip()
+        if text.endswith('.0') and len(text) == 10 and text[:8].isdigit():
+            text = text[:8]
+        try:
+            if len(text) == 8 and text.isdigit():
+                return datetime.strptime(text, '%Y%m%d').date().isoformat()
+            return datetime.fromisoformat(text).date().isoformat()
+        except ValueError:
+            return None
 
     @staticmethod
     def _normalize_stock_code(value: Any) -> str:

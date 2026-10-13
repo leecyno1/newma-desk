@@ -18,8 +18,8 @@ function assertIncludes(content, expected, label) {
   }
 }
 
-const prePurchaseLib = read('lib/pre-purchase-report.ts')
-const prePurchaseRoute = read('app/api/funds/[id]/pre-purchase-report/route.ts')
+const prePurchaseLib = read('lib/research-review-report.ts')
+const prePurchaseRoute = read('app/api/funds/[id]/research-review-report/route.ts')
 const acceptance = read('scripts/fund_research_acceptance_smoke.mjs')
 
 assertIncludes(prePurchaseLib, 'formalChoiceReady: boolean', 'share-class decision exposes formal readiness')

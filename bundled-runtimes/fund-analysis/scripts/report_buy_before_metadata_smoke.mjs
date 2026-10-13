@@ -23,7 +23,7 @@ const backendReports = read('backend/routes/reports.py')
 const reportsApi = read('app/api/reports/route.ts')
 const reportDetailApi = read('app/api/reports/[id]/route.ts')
 const reportsPage = read('app/(dashboard)/reports/page.tsx')
-const reportDetailPage = read('app/(dashboard)/reports/[id]/page.tsx')
+const reportDetailPage = read('app/(dashboard)/reports/[id]/ReportDetailClient.tsx')
 
 assertIncludes(evidenceReport, 'def build_buy_before_decision_summary', 'evidence report exposes structured buy-before summary')
 assertIncludes(evidenceReport, '"hardBlocks"', 'structured summary preserves hard blocks')

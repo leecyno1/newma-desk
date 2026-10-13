@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const detailClient = readFileSync(join(root, 'app/(dashboard)/funds/[id]/FundDetailClient.tsx'), 'utf8')
+const detailClient = readFileSync(join(root, 'app/(dashboard)/funds/[id]/SimpleFundDetailClient.tsx'), 'utf8')
 const comparisonReport = readFileSync(join(root, 'lib/fund-comparison-report.ts'), 'utf8')
 const comparisonScoreTool = readFileSync(join(root, 'lib/research-platform/tools/comparison-research-score.ts'), 'utf8')
 
@@ -28,10 +28,10 @@ for (const [label, content] of [
   assertNotIncludes(content, '专业评分待补，按 50 分中性处理', label)
 }
 
-assertIncludes(detailClient, 'const professionalScoreMissing = professionalScore === null', 'fund detail professional missing flag')
-assertIncludes(detailClient, 'professional: professionalScoreMissing ? 0 : professionalScore', 'fund detail no professional missing score boost')
-assertIncludes(detailClient, '专业评分缺失封顶 60', 'fund detail professional missing cap')
-assertIncludes(detailClient, '专业评分待补，本项不加分，并触发研究复核分封顶。', 'fund detail professional missing explanation')
+// 详情页现行边界：专业评分就绪才渲染评分与排名，样本不足时不输出综合分。
+assertIncludes(detailClient, 'const professionalScoreReady = evaluation.score != null', 'fund detail professional readiness flag')
+assertIncludes(detailClient, '{professionalScoreReady ? <EvaluationDetailPanel evaluation={evaluation} /> : null}', 'fund detail hides score panel when professional score is missing')
+assertIncludes(detailClient, '样本不足时不输出综合分和排名', 'fund detail refuses scores under peer sample gates')
 assertIncludes(comparisonScoreTool, 'const professionalScoreMissing = item.professionalScore === null', 'comparison professional missing flag')
 assertIncludes(comparisonScoreTool, 'const professionalScore = professionalScoreMissing ? 0 : item.professionalScore as number', 'comparison no professional missing score boost')
 assertIncludes(comparisonScoreTool, '专业评分缺失，研究评分封顶 65', 'comparison professional missing cap')

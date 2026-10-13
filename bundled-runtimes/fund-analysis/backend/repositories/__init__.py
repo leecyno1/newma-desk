@@ -21,6 +21,7 @@ from .fund_bond_holding_repo import FundBondHoldingRepo
 from .fund_underlying_holding_repo import FundUnderlyingHoldingRepo
 from .bond_duration_repo import BondDurationRepo
 from .fund_evaluation_snapshot_repo import FundEvaluationSnapshotRepo
+from .fund_dividends_repo import FundDividendsRepo
 from .market_index_constituent_repo import MarketIndexConstituentRepo
 
 # 全局单例
@@ -44,6 +45,7 @@ _fund_bond_holding_repo = None
 _fund_underlying_holding_repo = None
 _bond_duration_repo = None
 _fund_evaluation_snapshot_repo = None
+_fund_dividends_repo = None
 _market_index_constituent_repo = None
 
 
@@ -115,6 +117,13 @@ def get_alert_repo() -> AlertRepo:
     if _alert_repo is None:
         _alert_repo = AlertRepo()
     return _alert_repo
+
+
+def get_fund_dividends_repo() -> FundDividendsRepo:
+    global _fund_dividends_repo
+    if _fund_dividends_repo is None:
+        _fund_dividends_repo = FundDividendsRepo()
+    return _fund_dividends_repo
 
 
 def get_research_profile_repo() -> ResearchProfileRepo:

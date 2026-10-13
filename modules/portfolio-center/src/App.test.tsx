@@ -356,12 +356,12 @@ describe("PortfolioCenterApp", () => {
   it("switches between the core risk workbench tabs", async () => {
     window.history.replaceState({}, "", "/?workspace=portfolio-risk");
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => (
-      Promise.resolve(jsonResponse(String(input).includes("includeQuotes=false") ? costDashboard : liveDashboard))
+      Promise.resolve(jsonResponse(/risk-reports|import-snapshots/.test(String(input)) ? [] : String(input).includes("includeQuotes=false") ? costDashboard : liveDashboard))
     )));
 
     render(<PortfolioCenterApp />);
-    expect(await screen.findByRole("navigation", { name: "工作台标签" })).toBeVisible();
-    expect(screen.getByText("需关注")).toBeVisible();
+    expect(await screen.findByRole("navigation", { name: "组合风控标签" })).toBeVisible();
+    expect(screen.queryByText('正常')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "风险限额" }));
     expect(screen.getByText("组合风险限额")).toBeVisible();
@@ -371,8 +371,8 @@ describe("PortfolioCenterApp", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "预警" }));
     expect(screen.getByText("预警与限额核验")).toBeVisible();
-    expect(screen.getByText("有效持仓数")).toBeVisible();
-    expect(screen.getByText("现金余额为负")).toBeVisible();
+    expect(screen.getByText("CNY 有效持仓数")).toBeVisible();
+    expect(screen.getByText("现金约束")).toBeVisible();
     expect(new URLSearchParams(window.location.search).get("view")).toBe("alerts");
 
     fireEvent.click(screen.getByRole("button", { name: "处置记录" }));

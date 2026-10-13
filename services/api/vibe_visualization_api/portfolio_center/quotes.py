@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Protocol
 
 import httpx
@@ -97,11 +98,16 @@ class ResearchPortfolioQuoteProvider:
                 price = float(item["price"])
             except (KeyError, TypeError, ValueError):
                 continue
+            if not math.isfinite(price) or price <= 0:
+                continue
             result[identity] = PortfolioQuote(
                 price=price,
                 name=str(item.get("name") or "") or None,
                 currency=str(item.get("currency") or "") or None,
                 source=str(item.get("source") or "") or None,
-                as_of=str(item.get("asOf") or payload.get("asOf") or "") or None,
+                # priceAsOf is the source quote time; asOf may only be retrieval time.
+                # An explicit null must remain unknown, never be refreshed to "now".
+                as_of=(str(item["priceAsOf"]) if item.get("priceAsOf") else None)
+                if "priceAsOf" in item else str(item.get("asOf") or payload.get("asOf") or "") or None,
             )
         return result

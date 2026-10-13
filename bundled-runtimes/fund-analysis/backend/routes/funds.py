@@ -454,7 +454,7 @@ def _holding_summary(holdings: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 @router.get("/")
-async def list_funds(
+def list_funds(
     fund_type: Optional[str] = Query(None, description="基金类型: stock/hybrid/bond/index/..."),
     keyword: Optional[str] = Query(None, description="搜索关键词（基金名称/代码）"),
     page: int = Query(1, ge=1),
@@ -646,7 +646,8 @@ async def list_funds(
             "risk": lambda x: abs(x.get("risk_metrics", {}).get("max_drawdown_1y") or x.get("risk_metrics", {}).get("max_drawdown") or x.get("performance", {}).get("max_drawdown") or 0),
             "sharpe": lambda x: x.get("performance", {}).get("sharpe_ratio") or 0,
             "name": lambda x: x.get("name", ""),
-            "rank": lambda x: x.get("scoring", {}).get("overall_score", 0),
+            "rank": lambda x: x.get("scoring", {}).get("overall_score") if x.get("scoring", {}).get("overall_score") is not None
+                              else float('inf') if sort_order == 'asc' else float('-inf'),
             "screening_score": lambda x: x.get("screening_score") or 0,
             "evidence_coverage": lambda x: x.get("evidence_coverage_score") or 0,
         }
@@ -724,7 +725,7 @@ async def compare_fund_matrix(payload: CompareMatrixRequest):
 
 
 @router.post("/compare-aligned")
-async def compare_fund_aligned(payload: AlignedCompareRequest):
+def compare_fund_aligned(payload: AlignedCompareRequest):
     """仅使用共同净值日期计算同区间曲线和风险收益指标。"""
     try:
         from services.fund_aligned_comparison_service import FundAlignedComparisonService
@@ -979,7 +980,7 @@ async def get_fund_evaluation_history_snapshot(wind_code: str, snapshot_id: str)
 
 
 @router.get("/{wind_code}/research-snapshot")
-async def get_fund_research_snapshot(
+def get_fund_research_snapshot(
     wind_code: str,
     window: str = Query("1y"),
     include_research: bool = Query(True),
@@ -1074,8 +1075,25 @@ async def get_fund_drawdown_recovery(wind_code: str):
         raise HTTPException(status_code=500, detail="基金回撤修复分析暂时不可用")
 
 
+@router.get("/{wind_code}/derived-series")
+async def get_fund_derived_series(
+    wind_code: str,
+    window: str = Query("1y", description="滚动收益窗口：3m/6m/1y/3y"),
+):
+    """获取水下回撤曲线与滚动收益序列，供详情页图表使用。"""
+    from services.fund_derived_series_service import FundDerivedSeriesService
+
+    try:
+        return _clean_nan(FundDerivedSeriesService().get(wind_code, window=window))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Get fund derived series error for {wind_code}: {exc}")
+        raise HTTPException(status_code=500, detail="基金派生序列暂时不可用")
+
+
 @router.get("/{wind_code}/period-performance")
-async def get_fund_period_performance(
+def get_fund_period_performance(
     wind_code: str,
     years: int = Query(5, ge=1, le=8),
 ):
@@ -1138,7 +1156,7 @@ async def get_fund_fof_holdings(
 
 
 @router.get("/{wind_code}/bond-duration")
-async def get_fund_bond_duration(
+def get_fund_bond_duration(
     wind_code: str,
     window_weeks: int = Query(104, ge=52, le=156),
 ):
@@ -1152,7 +1170,7 @@ async def get_fund_bond_duration(
 
 
 @router.post("/{wind_code}/bond-duration/calculate")
-async def calculate_fund_bond_duration(
+def calculate_fund_bond_duration(
     wind_code: str,
     window_weeks: int = Query(104, ge=52, le=156),
     refresh_indices: bool = Query(False),
@@ -1174,7 +1192,7 @@ async def calculate_fund_bond_duration(
 
 
 @router.get("/{wind_code}/bond-anomaly")
-async def get_fund_bond_anomaly(
+def get_fund_bond_anomaly(
     wind_code: str,
     window_days: int = Query(252, ge=126, le=756),
 ):
@@ -1211,13 +1229,13 @@ async def get_fund_holder_structure(
 
 
 @router.get("/{wind_code}")
-async def get_fund_detail(wind_code: str):
+def get_fund_detail(wind_code: str):
     """获取基金详细信息"""
     from services.cache_service import get_cache, CacheKey, TTL
     from services.data_quality_service import DataQualityService
     from services.professional_scoring_service import ProfessionalScoringService
     from service_registry import get_data_service, get_scoring_engine
-    from repositories import get_fund_repo, get_factor_repo, get_manager_repo, get_metric_snapshot_repo, get_research_profile_repo
+    from repositories import get_fund_repo, get_manager_repo, get_metric_snapshot_repo, get_research_profile_repo
 
     cache = get_cache()
     cache_key = f"fund:detail:v10:{wind_code}"
@@ -1231,7 +1249,6 @@ async def get_fund_detail(wind_code: str):
     data_svc = get_data_service()
     scoring_engine = get_scoring_engine()
     fund_repo = get_fund_repo()
-    factor_repo = get_factor_repo()
     manager_repo = get_manager_repo()
     research_profile_repo = get_research_profile_repo()
     metric_snapshot_repo = get_metric_snapshot_repo()
@@ -1310,14 +1327,10 @@ async def get_fund_detail(wind_code: str):
         except:
             pass
 
-        # 获取因子暴露
+        # Barra 因子暴露：factor_exposures 为遗留死表(无生产写入)，/api/barra/* 已 deprecated，
+        # 真实风格暴露走 holding_style_snapshots 与统一归因 /api/attribution/fund/{code}。
+        # 前端不消费本字段，保留空对象兼容 API 契约，不再查询遗留死表。
         barra_exposure = {}
-        try:
-            exposures = factor_repo.get_exposures(wind_code)
-            for e in exposures:
-                barra_exposure[e["factor_name"]] = e["exposure"]
-        except:
-            pass
 
         result = _clean_nan({
             "fund": info, "performance": perf, "risk_metrics": risk,
@@ -1332,10 +1345,10 @@ async def get_fund_detail(wind_code: str):
 
 
 @router.get("/{wind_code}/nav")
-async def get_fund_nav(
+def get_fund_nav(
     wind_code: str,
     start_date: str = Query("2024-01-01"),
-    end_date: str = Query("2025-04-21"),
+    end_date: Optional[str] = Query(None),
     freq: str = Query("daily", description="频率: daily/weekly/monthly"),
 ):
     """获取基金净值序列"""
@@ -1343,8 +1356,11 @@ async def get_fund_nav(
     from repositories import get_nav_repo
     from service_registry import get_data_service
 
+    end_date = end_date or date.today().isoformat()
+    if freq not in {"daily", "weekly", "monthly"}:
+        raise HTTPException(400, "净值频率须为 daily、weekly 或 monthly")
     cache = get_cache()
-    cache_key = f"fund:nav:v2:{wind_code}:{start_date}:{end_date}:{freq}"
+    cache_key = f"fund:nav:v4:{wind_code}:{start_date}:{end_date}:{freq}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -1356,13 +1372,14 @@ async def get_fund_nav(
         data = data_svc.get_fund_nav(wind_code, start_date, end_date)
         source = "market_data.fund_nav"
 
-    if freq == "monthly":
-        monthly = {}
-        for d in data:
-            month_key = d["date"][:7]
-            if month_key not in monthly:
-                monthly[month_key] = d["nav"]
-        data = [{"date": k, "nav": v} for k, v in monthly.items()]
+    if freq in {"weekly", "monthly"}:
+        periods = {}
+        for row in sorted(data, key=lambda item: str(item["date"])):
+            actual_date = date.fromisoformat(str(row["date"])[:10])
+            period = actual_date.strftime("%Y-%m") if freq == "monthly" else actual_date.isocalendar()[:2]
+            periods[period] = row
+        # 周/月最后实际披露日；保留复权、累计净值及基准证据。
+        data = list(periods.values())
 
     result = {
         "wind_code": wind_code,
@@ -1371,6 +1388,38 @@ async def get_fund_nav(
         "count": len(data),
         "source": source,
         "benchmark_count": sum(1 for item in data if item.get("benchmark_nav") is not None),
+        "data": data,
+    }
+    cache.set(cache_key, result, TTL.LONG)
+    return _clean_nan(result)
+
+
+@router.get("/{wind_code}/dividends")
+async def get_fund_dividends(
+    wind_code: str,
+    limit: int = Query(100, description="最多返回条数(1-500)"),
+):
+    """获取基金分红事件（本地优先，缺失时回退 tushare fund_div；从未分红返回空列表）"""
+    from services.cache_service import get_cache, TTL
+    from repositories import get_fund_dividends_repo
+    from service_registry import get_data_service
+
+    cache = get_cache()
+    cache_key = f"fund:dividends:v1:{wind_code}:{limit}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    data = get_fund_dividends_repo().list_fund_dividends(wind_code, limit=limit)
+    source = "local.postgres.fund_dividends"
+    if not data:
+        data = get_data_service().get_fund_dividends(wind_code)
+        source = "tushare.fund_div"
+
+    result = {
+        "wind_code": wind_code,
+        "count": len(data),
+        "source": source,
         "data": data,
     }
     cache.set(cache_key, result, TTL.LONG)

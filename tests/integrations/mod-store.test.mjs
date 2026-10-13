@@ -145,6 +145,10 @@ test("validates the project Mod store and installs the core Desk projects", asyn
     "fund-attribution",
     "fund-portfolio",
     "workflow-overview",
+    "workflow-overview-lane-a",
+    "workflow-overview-lane-b",
+    "workflow-overview-lane-c",
+    "workflow-overview-lane-d",
     "workflow-designer",
     "workflow-runs",
     "workflow-delegations",
@@ -174,6 +178,22 @@ test("validates the project Mod store and installs the core Desk projects", asyn
   assert.equal(
     store.mods.find((mod) => mod.id === "multi-timeframe").manifest.entry.url,
     "/mods/market-daily/?workspace=multi-timeframe",
+  );
+  for (const modId of [
+    "workflow-overview",
+    "workflow-overview-lane-a",
+    "workflow-overview-lane-b",
+    "workflow-overview-lane-c",
+    "workflow-overview-lane-d",
+  ]) {
+    assert.equal(
+      store.mods.find((mod) => mod.id === modId).manifest.presentation.chrome,
+      "canvas",
+    );
+  }
+  assert.equal(
+    store.mods.find((mod) => mod.id === "workflow-designer").manifest.presentation.chrome,
+    undefined,
   );
   assert.equal(
     store.mods.find((mod) => mod.id === "deepsee-wechat").manifest.entry.url,
@@ -234,43 +254,11 @@ test("validates the project Mod store and installs the core Desk projects", asyn
   }
   assert.deepEqual(
     store.mods.find((mod) => mod.id === "deepsee-ai-insights").manifest.permissions,
-    ["deepsee.read", "deepsee.ai"],
+    ["deepsee.read"],
   );
-  assert.deepEqual(
-    store.mods.find((mod) => mod.id === "deepsee-ai-insights").manifest.actions["deepsee.insights.analyze"].binding,
-    {
-      type: "agent",
-      capability: "deepsee.insights.analyze",
-      profile: "deep",
-      memoryScope: "user-agent-mod",
-    },
-  );
-  assert.deepEqual(
-    store.mods.find((mod) => mod.id === "deepsee-news").manifest.actions["deepsee.news.batch-analyze"].binding,
-    {
-      type: "agent",
-      capability: "deepsee.news.batch-analyze",
-      profile: "batch",
-      memoryScope: "task",
-    },
-  );
-  const deepseeBatchActions = [
-    ["deepsee-wechat", "deepsee.wechat.batch-summarize", 100],
-    ["deepsee-email", "deepsee.email.batch-summarize", 50],
-    ["deepsee-minutes", "deepsee.minutes.batch-summarize", 50],
-    ["deepsee-minutes", "deepsee.minutes.batch-refine", 50],
-    ["deepsee-media", "deepsee.media.batch-summarize", 10],
-    ["deepsee-official-accounts", "deepsee.official-accounts.batch-summarize", 10],
-  ];
-  for (const [modId, actionId, maxItems] of deepseeBatchActions) {
-    const action = store.mods.find((mod) => mod.id === modId).manifest.actions[actionId];
-    assert.deepEqual(action.binding, {
-      type: "agent",
-      capability: actionId,
-      profile: "batch",
-      memoryScope: "task",
-    });
-    assert.equal(action.inputSchema.properties.itemIds.maxItems, maxItems);
+  for (const mod of store.mods.filter((item) => item.id.startsWith("deepsee-"))) {
+    assert.equal(mod.manifest.permissions.includes("deepsee.ai"), false);
+    assert.deepEqual(mod.manifest.actions, {});
   }
   const creatorAgentActions = [
     ["creator-workbench", "creator.intake.batch-extract", "batch", "task"],

@@ -18,6 +18,7 @@ export interface AgentAdapterDescription {
   binaryCandidates?: string[];
   supportsWrite?: boolean;
   supportsMemory?: boolean;
+  supportsVisualContext?: boolean;
   capabilities: string[];
   default: boolean;
 }

@@ -5,19 +5,22 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from statistics import median
 from typing import Any, Dict, List, Optional
+from services.performance_nav_series import normalize_performance_rows, positive_number
+from services.fund_trading_calendar import get_trading_calendar, fund_risk_calendar
+
+METHODOLOGY_VERSION = "calendar_period_adjusted_aligned_v2"
 
 
 class FundPeriodPerformanceService:
-    MIN_OBSERVATIONS = 20
-    MIN_OBSERVATION_COVERAGE = 0.70
     DATE_TOLERANCE_DAYS = 15
-    BOUNDARY = "年度收益基于本地真实净值；同类排名只使用相同标准同类组、同一自然年度且覆盖完整的基金实体，不构成收益承诺。"
+    BOUNDARY = "年度收益仅用本地复权净值；同类排名要求日历覆盖完整、实际起止日一致，每个基金实体只计一个份额。使用当前同类成员，不是历史时点成员回测；不纳入评分或构成收益承诺。"
 
     def __init__(
         self,
         nav_repo: Optional[Any] = None,
         fund_repo: Optional[Any] = None,
         classification_repo: Optional[Any] = None,
+        today: Optional[date] = None,
     ):
         if nav_repo is None or fund_repo is None or classification_repo is None:
             from repositories import get_fund_classification_repo, get_fund_repo, get_nav_repo
@@ -28,6 +31,7 @@ class FundPeriodPerformanceService:
         self.nav_repo = nav_repo
         self.fund_repo = fund_repo
         self.classification_repo = classification_repo
+        self.today = today or date.today()
 
     def get(self, wind_code: str, years: int = 5) -> Dict[str, Any]:
         code = str(wind_code or "").strip().upper()
@@ -36,15 +40,17 @@ class FundPeriodPerformanceService:
             raise ValueError(f"Fund not found: {code}")
 
         period_count = max(1, min(int(years), 8))
-        current_year = date.today().year
+        current_year = self.today.year
         earliest = date(current_year - period_count, 11, 15)
-        rows = self.nav_repo.get_nav_series(code, earliest.isoformat(), date.today().isoformat())
-        points, nav_basis = self._points(rows)
-        if len(points) < 2:
-            return self._unavailable(code, nav_basis, len(points), "至少需要两个可用净值日")
+        rows = self.nav_repo.get_nav_series(code, earliest.isoformat(), self.today.isoformat())
+        points, nav_basis = self._points([{**row, 'risk_calendar': row.get('risk_calendar') or fund_risk_calendar(fund)} for row in rows])
+        points = [row for row in points if row['date'] <= self.today]
+        valid = [row for row in points if row['nav'] is not None]
+        if len(valid) < 2:
+            return self._unavailable(code, nav_basis, len(valid), "至少需要两个有效复权净值日，不能用累计或单位净值补造")
 
-        latest_date = points[-1]["date"]
-        period_years = range(latest_date.year, latest_date.year - period_count, -1)
+        latest_date = valid[-1]["date"]
+        period_years = range(current_year, current_year - period_count, -1)
         context = self.classification_repo.get_classification_context(code) or {}
         peer_group_id = str(context.get("peer_group_id") or "").strip()
         peer_group_name = str(context.get("peer_group_name") or "").strip()
@@ -54,7 +60,7 @@ class FundPeriodPerformanceService:
         periods = []
         for year in period_years:
             start_date = date(year, 1, 1)
-            end_date = min(date(year, 12, 31), latest_date)
+            end_date = min(date(year, 12, 31), self.today)
             target = self._period_result(points, start_date, end_date)
             if target is None:
                 continue
@@ -68,8 +74,8 @@ class FundPeriodPerformanceService:
             )
             periods.append({
                 "year": year,
-                "label": f"{year} 年以来" if year == latest_date.year else f"{year} 年",
-                "is_ytd": year == latest_date.year,
+                "label": f"{year} 年以来" if year == current_year else f"{year} 年",
+                "is_ytd": year == current_year,
                 **target,
                 **peer_rank,
             })
@@ -77,7 +83,7 @@ class FundPeriodPerformanceService:
         if not periods:
             return self._unavailable(code, nav_basis, len(points), "可见净值不足以计算自然年度收益")
 
-        complete_periods = [item for item in periods if item["coverage_status"] == "complete"]
+        complete_periods = [item for item in periods if item["coverage_status"] == "complete" and not item['is_ytd']]
         ranked_periods = [item for item in periods if item.get("rank") is not None]
         best = max(complete_periods, key=lambda item: item["return"], default=None)
         worst = min(complete_periods, key=lambda item: item["return"], default=None)
@@ -100,7 +106,7 @@ class FundPeriodPerformanceService:
                 "worst_period": self._period_summary(worst),
             },
             "source": "local.postgres.fund_nav+standardized_peer_group",
-            "methodology_version": "calendar_period_peer_rank_v1",
+            "methodology_version": METHODOLOGY_VERSION,
             "included_in_score": False,
             "boundary": self.BOUNDARY,
             "missing_items": [] if peer_group_id else ["标准同类组待补，暂不显示年度同类排名"],
@@ -117,7 +123,7 @@ class FundPeriodPerformanceService:
     ) -> Dict[str, Any]:
         if target.get("coverage_status") != "complete":
             return self._empty_rank("target_period_incomplete")
-        if not peer_group_id:
+        if not peer_group_id or not target_entity_id:
             return self._empty_rank("classification_unavailable")
 
         summaries = self.classification_repo.list_peer_calendar_period_summaries(
@@ -127,12 +133,17 @@ class FundPeriodPerformanceService:
             start_date - timedelta(days=45),
         )
         peer_returns = []
+        seen_entities = set()
         for summary in summaries:
             if target_entity_id and str(summary.get("entity_id") or "") == target_entity_id:
                 continue
             item = self._summary_period_result(summary, start_date, end_date)
-            if item and item["coverage_status"] == "complete":
+            entity = str(summary.get('entity_id') or '')
+            if (item and entity and entity not in seen_entities and item["coverage_status"] == "complete"
+                    and item['actual_start_date'] == target['actual_start_date']
+                    and item['actual_end_date'] == target['actual_end_date']):
                 peer_returns.append(float(item["return"]))
+                seen_entities.add(entity)
 
         peer_count = len(peer_returns) + 1
         if peer_count < minimum_peer_count:
@@ -162,34 +173,19 @@ class FundPeriodPerformanceService:
     ) -> Optional[Dict[str, Any]]:
         baseline = next((item for item in reversed(points) if item["date"] < start_date), None)
         in_period = [item for item in points if start_date <= item["date"] <= end_date]
-        if not in_period:
+        valid = [item for item in in_period if item['nav'] is not None]
+        if not valid:
             return None
-        first = in_period[0]
-        last = in_period[-1]
-        base = baseline or first
-        if base["nav"] <= 0 or last["nav"] <= 0 or base["date"] >= last["date"]:
-            return None
-        expected = cls._expected_observations(start_date, end_date)
-        observation_coverage = min(1.0, len(in_period) / expected) if expected else 0.0
-        complete = bool(
-            baseline
-            and (start_date - baseline["date"]).days <= cls.DATE_TOLERANCE_DAYS
-            and (end_date - last["date"]).days <= cls.DATE_TOLERANCE_DAYS
-            and len(in_period) >= cls.MIN_OBSERVATIONS
-            and observation_coverage >= cls.MIN_OBSERVATION_COVERAGE
-        )
-        return {
-            "return": last["nav"] / base["nav"] - 1,
-            "requested_start_date": start_date.isoformat(),
-            "requested_end_date": end_date.isoformat(),
-            "actual_start_date": base["date"].isoformat(),
-            "actual_end_date": last["date"].isoformat(),
-            "observations": len(in_period),
-            "expected_observations": expected,
-            "observation_coverage": round(observation_coverage, 6),
-            "coverage_status": "complete" if complete else "partial",
-            "return_basis": "full_period" if complete else "since_inception_or_data_start",
-        }
+        calendars = {row.get('risk_calendar') for row in in_period + ([baseline] if baseline else [])}
+        return cls._summary_period_result({
+            'nav_basis': 'adj_nav', 'risk_calendar': 'SSE' if calendars == {'SSE'} else None,
+            'baseline_date': baseline['date'] if baseline else None, 'baseline_nav': baseline['nav'] if baseline else None,
+            'first_date': valid[0]['date'], 'first_nav': valid[0]['nav'],
+            'last_date': valid[-1]['date'], 'last_nav': valid[-1]['nav'],
+            'last_record_date': in_period[-1]['date'], 'last_record_nav': in_period[-1]['nav'],
+            'observations': len(valid), 'valid_dates': [row['date'] for row in valid],
+            'missing_observations': len(in_period) - len(valid),
+        }, start_date, end_date)
 
     @classmethod
     def _summary_period_result(
@@ -205,24 +201,36 @@ class FundPeriodPerformanceService:
         first_nav = cls._positive(summary.get("first_nav"))
         last_nav = cls._positive(summary.get("last_nav"))
         observations = int(summary.get("observations") or 0)
-        if not first_date or not last_date or last_nav is None:
+        if summary.get('nav_basis') != 'adj_nav' or not first_date or not last_date or last_nav is None:
             return None
-        base_date = baseline_date or first_date
-        base_nav = baseline_nav or first_nav
+        base_date = baseline_date if baseline_nav is not None else first_date
+        base_nav = baseline_nav if baseline_nav is not None else first_nav
         if base_nav is None or base_nav <= 0 or base_date >= last_date:
             return None
-        expected = cls._expected_observations(start_date, end_date)
-        observation_coverage = min(1.0, observations / expected) if expected else 0.0
-        complete = bool(
-            baseline_date
-            and (start_date - baseline_date).days <= cls.DATE_TOLERANCE_DAYS
-            and (end_date - last_date).days <= cls.DATE_TOLERANCE_DAYS
-            and observations >= cls.MIN_OBSERVATIONS
-            and observation_coverage >= cls.MIN_OBSERVATION_COVERAGE
-        )
+        dates = {day for value in summary.get('valid_dates', []) if (day := cls._date(value)) is not None}
+        calendar = get_trading_calendar() if summary.get('risk_calendar') == 'SSE' else None
+        opened = calendar.open_days(start_date, end_date) if calendar else None
+        prior = calendar.open_days(start_date - timedelta(days=cls.DATE_TOLERANCE_DAYS), start_date - timedelta(days=1)) if calendar else None
+        expected = len(opened) if opened is not None else cls._expected_observations(start_date, end_date)
+        covered = len(dates & opened) if opened is not None else observations
+        observation_coverage = min(1.0, covered / expected) if expected else 0.0
+        complete = bool(opened and prior and baseline_nav is not None and baseline_date is not None
+                        and max(prior) <= baseline_date < start_date and last_date >= max(opened)
+                        and not (opened - dates) and not summary.get('missing_observations')
+                        and cls._positive(summary.get('last_record_nav')) is not None)
         return {
             "return": last_nav / base_nav - 1,
+            "requested_start_date": start_date.isoformat(), "requested_end_date": end_date.isoformat(),
+            "actual_start_date": base_date.isoformat(), "actual_end_date": last_date.isoformat(),
+            "observations": observations, "expected_observations": expected,
+            "observation_coverage": round(observation_coverage, 6),
             "coverage_status": "complete" if complete else "partial",
+            "return_basis": "full_period" if complete else "visible_period_only",
+            "methodology": {'methodology_version': METHODOLOGY_VERSION, 'nav_basis': 'adj_nav',
+                            'calendar_status': 'verified' if complete else 'incomplete_nav' if opened is not None else 'unavailable',
+                            'calendar_source': 'tushare.trade_cal' if opened is not None else None,
+                            'missing_open_days': len(opened - dates) if opened is not None else None,
+                            'missing_observations': int(summary.get('missing_observations') or 0)},
         }
 
     @staticmethod
@@ -249,18 +257,7 @@ class FundPeriodPerformanceService:
 
     @staticmethod
     def _points(rows: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], str]:
-        accum_count = sum(FundPeriodPerformanceService._positive(row.get("accum_nav")) is not None for row in rows)
-        unit_count = sum(FundPeriodPerformanceService._positive(row.get("nav") or row.get("unit_nav")) is not None for row in rows)
-        use_accum = accum_count >= max(2, round(max(accum_count, unit_count) * 0.9))
-        points = {}
-        for row in rows:
-            day = FundPeriodPerformanceService._date(row.get("date") or row.get("trade_date"))
-            value = FundPeriodPerformanceService._positive(
-                row.get("accum_nav") if use_accum else row.get("nav") or row.get("unit_nav")
-            )
-            if day and value is not None:
-                points[day] = {"date": day, "nav": value}
-        return sorted(points.values(), key=lambda item: item["date"]), "accum_nav" if use_accum else "unit_nav"
+        return normalize_performance_rows([{**row, 'adj_nav': row.get('adj_nav')} for row in rows]), 'adj_nav'
 
     @staticmethod
     def _date(value: Any) -> Optional[date]:
@@ -275,11 +272,7 @@ class FundPeriodPerformanceService:
 
     @staticmethod
     def _positive(value: Any) -> Optional[float]:
-        try:
-            number = float(value)
-            return number if number > 0 and number == number else None
-        except (TypeError, ValueError):
-            return None
+        return positive_number(value)
 
     @classmethod
     def _unavailable(cls, code: str, nav_basis: str, observations: int, reason: str) -> Dict[str, Any]:
@@ -290,7 +283,7 @@ class FundPeriodPerformanceService:
             "periods": [],
             "summary": {},
             "source": "local.postgres.fund_nav",
-            "methodology_version": "calendar_period_peer_rank_v1",
+            "methodology_version": METHODOLOGY_VERSION,
             "included_in_score": False,
             "boundary": cls.BOUNDARY,
             "missing_items": [reason],

@@ -12,6 +12,13 @@ import RecommendationsPage from '@/app/(dashboard)/recommendations/page'
 import PerformanceAttributionPage from '@/app/(dashboard)/analysis/advanced/page'
 import PortfolioPage from '@/app/(dashboard)/portfolio/page'
 import FundDetailPage from '@/app/(dashboard)/funds/[id]/page'
+import ComparePage from '@/app/(dashboard)/compare/page'
+import ManagersPage from '@/app/(dashboard)/managers/page'
+import ManagerDetailPage from '@/app/(dashboard)/managers/[id]/page'
+import ManagerComparisonPage from '@/app/(dashboard)/managers/compare/page'
+import ReportDetailClient from '@/app/(dashboard)/reports/[id]/ReportDetailClient'
+import ReportsPage from '@/app/(dashboard)/reports/page'
+import EvidenceCoveragePage from '@/app/(dashboard)/evidence-coverage/page'
 import FundResearchDeskModule from './FundResearchDeskModule'
 
 export const dynamic = 'force-dynamic'
@@ -40,6 +47,7 @@ async function renderWorkspace(
   symbol: string | undefined,
 ) {
   if (workspace === 'discover') {
+    if (firstParam(query.view) === 'compare') return ComparePage({ searchParams: Promise.resolve({ codes: query.codes, window: query.window }) })
     if (symbol) {
       return FundDetailPage({ params: Promise.resolve({ id: symbol }) })
     }
@@ -52,6 +60,17 @@ async function renderWorkspace(
     })
   }
   if (workspace === 'research') {
+    if (firstParam(query.view) === 'reports') return <ReportsPage />
+    if (firstParam(query.view) === 'evidence') return EvidenceCoveragePage({ searchParams: Promise.resolve(query) })
+    if (firstParam(query.view) === 'manager-compare') return ManagerComparisonPage({ searchParams: Promise.resolve(query) })
+    if (firstParam(query.view) === 'report' && firstParam(query.reportId)) {
+      return <ReportDetailClient reportId={firstParam(query.reportId)!} embedded returnTo={firstParam(query.returnTo)} />
+    }
+    if (firstParam(query.view) === 'managers') {
+      const managerId = firstParam(query.managerId)
+      return managerId ? ManagerDetailPage({ params: Promise.resolve({ id: managerId }) })
+        : ManagersPage({ searchParams: Promise.resolve(query) })
+    }
     return ResearchLibraryPage({
       searchParams: Promise.resolve({ search: firstParam(query.search) }),
     })
@@ -104,7 +123,7 @@ export default async function FundResearchWorkspacePage({
   const content = await renderWorkspace(workspace, query, symbol)
   return (
     <FundResearchDeskModule
-      key={`${workspace}:${symbol ?? 'none'}:${assetType}`}
+      key={`${workspace}:${JSON.stringify(query)}`}
       workspace={fundResearchWorkspaceById(workspace)}
       initialSelection={initialSelection}
     >

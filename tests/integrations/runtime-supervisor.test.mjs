@@ -253,6 +253,47 @@ test("returns a degraded result when an optional Mod cannot start", async () => 
   assert.match(errors[0], /可选 Mod 已降级/);
 });
 
+test("keeps an occupied optional Mod under monitoring and starts it after the port is released", async () => {
+  const scheduler = manualScheduler();
+  let occupiedChecks = 0;
+  let spawnCount = 0;
+  const supervisor = new RuntimeSupervisor({
+    monitorIntervalMs: 25,
+    monitorFailureThreshold: 1,
+    optionalRestartCooldownMs: 0,
+    portReleaseTimeoutMs: 0,
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancelSchedule,
+    endpointOccupied: async () => {
+      occupiedChecks += 1;
+      return occupiedChecks === 1;
+    },
+    spawnImpl: () => {
+      spawnCount += 1;
+      return fakeChild();
+    },
+    logger: quietLogger(),
+  });
+
+  const result = await supervisor.start(service({
+    probe: sequenceProbe(
+      SERVICE_STATE.UNAVAILABLE,
+      SERVICE_STATE.UNAVAILABLE,
+      SERVICE_STATE.READY,
+    ),
+  }));
+
+  assert.equal(result.launch, "failed");
+  assert.equal(scheduler.pending(), 1);
+  assert.equal(supervisor.records.get("example").phase, "failed");
+
+  await scheduler.runNext();
+
+  assert.equal(spawnCount, 1);
+  assert.equal(supervisor.records.get("example").state, SERVICE_STATE.READY);
+  await supervisor.stopAll({ graceMs: 0 });
+});
+
 test("cools down an optional Mod after a failed restart", async () => {
   let clock = 0;
   let spawnCount = 0;
@@ -305,6 +346,110 @@ test("honors service stdio isolation when spawning a child", async () => {
   await supervisor.start(service({ stdio: "ignore" }));
 
   assert.equal(spawnOptions.stdio, "ignore");
+});
+
+test("reports owned child lifecycle to the runtime ownership ledger", async () => {
+  const events = [];
+  const child = fakeChild();
+  const supervisor = new RuntimeSupervisor({
+    monitorIntervalMs: -1,
+    platform: "win32",
+    spawnImpl: () => child,
+    logger: quietLogger(),
+    onProcessStarted: ({ service: startedService, child: startedChild }) => {
+      events.push(["started", startedService.id, startedChild.pid]);
+    },
+    onProcessStopped: ({ service: stoppedService, child: stoppedChild }) => {
+      events.push(["stopped", stoppedService.id, stoppedChild.pid]);
+    },
+  });
+
+  await supervisor.start(service({
+    probe: sequenceProbe(SERVICE_STATE.UNAVAILABLE, SERVICE_STATE.READY),
+  }));
+  child.kill("SIGTERM");
+
+  assert.deepEqual(events, [
+    ["started", "example", child.pid],
+    ["stopped", "example", child.pid],
+  ]);
+});
+
+test("prepares an unavailable local runtime before spawning it", async () => {
+  const events = [];
+  const supervisor = new RuntimeSupervisor({
+    monitorIntervalMs: -1,
+    endpointOccupied: async () => false,
+    spawnImpl: () => {
+      events.push("spawn");
+      return fakeChild();
+    },
+    logger: quietLogger(),
+  });
+
+  const result = await supervisor.start(service({
+    prepare: async () => events.push("prepare"),
+    probe: sequenceProbe(SERVICE_STATE.UNAVAILABLE, SERVICE_STATE.READY),
+  }));
+
+  assert.equal(result.state, SERVICE_STATE.READY);
+  assert.deepEqual(events, ["prepare", "spawn"]);
+  await supervisor.stopAll({ graceMs: 0 });
+});
+
+test("does not prepare a runtime that is already ready", async () => {
+  let prepareCount = 0;
+  const supervisor = new RuntimeSupervisor({
+    monitorIntervalMs: -1,
+    logger: quietLogger(),
+  });
+
+  const result = await supervisor.start(service({
+    prepare: async () => { prepareCount += 1; },
+    probe: async () => ({ state: SERVICE_STATE.READY }),
+  }));
+
+  assert.equal(result.launch, "reused");
+  assert.equal(prepareCount, 0);
+});
+
+test("retries runtime preparation during monitored recovery", async () => {
+  let prepareCount = 0;
+  let spawnCount = 0;
+  const supervisor = new RuntimeSupervisor({
+    monitorIntervalMs: -1,
+    monitorFailureThreshold: 1,
+    optionalRestartCooldownMs: 0,
+    restartGraceMs: 0,
+    portReleaseTimeoutMs: 0,
+    endpointOccupied: async () => false,
+    spawnImpl: () => {
+      spawnCount += 1;
+      return fakeChild();
+    },
+    logger: quietLogger(),
+  });
+  const runtime = service({
+    prepare: async () => {
+      prepareCount += 1;
+      if (prepareCount === 1) throw new Error("dependency unavailable");
+    },
+    probe: sequenceProbe(
+      SERVICE_STATE.UNAVAILABLE,
+      SERVICE_STATE.UNAVAILABLE,
+      SERVICE_STATE.READY,
+    ),
+  });
+
+  const initial = await supervisor.start(runtime);
+  assert.equal(initial.state, SERVICE_STATE.UNAVAILABLE);
+  assert.equal(spawnCount, 0);
+
+  const recovered = await supervisor.monitorNow(runtime.id);
+  assert.equal(recovered.state, SERVICE_STATE.READY);
+  assert.equal(prepareCount, 2);
+  assert.equal(spawnCount, 1);
+  await supervisor.stopAll({ graceMs: 0 });
 });
 
 test("rejects startup when a core service cannot start", async () => {
@@ -603,6 +748,28 @@ test("stopAll terminates only children started by this supervisor", async () => 
   assert.deepEqual(ownedChild.kills, ["SIGTERM"]);
   assert.equal(scheduler.pending(), 0);
   assert.equal(supervisor.records.get("reused").child, null);
+});
+
+test("stopAllSync terminates owned children and cancels monitors during process exit", async () => {
+  const scheduler = manualScheduler();
+  const ownedChild = fakeChild();
+  const supervisor = new RuntimeSupervisor({
+    monitorIntervalMs: 25,
+    platform: "win32",
+    schedule: scheduler.schedule,
+    cancelSchedule: scheduler.cancelSchedule,
+    spawnImpl: () => ownedChild,
+    logger: quietLogger(),
+  });
+  await supervisor.start(service({
+    probe: sequenceProbe(SERVICE_STATE.UNAVAILABLE, SERVICE_STATE.READY),
+  }));
+  assert.equal(scheduler.pending(), 1);
+
+  supervisor.stopAllSync();
+
+  assert.deepEqual(ownedChild.kills, ["SIGTERM"]);
+  assert.equal(scheduler.pending(), 0);
 });
 
 test("stopAll prevents an in-flight monitor from spawning after shutdown", async () => {

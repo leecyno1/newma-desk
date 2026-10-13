@@ -367,6 +367,9 @@ def mount_domain_suites(
     # Runtime, regardless of whether Desk starts through Docker or uvicorn.
     os.environ["NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME"] = "1"
     os.environ["VIBEDESK_INTEGRATED_DOMAIN_RUNTIME"] = "1"
+    # Research and Trading consume the SDK's standard environment variable.
+    # Bridge the resolved server setting before importing either domain suite.
+    os.environ["TUSHARE_TOKEN"] = settings.tushare_token.get_secret_value().strip()
 
     research_root = settings.investment_workspace.expanduser().resolve()
     trading_root = settings.trading_workspace.expanduser().resolve()

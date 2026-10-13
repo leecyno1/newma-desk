@@ -3,7 +3,7 @@
   "id": "portfolio-risk-suite",
   "name": "组合风险中心",
   "description": "组合风险总览、限额、集中度、敞口、回撤、流动性、压力测试、预警与处置。",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/ghostfolio/ghostfolio",
   "tags": [
@@ -69,38 +69,6 @@
         },
         "confirmation": "none"
       },
-      "portfolio.import-legacy": {
-        "binding": {
-          "type": "local"
-        },
-        "execution": "request",
-        "permission": "portfolio.local-write",
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "outputSchema": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "confirmation": "user"
-      },
-      "portfolio.optimize": {
-        "binding": {
-          "type": "local"
-        },
-        "execution": "request",
-        "permission": "portfolio.read",
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "outputSchema": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "confirmation": "none"
-      },
       "portfolio.analyze-performance": {
         "binding": {
           "type": "local"
@@ -133,19 +101,92 @@
   "pages": [
     {
       "id": "portfolio-risk",
-      "name": "组合风控",
-      "description": "管理风险限额，查看集中度、敞口、回撤、流动性和压力测试，并记录预警处置。",
-      "tags": [
-        "风控",
-        "风险限额",
-        "集中度",
-        "压力测试",
-        "处置记录"
-      ],
-      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk",
+      "name": "风险总览",
+      "description": "组合风险 · 风险总览，基于当前账本和可追溯数据。",
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk&view=overview&modId=portfolio-risk",
       "navigation": {
         "itemOrder": 10,
-        "label": "组合风控"
+        "label": "风险总览"
+      }
+    },
+    {
+      "id": "portfolio-risk-limits",
+      "name": "风险限额",
+      "description": "组合风险 · 风险限额，基于当前账本和可追溯数据。",
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk&view=limits&modId=portfolio-risk-limits",
+      "navigation": {
+        "itemOrder": 20,
+        "label": "风险限额"
+      }
+    },
+    {
+      "id": "portfolio-risk-concentration",
+      "name": "集中度",
+      "description": "组合风险 · 集中度，基于当前账本和可追溯数据。",
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk&view=concentration&modId=portfolio-risk-concentration",
+      "navigation": {
+        "itemOrder": 30,
+        "label": "集中度"
+      }
+    },
+    {
+      "id": "portfolio-risk-exposure",
+      "name": "市场 / 币种暴露",
+      "description": "组合风险 · 市场 / 币种暴露，基于当前账本和可追溯数据。",
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk&view=exposure&modId=portfolio-risk-exposure",
+      "navigation": {
+        "itemOrder": 40,
+        "label": "市场 / 币种暴露"
+      }
+    },
+    {
+      "id": "portfolio-risk-drawdown",
+      "name": "回撤与 VaR",
+      "description": "组合风险 · 回撤与 VaR，基于当前账本和可追溯数据。",
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk&view=drawdown&modId=portfolio-risk-drawdown",
+      "navigation": {
+        "itemOrder": 50,
+        "label": "回撤与 VaR"
+      }
+    },
+    {
+      "id": "portfolio-risk-liquidity",
+      "name": "流动性",
+      "description": "组合风险 · 流动性，基于当前账本和可追溯数据。",
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk&view=liquidity&modId=portfolio-risk-liquidity",
+      "navigation": {
+        "itemOrder": 60,
+        "label": "流动性"
+      }
+    },
+    {
+      "id": "portfolio-risk-stress",
+      "name": "压力测试",
+      "description": "组合风险 · 压力测试，基于当前账本和可追溯数据。",
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk&view=stress&modId=portfolio-risk-stress",
+      "navigation": {
+        "itemOrder": 70,
+        "label": "压力测试"
+      }
+    },
+    {
+      "id": "portfolio-risk-alerts",
+      "name": "预警",
+      "description": "组合风险 · 预警，基于当前账本和可追溯数据。",
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk&view=alerts&modId=portfolio-risk-alerts",
+      "navigation": {
+        "itemOrder": 80,
+        "label": "预警"
+      }
+    },
+    {
+      "id": "portfolio-risk-actions",
+      "name": "处置记录",
+      "description": "组合风险 · 处置记录，基于当前账本和可追溯数据。",
+      "route": "/mod-runtime/portfolio-center/?workspace=portfolio-risk&view=actions&modId=portfolio-risk-actions",
+      "navigation": {
+        "itemOrder": 90,
+        "label": "处置记录"
       }
     }
   ]

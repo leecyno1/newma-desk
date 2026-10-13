@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { checkProductionFootprint } from "../../scripts/check-production-footprint.mjs";
+import {
+  checkProductionFootprint,
+  loadProductionFootprintPolicy,
+} from "../../scripts/check-production-footprint.mjs";
 
 async function fixture(policy) {
   const root = await mkdtemp(path.join(os.tmpdir(), "newma-footprint-"));
@@ -90,5 +93,20 @@ test("reports bundle growth, context leaks and forbidden dependencies together",
     assert.ok(report.results.flatMap((result) => result.errors).some((error) => error.includes("langchain-core")));
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("keeps every first-party business runtime under a bundle budget", async () => {
+  const policy = await loadProductionFootprintPolicy();
+  const artifactIds = new Set(policy.artifacts.map(({ id }) => id));
+
+  for (const id of [
+    "portfolio-runtime",
+    "creator-studio-runtime",
+    "workflow-center-runtime",
+    "policy-analysis-runtime",
+    "capital-flow-runtime",
+  ]) {
+    assert.ok(artifactIds.has(id), `missing production footprint budget: ${id}`);
   }
 });

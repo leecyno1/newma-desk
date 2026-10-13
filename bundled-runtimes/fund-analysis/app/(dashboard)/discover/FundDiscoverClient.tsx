@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { useFundPageData } from '@/lib/newma-desk/page-data'
 import { ArrowLeft, ArrowRight, CircleAlert, GitCompareArrows, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
 import type { CamelFund } from '@/lib/backend-api'
 import { fundCategoryPresets } from '@/lib/fund-category-presets'
@@ -16,6 +17,11 @@ import {
   asRecord,
   professionalPeerGroup,
   professionalPeerGroupId,
+  returnMetric,
+  drawdownMetric,
+  sharpeMetric,
+  professionalFundScore,
+  professionalScoreStatus,
   textValue,
   type SimpleFund,
 } from '@/lib/simple-fund-view'
@@ -264,6 +270,34 @@ export default function FundDiscoverClient({ initialFunds, initialCategories, in
   const [bondBaseIndex, setBondBaseIndex] = useState(initialBondCategory?.contractDimensions?.baseIndex || '')
   const [bondPriceReturn, setBondPriceReturn] = useState(initialBondCategory?.contractDimensions?.priceReturn || '')
   const [bondTenor, setBondTenor] = useState(initialBondCategory?.contractDimensions?.tenor || '')
+  const latestSearch = useRef(0)
+  const [resultFilters, setResultFilters] = useState<Record<string, unknown>>({search:initialSearch,peerGroup:initialPeerGroup,availability:initialAvailability,page:1})
+
+  useFundPageData(useMemo(() => ({
+    selection: null,
+    filters: {
+      applied: resultFilters,
+      form: {search:searchText,peerGroup:peerGroupFilter,availability,...filters,styleTags:selectedStyleTags,styleMatch},
+      viewMode,
+    },
+    visibleBlocks: [{id:'fund-browser-results',type:'table',title:'当前基金列表'}, {id:'fund-browser-filters',type:'summary',title:'已应用条件与编辑中的筛选'}],
+    summary: {
+      status: loading ? 'loading' : error ? 'error' : 'ready', error: error || null,
+      source, total, page, displayedCount: peerGroupFilter || appliedSearch ? funds.length : 0,
+      resultsArePrevious: loading || Boolean(error),
+      selectedForComparison: compareFunds.map(fund=>({symbol:fund.windCode,name:fund.name})),
+      rows: peerGroupFilter || appliedSearch ? funds.map(fund => ({
+        symbol:fund.windCode,name:fund.name,type:fund.type,nav:fund.nav,navDate:fund.navDate,
+        totalAsset:fund.totalAsset,peerGroup:professionalPeerGroup(fund),
+        score:professionalFundScore(fund),scoreStatus:professionalScoreStatus(fund),
+        evaluationDate:asRecord(fund.professionalScoring).as_of_date ?? asRecord(fund.fundEvaluation).as_of_date ?? null,
+        missingItems:asRecord(fund.professionalScoring).missing_data ?? [],
+        returns:{'6m':returnMetric(fund,'6m'),'1y':returnMetric(fund,'1y'),'3y':returnMetric(fund,'3y')},
+        maxDrawdown1y:drawdownMetric(fund),sharpe1y:sharpeMetric(fund),
+      })) : [],
+      boundary:'仅当前已加载页，不代表全库；收益和回撤为小数比例。form 是编辑中的条件，applied 才是列表查询条件。加载中或失败时旧结果不能视为新查询结果。',
+    },
+  }), [resultFilters,searchText,peerGroupFilter,availability,filters,selectedStyleTags,styleMatch,viewMode,loading,error,source,total,page,appliedSearch,funds,compareFunds]))
 
   const runSearch = useCallback(async (
     nextPeerGroup = peerGroupFilter,
@@ -274,6 +308,7 @@ export default function FundDiscoverClient({ initialFunds, initialCategories, in
     nextStyleTags = selectedStyleTags,
     nextStyleMatch = styleMatch,
   ) => {
+    const request = ++latestSearch.current
     setLoading(true)
     setError('')
     const params = new URLSearchParams({ limit: '30', page: String(nextPage), availability: nextAvailability })
@@ -295,6 +330,7 @@ export default function FundDiscoverClient({ initialFunds, initialCategories, in
     try {
       const response = await fetch(`/api/fund-browser?${params.toString()}`)
       const payload = await response.json()
+      if (request !== latestSearch.current) return
       if (!response.ok) throw new Error(payload.error || '基金查询失败')
       setFunds(payload.data || [])
       setTotal(Number(payload.pagination?.total || 0))
@@ -304,10 +340,13 @@ export default function FundDiscoverClient({ initialFunds, initialCategories, in
       setStyleTagCatalog(normalizeStyleTagCatalog(payload.styleTagCatalog))
       setAppliedSearch(nextSearch.trim())
       setPage(nextPage)
+      setResultFilters({search:nextSearch.trim(),peerGroup:nextPeerGroup,availability:nextAvailability,page:nextPage,
+        ...(nextPeerGroup ? {...nextFilters,styleTags:nextStyleTags,styleMatch:nextStyleMatch} : {})})
     } catch (searchError) {
+      if (request !== latestSearch.current) return
       setError(searchError instanceof Error ? searchError.message : '基金查询失败')
     } finally {
-      setLoading(false)
+      if (request === latestSearch.current) setLoading(false)
     }
   }, [searchText, peerGroupFilter, filters, availability, selectedStyleTags, styleMatch])
 

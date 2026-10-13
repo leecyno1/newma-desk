@@ -31,7 +31,9 @@ def require_2xx(label: str, url: str, timeout: float) -> tuple[str, str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify Hermes, Newma WebUI, and NewmaDesk connectivity")
+    parser = argparse.ArgumentParser(
+        description="Verify Newma-Desk surfaces and the owning Newma/Hermes runtime"
+    )
     parser.add_argument("--desk-origin", required=True, help="Browser-facing dedicated NewmaDesk Origin")
     parser.add_argument("--mod-origin", required=True, help="Browser-facing dedicated Mod/API Origin")
     parser.add_argument("--webui-origin", required=True, help="Browser-facing Newma WebUI Origin")
@@ -63,12 +65,6 @@ def main() -> int:
     if health.get("ok") is not True or health.get("service") != "newma-desk-api":
         raise RuntimeError("NewmaDesk API health payload is invalid")
 
-    _, capabilities_body = require_2xx("NewmaDesk capabilities", urljoin(desk_origin + "/", "api/capabilities"), args.timeout)
-    capabilities = json.loads(capabilities_body)
-    hermes_adapter = next((row for row in capabilities.get("adapters", []) if row.get("id") == "hermes-webui"), None)
-    if not hermes_adapter or hermes_adapter.get("available") is not True:
-        raise RuntimeError("NewmaDesk cannot reach the configured Newma/Hermes WebUI adapter")
-
     _, mod_html = require_2xx("NewmaDesk Mod runtime", urljoin(mod_origin + "/", "mod-runtime/trading/"), args.timeout)
     if "127.0.0.1" in mod_html or "localhost" in mod_html:
         raise RuntimeError("Mod runtime HTML leaks a browser-visible loopback URL")
@@ -80,7 +76,7 @@ def main() -> int:
         "deskOrigin": desk_origin,
         "modOrigin": mod_origin,
         "webuiOrigin": webui_origin,
-        "checks": ["desk-shell", "desk-api", "desk-hermes-adapter", "mod-runtime", "webui", "hermes"],
+        "checks": ["desk-shell", "desk-api", "mod-runtime", "webui", "hermes"],
     }, ensure_ascii=False))
     return 0
 

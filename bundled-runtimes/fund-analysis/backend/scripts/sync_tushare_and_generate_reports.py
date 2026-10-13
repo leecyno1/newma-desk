@@ -227,7 +227,9 @@ def _sync_one_fund(
             performance.update(enrichment.get("performance_facts") or {})
             nav_points = len(nav_series)
         if nav_series and enrichment.get("nav_data_status") == "valid":
-            nav_repo.upsert_nav_series(wind_code, nav_series, replace_range=True)
+            if not nav_repo.upsert_nav_series(wind_code, nav_series, replace_range=True):
+                nav_points = 0
+                raise ValueError("净值写入失败，本次净值事务已回滚")
         elif enrichment.get("nav_data_status") == "valid":
             data_quality["nav_series"] = "empty"
     except Exception as nav_error:

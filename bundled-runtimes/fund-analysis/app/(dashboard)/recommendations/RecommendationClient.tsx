@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useFundPageData } from '@/lib/newma-desk/page-data'
 import { ArrowRight, BookmarkPlus, Bot, CheckCircle2, CircleAlert, GitCompareArrows, LoaderCircle, Tags, X } from 'lucide-react'
 import type { CamelFund } from '@/lib/backend-api'
 import { primaryPresets } from '@/lib/fund-category-presets'
@@ -157,6 +158,9 @@ export default function RecommendationClient({ initialFunds, initialCategories, 
   const [coverage, setCoverage] = useState<RecommendationCoverageReport | null>(null)
   const [coverageLoading, setCoverageLoading] = useState(false)
   const [coverageError, setCoverageError] = useState('')
+  const [coverageExpanded, setCoverageExpanded] = useState(false)
+  const [applied, setApplied] = useState<{ category: string; style: string } | null>(null)
+  const candidateRequest = useRef(0)
   const recommendations = categoryFunds
 
   useEffect(() => {
@@ -164,6 +168,8 @@ export default function RecommendationClient({ initialFunds, initialCategories, 
   }, [initialCategory])
 
   async function loadCandidates(nextCategory: string, nextStyle = '') {
+    const request = ++candidateRequest.current
+    setApplied(null)
     setCategoryFunds([])
     setPeerUniverseCount(0)
     setEvidenceEligibleCount(0)
@@ -172,7 +178,7 @@ export default function RecommendationClient({ initialFunds, initialCategories, 
     setExcludedCount(0)
     setExcludedReasonCounts({})
     setLoadError('')
-    if (!nextCategory) return
+    if (!nextCategory) { setLoading(false); return }
     setLoading(true)
     try {
       const params = new URLSearchParams({ category: nextCategory })
@@ -181,8 +187,10 @@ export default function RecommendationClient({ initialFunds, initialCategories, 
         cache: 'no-store',
       })
       const payload = await response.json().catch(() => ({}))
+      if (request !== candidateRequest.current) return
       if (!response.ok) throw new Error(payload.error || '同类基金评价暂时不可用')
       setCategoryFunds(Array.isArray(payload.data) ? payload.data : [])
+      setApplied({ category: nextCategory, style: nextStyle })
       setPeerUniverseCount(Number(payload.peerUniverseCount || 0))
       setEvidenceEligibleCount(Number(payload.evidenceEligibleCount || 0))
       setLongTermReadyCount(Number(payload.longTermReadyCount || 0))
@@ -203,9 +211,10 @@ export default function RecommendationClient({ initialFunds, initialCategories, 
           })).filter((item: StyleOption) => item.value)
         : [])
     } catch (error) {
+      if (request !== candidateRequest.current) return
       setLoadError(error instanceof Error ? error.message : '同类基金评价暂时不可用')
     } finally {
-      setLoading(false)
+      if (request === candidateRequest.current) setLoading(false)
     }
   }
 
@@ -279,6 +288,34 @@ export default function RecommendationClient({ initialFunds, initialCategories, 
   const exclusionReasons = Object.entries(excludedReasonCounts)
     .filter(([, count]) => Number(count) > 0)
     .sort(([, left], [, right]) => Number(right) - Number(left))
+
+  useFundPageData(useMemo(() => ({
+    selection: null,
+    filters: { requested: { category, style }, applied, coverageExpanded },
+    visibleBlocks: [{ id: 'fund-recommendation-candidates', type: 'table', title: '当前同类候选及证据' },
+      ...(coverageExpanded ? [{ id: 'fund-recommendation-coverage', type: 'table', title: '数据准备情况' }] : [])],
+    summary: {
+      status: loading ? 'loading' : loadError && !applied ? 'error' : !category ? 'idle' : applied ? 'ready' : 'not-loaded',
+      error: !applied ? loadError || null : null, actionError: applied ? loadError || null : null, initialError: initialError || null,
+      universeTotal, availableCategories: categories,
+      counts: applied ? { peerUniverseCount, evidenceEligibleCount, longTermReadyCount, styleMatchedCount, excludedCount } : null,
+      exclusionReasons: applied ? excludedReasonCounts : null,
+      rows: recommendations.slice(0, 10).map(fund => ({
+        symbol: fund.windCode, name: fund.name, peerGroup: peerGroup(fund), nav: fund.nav, navDate: fund.navDate ?? null,
+        score: professionalFundScore(fund), scoreEvidence: professionalScoreEvidence(fund), peerPosition: professionalScorePeerPosition(fund),
+        style: { label: styleLabel(fund), status: styleLabelStatus(fund) },
+        evidence: recommendationEvidence(fund), return1y: returnMetric(fund), maxDrawdown1y: drawdownMetric(fund),
+        bondHoldings: bondHoldingEvidence(fund), fofHoldings: fofHoldingEvidence(fund),
+      })),
+      candidateCount: recommendations.length,
+      coverage: coverageExpanded ? { status: coverageLoading ? 'loading' : coverageError ? 'error' : coverage ? 'ready' : 'not-loaded',
+        error: coverageError || null, summary: coverage?.summary ?? null, groups: coverage?.groups ?? [] } : null,
+      watchlist: { saving: savingWatchlist, targets: watchlistTargets.map(fund => ({ symbol: fund.windCode, name: fund.name })), notice: watchlistNotice || null },
+      boundary: '仅在当前同类组内比较，候选不是买卖建议；加载失败或尚未查询时未知不等于零。收益和回撤为小数比例，FOF披露净值占比以百分数表示。纪要推断、产品定位不等于已确认持仓风格；已披露重仓不代表全部组合。',
+    },
+  }), [category, style, applied, coverageExpanded, loading, loadError, initialError, universeTotal, categories,
+    peerUniverseCount, evidenceEligibleCount, longTermReadyCount, styleMatchedCount, excludedCount, excludedReasonCounts,
+    recommendations, coverageLoading, coverageError, coverage, savingWatchlist, watchlistTargets, watchlistNotice]))
 
   return (
     <div className="space-y-7">
@@ -378,6 +415,7 @@ export default function RecommendationClient({ initialFunds, initialCategories, 
       ) : null}
 
       <details className="border border-[#dbe1dc] bg-white" onToggle={(event) => {
+        setCoverageExpanded(event.currentTarget.open)
         if (event.currentTarget.open) void loadCoverage()
       }}>
           <summary className="cursor-pointer list-none px-5 py-4 text-sm font-bold text-[#26362f]">
@@ -419,9 +457,9 @@ export default function RecommendationClient({ initialFunds, initialCategories, 
       <section>
         <div className="flex flex-wrap items-end justify-between gap-4 pb-4">
           <div>
-            <h2 className="text-xl font-bold">候选基金 <span className="text-[#28745c]">{recommendations.length}</span> / 10</h2>
+            <h2 className="text-xl font-bold">候选基金 <span className="text-[#28745c]">{loading ? '查询中' : loadError && !applied ? '不可用' : recommendations.length}</span>{applied ? ' / 10' : ''}</h2>
             <p className="mt-1 text-xs text-[#79847e]">
-              {category
+              {loading ? '正在读取同类组，候选数量尚未确认。' : category && loadError && !applied ? '读取失败，不能据此判断该类别没有候选。' : category
                 ? `完整同类组 ${peerUniverseCount} 只，${evidenceEligibleCount} 只通过关键证据门槛，${longTermReadyCount} 只具备近 3 年完整收益风险证据${style ? `，${styleMatchedCount} 只匹配“${style}”` : ''}。`
                 : `基金数据库共 ${universeTotal.toLocaleString('zh-CN')} 只，选择类别后开始评价。`}
             </p>
@@ -440,6 +478,8 @@ export default function RecommendationClient({ initialFunds, initialCategories, 
           <div className="flex min-h-52 items-center justify-center gap-3 border border-dashed border-[#cbd3cd] bg-white text-sm text-[#66726c]">
             <LoaderCircle className="h-5 w-5 animate-spin text-[#28745c]" />正在读取同类专业评价
           </div>
+        ) : loadError && !applied && category ? (
+          <div role="alert" className="border border-[#e5c98f] bg-[#fff8e8] px-5 py-4 text-sm">候选读取失败，当前结果不可用。<button type="button" onClick={() => void loadCandidates(category, style)} className="ml-3 font-bold underline">重试</button></div>
         ) : !category ? (
           <div className="flex min-h-52 flex-col items-center justify-center border border-dashed border-[#cbd3cd] bg-white px-6 text-center">
             <Tags className="h-6 w-6 text-[#28745c]" />

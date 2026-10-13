@@ -10,6 +10,7 @@ import { runtimeProfile } from '../server/runtime-profile.ts';
 
 const appPackage = JSON.parse(readFileSync('package.json', 'utf8')) as { version?: unknown };
 if (typeof appPackage.version !== 'string') throw new Error('package.json is missing a valid version');
+export const OPENCHATCUT_WARMUP_FILES = ['src/main.tsx'];
 export function applyAuthoritativeLocalProvider(
   env: Record<string, string>,
   source: string,
@@ -130,14 +131,14 @@ export default defineConfig(({ mode }) => {
       // Pre-transform the editor entry graph at startup so the first tab
       // (and chat hydration) renders without a multi-second compile stall.
       warmup: {
-        clientFiles: ['/src/main.tsx'],
+        clientFiles: OPENCHATCUT_WARMUP_FILES,
       },
       fs: {
         // Worktrees may symlink node_modules to the primary checkout. Keep
         // imported runtime assets (for example ONNX Runtime WASM) readable.
         allow: [searchForWorkspaceRoot(process.cwd()), realpathSync('node_modules')],
       },
-      open: '/',
+      open: false,
       proxy: {
         // AssemblyAI transcription — key injected server-side (never in browser).
         '/assemblyai': {

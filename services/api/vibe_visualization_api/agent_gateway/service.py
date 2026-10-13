@@ -74,6 +74,10 @@ class AgentTaskService:
         *,
         workspace_id: str = "local-workspace",
     ) -> AgentTask:
+        # Financial evidence belongs to the current workbook. Module-wide chat
+        # history may describe another issuer or reporting period.
+        if request.module_id == "earnings-workbench" and request.capability != "module.edit":
+            request = request.model_copy(update={"memory_scope": "task"})
         adapter_id = request.adapter
         if adapter_id is None and self._preference_store is not None:
             adapter_id = await run_in_threadpool(
@@ -117,17 +121,25 @@ class AgentTaskService:
             if isinstance(existing_vibedesk, dict)
             else {}
         )
-        vibedesk_context.update(
-            {
-                "mod": {
-                    "id": request.module_id,
-                    "revision": stored["revision"],
-                },
-                "workspace": {"id": workspace_id},
-                "page": stored["context"],
-                "contextUpdatedAt": stored["updatedAt"],
-            }
+        existing_mod = vibedesk_context.get("mod")
+        mod_context = dict(existing_mod) if isinstance(existing_mod, dict) else {}
+        mod_context.update(
+            {"id": request.module_id, "revision": stored["revision"]}
         )
+        existing_workspace = vibedesk_context.get("workspace")
+        workspace_context = (
+            dict(existing_workspace)
+            if isinstance(existing_workspace, dict)
+            else {}
+        )
+        workspace_context["id"] = workspace_id
+        vibedesk_context["mod"] = mod_context
+        vibedesk_context["workspace"] = workspace_context
+        if not isinstance(vibedesk_context.get("page"), dict):
+            vibedesk_context["page"] = stored["context"]
+            vibedesk_context["contextUpdatedAt"] = stored["updatedAt"]
+        else:
+            vibedesk_context["storedContextUpdatedAt"] = stored["updatedAt"]
         existing_context["vibedesk"] = vibedesk_context
         return request.model_copy(update={"context": existing_context})
 

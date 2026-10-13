@@ -157,7 +157,7 @@ describe("Strategy Ledger context", () => {
     expect(assessment?.reasonCodes).toEqual(["differentCommission", "lowTradeSample"]);
   });
 
-  it("marks legacy runs without a native ledger and exposes the diagnosis to Desk Agent", () => {
+  it("marks legacy runs without a native ledger and exposes the diagnosis to Newma Agent", () => {
     const nativeRun: RunListItem = {
       run_id: "run-1",
       status: "success",

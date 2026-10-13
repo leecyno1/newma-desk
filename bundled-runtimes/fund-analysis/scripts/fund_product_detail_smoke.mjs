@@ -57,10 +57,11 @@ if (!page.includes('benchmarkNav: numberOrNull(point.benchmark_nav)')) {
   throw new Error('fund detail page must load benchmark NAV')
 }
 for (const required of [
-  'const accumNav = numberOrNull(point.accum_nav ?? point.adj_nav)',
+  'const accumNav = numberOrNull(point.accum_nav)',
   'const accumNavCount = rawNavPoints.filter',
-  'const useAccumNav = accumNavCount >= 2 && accumNavCount >= unitNavCount',
-  "navBasis: useAccumNav ? 'accum_nav'",
+  'const useAccumNav = !useAdjNav && accumNavCount >= 2 && accumNavCount >= unitNavCount',
+  'const useAdjNav = adjNavCount >= 2 && adjNavCount >= Math.max(accumNavCount, unitNavCount) * 0.6',
+  "navBasis: useAdjNav ? 'adj_nav' as const : useAccumNav ? 'accum_nav' as const : 'unit_nav' as const",
   'nav: fund.nav ?? latestRawNavPoint?.unitNav',
 ]) {
   if (!page.includes(required)) throw new Error(`fund detail page missing NAV basis rule: ${required}`)
@@ -78,7 +79,7 @@ for (const required of [
   '基准共同日期',
   'benchmarkCoverage',
   '与评价窗口一致',
-  '默认使用累计净值处理分红和份额折算',
+  '复权净值口径',
 ]) {
   if (!detail.includes(required)) throw new Error(`fund detail chart missing audit evidence: ${required}`)
 }

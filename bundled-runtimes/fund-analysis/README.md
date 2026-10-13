@@ -27,6 +27,14 @@ LLM 不可用时，AI 分析只生成基于真实评价、归因和纪要的规�
 
 ## Desk 适配包
 
+Desk 本地默认使用 `3035` 前端和 `8035` 后端，与独立项目的 `3000/8005` 分开。可通过宿主的 `NEWMA_DESK_FUND_RESEARCH_WEB_URL` / `NEWMA_DESK_FUND_ANALYSIS_API_URL` 覆盖。手动运行前端时设置 `BACKEND_API_URL=http://127.0.0.1:8035`。
+
+后端默认 `FUND_DATABASE_INIT_MODE=check`：只检查现有数据库，不自动建表或迁移；检查失败则拒绝启动。新库首次初始化须另行确认并显式使用 `FUND_DATABASE_INIT_MODE=initialize`。此开关仅控制启动行为，不禁止用户主动保存研究记录。
+
+可在本机 `.env.local` 设置 `NEWMA_DESK_FUND_DATABASE_ENV_FILE` 指向已有基金项目的环境文件，前后端只读取其中的字面量 `DATABASE_URL`，显式环境变量优先。数据源/模型凭据仍须单独配置，不从该文件暗中复制，也不要提交进 Git。
+
+如需沿用已有模型配置，另行显式设置 `NEWMA_DESK_FUND_MODEL_ENV_FILE`。仅后端读取已知的 LLM/Anthropic/OpenAI/SiliconFlow 字段（见 `backend/runtime_config.py`），不读取数据库、进程选项或其他变量，也不覆盖已有环境值。该设置与数据库引用分开，配置文件必须保留在本机。
+
 - 描述文件：`desk/suite.json`
 - 数据能力：`desk/data-service.json`
 - 发现入口：`GET /.well-known/newma-desk-suite.json`
@@ -123,14 +131,6 @@ FOF 只有在净值指标齐全、且最新公开底层基金至少 5 只并覆�
 - 增量同步：`npm run research:sync-ima`
 
 IMA 凭证可通过 `IMA_OPENAPI_CLIENTID`、`IMA_OPENAPI_APIKEY` 环境变量传入，也可保存在本机 `~/.config/ima/`，不写入仓库。同步时会跳过云端已有文件，只上传新增纪要。
-
-## Docker
-
-```bash
-docker compose up -d --build
-```
-
-Docker 使用仓库根目录 Next.js 应用和 `backend/main.py`。
 
 ## 数据原则
 

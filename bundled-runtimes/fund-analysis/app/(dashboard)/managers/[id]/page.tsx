@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { FundServerPageData } from '@/lib/newma-desk/page-data'
 import {
   ArrowLeft,
   ArrowRight,
@@ -166,9 +166,19 @@ async function loadManager(managerId: string): Promise<ManagerDetail | null> {
 
 export default async function ManagerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const managerId = decodeURIComponent(id)
-  const data = await loadManager(managerId)
-  if (!data) notFound()
+  const managerId = id
+  let data: ManagerDetail | null = null
+  let error = ''
+  try { data = await loadManager(managerId) }
+  catch { error = '基金经理研究快照暂时不可用，请稍后重试。' }
+  if (!data) return <div className="space-y-4 p-5">
+    <FundServerPageData data={{ title: '基金经理研究', selection: null, filters: { managerId },
+      visibleBlocks: [{ id: 'manager-error', type: 'text', title: '经理资料未加载' }],
+      summary: { view: 'manager-detail', status: error ? 'error' : 'not-found', manager: null,
+        error: error || '未找到该经理资料，不能据此判断经理能力。' } }} />
+    <p role="alert">{error || '未找到该经理资料，请返回列表重新选择。'}</p>
+    <Link href="/managers" className="underline">返回基金经理</Link>
+  </div>
 
   const manager = asRecord(data.manager)
   const coverage = asRecord(data.coverage)
@@ -209,6 +219,16 @@ export default async function ManagerDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div className="space-y-8">
+      <FundServerPageData data={{ title: `基金经理研究 · ${managerName}`, selection: null, filters: { managerId },
+        visibleBlocks: [{ id: 'manager-research', type: 'summary', title: '基金经理研究' },
+          { id: 'manager-funds', type: 'table', title: '在管基金与任职证据' },
+          { id: 'manager-memos', type: 'table', title: '经理调研纪要' }],
+        summary: { view: 'manager-detail', status: 'ready', manager, coverage, profile,
+          assessment: managerAssessment, portfolio: portfolioSummary,
+          funds: funds.slice(0, 30), productTenures: { ...productTenures, items: tenureItems.slice(0, 40) },
+          memos: reports.slice(0, 20).map(report => ({ id: report.id, title: report.title,
+            reportDate: report.report_date ?? null, summary: textValue(report.summary).slice(0, 1000) })), evidence: data.evidence,
+          evidenceBoundary: '经理 ID 不是基金代码；经理观点不代表各在管产品的实际持仓。任职与基金业绩不可混用。' } }} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link href="/managers" className="inline-flex items-center gap-2 text-sm font-bold text-[#28745c]">
           <ArrowLeft className="h-4 w-4" />返回基金经理

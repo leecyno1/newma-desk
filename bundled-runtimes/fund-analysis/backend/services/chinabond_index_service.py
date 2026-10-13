@@ -1,6 +1,7 @@
 """同步中债分期限财富指数及指数久期。"""
 
 import json
+import math
 import os
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -102,16 +103,25 @@ class ChinaBondIndexService:
                 parsed_value = float(value)
             except (TypeError, ValueError, OverflowError):
                 continue
-            if parsed_value > 0:
+            if math.isfinite(parsed_value) and parsed_value > 0 and trade_date <= datetime.now(shanghai).date().isoformat():
                 points.append({"trade_date": trade_date, "value": parsed_value})
+        if not points:
+            raise ValueError(f"中债指数没有有效观测：{definition['series_key']} {indicator}")
         return sorted(points, key=lambda item: item["trade_date"])
 
     def sync(self, lookback_years: int = 4) -> Dict[str, Any]:
         start_date = date.today() - timedelta(days=max(2, min(lookback_years, 15)) * 366)
         results = []
+        failures = []
         for definition in self.definitions():
             for indicator in self.INDICATORS:
-                rows = [row for row in self.fetch(definition, indicator) if row["trade_date"] >= start_date.isoformat()]
+                try:
+                    rows = [row for row in self.fetch(definition, indicator) if row["trade_date"] >= start_date.isoformat()]
+                    if not rows:
+                        raise ValueError("所需历史窗口内无有效观测")
+                except (ValueError, OSError) as exc:
+                    failures.append({"series_key": definition["series_key"], "indicator": indicator, "error": str(exc)[:250]})
+                    continue
                 written = self.repo.upsert_index_points(definition, indicator, rows)
                 results.append({
                     "series_key": definition["series_key"],
@@ -121,13 +131,14 @@ class ChinaBondIndexService:
                     "end_date": rows[-1]["trade_date"] if rows else None,
                 })
         return {
-            "status": "synced",
+            "status": "partial" if failures else "synced",
             "series": len(self.definitions()),
-            "requests": len(results),
+            "requests": len(results) + len(failures),
             "records": sum(item["records"] for item in results),
             "source": self.SOURCE,
             "source_url": self.PAGE_URL,
             "results": results,
+            "failures": failures,
         }
 
     def ensure_local_data(self) -> Dict[str, Any]:
@@ -139,8 +150,10 @@ class ChinaBondIndexService:
         ]
         stale_before = date.today() - timedelta(days=7)
         if inventory.get("status") != "ready" or not end_dates or min(date.fromisoformat(value) for value in end_dates) < stale_before:
-            self.sync()
+            sync_result = self.sync()
             inventory = self.repo.index_inventory()
+            if sync_result.get("failures"):
+                inventory["sync_failures"] = sync_result["failures"]
         return inventory
 
     def _throttle(self) -> None:

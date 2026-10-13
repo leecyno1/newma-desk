@@ -22,7 +22,7 @@ FinanceToolkit 与 EdgarTools 不作为新的独立 Mod 引入。它们的理念
 - Market Research Adapter 只负责按市场采集和归一事实，不改变共同研究框架。
 - Evidence Ledger 保存来源、原字段、截止日期、单位、币种、置信度和缺口。
 - EDGAR 是美股可选披露 Adapter；未配置 SEC User-Agent 时不影响 A/H/US 共同页面。
-- Desk Agent 必须引用 Evidence Ledger，不得用模型常识填补数据缺口。
+- Newma Agent 必须引用 Evidence Ledger，不得用模型常识填补数据缺口。
 
 ## daily_stock_analysis
 
@@ -33,7 +33,7 @@ FinanceToolkit 与 EdgarTools 不作为新的独立 Mod 引入。它们的理念
 - 每次研究输出 `newma-desk.research-workflow.v1`，包含任务状态、四个执行阶段和完成进度。
 - 估值、增长、盈利、现金流、资产负债、披露六个数据块分别输出质量分、来源、截止日期、缺口和失败状态。
 - 数据源状态显式区分 `available`、`fallback`、`partial`、`missing`、`not_supported` 与 `fetch_failed`。
-- Desk Agent 上下文可读取整体质量、缺失块、失败来源和最近可用研究时间，不再只能读取渲染后的文字。
+- Newma Agent Context 可读取整体质量、缺失块、失败来源和最近可用研究时间，不再只能读取渲染后的文字。
 - 最近 20 次轻量研究记录写入个股研究 Mod 的 `research-history` namespace，通过 Desk Mod Storage 隔离到用户、工作区和 Mod；不新增数据库、进程或端口。
 - 完整研究结果仍由 Evidence Ledger 和现有页面生成；历史记录只保存时间、覆盖率、质量和缺口数量，不重复保存行情、财务明细或新闻正文。
 
@@ -77,9 +77,9 @@ QuantDinger 上游运行时继续保持 No-Go；其适合 Newma-Desk 的方法�
 - 每条记录包含实验 ID、配置 revision、策略 ID、模板版本、策略哈希、参数、样本区间、周期、市场和实际数据来源。
 - 指标目录统一覆盖总收益、年化、最大回撤、波动率、Sharpe、Sortino、胜率、换手、费用、交易数、基准与超额收益；引擎未提供的指标显式保留为空，不由 Agent 猜测。
 - 收益、风险、成本和交易活跃度归因统一进入账本；手续费只表达回测配置假设，绝不冒充券商真实对账数据。
-- 回测报告页显示纸面策略、版本、数据区间、成本模型、最大回撤和样本质量，并把最多 20 条当前筛选实验作为结构化 Context 交给 Desk Agent。
+- 回测报告页显示纸面策略、版本、数据区间、成本模型、最大回撤和样本质量，并把最多 20 条当前筛选实验作为结构化 Context 交给 Newma Agent。
 - 策略对比页新增 `newma-desk.strategy-comparison.v1` 可比性诊断：只有标的、市场、数据区间、周期、数据来源与手续费假设对齐，且两侧均完成、样本不少于 30 笔时，才标记为可直接比较；不同数据窗口会明确阻止收益排名。
-- 同一策略的不同参数自动识别为参数敏感性实验，相同参数识别为重复性检验，不同策略识别为跨策略比较；诊断结论、差异原因和两侧账本同时进入 Desk Agent Context。
+- 同一策略的不同参数自动识别为参数敏感性实验，相同参数识别为重复性检验，不同策略识别为跨策略比较；诊断结论、差异原因和两侧账本同时进入 Newma Agent Context。
 - 运行目录继续作为详细制品存储；不新增数据库，列表只读取轻量账本投影，适合多服务器部署。
 - 快速回测仍只接受买入持有和均线交叉两个固定模板，禁止 Python、表达式、路径、Loader、Broker、订单和任意策略代码输入。
 
@@ -164,4 +164,4 @@ Desk API 已提供统一状态与提取入口：
 
 `npm run pilots:check` 会直接输出两项的 `decision=no-go`。只有重新固定版本、完成传递依赖审计并通过其余门槛后，决策才可改为 Go；即使 Go，也只发布经过提取的 Desk Mod，不运行上游整仓。
 
-只有依赖审计、能力合同、无端口冲突、凭据隔离、响应式嵌入和 Desk Agent Context 全部通过后，才能提交单独的 Go/No-Go 决策。通过也只代表可以发布经过提取的 Newma-Desk Mod，不代表允许运行上游整仓。
+只有依赖审计、能力合同、无端口冲突、凭据隔离、响应式嵌入和 Newma Agent Context 全部通过后，才能提交单独的 Go/No-Go 决策。通过也只代表可以发布经过提取的 Newma-Desk Mod，不代表允许运行上游整仓。

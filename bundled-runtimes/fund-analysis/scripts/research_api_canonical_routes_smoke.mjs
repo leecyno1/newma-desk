@@ -24,8 +24,8 @@ const legacyPurchaseSimulationRoute = read('app/api/funds/[id]/purchase-simulati
 const acceptance = read('scripts/fund_research_acceptance_smoke.mjs')
 const architecture = read('docs/architecture/professional-fund-research-architecture.md')
 const activeSurfaces = [
-  'app/(dashboard)/funds/[id]/FundDetailClient.tsx',
-  'app/(dashboard)/reports/[id]/page.tsx',
+  'app/(dashboard)/funds/[id]/SimpleFundDetailClient.tsx',
+  'app/(dashboard)/reports/[id]/ReportDetailClient.tsx',
   'app/(dashboard)/analysis/[id]/AnalysisDetailClient.tsx',
   'app/(dashboard)/market/MarketBrowserClient.tsx',
   'app/(dashboard)/analysis/comparison/page.tsx',

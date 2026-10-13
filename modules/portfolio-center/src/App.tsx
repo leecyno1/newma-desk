@@ -14,6 +14,10 @@ import {
 } from "@newma-desk/mod-sdk";
 
 import { portfolioClient, type ActivityInput, type PortfolioIdentity } from "./api";
+import { RiskView } from './RiskWorkbench';
+import type { ImportDiagnosis } from './PortfolioDiagnosis';
+import { RISK_PAGES } from './riskNavigation';
+import { DEFAULT_RISK_INPUT, evaluateRisk, historyValidity, stressResults, capitalExposure, concentrationDetail, historyDiagnostics, scenarioImpact } from './risk';
 import {
   Activity,
   BadgeDollarSign,
@@ -43,7 +47,7 @@ import type {
   PortfolioPerformanceInput,
   PortfolioPerformanceResult,
   PortfolioPosition,
-  PortfolioRiskAction,
+  PortfolioRiskReport,
   PortfolioRiskPolicy,
   PortfolioWorkspace,
 } from "./types";
@@ -128,18 +132,6 @@ const TRADING_TABS: Array<{ id: TradingSubview; label: string }> = [
   { id: "reconciliation", label: "对账异常" },
 ];
 
-const RISK_TABS: Array<{ id: RiskSubview; label: string }> = [
-  { id: "overview", label: "风险总览" },
-  { id: "limits", label: "风险限额" },
-  { id: "concentration", label: "集中度" },
-  { id: "exposure", label: "市场 / 币种暴露" },
-  { id: "drawdown", label: "回撤与 VaR" },
-  { id: "liquidity", label: "流动性" },
-  { id: "stress", label: "压力测试" },
-  { id: "alerts", label: "预警" },
-  { id: "actions", label: "处置记录" },
-];
-
 const OPTIMIZATION_LABELS: Record<PortfolioOptimizationObjective, { name: string; note: string }> = {
   "risk-balanced": { name: "风险均衡", note: "降低单一高波动资产对组合的支配。" },
   "minimum-volatility": { name: "最低波动", note: "寻找历史协方差下更平稳的权重组合。" },
@@ -162,7 +154,7 @@ function workspaceFromSearch(): PortfolioWorkspace {
 function subviewFromSearch(workspace: PortfolioWorkspace): TradingSubview | RiskSubview {
   const candidate = new URLSearchParams(window.location.search).get("view");
   if (workspace === "portfolio-activities" && TRADING_TABS.some((item) => item.id === candidate)) return candidate as TradingSubview;
-  if (workspace === "portfolio-risk" && RISK_TABS.some((item) => item.id === candidate)) return candidate as RiskSubview;
+  if (workspace === "portfolio-risk" && ['overview','limits','concentration','exposure','drawdown','liquidity','stress','alerts','actions'].includes(candidate || '')) return candidate as RiskSubview;
   return "overview";
 }
 
@@ -224,34 +216,6 @@ function reconciliationIssues(dashboard: PortfolioDashboard): ReconciliationIssu
   return issues;
 }
 
-function riskAlertRules(dashboard: PortfolioDashboard) {
-  const concentration = dashboard.analytics.concentration;
-  const policy = dashboard.riskPolicy;
-  const issues = reconciliationIssues(dashboard);
-  const cashDeficits = dashboard.currencies.filter((item) => item.cash < -0.01);
-  const otherHighIssues = issues.filter((item) => item.severity === "high" && !item.id.startsWith("cash:"));
-  const unpriced = dashboard.positions.filter((item) => item.price == null).length;
-  return [
-    { id: "single", label: "单一持仓限额", detail: `上限 ${number(policy.singlePositionLimitPct)}%`, severity: "high" as const, hit: concentration.topPositionWeight > policy.singlePositionLimitPct, value: `${number(concentration.topPositionWeight)}%` },
-    { id: "top3", label: "前三持仓限额", detail: `上限 ${number(policy.topThreeLimitPct)}%`, severity: "high" as const, hit: concentration.topThreeWeight > policy.topThreeLimitPct, value: `${number(concentration.topThreeWeight)}%` },
-    { id: "count", label: "有效持仓数", detail: `下限 ${number(policy.minEffectivePositions)}`, severity: "medium" as const, hit: concentration.positionCount > 0 && concentration.effectivePositionCount < policy.minEffectivePositions, value: number(concentration.effectivePositionCount) },
-    { id: "quote", label: "缺失行情持仓", detail: `上限 ${policy.maxUnpricedPositions} 只`, severity: "medium" as const, hit: unpriced > policy.maxUnpricedPositions, value: `${unpriced} 只` },
-    { id: "fx", label: "跨币种未统一折算", detail: "需要汇率快照后才能计算统一风险贡献", severity: "medium" as const, hit: dashboard.currencies.length > 1, value: `${dashboard.currencies.length} 个币种` },
-    { id: "cash", label: "现金余额为负", detail: policy.allowNegativeCash ? "当前策略允许负现金" : "当前策略不允许负现金", severity: "critical" as const, hit: !policy.allowNegativeCash && cashDeficits.length > 0, value: cashDeficits.map((item) => `${item.currency} ${number(item.cash)}`).join(" / ") || "正常" },
-    { id: "ledger", label: "高优先级账本异常", detail: "成交、委托或账户数据不一致", severity: "high" as const, hit: otherHighIssues.length > 0, value: `${otherHighIssues.length} 项` },
-  ];
-}
-
-function historicalRiskAlertRules(dashboard: PortfolioDashboard, result?: PortfolioPerformanceResult) {
-  if (!result?.metrics) return [];
-  const drawdown = Math.abs(result.metrics.maxDrawdownPct);
-  const valueAtRisk = Math.abs(result.metrics.valueAtRisk95Pct);
-  return [
-    { id: `drawdown-${result.currency}`, label: `${result.currency} 最大回撤限额`, detail: `上限 ${number(dashboard.riskPolicy.maxDrawdownLimitPct)}%`, severity: "high" as const, hit: drawdown > dashboard.riskPolicy.maxDrawdownLimitPct, value: `${number(drawdown)}%` },
-    { id: `var95-${result.currency}`, label: `${result.currency} 95% VaR 限额`, detail: `上限 ${number(dashboard.riskPolicy.var95LimitPct)}%`, severity: "high" as const, hit: valueAtRisk > dashboard.riskPolicy.var95LimitPct, value: `${number(valueAtRisk)}%` },
-  ];
-}
-
 function parentOrigin() {
   const configured = import.meta.env.VITE_PARENT_ORIGIN?.trim();
   if (configured) return configured;
@@ -303,6 +267,12 @@ function buildContext(
   optimization?: PortfolioOptimizationResult,
   performance?: PortfolioPerformanceResult,
   researchCoverage?: PortfolioResearchCoverage,
+  riskInput: PortfolioPerformanceInput = DEFAULT_RISK_INPUT,
+  riskReport?: PortfolioRiskReport,
+  now = Date.now(),
+  loadError = '',
+  modId: string = workspace,
+  riskShocks: Record<Market,number> = {CN:-10,HK:-10,US:-10},
 ): ModPageContext {
   const config = WORKSPACES[workspace];
   const activeSecurity = selected || linkedSecurity;
@@ -313,8 +283,8 @@ function buildContext(
     )
     : undefined;
   return {
-    view: { id: workspace, title: config.title },
-    visibleBlocks: workspaceBlocks(workspace),
+    view: { id: modId, title: workspace === 'portfolio-risk' ? RISK_PAGES.find(p => p.view === subview)?.label || config.title : config.title },
+    visibleBlocks: workspace === 'portfolio-risk' ? [{ id: modId, type: 'portfolio-risk', title: RISK_PAGES.find(p => p.view === subview)?.label || '风险总览' }] : workspaceBlocks(workspace),
     selection: activeSecurity ? {
       symbol: activeSecurity.symbol,
       name: activeSecurity.name,
@@ -326,6 +296,7 @@ function buildContext(
       workspace,
       ...(subview ? { subview } : {}),
       valuation: dashboard?.valuationStatus || "unknown",
+      ...(workspace === 'portfolio-risk' ? { riskCurrency: riskInput.currency, riskLookbackWeeks: riskInput.lookbackWeeks, riskFreeRatePct: riskInput.riskFreeRatePct } : {}),
       ...(optimization ? {
         optimizationObjective: optimization.objective,
         optimizationCurrency: optimization.currency,
@@ -334,13 +305,13 @@ function buildContext(
     data: {
       asOf: dashboard?.updatedAt,
       source: "newma-desk-portfolio-ledger",
-      freshness: dashboard ? (dashboard.valuationStatus === "live" ? "live" : "fresh") : "unknown",
+      freshness: loadError ? 'stale' : dashboard ? (dashboard.valuationStatus === "live" ? "live" : "unknown") : "unknown",
       summary: dashboard ? {
         accountCount: dashboard.accounts.length,
         activityCount: dashboard.activities.length,
         positionCount: dashboard.positions.length,
         currencies: dashboard.currencies,
-        concentration: dashboard.analytics.concentration,
+        concentration: workspace === 'portfolio-risk' ? { note: '跨币种名义集中度不用于风控，请读取 riskAssessment' } : dashboard.analytics.concentration,
         allocations: {
           byMarket: dashboard.analytics.byMarket,
           byCurrency: dashboard.analytics.byCurrency,
@@ -350,6 +321,19 @@ function buildContext(
         linkedSecurity: linkedSecurity || {},
         optimization: optimization || {},
         historicalPerformance: performance || {},
+        ...(workspace === 'portfolio-risk' ? {
+          riskAssessment: evaluateRisk(dashboard, riskInput, performance, now),
+          historicalRiskValidity: historyValidity(dashboard, riskInput, performance, now),
+          riskPolicy: dashboard.riskPolicy,
+          riskActions: dashboard.riskActions,
+          stressScenarios: stressResults(dashboard, now),
+          concentrationDetail: concentrationDetail(dashboard, now).map(g => g.status === 'passed' ? g : { currency: g.currency, status: g.status, note: '行情不可用，不提供集中度数值', securities: g.rows.map(r => ({ symbol: r.symbol, market: r.market, name: r.name })) }),
+          capitalExposure: capitalExposure(dashboard, now),
+          historyDiagnostics: historyDiagnostics(performance),
+          customScenario: { shocks: riskShocks, results: scenarioImpact(dashboard, riskShocks, now), note: '假设情景，不是预测；缺少汇率、冲击成本和非线性效应' },
+          loadError,
+          viewedHistoricalReport: riskReport ? { id: riskReport.id, savedAt: riskReport.savedAt, note: '只读历史快照，不是当前评估', analysisInput: riskReport.analysisInput, assessment: evaluateRisk(riskReport.dashboard, riskReport.analysisInput, riskReport.performance, Date.parse(riskReport.savedAt)), dashboard: riskReport.dashboard, performance: riskReport.performance } : null,
+        } : {}),
         portfolioResearchCoverage: researchCoverage ? {
           schemaVersion: researchCoverage.schemaVersion,
           generatedAt: researchCoverage.generatedAt,
@@ -362,7 +346,7 @@ function buildContext(
     actions: [
       { id: "portfolio.refresh", label: "刷新组合", available: true },
       { id: "portfolio.optimize", label: "生成资产配置方案", available: workspace === "portfolio-allocation" },
-      { id: "portfolio.analyze-performance", label: "分析历史绩效", available: workspace === "portfolio-performance" },
+      { id: "portfolio.analyze-performance", label: "分析历史绩效", available: workspace === "portfolio-performance" || workspace === 'portfolio-risk' },
       { id: "portfolio.import-legacy", label: "导入旧持仓", available: workspace === "portfolio-settings" },
     ],
     tasks: [],
@@ -873,47 +857,6 @@ function TradingWorkbench({ dashboard, view, onView, selected, onSelect, onRefre
   </div>;
 }
 
-function ConcentrationView({ dashboard }: { dashboard: PortfolioDashboard }) {
-  const concentration = dashboard.analytics.concentration;
-  const byCurrency = dashboard.currencies.map((currency) => {
-    const positions = dashboard.positions.filter((position) => position.currency === currency.currency);
-    const values = positions.map((position) => ({ position, value: Math.max(0, position.marketValue ?? position.costValue) }));
-    const total = values.reduce((sum, item) => sum + item.value, 0);
-    return { currency: currency.currency, rows: values.sort((a, b) => b.value - a.value).map((item) => ({ ...item.position, weight: total ? item.value / total * 100 : 0 })) };
-  });
-  return <div className="workbench-stack"><section className="folio-panel risk-hero"><div className="panel-title"><div><span>CONCENTRATION</span><h2>组合集中度</h2></div><Gauge size={18} /></div><div className="risk-score"><strong>{number(concentration.effectivePositionCount)}</strong><span>名义有效持仓数</span></div><div className="risk-stat-grid"><div><span>最大单一持仓</span><strong>{number(concentration.topPositionWeight)}%</strong></div><div><span>前三大持仓</span><strong>{number(concentration.topThreeWeight)}%</strong></div><div><span>HHI</span><strong>{number(concentration.herfindahlIndex, 6)}</strong></div><div><span>持仓数量</span><strong>{concentration.positionCount}</strong></div></div><p className="method-note">多币种组合的上方总值仅作名义提示；正式集中度以下方分币种权重为准，待汇率快照接入后再统一折算。</p></section>
-    {byCurrency.map((group) => <section className="folio-panel" key={group.currency}><div className="panel-title"><div><span>{group.currency}</span><h2>分币种持仓权重</h2></div><span>{group.rows.length} 只</span></div><div className="allocation-list">{group.rows.map((item) => <div className="allocation-row" key={`${item.accountId}:${item.symbol}`}><div><strong>{item.name}</strong><span>{item.market}:{item.symbol}</span></div><div className="allocation-track"><i style={{ width: `${Math.max(2, item.weight)}%` }} /></div><b>{number(item.weight)}%</b></div>)}</div></section>)}
-  </div>;
-}
-
-function RiskHistoryView({ dashboard, result, onResult }: { dashboard: PortfolioDashboard; result?: PortfolioPerformanceResult; onResult(result: PortfolioPerformanceResult): void }) {
-  const currencies = Array.from(new Set(dashboard.positions.map((position) => position.currency)));
-  const [currency, setCurrency] = useState(currencies[0] || "CNY");
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState("");
-  const active = result?.currency === currency ? result : undefined;
-  const run = async () => { setRunning(true); setError(""); try { onResult(await portfolioClient({ userId: dashboard.userId, workspaceId: dashboard.workspaceId }).analyzePerformance({ currency, lookbackWeeks: 156, riskFreeRatePct: 2 })); } catch (reason) { setError(reason instanceof Error ? reason.message : "风险历史分析不可用"); } finally { setRunning(false); } };
-  return <div className="workbench-stack"><section className="folio-panel risk-analysis-control"><div className="panel-title"><div><span>HISTORICAL RISK</span><h2>回撤与尾部风险</h2></div><ChartPie size={18} /></div><div className="inline-controls"><label><span>分析币种</span><select value={currency} onChange={(event) => setCurrency(event.target.value)}>{currencies.length ? currencies.map((item) => <option key={item}>{item}</option>) : <option>CNY</option>}</select></label><button className="primary-button" onClick={() => void run()} disabled={running || !currencies.length}>{running ? <LoaderCircle className="spin" size={16} /> : <Gauge size={16} />}计算 3 年历史风险</button></div>{error && <div className="inline-error">{error}</div>}<p className="method-note">按当前持仓权重和周线历史计算；不同币种分别分析，不做无汇率依据的合并。</p></section>
-    {active?.metrics ? <section className="workbench-metrics risk-history-metrics"><article><span>最大回撤</span><strong className="negative">{number(active.metrics.maxDrawdownPct)}%</strong><small>{active.metrics.maxDrawdownDurationWeeks} 周</small></article><article><span>95% VaR</span><strong>{number(active.metrics.valueAtRisk95Pct)}%</strong><small>周度历史分布</small></article><article><span>95% CVaR</span><strong>{number(active.metrics.conditionalValueAtRisk95Pct)}%</strong><small>尾部损失均值</small></article><article><span>年化波动</span><strong>{number(active.metrics.annualizedVolatilityPct)}%</strong><small>覆盖 {number(active.coverageWeightPct)}%</small></article></section> : <section className="folio-panel empty-copy tall">选择币种后生成回撤、VaR 与 CVaR</section>}
-  </div>;
-}
-
-function LiquidityRiskView({ dashboard }: { dashboard: PortfolioDashboard }) {
-  const quoted = dashboard.positions.filter((position) => position.price != null).length;
-  const rows = dashboard.positions.map((position) => ({ ...position, status: position.price == null ? "行情缺口" : position.market === "CN" ? "T+1 交易约束" : position.market === "HK" ? "港股结算" : "美股结算" }));
-  return <div className="workbench-stack"><section className="workbench-metrics"><article><span>行情覆盖</span><strong>{dashboard.positions.length ? number(quoted / dashboard.positions.length * 100) : "—"}%</strong><small>{quoted}/{dashboard.positions.length} 只</small></article><article><span>成本口径持仓</span><strong>{dashboard.positions.length - quoted}</strong><small>缺少实时估值</small></article><article><span>市场数量</span><strong>{new Set(dashboard.positions.map((item) => item.market)).size}</strong><small>结算规则需分市场</small></article><article><span>成交量覆盖</span><strong>0%</strong><small>尚未接入 ADV / 换手</small></article></section><section className="folio-panel"><div className="panel-title"><div><span>LIQUIDITY MAP</span><h2>持仓流动性检查</h2></div><Activity size={18} /></div><div className="liquidity-list">{rows.map((item) => <article key={`${item.accountId}:${item.symbol}`}><div><strong>{item.name}</strong><span>{item.market}:{item.symbol} · {item.currency}</span></div><b className={item.price == null ? "negative" : "neutral"}>{item.status}</b><small>{item.quoteAsOf ? `行情 ${formatDate(item.quoteAsOf)}` : "没有行情时间"}</small></article>)}</div><p className="method-note">正式流动性风险仍需日均成交额、盘口深度、持仓退出天数和停牌状态；当前不使用市值替代这些字段。</p></section></div>;
-}
-
-function StressTestView({ dashboard }: { dashboard: PortfolioDashboard }) {
-  const scenarios = [
-    { id: "broad", name: "全球权益回撤", note: "各市场同步下跌 10%", shocks: { CN: -10, HK: -10, US: -10 } },
-    { id: "china", name: "中国风险偏好冲击", note: "A 股 -8%，港股 -12%，美股 -2%", shocks: { CN: -8, HK: -12, US: -2 } },
-    { id: "us", name: "海外利率冲击", note: "美股 -12%，港股 -6%，A 股 -3%", shocks: { CN: -3, HK: -6, US: -12 } },
-  ];
-  const currencies = Array.from(new Set(dashboard.analytics.byMarket.map((item) => item.currency)));
-  return <section className="folio-panel"><div className="panel-title"><div><span>STRESS TEST</span><h2>确定性市场冲击</h2></div><ShieldCheck size={18} /></div><div className="stress-grid">{scenarios.map((scenario) => <article key={scenario.id}><strong>{scenario.name}</strong><span>{scenario.note}</span>{currencies.map((currency) => { const impact = dashboard.analytics.byMarket.filter((item) => item.currency === currency).reduce((sum, item) => sum + item.weight / 100 * scenario.shocks[item.key as Market], 0); return <div key={currency}><b>{currency}</b><em className="negative">{number(impact)}%</em></div>; })}</article>)}</div><p className="method-note">这是按当前市场权重做的静态一阶冲击，不包含相关性变化、波动率跳升、汇率和流动性折价。</p></section>;
-}
-
 function RiskLimitsView({ dashboard, onRefresh }: { dashboard: PortfolioDashboard; onRefresh(): void }) {
   const [policy, setPolicy] = useState<PortfolioRiskPolicy>(dashboard.riskPolicy);
   const [saving, setSaving] = useState(false);
@@ -930,46 +873,6 @@ function RiskLimitsView({ dashboard, onRefresh }: { dashboard: PortfolioDashboar
     finally { setSaving(false); }
   };
   return <section className="folio-panel risk-limit-panel"><div className="panel-title"><div><span>RISK LIMITS</span><h2>组合风险限额</h2></div><Settings2 size={18} /></div><div className="risk-limit-grid"><label><span>单一持仓上限</span><input inputMode="decimal" value={policy.singlePositionLimitPct} onChange={(event) => updateNumber("singlePositionLimitPct", event.target.value)} /><small>%</small></label><label><span>前三持仓上限</span><input inputMode="decimal" value={policy.topThreeLimitPct} onChange={(event) => updateNumber("topThreeLimitPct", event.target.value)} /><small>%</small></label><label><span>有效持仓数下限</span><input inputMode="decimal" value={policy.minEffectivePositions} onChange={(event) => updateNumber("minEffectivePositions", event.target.value)} /><small>只</small></label><label><span>最大回撤上限</span><input inputMode="decimal" value={policy.maxDrawdownLimitPct} onChange={(event) => updateNumber("maxDrawdownLimitPct", event.target.value)} /><small>%</small></label><label><span>95% VaR 上限</span><input inputMode="decimal" value={policy.var95LimitPct} onChange={(event) => updateNumber("var95LimitPct", event.target.value)} /><small>% / 周</small></label><label><span>缺行情持仓上限</span><input inputMode="numeric" value={policy.maxUnpricedPositions} onChange={(event) => updateNumber("maxUnpricedPositions", event.target.value)} /><small>只</small></label></div><label className="inline-check"><input type="checkbox" checked={policy.allowNegativeCash} onChange={(event) => setPolicy((current) => ({ ...current, allowNegativeCash: event.target.checked }))} /><span>允许融资账户出现负现金</span></label><button className="primary-button" onClick={() => void save()} disabled={saving}>{saving ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}保存限额</button>{message && <div className="status-message">{message}</div>}<p className="method-note">限额只触发预警，不自动下单或卖出。回撤和 VaR 限额在运行历史风险分析后核验。</p></section>;
-}
-
-function AlertRulesView({ dashboard, result, onRefresh }: { dashboard: PortfolioDashboard; result?: PortfolioPerformanceResult; onRefresh(): void }) {
-  const rules = [...riskAlertRules(dashboard), ...historicalRiskAlertRules(dashboard, result)];
-  const [busy, setBusy] = useState("");
-  const createAction = async (rule: (typeof rules)[number]) => {
-    setBusy(rule.id);
-    try {
-      await portfolioClient({ userId: dashboard.userId, workspaceId: dashboard.workspaceId }).createRiskAction({ ruleId: rule.id, severity: rule.severity, title: rule.label, detail: `${rule.detail}；当前值 ${rule.value}` });
-      onRefresh();
-    } finally { setBusy(""); }
-  };
-  return <section className="folio-panel"><div className="panel-title"><div><span>ALERT RULES</span><h2>预警与限额核验</h2></div><ShieldCheck size={18} /></div><div className="alert-rule-list">{rules.map((rule) => { const activeAction = dashboard.riskActions.find((action) => action.ruleId === rule.id && !["resolved", "waived"].includes(action.status)); return <article key={rule.id} className={rule.hit ? "is-hit" : "is-normal"}><i /><div><strong>{rule.label}</strong><span>{rule.detail} · {rule.hit ? "已触发" : "正常"}</span></div><b>{rule.value}</b>{rule.hit && (activeAction ? <em>处置中</em> : <button disabled={busy === rule.id} onClick={() => void createAction(rule)}>登记处置</button>)}</article>; })}</div><p className="method-note">预警来自真实账本和已运行的历史风险分析；登记处置不会修改持仓。</p></section>;
-}
-
-function RiskActionsView({ dashboard, onRefresh }: { dashboard: PortfolioDashboard; onRefresh(): void }) {
-  const [busy, setBusy] = useState("");
-  const update = async (action: PortfolioRiskAction, status: PortfolioRiskAction["status"]) => {
-    setBusy(action.id);
-    try { await portfolioClient({ userId: dashboard.userId, workspaceId: dashboard.workspaceId }).updateRiskAction(action.id, { status }); onRefresh(); }
-    finally { setBusy(""); }
-  };
-  return <section className="folio-panel"><div className="panel-title"><div><span>RISK ACTION LOG</span><h2>风险处置记录</h2></div><NotebookTabs size={18} /></div>{!dashboard.riskActions.length ? <div className="empty-copy tall">暂无处置记录；从“预警”标签登记触发项</div> : <div className="risk-action-list">{dashboard.riskActions.map((action) => <article key={action.id} className={`status-${action.status}`}><header><span>{action.severity}</span><strong>{action.title}</strong><b>{action.status === "open" ? "待处理" : action.status === "acknowledged" ? "处理中" : action.status === "resolved" ? "已解决" : "已豁免"}</b></header><p>{action.detail}</p><footer><small>{formatDate(action.updatedAt)}{action.owner ? ` · ${action.owner}` : ""}</small><div>{action.status === "open" && <button disabled={busy === action.id} onClick={() => void update(action, "acknowledged")}>确认接手</button>}{["open", "acknowledged"].includes(action.status) && <button disabled={busy === action.id} onClick={() => void update(action, "resolved")}>标记解决</button>}{["open", "acknowledged"].includes(action.status) && <button disabled={busy === action.id} onClick={() => void update(action, "waived")}>风险豁免</button>}</div></footer></article>)}</div>}</section>;
-}
-
-function RiskView({ dashboard, view, onView, result, onResult, onRefresh }: { dashboard: PortfolioDashboard; view: RiskSubview; onView(view: RiskSubview): void; result?: PortfolioPerformanceResult; onResult(result: PortfolioPerformanceResult): void; onRefresh(): void }) {
-  const issues = reconciliationIssues(dashboard);
-  const triggeredRules = [...riskAlertRules(dashboard), ...historicalRiskAlertRules(dashboard, result)].filter((item) => item.hit);
-  const concentration = dashboard.analytics.concentration;
-  return <div className="workspace-shell"><WorkspaceTabs items={RISK_TABS} value={view} onChange={(next) => onView(next as RiskSubview)} />
-    {view === "overview" && <div className="workbench-stack"><section className="workbench-metrics"><article><span>风险状态</span><strong className={triggeredRules.length ? "negative" : "positive"}>{triggeredRules.length ? "需关注" : "正常"}</strong><small>{triggeredRules.length} 项规则触发 · {issues.length} 项数据异常</small></article><article><span>最大持仓</span><strong>{number(concentration.topPositionWeight)}%</strong><small>限额 {number(dashboard.riskPolicy.singlePositionLimitPct)}%</small></article><article><span>有效持仓数</span><strong>{number(concentration.effectivePositionCount)}</strong><small>下限 {number(dashboard.riskPolicy.minEffectivePositions)}</small></article><article><span>未结处置</span><strong>{dashboard.riskActions.filter((item) => !["resolved", "waived"].includes(item.status)).length}</strong><small>{dashboard.riskActions.length} 条处置记录</small></article><article><span>估值状态</span><strong>{dashboard.valuationStatus === "live" ? "实时" : dashboard.valuationStatus === "partial" ? "部分实时" : "成本"}</strong><small>{dashboard.positions.filter((item) => item.price == null).length} 只缺行情</small></article></section><div className="content-grid risk-grid"><AllocationBars title="市场暴露" items={dashboard.analytics.byMarket} /><AllocationBars title="账户暴露" items={dashboard.analytics.byAccount} /><ReconciliationView dashboard={dashboard} /></div></div>}
-    {view === "limits" && <RiskLimitsView dashboard={dashboard} onRefresh={onRefresh} />}
-    {view === "concentration" && <ConcentrationView dashboard={dashboard} />}
-    {view === "exposure" && <div className="workbench-stack"><CurrencyCards dashboard={dashboard} /><div className="content-grid"><AllocationBars title="市场暴露（分币种）" items={dashboard.analytics.byMarket} /><AllocationBars title="账户暴露（分币种）" items={dashboard.analytics.byAccount} /></div><section className="folio-panel"><p className="method-note">币种卡片不做跨币种权重比较；汇率快照接入前，不把不同货币的名义金额相加作为真实风险贡献。</p></section></div>}
-    {view === "drawdown" && <RiskHistoryView dashboard={dashboard} result={result} onResult={onResult} />}
-    {view === "liquidity" && <LiquidityRiskView dashboard={dashboard} />}
-    {view === "stress" && <StressTestView dashboard={dashboard} />}
-    {view === "alerts" && <AlertRulesView dashboard={dashboard} result={result} onRefresh={onRefresh} />}
-    {view === "actions" && <RiskActionsView dashboard={dashboard} onRefresh={onRefresh} />}
-  </div>;
 }
 
 function AllocationView({
@@ -1218,6 +1121,8 @@ function SettingsView({ dashboard, onRefresh }: { dashboard: PortfolioDashboard;
 
 export function PortfolioCenterApp() {
   const workspace = workspaceFromSearch();
+  const riskPage = RISK_PAGES.find(p => p.id === new URLSearchParams(window.location.search).get('modId'));
+  const modId = workspace === 'portfolio-risk' ? riskPage?.id || 'portfolio-risk' : workspace;
   const [subview, setSubview] = useState<TradingSubview | RiskSubview>(() => subviewFromSearch(workspace));
   const embedded = window.self !== window.top;
   const config = WORKSPACES[workspace];
@@ -1229,6 +1134,18 @@ export function PortfolioCenterApp() {
   const [dashboard, setDashboard] = useState<PortfolioDashboard>();
   const [optimization, setOptimization] = useState<PortfolioOptimizationResult>();
   const [performance, setPerformance] = useState<PortfolioPerformanceResult>();
+  const [riskInput, setRiskInput] = useState<PortfolioPerformanceInput>(DEFAULT_RISK_INPUT);
+  const [riskShocks,setRiskShocks] = useState<Record<Market,number>>({CN:-10,HK:-10,US:-10});
+  const [riskReport, setRiskReport] = useState<PortfolioRiskReport>();
+  const [importDiagnosis,setImportDiagnosis] = useState<ImportDiagnosis>();
+  const [riskNow, setRiskNow] = useState(Date.now);
+  const riskInputRef = useRef(riskInput);
+  riskInputRef.current = riskInput;
+  useEffect(() => {
+    if (workspace !== 'portfolio-risk') return;
+    const timer = window.setInterval(() => setRiskNow(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, [workspace]);
   const [researchCoverage, setResearchCoverage] = useState<PortfolioResearchCoverage>();
   const [researchCoverageLoading, setResearchCoverageLoading] = useState(false);
   const [selected, setSelected] = useState<PortfolioPosition>();
@@ -1247,7 +1164,10 @@ export function PortfolioCenterApp() {
   const identityKeyRef = useRef<string | undefined>(undefined);
   const quoteControllerRef = useRef<AbortController | undefined>(undefined);
   const researchControllerRef = useRef<AbortController | undefined>(undefined);
-  const bridge = useMemo(() => createModBridge({ modId: workspace, parentOrigin: parentOrigin() }), [workspace]);
+  const bridge = useMemo(() => createModBridge({ modId, parentOrigin: parentOrigin() }), [modId]);
+  const riskCache = useMemo(() => identity && workspace === 'portfolio-risk' ? createModSnapshotCache<{ input: PortfolioPerformanceInput; result?: PortfolioPerformanceResult; shocks?:Record<Market,number> }>({
+    modId: 'portfolio-risk', ...identity, resourceKey: 'risk-session', maxBytes: 2 * 1024 * 1024,
+  }) : undefined, [identity?.userId, identity?.workspaceId, workspace]);
   const dashboardCache = useMemo(() => identity ? createModSnapshotCache<PortfolioDashboard>({
     modId: workspace,
     ...identity,
@@ -1281,6 +1201,11 @@ export function PortfolioCenterApp() {
       researchCoverageRef.current = cachedCoverage;
       setOptimization(undefined);
       setPerformance(undefined);
+      setRiskReport(undefined);
+      const riskSession = riskCache?.read()?.value;
+      setRiskInput(riskSession?.input || DEFAULT_RISK_INPUT);
+      setPerformance(riskSession?.result);
+      setRiskShocks(riskSession?.shocks || {CN:-10,HK:-10,US:-10});
       setSelected(undefined);
     }
     const currentDashboard = identityChanged ? cachedDashboard : dashboardRef.current;
@@ -1357,11 +1282,15 @@ export function PortfolioCenterApp() {
   loadRef.current = load;
 
   useEffect(() => { if (identity) void load(); }, [identity, load]);
+  useEffect(() => {
+    if (!loading && dashboard?.userId === identity?.userId && dashboard?.workspaceId === identity?.workspaceId)
+      riskCache?.write({ input: riskInput, result: performance, shocks:riskShocks }, performance?.generatedAt);
+  }, [riskCache, riskInput, performance, riskShocks, loading, dashboard?.userId, dashboard?.workspaceId]);
 
   useEffect(() => {
     let active = true;
     let connection: ModHostConnection | undefined;
-    void connectModHost({ modId: workspace, parentOrigin: parentOrigin(), capabilities: ["events", "actions", "agent", "context", "theme"] })
+    void connectModHost({ modId, parentOrigin: parentOrigin(), capabilities: ["events", "actions", "agent", "context", "theme"] })
       .then((next) => {
         if (!active) { next.close(); return; }
         connection = next;
@@ -1393,14 +1322,17 @@ export function PortfolioCenterApp() {
             return result;
           }
           if (actionId === "portfolio.analyze-performance") {
+            if (contextRef.current.filters.source === 'imported-snapshot') throw new Error('当前为导入快照；原股票账本历史分析不适用于该组合，请使用快照诊断结果。');
             if (!identityRef.current) throw new Error("Desk 身份尚未就绪");
-            const currency = dashboardRef.current?.positions[0]?.currency;
+            const requestIdentity = identityRef.current;
+            const currency = workspace === 'portfolio-risk' ? riskInputRef.current.currency : dashboardRef.current?.positions[0]?.currency;
             if (!currency) throw new Error("当前组合没有可分析持仓");
             const result = await portfolioClient(identityRef.current).analyzePerformance({
               currency,
-              lookbackWeeks: 156,
-              riskFreeRatePct: 2,
+              lookbackWeeks: workspace === 'portfolio-risk' ? riskInputRef.current.lookbackWeeks : 156,
+              riskFreeRatePct: workspace === 'portfolio-risk' ? riskInputRef.current.riskFreeRatePct : 2,
             });
+            if (requestIdentity.userId !== identityRef.current?.userId || requestIdentity.workspaceId !== identityRef.current?.workspaceId) throw new Error('工作区已切换，请在当前工作区重新分析');
             setPerformance(result);
             return result;
           }
@@ -1446,15 +1378,37 @@ export function PortfolioCenterApp() {
     ));
   }, [dashboard, linkedSecurity]);
 
-  const changeSubview = (next: TradingSubview | RiskSubview) => {
+  const changeSubview = (next: TradingSubview | RiskSubview, restored?: { input: PortfolioPerformanceInput; result: PortfolioPerformanceResult }) => {
+    if (restored) { setRiskInput(restored.input); setPerformance(restored.result); }
+    if (workspace === 'portfolio-risk' && embedded && host) {
+      const target = RISK_PAGES.find(p => p.view === next);
+      if (target && target.id !== modId) {
+        riskCache?.write({ input: restored?.input || riskInput, result: restored?.result || performance, shocks:riskShocks }, (restored?.result || performance)?.generatedAt);
+        const url = new URL(parentOrigin());
+        url.searchParams.set('workspace', host.config.workspace.id);
+        url.searchParams.set('mod', target.id);
+        window.top!.location.href = url.href;
+        return;
+      }
+    }
     setSubview(next);
     const url = new URL(window.location.href);
     url.searchParams.set("view", next);
     window.history.replaceState({}, "", url);
   };
 
-  contextRef.current = buildContext(workspace, subview, dashboard, selected, linkedSecurity, optimization, performance, researchCoverage);
-  useEffect(() => { if (host) host.publishContext(contextRef.current); }, [dashboard, host, linkedSecurity, optimization, performance, researchCoverage, selected, subview, workspace]);
+  contextRef.current = buildContext(workspace, subview, dashboard, selected, linkedSecurity, optimization, performance, researchCoverage, riskInput, riskReport, riskNow, error, modId, riskShocks);
+  if (workspace === 'portfolio-risk' && importDiagnosis) {
+    contextRef.current = {
+      view:{id:modId,title:`组合快照 · ${RISK_PAGES.find(p=>p.view===subview)?.label||'风险总览'}`},
+      visibleBlocks:[{id:'portfolio-import-diagnosis',type:'portfolio-risk',title:'导入组合的风险、对冲与安全垫'}],
+      selection:{snapshotId:importDiagnosis.id||'unsaved-preview',productId:importDiagnosis.snapshot.productId||null},
+      filters:{source:'imported-snapshot',riskView:subview,asOf:importDiagnosis.snapshot.asOf,baseCurrency:importDiagnosis.snapshot.baseCurrency},
+      data:{asOf:importDiagnosis.snapshot.asOf,source:'user-imported-portfolio-snapshot',freshness:'unknown',summary:{...importDiagnosis,note:`当前标签为 ${subview}，报告为同一快照的完整依据，不代表所有表格都在当前标签可见。混合组合的实际回撤/VaR和产品级合同限额尚未接入。riskActions 若有值，是本次读取的产品处置台账；未加载时不可声称已检查处置。reviewSnapshotId 仅为复核证据引用；未读取该快照不得声称已经对比，关联新版本不自动证明风险改善。结案或豁免不证明原风险消失，不能自动交易或通知。`+'draftPending 为 true 时存在尚未预览的编辑；此处仍是上次已保存的快照，不得声称已分析修改后的持仓。只解释当前导入快照，不得混入原股票账本。未覆盖风险、人工敏感度和过期证据不能被描述成安全。liquidityPlan 是条件到账假设；不能把 conditionalRemaining 当作现有现金或保证金可用额，不能用未来计划到账消除当前预警。'}},
+      actions:[], tasks:[],
+    };
+  }
+  useEffect(() => { if (host) host.publishContext(contextRef.current); }, [dashboard, host, linkedSecurity, optimization, performance, researchCoverage, selected, subview, workspace, riskInput, riskReport, riskNow, error, riskShocks, importDiagnosis]);
 
   const selectPosition = (position: PortfolioPosition) => {
     setSelected(position);
@@ -1479,7 +1433,7 @@ export function PortfolioCenterApp() {
       {!embedded ? <div data-mod-page-title><span className="folio-eyebrow">{config.eyebrow}</span><h1>{config.title}</h1><p>{config.subtitle}</p></div> : null}
       <div className="header-actions">
         {linkedSecurity && <span className="linked-security-pill">联动标的 {linkedSecurity.market}:{linkedSecurity.symbol}</span>}
-        <span className={`valuation-pill state-${refreshingQuotes ? "loading" : dashboard?.valuationStatus || "loading"}`}><i />{refreshingQuotes ? "行情刷新中" : dashboard?.valuationStatus === "live" ? "实时估值" : dashboard?.valuationStatus === "partial" ? "部分实时" : "成本口径"}</span>
+        <span className={`valuation-pill state-${refreshingQuotes ? "loading" : dashboard?.valuationStatus || "loading"}`}><i />{workspace==='portfolio-risk'&&importDiagnosis ? `导入快照 · ${importDiagnosis.snapshot.asOf}` : refreshingQuotes ? "行情刷新中" : dashboard?.valuationStatus === "live" ? "实时估值" : dashboard?.valuationStatus === "partial" ? "部分实时" : "成本口径"}</span>
         <button className="refresh-button" onClick={() => void load()} disabled={loading || refreshing}>{loading || refreshing || refreshingQuotes ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}{refreshing ? "更新中" : "刷新"}</button>
       </div>
     </header>
@@ -1488,7 +1442,11 @@ export function PortfolioCenterApp() {
     {!dashboard && loading ? <div className="loading-stage"><LoaderCircle className="spin" /><span>正在整理组合账本…</span></div> : dashboard && <>
       {workspace === "portfolio-brief" && <div className="overview-stack"><CurrencyCards dashboard={dashboard} /><div className="content-grid"><PositionsTable dashboard={dashboard} selected={selected} onSelect={selectPosition} /><AllocationBars title="市场暴露" items={dashboard.analytics.byMarket} /></div><ResearchCoveragePanel coverage={researchCoverage} loading={researchCoverageLoading} selected={selected} onSelect={selectResearchPosition} /></div>}
       {workspace === "portfolio-activities" && <TradingWorkbench dashboard={dashboard} view={subview as TradingSubview} onView={changeSubview} selected={selected} onSelect={selectPosition} onRefresh={() => void load()} />}
-      {workspace === "portfolio-risk" && <RiskView dashboard={dashboard} view={subview as RiskSubview} onView={changeSubview} result={performance} onResult={setPerformance} onRefresh={() => void load()} />}
+      {workspace === "portfolio-risk" && <RiskView key={`${dashboard.userId}:${dashboard.workspaceId}`} onImportContext={setImportDiagnosis} dashboard={dashboard} view={subview as RiskSubview} onView={changeSubview} result={performance} onResult={next => {
+        if (identity?.userId === identityRef.current?.userId && identity?.workspaceId === identityRef.current?.workspaceId) setPerformance(next);
+      }} shocks={riskShocks} onShocks={setRiskShocks} input={riskInput} onInput={setRiskInput} report={riskReport} onReport={next => {
+        if (identity?.userId === identityRef.current?.userId && identity?.workspaceId === identityRef.current?.workspaceId) setRiskReport(next);
+      }} now={riskNow} limits={<RiskLimitsView dashboard={dashboard} onRefresh={() => void load()} />} onRefresh={() => void load()} />}
       {workspace === "portfolio-allocation" && <AllocationView dashboard={dashboard} result={optimization} onResult={setOptimization} />}
       {workspace === "portfolio-performance" && <PerformanceView dashboard={dashboard} result={performance} onResult={setPerformance} />}
       {workspace === "portfolio-settings" && <SettingsView dashboard={dashboard} onRefresh={() => void load()} />}

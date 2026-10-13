@@ -13,7 +13,7 @@
     ],
     "completeProjectRule": "A complete source project is imported once, preserved as one Suite, and assigned to one primary investment column. Its pages cannot be redistributed across columns.",
     "nonSuiteRule": "Data providers and Agent capability sources extend existing Suites and cannot declare independent Mod pages or a navigation directory.",
-    "reportSkillRule": "A report-oriented Skill is Agent-only by default: it runs from the current Mod or Numa Agent conversation and returns an inline response or expandable artifact. It does not receive a Mod page, navigation entry, service address, or separate Agent configuration.",
+    "reportSkillRule": "A report-oriented Skill is Agent-only by default: it runs from the current Mod or Newma Agent conversation and returns an inline response or expandable artifact. It does not receive a Mod page, navigation entry, service address, or separate Agent configuration.",
     "scoreSemantics": "snapshot.score is the reviewed editorial score for Desk intake. For source families it reflects the representative investment workflows and integration value, not GitHub popularity.",
     "defaultActivation": "disabled-until-gates-pass"
   },

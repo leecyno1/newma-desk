@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from services.fund_manager_tenure_context import resolve_manager_tenure_context
 from services.manager_tenure_coverage import build_manager_tenure_coverage
 from services.metric_factory import MetricFactory
+from services.performance_nav_series import normalize_performance_rows
 
 
 class ManagerTenureMetricService:
@@ -51,12 +52,12 @@ class ManagerTenureMetricService:
             return {"fund_code": fund_code, "saved": 0, "reason": "insufficient_nav_after_tenure_start", "metrics": []}
 
         effective_as_of = points[-1][0]
-        normalized_series = [{"date": item_date, "nav": nav} for item_date, nav in points]
+        normalized_series = normalize_performance_rows(nav_series)
         coverage = build_manager_tenure_coverage(
             tenure_start,
-            normalized_series[0]["date"],
-            normalized_series[-1]["date"],
-            len(normalized_series),
+            points[0][0],
+            points[-1][0],
+            len(points),
         )
         classification = self.classification_repo.get_classification_context(fund_code) or {}
         benchmark_mapping = classification.get("benchmark_mapping") or {}
@@ -70,6 +71,8 @@ class ManagerTenureMetricService:
             benchmark_code=benchmark_code,
             window=self.WINDOW,
         )
+        if not records:
+            return {"fund_code": fund_code, "saved": 0, "reason": "insufficient_daily_adjusted_nav", "metrics": []}
         records.append({
             "target_type": "fund",
             "target_id": fund_code,
@@ -103,9 +106,9 @@ class ManagerTenureMetricService:
             },
         ])
 
-        saved = []
+        panel = []
         for record in records:
-            saved.append(metric_repo.upsert_metric(
+            panel.append(dict(
                 target_type=record["target_type"],
                 target_id=record["target_id"],
                 as_of_date=record["as_of_date"],
@@ -117,6 +120,7 @@ class ManagerTenureMetricService:
                 peer_group_key=peer_group_key,
                 source_snapshot_id=source_snapshot_id,
                 details={
+                    **records[0].get("details", {}),
                     "calculation_engine": "ManagerTenureMetricService",
                     "manager_tenure_start": tenure_start.isoformat(),
                     "manager_tenure_source": tenure_context.get("source"),
@@ -126,6 +130,7 @@ class ManagerTenureMetricService:
                     **coverage,
                 },
             ))
+        saved = metric_repo.upsert_metrics(panel)
 
         return {
             "fund_code": fund_code,

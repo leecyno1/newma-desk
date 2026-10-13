@@ -192,6 +192,75 @@ describe("WorkbenchView", () => {
       expect.objectContaining({ selectedTopicIds: cards.slice(0, 10).map((card) => card.topic_id) }),
     ));
   });
+
+  it("embeds OpenChatCut in the editor node instead of opening a new window", async () => {
+    const editorSession = {
+      sessionId: "edit-session-1",
+      status: "open",
+      selectedEditorId: "openchatcut",
+      editors: [{
+        id: "openchatcut",
+        name: "OpenChatCut 协同剪辑",
+        kind: "local_web",
+        status: "available",
+        embedMode: "iframe",
+        agentBridge: { endpoint: "http://127.0.0.1:5199/api/external-mcp/mcp", protocol: "openchatcut.edit-session.v1" },
+      }],
+      outputContract: ["final_video"],
+      outputArtifacts: [],
+      createdAt: "2026-08-28T09:00:00+08:00",
+      updatedAt: "2026-08-28T09:00:00+08:00",
+    };
+    const node = {
+      id: "fine_edit",
+      name: "精修与人工剪辑",
+      description: "在时间线完成精修",
+      status: "waiting_user",
+      progress: 80,
+      materialValidation: { status: "ready", missing: [], bindings: [] },
+      materials: [],
+      outputs: ["final_video"],
+      artifacts: [],
+      capabilities: ["openchatcut"],
+      editors: [],
+      actions: [],
+      parameters: {},
+      feedback: [],
+      logs: [],
+      attempt: 1,
+      availableActions: ["creator.editor.launch", "creator.editor.start-agent", "creator.editor.close"],
+      editorSession,
+    } as unknown as SnapshotNode;
+    const stage = { id: "transwrite", name: "多通路转写", status: "running", progress: 80, nodes: [node] } as SnapshotStage;
+    const snapshot = { run: { runId: "video-run", title: "视频剪辑测试" }, stages: [stage], handoffs: [] } as unknown as CreatorSnapshot;
+    const launchUrl = "http://127.0.0.1:5199/#/editor/test-project";
+    const launchedNode = {
+      ...node,
+      editorSession: { ...editorSession, launch: { launchUrl, embedMode: "iframe", status: "open" } },
+    } as unknown as SnapshotNode;
+    const launchedSnapshot = {
+      ...snapshot,
+      stages: [{ ...stage, nodes: [launchedNode] }],
+    } as unknown as CreatorSnapshot;
+    const dispatch = vi.fn(async (actionId: string) => actionId === "creator.editor.launch" ? launchedSnapshot : snapshot);
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    render(<WorkbenchView
+      snapshot={snapshot}
+      selectedStage={stage}
+      selectedNode={node}
+      dispatch={dispatch}
+      busy={false}
+      onCreate={vi.fn()}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "人工编辑" }));
+    fireEvent.click(await screen.findByRole("button", { name: "进入人工剪辑" }));
+
+    const frame = await screen.findByTitle("OpenChatCut 内嵌剪辑台");
+    expect(frame.getAttribute("src")).toBe(launchUrl);
+    expect(open).not.toHaveBeenCalled();
+  });
 });
 
 describe("MarketplaceView", () => {

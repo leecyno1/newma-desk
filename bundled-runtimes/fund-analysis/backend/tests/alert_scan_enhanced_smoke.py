@@ -53,25 +53,12 @@ class FakePeerService:
         }
 
 
-class FakeSalesRuleRepo:
-    def get_latest_rule(self, member):
-        if member["fund_id"] == "FUND-SALES-STALE":
-            return {
-                "wind_code": "519674.OF",
-                "purchase_status": "open",
-                "purchase_fee_rate": None,
-                "redemption_fee_rules": [],
-                "risk_level": "",
-                "source_updated_at": "2026-04-01",
-            }
-        return {
-            "wind_code": member.get("fund_wind_code") or member["fund_id"],
-            "purchase_status": "open",
-            "purchase_fee_rate": 0.001,
-            "redemption_fee_rules": [{"min_days": 7, "fee_rate": 0.0}],
-            "risk_level": "R3",
-            "source_updated_at": "2026-06-01",
-        }
+class FakeManagerRepo:
+    def get_current_fund_tenure_context(self, fund_code):
+        return {}
+
+    def list_fund_manager_departures(self, fund_code, start_date, end_date):
+        return []
 
 
 class FakeAlertRepo:
@@ -82,6 +69,9 @@ class FakeAlertRepo:
         self.created.append(kwargs)
         return {"id": f"event-{len(self.created)}", **kwargs}
 
+    def has_open_event(self, fund_id, event_type):
+        return False
+
 
 def main() -> int:
     repo = FakeAlertRepo()
@@ -90,7 +80,7 @@ def main() -> int:
         metric_repo=FakeMetricRepo(),
         alert_repo=repo,
         peer_service=FakePeerService(),
-        sales_rule_repo=FakeSalesRuleRepo(),
+        manager_repo=FakeManagerRepo(),
         today=date(2026, 6, 4),
     )
     summary = service.scan()
@@ -99,16 +89,10 @@ def main() -> int:
         raise AssertionError(f"Expected review_due alert: {summary}")
     if "peer_percentile" not in event_types:
         raise AssertionError(f"Expected peer_percentile alert: {summary}")
-    if "sales_rule_evidence" not in event_types:
-        raise AssertionError(f"Expected sales_rule_evidence alert: {summary}")
-    sales_rule_events = [event for event in summary.get("events", []) if event.get("event_type") == "sales_rule_evidence"]
-    if not sales_rule_events or sales_rule_events[0].get("severity") != "high":
-        raise AssertionError(f"Expected high severity stale sales-rule evidence alert: {sales_rule_events}")
-    sales_rule_message = sales_rule_events[0].get("message", "")
-    if "30 天复核窗口" not in sales_rule_message or "R1-R5" not in sales_rule_message:
-        raise AssertionError(f"Expected sales-rule alert to mention 30-day window and R1-R5: {sales_rule_message}")
+    if "sales_rule_evidence" in event_types:
+        raise AssertionError(f"sales_rule_evidence alerts must not be produced (fund_sales_rules has no data source): {summary}")
 
-    print("OK alert scan detects review due, weak peer percentile, and stale sales-rule evidence")
+    print("OK alert scan detects review due and weak peer percentile without sales-rule zombie alerts")
     return 0
 
 

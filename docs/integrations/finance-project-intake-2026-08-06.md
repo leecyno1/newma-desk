@@ -6,7 +6,7 @@
 
 ## 结论
 
-本轮不是把高分 Skills 全部做成独立 Mod。17 个仓库中，当前只有 UZI 值得优先作为完整可视化项目试接；Day1Global 和其余报告型来源直接进入 Desk / Numa Agent，不再建设专门页面。其他高质量来源进入统一数据接口或 Agent 能力包。
+本轮不是把高分 Skills 全部做成独立 Mod。17 个仓库中，当前只有 UZI 值得优先作为完整可视化项目试接；Day1Global 和其余报告型来源直接进入 Desk / Newma Agent，不再建设专门页面。其他高质量来源进入统一数据接口或 Agent 能力包。
 
 这样处理有三个直接结果：
 
@@ -77,7 +77,7 @@ GitHub Stars 只表示采用度，不是安全或适配评分。准入分采用�
 ### 阶段 1：UZI 整体试接
 
 - 固定来源提交，作为一个 `uzi-suite` 进入“个股研究”。
-- 一个隔离 Python 环境、一个服务地址、一个健康检查，不复制 Desk Agent。
+- 一个隔离 Python 环境、一个服务地址、一个健康检查，不复制 Newma Agent Runtime。
 - 所有上游页面、研究流程和人物框架保留在同一项目；人物框架标注为模拟方法，不代表本人观点。
 - 禁止默认持久化浏览器 Cookie、Cloudflare Tunnel、系统级安装和任何券商执行。
 - 行情、财务、公告和新闻改走 Desk Finance Data Router，并进入 Evidence Ledger。

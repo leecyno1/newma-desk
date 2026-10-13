@@ -29,7 +29,7 @@ def test_unified_ui_loads_the_vibedesk_embed_adapter() -> None:
     source = INDEX_HTML.read_text(encoding="utf-8")
 
     assert '<link rel="stylesheet" href="/static/modules/vibedesk-embed.css?v=20260730-theme6">' in source
-    assert '<script src="/static/modules/vibedesk-embed.js?v=20260819"></script>' in source
+    assert '<script src="/static/modules/vibedesk-embed.js?v=20260829"></script>' in source
     assert BRIDGE_JS.is_file()
     assert BRIDGE_CSS.is_file()
     css = BRIDGE_CSS.read_text(encoding="utf-8")
@@ -46,6 +46,9 @@ def test_settings_embed_preserves_deepsee_secondary_navigation() -> None:
     assert "tab.click()" in source
     assert "ensureSettingsSecondaryNavigation" in source
     assert "buildSettingsSecondaryNavigationFallback" in source
+    assert "hideRuntimeOwnedSettings" in source
+    assert "['settings-ai-config', 'settings-prompts']" in source
+    assert "section.dataset.navHidden = '1'" in source
     assert "#function-settings .settings-layout" in css
     assert "min-height: calc(100vh - 16px)" in css
     assert "max-height: calc(100vh - 16px)" in css
@@ -63,14 +66,23 @@ def test_vibedesk_bridge_has_valid_javascript_syntax() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_vibedesk_bridge_keeps_agent_and_model_gateways_separate() -> None:
+def test_vibedesk_bridge_routes_agent_requests_through_the_runtime_seam() -> None:
     source = BRIDGE_JS.read_text(encoding="utf-8")
 
-    assert "createAgentTask" in source
-    assert "'/api/agent/tasks'" in source
-    assert "createModelResponse" in source
-    assert "'/api/model/responses'" in source
+    assert "requestAgent" in source
+    assert "vibedesk:copilot-open" in source
+    assert "instanceId: state.instanceId" in source
+    assert "modId: state.moduleId" in source
+    assert "agentRuntimeAvailable" in source
+    assert "value.owner === 'newma'" in source
+    assert "value.owner === 'numa'" in source
+    assert "value.owner === 'desk'" in source
+    assert "/api/agent/tasks" not in source
+    assert "/api/model/responses" not in source
     assert "window.__autoModuleRefreshBound = true" in source
+    assert "contextSource: 'dom-html-fallback'" in source
+    assert "visibleText" in source
+    assert "renderedHtml" in source
 
 
 def test_vibedesk_bridge_supports_manifest_actions_and_context() -> None:
@@ -82,32 +94,36 @@ def test_vibedesk_bridge_supports_manifest_actions_and_context() -> None:
     assert "vibedesk:action-request" in source
     assert "vibedesk:action-result" in source
     assert "vibedesk:context-request" in source
-    assert "waitForTask" in source
+    assert "vibedesk:copilot-open" in source
 
 
-def test_deepsee_ai_and_news_use_desk_agent_actions_when_embedded() -> None:
+def test_deepsee_ai_and_news_handoff_to_the_active_runtime_when_embedded() -> None:
     source = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert "deepsee.insights.analyze" in source
-    assert "deepsee.news.batch-analyze" in source
     assert 'id="newsBatchAnalyzeBtn"' in source
-    assert "runDeskAgentInsight" in source
+    assert "requestAgentInsight" in source
+    assert "bridge.requestAgent" in source
+    assert "deepsee.insights.analyze" not in source
+    assert "deepsee.news.batch-analyze" not in source
+    assert "Desk Agent" not in source
+    assert 'id="settings-agent"' not in source
+    assert "/api/ai/desk-agent/capabilities" not in source
 
 
 def test_deepsee_agent_analysis_uses_bounded_page_evidence() -> None:
     source = INDEX_HTML.read_text(encoding="utf-8")
-    insight_source = source.split("async function runDeskAgentInsight", 1)[1].split(
+    insight_source = source.split("async function requestAgentInsight", 1)[1].split(
         "let lastAnalyzedMessages", 1
     )[0]
     news_source = source.split("async function runNewsBatchAnalysis", 1)[1].split(
         "function bindNewsEngineControls", 1
     )[0]
 
-    assert ".slice(0, 80)" in insight_source
-    assert ".slice(0, 600)" in insight_source
+    assert ".slice(0, 30)" in insight_source
+    assert ".slice(0, 180)" in insight_source
     assert "不扫描项目、数据库或其他文件" in insight_source
-    assert "如果 evidence 为空" in insight_source
-    assert "evidence," in insight_source
+    assert "当前筛选无样本" in insight_source
+    assert "页面结构化 Context、当前 DOM/HTML 已同步" in insight_source
     assert ".slice(0, 80)" in news_source
     assert "items.slice(0, 30)" in news_source
     assert ".slice(0, 120)" in news_source

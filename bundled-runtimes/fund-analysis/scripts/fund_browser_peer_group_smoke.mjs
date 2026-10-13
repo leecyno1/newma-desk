@@ -9,7 +9,11 @@ async function fetchJson(path) {
   return payload
 }
 
+// 53f3dcd 把浏览器拆为 DataTable / ResultCard / view-model 三层组件，锚点随实现迁移。
 const discoverPage = readFileSync('app/(dashboard)/discover/FundDiscoverClient.tsx', 'utf8')
+const browserDataTable = readFileSync('app/(dashboard)/discover/FundBrowserDataTable.tsx', 'utf8')
+const browserResultCard = readFileSync('app/(dashboard)/discover/FundBrowserResultCard.tsx', 'utf8')
+const browserViewModel = readFileSync('app/(dashboard)/discover/fund-browser-view-model.ts', 'utf8')
 const simpleFundView = readFileSync('lib/simple-fund-view.ts', 'utf8')
 const simpleFundDetailPage = readFileSync('app/(dashboard)/funds/[id]/page.tsx', 'utf8')
 const simpleComparePage = readFileSync('app/(dashboard)/compare/page.tsx', 'utf8')
@@ -22,10 +26,6 @@ for (const required of [
   "params.set('return6mMin'",
   "params.set('return3yMin'",
   "availability: nextAvailability",
-  "可评价",
-  "已分类 · 评价待补",
-  "peerReturnMetric(fund, '6m')",
-  "peerReturnMetric(fund, '3y')",
   "多周期同类领先",
   "基础指数",
   "收益口径",
@@ -36,13 +36,7 @@ for (const required of [
   "推荐方案",
   "已选条件",
   "selectRecommendedPlan",
-  "fundBrowserSummary",
-  "亮点：",
-  "风险：",
   "本次筛选怎么来的",
-  "为什么出现在这里",
-  "条件已核对",
-  "fundSelectionExplanation",
   "风格标签",
   "任一匹配",
   "全部匹配",
@@ -51,6 +45,20 @@ for (const required of [
   "先选一个用途",
 ]) {
   if (!discoverPage.includes(required)) throw new Error(`fund browser missing peer-group guard: ${required}`)
+}
+for (const [label, source, required] of [
+  ['fund browser table', browserDataTable, '已分类 · 评价待补'],
+  ['fund browser table', browserDataTable, "peerReturnMetric(fund, '6m')"],
+  ['fund browser table', browserDataTable, "peerReturnMetric(fund, '3y')"],
+  ['fund browser table', browserDataTable, '可评价'],
+  ['fund browser result card', browserResultCard, '亮点：'],
+  ['fund browser result card', browserResultCard, '风险：'],
+  ['fund browser result card', browserResultCard, '为什么出现在这里'],
+  ['fund browser result card', browserResultCard, '条件已核对'],
+  ['fund browser view model', browserViewModel, 'fundBrowserSummary'],
+  ['fund browser view model', browserViewModel, 'fundSelectionExplanation'],
+]) {
+  if (!source.includes(required)) throw new Error(`${label} missing: ${required}`)
 }
 
 if (discoverPage.includes("professionalFundScore(fund) == null)")) {

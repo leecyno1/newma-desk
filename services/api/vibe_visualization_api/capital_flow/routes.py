@@ -18,6 +18,7 @@ async def search_capital_flow_security(
     return await CapitalFlowService(
         settings.research_base_url,
         timeout_seconds=settings.capital_flow_timeout_seconds,
+        tushare_token=settings.tushare_token.get_secret_value(),
     ).search_securities(query.strip(), limit)
 
 
@@ -32,4 +33,5 @@ async def get_capital_flow(
     return await CapitalFlowService(
         settings.research_base_url,
         timeout_seconds=settings.capital_flow_timeout_seconds,
+        tushare_token=settings.tushare_token.get_secret_value(),
     ).dashboard(normalized)

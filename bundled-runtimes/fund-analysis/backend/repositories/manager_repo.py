@@ -516,6 +516,34 @@ class ManagerRepo:
             logger.error(f"list_fund_tenures error for {manager_id}: {e}")
             return []
 
+    def list_fund_manager_departures(
+        self, fund_code: str, start_date: date, end_date: date,
+    ) -> List[Dict[str, Any]]:
+        try:
+            from sqlalchemy import text
+
+            with self.engine.connect() as conn:
+                rows = conn.execute(text("""
+                    SELECT tenure.manager_id,
+                           COALESCE(NULLIF(manager.name, ''), tenure.manager_id) AS manager_name,
+                           tenure.start_date, tenure.end_date, tenure.source
+                    FROM manager_fund_tenures tenure
+                    LEFT JOIN managers manager ON manager.wind_code = tenure.manager_id
+                    WHERE tenure.fund_code = :fund_code
+                      AND tenure.is_current = FALSE
+                      AND tenure.end_date >= tenure.start_date
+                      AND tenure.end_date BETWEEN :start_date AND :end_date
+                    ORDER BY tenure.end_date, tenure.manager_id, tenure.start_date
+                """), {
+                    "fund_code": str(fund_code or "").strip().upper(),
+                    "start_date": start_date,
+                    "end_date": end_date,
+                }).fetchall()
+            return [dict(row._mapping) for row in rows]
+        except Exception as e:
+            logger.error(f"list_fund_manager_departures error for {fund_code}: {e}")
+            return []
+
     def get_current_fund_tenure_context(self, fund_code: str) -> Dict[str, Any]:
         """返回基金现任管理团队的共同评价起点。多人共管时取最晚上任日。"""
         try:

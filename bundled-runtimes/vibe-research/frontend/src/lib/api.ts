@@ -44,6 +44,25 @@ export interface MyReport {
   id: string; name: string; industry: string; size: number; ext: string; ts: number;
 }
 
+export interface EarningsPdfCandidate {
+  id: string; label: string; value: number; unit: string;
+  rawValue: string; rawUnit: string; page: number; excerpt: string; columnHeader: string;
+}
+export interface EarningsPdfImport {
+  reportId: string; name: string; pageCount: number; readPages: number[];
+  security: {market: string; symbol: string; name: string; currency: string};
+  periodEnd: string | null; basis: 'annual'; retrievedAt: string;
+  candidates: EarningsPdfCandidate[]; warnings: string[];
+  discussion?: {id: string; page: number; topics: string[]; text: string; truncated: boolean}[];
+  discussionPages?: number[];
+  capitalCandidates?: EarningsPdfCandidate[];
+  capitalReadPages?: number[];
+  capitalWarnings?: string[];
+  capitalNotes?: {id: string; page: number; title: string; topics: string[]; text: string; truncated: boolean}[];
+  capitalNotesReadPages?: number[];
+  capitalNotesWarnings?: string[];
+}
+
 // 下载/预览研报：带鉴权头 fetch → blob → 触发浏览器下载（<a download> 无法带 Authorization，故走 blob）。
 export async function downloadReport(id: string, name: string): Promise<void> {
   const resp = await fetch(researchApiUrl(`/myreports/file/${id}`), { headers: authHeaders() });
@@ -119,6 +138,20 @@ export interface ValPercentile {
 
 export interface Announcement {
   date: string; title: string; type: string; url: string;
+  announcementId?: string;
+}
+
+export type AnnouncementText = {
+  announcementId: string; symbol: string; title: string; date: string;
+  url: string; pdfUrl: string | null; text: string; truncated: boolean;
+  retrievedAt: string;
+} & ({contentOrigin: 'provider-transcription'; segment: number; segmentCount: number | null; pdfPage?: never; pdfPageCount?: never}
+  | {contentOrigin: 'pdf-text'; pdfPage: number; pdfPageCount: number; segment?: never; segmentCount?: never});
+
+export interface AnnouncementSearch {
+  symbol: string; begin: string; end: string; category: 'all' | 'financial';
+  page: number; pageSize: number; total: number | null; hasMore: boolean;
+  items: Announcement[]; retrievedAt: string;
 }
 
 export type CatalystType =
@@ -200,13 +233,14 @@ export interface MacroIndicator {
   period: string;
   releaseDate: string | null;
   dateBasis?: "release" | "source-update" | "period";
+  revisionStatus?: "not-tracked";
   nextReleaseDate?: string;
   value: number;
   forecast: number | null;
   previous: number | null;
   change: number | null;
   direction: "higher" | "lower" | "flat";
-  source: { id: string; label: string; url: string };
+  source: { id: string; label: string; url: string; seriesId?: string; originalSource?: string; originalSeriesId?: string; fallbackReason?: string; seasonalAdjustment?: string; population?: string; calculation?: string };
   evidenceId: string;
   asOf: string;
   freshness: { status: "fresh" | "stale" | "unknown"; ageDays?: number };
@@ -214,21 +248,35 @@ export interface MacroIndicator {
   history: Array<{ period: string; value: number }>;
 }
 
-export interface MacroCalendarEvent {
+export interface MacroCalendarRecord {
   id: string;
   date: string;
   time: string | null;
   region: string;
+  timeBasis?: { kind: "explicit-offset" | "unconfirmed" | "date-only"; timeZone: string | null; timestamp: string | null; note: string };
+  regionCode?: string | null;
+  regionGroup?: "CN" | "HK" | "MO" | "TW" | "US" | "EU" | "OTHER" | "UNKNOWN";
+  regionBasis?: { kind: "title" | "source" | "conflict" | "unknown"; titleRegion: string | null; reportedRegion: string | null; reason: string };
   currency: string | null;
   title: string;
-  importance: "high" | "medium" | "low";
+  importance: "high" | "medium" | "low" | "unknown";
+  importanceBasis?: { kind: "source" | "rule" | "unknown"; reason: string; sourceValue?: string; ruleId?: string; version?: string };
   status: "scheduled" | "released";
   actual: number | null;
   forecast: number | null;
   previous: number | null;
-  source: { id: string; label: string; url: string };
+  actualText?: string | null;
+  forecastText?: string | null;
+  previousText?: string | null;
+  source: { id: string; label: string; url: string; reportedCountry?: string; reportedRegion?: string; reportedDate?: string; reportedTime?: string };
   evidenceId: string;
   asOf: string;
+}
+
+export interface MacroCalendarEvent extends MacroCalendarRecord {
+  recordCount?: number;
+  records?: MacroCalendarRecord[];
+  conflictFields?: Array<"actual" | "forecast" | "previous" | "importance">;
 }
 
 export interface MacroMonitorFeed {
@@ -244,9 +292,30 @@ export interface MacroMonitorFeed {
     transmission: Array<{ id: string; title: string; signal: MacroRegimeDimension["signal"]; summary: string; assets: string[]; evidenceIds: string[] }>;
     scenarios: Array<{ id: string; label: string; probability: string; summary: string; triggers: string[]; evidenceIds: string[] }>;
   };
+  decisionReview?: {
+    adoption: string;
+    thesis: string;
+    scope: string;
+    supportingEvidence: Array<{ dimension: string; signal: MacroRegimeDimension["signal"]; summary: string; evidenceIds: string[] }>;
+    counterEvidence: string[];
+    checks: string[];
+    nextReviewEvents: Array<{ id: string; date: string; title: string; importance: MacroCalendarEvent["importance"]; ratingBasis?: "source" | "rule" | "unknown"; evidenceId: string }>;
+  };
   liquidity?: MacroLiquidityMonitor;
   indicators: MacroIndicator[];
   events: MacroCalendarEvent[];
+  calendarCoverage?: {
+    sourceId: string;
+    start: string;
+    end: string;
+    requestedDays: number;
+    queriedDays: number;
+    eventDays: number;
+    status: "queried" | "partial" | "unavailable";
+    missingDates: string[];
+    emptyDates: string[];
+    note: string;
+  } | null;
   sources: Array<{
     id: string;
     label: string;
@@ -283,19 +352,20 @@ export interface MacroLiquidityMonitor {
     indicators: MacroLiquidityIndicator[];
   }>;
   indicators: MacroLiquidityIndicator[];
-  forecast: {
-    horizonDays: number;
+  assessment: {
     signal: "supportive" | "restrictive" | "mixed";
-    direction: "higher" | "lower" | "mixed";
-    confidence: number;
+    complete: boolean;
+    supportiveCount: number;
+    restrictiveCount: number;
+    observedCount: number;
     method: string;
     items: Array<{
       id: string;
       name: string;
-      direction: "higher" | "lower" | "flat";
-      latest: number;
-      forecast: number;
-      slope: number;
+      period: string;
+      change: number;
+      unit: string;
+      vote: "supportive" | "restrictive" | "flat";
     }>;
   };
   coverage: { available: number; total: number; asOf: string | null };
@@ -311,7 +381,8 @@ export interface MacroRegimeDimension {
 }
 
 export interface Financials {
-  period: string | null;
+  basis?: 'ytd' | 'quarter' | 'annual';
+  period: string | number | null;
   revenue: string | null; revenue_yoy: string | null;
   net_profit: string | null; net_profit_yoy: string | null;
   eps: string | null; bvps: string | null; roe: string | null;
@@ -797,8 +868,11 @@ export const api = {
   removeClosed: (index: number) => request<PortfolioData>(`/portfolio/close?index=${index}`, "DELETE"),
   valuation: (code: string) => get<Valuation>(`/valuation?code=${code}`),
   percentile: (code: string) => get<ValPercentile>(`/valuation/percentile?code=${code}`),
-  financials: (code: string) => get<Financials>(`/financials?code=${code}`),
+  financials: (code: string, basis: 'ytd' | 'quarter' | 'annual' = 'ytd') => get<Financials>(`/financials?code=${code}&basis=${basis}`),
   announcements: (code: string) => get<Announcement[]>(`/announcements?code=${code}`),
+  announcementSearch: (code:string, begin:string, end:string, category:'all'|'financial', page=1) => get<AnnouncementSearch>(`/announcement-search?${new URLSearchParams({code,begin,end,category,page:String(page)})}`),
+  announcementText: (code: string, announcementId: string, segment = 1) => get<AnnouncementText>(`/announcement-text?code=${encodeURIComponent(code)}&announcementId=${encodeURIComponent(announcementId)}&segment=${segment}`),
+  announcementPdfPage: (code: string, announcementId: string, page = 1) => get<AnnouncementText>(`/announcement-pdf-page?code=${encodeURIComponent(code)}&announcementId=${encodeURIComponent(announcementId)}&page=${page}`),
   catalysts: (
     symbols: string[],
     days = 180,
@@ -825,6 +899,9 @@ export const api = {
   investorQa: (code: string) => get<QaRow[]>(`/investor-qa?code=${code}`),
   industry: (top = 20) => get<IndustryData>(`/industry?top=${top}`),
   myReports: () => get<MyReport[]>("/myreports"),
+  earningsPdfCandidates: (id: string) => get<EarningsPdfImport>(`/myreports/${encodeURIComponent(id)}/earnings-candidates`),
+  earningsCapitalCandidates: (id: string) => get<EarningsPdfImport>(`/myreports/${encodeURIComponent(id)}/earnings-candidates?capital=true`),
+  earningsCapitalNotes: (id: string) => get<EarningsPdfImport>(`/myreports/${encodeURIComponent(id)}/earnings-candidates?notes=true`),
   uploadReport: (name: string, contentB64: string) =>
     request<MyReport>("/myreports", "POST", { name, content_b64: contentB64 }),
   deleteReport: (id: string) => request<{ ok: boolean }>(`/myreports/${id}`, "DELETE"),

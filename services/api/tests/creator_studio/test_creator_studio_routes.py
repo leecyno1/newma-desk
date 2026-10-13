@@ -6,7 +6,6 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from vibe_visualization_api.config import Settings
-from vibe_visualization_api.creator_studio.adapter import CreatorControlAdapter
 from vibe_visualization_api.main import create_app
 
 
@@ -208,25 +207,25 @@ def test_creator_runtime_startup_does_not_create_storage_until_used(tmp_path: Pa
     assert not database_path.exists()
 
 
-def test_creator_agent_check_passes_cli_args_without_http_error(tmp_path: Path):
-    workspace = tmp_path / "creator-workspace"
-    script = workspace / "scripts" / "newma_creator_control.py"
-    script.parent.mkdir(parents=True)
-    script.write_text(
-        "import json, sys\n"
-        "print(json.dumps({'status': 'succeeded', 'args': sys.argv[1:]}))\n",
-        encoding="utf-8",
+def test_creator_system_info_does_not_expose_absolute_local_paths(tmp_path: Path):
+    workspace = creator_workspace(tmp_path)
+    settings = Settings(
+        runtime_dir=tmp_path / "runtime",
+        database_path=tmp_path / "newma-desk.db",
+        creator_studio_workspace=workspace,
+        creator_studio_dist=tmp_path / "missing-dist",
     )
 
-    result = CreatorControlAdapter(workspace).test_agent(
-        "codex",
-        "/tmp/custom-codex",
-    )
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/api/creator-studio/system")
 
-    assert result["status"] == "succeeded"
-    assert result["args"][0] == "invoke-cli"
-    assert "--agent" in result["args"]
-    assert "--bin-override" in result["args"]
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workspace"] == "creator-workspace"
+    assert payload["registryPath"] == (
+        "configs/workflow/newma_creator_studio_registry.json"
+    )
+    assert str(tmp_path) not in json.dumps(payload)
 
 
 def test_creator_commands_share_one_workspace_scoped_run_state(tmp_path: Path):

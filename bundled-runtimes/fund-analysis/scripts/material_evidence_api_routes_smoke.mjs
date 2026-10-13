@@ -49,7 +49,7 @@ for (const route of legacyRoutes) {
 
 const activeSurfaces = [
   'app/(dashboard)/funds/page.tsx',
-  'app/(dashboard)/funds/[id]/FundDetailClient.tsx',
+  'app/(dashboard)/funds/[id]/SimpleFundDetailClient.tsx',
   'app/(dashboard)/market/MarketBrowserClient.tsx',
   'app/(dashboard)/analysis/[id]/AnalysisDetailClient.tsx',
   'app/(dashboard)/analysis/comparison/page.tsx',
@@ -60,9 +60,6 @@ for (const [file, content] of activeSurfaces) {
   if (content.includes('/sales-rules')) throw new Error(`${file} should link canonical material evidence pages`)
 }
 
-const fundDetail = read('app/(dashboard)/funds/[id]/FundDetailClient.tsx')
-assertIncludes(fundDetail, '/api/funds/${encodeURIComponent(fund.windCode)}/materials', 'fund detail saves material evidence through canonical per-fund API')
-assertNotIncludes(fundDetail, '/api/funds/${encodeURIComponent(fund.windCode)}/sales-rules', 'fund detail per-fund legacy material API')
 
 const acceptance = read('scripts/fund_research_acceptance_smoke.mjs')
 assertIncludes(acceptance, 'material_evidence_api_routes_smoke.mjs', 'main acceptance includes material evidence API smoke')

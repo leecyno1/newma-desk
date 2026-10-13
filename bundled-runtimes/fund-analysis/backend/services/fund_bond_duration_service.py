@@ -10,10 +10,11 @@ from scipy.optimize import minimize
 from sklearn.cluster import KMeans
 
 from services.chinabond_index_service import ChinaBondIndexService
+from services.bond_nav_series import positive_levels, weekly_endpoints, returns_at_endpoints
 
 
 class FundBondDurationService:
-    METHODOLOGY_VERSION = "jigouyun_public_rbsa_v1"
+    METHODOLOGY_VERSION = "jigouyun_public_rbsa_adj_endpoints_v3"
     MINIMUM_WEEKS = 52
     SOURCE = "local.postgres.fund_nav+chinabond.index"
     GROUP_ORDER = ["policy_bank", "credit", "short_financing", "interbank_cd"]
@@ -55,7 +56,12 @@ class FundBondDurationService:
             )
         latest = self.repo.latest_estimate(str(fund.get("wind_code") or wind_code), window_weeks)
         if latest:
-            return self._decorate(latest)
+            if latest.get("methodology_version") != self.METHODOLOGY_VERSION:
+                return self._base_response(
+                    str(fund.get("wind_code") or wind_code), window_weeks, "not_run",
+                    ["已有久期缓存使用旧净值口径，请重新现场测算；旧结果不作为当前风险证据"],
+                )
+            return self._decorate({**latest, "index_inventory": self.repo.index_inventory()})
         inventory = self.repo.index_inventory()
         return self._base_response(
             str(fund.get("wind_code") or wind_code),
@@ -74,27 +80,34 @@ class FundBondDurationService:
         if not self._is_bond_fund(fund):
             return self._base_response(code, window_weeks, "not_applicable", ["当前只对债券型基金估算久期"])
 
-        if refresh_indices:
-            self.index_service.sync()
-        else:
-            self.index_service.ensure_local_data()
-
-        fund_weekly, nav_basis = self._fund_weekly_returns(code)
+        fund_levels = positive_levels(self.nav_repo.get_nav_series(code))
+        fund_weekly = self._weekly_returns(fund_levels)
+        nav_basis = "adj_nav"
         if len(fund_weekly) < self.MINIMUM_WEEKS:
             return self._base_response(
                 code,
                 window_weeks,
                 "insufficient_evidence",
-                [f"基金周收益只有 {len(fund_weekly)} 个观测，至少需要 {self.MINIMUM_WEEKS} 个"],
+                [f"有效复权净值周收益只有 {len(fund_weekly)} 个观测，至少需要 {self.MINIMUM_WEEKS} 个；不以累计或单位净值补齐"],
             )
+
+        if refresh_indices:
+            self.index_service.sync()
+            inventory = self.repo.index_inventory()
+        else:
+            inventory = self.index_service.ensure_local_data()
+        if inventory.get("status") != "ready":
+            return self._base_response(code, window_weeks, "insufficient_evidence",
+                inventory.get("missing_items") or ["中债分期限指数或久期数据仍不完整，请核对数据源后重试"], index_inventory=inventory)
 
         end_date = fund_weekly.index.max().date().isoformat()
         start_date = (fund_weekly.index.max().date() - timedelta(days=window_weeks * 10)).isoformat()
         definitions = ChinaBondIndexService.definitions()
         definition_map = {item["series_key"]: item for item in definitions}
         wealth_rows = self.repo.list_index_series(list(definition_map), "wealth", start_date, end_date)
+        endpoints = weekly_endpoints(fund_levels)
         weekly_by_key = {
-            key: self._weekly_returns(self._series(rows))
+            key: returns_at_endpoints(self._series(rows), endpoints)
             for key, rows in wealth_rows.items()
             if rows
         }
@@ -131,7 +144,8 @@ class FundBondDurationService:
             final_frame["fund"].to_numpy(),
             final_frame[selected_keys].to_numpy(),
         )
-        duration_values = self.repo.latest_indicator_values(selected_keys, "duration", final_frame.index[-1].date().isoformat())
+        actual_end = endpoints.loc[final_frame.index[-1]].date().isoformat()
+        duration_values = self.repo.latest_indicator_values(selected_keys, "duration", actual_end)
         if len(duration_values) != len(selected_keys):
             return self._base_response(code, window_weeks, "insufficient_evidence", ["所选期限指数缺少同期平均市值法久期"])
 
@@ -141,7 +155,15 @@ class FundBondDurationService:
         for index, key in enumerate(selected_keys):
             definition = definition_map[key]
             duration_row = duration_values[key]
-            duration = float(duration_row["value"])
+            duration_date = date.fromisoformat(str(duration_row["trade_date"])[:10])
+            if (date.fromisoformat(actual_end) - duration_date).days > 7:
+                return self._base_response(code, window_weeks, "insufficient_evidence", [f"{definition['group_label']}·{definition['period_label']} 久期截至 {duration_date}，与净值观测日相差超过7日"])
+            try:
+                duration = float(duration_row["value"])
+            except (TypeError, ValueError):
+                duration = np.nan
+            if not np.isfinite(duration) or duration < 0:
+                return self._base_response(code, window_weeks, "insufficient_evidence", ["所选指数久期无效，不能形成估算"])
             weight = float(weights[index])
             contribution = weight * duration
             estimated_duration += contribution
@@ -164,13 +186,13 @@ class FundBondDurationService:
                 "duration_contribution": round(contribution, 6),
             })
 
-        as_of_date = final_frame.index[-1].date().isoformat()
+        as_of_date = actual_end
         low_fit = r_squared < 0.45
         row = {
             "wind_code": code,
             "as_of_date": as_of_date,
             "window_weeks": window_weeks,
-            "data_start": final_frame.index[0].date().isoformat(),
+            "data_start": endpoints.shift(1).loc[final_frame.index[0]].date().isoformat(),
             "data_end": as_of_date,
             "observations": len(final_frame),
             "estimated_duration": round(estimated_duration, 6),
@@ -187,7 +209,7 @@ class FundBondDurationService:
             "nav_basis": nav_basis,
         }
         self.repo.upsert_estimate(row)
-        return self._decorate({**row, "calculated_at": None})
+        return self._decorate({**row, "calculated_at": None, "index_inventory": inventory})
 
     def _select_group(
         self,
@@ -264,30 +286,17 @@ class FundBondDurationService:
         return result.x, r_squared, tracking_error
 
     def _fund_weekly_returns(self, wind_code: str) -> Tuple[pd.Series, str]:
-        rows = self.nav_repo.get_nav_series(wind_code)
-        accum_count = sum(item.get("accum_nav") is not None for item in rows)
-        nav_basis = "accum_nav" if accum_count >= 2 else "unit_nav"
-        values = {}
-        for item in rows:
-            item_date = str(item.get("date") or "")[:10]
-            raw_value = item.get("accum_nav") if nav_basis == "accum_nav" else (item.get("nav") or item.get("unit_nav"))
-            try:
-                value = float(raw_value)
-            except (TypeError, ValueError):
-                continue
-            if item_date and value > 0:
-                values[pd.Timestamp(item_date)] = value
-        return self._weekly_returns(pd.Series(values).sort_index()), nav_basis
+        return self._weekly_returns(positive_levels(self.nav_repo.get_nav_series(wind_code))), "adj_nav"
 
     @staticmethod
     def _series(rows: List[Dict[str, Any]]) -> pd.Series:
-        return pd.Series({pd.Timestamp(str(row["trade_date"])[:10]): float(row["value"]) for row in rows}).sort_index()
+        return positive_levels(rows, "value")
 
     @staticmethod
     def _weekly_returns(levels: pd.Series) -> pd.Series:
         if levels.empty:
             return levels
-        return levels.resample("W-FRI").last().pct_change(fill_method=None).dropna()
+        return returns_at_endpoints(levels, weekly_endpoints(levels))
 
     @staticmethod
     def _univariate_r_squared(y: np.ndarray, x: np.ndarray) -> float:
@@ -320,7 +329,13 @@ class FundBondDurationService:
 
     def _decorate(self, row: Dict[str, Any]) -> Dict[str, Any]:
         payload = dict(row)
-        payload["formal_duration_ready"] = payload.get("status") == "ok" and float(payload.get("r_squared") or 0) >= 0.45
+        if payload.get("as_of_date") and (date.today() - date.fromisoformat(str(payload["as_of_date"])[:10])).days > 7:
+            payload["status"] = "stale"
+            payload["missing_items"] = [*(payload.get("missing_items") or []), "此结果观测日距今超过7日，仅作历史参考，请重新测算"]
+        current_method = payload.get("methodology_version") == self.METHODOLOGY_VERSION
+        payload["formal_duration_ready"] = current_method and payload.get("status") == "ok" and float(payload.get("r_squared") or 0) >= 0.45
+        if current_method:
+            payload["nav_basis"] = "adj_nav"
         payload["fit_label"] = self._fit_label(payload.get("r_squared"))
         payload["methodology"] = {
             "reference": "基构云公开债基久期方法",
@@ -329,7 +344,8 @@ class FundBondDurationService:
             "selection": "每组将基金与 5 条分期限指数周收益聚成 2 类，再在基金所在簇选择单变量拟合度最高的指数",
             "regression": "对 4 条入选指数执行非负、权重和为 1 的 Sharpe 收益率风格回归",
             "duration": "使用各入选指数同期平均市值法久期按回归权重加权",
-            "version": self.METHODOLOGY_VERSION,
+            "version": payload.get("methodology_version"),
+            "nav_basis": "仅使用复权净值；基金与指数按相同实际起止日期计算周收益，不填补缺失值",
         }
         payload["limitations"] = self.LIMITATIONS
         payload["source_url"] = ChinaBondIndexService.PAGE_URL
@@ -345,6 +361,8 @@ class FundBondDurationService:
     ) -> Dict[str, Any]:
         return self._decorate({
             "wind_code": wind_code,
+            "methodology_version": self.METHODOLOGY_VERSION,
+            "nav_basis": "adj_nav",
             "status": status,
             "window_weeks": window_weeks,
             "estimated_duration": None,

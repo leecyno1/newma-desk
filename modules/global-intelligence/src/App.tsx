@@ -9,6 +9,7 @@ import {
 
 import { GlobalIntelligenceDashboard } from "./Dashboard";
 import { GlobalTopicDashboard, type GlobalTopicId } from "./TopicDashboard";
+import { buildGlobalTopicContext, GLOBAL_TOPICS } from "./topicContext";
 import {
   createGlobalIntelDataSource,
   type GlobalIntelDataSource,
@@ -37,7 +38,16 @@ function initialTheme(): "light" | "dark" {
 
 export function buildGlobalIntelligenceContext(
   state: Record<string, unknown>,
+  topicId?: GlobalTopicId,
 ): ModPageContext {
+  if (topicId) return buildGlobalTopicContext(topicId, state);
+  const selectedEvent = state.selectedEvent && typeof state.selectedEvent === "object"
+    ? state.selectedEvent as Record<string, unknown> : undefined;
+  const asOf = selectedEvent ? selectedEvent.collectedAt : state.lastUpdate;
+  const visibleEvents = Array.isArray(state.events) ? state.events as Array<Record<string, unknown>> : [];
+  const freshness = selectedEvent?.sourceFreshness
+    ?? (visibleEvents.some((event) => event.sourceFreshness === "stale") ? "stale"
+      : visibleEvents.length && visibleEvents.every((event) => event.sourceFreshness === "fresh") ? "fresh" : "unknown");
   return {
     view: { id: "global-situation", title: "全球情报" },
     visibleBlocks: [
@@ -46,14 +56,14 @@ export function buildGlobalIntelligenceContext(
       { id: "global-intelligence-sources", type: "source-health", title: "来源健康" },
       { id: "global-intelligence-dossier", type: "event-detail", title: "事件详情" },
     ],
-    selection: {},
+    selection: selectedEvent ? { event: selectedEvent } : {},
     filters: state.filters && typeof state.filters === "object"
       ? state.filters as Record<string, unknown>
       : {},
     data: {
       source: "world-intel-mcp",
-      freshness: state.streamStatus === "live" ? "live" : "unknown",
-      ...(typeof state.lastUpdate === "string" ? { asOf: state.lastUpdate } : {}),
+      freshness: freshness === "stale" || freshness === "fresh" ? freshness : "unknown",
+      ...(typeof asOf === "string" ? { asOf } : {}),
       summary: state,
     },
     actions: [
@@ -77,8 +87,10 @@ export function GlobalIntelligenceApp({
   embedded?: boolean;
   topicId?: GlobalTopicId;
 }) {
-  const topicId = providedTopicId ?? (new URLSearchParams(window.location.search).get("topic") as GlobalTopicId | null);
-  const runtimeModId = topicId === "fed-rates" ? "fed-rates" : topicId === "hormuz" ? "hormuz-conflict" : topicId === "us-china-trade" ? "us-china-trade" : "global-situation";
+  const requestedTopic = providedTopicId ?? new URLSearchParams(window.location.search).get("topic");
+  const topicId = requestedTopic && Object.hasOwn(GLOBAL_TOPICS, requestedTopic) ? requestedTopic as GlobalTopicId : undefined;
+  const topicTitle = topicId ? GLOBAL_TOPICS[topicId].title : "全球情报";
+  const runtimeModId = topicId ? GLOBAL_TOPICS[topicId].id : "global-situation";
   const [hostConnection, setHostConnection] = useState(providedHostConnection);
   const [gatewayOrigin, setGatewayOrigin] = useState(gatewayBaseUrl);
   const [theme, setTheme] = useState<"light" | "dark">(
@@ -94,8 +106,8 @@ export function GlobalIntelligenceApp({
       : { userId: "local-user", workspaceId: "local-workspace" });
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [dashboardState, setDashboardState] = useState<Record<string, unknown>>({});
-  const contextRef = useRef(buildGlobalIntelligenceContext(dashboardState));
-  contextRef.current = buildGlobalIntelligenceContext(dashboardState);
+  const contextRef = useRef(buildGlobalIntelligenceContext(dashboardState, topicId));
+  contextRef.current = buildGlobalIntelligenceContext(dashboardState, topicId);
 
   const dataSource = useMemo(
     () => providedDataSource ?? createGlobalIntelDataSource({
@@ -106,9 +118,8 @@ export function GlobalIntelligenceApp({
   );
 
   useEffect(() => {
-    const topicTitle = topicId === "fed-rates" ? "联储加息" : topicId === "hormuz" ? "美伊战争" : topicId === "us-china-trade" ? "中美贸易" : "全球情报";
     document.title = topicTitle + " · Newma-Desk";
-  }, [topicId]);
+  }, [topicTitle]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -170,7 +181,7 @@ export function GlobalIntelligenceApp({
 
   useEffect(() => {
     hostConnection?.publishContext(contextRef.current);
-  }, [dashboardState, hostConnection]);
+  }, [dashboardState, hostConnection, topicId]);
 
   const handleUiAction = useCallback((actionId: string, input: Record<string, unknown>) => {
     if (actionId === "global-intel.refresh") {
@@ -180,7 +191,7 @@ export function GlobalIntelligenceApp({
     if (actionId === "workspace.save-layout") {
       const name = typeof input.name === "string" && input.name.trim()
         ? input.name.trim().slice(0, 80)
-        : "全球情报视图";
+        : `${topicTitle}视图`;
       const record = { id: crypto.randomUUID(), name, savedAt: new Date().toISOString(), state: dashboardState };
       const key = "newma-desk.global-intelligence.layouts.v1";
       const current = JSON.parse(localStorage.getItem(key) || "[]") as unknown;
@@ -189,7 +200,7 @@ export function GlobalIntelligenceApp({
       return { layout: record };
     }
     throw new Error(`全球情报不支持动作 ${actionId}`);
-  }, [dashboardState]);
+  }, [dashboardState, topicTitle]);
 
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
 
@@ -199,14 +210,14 @@ export function GlobalIntelligenceApp({
         <header className="global-intelligence-topbar">
           <div className="global-intelligence-identity">
             <i><Globe2 size={18} /></i>
-            <span><strong>全球情报</strong><small>GLOBAL INTELLIGENCE OPERATIONS</small></span>
+            <span><strong>{topicTitle}</strong><small>{topicId ? "GLOBAL THEMATIC RESEARCH" : "GLOBAL INTELLIGENCE OPERATIONS"}</small></span>
           </div>
-          <div className="global-intelligence-runtime"><Radio size={13} />World Intelligence MCP · 实时数据平面</div>
+          <div className="global-intelligence-runtime"><Radio size={13} />{topicId ? "专题研究 · 来源观测与手动推演" : "World Intelligence MCP · 实时数据平面"}</div>
           <button type="button" onClick={() => setRefreshNonce((value) => value + 1)}><RefreshCw size={14} />刷新情报</button>
         </header>
       ) : null}
       {topicId ? (
-        <GlobalTopicDashboard topicId={topicId} refreshNonce={refreshNonce} embedded={embedded} onContextChange={setDashboardState} />
+        <GlobalTopicDashboard topicId={topicId} gatewayBaseUrl={gatewayOrigin} refreshNonce={refreshNonce} cacheIdentity={cacheIdentity} embedded onContextChange={setDashboardState} />
       ) : <GlobalIntelligenceDashboard
         key={cacheIdentity ? `${cacheIdentity.userId}:${cacheIdentity.workspaceId}` : "pending-host"}
         dataSource={dataSource}
@@ -218,9 +229,9 @@ export function GlobalIntelligenceApp({
       />}
       {!embedded ? (
         <footer className="global-intelligence-statusbar">
-          <span><i />GLOBAL-SITUATION</span>
-          <span>情报数据合同：newma-desk.global-intelligence.v1</span>
-          <span>MAPLIBRE GL · DECK.GL</span>
+          <span><i />{runtimeModId.toUpperCase()}</span>
+          <span>情报数据合同：{topicId ? "newma-desk.global-topic.v1" : "newma-desk.global-intelligence.v1"}</span>
+          <span>{topicId ? "来源观测 · 手动情景" : "MAPLIBRE GL · DECK.GL"}</span>
         </footer>
       ) : null}
     </main>

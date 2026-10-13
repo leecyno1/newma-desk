@@ -13,6 +13,7 @@ from services.fund_classification_service import FundClassificationService
 from services.fund_evaluation_methodology import FundEvaluationMethodology
 from services.manager_tenure_coverage import metric_details_coverage_status
 from services.scoring_contract import build_scoring_output
+from services.source_fund_metrics import SOURCE_METHODOLOGY_VERSION
 
 
 class ProfessionalScoringService:
@@ -322,7 +323,8 @@ class ProfessionalScoringService:
         if management_fee is not None or custodian_fee is not None:
             expense_ratio = (management_fee or 0.0) + (custodian_fee or 0.0)
 
-        max_drawdown = self._first_number(risk, ["max_drawdown_1y", "max_drawdown_2y", "max_drawdown"])
+        explicit_windows = any(source.get('methodology_version') == SOURCE_METHODOLOGY_VERSION for source in (performance, risk))
+        max_drawdown = self._first_number(risk, ["max_drawdown_1y"] if explicit_windows else ["max_drawdown_1y", "max_drawdown_2y", "max_drawdown"])
         if max_drawdown is None:
             max_drawdown = self._first_number(performance, ["max_drawdown_1y", "max_drawdown"])
         annualized_volatility = self._first_number(
@@ -333,7 +335,7 @@ class ProfessionalScoringService:
             annualized_volatility = self._first_number(performance, ["annualized_volatility_1y", "volatility"])
 
         one_year = {
-            "annualized_return": self._first_number(performance, ["annualized_return_1y", "return_1y", "annual_return"]),
+            "annualized_return": self._first_number(performance, ["annualized_return_1y"] if explicit_windows else ["annualized_return_1y", "return_1y", "annual_return"]),
             "max_drawdown": max_drawdown,
             "annualized_volatility": annualized_volatility,
             "sharpe_ratio": self._first_number(performance, ["sharpe_ratio", "sharpe"]),

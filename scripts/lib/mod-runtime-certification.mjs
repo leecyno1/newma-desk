@@ -4,6 +4,7 @@ export const RUNTIME_CHECK = Object.freeze({
   BRIDGE: "bridge",
   RESPONSIVE: "responsive",
   AGENT_CONTEXT: "agentContext",
+  AGENT_EVIDENCE: "agentEvidence",
 });
 
 export function requiredRuntimeChecks(declaredLevel) {
@@ -14,7 +15,9 @@ export function requiredRuntimeChecks(declaredLevel) {
     RUNTIME_CHECK.BRIDGE,
     RUNTIME_CHECK.RESPONSIVE,
   ];
-  if (declaredLevel === 3) checks.push(RUNTIME_CHECK.AGENT_CONTEXT);
+  if (declaredLevel === 3) {
+    checks.push(RUNTIME_CHECK.AGENT_CONTEXT, RUNTIME_CHECK.AGENT_EVIDENCE);
+  }
   return checks;
 }
 

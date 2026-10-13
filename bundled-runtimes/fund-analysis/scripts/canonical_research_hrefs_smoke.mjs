@@ -59,7 +59,7 @@ for (const file of [
 
 for (const file of [
   'app/(dashboard)/reports/page.tsx',
-  'app/(dashboard)/reports/[id]/page.tsx',
+  'app/(dashboard)/reports/[id]/ReportDetailClient.tsx',
   'app/(dashboard)/reports/search/page.tsx',
   'app/(dashboard)/analysis/[id]/AnalysisDetailClient.tsx',
   'components/analysis/ReportActionBar.tsx',
@@ -70,7 +70,8 @@ for (const file of [
   assertIncludes(content, 'materialEvidenceHref', `${file} frontend material evidence helper`)
 }
 
-for (const file of ['app/(dashboard)/funds/[id]/FundDetailClient.tsx']) {
+// 复查事件入口随经理页补证引导迁移：详情页研究画像化后由经理详情页持有该链路。
+for (const file of ['app/(dashboard)/managers/[id]/page.tsx']) {
   const content = read(file)
   assertNotIncludes(content, 'href="/alerts"', `${file} frontend review-events href`)
   assertIncludes(content, 'reviewEventsHref', `${file} frontend review-events helper`)

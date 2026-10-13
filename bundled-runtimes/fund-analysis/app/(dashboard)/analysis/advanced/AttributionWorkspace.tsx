@@ -1,11 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useFundPageData } from '@/lib/newma-desk/page-data'
 import {
   ArrowLeft,
   BarChart3,
-  BookOpenCheck,
   CircleAlert,
   Database,
   LoaderCircle,
@@ -112,7 +112,7 @@ const statusCopy: Record<Status, { label: string; tone: string }> = {
 }
 
 function formatPercent(value?: number | null, digits = 2) {
-  return value == null || Number.isNaN(value) ? '—' : `${(value * 100).toFixed(digits)}%`
+  return value == null || !Number.isFinite(value) ? '—' : `${(value * 100).toFixed(digits)}%`
 }
 
 function numberValue(value: number | string | null | undefined) {
@@ -135,7 +135,7 @@ function formatSavedTime(value?: string) {
 }
 
 function StatusBadge({ status = 'insufficient_evidence' }: { status?: Status }) {
-  const copy = statusCopy[status]
+  const copy = statusCopy[status] || statusCopy.insufficient_evidence
   return <span className={`rounded-sm px-2.5 py-1 text-[11px] font-bold ${copy.tone}`}>{copy.label}</span>
 }
 
@@ -153,12 +153,14 @@ export default function AttributionWorkspace({
   initialBenchmark,
   initialQuarter,
   initialHistory,
+  initialHistoryError = '',
   autoRun,
 }: {
   initialFundCode: string
   initialBenchmark: string
   initialQuarter: string
   initialHistory: Record<string, unknown>[]
+  initialHistoryError?: string
   autoRun: boolean
 }) {
   const normalizedInitialHistory = initialHistory as AttributionHistoryItem[]
@@ -168,49 +170,77 @@ export default function AttributionWorkspace({
   const [result, setResult] = useState<AttributionBundle | null>(() => savedBundle(normalizedInitialHistory[0]))
   const [history, setHistory] = useState<AttributionHistoryItem[]>(normalizedInitialHistory)
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState(initialHistoryError)
+  const [historyFund, setHistoryFund] = useState(initialFundCode)
+  const [resultMeta, setResultMeta] = useState<{ symbol: string; origin: 'history' | 'calculated'; savedAt: string | null } | null>(
+    savedBundle(normalizedInitialHistory[0]) ? { symbol: initialFundCode, origin: 'history', savedAt: normalizedInitialHistory[0]?.updated_at ?? null } : null,
+  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const hasAutoRun = useRef(false)
+  const requestId = useRef(0)
 
-  const loadHistory = useCallback(async (code: string, selectLatest = true) => {
-    const normalizedCode = code.trim().toUpperCase()
-    if (!normalizedCode) return
-    setHistoryLoading(true)
+  function invalidateInput(clearHistory = false) {
+    ++requestId.current
+    setResult(null)
+    setResultMeta(null)
     setError('')
+    setLoading(false)
+    setHistoryLoading(false)
+    if (clearHistory) { setHistory([]); setHistoryFund(''); setHistoryError('') }
+  }
+
+  const loadHistory = useCallback(async (code: string, selectLatest = true, request = ++requestId.current) => {
+    const normalizedCode = code.trim().toUpperCase()
+    if (!normalizedCode) { setError('请输入基金代码'); return }
+    setHistoryLoading(true)
+    setHistoryError('')
+    if (selectLatest) { setResult(null); setResultMeta(null); setError(''); setHistory([]); setHistoryFund('') }
     try {
       const response = await fetch(`/api/attribution/fund/${encodeURIComponent(normalizedCode)}/history?limit=8`)
       const payload = await response.json()
+      if (request !== requestId.current) return
       if (!response.ok) throw new Error(payload.error || '读取归因历史失败')
       const items = (Array.isArray(payload.history) ? payload.history : []) as AttributionHistoryItem[]
       setHistory(items)
+      setHistoryFund(normalizedCode)
       if (selectLatest) {
-        setResult(savedBundle(items[0]))
+        const bundle = savedBundle(items[0])
+        setResult(bundle)
+        setResultMeta(bundle ? { symbol: normalizedCode, origin: 'history', savedAt: items[0]?.updated_at ?? null } : null)
         if (items[0]?.quarter) setQuarter(items[0].quarter)
         if (items[0]?.benchmark_id) setBenchmark(items[0].benchmark_id)
       }
     } catch (historyError) {
-      setError(historyError instanceof Error ? historyError.message : '读取归因历史失败')
+      if (request === requestId.current) setHistoryError(historyError instanceof Error ? historyError.message : '读取归因历史失败')
     } finally {
-      setHistoryLoading(false)
+      if (request === requestId.current) setHistoryLoading(false)
     }
   }, [])
 
   const runAttribution = useCallback(async () => {
     const code = fundCode.trim().toUpperCase()
-    if (!code) return
+    if (!code) { setError('请输入基金代码'); return }
+    if (!/^\d{4}Q[1-4]$/.test(quarter)) { setError('季度格式应为 YYYYQ1 至 YYYYQ4'); return }
+    const request = ++requestId.current
     setLoading(true)
     setError('')
+    setResult(null)
+    setResultMeta(null)
     try {
       const query = new URLSearchParams({ benchmark, quarter })
       const response = await fetch(`/api/attribution/fund/${encodeURIComponent(code)}?${query.toString()}`)
       const payload = await response.json()
+      if (request !== requestId.current) return
       if (!response.ok) throw new Error(payload.error || '业绩归因运行失败')
+      if (!savedBundle({ evidence: payload })) throw new Error('归因结果缺少必要证据，不能展示为完整分析')
       setResult(payload)
-      void loadHistory(code, false)
+      setResultMeta({ symbol: code, origin: 'calculated', savedAt: null })
+      await loadHistory(code, false, request)
     } catch (runError) {
-      setError(runError instanceof Error ? runError.message : '业绩归因运行失败')
+      if (request === requestId.current) setError(runError instanceof Error ? runError.message : '业绩归因运行失败')
     } finally {
-      setLoading(false)
+      if (request === requestId.current) setLoading(false)
     }
   }, [benchmark, fundCode, loadHistory, quarter])
 
@@ -235,38 +265,58 @@ export default function AttributionWorkspace({
   const isFeederFund = /联接/.test(result?.fund?.name || '')
   const disclosedHoldingWeight = result?.barra.holdings_disclosed_weight
 
+  useFundPageData(useMemo(() => ({
+    selection: resultMeta ? { symbol: resultMeta.symbol, name: result?.fund?.name, assetType: 'fund' as const } : null,
+    filters: { requested: { symbol: fundCode, benchmark, quarter }, applied: result && resultMeta ? {
+      symbol: resultMeta.symbol, benchmark: result.benchmark ?? null, quarter: result.quarter,
+    } : null },
+    visibleBlocks: [{ id: 'attribution-result', type: 'summary', title: '归因结果与证据覆盖' },
+      { id: 'attribution-history', type: 'table', title: '当前基金归因历史' }],
+    summary: {
+      status: loading ? 'running' : historyLoading ? 'loading-history' : error ? 'error' : result ? 'ready' : 'idle', error: error || null,
+      result: result && resultMeta ? { ...resultMeta, status: result.status, fund: result.fund,
+        quarter: result.quarter, holdingQuarter: result.holding_snapshot_quarter,
+        benchmark: result.benchmark ?? null, benchmarkSource: result.benchmark_source, benchmarkDetail: result.benchmark_detail,
+        barra: { ...result.barra, factor_exposures: result.barra.factor_exposures?.slice(0, 20),
+          industry_exposures: Object.fromEntries(Object.entries(result.barra.industry_exposures || {}).slice(0, 10)) },
+        brinson: { ...result.brinson, industry_detail: [...(result.brinson.industry_detail || [])]
+          .sort((a, b) => Math.abs(b.allocation_contrib + b.selection_contrib + b.interaction_contrib) - Math.abs(a.allocation_contrib + a.selection_contrib + a.interaction_contrib)).slice(0, 8) },
+        navReturnAttribution: result.nav_return_attribution,
+      } : null,
+      history: { symbol: historyFund || null, status: historyLoading ? 'loading' : historyError ? 'error' : historyFund ? 'ready' : 'not-loaded',
+        error: historyError || null, count: historyFund && !historyError ? history.length : null,
+        rows: history.slice(0, 8).map(item => ({ quarter: item.quarter, holdingQuarter: item.holding_quarter,
+          benchmark: item.benchmark_id, status: item.status, savedAt: item.updated_at ?? null, activeReturn: numberValue(item.active_return) })) },
+      boundary: '请求条件与结果实际条件分别记录。历史保存日不是市场数据日；公开持仓风险模型不等于正式 Barra，净值行为解释不是 Brinson，披露覆盖不等于完整仓位。缺失数值保留未知，不当作零。',
+    },
+  }), [fundCode, benchmark, quarter, result, resultMeta, loading, historyLoading, error, historyError, historyFund, history]))
+
   return (
     <div className="space-y-7">
-      <section className="border-b border-[#dce1dc] pb-7">
-        <Link href="/analysis" className="inline-flex items-center gap-2 text-xs font-bold text-[#28745c]"><ArrowLeft className="h-4 w-4" />返回 AI 分析</Link>
-        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-end">
-          <div className="grid grid-cols-3 gap-px overflow-hidden border border-[#dbe1dc] bg-[#dbe1dc] text-center text-[11px]">
-            <div className="bg-white p-3"><BarChart3 className="mx-auto h-4 w-4 text-[#28745c]" /><span className="mt-2 block">Barra</span></div>
-            <div className="bg-white p-3"><ShieldCheck className="mx-auto h-4 w-4 text-[#28745c]" /><span className="mt-2 block">Brinson</span></div>
-            <div className="bg-white p-3"><BookOpenCheck className="mx-auto h-4 w-4 text-[#28745c]" /><span className="mt-2 block">证据门禁</span></div>
-          </div>
-        </div>
+      <section className="flex flex-wrap items-center justify-between gap-3 border-b border-[#dce1dc] pb-3">
+        <Link href={fundCode.trim() ? `/analysis?fundCode=${encodeURIComponent(fundCode.trim())}` : '/analysis'} className="inline-flex items-center gap-2 text-xs font-bold text-[#28745c]"><ArrowLeft className="h-4 w-4" />返回 AI 分析</Link>
+        <span className="text-xs text-[#65716b]">公开持仓风险 · Brinson 行业归因 · 净值行为解释</span>
       </section>
 
       <section className="border border-[#dbe1dc] bg-white p-5 sm:p-6">
         <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_13rem_11rem_auto] md:items-end">
-          <label className="block text-sm font-bold">基金代码<input value={fundCode} onChange={(event) => setFundCode(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-[#cfd6d0] px-3 text-sm uppercase outline-none focus:border-[#28745c]" /></label>
-          <label className="block text-sm font-bold">比较基准<select value={benchmark} onChange={(event) => setBenchmark(event.target.value)} className="mt-2 h-11 w-full rounded-md border border-[#cfd6d0] bg-white px-3 text-sm outline-none focus:border-[#28745c]"><option value="">自动使用基金分类基准</option><option value="000300.SH">沪深300</option><option value="000905.SH">中证500</option><option value="000852.SH">中证1000</option></select></label>
-          <label className="block text-sm font-bold">归因季度<input value={quarter} onChange={(event) => setQuarter(event.target.value.toUpperCase())} placeholder="2026Q2" className="mt-2 h-11 w-full rounded-md border border-[#cfd6d0] px-3 text-sm uppercase outline-none focus:border-[#28745c]" /></label>
+          <label className="block text-sm font-bold">基金代码<input value={fundCode} disabled={loading} onChange={(event) => { invalidateInput(true); setFundCode(event.target.value) }} className="mt-2 h-11 w-full rounded-md border border-[#cfd6d0] px-3 text-sm uppercase outline-none focus:border-[#28745c]" /></label>
+          <label className="block text-sm font-bold">比较基准<select value={benchmark} disabled={loading} onChange={(event) => { invalidateInput(); setBenchmark(event.target.value) }} className="mt-2 h-11 w-full rounded-md border border-[#cfd6d0] bg-white px-3 text-sm outline-none focus:border-[#28745c]"><option value="">自动使用基金分类基准</option><option value="000300.SH">沪深300</option><option value="000905.SH">中证500</option><option value="000852.SH">中证1000</option></select></label>
+          <label className="block text-sm font-bold">归因季度<input value={quarter} disabled={loading} onChange={(event) => { invalidateInput(); setQuarter(event.target.value.toUpperCase()) }} placeholder="2026Q2" className="mt-2 h-11 w-full rounded-md border border-[#cfd6d0] px-3 text-sm uppercase outline-none focus:border-[#28745c]" /></label>
           <div className="flex gap-2">
-            <button type="button" onClick={() => void loadHistory(fundCode)} disabled={historyLoading} className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-[#9eb5aa] bg-white px-4 text-sm font-bold text-[#285d49] hover:bg-[#f1f6f3] disabled:opacity-50">{historyLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}查看历史</button>
-            <button type="button" onClick={() => void runAttribution()} disabled={loading} className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#173f35] px-5 text-sm font-bold text-white hover:bg-[#225747] disabled:opacity-50">{loading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}{loading ? '正在计算' : '现场运行'}</button>
+            <button type="button" onClick={() => void loadHistory(fundCode)} disabled={historyLoading || loading} className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-[#9eb5aa] bg-white px-4 text-sm font-bold text-[#285d49] hover:bg-[#f1f6f3] disabled:opacity-50">{historyLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}查看历史</button>
+            <button type="button" onClick={() => void runAttribution()} disabled={loading || historyLoading} className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#173f35] px-5 text-sm font-bold text-white hover:bg-[#225747] disabled:opacity-50">{loading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}{loading ? '正在计算' : '现场运行'}</button>
           </div>
         </div>
         <p className="mt-3 text-xs leading-6 text-[#7a8580]">默认先读取已保存结果；只有点击“现场运行”才会重新计算并更新历史。分析季度使用上一季度披露持仓。</p>
       </section>
 
-      {error ? <div className="border border-[#e5b8ad] bg-[#fff0ed] px-5 py-4 text-sm text-[#8b443a]"><CircleAlert className="mr-2 inline h-4 w-4" />{error}</div> : null}
+      {error || historyError ? <div role="alert" className="border border-[#e5b8ad] bg-[#fff0ed] px-5 py-4 text-sm text-[#8b443a]"><CircleAlert className="mr-2 inline h-4 w-4" />{error || historyError}</div> : null}
 
       <section className="border border-[#dbe1dc] bg-white p-5 sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div><h2 className="text-lg font-bold">已保存归因历史</h2><p className="mt-1 text-xs leading-6 text-[#7a8580]">选择历史记录不会调用外部数据源，也不会重复写入。</p></div>
-          <span className="text-xs font-bold text-[#28745c]">{history.length} 条</span>
+          <span className="text-xs font-bold text-[#28745c]">{historyLoading ? '读取中' : historyError ? '不可用' : historyFund ? `${history.length} 条` : '尚未读取'}</span>
         </div>
         {history.length ? (
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -276,10 +326,14 @@ export default function AttributionWorkspace({
                 <button
                   key={`${item.quarter || 'unknown'}-${item.updated_at || index}`}
                   type="button"
-                  disabled={!bundle}
+                  disabled={!bundle || loading || historyLoading}
                   onClick={() => {
                     if (!bundle) return
+                    ++requestId.current
+                    setError('')
                     setResult(bundle)
+                    setResultMeta({ symbol: historyFund, origin: 'history', savedAt: item.updated_at ?? null })
+                    setFundCode(historyFund)
                     if (item.quarter) setQuarter(item.quarter)
                     if (item.benchmark_id) setBenchmark(item.benchmark_id)
                   }}
@@ -292,11 +346,12 @@ export default function AttributionWorkspace({
               )
             })}
           </div>
-        ) : <div className="mt-4 border border-dashed border-[#cdd5cf] px-5 py-8 text-center text-sm text-[#7a8580]">暂无已保存归因，可由用户现场运行一次。</div>}
+        ) : <div className="mt-4 border border-dashed border-[#cdd5cf] px-5 py-8 text-center text-sm text-[#7a8580]">{historyLoading ? '正在读取历史' : historyError ? '读取失败，请点击“查看历史”重试' : historyFund ? '暂无已保存归因，可由用户现场运行一次。' : '基金已切换，请读取该基金的历史。'}</div>}
       </section>
 
       {result ? (
         <>
+          <p className="text-xs text-[#748079]">{resultMeta?.origin === 'history' ? '历史归因' : '本次计算'} · {resultMeta?.symbol} · 保存时间 {formatSavedTime(resultMeta?.savedAt ?? undefined)} · 条件以以下结果为准</p>
           <section className="grid overflow-hidden border border-[#dbe1dc] bg-white sm:grid-cols-4">
             <div className="p-5"><div className="text-xs text-[#748079]">基金</div><div className="mt-2 font-bold">{result.fund?.name || result.fund?.wind_code}</div><div className="mt-1 text-xs text-[#7a8580]">{result.fund?.wind_code} · {result.fund?.type}</div></div>
             <div className="border-t border-[#e3e7e4] p-5 sm:border-l sm:border-t-0"><div className="text-xs text-[#748079]">归因季度</div><div className="mt-2 font-bold">{result.quarter}</div><div className="mt-1 text-xs text-[#7a8580]">持仓快照 {result.holding_snapshot_quarter}</div></div>
@@ -307,9 +362,9 @@ export default function AttributionWorkspace({
           <section className="grid gap-7 xl:grid-cols-2">
             <article className="border border-[#dbe1dc] bg-white p-5 sm:p-6">
               <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-bold">Barra 风格与风险暴露</h2><p className="mt-1 text-xs leading-6 text-[#7a8580]">正式 Barra 尚未接入；公开持仓模型补充市场风险与个股特异风险。</p></div><StatusBadge status={result.barra.status} /></div>
-              <div className="mt-5 grid grid-cols-3 gap-px bg-[#e1e6e2] text-center text-xs"><div className="bg-[#f7f9f7] p-3"><div className="text-[#7b8680]">披露持仓</div><strong className="mt-1 block text-base">{result.barra.holdings_count || 0} 只</strong></div><div className="bg-[#f7f9f7] p-3"><div className="text-[#7b8680]">披露权重</div><strong className="mt-1 block text-base">{formatPercent(result.barra.holdings_disclosed_weight, 1)}</strong></div><div className="bg-[#f7f9f7] p-3"><div className="text-[#7b8680]">正式因子</div><strong className="mt-1 block text-base">{result.barra.formal_model_ready ? '可用' : '待接入'}</strong></div></div>
+              <div className="mt-5 grid grid-cols-3 gap-px bg-[#e1e6e2] text-center text-xs"><div className="bg-[#f7f9f7] p-3"><div className="text-[#7b8680]">披露持仓</div><strong className="mt-1 block text-base">{result.barra.holdings_count ?? '—'} 只</strong></div><div className="bg-[#f7f9f7] p-3"><div className="text-[#7b8680]">披露权重</div><strong className="mt-1 block text-base">{formatPercent(result.barra.holdings_disclosed_weight, 1)}</strong></div><div className="bg-[#f7f9f7] p-3"><div className="text-[#7b8680]">正式因子</div><strong className="mt-1 block text-base">{result.barra.formal_model_ready ? '可用' : '待接入'}</strong></div></div>
               {isFeederFund && disclosedHoldingWeight != null && disclosedHoldingWeight < 0.2 ? <div className="mt-4 border border-[#cfded6] bg-[#f3f8f5] px-4 py-3 text-xs leading-6 text-[#355f4d]">这是 ETF 联接基金：当前 {formatPercent(disclosedHoldingWeight, 1)} 只统计基金直接披露的股票，不代表实际权益仓位。基金主要持有的目标 ETF 尚未穿透，因此正式 Barra / Brinson 继续按证据不足处理。</div> : null}
-              {publicRisk?.status === 'partial_evidence' ? <div className="mt-5 border border-[#dfe5e1] bg-[#fafbfa] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-xs">公开持仓统计风险</strong><span className="text-[10px] font-bold text-[#8a6422]">非正式 Barra</span></div><div className="mt-3 grid grid-cols-2 gap-px bg-[#e1e6e2] text-center text-xs sm:grid-cols-4"><div className="bg-white p-3"><div className="text-[#7b8680]">组合 Beta</div><strong className="mt-1 block text-base">{publicRisk.portfolio_beta?.toFixed(2) ?? '—'}</strong></div><div className="bg-white p-3"><div className="text-[#7b8680]">历史波动</div><strong className="mt-1 block text-base">{formatPercent(publicRisk.observed_volatility, 1)}</strong></div><div className="bg-white p-3"><div className="text-[#7b8680]">市场风险占比</div><strong className="mt-1 block text-base">{formatPercent(publicRiskShares.MARKET, 1)}</strong></div><div className="bg-white p-3"><div className="text-[#7b8680]">特异风险占比</div><strong className="mt-1 block text-base">{formatPercent(publicRiskShares.SPECIFIC, 1)}</strong></div></div><p className="mt-3 text-[10px] leading-5 text-[#7a8580]">基于 {publicRisk.observations || 0} 个交易日，仅代表覆盖基金净值 {formatPercent(publicRisk.fund_nav_coverage, 1)} 的已披露 A 股。</p></div> : null}
+              {publicRisk?.status === 'partial_evidence' ? <div className="mt-5 border border-[#dfe5e1] bg-[#fafbfa] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-xs">公开持仓统计风险</strong><span className="text-[10px] font-bold text-[#8a6422]">非正式 Barra</span></div><div className="mt-3 grid grid-cols-2 gap-px bg-[#e1e6e2] text-center text-xs sm:grid-cols-4"><div className="bg-white p-3"><div className="text-[#7b8680]">组合 Beta</div><strong className="mt-1 block text-base">{publicRisk.portfolio_beta?.toFixed(2) ?? '—'}</strong></div><div className="bg-white p-3"><div className="text-[#7b8680]">历史波动</div><strong className="mt-1 block text-base">{formatPercent(publicRisk.observed_volatility, 1)}</strong></div><div className="bg-white p-3"><div className="text-[#7b8680]">市场风险占比</div><strong className="mt-1 block text-base">{formatPercent(publicRiskShares.MARKET, 1)}</strong></div><div className="bg-white p-3"><div className="text-[#7b8680]">特异风险占比</div><strong className="mt-1 block text-base">{formatPercent(publicRiskShares.SPECIFIC, 1)}</strong></div></div><p className="mt-3 text-[10px] leading-5 text-[#7a8580]">基于 {publicRisk.observations ?? '—'} 个交易日，仅代表覆盖基金净值 {formatPercent(publicRisk.fund_nav_coverage, 1)} 的已披露 A 股。</p></div> : null}
               {industries.length ? <div className="mt-5 space-y-3">{industries.slice(0, 10).map(([industry, weight]) => <div key={industry}><div className="mb-1 flex justify-between text-xs"><span className="font-bold text-[#4f5d56]">{industry}</span><span>{formatPercent(weight, 1)}</span></div><div className="h-2 bg-[#edf0ed]"><div className="h-full bg-[#3d826a]" style={{ width: `${Math.max(3, weight / largestIndustry * 100)}%` }} /></div></div>)}</div> : <div className="mt-5 border border-dashed border-[#cdd5cf] p-6 text-center text-sm text-[#7a8580]">暂无持仓行业暴露</div>}
               <MissingEvidence items={result.barra.missing_items} />
             </article>
@@ -318,8 +373,9 @@ export default function AttributionWorkspace({
               <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-bold">Brinson 行业归因</h2><p className="mt-1 text-xs leading-6 text-[#7a8580]">配置、选择、交互和未披露持仓残差。</p></div><StatusBadge status={result.brinson.status} /></div>
               <div className="mt-5 grid grid-cols-3 gap-px bg-[#e1e6e2] text-center text-xs"><div className="bg-[#f7f9f7] p-3"><div className="text-[#7b8680]">基金收益</div><strong className="mt-1 block text-base">{formatPercent(result.brinson.returns?.fund)}</strong></div><div className="bg-[#f7f9f7] p-3"><div className="text-[#7b8680]">基准收益</div><strong className="mt-1 block text-base">{formatPercent(result.brinson.returns?.benchmark)}</strong></div><div className="bg-[#f7f9f7] p-3"><div className="text-[#7b8680]">主动收益</div><strong className="mt-1 block text-base">{formatPercent(result.brinson.returns?.active)}</strong></div></div>
               {brinsonEffects.length ? <div className="mt-5 space-y-3">{brinsonEffects.map((effect) => {
-                const value = effect.value || 0
-                const width = Math.max(2, Math.abs(value) / largestBrinsonEffect * 50)
+                const value = numberValue(effect.value)
+                if (value == null) return <div key={effect.name} className="flex justify-between text-xs"><span>{effect.label}</span><span>— · 证据缺失</span></div>
+                const width = Math.abs(value) / largestBrinsonEffect * 50
                 return <div key={effect.name} className="grid grid-cols-[5rem_minmax(0,1fr)_4.5rem] items-center gap-3"><span className="text-xs font-bold text-[#59665f]">{effect.label}</span><div className="relative h-5 bg-[#f1f3f1]"><span className="absolute left-1/2 top-0 h-full w-px bg-[#aeb8b1]" /><span className={`absolute top-1 h-3 ${value >= 0 ? 'left-1/2 bg-[#398267]' : 'right-1/2 bg-[#b66a5e]'}`} style={{ width: `${width}%` }} /></div><strong className={`text-right text-xs ${value >= 0 ? 'text-[#236c51]' : 'text-[#a04f43]'}`}>{formatPercent(value)}</strong></div>
               })}</div> : <div className="mt-5 border border-dashed border-[#cdd5cf] p-6 text-center text-sm text-[#7a8580]">当前无法输出配置与选择效应</div>}
               {topIndustryContributors.length ? <div className="mt-5 overflow-x-auto border border-[#e1e5e2]"><table className="w-full min-w-[560px] text-left text-xs"><thead className="bg-[#f3f6f3] text-[#66726c]"><tr><th className="px-3 py-2">主要行业</th><th className="px-3 py-2 text-right">组合权重</th><th className="px-3 py-2 text-right">基准权重</th><th className="px-3 py-2 text-right">配置</th><th className="px-3 py-2 text-right">选择</th></tr></thead><tbody className="divide-y divide-[#e5e9e6]">{topIndustryContributors.map((item) => <tr key={item.industry}><td className="px-3 py-2 font-bold">{item.industry}</td><td className="px-3 py-2 text-right">{formatPercent(item.portfolio_weight, 1)}</td><td className="px-3 py-2 text-right">{formatPercent(item.benchmark_weight, 1)}</td><td className="px-3 py-2 text-right">{formatPercent(item.allocation_contrib)}</td><td className="px-3 py-2 text-right">{formatPercent(item.selection_contrib)}</td></tr>)}</tbody></table></div> : null}
@@ -334,7 +390,7 @@ export default function AttributionWorkspace({
           </section>
 
           <section className="grid gap-3 border-t border-[#dce1dc] pt-6 md:grid-cols-3">
-            <div className="flex gap-3 text-xs leading-6 text-[#65716b]"><Database className="mt-1 h-4 w-4 shrink-0 text-[#28745c]" /><span>基金净值、公开持仓、指数权重和行情来自真实数据源。</span></div>
+            <div className="flex gap-3 text-xs leading-6 text-[#65716b]"><Database className="mt-1 h-4 w-4 shrink-0 text-[#28745c]" /><span>数据日期、基准和披露覆盖以本次证据为准，历史保存时间不代表数据最新。</span></div>
             <div className="flex gap-3 text-xs leading-6 text-[#65716b]"><ShieldCheck className="mt-1 h-4 w-4 shrink-0 text-[#28745c]" /><span>持仓披露不足时只输出部分证据，不给完整模型结论。</span></div>
             <div className="flex gap-3 text-xs leading-6 text-[#65716b]"><BarChart3 className="mt-1 h-4 w-4 shrink-0 text-[#28745c]" /><span>归因用于解释，不直接改变基金评价分数。</span></div>
           </section>

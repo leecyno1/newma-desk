@@ -173,6 +173,8 @@ class ModuleRepository:
     def publish(self, module_id: str, revision: int) -> StoredModule:
         with self._transaction() as connection:
             target = self._get_revision_row(connection, module_id, revision)
+            from vibe_visualization_api.mod_policy import check_mod_publication
+            check_mod_publication(connection, [json.loads(target['manifest_json'])], InvalidModuleStateError)
             if target["status"] != "draft":
                 raise InvalidModuleStateError(
                     f"module {module_id!r} revision {revision} must be draft "
@@ -263,6 +265,8 @@ class ModuleRepository:
 
         stored_rows: list[sqlite3.Row] = []
         with self._transaction() as connection:
+            from vibe_visualization_api.mod_policy import check_mod_publication
+            check_mod_publication(connection, manifests, InvalidModuleStateError)
             for manifest in manifests:
                 module_id = manifest.get("id")
                 if (
@@ -412,6 +416,8 @@ class ModuleRepository:
     def rollback(self, module_id: str, revision: int) -> StoredModule:
         with self._transaction() as connection:
             target = self._get_revision_row(connection, module_id, revision)
+            from vibe_visualization_api.mod_policy import check_mod_publication
+            check_mod_publication(connection, [json.loads(target['manifest_json'])], InvalidModuleStateError)
             if target["status"] != "disabled":
                 raise InvalidModuleStateError(
                     f"module {module_id!r} revision {revision} must be disabled "

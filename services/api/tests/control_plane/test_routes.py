@@ -22,6 +22,27 @@ MANIFEST = {
 }
 
 
+def test_default_desk_app_mounts_the_standalone_agent_and_model_gateways(
+    tmp_path: Path,
+) -> None:
+    application = create_app(
+        Settings(
+            runtime_dir=tmp_path,
+            database_path=tmp_path / "desk.db",
+        )
+    )
+
+    with TestClient(application) as client:
+        schema_paths = client.get("/openapi.json").json()["paths"]
+        assert "/api/agent/tasks" in schema_paths
+        assert "/api/model/responses" in schema_paths
+        assert "/api/agent/preferences" in schema_paths
+
+    assert hasattr(application.state, "agent_task_service")
+    assert hasattr(application.state, "agent_task_service_factory")
+    assert hasattr(application.state, "model_gateway_service")
+
+
 def _path_snapshot(path: Path) -> tuple[int, int, int, int] | None:
     try:
         stat = path.stat()
@@ -169,6 +190,291 @@ def test_macro_monitor_exposes_specialized_copilot_prompts(
     assert "就业、信用、贸易、利率、汇率和商品" in prompts
 
 
+def test_fund_project_metadata_prevents_industry_research_prompt_drift(
+    client: TestClient,
+) -> None:
+    manifest = {
+        **MANIFEST,
+        "id": "fund-ai-analysis",
+        "name": "AI 分析",
+        "category": "research",
+        "navigation": {
+            "groupLabel": "基金",
+            "groupOrder": 70,
+            "itemOrder": 10,
+            "project": {
+                "id": "professional-fund-research",
+                "name": "基金",
+                "order": 70,
+                "description": "基金净值、持仓、归因与同类比较。",
+            },
+            "icon": "research",
+        },
+    }
+    draft = client.post("/api/mods/drafts", json=manifest).json()
+    client.post(
+        f"/api/mods/fund-ai-analysis/revisions/{draft['revision']}/publish"
+    )
+
+    prompts = "\n".join(
+        suggestion["prompt"]
+        for group in client.get("/api/mods").json()[0]["copilotPrompts"]["ask"]
+        for suggestion in group["suggestions"]
+    )
+    assert "基金代码、名称、类型" in prompts
+    assert "净值日期、业绩区间" in prompts
+    assert "不要套用产业链公司分析模板" in prompts
+    assert "补充产业链上下游、关键公司" not in prompts
+
+
+def test_workflow_project_metadata_generates_node_edge_and_audit_prompts(
+    client: TestClient,
+) -> None:
+    manifest = {
+        **MANIFEST,
+        "id": "workflow-designer",
+        "name": "流程编排",
+        "category": "workflow",
+        "navigation": {
+            "groupLabel": "工作流",
+            "groupOrder": 170,
+            "itemOrder": 0,
+            "project": {
+                "id": "workflow-center",
+                "name": "工作流",
+                "order": 170,
+                "description": "组织节点、授权、运行和交付审计。",
+            },
+            "icon": "module",
+        },
+    }
+    draft = client.post("/api/mods/drafts", json=manifest).json()
+    client.post(
+        f"/api/mods/workflow-designer/revisions/{draft['revision']}/publish"
+    )
+
+    prompts = "\n".join(
+        suggestion["prompt"]
+        for group in client.get("/api/mods").json()[0]["copilotPrompts"]["ask"]
+        for suggestion in group["suggestions"]
+    )
+    assert "节点、连线、过程参数" in prompts
+    assert "多人覆盖冲突" in prompts
+    assert "交付物归档" in prompts
+
+
+@pytest.mark.parametrize(
+    ("module_id", "name", "category", "navigation", "description", "expected", "rejected"),
+    [
+        (
+            "deepsee-ai-insights",
+            "Deepsee AI 分析",
+            "deepsee",
+            {
+                "groupLabel": "深瞳",
+                "project": {
+                    "id": "deepsee",
+                    "name": "深瞳",
+                    "description": "消息、邮件、会议与外部信息分析。",
+                },
+            },
+            "摘要、观点、趋势和风险机会分析页面。",
+            "同步时间、消息时间",
+            "参会角色、证据包",
+        ),
+        (
+            "event-timeline",
+            "日线时间轴",
+            "event",
+            {
+                "groupLabel": "市场",
+                "project": {"id": "market-surface", "name": "市场"},
+            },
+            "把股票、ETF 与开放式基金按交易日对齐。",
+            "行情源、时间戳",
+            "基金代码、名称、类型",
+        ),
+        (
+            "factor-correlation",
+            "相关性分析",
+            "quant",
+            {
+                "groupLabel": "量化",
+                "project": {"id": "quant-research", "name": "量化"},
+            },
+            "分析因子重复度并用于组合构建。",
+            "前视偏差、幸存者偏差",
+            "真实成交、持仓、申赎",
+        ),
+        (
+            "orchestra-workspace",
+            "Orchestra 账户与组合",
+            "decision",
+            {
+                "groupLabel": "投决",
+                "project": {
+                    "id": "investment-committee",
+                    "name": "投决",
+                },
+            },
+            "管理研究账户、基金组合、交易流水与估值快照。",
+            "参会角色、证据包",
+            "基金代码、名称、类型",
+        ),
+        (
+            "capital-sectors",
+            "行业轮动",
+            "market",
+            {
+                "groupLabel": "行业",
+                "project": {"id": "industry-research", "name": "行业"},
+            },
+            "行业板块资金、价格强弱与轮动状态。",
+            "产业链传导断点",
+            "真实成交、持仓、申赎",
+        ),
+        (
+            "orchestra-settings",
+            "Orchestra 运行设置",
+            "decision",
+            {
+                "groupLabel": "投决",
+                "role": "settings",
+                "project": {
+                    "id": "investment-committee",
+                    "name": "投决",
+                },
+            },
+            "配置执行模式、输出、密钥与运行环境。",
+            "配置来源、默认值",
+            "参会角色、证据包",
+        ),
+        (
+            "fed-rates",
+            "联储加息",
+            "research",
+            {
+                "groupLabel": "全球",
+                "project": {
+                    "id": "global-intelligence",
+                    "name": "全球",
+                },
+            },
+            "跟踪利率、通胀与就业传导。",
+            "指标发布机构、统计口径",
+            "每条新闻的真实标题",
+        ),
+    ],
+)
+def test_copilot_profile_routing_uses_structured_mod_ownership(
+    client: TestClient,
+    module_id: str,
+    name: str,
+    category: str,
+    navigation: dict[str, object],
+    description: str,
+    expected: str,
+    rejected: str,
+) -> None:
+    manifest = {
+        **MANIFEST,
+        "id": module_id,
+        "name": name,
+        "category": category,
+        "presentation": {
+            "englishName": name,
+            "description": description,
+            "titleOwner": "host",
+        },
+        "navigation": {
+            "groupOrder": 10,
+            "itemOrder": 10,
+            "icon": "module",
+            **navigation,
+        },
+    }
+    draft = client.post("/api/mods/drafts", json=manifest).json()
+    client.post(f"/api/mods/{module_id}/revisions/{draft['revision']}/publish")
+
+    prompts = "\n".join(
+        suggestion["prompt"]
+        for group in client.get("/api/mods").json()[0]["copilotPrompts"]["ask"]
+        for suggestion in group["suggestions"]
+    )
+    assert expected in prompts
+    assert rejected not in prompts
+
+
+def test_cycle_research_exposes_view_aware_copilot_prompts(
+    client: TestClient,
+) -> None:
+    manifest = {
+        **MANIFEST,
+        "id": "seven-cycle-research",
+        "name": "周期叠加",
+        "category": "research",
+        "navigation": {
+            "groupLabel": "宏观",
+            "groupOrder": 10,
+            "itemOrder": 10,
+            "project": {"id": "fundamentals", "name": "宏观"},
+            "icon": "research",
+        },
+    }
+    draft = client.post("/api/mods/drafts", json=manifest).json()
+    client.post(
+        f"/api/mods/seven-cycle-research/revisions/{draft['revision']}/publish"
+    )
+
+    groups = client.get("/api/mods").json()[0]["copilotPrompts"]["ask"]
+    prompts = "\n".join(
+        suggestion["prompt"]
+        for group in groups
+        for suggestion in group["suggestions"]
+    )
+    assert [group["label"] for group in groups] == [
+        "当前曲面",
+        "背离与路径",
+        "补证与跟踪",
+    ]
+    assert "2D/3D、时间范围、历史或预测图层、聚焦轨道" in prompts
+    assert "结构化页面字段、视觉快照读取与研究推断" in prompts
+    assert "页面没有提供的数据必须标记为未知" in prompts
+
+
+def test_specialized_page_prompts_do_not_leak_from_project_description(
+    client: TestClient,
+) -> None:
+    manifest = {
+        **MANIFEST,
+        "id": "research-library",
+        "name": "研究档案",
+        "category": "research",
+        "navigation": {
+            "groupLabel": "公司",
+            "groupOrder": 10,
+            "itemOrder": 10,
+            "project": {
+                "id": "equity-research",
+                "name": "公司",
+                "description": "覆盖投资逻辑、研究备忘录和财报研究。",
+            },
+            "icon": "research",
+        },
+    }
+    draft = client.post("/api/mods/drafts", json=manifest).json()
+    client.post(
+        f"/api/mods/research-library/revisions/{draft['revision']}/publish"
+    )
+
+    groups = client.get("/api/mods").json()[0]["copilotPrompts"]["ask"]
+    assert [group["label"] for group in groups] == [
+        "提炼与核验",
+        "风险与推演",
+        "延伸与行动",
+    ]
+
+
 def test_thesis_tracker_exposes_specialized_copilot_prompts(
     client: TestClient,
 ) -> None:
@@ -243,6 +549,9 @@ def test_earnings_workbench_exposes_specialized_copilot_prompts(
     ]
     assert "核验最新待披露报告期" in prompts
     assert "实际、内部预期和一致预期" in prompts
+    assert "累计/单季/年度/TTM" in prompts
+    assert "公告列表不等于原文已核验" in prompts
+    assert "未知或不一致时列为待核对" in prompts
     assert "当前指引与上次指引" in prompts
     assert "增强、削弱、不改变或证伪" in prompts
     assert "不要生成评级、目标价或交易动作" in prompts
@@ -313,6 +622,12 @@ def test_valuation_workbench_exposes_specialized_copilot_prompts(
     ]
     assert "历史事实、管理层指引和研究假设" in prompts
     assert "显式期 FCF 现值、终值、企业价值" in prompts
+    assert "reviewStatus.ready" in prompts
+    assert "不得绕过页面确认计算每股价值或目标价" in prompts
+    assert "equityBridgePolicy" in prompts
+    assert "不重复扣 excludedCashM" in prompts
+    assert "账面值不是估值" in prompts
+    assert "用户粘贴摘录不代表系统已读取或审计原文" in prompts
     assert "5×5 敏感性矩阵" in prompts
     assert "终值占比过高" in prompts
     assert "不得把模型差异直接转换为买卖建议" in prompts

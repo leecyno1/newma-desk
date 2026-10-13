@@ -93,7 +93,8 @@
       "id": "fund-analysis",
       "path": "bundled-runtimes/fund-analysis",
       "upstream": "https://github.com/leecyno1/fund-analysis.git",
-      "revision": "82ee4f3994881c5d3f76f4136a7af93daec08c2f+working-tree",
+      "revision": "b047bf2d4a7695faaf6fa1b5534443e0cf7f8e2f+desk-adapter",
+      "snapshotDate": "2026-09-30",
       "license": "source snapshot has no root license file",
       "requiredFiles": ["package-lock.json", "backend/requirements.txt", "backend/main.py"]
     },

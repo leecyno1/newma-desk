@@ -308,9 +308,14 @@ AgentWorkspace = Annotated[
 ]
 
 
+class StorePresentationTemplate(ApiModel):
+    chrome: Literal["standard", "canvas"] | None = None
+
+
 class StoreManifestTemplate(ApiModel):
     schema_version: Literal["1.0", "1.1"] = "1.0"
     category: str = Field(pattern=MODULE_CATEGORY_PATTERN)
+    presentation: StorePresentationTemplate | None = None
     navigation: ModuleNavigation | None = None
     icon: str | None = None
     permissions: list[str] = Field(default_factory=list)
@@ -409,6 +414,7 @@ class StoreSuitePageNavigation(ApiModel):
 class StoreSuitePageManifest(ApiModel):
     schema_version: Literal["1.0", "1.1"] | None = None
     category: str | None = Field(default=None, pattern=MODULE_CATEGORY_PATTERN)
+    presentation: StorePresentationTemplate | None = None
     icon: str | None = None
     permissions: list[str] | None = None
     data_services: list[str] | None = None
@@ -547,12 +553,18 @@ def expand_mod_suite(
         merged_manifest = {
             **shared_manifest,
             **page_manifest,
+            "presentation": {
+                **shared_manifest.get("presentation", {}),
+                **page_manifest.get("presentation", {}),
+            },
             "actions": {
                 **shared_manifest.get("actions", {}),
                 **page_manifest.get("actions", {}),
             },
             "navigation": navigation,
         }
+        if not merged_manifest["presentation"]:
+            merged_manifest.pop("presentation")
         merged_schema_version = merged_manifest.get("schemaVersion", "1.0")
         if merged_schema_version == "1.1":
             merged_manifest.pop("agentCapabilities", None)

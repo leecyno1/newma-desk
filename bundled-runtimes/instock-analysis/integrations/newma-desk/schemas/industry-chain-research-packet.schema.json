@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://instock.local/schemas/industry-chain-research-packet.schema.json",
   "title": "InStock Industry Chain Research Packet",
-  "description": "Point-in-time industry-chain topology and bottleneck evidence assembled by Newma-Desk Agent/Data. Research input only.",
+  "description": "Point-in-time industry-chain topology and bottleneck evidence assembled by the Newma Agent Runtime and Desk Data layer. Research input only.",
   "type": "object",
   "required": ["schema_version", "theme", "market", "as_of", "evidence", "chain", "layers", "candidates"],
   "properties": {

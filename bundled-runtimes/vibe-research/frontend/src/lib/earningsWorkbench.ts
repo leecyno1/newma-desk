@@ -1,6 +1,11 @@
 import { waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
 
 export type EarningsMode = "preview" | "reported";
+export const EARNINGS_BASIS = { ytd: '年初至今累计', quarter: '单季度', annual: '完整年度', ttm: '滚动十二个月（TTM）' } as const;
+export type EarningsBasis = keyof typeof EARNINGS_BASIS;
+function normalizeBasis(value: unknown): EarningsBasis | undefined {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(EARNINGS_BASIS, value) ? value as EarningsBasis : undefined;
+}
 export type VerificationStatus = "verified" | "partial" | "unverified";
 export type EarningsImpact = "strengthened" | "weakened" | "neutral" | "invalidated";
 export type MetricCategory = "financial" | "operating" | "guidance" | "valuation";
@@ -16,6 +21,12 @@ export interface EarningsMetric {
   varianceVsConsensus: { amount: number | null; percent: number | null; bps: number | null };
   sourceIds: string[];
   asOf?: string;
+  periodEnd?: string;
+  reportedCurrency?: string;
+  reportedOrigin?: 'provider' | 'manual';
+  reportedBasis?: EarningsBasis;
+  consensusBasis?: EarningsBasis;
+  consensusPeriodEnd?: string;
   note?: string;
 }
 
@@ -61,13 +72,58 @@ export interface EarningsThesisImpact {
   evidenceIds: string[];
 }
 
+export interface FilingAmountInput {
+  value: string;
+  unit: '元' | '万元' | '亿元';
+  currency: 'CNY';
+}
+
 export interface EarningsSource {
   id: string;
   label: string;
   kind: "filing" | "company" | "consensus" | "research" | "news" | "derived" | "user";
   url?: string;
-  asOf: string;
+  asOf?: string;
+  periodEnd?: string;
+  retrievedAt?: string;
+  basis?: EarningsBasis;
   status: "verified" | "available" | "stale" | "unavailable";
+  discussion?: {
+    reportId: string; text: string; topics: string[];
+    pdfPage: number; pdfPageCount: number; readPages: number[];
+    truncated: boolean; confirmedAt: string;
+    contentOrigin: 'pdf-text';
+  };
+  capitalNote?: {
+    reportId: string; title: string; text: string; topics: string[];
+    pdfPage: number; pdfPageCount: number; readPages: number[];
+    truncated: boolean; confirmedAt: string; contentOrigin: 'pdf-text';
+  };
+  importedReport?: {
+    reportId: string; rawValue: string; rawUnit: string; columnHeader: string;
+    confirmedAt: string;
+  };
+  correction?: {
+    before: number | null;
+    after: number;
+    reason: string;
+    adoptedAt: string;
+    evidenceSourceId: string;
+    previousSourceIds: string[];
+    amountInput?: FilingAmountInput;
+  };
+  excerpt?: {
+    text: string;
+    segment?: number;
+    pdfPage?: number;
+    pdfPageCount?: number;
+    pdfUrl?: string;
+    metricId: string;
+    reportedValue: number | null;
+    unit: string;
+    contentOrigin: 'provider-transcription' | 'pdf-text';
+    association: 'user-linked';
+  };
 }
 
 export interface EarningsWorkbook {
@@ -82,6 +138,7 @@ export interface EarningsWorkbook {
   mode: EarningsMode;
   fiscalPeriod: {
     label: string;
+    basis?: EarningsBasis;
     periodEnd?: string;
     reportingDate?: string;
     reportingTime: "before-open" | "after-close" | "during-session" | "unknown";
@@ -212,15 +269,42 @@ export function emptyEarningsWorkspace(): EarningsWorkspace {
   return { schemaVersion: "newma-desk.earnings-research.v1", updatedAt: now(), workbooks: [] };
 }
 
+export function earningsComparisonIssue(metric:EarningsMetric):string|null {
+  if(metric.reported===null)return '实际值缺失';
+  if(metric.consensus===null)return '一致预期缺失';
+  if(!metric.reportedBasis||!metric.consensusBasis)return '实际或预期口径待确认';
+  if(metric.reportedBasis!==metric.consensusBasis)return '实际与预期口径不同';
+  if(!metric.periodEnd||!metric.consensusPeriodEnd)return '实际或预期期末待确认';
+  if(metric.periodEnd!==metric.consensusPeriodEnd)return '实际与预期报告期不同';
+  return null;
+}
+
 export function calculateVariance(metric: EarningsMetric): EarningsMetric {
   const { reported, consensus, unit } = metric;
-  if (reported === null || consensus === null) {
+  if (reported === null || consensus === null || earningsComparisonIssue(metric)) {
     return { ...metric, varianceVsConsensus: { amount: null, percent: null, bps: null } };
   }
   const amount = reported - consensus;
   const percent = consensus === 0 ? null : amount / Math.abs(consensus) * 100;
   const bps = unit === "%" ? amount * 100 : null;
   return { ...metric, varianceVsConsensus: { amount, percent, bps } };
+}
+
+export function earningsDataStatus(workbook:EarningsWorkbook) {
+  const rows=workbook.metrics.map(metric=>{
+    const sources=workbook.sourceMaterials.filter(source=>metric.sourceIds.includes(source.id));
+    const adopted=sources.find(source=>source.correction&&source.correction.after===metric.reported&&source.excerpt?.metricId===metric.id&&source.excerpt.unit===metric.unit&&source.periodEnd===metric.periodEnd&&source.basis===metric.reportedBasis);
+    const imported=sources.some(source=>source.importedReport&&source.excerpt?.reportedValue===metric.reported&&source.excerpt?.metricId===metric.id&&source.excerpt.unit===metric.unit&&source.periodEnd===metric.periodEnd&&source.basis===metric.reportedBasis);
+    const origin=metric.reported===null?'missing':imported?'filing-import':adopted?(adopted.correction!.before===null?'filing-fill':'filing-revision'):metric.reportedOrigin==='provider'&&sources.length?'provider':metric.reportedOrigin==='manual'&&!metric.sourceIds.length?'manual':'unknown';
+    const originLabel={missing:'实际值缺失','filing-import':'PDF 提取（用户确认）','filing-fill':'公告补录（人工采用）','filing-revision':'公告修订（人工采用）',provider:'财务摘要（未核验）',manual:'手工输入（无来源关联）',unknown:'来源待核对'}[origin];
+    const comparisonIssue=earningsComparisonIssue(metric);
+    return {metricId:metric.id,label:metric.label,origin,originLabel,comparisonIssue,
+      comparisonNote:!comparisonIssue&&metric.consensus===0?'一致预期为零：可算差额，不计算相对增幅':null};
+  });
+  return {total:rows.length,present:rows.filter(row=>row.origin!=='missing').length,
+    missing:rows.filter(row=>row.origin==='missing').length,
+    comparable:rows.filter(row=>!row.comparisonIssue).length,
+    filingAdopted:rows.filter(row=>row.origin==='filing-import'||row.origin==='filing-fill'||row.origin==='filing-revision').length,rows};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -260,7 +344,13 @@ function normalizeMetric(value: unknown, fallback: EarningsMetric): EarningsMetr
       bps: numberValue(variance.bps),
     },
     sourceIds: stringList(row.sourceIds, 20),
+    reportedBasis: normalizeBasis(row.reportedBasis),
+    consensusBasis: normalizeBasis(row.consensusBasis),
+    ...(textValue(row.consensusPeriodEnd) ? { consensusPeriodEnd: textValue(row.consensusPeriodEnd, '', 10) } : {}),
     ...(textValue(row.asOf) ? { asOf: textValue(row.asOf, "", 64) } : {}),
+    ...(textValue(row.periodEnd) ? { periodEnd: textValue(row.periodEnd, '', 10) } : {}),
+    ...(textValue(row.reportedCurrency) ? { reportedCurrency: textValue(row.reportedCurrency, '', 20) } : {}),
+    ...(['provider','manual'].includes(String(row.reportedOrigin)) ? { reportedOrigin: row.reportedOrigin as 'provider'|'manual' } : {}),
     ...(textValue(row.note) ? { note: textValue(row.note, "", 2_000) } : {}),
   });
 }
@@ -290,6 +380,7 @@ function normalizeWorkbook(value: unknown): EarningsWorkbook | null {
     mode: value.mode === "reported" ? "reported" : "preview",
     fiscalPeriod: {
       label: textValue(fiscal.label, "待确认报告期", 160),
+      basis: normalizeBasis(fiscal.basis),
       ...(textValue(fiscal.periodEnd) ? { periodEnd: textValue(fiscal.periodEnd, "", 10) } : {}),
       ...(textValue(fiscal.reportingDate) ? { reportingDate: textValue(fiscal.reportingDate, "", 10) } : {}),
       reportingTime: ["before-open", "after-close", "during-session"].includes(String(fiscal.reportingTime))
@@ -392,13 +483,16 @@ export async function hydrateEarningsWorkspace() {
 
 export async function persistEarningsWorkspace(workspace: EarningsWorkspace) {
   const normalized = normalizeWorkspace(workspace);
+  let localSaved=false;
   try {
     localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
+    localSaved=true;
   } catch {
     // Keep the in-memory workbench usable when browser persistence is disabled.
   }
   const config = await waitForVibeDeskConfig();
-  if (!canWrite(config)) return;
+  const fallback=()=>{if(localSaved)return 'local' as const;throw new Error('工作区及本地均未保存成功，请保留当前草稿并重试。')};
+  if (!canWrite(config)) return fallback();
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const current = await readRemote(config);
@@ -409,9 +503,10 @@ export async function persistEarningsWorkspace(workspace: EarningsWorkspace) {
       });
       if (response.status === 409 && attempt === 0) continue;
       if (!response.ok) throw new Error(`earnings workbench write failed: ${response.status}`);
-      return;
+      return 'desk' as const;
     } catch {
-      return;
+      return fallback();
     }
   }
+  return fallback();
 }

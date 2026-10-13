@@ -136,11 +136,46 @@ html.vibedesk-embedded [class~="bg-[#fafbfa]"] {
   background-color: var(--vibe-surface-raised) !important;
 }
 
+/* The legacy discover/detail views pair literal dark text with light surfaces.
+ * Adapt both sides together, only in the embedded dark workspace. Keep solid
+ * action buttons, chart fills and the standalone application's palette intact. */
+html.vibedesk-embedded[data-theme="dark"] .newma-fund-mod:is([data-vibe-mod-id="fund-discover"], [data-vibe-mod-id="fund-research-library"], [data-vibe-mod-id="fund-ai-analysis"], [data-vibe-mod-id="fund-recommendations"], [data-vibe-mod-id="fund-attribution"], [data-vibe-mod-id="fund-portfolio"]) {
+  & :is([class^="bg-[#d"], [class*=" bg-[#d"],
+        [class^="bg-[#e"], [class*=" bg-[#e"],
+        [class^="bg-[#f"], [class*=" bg-[#f"]) {
+    background-color: var(--vibe-surface-raised) !important;
+  }
+  & [class*="border-[#"] { border-color: var(--vibe-border) !important; }
+  & [class*="text-[#"] { color: var(--vibe-text-soft) !important; }
+  & :is(h1, h2, h3, strong, [class~="text-[#1d2923]"], [class~="text-[#173f35]"]) {
+    color: var(--vibe-text) !important;
+  }
+  & :is([class~="text-[#28745c]"], [class~="text-[#245f4b]"], [class~="text-[#28654f]"]) {
+    color: var(--vibe-chart-series-2) !important;
+  }
+  & :is([class^="bg-[#fff"], [class*=" bg-[#fff"]) {
+    background-color: var(--vibe-accent-surface) !important;
+  }
+}
+
 .newma-fund-mod {
   min-height: 100vh;
   padding: 1rem;
   background: var(--vibe-bg, #f4efe3);
   color: var(--vibe-text, #173128);
+}
+
+html.vibedesk-embedded[data-theme="dark"] .fund-report {
+  & :is([class*="text-gray-"], [class*="text-slate-"]):not([class*="bg-gray-100"]):not([class*="bg-slate-100"]) { color: var(--vibe-text-soft) !important; }
+  & [class*="text-amber-"]:not([class*="bg-amber-100"]) { color: var(--vibe-gold) !important; }
+  & [class*="text-rose-"]:not([class*="bg-rose-100"]) { color: var(--vibe-chart-series-5) !important; }
+  & [class*="text-blue-"]:not([class*="bg-blue-100"]) { color: var(--vibe-chart-series-2) !important; }
+  & [class*="text-emerald-"]:not([class*="bg-emerald-100"]) { color: var(--vibe-chart-series-2) !important; }
+  & :is([class*="bg-gray-50"], [class*="bg-slate-50"], [class*="bg-blue-50"], [class*="bg-emerald-50"], [class*="bg-amber-50"], [class*="bg-rose-50"], [class*="bg-purple-50"]) {
+    background-color: var(--vibe-surface-raised) !important;
+    color: var(--vibe-text) !important;
+  }
+  & .report-markdown { color: var(--vibe-text) !important; }
 }
 
 @media (min-width: 1024px) {

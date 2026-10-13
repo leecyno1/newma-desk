@@ -189,9 +189,23 @@ class FundPoolRepo:
         from database import init_database
 
         init_database()
+        raw_fund_id = str(fund_id or "").strip()
+        with self.engine.connect() as conn:
+            fund_row = conn.execute(text("""
+                SELECT id::text AS fund_uuid, wind_code
+                FROM funds
+                WHERE id::text = :identifier OR wind_code = :identifier
+                LIMIT 1
+            """), {"identifier": raw_fund_id}).fetchone()
+        fund_uuid = str(fund_row[0]) if fund_row else None
+        # 前端自选传 wind_code、研究清单传 UUID；落库统一为 wind_code，
+        # 同一基金的两种历史别名在存在性检查中都视为同一成员
+        canonical_fund_id = str(fund_row[1]).strip() if fund_row and str(fund_row[1] or "").strip() else raw_fund_id
+        alias_params = [value for value in {canonical_fund_id, fund_uuid, raw_fund_id} if value]
         existing_sql = """
             SELECT * FROM pool_members
-            WHERE pool_id = CAST(:pool_id AS UUID) AND fund_id = :fund_id
+            WHERE pool_id = CAST(:pool_id AS UUID)
+              AND fund_id = ANY(:aliases)
             LIMIT 1
         """
         update_existing_sql = """
@@ -226,7 +240,7 @@ class FundPoolRepo:
             RETURNING *
         """
         with self.engine.connect() as conn:
-            existing = conn.execute(text(existing_sql), {"pool_id": pool_id, "fund_id": fund_id}).fetchone()
+            existing = conn.execute(text(existing_sql), {"pool_id": pool_id, "aliases": alias_params}).fetchone()
             if existing:
                 row = conn.execute(text(update_existing_sql), {
                     "member_id": existing._mapping["id"],
@@ -239,7 +253,7 @@ class FundPoolRepo:
                 return _row_to_dict(row)
             row = conn.execute(text(insert_sql), {
                 "pool_id": pool_id,
-                "fund_id": fund_id,
+                "fund_id": canonical_fund_id,
                 "status": status,
                 "reason": reason,
                 "latest_conclusion": latest_conclusion,

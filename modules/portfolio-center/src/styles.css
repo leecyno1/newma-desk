@@ -25,6 +25,35 @@
 }
 
 * { box-sizing: border-box; }
+.risk-workbench { font-size: 14px; }
+.risk-workbench h2 { font-size: 17px; margin: 0 0 12px; }
+.risk-workbench h3 { font-size: 15px; }
+.risk-workbench .panel-title { gap: 12px; flex-wrap: wrap; }
+.risk-workbench .panel-title h2 { margin: 0; white-space: nowrap; }
+.risk-workbench .panel-title button { width: auto; flex-shrink: 0; }
+.risk-workbench .method-note, .risk-workbench small { font-size: 12px; line-height: 1.65; }
+.risk-workbench .workspace-tabs { display: flex; flex-wrap: wrap; gap: 5px; }
+.risk-workbench .workspace-tabs button { padding: 9px 12px; border-radius: 6px; cursor: pointer; background: var(--folio-paper); }
+.risk-workbench .workspace-tabs button.active { color: var(--folio-amber); background: var(--folio-amber-soft); }
+.risk-check-table article { display: grid; grid-template-columns: 64px minmax(140px,1fr) auto auto; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--folio-line); }
+.risk-check-table article p { margin: 5px 0 0; color: var(--folio-muted); font-size: 12px; line-height: 1.6; }
+.risk-badge { font-size: 12px; padding: 4px 7px; border: 1px solid currentColor; border-radius: 5px; text-align: center; }
+[data-risk-status="triggered"] > .risk-badge, [data-risk-status="triggered"] > strong { color: #cc543d; }
+[data-risk-status="passed"] > .risk-badge { color: var(--folio-teal); }
+[data-risk-status="missing-data"] > .risk-badge, [data-risk-status="expired"] > .risk-badge { color: var(--folio-amber); }
+.risk-workbench label { display: grid; gap: 6px; font-size: 13px; }
+.risk-workbench input, .risk-workbench select, .risk-workbench textarea { min-width: 0; max-width: 100%; padding: 8px 10px; border: 1px solid var(--folio-line); border-radius: 5px; background: var(--vibe-surface); color: inherit; font: inherit; }
+.risk-action-editor { padding: 16px 0; border-bottom: 1px solid var(--folio-line); }
+.risk-action-editor header, .risk-exposure { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 10px 0; }
+.risk-editor-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+.risk-editor-note { grid-column: 1 / -1; }
+.risk-archive { margin-top: 16px; padding-top: 16px; border-top: 2px solid var(--folio-line); }
+.risk-archive p { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .risk-check-table article { grid-template-columns: 60px minmax(0,1fr); gap: 10px; }
+  .risk-check-table article > b, .risk-check-table article > button { grid-column: 2; justify-self: start; }
+  .risk-editor-fields { grid-template-columns: 1fr; }
+}
 html, body, #root { width: 100%; min-width: 300px; min-height: 100%; margin: 0; }
 body { overflow-x: hidden; color: var(--folio-ink); background: var(--vibe-bg); }
 button, input, select { color: inherit; font: inherit; }
@@ -643,3 +672,79 @@ dd { margin: 0; font-family: var(--vibe-font-mono); font-size: 11px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Risk desk: compact analytical tables, not a stack of display cards. */
+.portfolio-root:has(.risk-workbench) { background: var(--vibe-bg); padding: 12px 18px; }
+.portfolio-root:has(.risk-workbench)::before { display: none; }
+.portfolio-root:has(.risk-workbench) .folio-header { margin-bottom: 10px; padding-bottom: 8px; }
+.portfolio-root:has(.risk-workbench) .header-actions { padding-top: 0; }
+.risk-workbench { max-width: none; }
+.risk-workbench .folio-panel { border-radius: 4px; box-shadow: none; padding: 14px; animation: none; }
+.risk-workbench .workbench-stack { gap: 12px; }
+.risk-workbench .workbench-metrics { gap: 0; border: 1px solid var(--folio-line); border-radius: 4px; background: var(--folio-paper); }
+.risk-workbench .workbench-metrics article { min-height: 76px; padding: 9px 14px; border: 0; border-right: 1px solid var(--folio-line); border-radius: 0; background: none; box-shadow: none; gap: 3px; }
+.risk-workbench .workbench-metrics strong { font-size: 22px; margin: 0; }
+.risk-table-scroll { overflow-x: auto; max-width: 100%; }
+.risk-data-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.risk-data-table th { padding: 9px 10px; text-align: right; white-space: nowrap; color: var(--folio-muted); background: var(--vibe-surface-muted); border-bottom: 1px solid var(--folio-line); font-size: 12px; font-weight: 500; }
+.risk-data-table td { padding: 9px 10px; text-align: right; vertical-align: top; border-bottom: 1px solid var(--folio-line); line-height: 1.45; white-space: nowrap; }
+.risk-data-table th:first-child, .risk-data-table td:first-child { text-align: left; }
+.risk-data-table td:first-child { white-space: normal; min-width: 155px; }
+.risk-data-table td small { display: block; color: var(--folio-muted); font-size: 11px; margin-top: 3px; }
+.risk-data-table tr:hover td { background: var(--folio-amber-soft); }
+.risk-data-table td p { white-space: normal; max-width: 660px; color: var(--folio-muted); font-size: 12px; margin: 6px 0 0; }
+.risk-data-table summary { cursor: pointer; font-weight: 600; }
+.risk-data-table .risk-badge { display: inline-block; padding: 2px 6px; border: 0; background: var(--folio-amber-soft); }
+.risk-data-table [data-risk-status="triggered"] .risk-badge { color: #cb593f; }
+.risk-data-table [data-risk-status="passed"] .risk-badge { color: var(--folio-teal); }
+.risk-data-table .secondary-button { min-height: 26px; padding: 2px 8px; font-size: 12px; }
+.risk-register-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; margin: 10px 0; }
+.risk-register-controls label { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.diagnosis-toolbar { display:flex; align-items:end; flex-wrap:wrap; gap:10px; margin:10px 0; }
+.diagnosis-toolbar label { flex:1; min-width:200px; }
+.diagnosis-toolbar span { color:var(--folio-muted); font-size:12px; }
+.diagnosis-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:14px 0; }
+.diagnosis-import textarea { width:100%; font-size:13px; line-height:1.6; }
+.diagnosis-import { border:0; padding:0; margin:0; min-width:0; }
+.diagnosis-help { border-top:1px solid var(--folio-line); margin:14px 0; padding:12px 0; }
+.diagnosis-help summary { cursor:pointer; font-size:14px; font-weight:600; }
+.diagnosis-help p, .diagnosis-help li { color:var(--folio-muted); font-size:13px; }
+.diagnosis-attention { border-left:3px solid var(--folio-amber); padding:0 14px; margin:18px 0; }
+.diagnosis-attention .negative { color:#df875f; }
+.product-risk-overview .risk-shortfall { color:#df875f; }
+.risk-threshold-alert { color:#df875f; font-weight:600; }
+.diagnosis-attention ul { max-height:220px; overflow:auto; padding-left:20px; font-size:13px; }
+.portfolio-diagnosis .risk-data-table td { white-space:normal; min-width:100px; }
+.portfolio-diagnosis .risk-data-table td small { overflow-wrap:anywhere; }
+@media(max-width:600px){.diagnosis-fields{grid-template-columns:1fr}.diagnosis-toolbar label{min-width:0;width:100%}.diagnosis-toolbar{align-items:stretch}}
+.risk-register-controls span { font-size: 12px; color: var(--folio-muted); padding-bottom: 6px; }
+.risk-register-controls input, .risk-register-controls select { padding: 5px 8px; max-width: 230px; }
+.risk-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.risk-section-heading strong { font-size: 15px; }
+.risk-section-heading span { font-size: 12px; color: var(--folio-muted); }
+.risk-analysis-section { margin: 16px 0; }
+.risk-analysis-columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; }
+.risk-analysis-columns > div { min-width: 0; }
+.risk-cell-bar { display: inline-block; width: 60px; height: 5px; margin-right: 8px; background: var(--folio-line); }
+.risk-cell-bar i { display: block; height: 100%; background: var(--folio-amber); }
+.risk-drawdown-chart { display: block; width: 100%; max-height: 240px; background: var(--vibe-surface); }
+.risk-drawdown-chart line { stroke: var(--folio-line); stroke-dasharray: 3 4; }
+.risk-drawdown-chart polyline { stroke: #c96848; stroke-width: 2; fill: none; }
+.risk-drawdown-chart text { fill: var(--folio-muted); font-size: 12px; }
+.risk-scenario-controls { display: flex; flex-wrap: wrap; gap: 20px; padding: 12px 0 18px; }
+.risk-scenario-controls input { max-width: 120px; }
+.risk-action-row { border-bottom: 1px solid var(--folio-line); }
+.risk-action-row > summary { cursor: pointer; display: grid; grid-template-columns: minmax(160px,1fr) 100px 110px 200px; gap: 12px; align-items: center; padding: 12px 6px; font-size: 13px; }
+.risk-action-row > summary strong::before { content: '▸ '; color: var(--folio-muted); }
+.risk-action-row[open] > summary strong::before { content: '▾ '; }
+.risk-action-row .risk-action-editor { padding: 12px; background: var(--vibe-surface-muted); }
+.risk-workbench .risk-limit-grid label { border: 0; border-radius: 0; padding: 6px 0; background: none; }
+.risk-workbench .risk-limit-grid small { right: 10px; bottom: 16px; font-size: 12px; }
+@media (max-width: 900px) { .risk-analysis-columns { grid-template-columns: 1fr; } .risk-action-row > summary { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .portfolio-root:has(.risk-workbench) { padding: 10px; } .risk-workbench .folio-panel { padding: 10px; } }
+.diagnosis-conclusion { border-block: 1px solid var(--border-color, #dce0e5); padding-block: 12px; }
+.diagnosis-conclusion ol { padding-left: 22px; }
+.diagnosis-conclusion li { padding: 8px 0; }
+.diagnosis-conclusion li p { margin: 4px 0; }
+.diagnosis-conclusion-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+[id^="diagnosis-"] { scroll-margin-top: 16px; }

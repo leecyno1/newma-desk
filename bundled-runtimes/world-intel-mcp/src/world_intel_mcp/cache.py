@@ -94,6 +94,13 @@ class Cache:
             return None
         return json.loads(row[0])
 
+    def entry_timing(self, key: str) -> dict[str, float] | None:
+        """Timing of this exact entry, including when serving stale data."""
+        row = self._get_conn().execute(
+            "SELECT created_at, expires_at FROM cache WHERE key = ?", (key,)
+        ).fetchone()
+        return {"created_at": row[0], "expires_at": row[1]} if row else None
+
     def set(self, key: str, value: Any, ttl_seconds: int) -> None:
         """Store a value with TTL in seconds.
 

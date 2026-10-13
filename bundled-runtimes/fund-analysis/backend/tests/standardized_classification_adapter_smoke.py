@@ -64,8 +64,8 @@ class FakeClassificationAdapter:
         self.context_requests.append(fund_code)
         return _standardized_context()
 
-    def list_peer_funds(self, peer_group_id: str, target_wind_code: str | None = None):
-        self.peer_requests.append((peer_group_id, target_wind_code))
+    def list_peer_funds(self, peer_group_id: str, target_wind_code: str | None = None, limit: int = 10000):
+        self.peer_requests.append((peer_group_id, target_wind_code, limit))
         return [
             {"wind_code": "STANDARD.TEST", "name": "标准化信用债基金", "type": "bond"},
             {"wind_code": "PEER.1", "name": "信用债同类一号", "type": "bond"},
@@ -147,7 +147,7 @@ def main() -> int:
     target, peers, source = peer_service._peer_universe("STANDARD.TEST")
     if source != "standardized_peer_group_membership":
         raise AssertionError(f"Peer universe must prefer normalized membership: {source}")
-    if peer_adapter.peer_requests != [("peer-fixed-income", "STANDARD.TEST")]:
+    if peer_adapter.peer_requests != [("peer-fixed-income", "STANDARD.TEST", 10000)]:
         raise AssertionError(f"Peer adapter received the wrong request: {peer_adapter.peer_requests}")
     if {fund.get("wind_code") for fund in peers} != {"STANDARD.TEST", "PEER.1", "PEER.2"}:
         raise AssertionError(f"Peer universe must come from explicit membership: {peers}")

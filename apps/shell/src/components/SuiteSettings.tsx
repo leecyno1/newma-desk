@@ -292,14 +292,15 @@ export function SuiteSettings({
 
       <section className="settings-section suite-agent-section" aria-labelledby="suite-agent-heading">
         <div>
-          <h2 id="suite-agent-heading">Agent</h2>
-          <p>项目页面仍可继承全局 Agent，或在 Agent 设置中按 Mod 单独覆盖。</p>
+          <h2 id="suite-agent-heading">Agent Runtime</h2>
+          <p>挂载 Newma 时由宿主执行；独立运行时按全局设置使用本机 CLI 或兼容 Agent。</p>
         </div>
         <button className="secondary-action" type="button" onClick={onOpenAgentSettings}>
           <Bot size={15} aria-hidden="true" />
           打开 Agent 设置
         </button>
       </section>
+
     </section>
   );
 }

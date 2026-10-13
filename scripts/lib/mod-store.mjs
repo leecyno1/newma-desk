@@ -322,6 +322,17 @@ function nonNegativeInteger(value, label, fallback = 100) {
   return value;
 }
 
+function presentationTemplateValue(raw, label) {
+  if (raw === undefined) return {};
+  const presentation = assertObject(raw, label);
+  assertOnlyKeys(presentation, new Set(["chrome"]), label);
+  if (presentation.chrome === undefined) return {};
+  if (!["standard", "canvas"].includes(presentation.chrome)) {
+    throw new Error(`${label}.chrome is invalid`);
+  }
+  return { chrome: presentation.chrome };
+}
+
 function projectLogoValue(raw, label) {
   const logo = assertObject(raw, label);
   const type = assertString(logo.type, `${label}.type`);
@@ -461,6 +472,10 @@ function suitePageDescriptors(descriptor) {
     `${suiteId}.runtime.defaultBaseUrl`,
   );
   const template = assertObject(descriptor.manifest, `${suiteId}.manifest`);
+  const sharedPresentation = presentationTemplateValue(
+    template.presentation,
+    `${suiteId}.manifest.presentation`,
+  );
   const parsedSharedNavigation = navigationValue(
     template.navigation,
     `${suiteId}.manifest.navigation`,
@@ -508,6 +523,10 @@ function suitePageDescriptors(descriptor) {
     const pageManifest = page.manifest === undefined
       ? {}
       : assertObject(page.manifest, `${id}.manifest`);
+    const pagePresentation = presentationTemplateValue(
+      pageManifest.presentation,
+      `${id}.manifest.presentation`,
+    );
     const navigationKeys = new Set([
       "groupLabel",
       "groupOrder",
@@ -556,6 +575,7 @@ function suitePageDescriptors(descriptor) {
     const manifestKeys = new Set([
       "schemaVersion",
       "category",
+      "presentation",
       "icon",
       "permissions",
       "dataServices",
@@ -602,12 +622,19 @@ function suitePageDescriptors(descriptor) {
     const mergedManifest = {
       ...template,
       ...pageManifest,
+      presentation: {
+        ...sharedPresentation,
+        ...pagePresentation,
+      },
       actions: {
         ...(template.actions || {}),
         ...(pageManifest.actions || {}),
       },
       navigation: mergedNavigation,
     };
+    if (Object.keys(mergedManifest.presentation).length === 0) {
+      delete mergedManifest.presentation;
+    }
     const mergedSchemaVersion = mergedManifest.schemaVersion || "1.0";
     if (mergedSchemaVersion === "1.1") {
       delete mergedManifest.agentCapabilities;
@@ -654,6 +681,10 @@ function manifestFromDescriptor(descriptor, env) {
   }
   const category = assertString(template.category, `${id}.manifest.category`);
   if (!CATEGORY_PATTERN.test(category)) throw new Error(`${id}.category is invalid`);
+  const presentation = presentationTemplateValue(
+    template.presentation,
+    `${id}.manifest.presentation`,
+  );
   const runtime = assertObject(descriptor.runtime, `${id}.runtime`);
   let entry;
   if (runtime.type === "external") {
@@ -684,6 +715,7 @@ function manifestFromDescriptor(descriptor, env) {
       englishName: englishModName(id),
       description: boundedString(descriptor.description, `${id}.description`, 240),
       titleOwner: "host",
+      ...presentation,
     },
     ...(template.navigation
       ? { navigation: navigationValue(template.navigation, `${id}.manifest.navigation`) }

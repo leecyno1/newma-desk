@@ -79,7 +79,7 @@ describe("sidebar navigation model", () => {
     ["AIResearch", "ai-research", "智研"],
     ["Terminal", "market-terminal", "终端"],
     ["行情工具", "market-suite", "行情"],
-    ["牛马 Agent", "numa-agent", "牛马"],
+    ["Newma Agent", "newma-agent", "牛马"],
     ["自定义 Mod", "custom-module", "自定"],
     ["纯中文", "x", "纯中"],
   ])("derives the host project mark for %s", (name, id, expected) => {

@@ -40,7 +40,7 @@ async def main():
     repositories.get_nav_repo = lambda: NavRepo()
     service_registry.get_data_service = lambda: DataService()
     try:
-        result = await fund_routes.get_fund_nav(
+        result = fund_routes.get_fund_nav(
             "INDEX.TEST",
             start_date="2026-01-01",
             end_date="2026-01-31",

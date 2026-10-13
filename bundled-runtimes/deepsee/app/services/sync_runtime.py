@@ -779,11 +779,14 @@ def get_wechatapi_track_state(db: Any) -> dict[str, Any]:
             header_name=str(cfg.get("header_name") or "VideosApi-token"),
             app_id=str(cfg.get("app_id") or ""),
         ).check_online()
+        online = result.get("data") is True
         state.update(
             {
-                "healthy": True,
-                "status": "ok",
-                "message": "wechatapi 在线，实时回调可作为主轨道",
+                "healthy": online,
+                "status": "ok" if online else "offline",
+                "message": "wechatapi 在线，实时回调可作为主轨道"
+                if online
+                else "wechatapi 账号离线，请先重连或重新登录",
                 "result": result,
             }
         )
@@ -923,7 +926,13 @@ def execute_dual_track_sync_run(
     track_states = {"wechatapi": wechatapi, "chatlog": chatlog, "wx_cli": wx_cli}
     enabled = set(policy["enabled_tracks"])
     enabled_order = [track for track in policy["track_order"] if track in enabled]
-    execution_order = enabled_order if policy["use_multiple_tracks"] else enabled_order[:1]
+    if policy["use_multiple_tracks"]:
+        execution_order = enabled_order
+    else:
+        healthy_order = [
+            track for track in enabled_order if track_states.get(track, {}).get("healthy")
+        ]
+        execution_order = healthy_order[:1] or enabled_order[:1]
     actions: list[dict[str, Any]] = []
     chatlog_result: dict[str, Any] | None = None
     wx_cli_result: dict[str, Any] | None = None

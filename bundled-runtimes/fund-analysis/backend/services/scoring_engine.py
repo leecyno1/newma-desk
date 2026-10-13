@@ -5,9 +5,11 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 from decimal import Decimal
+from datetime import date
 import math
 
 from services.scoring_contract import build_scoring_output, serialize_scoring_output
+from services.performance_nav_series import METHODOLOGY_VERSION
 
 
 class ScoreDimension(str, Enum):
@@ -31,10 +33,10 @@ class ScoringRule:
     weight: float = 1.0
     higher_is_better: bool = True  # 指标是否越高越好
 
-    def normalize(self, value: float) -> float:
+    def normalize(self, value: float) -> Optional[float]:
         """归一化到 0-100 分"""
-        if value is None or math.isnan(value):
-            return 50.0
+        if value is None or not math.isfinite(value):
+            return None
         if self.higher_is_better:
             if value <= self.min_val:
                 return 0.0
@@ -74,14 +76,6 @@ class FundScoringEngine:
 
     ALL_RULES = RETURN_RULES + RISK_RULES + RISK_ADJUSTED_RULES
 
-    METRIC_SNAPSHOT_ALIASES = {
-        "annualized_return_1y": "annualized_return",
-        "annualized_return_3y": "annualized_return",
-        "annualized_return_5y": "annualized_return",
-        "annualized_volatility_1y": "annualized_volatility",
-        "sortino": "sortino_ratio",
-    }
-
     DIMENSION_WEIGHTS = {
         ScoreDimension.RETURN: 0.30,
         ScoreDimension.RISK: 0.25,
@@ -100,37 +94,52 @@ class FundScoringEngine:
         """
         dimension_scores = {}
         metric_scores = {}
+        data = {**performance_data, **risk_data}
+        # 风险响应不应以一个空别名覆盖已有的一年期证据，也不能借两年期冒充一年期。
+        for metric, aliases in {
+            "max_drawdown": ["max_drawdown_1y", "max_drawdown"],
+            "annualized_volatility_1y": ["annualized_volatility_1y", "volatility_1y", "volatility"],
+        }.items():
+            data[metric] = next((source[key] for source in (risk_data, performance_data)
+                                 for key in aliases if source.get(key) is not None), None)
+        if performance_data.get("metric_unit") == "ratio":
+            for rule in self.RETURN_RULES:
+                value = data.get(rule.metric_name)
+                if value is not None:
+                    data[rule.metric_name] = value * 100
 
         # 收益维度
         dimension_scores[ScoreDimension.RETURN] = self._score_dimension(
-            self.RETURN_RULES, {**performance_data, **risk_data}, metric_scores
+            self.RETURN_RULES, data, metric_scores
         )
 
         # 风险维度
         dimension_scores[ScoreDimension.RISK] = self._score_dimension(
-            self.RISK_RULES, {**performance_data, **risk_data}, metric_scores
+            self.RISK_RULES, data, metric_scores
         )
 
         # 风险调整收益
         dimension_scores[ScoreDimension.RISK_ADJUSTED] = self._score_dimension(
-            self.RISK_ADJUSTED_RULES, {**performance_data, **risk_data}, metric_scores
+            self.RISK_ADJUSTED_RULES, data, metric_scores
         )
 
-        # 风格维度 (Barra因子分析)
+        # 风格仅作参考；单期因子横截面不能作为综合分中的时间稳定性证据。
         dimension_scores[ScoreDimension.STYLE] = self._score_style(style_data, metric_scores)
 
         # 综合评分
-        overall = sum(
-            score["weighted_score"] * self.DIMENSION_WEIGHTS[d]
-            for d, score in dimension_scores.items()
-        )
+        missing = self._missing_metric_names(data)
+        overall = self._overall_score(dimension_scores, missing)
 
         return {
-            "overall_score": round(overall, 2),
-            "overall_grade": self._get_grade(overall),
+            "overall_score": round(overall, 2) if overall is not None else None,
+            "overall_grade": self._get_grade(overall) if overall is not None else None,
             "dimension_scores": dimension_scores,
-            "metric_scores": {k: (round(v, 2) if v is not None else None) for k, v in metric_scores.items()},
+            "metric_scores": metric_scores,
             "scoring_time": None,
+            "missing_data": missing,
+            "data_quality": {"status": "partial" if missing else "complete", "missing_count": len(missing)},
+            "calculation_method": "explicit_window_evidence_v2",
+            "message": "缺少完整评价证据，只展示可用维度，不生成综合分或等级。" if missing else None,
         }
 
     def score_fund_from_metric_snapshots(self, fund_code: str, metric_repo=None) -> Dict[str, Any]:
@@ -140,8 +149,7 @@ class FundScoringEngine:
             metric_repo = get_metric_snapshot_repo()
 
         panel = metric_repo.get_latest_panel("fund", fund_code)
-        metric_values = self._metric_panel_to_values(panel)
-        adapted = self._adapt_snapshot_metrics(metric_values)
+        adapted, used_panel, evidence_audit = self._snapshot_evidence(panel)
         missing_data = self._missing_metric_names(adapted)
         metric_scores: Dict[str, Any] = {}
 
@@ -149,19 +157,16 @@ class FundScoringEngine:
             ScoreDimension.RETURN: self._score_dimension(self.RETURN_RULES, adapted, metric_scores),
             ScoreDimension.RISK: self._score_dimension(self.RISK_RULES, adapted, metric_scores),
             ScoreDimension.RISK_ADJUSTED: self._score_dimension(self.RISK_ADJUSTED_RULES, adapted, metric_scores),
-            ScoreDimension.STYLE: {"score": 0.0, "weighted_score": 0.0, "count": 0, "status": "insufficient_evidence"},
+            ScoreDimension.STYLE: {"score": None, "weighted_score": None, "count": 0, "status": "insufficient_evidence"},
         }
-        overall = sum(
-            score["weighted_score"] * self.DIMENSION_WEIGHTS[dimension]
-            for dimension, score in dimension_scores.items()
-        )
+        overall = self._overall_score(dimension_scores, missing_data)
         positive_factors, negative_factors = self._explain_snapshot_score(adapted, dimension_scores)
         source_snapshot_ids = sorted({
-            item.get("source_snapshot_id") for item in panel if item.get("source_snapshot_id")
+            item.get("source_snapshot_id") for item in used_panel if item.get("source_snapshot_id")
         })
-        as_of_dates = sorted({str(item.get("as_of_date")) for item in panel if item.get("as_of_date")})
+        as_of_dates = sorted({str(item.get("as_of_date")) for item in used_panel if item.get("as_of_date")})
 
-        return build_scoring_output(
+        output = build_scoring_output(
             target_type="fund",
             target_id=fund_code,
             total_score=overall,
@@ -174,6 +179,11 @@ class FundScoringEngine:
             as_of_date=as_of_dates[-1] if as_of_dates else None,
             calculation_method="metric_snapshot",
         )
+        output['scoring_methodology_version'] = 'explicit_window_evidence_v2'
+        output['score_scope'] = 'quantitative_absolute'
+        output['evidence_audit'] = evidence_audit
+        output['message'] = '缺少完整评价证据，只展示可用维度，不生成综合分或等级。' if missing_data else None
+        return output
 
     def _score_dimension(self, rules: List[ScoringRule], data: Dict, metric_scores: Dict) -> Dict:
         total_weight = 0.0
@@ -181,62 +191,143 @@ class FundScoringEngine:
         for rule in rules:
             raw_val = data.get(rule.metric_name)
             normalized = rule.normalize(raw_val)
-            metric_scores[f"{rule.metric_name}_normalized"] = round(normalized, 2)
-            metric_scores[f"{rule.metric_name}_raw"] = raw_val
+            metric_scores[f"{rule.metric_name}_normalized"] = round(normalized, 2) if normalized is not None else None
+            metric_scores[f"{rule.metric_name}_raw"] = raw_val if normalized is not None else None
+            if normalized is None:
+                metric_scores[f"{rule.metric_name}_normalized"] = None
+                continue
             weighted_sum += normalized * rule.weight
             total_weight += rule.weight
 
         return {
-            "score": round(weighted_sum / total_weight, 2) if total_weight > 0 else 50.0,
-            "weighted_score": round(weighted_sum / total_weight, 2) if total_weight > 0 else 50.0,
-            "count": len(rules),
+            "score": round(weighted_sum / total_weight, 2) if total_weight > 0 else None,
+            "weighted_score": round(weighted_sum / total_weight, 2) if total_weight > 0 else None,
+            "count": sum(metric_scores[f"{rule.metric_name}_normalized"] is not None for rule in rules),
+            "expected_count": len(rules),
+            "status": "complete" if total_weight == sum(rule.weight for rule in rules) else "partial" if total_weight else "insufficient_evidence",
         }
 
-    def _metric_panel_to_values(self, panel: List[Dict[str, Any]]) -> Dict[str, float]:
-        values: Dict[str, float] = {}
-        for item in panel:
-            name = item.get("metric_name")
-            value = item.get("metric_value")
-            if name is None or value is None:
-                continue
-            try:
-                values[name] = float(Decimal(str(value)))
-            except Exception:
-                continue
-        return values
+    def _overall_score(self, dimensions: Dict, missing: List[str]) -> Optional[float]:
+        if missing:
+            return None
+        available = [(result['weighted_score'], self.DIMENSION_WEIGHTS[dimension])
+                     for dimension, result in dimensions.items() if dimension != ScoreDimension.STYLE
+                     and result.get('count', 0) and result.get('weighted_score') is not None]
+        return sum(score * weight for score, weight in available) / sum(weight for _, weight in available) if available else None
 
-    def _adapt_snapshot_metrics(self, metric_values: Dict[str, float]) -> Dict[str, float]:
-        adapted = dict(metric_values)
-        for rule in self.ALL_RULES:
-            if rule.metric_name in adapted:
+    def _snapshot_scoring_metrics(self, panel: List[Dict[str, Any]]) -> tuple[Dict[str, float], List[Dict[str, Any]]]:
+        data, used, _ = self._snapshot_evidence(panel)
+        return data, used
+
+    def _snapshot_evidence(self, panel: List[Dict[str, Any]]) -> tuple[Dict[str, float], List[Dict[str, Any]], Dict[str, Any]]:
+        """只使用同截止日、显式窗口/单位和新口径的完整证据，不给旧记录换版本。"""
+        panel_count = len(panel)
+        relevant_names = {'annualized_return', 'annualized_volatility', 'max_drawdown', 'var_95',
+                          'sharpe_ratio', 'sortino_ratio', 'calmar_ratio', 'information_ratio',
+                          'downside_risk', 'tracking_error'}
+        panel = [row for row in panel if row.get('metric_name') in relevant_names
+                 and (row.get('metric_window') or row.get('window')) in {'1y', '3y', '5y'}]
+        latest = max((str(row['as_of_date'])[:10] for row in panel if row.get('as_of_date')), default=None)
+        windows: Dict[str, Dict[str, Any]] = {}
+        row_audit = []
+        for index, row in enumerate(panel):
+            window = row.get('metric_window') or row.get('window')
+            details = row.get('details') or {}
+            reasons = []
+            if window not in {'1y', '3y', '5y'}:
+                reasons.append('缺少明确的1/3/5年窗口')
+            if not latest or str(row.get('as_of_date'))[:10] != latest:
+                reasons.append('指标截止日不一致')
+            if details.get('methodology_version') != METHODOLOGY_VERSION:
+                reasons.append('旧方法或未记录方法版本')
+            if details.get('nav_basis') != 'adj_nav':
+                reasons.append('未证明使用复权净值')
+            if details.get('daily_risk_eligible') is not True:
+                reasons.append('缺少合格日频采样证据')
+            try:
+                start = date.fromisoformat(str(details['window_start_date'])[:10])
+                end = date.fromisoformat(str(details['window_end_date'])[:10])
+                cutoff = date.fromisoformat(latest)
+                duration = {'1y': 365, '3y': 1095, '5y': 1825}[window]
+                value = float(row['metric_value'])
+            except (KeyError, TypeError, ValueError):
+                reasons.append('缺少合法的窗口日期或指标数值')
+            else:
+                if abs((cutoff - start).days - duration) > 15 or not 0 <= (cutoff - end).days <= 15:
+                    reasons.append('实际样本未覆盖指定窗口')
+                if not math.isfinite(value):
+                    reasons.append('指标为非有限值')
+            if row.get('metric_unit') not in {'ratio', 'percent'}:
+                reasons.append('缺少明确的指标单位')
+            row_audit.append({'row_index': index, 'metric_name': row.get('metric_name'), 'window': window,
+                              'as_of_date': str(row.get('as_of_date') or '')[:10],
+                              'methodology_version': details.get('methodology_version'),
+                              'status': 'rejected' if reasons else 'eligible', 'reasons': reasons})
+            if reasons:
                 continue
-            alias = self.METRIC_SNAPSHOT_ALIASES.get(rule.metric_name)
-            if alias and alias in metric_values:
-                adapted[rule.metric_name] = metric_values[alias]
-        for metric_name in ["annualized_return", "annualized_return_1y", "annualized_return_3y", "annualized_return_5y"]:
-            value = adapted.get(metric_name)
-            if value is not None and abs(value) <= 2:
-                adapted[metric_name] = value * 100
-        return adapted
+            windows.setdefault(window, {}).setdefault(row['metric_name'], []).append(row)
+        data, used, rule_audit = {}, [], []
+        aliases = {'annualized_volatility_1y': 'annualized_volatility', 'sortino': 'sortino_ratio'}
+        denominators = {'sharpe_ratio': 'annualized_volatility', 'sortino': 'downside_risk',
+                        'calmar_ratio': 'max_drawdown', 'information_ratio': 'tracking_error'}
+        for rule in self.ALL_RULES:
+            window = rule.metric_name[-2:] if rule.dimension == ScoreDimension.RETURN else '1y'
+            name = 'annualized_return' if rule.dimension == ScoreDimension.RETURN else aliases.get(rule.metric_name, rule.metric_name)
+            rows = windows.get(window, {}).get(name, [])
+            result = {'metric_name': rule.metric_name, 'window': window, 'status': 'unavailable', 'reason': None}
+            rule_audit.append(result)
+            if len(rows) != 1:  # 多个基准/同类版本不任选其一。
+                result['reason'] = '没有合格窗口证据' if not rows else '存在多个基准或同类版本，不能任意选取'
+                continue
+            row = rows[0]
+            if rule.dimension == ScoreDimension.RISK_ADJUSTED and row['metric_unit'] != 'ratio':
+                result['reason'] = '风险调整比率必须使用ratio单位'
+                continue
+            if rule.metric_name in denominators:
+                denominator = windows[window].get(denominators[rule.metric_name], [])
+                if len(denominator) != 1 or float(denominator[0]['metric_value']) == 0:
+                    result['reason'] = '缺少唯一且非零的分母指标'
+                    continue
+                keys = ('window_start_date', 'window_end_date')
+                if any(str(denominator[0]['details'].get(key))[:10] != str(row['details'].get(key))[:10] for key in keys):
+                    result['reason'] = '分母与比率的实际窗口不一致'
+                    continue
+                if rule.metric_name == 'information_ratio' and denominator[0].get('benchmark_code') != row.get('benchmark_code'):
+                    result['reason'] = '信息比率与跟踪误差基准不一致'
+                    continue
+            if rule.metric_name == 'information_ratio' and not row.get('benchmark_code'):
+                result['reason'] = '相对指标缺少明确基准代码'
+                continue
+            value = float(row['metric_value'])
+            if name == 'annualized_return':
+                value *= 100 if row['metric_unit'] == 'ratio' else 1
+            elif row['metric_unit'] == 'percent':
+                value /= 100
+            data[rule.metric_name] = value
+            used.append(row)
+            result['status'] = 'used'
+        return data, used, {'as_of_date': latest, 'required_methodology_version': METHODOLOGY_VERSION,
+                            'panel_row_count': panel_count, 'scoring_row_count': len(panel),
+                            'out_of_scope_row_count': panel_count-len(panel),
+                            'rows': row_audit, 'rules': rule_audit,
+                            'boundary': '只审查现有证据，不重标旧记录、不重算指标或保存评分。'}
 
     def _missing_metric_names(self, data: Dict[str, float]) -> List[str]:
         missing = []
         for rule in self.ALL_RULES:
-            if rule.metric_name == "var_95":
-                continue
-            if data.get(rule.metric_name) is None:
+            if data.get(rule.metric_name) is None or not math.isfinite(data[rule.metric_name]):
                 missing.append(rule.metric_name)
         return missing
 
     def _explain_snapshot_score(self, data: Dict[str, float], dimension_scores: Dict[Any, Dict[str, Any]]) -> tuple[List[str], List[str]]:
         positive_factors: List[str] = []
         negative_factors: List[str] = []
-        annualized_return = data.get("annualized_return") or data.get("annualized_return_1y")
+        annualized_return = data.get("annualized_return_1y")
         max_drawdown = data.get("max_drawdown")
         sharpe_ratio = data.get("sharpe_ratio")
 
         if annualized_return is not None:
-            if annualized_return >= 0.15:
+            if annualized_return >= 15:
                 positive_factors.append("年化收益表现较强")
             elif annualized_return < 0:
                 negative_factors.append("年化收益为负")
@@ -253,6 +344,8 @@ class FundScoringEngine:
 
         for dimension, result in dimension_scores.items():
             score = result.get("score", 50)
+            if score is None:
+                continue
             name = dimension.value if hasattr(dimension, "value") else str(dimension)
             if score >= 80:
                 positive_factors.append(f"{name} 维度得分较高")
@@ -262,7 +355,7 @@ class FundScoringEngine:
 
     def _score_style(self, style_data: Dict, metric_scores: Dict) -> Dict:
         """风格稳定性评分 - 基于Barra因子暴露的标准差"""
-        factor_stability_score = 0.0
+        factor_stability_score = None
         numeric_exposures = []
         if style_data:
             if style_data.get("data_status") == "unavailable" or style_data.get("style_factors_status") == "unavailable":
@@ -283,9 +376,9 @@ class FundScoringEngine:
                 factor_stability_score = max(0, 100 - std_dev * 50)
 
         return {
-            "score": round(factor_stability_score, 2),
-            "weighted_score": round(factor_stability_score, 2),
-            "count": len(numeric_exposures),
+            "score": round(factor_stability_score, 2) if factor_stability_score is not None else None,
+            "weighted_score": round(factor_stability_score, 2) if factor_stability_score is not None else None,
+            "count": len(numeric_exposures) if factor_stability_score is not None else 0,
         }
 
     def _get_grade(self, score: float) -> str:

@@ -50,6 +50,12 @@ def _save_report_to_postgres(report_record: dict) -> Optional[str]:
             CAST(:data_sources AS jsonb), :research_reports_used,
             CAST(:generation_params AS jsonb), NOW()
         )
+        ON CONFLICT (target_type, target_id, report_type) DO UPDATE SET
+            content = EXCLUDED.content,
+            data_sources = EXCLUDED.data_sources,
+            research_reports_used = EXCLUDED.research_reports_used,
+            generation_params = EXCLUDED.generation_params,
+            created_at = NOW()
         RETURNING id
         """
     )
@@ -706,11 +712,10 @@ async def generate_fund_evaluation_analysis(
     payload: FundEvaluationAnalysisRequest = Body(default=FundEvaluationAnalysisRequest()),
 ):
     """按需生成基金评价分析：分类内评价为主，归因与纪要为证据。"""
-    from service_registry import get_data_service, get_db
+    from service_registry import get_data_service
     from services.ai_report import get_report_generator
     data_svc = get_data_service()
     _reject_mock_data_source(data_svc, "基金评价")
-    db = get_db()
 
     try:
         snapshot = await _build_evaluation_snapshot(wind_code, payload.include_research)
@@ -834,11 +839,6 @@ async def generate_fund_evaluation_analysis(
             "created_at": datetime.utcnow(),
         }
         report_id = _save_report_to_postgres(report_record)
-        try:
-            if db is not None:
-                db.ai_analysis_reports.insert_one(report_record)
-        except Exception as mongo_error:
-            logger.debug(f"Mongo evaluation analysis save skipped: {mongo_error}")
 
         return {
             "id": report_id,
@@ -913,8 +913,8 @@ async def generate_fund_report(
     planned_amount: Optional[float] = Query(None, description="本次买前计划金额"),
 ):
     """生成基金分析报告"""
-    from service_registry import get_data_service, get_scoring_engine, get_db
-    data_svc = get_data_service(); scoring_engine = get_scoring_engine(); db = get_db()
+    from service_registry import get_data_service, get_scoring_engine
+    data_svc = get_data_service(); scoring_engine = get_scoring_engine()
     _reject_mock_data_source(data_svc, "基金")
     from services.ai_report import get_report_generator
     from services.evidence_report import build_buy_before_decision_summary, build_fund_research_report
@@ -969,23 +969,24 @@ async def generate_fund_report(
         holdings = holding_snapshot["holdings"]
         sales_rule_snapshot = _load_local_sales_rules(wind_code)
 
-        # 获取相关调研报告
+        # 获取相关调研报告（PostgreSQL，与调研库读路径同库）
         research_reports = []
         if include_research:
             try:
-                query = {"fund_ids": wind_code}
-                reports_cursor = db.research_reports.find(query).sort("report_date", -1).limit(5)
-                for doc in reports_cursor:
+                from repositories.local_research_folder_repo import PostgresLocalResearchFolderRepo
+                for doc in PostgresLocalResearchFolderRepo().list_reports(
+                    fund_id=wind_code, page=1, page_size=5, sort_by="report_date", sort_order="desc",
+                ).get("reports", []):
                     research_reports.append({
-                        "id": str(doc.get("_id", "")),
+                        "id": str(doc.get("id") or ""),
                         "title": doc.get("title"),
                         "report_date": doc.get("report_date"),
                         "summary": doc.get("summary", ""),
                         "content": doc.get("content", ""),
                         "tags": doc.get("tags", []),
                     })
-            except:
-                pass
+            except Exception as research_error:
+                logger.debug(f"Fund research reports lookup skipped: {research_error}")
 
         # 生成报告
         generator = get_report_generator()
@@ -1094,12 +1095,6 @@ async def generate_fund_report(
         except Exception as pg_err:
             logger.warning(f"Failed to save report to PostgreSQL: {pg_err}")
 
-        try:
-            if db is not None:
-                result = db.ai_analysis_reports.insert_one(report_record)
-                report_record["mongo_id"] = str(result.inserted_id)
-        except Exception as db_err:
-            logger.debug(f"Mongo report save skipped: {db_err}")
 
         return {
             "id": report_id,
@@ -1132,8 +1127,8 @@ async def generate_manager_report(
     depth: str = Query("standard", description="standard/deep/brief"),
 ):
     """生成基金经理分析报告"""
-    from service_registry import get_data_service, get_scoring_engine, get_db
-    data_svc = get_data_service(); scoring_engine = get_scoring_engine(); db = get_db()
+    from service_registry import get_data_service, get_scoring_engine
+    data_svc = get_data_service(); scoring_engine = get_scoring_engine()
     _reject_mock_data_source(data_svc, "基金经理")
     from services.ai_report import get_report_generator
     from services.search_service import get_search_service
@@ -1154,34 +1149,36 @@ async def generate_manager_report(
             score = scoring_engine.score_fund(p, r, s)
             fund_details.append({**fund, "performance": p, "risk": r, "style": s, "scoring": score})
 
-        avg_perf = {
-            "overall_score": sum(f["scoring"]["overall_score"] for f in fund_details) / len(fund_details)
-            if fund_details
-            else None,
-        }
+        valid_scores = [f['scoring']['overall_score'] for f in fund_details if f['scoring']['overall_score'] is not None]
+        avg_perf = {"overall_score": sum(valid_scores) / len(valid_scores) if valid_scores else None}
         manager_score = scoring_engine.score_manager(manager_data, avg_perf, {}, [])
+        manager_score['score_coverage'] = {"available": len(valid_scores), "requested": len(fund_details)}
 
-        # 获取调研报告
+        # 获取调研报告（PostgreSQL，与调研库读路径同库）
         try:
-            reports_cursor = db.research_reports.find({"manager_id": manager_id}).sort("report_date", -1).limit(10)
+            from repositories.local_research_folder_repo import PostgresLocalResearchFolderRepo
             reports = []
-            for doc in reports_cursor:
+            for doc in PostgresLocalResearchFolderRepo().list_reports(
+                manager_id=manager_id, page=1, page_size=10, sort_by="report_date", sort_order="desc",
+            ).get("reports", []):
                 reports.append({
-                    "id": str(doc.get("_id", "")),
+                    "id": str(doc.get("id") or ""),
                     "title": doc.get("title"),
                     "report_date": doc.get("report_date"),
                     "summary": doc.get("summary", ""),
                     "content": doc.get("content", ""),
                     "tags": doc.get("tags", []),
                 })
-        except:
+        except Exception as research_error:
+            logger.debug(f"Manager research reports lookup skipped: {research_error}")
             reports = []
 
         # 获取经理画像
         manager_profile = None
         if include_profile:
             try:
-                profile = db.manager_profiles.find_one({"manager_id": manager_id})
+                from repositories.manager_repo import get_manager_repo
+                profile = get_manager_repo().get_profile(manager_id)
                 if profile:
                     manager_profile = {
                         "core_philosophy": profile.get("core_philosophy"),
@@ -1238,12 +1235,6 @@ async def generate_manager_report(
         except Exception as pg_err:
             logger.warning(f"Failed to save manager report to PostgreSQL: {pg_err}")
 
-        try:
-            if db is not None:
-                result = db.ai_analysis_reports.insert_one(report_record)
-                report_record["mongo_id"] = str(result.inserted_id)
-        except Exception as db_err:
-            logger.debug(f"Mongo manager report save skipped: {db_err}")
 
         return {
             "id": report_id,
@@ -1272,27 +1263,32 @@ async def get_report_history(
     target_id: str = Query(...),
     limit: int = Query(10, ge=1, le=50),
 ):
-    """获取历史生成的报告列表"""
-    from service_registry import get_db
-    db = get_db()
-
-    if db is None:
-        return {"total": 0, "reports": []}
+    """获取历史生成的报告列表（PostgreSQL，与报告生成主写路径同库）"""
+    from sqlalchemy import text
+    from database import get_engine
 
     try:
-        cursor = db.ai_analysis_reports.find(
-            {"target_type": target_type, "target_id": target_id}
-        ).sort("created_at", -1).limit(limit)
+        with get_engine().connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT id, report_type, content, data_sources, created_at
+                    FROM ai_analysis_reports
+                    WHERE target_type = :target_type AND target_id = :target_id
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"target_type": target_type, "target_id": target_id, "limit": limit},
+            ).fetchall()
 
-        reports = []
-        for doc in cursor:
-            reports.append({
-                "id": str(doc.get("_id", "")),
-                "report_type": doc.get("report_type"),
-                "content_preview": doc.get("content", "")[:200],
-                "data_sources": doc.get("data_sources"),
-                "created_at": doc.get("created_at"),
-            })
+        reports = [{
+            "id": str(row[0]),
+            "report_type": row[1],
+            "content_preview": (row[2] or "")[:200],
+            "data_sources": row[3],
+            "created_at": row[4],
+        } for row in rows]
 
         return {"total": len(reports), "reports": reports}
     except Exception as e:
@@ -1419,31 +1415,8 @@ async def get_report_detail(report_id: str):
                 "created_at": _json_safe(data.get("created_at")),
             }
     except Exception as pg_error:
-        logger.debug(f"PostgreSQL report lookup skipped for {report_id}: {pg_error}")
+        # 非法 UUID 等查询错误与未找到同义：对外统一 404，不暴露数据库细节
+        logger.debug(f"Report detail lookup failed for {report_id}: {pg_error}")
+        raise HTTPException(status_code=404, detail="报告不存在")
 
-    from bson import ObjectId
-    from service_registry import get_db
-    db = get_db()
-
-    if db is None:
-        raise HTTPException(status_code=503, detail="数据库不可用")
-
-    try:
-        doc = db.ai_analysis_reports.find_one({"_id": ObjectId(report_id)})
-        if not doc:
-            raise HTTPException(status_code=404, detail="报告不存在")
-
-        return {
-            "id": str(doc["_id"]),
-            "target_type": doc.get("target_type"),
-            "target_id": doc.get("target_id"),
-            "report_type": doc.get("report_type"),
-            "content": doc.get("content"),
-            "data_sources": doc.get("data_sources"),
-            "created_at": doc.get("created_at"),
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Get report detail error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    raise HTTPException(status_code=404, detail="报告不存在")

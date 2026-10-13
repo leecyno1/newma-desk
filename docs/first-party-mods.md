@@ -19,17 +19,17 @@ Newma-Desk
 └── Deepsee Mod         -> Deepsee /embed/*      -> Deepsee backend
 ```
 
-这些内置前端在 iframe 中运行时自动隐藏自身导航，所以用户只看到 Newma-Desk 的统一侧边栏。Mod 内部跳转、表单状态、回测运行记录和领域文件仍由对应领域运行时管理；Agent 会话、模型选择和按 Mod 记忆统一由 Desk 管理。
+这些内置前端在 iframe 中运行时自动隐藏自身导航，所以用户只看到 Newma-Desk 的统一侧边栏。Mod 内部跳转、表单状态、回测运行记录和领域文件仍由对应领域运行时管理；Agent 会话、模型选择和记忆统一通过 Agent Runtime Seam 管理。
 
-需要 AI 的页面统一调用 Newma-Desk Agent Gateway。Desk 会把当前 Mod ID、用户 ID 和 Gateway 地址下发给 iframe；Mod 也会主动发送 `vibedesk:ready` 请求配置，避免大型前端包加载较慢时错过一次性的 iframe `load` 消息。
+需要 AI 的页面通过 Bridge 请求当前 Agent Runtime。Desk 下发 Mod 实例、Context、Action Grants 和 Runtime 描述；Mod 必须完成握手并携带 `instanceId + modId`，不能绕过 Runtime Seam 直接执行模型或 CLI。
 
 ```text
 Research / Trading Mod
-        -> Newma-Desk Agent Gateway
-        -> 用户在“Agent 设置”中选择的本机 CLI 或 Hermes
+        -> Newma-Desk Bridge
+        -> Newma Host Adapter 或 Desk Gateway Adapter
 ```
 
-Model Gateway 仍是另一条独立链路，不会自动串到 Agent 后面。
+独立 Desk 通过 `owner=desk`、`aiExecution=gateway` 声明 Desk Gateway Adapter，并提供 Agent 设置与本地 Copilot；挂载 Newma 时改由 `owner=newma`、`aiExecution=host` 的 Newma Host Adapter 接管，同一页面不会同时启用两套 Copilot。
 
 Vibe Research 与 Vibe Trading 保留为完整源码和运行来源。导航描述可按业务职责拆成多个 Suite，但不会复制或拆分运行时；同一页面仍只有一个主归属。一级导航固定为 16 个投资模块，稳定栏目 ID 不随来源仓库、页面路由或服务地址改变；完整规则见 [`investment-domain-mod-standard.md`](./investment-domain-mod-standard.md)。
 
@@ -67,7 +67,7 @@ mods/
 
 新 Mod 的 Data Action 可以只声明 Capability、权限和输入输出 Schema，不再写 Provider、API 地址或密钥。省略 `binding.service` 后，Desk 会根据完整项目的 `directory.id`、当前用户与 Workspace 自动选择数据服务，并允许用户在项目设置中覆盖；单页 Mod 使用自身 ID。栏目 `project.id` 只负责导航归属，不承担项目数据作用域。
 
-Vibe Trading 按量化研究和交易台拆成两个导航 Suite；Vibe Research 按公司、策略、行业和基金拆成多个导航 Suite。它们继续复用原运行时。新闻与舆情、催化剂日历复用 Research 运行时，但作为独立 Mod 进入“全球”。重复的“投研 AI 设置”和“量化 Agent”已下架，由 Desk 的 Agent 设置与右侧统一 Agent 抽屉替代。
+Vibe Trading 按量化研究和交易台拆成两个导航 Suite；Vibe Research 按公司、策略、行业和基金拆成多个导航 Suite。它们继续复用原运行时。新闻与舆情、催化剂日历复用 Research 运行时，但作为独立 Mod 进入“全球”。领域项目自带的重复 AI 设置已下架，统一使用 Desk 顶层 Agent Runtime 设置。
 
 InStock 的 CZSC/轮动页面以及 Orchestra 的八个顶层工作区保留在 Mod 商店中，用户安装后继续以独立服务运行；导航、项目设置、Agent Context、数据路由和统一启动由 Desk 管理。
 
@@ -86,7 +86,7 @@ InStock 的 CZSC/轮动页面以及 Orchestra 的八个顶层工作区保留在 
 | 日线时间轴 | `/mods/market-daily/?workspace=event-timeline` |
 | 交易回放室 | `/mods/market-daily/?workspace=trading-replay` |
 
-全球情报发布 `newma-desk.global-intelligence.v1` Agent Context，包含地图图层、筛选、选中事件、来源健康和实时事件摘要。市场 Mods 统一收发 `security.selected`，并把当前标的、筛选条件、图表状态与回放进度发布给 Desk 右侧 Agent；Desk Agent 可通过反向 UI Action 桥安全切换周期、设置指标、创建价格预警和保存布局。
+全球情报发布 `newma-desk.global-intelligence.v1` Mod Page Context，包含地图图层、筛选、选中事件、来源健康和实时事件摘要。市场 Mods 统一收发 `security.selected`，并把当前标的、筛选条件、图表状态与回放进度交给 Newma Agent；Agent 可通过反向 UI Action 桥安全切换周期、设置指标、创建价格预警和保存布局。
 
 Deepsee 的 11 个页面进入一级模块“深瞳”。交易行情、日线时间轴与图表工具进入“市场”；全球情报、新闻与舆情和催化剂日历进入“全球”。
 
@@ -107,14 +107,14 @@ Vibe Research 按主职责拆成公司、策略、行业和基金四个导航 Su
 
 催化剂日历与市场侧“日线时间轴”共享 `newma-desk.catalyst-calendar.v1` 合同。日历负责未来事件、周期观察窗、确认/失效条件和结果归档；日线时间轴负责已发生事件与历史行情叠加。详细标准见 [`catalyst-calendar-standard.md`](./catalyst-calendar-standard.md)。
 
-宏观观察使用 `newma-desk.macro-monitor.v1` 合同，把增长、价格、流动性、经济事件、来源状态和缺口统一进入 Desk Agent Context。它与周期叠加互补：宏观观察呈现可核验事实与发布日历，周期叠加只提供通过门槛的概率观察窗。
+宏观观察使用 `newma-desk.macro-monitor.v1` 合同，把增长、价格、流动性、经济事件、来源状态和缺口统一进入 Mod Page Context。它与周期叠加互补：宏观观察呈现可核验事实与发布日历，周期叠加只提供通过门槛的概率观察窗。
 详细标准见 [`macro-monitor-standard.md`](./macro-monitor-standard.md)。
 
 研究机会池使用 `newma-desk.idea-funnel.v1` 合同，把市场扫描、主题、资讯、催化剂、产业链和自选线索整理为双向假设、筛选方法、优先级评分、证伪条件与研究任务，再交给投资逻辑、财报、同业、估值或研究备忘录。其“流程总览”实时汇总既有研究缓存中的复核到期、逾期任务、陈旧来源与档案缺口，不复制底层数据或新增存储。筛选结果与流程完整度始终不是投资结论。详细标准见 [`idea-funnel-standard.md`](./idea-funnel-standard.md)。
 
 投资逻辑使用 `newma-desk.investment-thesis.v1` 合同，把个股核心论点、3–5 个支柱、3–5 个证伪风险、催化剂、证据、确信度和阶段复盘存入 Desk-managed Storage。它只记录研究状态，不包含仓位或交易动作；右侧统一 Agent 可以基于当前证券继续补充长周期行情、财务、公告、新闻、宏观和产业链证据。详细标准见 [`investment-thesis-standard.md`](./investment-thesis-standard.md)。
 
-研究备忘录使用 `newma-desk.research-memo.v1` 合同，通过来源 Mod 与档案 ID 引用投资逻辑、财报、同业、估值和催化剂，不复制底层档案。它负责收敛结论、差异认知、三情景、反方风险、监控面板和版本变化，并可继续交给 Desk Agent 或 Orchestra 讨论。详细标准见 [`research-memo-standard.md`](./research-memo-standard.md)。
+研究备忘录使用 `newma-desk.research-memo.v1` 合同，通过来源 Mod 与档案 ID 引用投资逻辑、财报、同业、估值和催化剂，不复制底层档案。它负责收敛结论、差异认知、三情景、反方风险、监控面板和版本变化，并可继续交给 Newma Agent 或 Orchestra 讨论。详细标准见 [`research-memo-standard.md`](./research-memo-standard.md)。
 
 研究记录使用 `newma-desk.research-records.v1` 合同，把每日复盘、资讯要点和 Agent 问答写入 Desk-managed Storage，并自动迁移旧 `vr-notes` 本地记录。正文由轻量安全的 ResearchText Module 渲染，不执行 HTML 或脚本；右侧 Agent 可以总结当前记录、查找关联档案并生成后续研究清单。详细标准见 [`research-record-standard.md`](./research-record-standard.md)。
 
@@ -196,6 +196,18 @@ npm run runtime:bootstrap
 npm run dev:stack
 ```
 
+本地运行支持三个 Profile：`core` 只保留 Desk、API、Research / Trading 与 World Intelligence；`local` 增加 Crucix、政策采集、InStock、基金和投决；`all` 再增加 OpenChatCut、Seven Cycle 与 Deepsee，并保持默认完整启动兼容。示例：
+
+```bash
+npm run dev:stack -- --profile core
+npm run dev:status -- --profile local
+```
+
+内置前端产物未变化时启动器会跳过重复构建；需要构建时由 Runtime Build Queue 默认同时执行两个独立任务，可通过 `NEWMA_DESK_RUNTIME_BUILD_CONCURRENCY` 调整。需要强制刷新全部产物时使用 `npm run dev:stack -- --rebuild`。World Intelligence、Crucix 和政策采集等 pre-core 运行时会并行启动。
+统一启动器只把自己实际拉起的本地进程写入 Runtime Ownership Ledger。宿主异常退出后，下一次启动会验证 PID 与进程身份并回收匹配的旧进程组；复用服务和身份不匹配的进程不会被自动终止。
+External Mod Runtime 可声明 Runtime Preparation Hook，在首次启动和监控恢复前创建隔离环境或校验依赖；健康复用时不会重复执行。World Intelligence 使用固定 `.venv/bin/python` 启动，因此首次创建虚拟环境后不会继续沿用准备前解析到的全局 Python。
+Seven Cycle 使用同一 Hook 验证本机派生 Catalog；仓内 Parquet/JSON 发布快照有效但索引缺失或因磁盘迁移失效时，会在启动服务前重建索引，409 不再被当作可复用的降级状态。
+
 Research / Trading 不再占用独立端口，也不再作为独立产品入口运行。统一地址为：
 
 - Research API：`/api/research`
@@ -206,14 +218,16 @@ Research / Trading 不再占用独立端口，也不再作为独立产品入口�
 - Orchestra 前端：`http://127.0.0.1:3001`
 - Orchestra API：`http://127.0.0.1:8011`
 
-可用 `npm run dev:status` 查看完整状态。该命令默认只以核心运行时是否就绪决定退出状态；InStock、Orchestra、Seven Cycle 或 Deepsee 不可用时会明确显示降级，但不会阻断 Desk。发布前需要检查全部可选 Mod 时使用 `npm run dev:status -- --strict`。
+可用 `npm run dev:status` 查看完整状态。所有运行时会并行探测，终端会显示单项时延；`node scripts/dev-stack.mjs --check --json --profile core` 可输出供 Newma 和本地运维直接读取的 Runtime Status Report。该命令默认只以核心运行时是否就绪决定退出状态；InStock、Orchestra、Seven Cycle 或 Deepsee 不可用时会明确显示降级，但不会阻断 Desk。发布前需要检查全部可选 Mod 时使用 `npm run dev:status -- --strict`。
+
+Runtime Descriptor 的 `healthPath` 必须指向轻量专用入口，不能使用需要数据库聚合或完整页面渲染的业务首页。Fund Analysis Web 使用 `/api/newma-desk/health`，避免监督器周期检查触发昂贵首页 SSR。
 
 统一启动器会先完成核心运行时，再并行启动可选 Mod。Seven Cycle 的健康端点返回 `409` 且声明数据 freshness 不可用时，表示进程存活但数据降级，不再被误判为整套 Newma-Desk 启动失败。
 
 ### Mod 运行时发现
 
 仓内及可覆盖 Mod 的路径、入口和健康检查统一声明在
-[`config/external-mod-runtimes.json`](../config/external-mod-runtimes.json)。该 Runtime Descriptor 不保存账号、密钥或个人绝对路径；Node 启动器与 Python Agent Gateway 使用不同 Adapter 读取同一个 Interface，避免同一 Mod 的工作区和端口散落在多份配置里。
+[`config/external-mod-runtimes.json`](../config/external-mod-runtimes.json)。该 Runtime Descriptor 不保存账号、密钥或个人绝对路径；Desk 启动器与 Newma Runtime 的 Workspace Adapter 可以读取同一个 Interface，避免同一 Mod 的工作区和端口散落在多份配置里。
 
 默认优先使用 `bundled-runtimes/`。以下根目录只作为开发覆盖候选：
 

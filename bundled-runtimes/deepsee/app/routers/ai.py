@@ -110,14 +110,6 @@ def _sanitize_wechatpad_ws_url(value: Any) -> str:
     return url
 
 
-def _desk_agent_request_options(base_url: str) -> dict[str, Any]:
-    """Keep local Desk calls on loopback instead of the user's HTTP proxy."""
-    host = urlparse(base_url).hostname
-    if host in {"127.0.0.1", "localhost", "::1"}:
-        return {"proxies": {"http": None, "https": None, "socks": None}}
-    return {}
-
-
 # 进程内 LRU 缓存：按 (snapshot_id, module, prompt_hash, temperature) 缓存模块产出
 SUMMARY_CACHE_MAX = int(os.getenv("SUMMARY_CACHE_MAX", "64"))
 SUMMARY_CACHE: "OrderedDict[tuple[object, str, str, float], str]" = OrderedDict()
@@ -862,7 +854,6 @@ def summary(payload: dict, db: Session = Depends(get_db)):
 @router.get("/config")
 def get_ai_config():
     conf = load_ai_config()
-    desk_agent_conf = conf.get("desk_agent") if isinstance(conf.get("desk_agent"), dict) else {}
     # Also return UI/analysis defaults so the frontend can persist settings across restarts
     analysis_defaults = conf.get("analysis_defaults") or {}
     ui_prefs = conf.get("ui_prefs") or {}
@@ -919,16 +910,6 @@ def get_ai_config():
         "tool_prompts": conf.get("tool_prompts", {}),
         "default_tool_prompts": DEFAULT_TOOL_PROMPTS,
         "model_router": _sanitize_model_router_for_ui(conf.get("model_router") or {}),
-        "desk_agent": {
-            "enabled": bool(desk_agent_conf.get("enabled")),
-            "base_url": str(desk_agent_conf.get("base_url") or "").strip(),
-            "module_id": str(desk_agent_conf.get("module_id") or "deepsee-news").strip(),
-            "adapter": str(desk_agent_conf.get("adapter") or "").strip(),
-            "model": str(desk_agent_conf.get("model") or "").strip(),
-            "command_profile": str(desk_agent_conf.get("command_profile") or "batch").strip(),
-            "timeout_seconds": int(desk_agent_conf.get("timeout_seconds") or 180),
-            "has_token": bool(desk_agent_conf.get("token")),
-        },
         "onepage_temperature": conf.get("onepage_temperature", 0.35),
         "onepage_template_style": conf.get("onepage_template_style") or "executive_blue",
         "onepage_output_mode": conf.get("onepage_output_mode") or "auto",
@@ -951,81 +932,6 @@ def get_ai_config():
         "message_filters": conf.get("message_filters", {}),
         "derive_defaults": conf.get("derive_defaults", {}),
     }
-
-
-@router.get("/desk-agent/capabilities")
-def get_desk_agent_capabilities():
-    """Return the Desk CLI catalog without exposing its credentials.
-
-    Deepsee owns only the batch-summary override. Discovery, executable paths,
-    login state, and global concurrency remain in Newma-Desk. Keeping this as
-    a same-origin proxy also lets Desk deployments that require a bearer token
-    populate the Deepsee selector without putting that token in the browser.
-    """
-    conf = load_ai_config()
-    raw = conf.get("desk_agent") if isinstance(conf.get("desk_agent"), dict) else {}
-    base_url = str(raw.get("base_url") or "").strip().rstrip("/")
-    if not base_url:
-        return {"available": False, "adapters": [], "error": "Desk Agent 地址未配置"}
-    parsed = urlparse(base_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        return {"available": False, "adapters": [], "error": "Desk Agent 地址无效"}
-    headers = {"Accept": "application/json"}
-    token = str(raw.get("token") or "").strip()
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    try:
-        response = requests.get(
-            f"{base_url}/api/capabilities",
-            headers=headers,
-            timeout=10,
-            **_desk_agent_request_options(base_url),
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except (requests.RequestException, ValueError) as exc:
-        return {
-            "available": False,
-            "adapters": [],
-            "error": f"Desk Agent 连接失败：{str(exc)[:160]}",
-        }
-
-    adapters: list[dict[str, Any]] = []
-    for item in payload.get("adapters", []) if isinstance(payload, dict) else []:
-        if not isinstance(item, dict):
-            continue
-        adapter_id = str(item.get("id") or "").strip()
-        if not adapter_id:
-            continue
-        adapters.append(
-            {
-                "id": adapter_id,
-                "name": str(item.get("name") or adapter_id),
-                "kind": str(item.get("kind") or ""),
-                "available": bool(item.get("available")),
-                "capabilities": [
-                    str(capability)
-                    for capability in item.get("capabilities", [])
-                    if isinstance(capability, str) and capability.strip()
-                ][:40],
-                "models": [
-                    str(model)
-                    for model in item.get("models", [])
-                    if isinstance(model, str) and model.strip()
-                ][:100],
-                "commandProfiles": [
-                    str(profile)
-                    for profile in item.get("commandProfiles", [])
-                    if isinstance(profile, str) and profile.strip()
-                ][:20],
-                "commandProfileDetails": item.get("commandProfileDetails")
-                if isinstance(item.get("commandProfileDetails"), dict)
-                else {},
-                "modelSource": str(item.get("modelSource") or ""),
-                "version": str(item.get("version") or ""),
-            }
-        )
-    return {"available": True, "adapters": adapters}
 
 
 @router.post("/config")
@@ -1163,35 +1069,6 @@ def set_ai_config(conf: dict):
         merged["max_tokens"] = conf["max_tokens"]
     if "model_temperature" in conf and conf["model_temperature"] is not None:
         merged["model_temperature"] = conf["model_temperature"]
-    if "desk_agent" in conf and isinstance(conf["desk_agent"], dict):
-        current = merged.get("desk_agent") if isinstance(merged.get("desk_agent"), dict) else {}
-        incoming = conf["desk_agent"]
-        current["enabled"] = bool(incoming.get("enabled", current.get("enabled", False)))
-        if "base_url" in incoming:
-            current["base_url"] = str(incoming.get("base_url") or "").strip().rstrip("/")
-        if "module_id" in incoming:
-            current["module_id"] = str(incoming.get("module_id") or "deepsee-news").strip()
-        if "adapter" in incoming:
-            current["adapter"] = str(incoming.get("adapter") or "").strip()
-        if "model" in incoming:
-            current["model"] = str(incoming.get("model") or "").strip()
-        profile_value = incoming.get(
-            "command_profile",
-            incoming.get("commandProfile"),
-        )
-        if profile_value is not None:
-            profile = str(profile_value or "batch").strip()
-            current["command_profile"] = profile if profile in {"quick", "batch", "deep", "edit"} else "batch"
-        if "timeout_seconds" in incoming:
-            try:
-                current["timeout_seconds"] = max(10, min(900, int(incoming.get("timeout_seconds") or 180)))
-            except Exception:
-                pass
-        if "token" in incoming or "has_token" in incoming:
-            token = str(incoming.get("token") or "").strip()
-            if token or not bool(incoming.get("has_token")):
-                current["token"] = token
-        merged["desk_agent"] = current
     if "message_filters" in conf and isinstance(conf["message_filters"], dict):
         mf = merged.get("message_filters") or {}
         mf.update({

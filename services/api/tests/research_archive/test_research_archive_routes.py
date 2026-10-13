@@ -6,6 +6,40 @@ from vibe_visualization_api.config import Settings
 from vibe_visualization_api.main import create_app
 
 
+def test_earnings_inputs_only_reads_current_workspace_revenue_and_references(tmp_path: Path):
+    settings = Settings(runtime_dir=tmp_path, database_path=tmp_path / "desk.db", enable_domain_suites=False)
+    with TestClient(create_app(settings)) as client:
+        headers = {"X-User-Id": "archive-user", "X-Workspace-Id": "archive-workspace"}
+        assert client.get("/api/research-archive/earnings-inputs", headers=headers).json() == {"revision": 0, "workbooks": []}
+        _put_document(client, module_id="earnings-workbench", namespace="earnings-workbench", key="workbooks", value={
+            "workbooks": [{"id": "annual-2024", "security": {"symbol": "600519", "currency": "CNY"},
+                "fiscalPeriod": {"periodEnd": "2024-12-31", "basis": "annual"}, "mode": "reported",
+                "updatedAt": "2026-09-20", "headline": "Private commentary",
+                "metrics": [{"id": "revenue", "reported": 1708.9915227634, "unit": "亿元", "sourceIds": ["revenue-pdf"]},
+                            {"id": "profit", "reported": 862}],
+                "operatingMetrics": [{"id": "capital-cash-funds", "reported": 59295, "sourceIds": ["cash-pdf"]},
+                                     {"id": "other", "reported": 1, "sourceIds": ["other-pdf"]}],
+                "sourceMaterials": [{"id": "revenue-pdf", "excerpt": {"metricId": "revenue", "pdfPage": 5}, "discussion": {"text": "Not needed"}},
+                                    {"id": "cash-pdf", "excerpt": {"metricId": "capital-cash-funds", "pdfPage": 58}},
+                                    {"id": "cash-note", "capitalNote": {"text": "不属于现金等价物的货币资金", "pdfPage": 117}, "discussion": {"text": "Not needed"}},
+                                    {"id": "profit-pdf", "excerpt": {"text": "Not needed"}}]}]})
+        payload = client.get("/api/research-archive/earnings-inputs", headers=headers).json()
+        assert payload["revision"] == 1
+        row = payload["workbooks"][0]
+        assert len(row["metrics"]) == len(row["operatingMetrics"]) == 1
+        assert len(row["sourceMaterials"]) == 3
+        assert row["sourceMaterials"][2]["capitalNote"]["pdfPage"] == 117
+        assert "discussion" not in row["sourceMaterials"][2]
+        assert row["operatingMetrics"][0]["id"] == "capital-cash-funds"
+        assert row["metrics"][0]["reported"] == 1708.9915227634
+        assert row["sourceMaterials"][0]["excerpt"]["pdfPage"] == 5
+        assert "discussion" not in row["sourceMaterials"][0]
+        assert "headline" not in row
+        for other in ({**headers, "X-User-Id": "other"}, {**headers, "X-Workspace-Id": "other"}):
+            assert client.get("/api/research-archive/earnings-inputs", headers=other).json()["workbooks"] == []
+        assert client.get("/api/research-archive/earnings-inputs").status_code == 422
+
+
 def _put_document(
     client: TestClient,
     *,

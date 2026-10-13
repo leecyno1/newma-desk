@@ -152,7 +152,11 @@ function calendarContext(input: {
       groupName: input.groupName,
       groupSource: input.groupSource,
       concepts: input.concepts,
-      ...(input.selected ? { catalyst: input.selected } : {}),
+      ...(input.selected ? {
+        catalyst: input.selected,
+        evidenceIds: input.selected.evidenceIds,
+        evidenceKeys: input.selected.source.url ? [input.selected.source.url] : [],
+      } : {}),
     },
     filters: {
       horizonDays: input.horizon,
@@ -164,13 +168,15 @@ function calendarContext(input: {
     data: {
       asOf: input.feed?.generatedAt || new Date().toISOString(),
       source: input.feed?.schemaVersion || "newma-desk.catalyst-calendar.v1",
-      freshness: input.loading ? "unknown" : "fresh",
+      freshness: input.loading || !input.feed ? "unknown"
+        : input.feed.sources.some((source) => ["partial", "unavailable", "unsupported"].includes(source.status)) ? "stale" : "fresh",
       summary: {
         catalystCount: input.items.length,
         trackedCount: input.trackedIds.length,
         upcoming: input.items.slice(0, 30),
         sources: input.feed?.sources || [],
         gaps: input.feed?.gaps || [],
+        timeSemantics: "generatedAt 是日历生成时间，不等于各事件公布日或来源采集日。监测窗口是线索，不代表未来事件已确认；evidenceIds 为关联新闻主题 ID，evidenceKeys 为原始来源 URL。",
       },
     },
     actions: [

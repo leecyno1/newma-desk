@@ -6,6 +6,7 @@
 """
 import json
 import math
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 from repositories.portfolio_repo import PortfolioRepo
@@ -21,6 +22,7 @@ WEIGHT_SUM_TOLERANCE = 0.005
 CORRELATION_MIN_DAYS = 60
 CORRELATION_LOOKBACK_DAYS = 500
 REBALANCE_THRESHOLD = 0.05
+HISTORY_METHODOLOGY = "portfolio_adj_common_dates_v2"
 
 
 class PortfolioService:
@@ -222,6 +224,7 @@ class PortfolioService:
             "holding_count": len(codes),
             "codes": codes,
             "weights": weights,
+            "weights_basis": "saved" if self._weight_summary(holdings)["is_complete"] else "equal_weight_assumption",
             "weight_summary": portfolio["weight_summary"],
             "overlap": overlap,
             "style_aggregate": style_aggregate,
@@ -249,48 +252,43 @@ class PortfolioService:
         if not holdings:
             raise ValueError("组合暂无持仓，无法回测")
         weights = self._effective_weights(holdings)
-        codes = [item["wind_code"] for item in holdings]
+        # 零权重成分不应压缩组合样本；容差内的权重归一化明确披露。
+        input_weights = weights
+        total_weight = sum(weights.values())
+        weights = {code: weight / total_weight for code, weight in weights.items() if weight > 0}
+        codes = list(weights)
 
         nav_map = self._load_nav_series(codes, lookback_days)
-        # 共同交易日交集
+        # 先对齐净值点，再计算完全相同起止日的区间收益，不对缺失日填零。
         common_days = sorted(set.intersection(*(set(nav_map[code].keys()) for code in codes))) if codes else []
-        if len(common_days) < CORRELATION_MIN_DAYS:
+        if len(common_days) < CORRELATION_MIN_DAYS + 1:
             return {
                 "status": "insufficient_sample",
-                "reason": f"持仓共同交易日仅 {len(common_days)} 天（至少 {CORRELATION_MIN_DAYS} 天），不输出回测结论。",
+                "methodology_version": HISTORY_METHODOLOGY,
+                "nav_basis": "adj_nav",
+                "reason": f"正权重持仓共同复权净值点仅 {len(common_days)} 个（至少 {CORRELATION_MIN_DAYS + 1} 个），不输出回测结论；不以累计或单位净值冒充复权数据。",
                 "holding_count": len(codes),
             }
 
-        portfolio_returns: List[float] = []
-        for day in common_days[1:]:
-            daily = sum(weights.get(code, 0.0) * nav_map[code][day] for code in codes)
-            portfolio_returns.append(daily)
+        portfolio_returns = [
+            sum(weights[code] * (nav_map[code][end] / nav_map[code][start] - 1) for code in codes)
+            for start, end in zip(common_days, common_days[1:])
+        ]
+        union_days = set().union(*(set(nav_map[code]) for code in codes))
+        common_set = set(common_days)
+        omitted_days = sum(common_days[0] <= day <= common_days[-1] and day not in common_set for day in union_days)
+        curve = [1.0, *self._equity_curve(portfolio_returns)]
+        metrics = self._performance_metrics(portfolio_returns, common_days, allow_volatility=omitted_days == 0)
 
-        curve = self._equity_curve(portfolio_returns)
-        metrics = self._performance_metrics(portfolio_returns, common_days)
-
-        # 基准：优先指定代码 → 权重最大持仓 → 组合内任一有分类映射基准净值的成分（降级链）
-        benchmark_source = None
-        if benchmark_wind_code:
-            benchmark_source = str(benchmark_wind_code).strip().upper()
-        else:
-            benchmark_source = max(weights, key=lambda code: weights.get(code, 0.0))
-        benchmark_series = self._load_benchmark_series(benchmark_source, common_days[0], common_days[-1])
-        if len(benchmark_series) < CORRELATION_MIN_DAYS:
-            # 权重最大持仓无基准净值时，降级尝试组合内其他成分，避免基准静默缺失
-            fallback_source = None
-            fallback_series: Dict[str, float] = {}
-            for code in sorted(weights, key=lambda c: weights.get(c, 0.0), reverse=True):
-                if code == benchmark_source:
-                    continue
-                candidate_series = self._load_benchmark_series(code, common_days[0], common_days[-1])
-                if len(candidate_series) >= CORRELATION_MIN_DAYS:
-                    fallback_source = code
-                    fallback_series = candidate_series
-                    break
-            if fallback_source:
-                benchmark_source = fallback_source
-                benchmark_series = fallback_series
+        # 显式指定的基金映射基准不得静默替换；自动选择也必须覆盖相同日期网格。
+        candidates = [str(benchmark_wind_code).strip().upper()] if benchmark_wind_code else sorted(weights, key=weights.get, reverse=True)
+        benchmark_source = candidates[0]
+        benchmark_series = {}
+        for code in candidates:
+            candidate = self._load_benchmark_series(code, common_days[0], common_days[-1])
+            if all(day in candidate for day in common_days):
+                benchmark_source, benchmark_series = code, candidate
+                break
 
         benchmark_metadata = self._load_benchmark_metadata(benchmark_source)
         benchmark_block: Dict[str, Any] = {
@@ -299,20 +297,22 @@ class PortfolioService:
             "code": benchmark_metadata.get("code"),
             "name": benchmark_metadata.get("name"),
             "status": "insufficient",
+            "reason": "基准未覆盖组合全部共同日期，不计算异区间超额收益。",
+            "selection_basis": "explicit_fund_mapping" if benchmark_wind_code else "automatic_fund_mapping",
         }
-        if len(benchmark_series) >= CORRELATION_MIN_DAYS:
-            bench_days = sorted(benchmark_series.keys())
+        if benchmark_series:
             bench_returns = [
-                benchmark_series[bench_days[i]] / benchmark_series[bench_days[i - 1]] - 1.0
-                for i in range(1, len(bench_days))
-                if benchmark_series[bench_days[i - 1]] not in (0, None)
+                benchmark_series[end] / benchmark_series[start] - 1.0
+                for start, end in zip(common_days, common_days[1:])
             ]
-            bench_metrics = self._performance_metrics(bench_returns, bench_days)
+            bench_metrics = self._performance_metrics(bench_returns, common_days, allow_volatility=omitted_days == 0)
             benchmark_block.update({
                 "status": "available",
+                "reason": None,
+                "aligned_to_portfolio": True,
                 "basis_note": (
                     f"基准为 {benchmark_metadata.get('name') or benchmark_metadata.get('code') or '持仓基金分类映射基准'}"
-                    f"；净值序列取自 {benchmark_source} 的 fund_nav.benchmark_nav。"
+                    f"；取自 {benchmark_source} 的 fund_nav.benchmark_nav，使用组合完全相同的日期网格。当前分类映射不代表历史组合政策基准。"
                 ),
                 "metrics": bench_metrics,
                 "excess_return": round(metrics["cumulative_return"] - bench_metrics["cumulative_return"], 6),
@@ -320,23 +320,31 @@ class PortfolioService:
 
         result = {
             "status": "available",
+            "methodology_version": HISTORY_METHODOLOGY,
+            "nav_basis": "adj_nav",
             "portfolio_id": portfolio_id,
             "name": portfolio["name"],
-            "weights_basis": "当前组合权重（未配齐时按等权，已在权重摘要披露）",
+            "weights_basis": ("已保存权重" if self._weight_summary(holdings)["is_complete"] else "等权假设") + "归一化；假设在每个共同净值日恢复固定权重，不是买入持有或实盘业绩",
+            "input_weights": input_weights,
             "weights": weights,
             "sample": {
                 "days": len(common_days),
                 "start_date": str(common_days[0]),
                 "end_date": str(common_days[-1]),
                 "lookback_days": lookback_days,
+                "return_intervals": len(portfolio_returns),
+                "omitted_union_dates": omitted_days,
+                "requested_start_date": (date.today() - timedelta(days=lookback_days)).isoformat(),
+                "requested_end_date": date.today().isoformat(),
+                "data_lag_calendar_days": (date.today() - date.fromisoformat(common_days[-1])).days,
             },
             "metrics": metrics,
             "curve": [
-                {"date": str(common_days[i + 1]), "value": curve[i]}
+                {"date": str(common_days[i]), "value": curve[i]}
                 for i in range(len(curve))
             ],
             "benchmark": benchmark_block,
-            "boundary": "回测用当前权重回看历史，只作解释，不是优化结果或未来收益预测；不包含申赎费用与跟踪误差。",
+            "boundary": "以当前成分回看过去，存在事后选样偏差，不是可执行策略或实盘业绩。共同日期间按固定权重再平衡，不填补缺失净值；年化收益按实际日历跨度计算。缺日或长间隔时不输出年化波动。不含申赎费用、滑点、税费及执行限制。",
         }
 
         if save_snapshot:
@@ -364,6 +372,7 @@ class PortfolioService:
             if group not in group_names:
                 name = self._peer_group_name(group)
                 group_names[group] = name or ("未分类（待补评价/风格快照）" if group == "unclassified" else group)
+        unclassified_weight = group_weights.get("unclassified", 0.0)
         deviations = []
         if targets:
             for target in targets:
@@ -411,28 +420,45 @@ class PortfolioService:
                 "level": drift.get("level"),
                 "label": drift.get("label"),
                 "note": (drift.get("note") or "")[:120],
+                "previous_quarter": drift.get("previous_quarter"),
+                "latest_quarter": drift.get("latest_quarter"),
             })
 
-        rebalance_needed = bool(targets) and any(item["needs_rebalance"] for item in deviations)
-        drift_alerts = [item for item in drift_items if item.get("level") in ("high", "medium")]
+        weights_complete = self._weight_summary(holdings)["is_complete"]
+        target_total = sum(float(item.get("target_weight") or 0) for item in targets)
+        target_assessable = bool(targets) and abs(target_total - 1.0) <= WEIGHT_SUM_TOLERANCE and weights_complete and unclassified_weight == 0
+        rebalance_needed = any(item["needs_rebalance"] for item in deviations) if target_assessable else None
+        if not target_assessable:
+            for item in deviations:
+                item["needs_rebalance"] = None
+        assessed = [item for item in drift_items if item.get("status") == "available" and item.get("level") in ("low", "medium", "high")]
+        drift_alerts = [item for item in assessed if item.get("level") in ("high", "medium")]
+        missing_count = len(holdings) - len(assessed)
         if not targets:
             deviation_summary = "未配置目标同类组权重，暂不做再平衡判定（仅披露实际分组权重）；"
+        elif not target_assessable:
+            deviation_summary = "权重、目标或分类证据不完整，暂不做再平衡判定；"
         else:
-            deviation_summary = "需要再平衡：" if rebalance_needed else "权重基本贴合目标；"
+            deviation_summary = "配置偏离超阈值，需复核；" if rebalance_needed else "已检查配置偏离未超阈值；"
+        drift_summary = f"已判定 {len(assessed)}/{len(holdings)} 只成分，{len(drift_alerts)} 只出现风格漂移信号。"
+        if missing_count or not holdings:
+            drift_summary += "证据不足部分不能判断为稳定。"
         return {
-            "status": "available",
+            "status": "available" if target_assessable and not missing_count else "partial",
             "portfolio_id": portfolio_id,
             "name": portfolio["name"],
             "target_configured": bool(targets),
+            "target_assessable": target_assessable,
+            "weights": weights,
+            "weights_basis": "saved" if weights_complete else "equal_weight_assumption",
+            "drift_coverage": {"assessed_count": len(assessed), "total_count": len(holdings), "missing_count": missing_count,
+                               "assessed_weight": round(sum(weights.get(item["wind_code"], 0) for item in assessed), 6)},
             "target_deviations": deviations,
             "rebalance_threshold": REBALANCE_THRESHOLD,
             "rebalance_needed": rebalance_needed,
             "style_drifts": drift_items,
             "drift_alerts": drift_alerts,
-            "summary": (
-                deviation_summary
-                + (f"{len(drift_alerts)} 只成分出现风格漂移信号。" if drift_alerts else "成分风格未见明显漂移。")
-            ),
+            "summary": deviation_summary + drift_summary,
             "boundary": "监控为研究提示，不自动执行任何申赎动作。",
         }
 
@@ -561,7 +587,7 @@ class PortfolioService:
             "holding_count": len(holdings),
             "weighted_count": len(weighted),
             "total_weight": round(total, 6),
-            "is_complete": abs(total - 1.0) <= WEIGHT_SUM_TOLERANCE if weighted else False,
+            "is_complete": bool(holdings) and len(weighted) == len(holdings) and all(math.isfinite(float(item["weight"])) and 0 <= float(item["weight"]) <= 1 for item in weighted) and abs(total - 1.0) <= WEIGHT_SUM_TOLERANCE,
         }
 
     @staticmethod
@@ -571,7 +597,7 @@ class PortfolioService:
             for item in holdings
             if item.get("weight") is not None
         }
-        if weighted and abs(sum(weighted.values()) - 1.0) <= 0.05:
+        if PortfolioService._weight_summary(holdings)["is_complete"]:
             return weighted
         # 未设置完整权重时按等权聚合并披露
         equal = 1.0 / len(holdings) if holdings else 0.0
@@ -581,129 +607,124 @@ class PortfolioService:
         if not codes:
             return {"status": "insufficient", "reason": "组合暂无持仓。"}
         snapshots = self.style_repo.get_latest_map(codes)
-        covered_weight = sum(weights.get(code, 0.0) for code in codes if code in snapshots)
         if not snapshots:
             return {
                 "status": "insufficient",
                 "reason": "组合持仓均无公开持仓风格快照，暂不能聚合风格暴露。",
                 "coverage": 0.0,
             }
-        factor_totals: Dict[str, Dict[str, float]] = {}
+        factor_totals: Dict[str, Dict[str, Any]] = {}
+        covered_codes = set()
         for code in codes:
             snapshot = snapshots.get(code)
             if not snapshot:
                 continue
             weight = weights.get(code, 0.0)
+            seen = set()
             for descriptor in snapshot.get("descriptors") or []:
                 if not isinstance(descriptor, dict):
                     continue
                 factor = str(descriptor.get("factor") or "").strip()
                 exposure = descriptor.get("exposure")
-                if not factor or not isinstance(exposure, (int, float)):
+                if not factor or factor in seen or isinstance(exposure, bool) or not isinstance(exposure, (int, float)) or not math.isfinite(exposure):
                     continue
+                seen.add(factor)
+                covered_codes.add(code)
                 bucket = factor_totals.setdefault(factor, {
                     "label": str(descriptor.get("label") or factor),
                     "unit": descriptor.get("unit"),
                     "weighted_exposure": 0.0,
+                    "covered_weight": 0.0,
+                    "quarters": set(),
+                    "units": set(),
+                    "undated": False,
                 })
                 bucket["weighted_exposure"] += float(exposure) * weight
+                bucket["covered_weight"] += weight
+                bucket["units"].add(descriptor.get("unit"))
+                if snapshot.get("quarter"):
+                    bucket["quarters"].add(str(snapshot["quarter"]))
+                else:
+                    bucket["undated"] = True
         factors = [
             {
                 "factor": factor,
                 "label": bucket["label"],
                 "unit": bucket["unit"],
-                "weighted_exposure": round(bucket["weighted_exposure"], 6),
+                "weighted_exposure": round(bucket["weighted_exposure"], 6) if len(bucket["units"]) == 1 else None,
+                "status": "available" if len(bucket["units"]) == 1 else "incomparable_units",
+                "coverage": round(bucket["covered_weight"], 6),
+                "quarters": sorted(bucket["quarters"]),
+                "undated": bucket["undated"],
             }
             for factor, bucket in sorted(factor_totals.items())
         ]
+        covered_weight = sum(weights.get(code, 0.0) for code in covered_codes)
         return {
             "status": "available" if factors else "insufficient",
             "quarter_basis": "各持仓最新已披露季度（可能不完全一致）",
             "coverage": round(covered_weight, 6),
-            "coverage_note": f"风格聚合覆盖 {covered_weight:.1%} 权重的持仓；未覆盖部分为残差。",
+            "coverage_note": f"至少有一个有效因子的基金占计算权重 {covered_weight:.1%}；每个因子覆盖单独列示。这不是底层资产穿透率，未覆盖部分未知。",
             "factors": factors,
         }
 
     def _correlation_matrix(self, codes: List[str], weights: Dict[str, float]) -> Dict[str, Any]:
         if len(codes) < 2:
-            return {"status": "insufficient", "reason": "至少两只持仓才能计算净值相关性。"}
-        from sqlalchemy import text
-
-        engine = get_engine()
-        returns_map: Dict[str, Dict[str, float]] = {}
-        with engine.connect() as conn:
-            for code in codes:
-                rows = conn.execute(
-                    text(
-                        """
-                        SELECT trade_date,
-                               COALESCE(NULLIF(accum_nav, 0), NULLIF(unit_nav, 0), NULLIF(nav, 0)) AS nav_value
-                        FROM fund_nav
-                        WHERE wind_code = :code
-                        ORDER BY trade_date DESC
-                        LIMIT :limit
-                        """
-                    ),
-                    {"code": code, "limit": CORRELATION_LOOKBACK_DAYS},
-                ).fetchall()
-                series: Dict[str, float] = {}
-                ordered: List[Any] = list(reversed(rows))
-                previous: Optional[float] = None
-                for row in ordered:
-                    nav_value = float(row[1]) if row[1] is not None else None
-                    if nav_value is None:
-                        continue
-                    if previous is not None and previous != 0:
-                        date_key = str(row[0])
-                        series[date_key] = nav_value / previous - 1.0
-                    previous = nav_value
-                returns_map[code] = series
+            return {"status": "insufficient", "methodology_version": HISTORY_METHODOLOGY,
+                    "nav_basis": "adj_nav", "reason": "至少两只持仓才能计算净值相关性。"}
+        nav_map = self._load_nav_series(codes, CORRELATION_LOOKBACK_DAYS)
         pairs = []
         for i, code_a in enumerate(codes):
             for code_b in codes[i + 1:]:
-                common = sorted(set(returns_map.get(code_a, {})) & set(returns_map.get(code_b, {})))
-                if len(common) < CORRELATION_MIN_DAYS:
+                a, b = nav_map[code_a], nav_map[code_b]
+                common = sorted(set(a) & set(b))
+                intervals = max(0, len(common) - 1)
+                sample = {"fund_a": code_a, "fund_b": code_b, "overlap_days": len(common),
+                          "return_intervals": intervals, "start_date": common[0] if common else None,
+                          "end_date": common[-1] if common else None}
+                if intervals < CORRELATION_MIN_DAYS:
                     pairs.append({
-                        "fund_a": code_a,
-                        "fund_b": code_b,
+                        **sample,
                         "correlation": None,
-                        "overlap_days": len(common),
                         "status": "insufficient_overlap",
                     })
                     continue
-                values_a = [returns_map[code_a][day] for day in common]
-                values_b = [returns_map[code_b][day] for day in common]
+                values_a = [a[end] / a[start] - 1 for start, end in zip(common, common[1:])]
+                values_b = [b[end] / b[start] - 1 for start, end in zip(common, common[1:])]
+                correlation = self._pearson(values_a, values_b)
                 pairs.append({
-                    "fund_a": code_a,
-                    "fund_b": code_b,
-                    "correlation": round(self._pearson(values_a, values_b), 4),
-                    "overlap_days": len(common),
-                    "status": "ok",
+                    **sample,
+                    "correlation": round(correlation, 4) if correlation is not None else None,
+                    "status": "ok" if correlation is not None else "zero_variance",
                 })
         return {
             "status": "available" if any(pair["status"] == "ok" for pair in pairs) else "insufficient",
+            "methodology_version": HISTORY_METHODOLOGY,
+            "nav_basis": "adj_nav",
             "lookback_days": CORRELATION_LOOKBACK_DAYS,
             "min_overlap_days": CORRELATION_MIN_DAYS,
             "pairs": pairs,
-            "note": "相关性基于历史日收益率（复权净值优先）；重叠不足的配对不输出结论。",
+            "note": "仅使用 adj_nav，先对齐配对共同净值日期再计算区间收益；间隔可能不等长，不冒充逐日相关性。每对样本区间可能不同；常数序列相关性未定义，不记为零。",
         }
 
     @staticmethod
-    def _pearson(xs: List[float], ys: List[float]) -> float:
+    def _pearson(xs: List[float], ys: List[float]) -> Optional[float]:
         n = len(xs)
+        if n < 2 or n != len(ys):
+            return None
         mean_x = sum(xs) / n
         mean_y = sum(ys) / n
         cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
         var_x = sum((x - mean_x) ** 2 for x in xs)
         var_y = sum((y - mean_y) ** 2 for y in ys)
-        if var_x == 0 or var_y == 0:
-            return 0.0
-        return cov / math.sqrt(var_x * var_y)
+        if var_x <= 1e-24 or var_y <= 1e-24:
+            return None
+        return max(-1.0, min(1.0, cov / math.sqrt(var_x * var_y)))
 
     # ─────────────── 回测/监控/清单工具 ───────────────
 
     def _load_nav_series(self, codes: List[str], lookback_days: int) -> Dict[str, Dict[str, float]]:
-        """每只基金的日收益率序列（复权净值优先）：{code: {date: daily_return}}。"""
+        """自然日窗口内的复权净值点；不拼接累计净值或单位净值。"""
         from sqlalchemy import text
 
         engine = get_engine()
@@ -713,27 +734,17 @@ class PortfolioService:
                 rows = conn.execute(
                     text(
                         """
-                        SELECT trade_date,
-                               COALESCE(NULLIF(accum_nav, 0), NULLIF(unit_nav, 0), NULLIF(nav, 0)) AS nav_value
+                        SELECT trade_date, adj_nav
                         FROM fund_nav
                         WHERE wind_code = :code
-                        ORDER BY trade_date DESC
-                        LIMIT :limit
+                          AND trade_date BETWEEN CAST(:start AS DATE) AND CAST(:end AS DATE)
+                        ORDER BY trade_date
                         """
                     ),
-                    {"code": code, "limit": lookback_days},
+                    {"code": code, "start": (date.today() - timedelta(days=lookback_days)).isoformat(), "end": date.today().isoformat()},
                 ).fetchall()
-                ordered = list(reversed(rows))
-                series: Dict[str, float] = {}
-                previous: Optional[float] = None
-                for row in ordered:
-                    nav_value = float(row[1]) if row[1] is not None else None
-                    if nav_value is None:
-                        continue
-                    if previous is not None and previous != 0:
-                        series[str(row[0])] = nav_value / previous - 1.0
-                    previous = nav_value
-                result[code] = series
+                result[code] = {str(row[0]): float(row[1]) for row in rows
+                                if row[1] is not None and math.isfinite(float(row[1])) and float(row[1]) > 0}
         return result
 
     def _load_benchmark_series(self, wind_code: str, start_date: str, end_date: str) -> Dict[str, float]:
@@ -754,7 +765,7 @@ class PortfolioService:
                 ),
                 {"code": wind_code, "start": str(start_date), "end": str(end_date)},
             ).fetchall()
-        return {str(row[0]): float(row[1]) for row in rows if row[1] is not None}
+        return {str(row[0]): float(row[1]) for row in rows if row[1] is not None and math.isfinite(float(row[1])) and float(row[1]) > 0}
 
     def _load_benchmark_metadata(self, wind_code: str) -> Dict[str, Optional[str]]:
         """返回该基金当前分类映射的真实基准代码与名称。"""
@@ -791,16 +802,18 @@ class PortfolioService:
         return curve
 
     @staticmethod
-    def _performance_metrics(returns: List[float], dates: List[Any]) -> Dict[str, Any]:
+    def _performance_metrics(returns: List[float], dates: List[Any], *, allow_volatility: bool = True) -> Dict[str, Any]:
         if not returns:
             return {}
-        curve = PortfolioService._equity_curve(returns)
+        curve = [1.0, *PortfolioService._equity_curve(returns)]
         cumulative = curve[-1] - 1.0
         days = len(returns)
-        annualized = (1.0 + cumulative) ** (252.0 / max(days, 1)) - 1.0 if days > 0 else 0.0
+        elapsed_days = (date.fromisoformat(str(dates[-1])) - date.fromisoformat(str(dates[0]))).days
+        annualized = (1.0 + cumulative) ** (365.25 / elapsed_days) - 1.0 if elapsed_days > 0 else None
         mean_daily = sum(returns) / days
         variance = sum((item - mean_daily) ** 2 for item in returns) / max(days - 1, 1)
-        volatility = math.sqrt(variance) * math.sqrt(252.0)
+        max_gap = max((date.fromisoformat(str(end)) - date.fromisoformat(str(start))).days for start, end in zip(dates, dates[1:]))
+        volatility = math.sqrt(variance * days * 365.25 / elapsed_days) if allow_volatility and max_gap <= 7 and elapsed_days > 0 and days > 1 else None
         peak = curve[0]
         max_drawdown = 0.0
         for value in curve:
@@ -810,8 +823,10 @@ class PortfolioService:
             max_drawdown = min(max_drawdown, drawdown)
         return {
             "cumulative_return": round(cumulative, 6),
-            "annualized_return": round(annualized, 6),
-            "annualized_volatility": round(volatility, 6),
+            "annualized_return": round(annualized, 6) if annualized is not None else None,
+            "annualized_volatility": round(volatility, 6) if volatility is not None else None,
+            "volatility_note": "按实际观测频率年化的估计" if volatility is not None else "共同日期存在缺日或超过 7 个自然日的间隔，暂不年化波动",
+            "annualization_basis": "actual_calendar_days_365.25",
             "max_drawdown": round(max_drawdown, 6),
             "sample_days": days,
             "start_date": str(dates[0]) if dates else None,

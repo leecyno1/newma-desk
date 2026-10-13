@@ -142,7 +142,7 @@
     "fullReport": "Full Report",
     "compare": "Compare",
     "ledgerTitle": "Strategy Experiment Ledger",
-    "ledgerSubtitle": "Every native paper backtest is normalized into a compact, versioned record with dataset scope, return, risk, cost assumptions, and evidence-quality flags for comparison and Desk Agent analysis.",
+    "ledgerSubtitle": "Every native paper backtest is normalized into a compact, versioned record with dataset scope, return, risk, cost assumptions, and evidence-quality flags for comparison and Newma Agent analysis.",
     "ledgerExperiments": "Experiments",
     "ledgerCompleted": "Completed",
     "ledgerComparable": "Comparable",

@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import os
+from typing import Literal
+from datetime import date
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -143,7 +145,7 @@ if not _INTEGRATED_DOMAIN_RUNTIME:
         """独立版系统 AI 对话，流式返回 NDJSON 事件。
 
         原生模型与 CLI 层在首次请求时才加载，不增加普通数据路由的
-        启动开销。集成域运行时不注册此路由，并统一使用 Desk Agent。
+        启动开销。集成域运行时不注册此路由，并统一使用 Newma Agent Runtime。
         """
         if not req.messages:
             raise HTTPException(400, "messages 不能为空")
@@ -232,18 +234,30 @@ def myreports_upload(r: ReportIn):
 
 
 @app.get("/api/myreports/file/{rid}")
-def myreports_file(rid: str):
+def myreports_file(rid: str, inline: bool = Query(False)):
     """下载/预览某份研报原文件。"""
     hit = mr.report_path(rid)
     if not hit:
         raise HTTPException(404, "研报不存在")
     path, name = hit
-    return FileResponse(str(path), filename=name)
+    return FileResponse(str(path), filename=name, content_disposition_type="inline" if inline and path.suffix.lower()==".pdf" else "attachment")
 
 
 @app.delete("/api/myreports/{rid}")
 def myreports_delete(rid: str):
     return {"data": {"ok": mr.delete_report(rid)}}
+
+
+@app.get("/api/myreports/{rid}/earnings-candidates")
+def myreports_earnings_candidates(rid: str, capital: bool = False, notes: bool = False):
+    from earnings_import import extract_report
+    hit = mr.report_path(rid)
+    if not hit:
+        raise HTTPException(404, "研报不存在")
+    try:
+        return {"data": extract_report(hit[0], rid, hit[1], include_capital=capital, include_notes=notes)}
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 class CloseIn(BaseModel):
@@ -582,19 +596,69 @@ def announcements(
         raise HTTPException(502, f"公告源异常：{e}") from e
 
 
+@app.get("/api/announcement-search")
+def announcement_search(
+    code: str = Query(...),
+    begin: date = Query(...),
+    end: date = Query(...),
+    category: Literal["all", "financial"] = "all",
+    page: int = Query(1, ge=1, le=500),
+):
+    code = _validate(code)
+    if begin > end:
+        raise HTTPException(422, "披露开始日期不能晚于结束日期")
+    try:
+        return {"data": astock.announcement_search(code, begin.isoformat(), end.isoformat(), category, page)}
+    except Exception as e:
+        raise HTTPException(502, f"公告检索源异常：{e}") from e
+
+
+@app.get("/api/announcement-text")
+def announcement_text(
+    code: str = Query(...),
+    announcement_id: str = Query(..., alias="announcementId", pattern=r"^AN\d{10,30}$"),
+    segment: int = Query(1, ge=1, le=1000),
+):
+    code = _validate(code)
+    try:
+        return {"data": astock.announcement_text(code, announcement_id, segment)}
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except Exception as e:
+        raise HTTPException(502, f"公告文字源异常：{e}") from e
+
+
+@app.get("/api/announcement-pdf-page")
+def announcement_pdf_page(
+    code: str = Query(...),
+    announcement_id: str = Query(..., alias="announcementId", pattern=r"^AN\d{10,30}$"),
+    page: int = Query(1, ge=1, le=1000),
+):
+    code = _validate(code)
+    try:
+        return {"data": astock.announcement_pdf_page(code, announcement_id, page)}
+    except astock.DependencyMissing as e:
+        raise HTTPException(501, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except Exception as e:
+        raise HTTPException(502, f"PDF 读取失败：{e}") from e
+
+
 _FIN_CACHE: dict = {}
 
 
 @app.get("/api/financials")
-def financials(code: str = Query(...)):
-    """财务关键指标（同花顺财务摘要，最新报告期）。缓存 30 分钟/代码。"""
+def financials(code: str = Query(...), basis: Literal["ytd", "quarter", "annual"] = "ytd"):
+    """财务摘要，按证券及累计/单季/年度口径分别缓存 30 分钟。"""
     code = _validate(code)
-    hit = _FIN_CACHE.get(code)
+    cache_key = (code, basis)
+    hit = _FIN_CACHE.get(cache_key)
     if hit and _time.time() - hit[0] < 1800:
         return {"data": hit[1]}
     try:
-        data = astock.financials(code)
-        _FIN_CACHE[code] = (_time.time(), data)
+        data = astock.financials(code, basis=basis)
+        _FIN_CACHE[cache_key] = (_time.time(), data)
         return {"data": data}
     except astock.DependencyMissing as e:
         raise HTTPException(501, str(e)) from e

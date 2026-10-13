@@ -1,0 +1,32 @@
+import { test, expect } from '@playwright/test';
+
+test('real annual and monthly evidence stay aligned inside Desk and reach the Agent', async ({page, request}, testInfo) => {
+  const workspace = `fund-period-${Date.now()}`, user = 'fund-period-acceptance';
+  await page.addInitScript(({workspace,user})=>{localStorage.setItem('vibedesk.userId.v1',user);localStorage.setItem('vibedesk.workspaceId.v1',workspace);},{workspace,user});
+  await page.goto(`http://127.0.0.1:5888/?${new URLSearchParams({mod:'fund-discover',workspace,modSearch:'symbol=000015.OF'})}`);
+  const frame = page.frameLocator('iframe[title="找基金"]');
+  const read = async () => (await (await request.get('http://127.0.0.1:8911/api/mods/fund-discover/context',{headers:{'X-User-Id':user,'X-Workspace-Id':workspace}})).json()).context;
+  await expect.poll(async () => (await read())?.data?.summary?.page?.fund?.symbol).toBe('000015.OF');
+  await expect(frame.getByRole('heading',{name:'年度业绩',exact:true})).toBeVisible();
+  await expect(frame.getByText('完整历史年度', {exact:true})).toBeVisible();
+  await expect(frame.getByText('开市日已核验', {exact:true}).first()).toBeVisible();
+  let context = (await read()).data.summary.page;
+  expect(context.periodPerformance.methodologyVersion).toBe('calendar_period_adjusted_aligned_v2');
+  expect(context.periodPerformance.navBasis).toBe('adj_nav');
+  expect(context.periodPerformance.periods.some((period:{calendarStatus:string})=>period.calendarStatus==='verified')).toBe(true);
+  expect(context.marketEnvironment.methodologyVersion).toBe('adjusted_consecutive_month_end_v2');
+  expect(context.marketEnvironment.benchmarkIdentityVerified).toBe(false);
+  expect(context.marketEnvironment.status).not.toBe('ready');
+  expect(context.marketEnvironment.missingItems.join(' ')).toContain('代码/来源');
+  await frame.getByRole('button',{name:'近 3 年',exact:true}).click();
+  await expect.poll(async () => (await read())?.filters?.window).toBe('3y');
+  context = (await read()).data.summary.page;
+  expect(context.marketEnvironment.methodology).toContain('不跨缺失月份');
+  const completeYears = context.periodPerformance.periods.filter((period:{isYtd:boolean;coverageStatus:string})=>!period.isYtd && period.coverageStatus==='complete');
+  expect(context.periodPerformance.summary.completePeriodCount).toBe(completeYears.length);
+  await frame.getByRole('heading',{name:'年度业绩',exact:true}).scrollIntoViewIfNeeded();
+  await page.screenshot({path:testInfo.outputPath('annual-period-evidence.png')});
+  await frame.getByRole('heading',{name:'市场涨时跟得上，跌时守得住吗',exact:true}).scrollIntoViewIfNeeded();
+  await expect(frame.getByText(/库存基准（身份待核验）/)).toBeVisible();
+  await page.screenshot({path:testInfo.outputPath('monthly-evidence.png')});
+});

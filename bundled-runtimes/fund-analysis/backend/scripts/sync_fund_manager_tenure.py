@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -22,7 +23,7 @@ try:
 except Exception:
     pass
 
-from database import get_engine, init_database
+from database import get_engine, load_shared_database_environment, prepare_database
 from service_registry import get_strict_tushare_service
 from services.fund_manager_tenure_sync_service import FundManagerTenureSyncService
 
@@ -105,10 +106,49 @@ def select_fund_selection_coverage_codes(limit: int, missing_only: bool) -> List
         return [row.wind_code for row in conn.execute(sql, {"limit": max(1, limit)}).fetchall()]
 
 
+def select_snapshot_backlog_managers(limit: int) -> List[tuple]:
+    """选"在管产品多、但有在管任期缺 performance_snapshot"的经理，按缺失条目降序。
+
+    只有 sync_manager 会写任期绩效快照（sync_fund 不写），因此批量补快照
+    必须以经理为单位；优先补缺失最多的经理能让同一份 Tushare 配额产出最多可用证据。
+    """
+    sql = text("""
+        WITH tenure AS (
+          SELECT
+            manager_id,
+            COUNT(*) FILTER (WHERE end_date IS NULL) AS in_charge,
+            COUNT(*) FILTER (
+              WHERE end_date IS NULL
+                AND performance_snapshot->>'status' = 'available'
+            ) AS in_charge_available
+          FROM manager_fund_tenures
+          WHERE manager_id LIKE '%|%'
+          GROUP BY manager_id
+        )
+        SELECT manager_id, in_charge, in_charge_available
+        FROM tenure
+        WHERE in_charge_available < in_charge
+          AND in_charge >= 1
+        ORDER BY (in_charge - in_charge_available) DESC, in_charge DESC, manager_id
+        LIMIT :limit
+    """)
+    with get_engine().connect() as conn:
+        return [
+            (row.manager_id, row.in_charge, row.in_charge_available)
+            for row in conn.execute(sql, {"limit": max(1, limit)}).fetchall()
+        ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="同步真实基金经理关系和任期指标")
     parser.add_argument("--codes", default="", help="逗号分隔基金代码")
     parser.add_argument("--manager-id", default="", help="规范基金经理 ID；同步该经理完整产品任职史")
+    parser.add_argument(
+        "--snapshot-backlog",
+        type=int,
+        default=0,
+        help="按缺失任期绩效快照的条目数选经理批量同步（每日调度小额配额入口，如 --snapshot-backlog 3）",
+    )
     parser.add_argument("--limit", type=int, default=200)
     parser.add_argument("--include-existing", action="store_true")
     parser.add_argument(
@@ -119,11 +159,38 @@ def main() -> int:
     parser.add_argument("--throttle", type=float, default=0.15)
     args = parser.parse_args()
 
-    init_database()
+    load_shared_database_environment()
+    prepare_database(os.environ.get("FUND_DATABASE_INIT_MODE", "check"))
     if args.manager_id.strip():
         result = FundManagerTenureSyncService(get_strict_tushare_service()).sync_manager(args.manager_id.strip())
         print(json.dumps(result, ensure_ascii=False))
         return 1 if result.get("status") == "failed" else 0
+
+    if args.snapshot_backlog > 0:
+        backlog = select_snapshot_backlog_managers(args.snapshot_backlog)
+        if not backlog:
+            print(json.dumps({"requested": 0, "synced": 0, "failed": 0, "reason": "no_snapshot_backlog"}, ensure_ascii=False))
+            return 0
+        service = FundManagerTenureSyncService(get_strict_tushare_service())
+        summary = {"requested": len(backlog), "synced": 0, "failed": 0, "managers": []}
+        for index, (manager_id, in_charge, in_charge_available) in enumerate(backlog, start=1):
+            result = service.sync_manager(manager_id)
+            ok = result.get("status") == "synced"
+            summary["synced" if ok else "failed"] += 1
+            summary["managers"].append({
+                "manager_id": manager_id,
+                "status": result.get("status"),
+                "current_tenures": result.get("current_tenure_count"),
+                "nav_points_saved": result.get("nav_points_saved"),
+            })
+            print(
+                f"[{index}/{len(backlog)}] {str(result.get('status')).upper()} {manager_id} "
+                f"在管={result.get('current_tenure_count', 0)} 净值点={result.get('nav_points_saved', 0)}"
+            )
+            if args.throttle > 0:
+                time.sleep(args.throttle)
+        print(json.dumps(summary, ensure_ascii=False))
+        return 1 if summary["failed"] else 0
 
     codes = [item.strip().upper() for item in args.codes.split(",") if item.strip()]
     if not codes:

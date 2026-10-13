@@ -224,19 +224,21 @@ class PortfolioRiskActionCreate(PortfolioModel):
     owner: str | None = Field(default=None, max_length=80)
     note: str | None = Field(default=None, max_length=1000)
 
-    @field_validator("rule_id", "title", "detail", "owner", "note")
+    @field_validator("rule_id", "title", "detail", "owner", "note", mode="before")
     @classmethod
     def normalize_risk_action_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
+        if not isinstance(value, str):
+            return value
         clean = value.strip()
         return clean or None
 
 
 class PortfolioRiskActionUpdate(PortfolioModel):
+    review_snapshot_id: str | None = Field(default=None, min_length=1, max_length=64)
     status: Literal["open", "acknowledged", "resolved", "waived"] | None = None
     owner: str | None = Field(default=None, max_length=80)
     note: str | None = Field(default=None, max_length=1000)
+    due_at: datetime | None = None
 
     @field_validator("owner", "note")
     @classmethod
@@ -248,11 +250,19 @@ class PortfolioRiskActionUpdate(PortfolioModel):
 
 
 class PortfolioRiskAction(PortfolioRiskActionCreate):
+    review_snapshot_id: str | None = None
+    source_snapshot_id: str | None = None
     id: str
     status: Literal["open", "acknowledged", "resolved", "waived"] = "open"
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None = None
+    due_at: datetime | None = None
+
+
+class SnapshotRiskActionInput(PortfolioModel):
+    category: Literal['alerts', 'gaps']
+    index: int = Field(ge=0)
 
 
 class PortfolioPosition(PortfolioModel):
@@ -518,6 +528,22 @@ class PortfolioPerformanceResult(PortfolioModel):
     missing_assets: list[PortfolioOptimizationGap]
     warnings: list[str]
     generated_at: datetime
+    risk_free_rate_pct: float = 2
+    basis_positions: list[PortfolioPosition] = Field(default_factory=list)
+    report_id: str | None = None
+
+
+class PortfolioRiskReport(PortfolioModel):
+    id: str
+    saved_at: datetime
+    dashboard: PortfolioDashboard
+    performance: PortfolioPerformanceResult | None = None
+    analysis_input: PortfolioPerformanceRequest = Field(default_factory=PortfolioPerformanceRequest)
+
+
+class PortfolioRiskReportCreate(PortfolioModel):
+    performance_report_id: str | None = Field(default=None, max_length=64)
+    analysis_input: PortfolioPerformanceRequest = Field(default_factory=PortfolioPerformanceRequest)
 
 
 class StrategicAllocationRequest(PortfolioModel):

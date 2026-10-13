@@ -3,8 +3,8 @@ import PlotlyCanvas from './PlotlyCanvas'
 import type { MarketTrack } from '../types'
 
 export type SurfaceMode = 'governed' | 'research'
-export type SurfaceView = '3d' | '2d'
-export type TimeRange = '20y' | '50y' | 'all'
+export type SurfaceView = 'heatmap' | '3d' | '2d'
+export type TimeRange = '5y' | '20y' | '50y' | 'all'
 export type SurfaceCameraPreset = 'overview' | 'top' | 'along-track' | 'along-time'
 
 interface SelectedPoint {
@@ -73,10 +73,11 @@ function yearValue(date: string) {
   return year + (month - 1) / 12
 }
 
-function inRange(date: string, range: TimeRange) {
+function inRange(date: string, range: TimeRange, latestMonth: number) {
   if (range === 'all') return true
-  const cutoff = range === '20y' ? 2006 : 1976
-  return Number(date.slice(0, 4)) >= cutoff
+  const [year, month] = date.split('-').map(Number)
+  const years = range === '5y' ? 5 : range === '20y' ? 20 : 50
+  return year * 12 + month > latestMonth - years * 12
 }
 
 function quantile(values: number[], probability: number) {
@@ -93,9 +94,46 @@ export default function MarketSurfacePlot({ tracks, mode, view, range, showForec
   const chart = useMemo(() => {
     const stackKey = mode === 'governed' ? 'governedStack' : 'researchStack'
     const traces: any[] = []
+    const latestMonth = Math.max(0, ...tracks.map((track) => {
+      const [year, month] = track.coverage.end.split('-').map(Number)
+      return year * 12 + month
+    }))
+    if (view === 'heatmap') {
+      const dates = [...new Set(tracks.flatMap((track) => track.dates.filter((date) => inRange(date, range, latestMonth))))].sort()
+      const rows = tracks.map((track) => {
+        const byDate = new Map(track.dates.map((date, index) => [date, index]))
+        return dates.map((date) => {
+          const index = byDate.get(date)
+          return index == null ? null : Number.isFinite(track[stackKey][index]) ? track[stackKey][index] : null
+        })
+      })
+      return {
+        data: [{
+          type: 'heatmap', x: dates, y: tracks.map((track) => track.label), z: rows,
+          customdata: tracks.map((track) => dates.map((date) => {
+            const index = track.dates.indexOf(date)
+            return index < 0 || !Number.isFinite(track[stackKey][index]) ? null : [track.id, index, false]
+          })),
+          zmin: -3, zmax: 3, zmid: 0,
+          colorscale: [[0, '#176d67'], [0.25, '#4a9b91'], [0.5, '#34434a'], [0.75, '#d49259'], [1, '#c94f49']],
+          hoverongaps: false,
+          hovertemplate: '%{y}<br>%{x}<br>周期合成 %{z:.2f}σ<extra></extra>',
+          colorbar: { title: { text: '周期合成（σ）', side: 'top' }, thickness: 12, len: 0.65, tickfont: { size: 11 } },
+          xgap: range === '5y' ? 1 : 0, ygap: 3,
+        }],
+        layout: {
+          paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+          margin: { l: 148, r: 22, t: 22, b: 62 },
+          font: { color: '#c9d7e5', family: 'Inter, PingFang SC, sans-serif', size: 12 },
+          xaxis: { title: '历史观测月份', type: 'date', gridcolor: '#1d3146', tickformat: '%Y', dtick: 'M12' },
+          yaxis: { autorange: 'reversed', automargin: false, tickfont: { size: 11 } },
+          hovermode: 'closest', uirevision: `market-surface-heatmap-${cameraRevision}`,
+        },
+      }
+    }
     if (view === '2d') {
       tracks.forEach((track) => {
-        const indices = track.dates.map((date, index) => ({ date, index })).filter(({ date }) => inRange(date, range))
+        const indices = track.dates.map((date, index) => ({ date, index })).filter(({ date }) => inRange(date, range, latestMonth))
         traces.push({
           type: 'scatter',
           mode: 'lines',
@@ -164,7 +202,7 @@ export default function MarketSurfacePlot({ tracks, mode, view, range, showForec
     }
 
     const dateSet = new Set<string>()
-    tracks.forEach((track) => track.dates.forEach((date) => inRange(date, range) && dateSet.add(date)))
+    tracks.forEach((track) => track.dates.forEach((date) => inRange(date, range, latestMonth) && dateSet.add(date)))
     const dates = [...dateSet].sort()
     const vertexIndex = new Map<string, number>()
     const meshX: number[] = []
@@ -261,7 +299,7 @@ export default function MarketSurfacePlot({ tracks, mode, view, range, showForec
       })
     }
     tracks.forEach((track, trackIndex) => {
-      const indices = track.dates.map((date, index) => ({ date, index })).filter(({ date }) => inRange(date, range))
+      const indices = track.dates.map((date, index) => ({ date, index })).filter(({ date }) => inRange(date, range, latestMonth))
       traces.push({
         type: 'scatter3d',
         mode: 'lines+markers',
@@ -412,7 +450,7 @@ export default function MarketSurfacePlot({ tracks, mode, view, range, showForec
       config={plotConfig}
       preserveDataColors
       onClick={handlePoint}
-      onHover={handlePoint}
+      onHover={view === 'heatmap' ? undefined : handlePoint}
     />
   )
 }

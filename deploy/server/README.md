@@ -34,20 +34,28 @@ three distinct HTTPS Origins, all reverse-proxied to services on that server:
 - the existing authenticated Newma WebUI Origin
 
 Configure WebUI with the exact Desk Origin in both
-`NEWMA_DESK_EMBED_ORIGIN` and `NEWMA_NUMA_DESK_ALLOWED_ORIGINS`, and add it to
+`NEWMA_DESK_EMBED_ORIGIN` and `NEWMA_DESK_ALLOWED_ORIGINS`, and add it to
 `HERMES_WEBUI_CSP_FRAME_EXTRA`. Configure
 Desk's `PUBLIC_DESK_ORIGIN` to the Desk Origin and its integrated Research /
 Trading browser URLs to the Mod Origin. Do not publish `127.0.0.1` in a Mod
 manifest: in a remote browser it means the user's computer, not the server.
 
-The reverse direction is separate: Desk API must reach the internal Newma /
-Hermes WebUI API through `NEWMA_DESK_HERMES_WEBUI_BASE_URL`. The Compose file
-provides `host.docker.internal` through Docker's host gateway; point the
-variable at the actual reachable listener or a private host proxy. Standard
-managed nodes normally use port `8788`; c10375 uses `8787`. Do not assume the
-port or systemd unit name across servers. If WebUI authentication is enabled,
-also configure the service-only cookie and CSRF token. `/api/capabilities`
-must report the `hermes-webui` adapter as available before deployment passes.
+For static/structured Mod pages, set `VITE_MOD_ORIGIN=https://mods.example`
+when building the Desk shell, not only when starting its server. Vite embeds
+this value in the browser bundle. A remote shell now refuses an absent or
+loopback Mod origin instead of silently using the development port 5891.
+Verify an actual iframe URL in the deployed browser after every shell rebuild.
+
+Standalone first-party Mod builds which use the SDK's explicit parent-origin
+handshake also need `VITE_PARENT_ORIGIN=https://desk.example` at build time.
+The Desk iframe deliberately uses `referrerPolicy="no-referrer"`; a Mod cannot
+infer its parent from `document.referrer`. Verify a real context reply after
+changing a page filter, not only an HTTP 200 or API health response.
+
+Desk does not call Hermes or a model endpoint. Newma/Hermes owns the Agent
+session and reads scoped Mod Context through the host integration. Keep model
+credentials, Agent adapters and session configuration in Newma; do not add
+them to the Desk API container.
 
 Desk and its Mod runtime remain cross-origin from WebUI so sandboxed frames can
 retain their own origin without gaining authenticated same-origin access to the
@@ -66,9 +74,8 @@ python3 deploy/server/check-newma-stack.py \
 ```
 
 It verifies the production Desk shell, Desk API, Mod runtime, WebUI and Hermes
-health, plus the Desk → WebUI adapter. Any unavailable adapter, leaked loopback
-URL, development shell, shared browser Origin or unhealthy service fails the
-deployment.
+health. Any leaked loopback URL, development shell, shared browser Origin or
+unhealthy service fails the deployment.
 
 `register-mods` is now an explicit one-shot ops profile instead of a permanent
 Node runtime:
@@ -150,8 +157,8 @@ not reservations, and can be overridden in `.env.server` or `.env.external`.
   remain available; the mootdx-only finance fallback stays unavailable until
   it can move behind an isolated Adapter or upstream relaxes that constraint.
 - Research native chat/model settings and Trading native Agent, channels,
-  scheduler and upload routes are absent in integrated mode. Both suites use
-  the Desk Agent selected in the global or per-Mod Agent settings.
+  scheduler and upload routes are absent in integrated mode. AI requests are
+  handed to the owning Newma Agent Runtime with scoped Mod Context.
 - Builders use Node 22 and Python 3.12. Frontends install from their committed
   npm lockfiles with `npm ci`; Python direct dependencies are constrained by
   `constraints-domain-runtime.txt`, and every image build runs `pip check`.

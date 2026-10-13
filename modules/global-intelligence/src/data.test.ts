@@ -7,6 +7,7 @@ import {
   clusterGlobalIntelEvents,
   createGlobalIntelDataSource,
   globalIntelEventIdentity,
+  globalIntelEventActivityTimestamp,
   isActionableGlobalIntelEvent,
   globalMediaTopicSimilarity,
   mediaVelocityLabel,
@@ -18,6 +19,95 @@ import {
   reconcileGlobalIntelRouteAlertStates,
   updateGlobalIntelMilitaryTrackHistory,
 } from "./data";
+
+describe("navigation warning time semantics", () => {
+  const collectedAt = "2026-08-12T14:01:51Z";
+  const snapshot = (issueDate: unknown) => ({
+    timestamp: "2026-09-10T08:00:00Z",
+    nav_warnings: {
+      timestamp: collectedAt, collected_at: collectedAt, freshness: "stale",
+      warnings: [{ id: "2024-517", navarea: "4", issue_date: issueDate, status: "active", text: "DANGER AREA", lat: 20, lon: 60 }],
+    },
+  });
+
+  it("reads the real NGA UTC date format, independently of collection or first-seen time", () => {
+    const event = normalizeGlobalIntelEvents(snapshot("081653Z MAY 2024"))[0]!;
+    expect(event).toMatchObject({ timestamp: "2024-05-08T16:53:00.000Z", timestampBasis: "published", collectedAt: "2026-08-12T14:01:51.000Z", sourceFreshness: "stale" });
+    const history = mergeGlobalIntelEventHistory([], [event], "2026-09-10T08:00:00Z")[0]!;
+    const repeated = mergeGlobalIntelEventHistory([history], [event], "2026-09-10T09:00:00Z")[0]!;
+    expect(repeated.timestamp).toBe(event.timestamp);
+    expect(repeated.lastChangedAt).toBe(history.firstSeenAt);
+    expect(globalIntelEventActivityTimestamp(event, repeated)).toBe("2026-09-10T08:00:00Z");
+    expect(event.facts).toContainEqual({ label: "状态", value: "源记录未取消，当前有效性待核验" });
+  });
+
+  it.each([null, "unknown", "310830Z FEB 2026"])("does not replace missing or invalid publication %s with now", (date) => {
+    const event = normalizeGlobalIntelEvents(snapshot(date))[0]!;
+    expect(event).toMatchObject({ timestamp: "", timestampBasis: "unknown" });
+    expect(normalizeGlobalIntelPoints(snapshot(date))[0]!.timestamp).toBeUndefined();
+    expect(clusterGlobalIntelEvents([event, { ...event, id: "another" }])).toHaveLength(2);
+  });
+
+  it("does not count unknown dates or stale warnings as fresh route risk", () => {
+    const input = snapshot(null);
+    const events = normalizeGlobalIntelEvents(input);
+    const points = normalizeGlobalIntelPoints(input);
+    const routes = [{ id: "test-route", kind: "shipping" as const, name: "Test", detail: "", path: [[60, 19], [60, 21]] as Array<[number, number]> }];
+    const now = Date.parse(input.timestamp);
+    expect(calculateGlobalIntelRouteImpacts(events, points, routes, now)).toEqual([]);
+    expect(calculateGlobalIntelRouteImpacts([{ ...events[0]!, timestamp: "2026-09-10T07:00:00Z", timestampBasis: "published" }], points, routes, now)).toEqual([]);
+  });
+});
+
+describe("news and disaster source times", () => {
+  const timestamp = "2026-09-10T08:00:00Z";
+  it("does not invent publication times across RSS, Crucix, health, AI and service feeds", () => {
+    const item = { title: "Undated report", published: null };
+    const snapshot = {
+      timestamp,
+      news_feed: { timestamp, items: [item] },
+      crucix_intelligence: { asOf: timestamp, news: [{ ...item, publishedAt: null }] },
+      disease_outbreaks: { timestamp, items: [item] },
+      ai_watch: { timestamp, items: [item] },
+      service_status: { timestamp, incidents: [item] },
+    };
+    const events = normalizeGlobalIntelEvents(snapshot);
+    expect(events).toHaveLength(5);
+    expect(events.every((event) => event.timestamp === "" && event.timestampBasis === "unknown")).toBe(true);
+    const refreshed = normalizeGlobalIntelEvents({ ...snapshot, timestamp: "2026-09-10T09:00:00Z" });
+    expect(refreshed.map((event) => event.id)).toEqual(events.map((event) => event.id));
+  });
+
+  it("keeps publication, source update, collection and identity separate", () => {
+    const item = { title: "Source report", published: "2026-08-01T08:00:00Z", updated: timestamp, collected_at: timestamp, freshness: "fresh" };
+    const original = normalizeGlobalIntelEvents({ news_feed: { items: [item] } })[0]!;
+    const refreshed = normalizeGlobalIntelEvents({ news_feed: { items: [{ ...item, collected_at: "2026-09-10T09:00:00Z" }] } })[0]!;
+    expect(original).toMatchObject({ timestamp: "2026-08-01T08:00:00.000Z", timestampBasis: "published", updatedAt: "2026-09-10T08:00:00.000Z" });
+    expect(refreshed.id).toBe(original.id);
+    const updateOnly = normalizeGlobalIntelEvents({ news_feed: { items: [{ ...item, published: null }] } })[0]!;
+    expect(updateOnly).toMatchObject({ timestamp: "2026-09-10T08:00:00.000Z", timestampBasis: "updated" });
+    expect(updateOnly.id).toBe(original.id);
+    const expired = normalizeGlobalIntelEvents({ news_feed: { items: [{ ...item, cache_expires_at: "2000-01-01T00:00:00Z" }] } })[0]!;
+    expect(expired.sourceFreshness).toBe("stale");
+  });
+
+  it("never uses the collection clock as a missing earthquake occurrence time", () => {
+    const records = [
+      { id: "undated", place: "Undated earthquake", latitude: 20, longitude: 60, magnitude: 6.1 },
+      { id: "dated", place: "Dated earthquake", latitude: 21, longitude: 60, magnitude: 6.2, time: "2026-09-01T08:00:00Z" },
+    ];
+    const events = normalizeGlobalIntelEvents({ timestamp, earthquakes: { timestamp, collected_at: timestamp, freshness: "stale", earthquakes: records } });
+    expect(events.find((event) => event.title === "Undated earthquake")).toMatchObject({ timestamp: "", timestampBasis: "unknown", collectedAt: "2026-09-10T08:00:00.000Z" });
+    expect(events.find((event) => event.title === "Dated earthquake")).toMatchObject({ timestamp: "2026-09-01T08:00:00.000Z", timestampBasis: "occurred", sourceFreshness: "stale" });
+  });
+
+  it("labels GDELT indexing without treating a newly indexed old article as recent event risk", () => {
+    const [event] = normalizeGlobalIntelEvents({ crucix_intelligence: { news: [{ title: "Hormuz shipping route report", source: "GDELT", publishedAt: null, indexedAt: timestamp }] } });
+    expect(event).toMatchObject({ timestamp: "2026-09-10T08:00:00.000Z", timestampBasis: "indexed" });
+    const routes = [{ id: "hormuz", kind: "shipping" as const, name: "Hormuz shipping route", detail: "", path: [[56, 25], [56, 27]] as Array<[number, number]> }];
+    expect(calculateGlobalIntelRouteImpacts([event!], [], routes, Date.parse(timestamp))).toEqual([]);
+  });
+});
 
 describe("global intelligence media monitor", () => {
   it("normalizes sentiment, velocity, cross-language topics, framing, and verification", () => {

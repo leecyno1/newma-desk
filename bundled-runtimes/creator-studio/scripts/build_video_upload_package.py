@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,20 @@ QIANFAN_PLATFORM_IDS = {
     "douyin": 3,
     "bilibili": 5,
 }
+AUTO_TAG_KEYWORDS = (
+    "AI",
+    "DeepSeek",
+    "英伟达",
+    "阿里巴巴",
+    "阿里",
+    "黄仁勋",
+    "资本开支",
+    "债券市场",
+    "科技财经",
+    "黄金",
+    "美联储",
+    "央行",
+)
 
 
 def now_iso() -> str:
@@ -47,6 +62,22 @@ def existing_path(value: Any) -> str | None:
 
 def mapping_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def normalize_tags(value: Any, *, title: str, description: str) -> list[str]:
+    if isinstance(value, str):
+        raw = re.split(r"[\s,，#]+", value)
+    elif isinstance(value, list):
+        raw = value
+    else:
+        raw = []
+    tags = list(dict.fromkeys(str(item).strip().lstrip("#") for item in raw if str(item).strip()))
+    if tags:
+        return tags[:7]
+
+    content = f"{title}\n{description}"
+    folded = content.casefold()
+    return [tag for tag in AUTO_TAG_KEYWORDS if tag.casefold() in folded][:7] or ["科技财经"]
 
 
 def qianfan_draft_metadata(pack: dict[str, Any], channel_pack_path: Path) -> dict[str, Any]:
@@ -141,7 +172,7 @@ def common_payload(pack: dict[str, Any], channel_pack_path: Path) -> dict[str, A
     notes = mapping_or_empty(metadata.get("platform_notes"))
     title = metadata.get("title") or pack.get("title")
     description = metadata.get("summary") or metadata.get("description") or ""
-    tags = metadata.get("tags") or []
+    tags = normalize_tags(metadata.get("tags"), title=str(title or ""), description=str(description))
     account_name, account_source = account_name_for_pack(pack, metadata, notes)
     return {
         "task_id": pack.get("task_id"),
@@ -152,6 +183,7 @@ def common_payload(pack: dict[str, Any], channel_pack_path: Path) -> dict[str, A
         "title": title,
         "description": description,
         "tags": tags,
+        "is_original": bool(metadata.get("is_original", True)),
         "cover": existing_path(metadata.get("cover")),
         "video": existing_path(artifacts.get("video")),
         "subtitle": existing_path(artifacts.get("video_srt")),
@@ -217,7 +249,8 @@ def build_qianfan_request(pack: dict[str, Any], channel_pack_path: Path) -> dict
         "dailyTimes": ["10:00"],
         "startDays": 0,
         "category": options.get("tid") or options.get("category_id") or options.get("category") or "",
-        "creationDeclaration": options.get("declaration") or "",
+        "creationDeclaration": options.get("declaration") or ("含AI生成内容" if platform == "bilibili" else ""),
+        "isOriginal": payload.get("is_original", True),
         "isDraft": bool(options.get("draft")),
     }
     return {

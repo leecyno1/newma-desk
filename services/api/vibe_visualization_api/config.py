@@ -228,6 +228,9 @@ class Settings(BaseSettings):
         env_prefix="NEWMA_DESK_",
         env_file=".env",
         env_ignore_empty=True,
+        # The root .env is shared with the launcher and external Mod runtimes.
+        extra="ignore",
+        populate_by_name=True,
     )
 
     runtime_dir: Path = Path("runtime")
@@ -262,6 +265,9 @@ class Settings(BaseSettings):
     policy_analysis_dist: Path = Field(default_factory=_default_policy_analysis_dist)
     capital_flow_dist: Path = Field(default_factory=_default_capital_flow_dist)
     capital_flow_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    tushare_token: SecretStr = Field(
+        default=SecretStr(""), validation_alias="TUSHARE_TOKEN"
+    )
     policy_rsshub_base_url: str = ""
     policy_collector_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
     policy_refresh_seconds: float = Field(default=14400, ge=300, le=86400)
@@ -329,8 +335,8 @@ class Settings(BaseSettings):
     mod_store_dir: Path = Path("mods")
     mod_store_git_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     mod_store_github_token: SecretStr = SecretStr("")
-    # Standard managed nodes use 8788. c10375 is the explicit 8787 exception
-    # and must override this through NEWMA_DESK_HERMES_WEBUI_BASE_URL.
+    # Local standalone mode can connect to an existing Hermes/Newma-compatible
+    # runtime in addition to the locally discovered CLI adapters.
     hermes_webui_base_url: str = "http://127.0.0.1:8788"
     hermes_webui_cookie: SecretStr = SecretStr("")
     hermes_webui_csrf_token: SecretStr = SecretStr("")
@@ -347,6 +353,17 @@ class Settings(BaseSettings):
     legacy_portfolio_path: Path = Path("~/.vibe-research/portfolio.json")
     enable_scheduler: bool = False
     scheduler_poll_seconds: float = Field(default=30.0, gt=0, le=3600)
+    enable_workflow_runtime_worker: bool = True
+    workflow_runtime_poll_seconds: float = Field(default=0.5, gt=0, le=60)
+    workflow_webhook_secret: SecretStr = SecretStr("")
+    workflow_server_agent_secret: SecretStr = SecretStr("")
+    workflow_server_agent_allowed_hosts: str = "127.0.0.1,localhost,::1"
+    workflow_server_agent_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    workflow_http_allowed_permissions: str = (
+        "market.read,research.read,analysis.read"
+    )
+    workflow_http_timeout_seconds: float = Field(default=300, gt=0, le=3600)
+    workflow_signature_tolerance_seconds: int = Field(default=300, ge=30, le=3600)
     archify_root: Path = Field(default_factory=_default_archify_root)
     node_binary: str = "node"
 
@@ -368,17 +385,20 @@ class Settings(BaseSettings):
             dotenv_settings,
             DotEnvSettingsSource(
                 settings_cls,
-                env_file=".env",
+                env_file=dotenv_settings.env_file,
+                env_file_encoding=dotenv_settings.env_file_encoding,
                 env_prefix="NEWMA_DOCK_",
             ),
             DotEnvSettingsSource(
                 settings_cls,
-                env_file=".env",
+                env_file=dotenv_settings.env_file,
+                env_file_encoding=dotenv_settings.env_file_encoding,
                 env_prefix="VIBEDESK_",
             ),
             DotEnvSettingsSource(
                 settings_cls,
-                env_file=".env",
+                env_file=dotenv_settings.env_file,
+                env_file_encoding=dotenv_settings.env_file_encoding,
                 env_prefix="VIBE_VIS_",
             ),
             file_secret_settings,

@@ -5,12 +5,14 @@ import {
   deskActionResultSchema,
   deskContextRequestSchema,
   deskInitSchema,
+  deskVisualContextRequestSchema,
   deskUiActionRequestSchema,
   deskHandoffSchema,
   modAckSchema,
   modActionRequestSchema,
   modContextSchema,
   modHelloSchema,
+  modVisualContextSchema,
   modUiActionResultSchema,
   modHandoffResultSchema,
 } from "./bridge";
@@ -70,7 +72,7 @@ describe("Newma-Desk bridge protocol", () => {
       modId: "market-daily",
       protocolVersions: ["1.0"],
       sdkVersion: "0.2.0",
-      capabilities: ["events", "actions", "theme"],
+      capabilities: ["events", "actions", "theme", "visual-context"],
     });
     const init = deskInitSchema.parse({
       type: "vibedesk:init",
@@ -254,6 +256,50 @@ describe("Newma-Desk bridge protocol", () => {
         result: { accepted: true },
       }),
     ).toBeTruthy();
+  });
+
+  it("validates an optional current-page visual capture exchange", () => {
+    const common = {
+      requestId: "visual-1",
+      instanceId: "instance-1",
+      modId: "market-daily",
+    };
+    expect(
+      deskVisualContextRequestSchema.parse({
+        type: "vibedesk:visual-context-request",
+        ...common,
+        reason: "agent",
+        maxBytes: 5 * 1024 * 1024,
+        mediaTypes: ["image/png"],
+      }),
+    ).toBeTruthy();
+    expect(
+      modVisualContextSchema.parse({
+        type: "vibedesk:visual-context",
+        ...common,
+        ok: true,
+        capture: {
+          dataUrl: "data:image/png;base64,iVBORw==",
+          width: 1280,
+          height: 720,
+          capturedAt: "2026-08-28T00:00:00+08:00",
+          title: "当前市场曲面",
+        },
+      }),
+    ).toBeTruthy();
+    expect(() =>
+      modVisualContextSchema.parse({
+        type: "vibedesk:visual-context",
+        ...common,
+        ok: true,
+        capture: {
+          dataUrl: "data:text/html;base64,PGgxPmJhZDwvaDE+",
+          width: 1280,
+          height: 720,
+          capturedAt: "2026-08-28T00:00:00+08:00",
+        },
+      }),
+    ).toThrow();
   });
 
   it("validates a Desk-to-Mod Wiki handoff lifecycle", () => {

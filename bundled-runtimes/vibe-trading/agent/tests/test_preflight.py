@@ -66,7 +66,7 @@ def test_integrated_runtime_delegates_llm_preflight_to_desk(monkeypatch) -> None
 
     result = preflight._check_llm_provider()
 
-    assert result.name == "VibeDesk Agent Gateway"
+    assert result.name == "Newma Agent Runtime Adapter"
     assert result.status == "ready"
     assert "Desk-level Agent settings" in result.message
 

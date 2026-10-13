@@ -69,7 +69,7 @@ export const catalystEventSchema = z.object({
 export const catalystSourceStatusSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
-  status: z.enum(["ok", "empty", "unavailable", "unsupported"]),
+  status: z.enum(["ok", "partial", "empty", "unavailable", "unsupported"]),
   count: z.number().int().nonnegative(),
   asOf: z.string().min(1),
   error: z.string().optional(),

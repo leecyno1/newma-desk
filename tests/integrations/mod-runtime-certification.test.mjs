@@ -9,7 +9,7 @@ import {
 
 const passed = { status: "passed" };
 
-test("requires Agent Context only for declared Level 3 Mods", () => {
+test("requires Agent Context and evidence delivery only for declared Level 3 Mods", () => {
   assert.deepEqual(requiredRuntimeChecks(1), [
     "health",
     "embed",
@@ -28,6 +28,7 @@ test("requires Agent Context only for declared Level 3 Mods", () => {
     "bridge",
     "responsive",
     "agentContext",
+    "agentEvidence",
   ]);
 });
 
@@ -42,6 +43,7 @@ test("never promotes a declared level when a required runtime check fails", () =
       bridge: passed,
       responsive: passed,
       agentContext: { status: "failed", detail: "context missing" },
+      agentEvidence: passed,
     },
     testedAt: "2026-07-26T00:00:00.000Z",
   });
@@ -49,6 +51,26 @@ test("never promotes a declared level when a required runtime check fails", () =
   assert.equal(result.status, "failed");
   assert.equal(result.certifiedLevel, null);
   assert.deepEqual(result.failedChecks, ["agentContext"]);
+});
+
+test("fails Level 3 certification when page evidence cannot reach the Agent", () => {
+  const result = createRuntimeCertification({
+    id: "news-radar",
+    declaredLevel: 3,
+    shellOrigin: "http://127.0.0.1:5888",
+    checks: {
+      health: passed,
+      embed: passed,
+      bridge: passed,
+      responsive: passed,
+      agentContext: passed,
+      agentEvidence: { status: "failed", detail: "visual artifact missing" },
+    },
+    testedAt: "2026-08-30T00:00:00.000Z",
+  });
+
+  assert.equal(result.status, "failed");
+  assert.deepEqual(result.failedChecks, ["agentEvidence"]);
 });
 
 test("certifies only the declared level after every required check passes", () => {

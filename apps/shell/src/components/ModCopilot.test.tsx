@@ -7,8 +7,8 @@ import type { StoredMod } from "../api/modules";
 import {
   buildDeskReturnUrl,
   modCopilotSessionStorageKey,
-  readNumaHandoffPayload,
-} from "../lib/numaHandoff";
+  readNewmaHandoffPayload,
+} from "../lib/newmaHandoff";
 import { server } from "../test/server";
 import { ModCopilot } from "./ModCopilot";
 
@@ -218,6 +218,169 @@ describe("ModCopilot", () => {
     });
     expect(modelUserHeader).toBe("user-1");
     expect(agentTaskCreated).toBe(false);
+    expect(screen.getByText('分析对象：机器人产业链')).toBeVisible();
+    const history=JSON.parse(localStorage.getItem('newma-desk.mod-copilot.messages.v1.workspace-1.industry-map')!);
+    expect(history.at(-1).answerContext).toMatchObject({viewTitle:'机器人产业链',source:'structured'});
+  });
+
+  it("keeps the submitted workbook identity when the page changes before an Agent finishes", async () => {
+    useAvailableAgent();
+    let submitted: Record<string, unknown> | undefined;
+    let complete!: () => void;
+    const pending = new Promise<void>(resolve => {complete = resolve});
+    server.use(
+      http.post('/api/agent/tasks', async ({request}) => {
+        submitted = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({id:'context-task',status:'queued'});
+      }),
+      http.get('/api/agent/tasks/context-task', async () => {
+        await pending;
+        return HttpResponse.json({id:'context-task',status:'completed',result:{answer:'属于旧底稿的分析'}});
+      }),
+    );
+    const context = {
+      view:{id:'earnings-workbench',title:'财报研究'}, visibleBlocks:[],
+      selection:{name:'贵州茅台',symbol:'600519',market:'CN',workbookId:'book-2024',fiscalPeriod:'2024年报'},
+      filters:{periodEnd:'2024-12-31',basis:'annual'}, data:{freshness:'unknown' as const}, actions:[],tasks:[],
+    };
+    const earningsModule={...module,moduleId:'earnings-workbench',manifest:{...module.manifest,id:'earnings-workbench',name:'财报研究'}};
+    const props={module:earningsModule,open:true,userId:'user-1',workspaceId:'workspace-1',onClose:()=>undefined,requestContext:async()=>context};
+    const view=render(<ModCopilot {...props}/>);
+    await screen.findByText(/Codex CLI/);
+    await userEvent.type(screen.getByPlaceholderText('就当前页面提问…'),'分析这份年报');
+    await userEvent.click(screen.getByRole('button',{name:'发送'}));
+    await screen.findByRole('button',{name:'停止'});
+    expect(submitted?.memoryScope).toBe('task');
+    expect(screen.getByText(/不自动继承旧对话/)).toBeVisible();
+    context.selection.name='另一公司';
+    context.selection.fiscalPeriod='2025年报';
+    context.filters.periodEnd='2025-12-31';
+    complete();
+    expect(await screen.findByText('属于旧底稿的分析')).toBeVisible();
+    const identity='分析对象：贵州茅台 · 600519 · CN · 2024年报';
+    expect(screen.getByText(identity)).toBeVisible();
+    const history=JSON.parse(localStorage.getItem('newma-desk.mod-copilot.messages.v1.workspace-1.earnings-workbench')!);
+    expect(history.at(-1).answerContext).toMatchObject({workbookId:'book-2024',periodEnd:'2024-12-31',basis:'annual'});
+    view.unmount();
+    render(<ModCopilot {...props}/>);
+    expect(await screen.findByText(identity)).toBeVisible();
+    expect(screen.queryByText(/分析对象：另一公司/)).not.toBeInTheDocument();
+  });
+
+  it("references only an explicitly selected same-workbook answer and blocks identity changes", async () => {
+    useAvailableAgent();
+    const record={capturedAt:'2026-09-20T00:00:00Z',source:'structured',subject:'贵州茅台 · 600519 · CN',symbol:'600519',market:'CN',currency:'CNY',workbookId:'book-a',fiscalPeriod:'2024年报',periodEnd:'2024-12-31',basis:'annual'};
+    const key='newma-desk.mod-copilot.messages.v1.workspace-1.earnings-workbench';
+    localStorage.setItem(key,JSON.stringify([{id:'prior',role:'assistant',mode:'ask',content:'旧回答的现金流为100，尚待核对',answerContext:record}]));
+    const bodies:Record<string,any>[]=[];
+    server.use(http.post('/api/model/responses',async({request})=>{
+      bodies.push(await request.json() as Record<string,any>);
+      return HttpResponse.json({answer:'针对所选回答的追问结论',adapter:'openai-compatible',model:'fast-model'});
+    }));
+    const context={view:{id:'earnings-workbench',title:'财报研究'},visibleBlocks:[],selection:{name:'贵州茅台',symbol:'600519',market:'CN',workbookId:'book-a',fiscalPeriod:'2024年报'},filters:{periodEnd:'2024-12-31',basis:'annual',currency:'CNY'},data:{summary:{currentCashFlow:80}},actions:[],tasks:[]};
+    const earningsModule={...module,moduleId:'earnings-workbench',manifest:{...module.manifest,id:'earnings-workbench',name:'财报研究'}};
+    render(<ModCopilot module={earningsModule} open userId="user-1" workspaceId="workspace-1" onClose={()=>undefined} requestContext={async()=>context}/>);
+    await userEvent.click(await screen.findByRole('button',{name:'快速'}));
+    await userEvent.click(await screen.findByRole('button',{name:'基于此回答追问'}));
+    await userEvent.type(screen.getByPlaceholderText('快速询问当前页面…'),'继续解释这个数值');
+    await userEvent.click(screen.getByRole('button',{name:'发送'}));
+    await screen.findByText('针对所选回答的追问结论');
+    expect(bodies[0]!.context.vibedesk.followup).toMatchObject({messageId:'prior',content:'旧回答的现金流为100，尚待核对',truncated:false});
+    expect(bodies[0]!.context.vibedesk.page.data.summary.currentCashFlow).toBe(80);
+    expect(screen.queryByRole('region',{name:'追问引用'})).not.toBeInTheDocument();
+    context.filters.currency='USD';
+    await userEvent.click(screen.getAllByRole('button',{name:'基于此回答追问'})[0]!);
+    await userEvent.type(screen.getByPlaceholderText('快速询问当前页面…'),'继续');
+    await userEvent.click(screen.getByRole('button',{name:'发送'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('未发送');
+    expect(bodies).toHaveLength(1);
+    expect(screen.getByPlaceholderText('快速询问当前页面…')).toHaveValue('继续');
+    await userEvent.click(screen.getByRole('button',{name:'取消引用'}));
+    await userEvent.click(screen.getByRole('button',{name:'发送'}));
+    await waitFor(()=>expect(bodies).toHaveLength(2));
+    expect(bodies[1]!.context.vibedesk.followup).toBeUndefined();
+  });
+
+  it("falls back to the selected local Agent quick profile when no model is configured", async () => {
+    useAvailableAgent();
+    let modelResponseCreated = false;
+    let createBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get("/api/model/providers", () =>
+        HttpResponse.json({
+          providers: [
+            {
+              id: "openai-compatible",
+              name: "快速模型",
+              available: false,
+              capabilities: ["chat", "module.explain"],
+              default: true,
+            },
+          ],
+        }),
+      ),
+      http.post("/api/model/responses", () => {
+        modelResponseCreated = true;
+        return HttpResponse.json({
+          answer: "不应调用",
+          adapter: "openai-compatible",
+          model: "fast-model",
+        });
+      }),
+      http.post("/api/agent/tasks", async ({ request }) => {
+        createBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            id: "task-quick-cli",
+            status: "queued",
+            request: createBody,
+            result: null,
+            error: null,
+          },
+          { status: 202 },
+        );
+      }),
+      http.get("/api/agent/tasks/task-quick-cli", () =>
+        HttpResponse.json({
+          id: "task-quick-cli",
+          status: "completed",
+          request: createBody,
+          result: { answer: "CLI 快速回答" },
+          error: null,
+        }),
+      ),
+    );
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-1"
+        runtimePreference="local"
+        onClose={() => undefined}
+        requestContext={async () => undefined}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "快速" }));
+    expect(await screen.findByText(/Codex CLI · 快速档/)).toBeVisible();
+    await userEvent.type(
+      screen.getByPlaceholderText("快速询问当前页面…"),
+      "快速总结",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("CLI 快速回答")).toBeVisible();
+    expect(modelResponseCreated).toBe(false);
+    expect(createBody).toMatchObject({
+      moduleId: "industry-map",
+      capability: "module.explain",
+      profile: "deep",
+      commandProfile: "quick",
+      memoryScope: "task",
+      adapter: "codex-cli",
+      prompt: "快速总结",
+    });
   });
 
   it("sends current-page context with workspace identity and renders the answer", async () => {
@@ -293,6 +456,90 @@ describe("ModCopilot", () => {
     });
     expect(JSON.stringify(createBody)).not.toContain("agentOnlyCapabilities");
     expect(JSON.stringify(createBody)).not.toContain("optionalSecrets");
+  });
+
+  it("sends unified visual evidence without exposing its local file path", async () => {
+    useAvailableAgent();
+    let createBody: Record<string, unknown> | undefined;
+    server.use(
+      http.post("/api/agent/tasks", async ({ request }) => {
+        createBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { id: "task-visual", status: "queued", result: null, error: null },
+          { status: 202 },
+        );
+      }),
+      http.get("/api/agent/tasks/task-visual", () =>
+        HttpResponse.json({
+          id: "task-visual",
+          status: "completed",
+          result: { answer: "已结合当前页面证据。" },
+          error: null,
+        }),
+      ),
+    );
+    render(
+      <ModCopilot
+        module={module}
+        open
+        userId="user-1"
+        workspaceId="workspace-1"
+        onClose={() => undefined}
+        requestEvidence={async () => ({
+          source: "visual",
+          freshness: "fresh",
+          warnings: ["当前 Mod 仅提供页面截图与渲染文本。"],
+          page: {
+            view: { id: "industry-map:visual", title: "机器人产业链" },
+            visibleBlocks: [],
+            selection: {},
+            filters: {},
+            data: {
+              freshness: "fresh",
+              summary: { contextSource: "server-playwright-dom" },
+            },
+            actions: [],
+            tasks: [],
+          },
+          visual: {
+            status: "ready",
+            source: "server-playwright",
+            capturedAt: "2026-08-30T00:00:00+00:00",
+            moduleId: "industry-map",
+            image: {
+              artifactId: "0123456789abcdef0123456789abcdef",
+              mimeType: "image/png",
+              width: 1440,
+              height: 1000,
+              bytes: 1024,
+            },
+          },
+        })}
+      />,
+    );
+
+    await userEvent.type(
+      screen.getByPlaceholderText("就当前页面提问…"),
+      "解释画布",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("已结合当前页面证据。")).toBeVisible();
+    expect(createBody).toMatchObject({
+      context: {
+        vibedesk: {
+          source: "visual-fallback",
+          evidence: { source: "visual", freshness: "fresh" },
+          visual: {
+            delivery: "artifact-reference",
+            image: {
+              artifactId: "0123456789abcdef0123456789abcdef",
+            },
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(createBody)).not.toContain("mod-page-captures");
   });
 
   it("routes batch work as a stateless Agent profile", async () => {
@@ -542,6 +789,26 @@ describe("ModCopilot", () => {
     ).toBeNull();
   });
 
+  it("formats saved Agent Markdown but preserves user text and original history", async () => {
+    const user = userEvent.setup();
+    useAvailableAgent();
+    const key="newma-desk.mod-copilot.messages.v1.workspace-1.industry-map";
+    const content="## 证据摘要\n\n**保留原值**\n\n| 指标 | 数值 |\n| --- | --- |\n| 收入 | 123亿元 |";
+    window.localStorage.setItem(key,JSON.stringify([
+      {id:'raw-user',role:'user',content:'## 不要改写我的输入'},
+      {id:'formatted-agent',role:'assistant',content},
+    ]));
+    const {container}=render(<ModCopilot module={module} open userId="user-1" workspaceId="workspace-1" onClose={()=>undefined} requestContext={async()=>undefined}/>);
+    expect(await screen.findByRole('heading',{name:'证据摘要'})).toBeVisible();
+    expect(screen.getByText('历史回答未记录分析对象')).toBeVisible();
+    expect(screen.getByRole('cell',{name:'123亿元'})).toBeVisible();
+    expect(container.querySelector('.copilot-message.user .copilot-message-body')).toHaveTextContent('## 不要改写我的输入');
+    expect(screen.getAllByRole('button',{name:'复制全文'})).toHaveLength(1);
+    await user.click(screen.getByRole('button',{name:'复制全文'}));
+    expect(await navigator.clipboard.readText()).toBe(content);
+    expect(JSON.parse(window.localStorage.getItem(key)!)[1].content).toBe(content);
+  });
+
   it("isolates saved conversations by workspace and Mod", async () => {
     useAvailableAgent();
     window.localStorage.setItem(
@@ -605,7 +872,7 @@ describe("ModCopilot", () => {
     ).toContain("复现并定位当前问题的根因");
   });
 
-  it("persists upstream session metadata and exposes a configured Numa handoff", async () => {
+  it("persists upstream session metadata and exposes a configured Newma handoff", async () => {
     useAvailableAgent();
     server.use(
       http.post("/api/agent/tasks", () =>
@@ -619,7 +886,7 @@ describe("ModCopilot", () => {
           id: "task-handoff",
           status: "completed",
           result: {
-            answer: "可以在 Numa 中继续。",
+            answer: "可以在 Newma 中继续。",
             agentId: "hermes-webui",
             upstreamSessionId: "hermes-session-1",
           },
@@ -633,8 +900,8 @@ describe("ModCopilot", () => {
         open
         userId="user-1"
         workspaceId="workspace-1"
-        numaAgentUrl="https://numa.example/chat"
-        numaAllowedOrigins={["https://numa.example"]}
+        newmaAgentUrl="https://newma.example/chat"
+        newmaAllowedOrigins={["https://newma.example"]}
         onClose={() => undefined}
         requestContext={async () => undefined}
       />,
@@ -647,11 +914,11 @@ describe("ModCopilot", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "发送" }));
 
-    expect(await screen.findByText("可以在 Numa 中继续。")).toBeVisible();
+    expect(await screen.findByText("可以在 Newma 中继续。")).toBeVisible();
     const link = await screen.findByRole("link", {
-      name: "转到 Numa Agent 继续当前对话",
+      name: "转到 Newma Agent 继续当前对话",
     });
-    const payload = readNumaHandoffPayload(link.getAttribute("href") || "");
+    const payload = readNewmaHandoffPayload(link.getAttribute("href") || "");
     expect(payload).toMatchObject({
       moduleId: "industry-map",
       projectId: "vibe-research",
@@ -678,7 +945,7 @@ describe("ModCopilot", () => {
     });
   });
 
-  it("does not render a dead Numa handoff when no safe URL is configured", async () => {
+  it("does not render a dead Newma handoff when no safe URL is configured", async () => {
     useAvailableAgent();
     window.localStorage.setItem(
       modCopilotSessionStorageKey("industry-map", "workspace-1"),
@@ -707,11 +974,11 @@ describe("ModCopilot", () => {
 
     expect(await screen.findByText(/Codex CLI/)).toBeVisible();
     expect(
-      screen.queryByRole("link", { name: "转到 Numa Agent 继续当前对话" }),
+      screen.queryByRole("link", { name: "转到 Newma Agent 继续当前对话" }),
     ).not.toBeInTheDocument();
   });
 
-  it("restores a session when the user returns from Numa to this Mod", async () => {
+  it("restores a session when the user returns from Newma to this Mod", async () => {
     useAvailableAgent();
     window.history.replaceState(
       null,
@@ -738,8 +1005,8 @@ describe("ModCopilot", () => {
         open
         userId="user-1"
         workspaceId="workspace-1"
-        numaAgentUrl="https://numa.example/chat"
-        numaAllowedOrigins={["https://numa.example"]}
+        newmaAgentUrl="https://newma.example/chat"
+        newmaAllowedOrigins={["https://newma.example"]}
         onClose={() => undefined}
         requestContext={async () => undefined}
       />,
@@ -750,7 +1017,7 @@ describe("ModCopilot", () => {
     expect(window.location.href).not.toContain("newma-handoff=");
     expect(
       await screen.findByRole("link", {
-        name: "转到 Numa Agent 继续当前对话",
+        name: "转到 Newma Agent 继续当前对话",
       }),
     ).toBeVisible();
     const saved = JSON.parse(

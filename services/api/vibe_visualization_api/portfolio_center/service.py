@@ -39,12 +39,14 @@ from vibe_visualization_api.portfolio_center.models import (
     PortfolioRiskActionUpdate,
     PortfolioRiskPolicy,
     PortfolioRiskPolicyInput,
+    PortfolioRiskReport,
     StrategicAllocationRequest,
     StrategicAllocationResult,
 )
 from vibe_visualization_api.portfolio_center.history import (
     NullPortfolioHistoryProvider,
     PortfolioHistoryProvider,
+    align_weekly_histories,
 )
 from vibe_visualization_api.portfolio_center.optimization import optimize_weights
 from vibe_visualization_api.portfolio_center.performance import analyze_performance
@@ -607,6 +609,53 @@ class PortfolioCenterService:
             workspace_id=workspace_id,
             include_quotes=True,
         )
+        result = await self._analyze_dashboard_performance(dashboard, request)
+        result.basis_positions = [p for p in dashboard.positions if p.currency == request.currency]
+        result.risk_free_rate_pct = request.risk_free_rate_pct
+        report = self._store.save_risk_report(dashboard, result, request)
+        return result.model_copy(update={"report_id": report.id})
+
+    def list_risk_reports(self, *, user_id: str, workspace_id: str) -> list[PortfolioRiskReport]:
+        return self._store.list_risk_reports(user_id=user_id, workspace_id=workspace_id)
+
+    def list_import_snapshots(self, *, user_id: str, workspace_id: str) -> list[dict]:
+        return self._store.list_import_snapshots(user_id=user_id, workspace_id=workspace_id)
+
+    def list_import_products(self, *, user_id: str, workspace_id: str) -> list[dict]:
+        return self._store.list_import_products(user_id=user_id, workspace_id=workspace_id)
+
+    def list_snapshot_risk_actions(self, *, user_id: str, workspace_id: str, snapshot_id: str) -> list[PortfolioRiskAction]:
+        return self._store.list_snapshot_risk_actions(user_id=user_id, workspace_id=workspace_id, snapshot_id=snapshot_id)
+
+    def register_snapshot_risk_action(self, *, user_id: str, workspace_id: str, snapshot_id: str, category: str, index: int) -> PortfolioRiskAction:
+        saved = self._store.get_import_snapshot(user_id=user_id, workspace_id=workspace_id, snapshot_id=snapshot_id)
+        if category not in {'alerts', 'gaps'} or index < 0 or index >= len(saved['report'].get(category, [])):
+            raise PortfolioConflictError('该风险依据不存在，请重新读取原快照。')
+        s = saved['snapshot']
+        label = '风险提示' if category == 'alerts' else '待补证据'
+        detail = f"产品 {s.get('productId') or '未归属'} · {s['name']} · 持仓日 {s['asOf']} · {label}第 {index+1} 项：{saved['report'][category][index]}"
+        action = PortfolioRiskActionCreate(rule_id=f'snapshot:{snapshot_id}:{category}:{index}',
+            severity='high' if category == 'alerts' else 'medium', title=f"{label} · {s['name']}"[:160],
+            detail=detail[:1000])
+        return self._store.create_risk_action(user_id=user_id, workspace_id=workspace_id, action=action, source_snapshot_id=snapshot_id)
+
+    def get_import_snapshot(self, *, user_id: str, workspace_id: str, snapshot_id: str) -> dict:
+        return self._store.get_import_snapshot(user_id=user_id, workspace_id=workspace_id, snapshot_id=snapshot_id)
+
+    def save_import_snapshot(self, *, user_id: str, workspace_id: str, snapshot: dict, report: dict) -> dict:
+        return self._store.save_import_snapshot(user_id=user_id, workspace_id=workspace_id, snapshot=snapshot, report=report)
+
+    def get_risk_report(self, *, user_id: str, workspace_id: str, report_id: str) -> PortfolioRiskReport:
+        return self._store.get_risk_report(user_id=user_id, workspace_id=workspace_id, report_id=report_id)
+
+    async def save_risk_report(self, *, user_id: str, workspace_id: str, performance_report_id: str | None = None, analysis_input: PortfolioPerformanceRequest | None = None) -> PortfolioRiskReport:
+        performance = None
+        if performance_report_id:
+            performance = self._store.get_risk_report(user_id=user_id, workspace_id=workspace_id, report_id=performance_report_id).performance
+        dashboard = await self.dashboard(user_id=user_id, workspace_id=workspace_id, include_quotes=True)
+        return self._store.save_risk_report(dashboard, performance, analysis_input)
+
+    async def _analyze_dashboard_performance(self, dashboard: PortfolioDashboard, request: PortfolioPerformanceRequest) -> PortfolioPerformanceResult:
         candidates = self._currency_candidates(
             dashboard.positions,
             request.currency,
@@ -615,7 +664,8 @@ class PortfolioCenterService:
             "指标采用当前持仓权重进行历史周线模拟，不等同于包含全部现金流的账户 TWR。",
             "历史表现只用于研究，不代表未来收益。",
         ]
-        if not candidates:
+        unpriced = any(p.price is None or p.market_value is None for p in dashboard.positions if p.currency == request.currency)
+        if not candidates or unpriced:
             return PortfolioPerformanceResult(
                 status="insufficient-data",
                 method="quantstats-inspired-weekly",
@@ -626,7 +676,7 @@ class PortfolioCenterService:
                 series=[],
                 dataSources=[],
                 missingAssets=[],
-                warnings=[*warnings, "当前币种没有可分析持仓。"],
+                warnings=[*warnings, "当前币种持仓缺少市值，不能使用成本冒充当前权重。" if unpriced else "当前币种没有可分析持仓。"],
                 generatedAt=datetime.now(UTC),
             )
         histories = await self._history_provider.get_histories(
@@ -649,7 +699,12 @@ class PortfolioCenterService:
             else:
                 valid.append({**candidate, "history": history})
         coverage_weight = sum(item["current_weight"] for item in valid)
-        if not valid or coverage_weight <= _EPSILON:
+        zones = {'CN':'Asia/Shanghai', 'HK':'Asia/Hong_Kong', 'US':'America/New_York'}
+        aligned, labels, as_of = align_weekly_histories(
+            [item['history'] for item in valid], request.lookback_weeks + 1,
+            [zones[item['identity'].market] for item in valid],
+        )
+        if not valid or coverage_weight <= _EPSILON or len(labels) < 9:
             return PortfolioPerformanceResult(
                 status="insufficient-data",
                 method="quantstats-inspired-weekly",
@@ -660,22 +715,15 @@ class PortfolioCenterService:
                 series=[],
                 dataSources=[],
                 missingAssets=missing,
-                warnings=[*warnings, "没有足够历史序列生成绩效指标。"],
+                warnings=[*warnings, "没有至少 8 个共同连续自然周；缺日期或断档不能按数组长度拼接。"],
                 generatedAt=datetime.now(UTC),
             )
         estimate = analyze_performance(
-            [item["history"].closes for item in valid],
+            aligned,
             [item["current_weight"] / coverage_weight for item in valid],
             risk_free_rate=request.risk_free_rate_pct / 100,
         )
-        reference_timestamps = valid[0]["history"].timestamps
-        if len(reference_timestamps) >= estimate.observations:
-            labels = [
-                self._history_label(value)
-                for value in reference_timestamps[-estimate.observations :]
-            ]
-        else:
-            labels = [f"W{index + 1}" for index in range(estimate.observations)]
+        labels = labels[1:]
         series = [
             PortfolioPerformancePoint(
                 label=label,
@@ -696,13 +744,10 @@ class PortfolioCenterService:
                 if item["history"].source
             }
         )
-        as_of_values = [
-            item["history"].as_of
-            for item in valid
-            if item["history"].as_of
-        ]
         if missing:
             warnings.append("缺少历史的持仓未纳入模拟，覆盖率已单独显示。")
+        if estimate.observations < request.lookback_weeks:
+            warnings.append(f"请求 {request.lookback_weeks} 周，实际只有 {estimate.observations} 个共同连续周；仅供局部研究，不能作为完整窗口通过限额。")
         metrics = PortfolioPerformanceMetrics(
             totalReturnPct=round(estimate.total_return * 100, 4),
             annualizedReturnPct=round(estimate.annualized_return * 100, 4),
@@ -727,7 +772,7 @@ class PortfolioCenterService:
             ),
         )
         return PortfolioPerformanceResult(
-            status="partial" if missing else "ready",
+            status="partial" if missing or estimate.observations < request.lookback_weeks else "ready",
             method="quantstats-inspired-weekly",
             currency=request.currency,
             lookbackWeeks=request.lookback_weeks,
@@ -736,7 +781,7 @@ class PortfolioCenterService:
             metrics=metrics,
             series=series,
             dataSources=data_sources,
-            asOf=max(as_of_values) if as_of_values else None,
+            asOf=as_of,
             missingAssets=missing,
             warnings=warnings,
             generatedAt=datetime.now(UTC),

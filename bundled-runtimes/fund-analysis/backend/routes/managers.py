@@ -23,12 +23,14 @@ def _clean_nan(obj):
 
 
 def _get_services():
-    from service_registry import get_data_service, get_scoring_engine, get_db
-    return get_data_service(), get_scoring_engine(), get_db()
+    from service_registry import get_data_service, get_scoring_engine
+    return get_data_service(), get_scoring_engine()
 
 
+# These research services use synchronous SQL/CPU work. Plain def lets FastAPI
+# run them in its worker pool instead of blocking health checks on the event loop.
 @router.get("/browser")
-async def browse_managers(
+def browse_managers(
     keyword: Optional[str] = Query(None, description="经理、公司或代表基金"),
     category: str = Query("all", description="标准基金大类"),
     evidence: str = Query("all", description="all / with_memo / with_metrics / research_ready"),
@@ -63,7 +65,7 @@ async def list_managers(
     """获取基金经理列表（优化版：跳过昂贵的 fund performance/risk/style 调用）"""
     from services.cache_service import get_cache, TTL
 
-    data_svc, _, db = _get_services()
+    data_svc, _ = _get_services()
     cache = get_cache()
 
     try:
@@ -117,7 +119,7 @@ async def list_managers(
 
 
 @router.get("/compare")
-async def compare_managers(
+def compare_managers(
     manager_id: list[str] = Query(..., description="重复传入 2-4 个规范经理 ID"),
     category: Optional[str] = Query(None, description="精确专业同类组"),
     product_code: Optional[list[str]] = Query(None, description="按经理顺序指定代表产品"),
@@ -139,7 +141,7 @@ async def compare_managers(
 
 
 @router.get("/{manager_id}")
-async def get_manager_detail(manager_id: str):
+def get_manager_detail(manager_id: str):
     """输出基金经理研究快照。"""
     try:
         from services.fund_manager_research_service import FundManagerResearchService
@@ -152,7 +154,7 @@ async def get_manager_detail(manager_id: str):
 
 
 @router.get("/{manager_id}/career")
-async def get_manager_career(
+def get_manager_career(
     manager_id: str,
     fund_code: Optional[str] = Query(None),
     tenure_start_date: Optional[str] = Query(None),
@@ -280,7 +282,7 @@ async def generate_manager_profile(manager_id: str):
 @router.get("/{manager_id}/score")
 async def get_manager_score(manager_id: str):
     """获取经理评分（兼容前端）"""
-    data_svc, scoring_engine, db = _get_services()
+    data_svc, scoring_engine = _get_services()
 
     try:
         info = data_svc.get_manager_info(manager_id)
@@ -297,7 +299,8 @@ async def get_manager_score(manager_id: str):
             score = scoring_engine.score_fund(perf, risk, style)
             fund_scores.append({**fund, "scoring": score})
 
-        if not fund_scores:
+        valid_scores = [f['scoring']['overall_score'] for f in fund_scores if f['scoring']['overall_score'] is not None]
+        if not valid_scores:
             return {
                 "overall_score": None,
                 "overall_grade": None,
@@ -306,8 +309,9 @@ async def get_manager_score(manager_id: str):
                 "dimension_scores": {},
             }
 
-        avg_perf = {"overall_score": sum(f["scoring"]["overall_score"] for f in fund_scores) / len(fund_scores)}
+        avg_perf = {"overall_score": sum(valid_scores) / len(valid_scores)}
         manager_score = scoring_engine.score_manager(info, avg_perf, {}, [])
+        manager_score['score_coverage'] = {"available": len(valid_scores), "requested": len(fund_scores)}
 
         return manager_score
     except Exception as e:
@@ -342,7 +346,7 @@ async def get_morningstar_rating(manager_id: str):
     if cached is not None:
         return _clean_nan(cached)
 
-    data_svc, _, db = _get_services()
+    data_svc, _ = _get_services()
 
     try:
         # 获取经理基础信息

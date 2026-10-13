@@ -30,7 +30,7 @@ export async function GET(request: Request) {
         { status: response.status },
       )
     }
-    return NextResponse.json({ ...data, isMock: false, source: 'backend.tushare.fund_nav' })
+    return NextResponse.json({ ...data, isMock: false })
   } catch (error) {
     console.error('获取净值数据失败:', error)
     return NextResponse.json(

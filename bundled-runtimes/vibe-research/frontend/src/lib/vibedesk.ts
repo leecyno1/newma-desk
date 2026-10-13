@@ -10,6 +10,7 @@ export interface VibeDeskConfig {
   accessToken?: string;
   storageGateway?: string;
   permissions?: string[];
+  runtimeAvailable?: boolean;
 }
 
 export interface VibeDeskAppearance {
@@ -23,6 +24,18 @@ export interface VibeDeskAppearance {
 export interface VibeDeskThemeChangeDetail {
   mode: "light" | "dark";
   appearance?: VibeDeskAppearance;
+}
+
+function agentRuntimeAvailable(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const runtime = value as Record<string, unknown>;
+  const requestMessage = runtime.requestMessage === "vibedesk:copilot-open";
+  const host =
+    (runtime.owner === "newma" || runtime.owner === "numa") &&
+    runtime.aiExecution === "host";
+  const gateway =
+    runtime.owner === "desk" && runtime.aiExecution === "gateway";
+  return requestMessage && (host || gateway);
 }
 
 interface VibeDeskSnapshot<T> {
@@ -186,15 +199,16 @@ function announceContextBridge(config: VibeDeskConfig) {
       modId: config.moduleId,
       protocolVersions: ["1.0"],
       sdkVersion: "vibe-research-0.1.3",
-      capabilities: ["events", "data", "context", "theme", "handoff"],
+      capabilities: ["events", "data", "context", "theme", "handoff", "agent"],
     },
     config.gatewayOrigin,
   );
 }
 
 function visiblePageContext(): VibeDeskPageContext {
+  const contentRoot = document.querySelector<HTMLElement>("main") ?? document.body;
   const headings = Array.from(
-    document.querySelectorAll<HTMLElement>("h1, h2, h3"),
+    contentRoot.querySelectorAll<HTMLElement>("h1, h2, h3"),
   )
     .map((heading, index) => ({
       id: (heading.id || `heading-${index + 1}`).slice(0, 128),
@@ -203,10 +217,26 @@ function visiblePageContext(): VibeDeskPageContext {
     }))
     .filter((heading) => heading.title)
     .slice(0, 80);
-  const visibleText = document.body.innerText
+  const visibleText = contentRoot.innerText
     .replace(/\n{3,}/g, "\n\n")
     .trim()
     .slice(0, 40_000);
+  const visualElementCount = Array.from(
+    contentRoot.querySelectorAll<HTMLElement>(
+      'canvas, svg, img, video, [role="img"], [data-visual-context]',
+    ),
+  ).filter((element) => {
+    if (element instanceof HTMLCanvasElement || element instanceof HTMLVideoElement) return true;
+    const rect = element.getBoundingClientRect();
+    return rect.width >= 240 && rect.height >= 120;
+  }).length;
+  const clone = contentRoot.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll(
+    "script, style, noscript, template, svg, canvas, video, audio, input[type=password], input[type=hidden]",
+  ).forEach((element) => element.remove());
+  clone.querySelectorAll<HTMLElement>("[style]")
+    .forEach((element) => element.removeAttribute("style"));
+  const renderedHtml = clone.outerHTML.replace(/>\s+</g, "><").trim().slice(0, 24_000);
   return {
     view: {
       id: `${currentConfig?.moduleId || "vibe-research"}:${window.location.pathname}`.slice(0, 128),
@@ -220,10 +250,15 @@ function visiblePageContext(): VibeDeskPageContext {
     selection: { path: `${window.location.pathname}${window.location.search}` },
     filters: {},
     data: {
-      asOf: new Date().toISOString(),
-      source: "vibe-research-rendered-page",
-      freshness: "fresh",
-      summary: { visibleText },
+      source: "vibe-research-rendered-dom",
+      freshness: "unknown",
+      summary: {
+        contextSource: "dom-html-fallback",
+        visibleText,
+        renderedHtml,
+        visualElementCount,
+        warning: "页面尚未注册结构化 Context Provider，当前仅返回已渲染 DOM/HTML。",
+      },
     },
     actions: [],
     tasks: [],
@@ -463,6 +498,7 @@ if (isVibeDeskEmbedded) {
             (permission: unknown): permission is string => typeof permission === "string",
           )
         : [];
+      const runtimeAvailable = agentRuntimeAvailable(data.runtime);
       const theme = data.environment?.theme === "dark" ? "dark" : "light";
       const sanitizedAppearance = sanitizeAppearance(data.appearance);
       const appearance = sanitizedAppearance?.mode === theme
@@ -481,6 +517,7 @@ if (isVibeDeskEmbedded) {
         accessToken,
         storageGateway,
         permissions,
+        runtimeAvailable,
       };
       applyEmbeddedTheme(theme, appearance);
       notifyConfig(currentConfig);
@@ -633,6 +670,27 @@ export function registerVibeDeskHandoffHandler(handler: HandoffHandler) {
 
 export function publishVibeDeskContext() {
   return postPageContext();
+}
+
+export async function requestVibeDeskAgent(input: {
+  prompt?: string;
+  mode?: "ask" | "edit";
+}) {
+  if (!currentConfig || !bridgeInstanceId || !currentConfig.runtimeAvailable) {
+    throw new Error("Agent Runtime is unavailable");
+  }
+  await postPageContext();
+  const prompt = input.prompt?.trim().slice(0, 8_000);
+  window.parent.postMessage(
+    {
+      type: "vibedesk:copilot-open",
+      instanceId: bridgeInstanceId,
+      modId: currentConfig.moduleId,
+      mode: input.mode ?? "ask",
+      ...(prompt ? { prompt } : {}),
+    },
+    currentConfig.gatewayOrigin,
+  );
 }
 
 export function emitVibeDeskEvent(

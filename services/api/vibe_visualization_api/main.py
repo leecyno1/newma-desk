@@ -29,15 +29,20 @@ from vibe_visualization_api.agent_gateway.conversation_store import (
     AgentConversationStore,
 )
 from vibe_visualization_api.agent_gateway.event_bus import TaskEventBus
+from vibe_visualization_api.agent_gateway.preferences import AgentPreferenceStore
 from vibe_visualization_api.agent_gateway.registry import (
     AgentAdapterRegistry,
     UnknownAgentAdapterError,
 )
 from vibe_visualization_api.agent_gateway.routes import router as agent_router
-from vibe_visualization_api.agent_gateway.preferences import AgentPreferenceStore
 from vibe_visualization_api.agent_gateway.service import AgentTaskService
 from vibe_visualization_api.agent_gateway.session_store import (
     AgentModuleSessionStore,
+)
+from vibe_visualization_api.agent_gateway.store import (
+    InvalidTaskStateError,
+    TaskNotFoundError,
+    TaskStore,
 )
 from vibe_visualization_api.ai_context.finance_capabilities import (
     FinanceCapabilityContextEnricher,
@@ -45,15 +50,13 @@ from vibe_visualization_api.ai_context.finance_capabilities import (
 from vibe_visualization_api.ai_context.light_research import (
     LightResearchContextEnricher,
 )
-from vibe_visualization_api.agent_gateway.store import (
-    InvalidTaskStateError,
-    TaskNotFoundError,
-    TaskStore,
-)
 from vibe_visualization_api.config import (
     Settings,
     get_settings,
     resolve_database_path,
+)
+from vibe_visualization_api.control_plane.visual_context import (
+    VisualContextCaptureService,
 )
 from vibe_visualization_api.creator_studio.routes import (
     router as creator_studio_router,
@@ -63,12 +66,32 @@ from vibe_visualization_api.workflow_control.routes import (
     router as workflow_control_router,
 )
 from vibe_visualization_api.workflow_control.service import WorkflowControlService
+from vibe_visualization_api.workflow_runtime.adapters import (
+    AgentRuntimeNodeExecutionAdapter,
+    NodeExecutionAdapterRegistry,
+)
+from vibe_visualization_api.workflow_runtime.agent_gateway import (
+    AgentGatewayWorkflowPort,
+)
+from vibe_visualization_api.workflow_runtime.engine import WorkflowRuntimeEngine
+from vibe_visualization_api.workflow_runtime.http_capability import (
+    DataServiceWorkflowPort,
+    HttpCapabilityNodeExecutionAdapter,
+)
+from vibe_visualization_api.workflow_runtime.routes import (
+    router as workflow_runtime_router,
+)
+from vibe_visualization_api.workflow_runtime.remote_agent import (
+    RemoteServerAgentNodeExecutionAdapter,
+)
+from vibe_visualization_api.workflow_runtime.signing import WorkflowRequestSigner
+from vibe_visualization_api.workflow_runtime.worker import WorkflowRuntimeWorker
 from vibe_visualization_api.crucix.adapter import adapt_crucix_response
 from vibe_visualization_api.crucix.routes import router as crucix_router
-from vibe_visualization_api.model_gateway.adapters.base import ModelAdapter
 from vibe_visualization_api.model_gateway.adapters.anthropic import (
     AnthropicModelAdapter,
 )
+from vibe_visualization_api.model_gateway.adapters.base import ModelAdapter
 from vibe_visualization_api.model_gateway.adapters.openai_compatible import (
     OpenAICompatibleModelAdapter,
 )
@@ -168,6 +191,7 @@ from vibe_visualization_api.finance_pilots.service import (
 from vibe_visualization_api.global_intel.client import GlobalIntelClient
 from vibe_visualization_api.global_intel.routes import router as global_intel_router
 from vibe_visualization_api.global_topics.routes import router as global_topics_router
+from vibe_visualization_api.global_topics.sources import TopicSources
 from vibe_visualization_api.scheduler.service import (
     RefreshSchedulerService,
     SchedulerLifecycle,
@@ -191,6 +215,7 @@ def create_app(
     *,
     agent_adapters: Sequence[AgentAdapter] | None = None,
     model_adapters: Sequence[ModelAdapter] | None = None,
+    visual_context_capture: VisualContextCaptureService | None = None,
     data_services: Sequence[DataServiceDescriptor] | None = None,
     data_service_client: DataServiceClient | None = None,
     scheduler_service: SchedulerLifecycle | None = None,
@@ -214,45 +239,23 @@ def create_app(
         descriptor_fetcher=mod_store_fetcher,
         catalog_snapshot_fetcher=mod_store_snapshot_fetcher,
     )
+    page_visual_capture = (
+        visual_context_capture or VisualContextCaptureService(app_settings)
+    )
     configured_adapters = (
         list(agent_adapters)
         if agent_adapters is not None
         else [
             LocalCliAgentAdapter(
-                "codex",
+                cli,
                 app_settings,
                 agent_conversation_store,
                 workspace_resolver=mod_store_service.resolve_agent_workspace,
-            ),
-            LocalCliAgentAdapter(
-                "claude",
-                app_settings,
-                agent_conversation_store,
-                workspace_resolver=mod_store_service.resolve_agent_workspace,
-            ),
-            LocalCliAgentAdapter(
-                "gemini",
-                app_settings,
-                agent_conversation_store,
-                workspace_resolver=mod_store_service.resolve_agent_workspace,
-            ),
-            LocalCliAgentAdapter(
-                "qoder",
-                app_settings,
-                agent_conversation_store,
-                workspace_resolver=mod_store_service.resolve_agent_workspace,
-            ),
-            LocalCliAgentAdapter(
-                "minimax",
-                app_settings,
-                agent_conversation_store,
-                workspace_resolver=mod_store_service.resolve_agent_workspace,
-            ),
-            HermesWebUIAdapter(
-                app_settings,
-                agent_session_store,
-            ),
+                visual_context_capture=page_visual_capture,
+            )
+            for cli in ("codex", "claude", "gemini", "qoder", "minimax")
         ]
+        + [HermesWebUIAdapter(app_settings, agent_session_store)]
     )
     adapter_registry = AgentAdapterRegistry(
         configured_adapters,
@@ -273,6 +276,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
+        application.state.agent_event_loop = asyncio.get_running_loop()
         domain_suites = application.state.domain_suites
         await domain_suites.startup()
         application.state.creator_studio_service.startup()
@@ -283,9 +287,14 @@ def create_app(
                 active_scheduler = application.state.scheduler_service_factory()
                 application.state.scheduler_service = active_scheduler
             await active_scheduler.start()
+        workflow_runtime_worker = application.state.workflow_runtime_worker
+        if app_settings.enable_workflow_runtime_worker:
+            await workflow_runtime_worker.start()
         try:
             yield
         finally:
+            if app_settings.enable_workflow_runtime_worker:
+                await workflow_runtime_worker.stop()
             application.state.creator_studio_service.shutdown()
             await application.state.policy_refresh_service.stop()
             if app_settings.enable_scheduler and active_scheduler is not None:
@@ -293,25 +302,28 @@ def create_app(
             agent_service = application.state.agent_task_service
             if agent_service is not None:
                 await agent_service.shutdown()
+            application.state.agent_event_loop = None
             await domain_suites.shutdown()
 
     application = FastAPI(
         title="Newma-Desk API",
         description=(
-            "Data, Mod, Model Gateway and Agent Gateway services for Newma-Desk."
+            "Mod, data, artifact and workflow services with optional local "
+            "Agent and Model adapters for standalone Newma-Desk."
         ),
         version="0.1.0",
         lifespan=lifespan,
     )
     application.dependency_overrides[get_settings] = lambda: app_settings
     application.state.agent_task_service = None
+    application.state.agent_event_loop = None
     application.state.policy_refresh_service = PolicyRefreshService(
         database_path=app_settings.database_path,
         rsshub_base_url=app_settings.policy_rsshub_base_url,
         timeout_seconds=app_settings.policy_collector_timeout_seconds,
         interval_seconds=app_settings.policy_refresh_seconds,
     )
-    application.state.agent_task_service_lock = asyncio.Lock()
+    application.state.agent_task_service_thread_lock = Lock()
     application.state.domain_suites = None
     application.state.module_repository = None
     application.state.module_repository_lock = Lock()
@@ -351,6 +363,19 @@ def create_app(
         )
 
     application.state.agent_task_service_factory = create_agent_task_service
+
+    def resolve_agent_task_service() -> AgentTaskService:
+        service = application.state.agent_task_service
+        if service is not None:
+            return service
+        with application.state.agent_task_service_thread_lock:
+            service = application.state.agent_task_service
+            if service is None:
+                service = create_agent_task_service()
+                application.state.agent_task_service = service
+        return service
+
+    application.state.resolve_agent_task_service = resolve_agent_task_service
     application.state.model_gateway_service = ModelGatewayService(
         model_adapter_registry,
         snapshot_store_factory=lambda: SnapshotStore(
@@ -359,6 +384,7 @@ def create_app(
         ),
         preference_store=agent_preference_store,
     )
+    application.state.visual_context_capture = page_visual_capture
     application.state.scheduler_service = scheduler_service
     application.state.scheduler_service_lock = asyncio.Lock()
 
@@ -399,8 +425,18 @@ def create_app(
     )
     application.state.data_service_registry = data_service_registry
     application.state.data_service_client = resolved_data_service_client
-    application.state.global_intel_client = GlobalIntelClient(
-        app_settings.world_intel_url
+    async def topic_crucix_snapshot():
+        return await resolved_data_service_client.invoke(data_service_registry.get("crucix"), "crucix.snapshot", {})
+
+    application.state.global_intel_client = GlobalIntelClient(app_settings.world_intel_url)
+
+    async def topic_maritime_snapshot():
+        return await application.state.global_intel_client.get_json("/api/maritime/warnings", timeout_seconds=15)
+
+    application.state.global_topic_sources = TopicSources(
+        tushare_token=app_settings.tushare_token.get_secret_value(),
+        crucix_snapshot=topic_crucix_snapshot,
+        maritime_snapshot=topic_maritime_snapshot,
     )
     application.state.data_service_preference_store = DataServicePreferenceStore(
         app_settings.database_path
@@ -466,6 +502,48 @@ def create_app(
     application.state.workflow_control_service = WorkflowControlService(
         app_settings.database_path,
     )
+    workflow_agent_port = AgentGatewayWorkflowPort(
+        resolve_agent_task_service,
+        lambda: application.state.agent_event_loop,
+    )
+    workflow_data_service_port = DataServiceWorkflowPort(
+        data_service_registry,
+        resolved_data_service_client,
+        lambda: application.state.agent_event_loop,
+        allowed_permissions=app_settings.workflow_http_allowed_permissions,
+        max_timeout_seconds=app_settings.workflow_http_timeout_seconds,
+    )
+    application.state.workflow_runtime_engine = WorkflowRuntimeEngine(
+        app_settings.database_path,
+        application.state.workflow_control_service,
+        adapters=NodeExecutionAdapterRegistry(
+            [
+                AgentRuntimeNodeExecutionAdapter(workflow_agent_port),
+                HttpCapabilityNodeExecutionAdapter(workflow_data_service_port),
+                RemoteServerAgentNodeExecutionAdapter(
+                    application.state.workflow_control_service,
+                    secret=app_settings.workflow_server_agent_secret.get_secret_value(),
+                    allowed_hosts=app_settings.workflow_server_agent_allowed_hosts,
+                    timeout_seconds=app_settings.workflow_server_agent_timeout_seconds,
+                    signature_tolerance_seconds=(
+                        app_settings.workflow_signature_tolerance_seconds
+                    ),
+                ),
+            ]
+        ),
+    )
+    application.state.workflow_runtime_worker = WorkflowRuntimeWorker(
+        application.state.workflow_runtime_engine,
+        poll_seconds=app_settings.workflow_runtime_poll_seconds,
+    )
+    application.state.workflow_request_signer = WorkflowRequestSigner(
+        app_settings.workflow_webhook_secret.get_secret_value(),
+        tolerance_seconds=app_settings.workflow_signature_tolerance_seconds,
+    )
+    application.state.workflow_server_agent_signer = WorkflowRequestSigner(
+        app_settings.workflow_server_agent_secret.get_secret_value(),
+        tolerance_seconds=app_settings.workflow_signature_tolerance_seconds,
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.origin_list(),
@@ -505,6 +583,7 @@ def create_app(
     application.include_router(portfolio_center_router)
     application.include_router(creator_studio_router)
     application.include_router(workflow_control_router)
+    application.include_router(workflow_runtime_router)
     application.include_router(finance_pilots_router)
     application.include_router(global_intel_router)
     application.include_router(crucix_router)

@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from services.bond_nav_series import positive_levels
+
 
 class FundBondAnomalyService:
     ROLLING_DAYS = 26
@@ -18,6 +20,8 @@ class FundBondAnomalyService:
         "本地同类指数由标准化同类组基金日收益等权合成，不是基构云或第三方发布的官方指数。",
         "净值异常只表示相对自身历史或同类的异常下跌，不判断原因，也不构成投资建议。",
         "异常监控只用于解释和复核，不参与基金评分。",
+        "仅使用有效复权净值；同类缺口不按零收益填补，缺口后重新积累26个观测的市场历史。",
+        "同类组为当前分类，并非历史时点成分；结果用于监测复核，不作为无偏历史回测。",
     ]
 
     def __init__(
@@ -46,12 +50,12 @@ class FundBondAnomalyService:
             return self._base(code, window_days, "not_applicable", ["当前只监控债券型基金"])
 
         target_levels, nav_basis = self._levels(self.nav_repo.get_nav_series(code))
-        if len(target_levels) < self.MINIMUM_OBSERVATIONS:
+        if target_levels.count() < self.MINIMUM_OBSERVATIONS or pd.isna(target_levels.iloc[-1]):
             return self._base(
                 code,
                 window_days,
                 "insufficient_evidence",
-                [f"基金净值只有 {len(target_levels)} 个观测，至少需要 {self.MINIMUM_OBSERVATIONS} 个"],
+                [f"有效复权净值 {target_levels.count()} 个，至少需要 {self.MINIMUM_OBSERVATIONS} 个且最新记录有效；不以累计或单位净值补齐"],
                 nav_basis=nav_basis,
             )
 
@@ -63,8 +67,9 @@ class FundBondAnomalyService:
             peer_group_id,
             target_levels.index.min().date().isoformat(),
             target_levels.index.max().date().isoformat(),
+            code,
         ) if peer_group_id else []
-        peer_returns, peer_nav_basis = self._peer_returns(peer_rows, exclude_code=code)
+        peer_returns, peer_nav_basis = self._peer_returns(peer_rows, exclude_code=code, target_dates=target_levels.index)
 
         result = self._analyze_series(
             target_levels,
@@ -93,7 +98,7 @@ class FundBondAnomalyService:
             "daily_return": result["daily_return"],
             "weekly_return": result["weekly_return"],
             "market_regime": result["market_regime"],
-            "market_regime_label": "同类债市调整" if result["market_regime"] == "adjustment" else "同类债市正常",
+            "market_regime_label": {"adjustment": "同类债市调整", "normal": "同类债市未触发调整", "unknown": "同类债市状态未知"}[result["market_regime"]],
             "anomaly_counts": result["anomaly_counts"],
             "events": result["events"],
             "chart": result["chart"],
@@ -101,7 +106,8 @@ class FundBondAnomalyService:
             "peer_group_name": classification.get("peer_group_name") or classification.get("peer_group_key"),
             "peer_fund_count": peer_fund_count,
             "minimum_peer_count": minimum_peer_count,
-            "peer_model_ready": peer_fund_count >= minimum_peer_count,
+            "peer_model_ready": result["peer_model_ready"],
+            "current_peer_count": result["current_peer_count"],
             "peer_nav_basis": peer_nav_basis,
             "methodology": {
                 "reference": "基构云公开债基异常监控模型",
@@ -113,7 +119,7 @@ class FundBondAnomalyService:
             "source_url": self.REFERENCE_URL,
             "missing_items": missing_items,
             "limitations": self.LIMITATIONS,
-            "formal_monitor_ready": len(target_levels) >= self.MINIMUM_OBSERVATIONS and peer_fund_count >= minimum_peer_count,
+            "formal_monitor_ready": result["formal_monitor_ready"],
         }
 
     def _analyze_series(
@@ -143,10 +149,13 @@ class FundBondAnomalyService:
             peer_count = aligned.count(axis=1)
             peer_mean = aligned.mean(axis=1, skipna=True)
             peer_std = aligned.std(axis=1, ddof=0, skipna=True)
-            eligible_return = peer_mean.where(peer_count >= minimum_peer_count).dropna()
-            eligible_index = (1 + eligible_return).cumprod()
-            eligible_mean = eligible_index.shift(1).rolling(self.ROLLING_DAYS, min_periods=self.ROLLING_DAYS).mean()
-            eligible_std = eligible_index.shift(1).rolling(self.ROLLING_DAYS, min_periods=self.ROLLING_DAYS).std(ddof=0)
+            eligible_return = peer_mean.where(peer_count >= minimum_peer_count)
+            segments = eligible_return.isna().cumsum()
+            eligible_index = (1 + eligible_return).groupby(segments).cumprod()
+            eligible_mean = eligible_index.groupby(segments).transform(
+                lambda part: part.shift(1).rolling(self.ROLLING_DAYS, min_periods=self.ROLLING_DAYS).mean())
+            eligible_std = eligible_index.groupby(segments).transform(
+                lambda part: part.shift(1).rolling(self.ROLLING_DAYS, min_periods=self.ROLLING_DAYS).std(ddof=0))
             eligible_lower = eligible_mean - self.MARKET_BAND_SIGMA * eligible_std
             peer_index = eligible_index.reindex(target.index)
             market_lower = eligible_lower.reindex(target.index)
@@ -199,8 +208,12 @@ class FundBondAnomalyService:
         latest_is_anomaly = bool(frame.iloc[-1]["anomaly"])
         recent_is_anomaly = bool(frame["anomaly"].tail(5).any())
         current_signal = "abnormal" if latest_is_anomaly else "recent_abnormal" if recent_is_anomaly else "normal"
-        valid_market = frame["market_adjustment"].dropna()
-        market_regime = "adjustment" if len(valid_market) and bool(valid_market.iloc[-1]) else "normal"
+        latest = frame.iloc[-1]
+        peer_ready = bool(pd.notna(latest["market_lower"]) and latest["peer_count"] >= minimum_peer_count)
+        formal_ready = bool(peer_ready and pd.notna(latest["lower_band"]) and pd.notna(latest["daily_return"]))
+        market_regime = ("adjustment" if bool(latest["market_adjustment"]) else "normal") if peer_ready else "unknown"
+        if current_signal == "normal" and not formal_ready:
+            current_signal = "insufficient_evidence"
 
         first_nav = float(frame["nav"].dropna().iloc[0])
         valid_peer_index = frame["peer_index"].dropna()
@@ -228,29 +241,21 @@ class FundBondAnomalyService:
             "daily_return": self._round(frame.iloc[-1]["daily_return"], 8),
             "weekly_return": self._round(target.tail(6).iloc[-1] / target.tail(6).iloc[0] - 1, 8) if len(target) >= 6 else None,
             "market_regime": market_regime,
+            "peer_model_ready": peer_ready,
+            "formal_monitor_ready": formal_ready,
+            "current_peer_count": int(latest["peer_count"]),
             "anomaly_counts": counts,
             "events": events,
             "chart": chart,
-            "missing_items": [] if len(peer_returns.columns) >= minimum_peer_count else ["同类调整期模型证据不足，当前仍可使用基金自身26日下轨监控"],
+            "missing_items": ([] if peer_ready else ["当期同类覆盖或连续26期历史不足，不能判断债市状态；自身下轨信号单独保留"])
+                + ([] if pd.notna(latest["lower_band"]) else ["基金最近26个观测存在净值缺口，自身下轨暂不可判定"]),
         }
 
     @staticmethod
     def _levels(rows: List[Dict[str, Any]]) -> Tuple[pd.Series, str]:
-        accum_count = sum(row.get("accum_nav") is not None for row in rows)
-        nav_basis = "accum_nav" if accum_count >= 2 else "unit_nav"
-        values = {}
-        for row in rows:
-            raw = row.get("accum_nav") if nav_basis == "accum_nav" else (row.get("nav") or row.get("unit_nav"))
-            try:
-                value = float(raw)
-                item_date = pd.Timestamp(str(row.get("date") or row.get("trade_date"))[:10])
-            except (TypeError, ValueError):
-                continue
-            if value > 0:
-                values[item_date] = value
-        return pd.Series(values, dtype=float).sort_index(), nav_basis
+        return positive_levels(rows), "adj_nav"
 
-    def _peer_returns(self, rows: List[Dict[str, Any]], exclude_code: str) -> Tuple[pd.DataFrame, Dict[str, str]]:
+    def _peer_returns(self, rows: List[Dict[str, Any]], exclude_code: str, target_dates: Optional[pd.DatetimeIndex] = None) -> Tuple[pd.DataFrame, Dict[str, str]]:
         grouped: Dict[str, List[Dict[str, Any]]] = {}
         for row in rows:
             code = str(row.get("wind_code") or "")
@@ -260,8 +265,10 @@ class FundBondAnomalyService:
         basis = {}
         for code, items in grouped.items():
             levels, nav_basis = self._levels(items)
-            if len(levels) >= self.ROLLING_DAYS:
-                series[code] = levels.pct_change(fill_method=None)
+            if target_dates is not None:
+                levels = levels.reindex(target_dates)
+            if levels.count() >= self.ROLLING_DAYS:
+                series[code] = levels.pct_change(fill_method=None).replace([np.inf, -np.inf], np.nan)
                 basis[code] = nav_basis
         return (pd.concat(series, axis=1) if series else pd.DataFrame()), basis
 
@@ -302,7 +309,7 @@ class FundBondAnomalyService:
 
     @staticmethod
     def _signal_label(value: str) -> str:
-        return {"abnormal": "今日触发异常", "recent_abnormal": "近1周曾触发", "normal": "当前正常"}.get(value, "暂不可用")
+        return {"abnormal": "最新净值触发异常", "recent_abnormal": "近5个观测曾触发", "normal": "当前未触发异常", "insufficient_evidence": "监控证据不足"}.get(value, "暂不可用")
 
     @staticmethod
     def _round(value: Any, digits: int) -> Optional[float]:

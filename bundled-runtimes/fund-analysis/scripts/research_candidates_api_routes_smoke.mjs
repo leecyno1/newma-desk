@@ -35,7 +35,7 @@ for (const expected of [
 }
 
 const activeSurfaces = [
-  'app/(dashboard)/funds/[id]/FundDetailClient.tsx',
+  'app/(dashboard)/funds/[id]/SimpleFundDetailClient.tsx',
   'app/api/evidence-coverage/route.ts',
   'app/api/funds/[id]/pre-purchase-report/route.ts',
 ].map((file) => [file, read(file)])

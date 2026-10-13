@@ -3,6 +3,8 @@
 node_modules/
 dist/
 coverage/
+!bundled-runtimes/fund-analysis/app/api/recommendations/coverage/
+!bundled-runtimes/fund-analysis/app/api/recommendations/coverage/route.ts
 .vite/
 .venv/
 __pycache__/

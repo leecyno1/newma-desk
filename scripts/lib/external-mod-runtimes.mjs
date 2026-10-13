@@ -11,6 +11,10 @@ const DEFAULT_DESCRIPTOR_URL = new URL(
 );
 const ID_PATTERN = /^[a-z][a-z0-9-]{2,63}$/;
 const ENV_PATTERN = /^(?:NEWMA_DESK|NEWMA_DOCK|VIBEDESK)_[A-Z0-9_]+$/;
+const CHILD_ENV_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
+const CRITICALITIES = new Set(["core", "optional", "external"]);
+const READINESS_MODES = new Set(["html", "json", "text"]);
+const STDIO_MODES = new Set(["inherit", "ignore"]);
 
 function objectValue(value, label) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -26,11 +30,28 @@ function stringValue(value, label) {
   return value;
 }
 
+function optionalString(value, label) {
+  return value === undefined ? undefined : stringValue(value, label);
+}
+
+function stringList(value, label, { allowEmpty = true } = {}) {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    throw new Error(`${label} must be ${allowEmpty ? "an" : "a non-empty"} array`);
+  }
+  return value.map((entry, index) => stringValue(entry, `${label}[${index}]`));
+}
+
 function envName(value, label) {
   const name = stringValue(value, label);
   if (!ENV_PATTERN.test(name)) {
     throw new Error(`${label} must be a NEWMA_DESK_*, NEWMA_DOCK_* or VIBEDESK_* name`);
   }
+  return name;
+}
+
+function childEnvName(value, label) {
+  const name = stringValue(value, label);
+  if (!CHILD_ENV_PATTERN.test(name)) throw new Error(`${label} must be an environment name`);
   return name;
 }
 
@@ -195,6 +216,158 @@ function resolveEndpoint(raw, label, env) {
   };
 }
 
+function resolveLaunch(raw, label) {
+  const launch = objectValue(raw, label);
+  const command = optionalString(launch.command, `${label}.command`);
+  const adapter = optionalString(launch.adapter, `${label}.adapter`);
+  if (Boolean(command) === Boolean(adapter)) {
+    throw new Error(`${label} must declare exactly one of command or adapter`);
+  }
+  const env = launch.env === undefined
+    ? {}
+    : Object.fromEntries(
+        Object.entries(objectValue(launch.env, `${label}.env`)).map(([name, value]) => [
+          childEnvName(name, `${label}.env.${name}`),
+          stringValue(value, `${label}.env.${name}`),
+        ]),
+      );
+  const stdio = launch.stdio === undefined
+    ? undefined
+    : stringValue(launch.stdio, `${label}.stdio`);
+  if (stdio !== undefined && !STDIO_MODES.has(stdio)) {
+    throw new Error(`${label}.stdio is unsupported`);
+  }
+  return {
+    ...(command ? { command } : { adapter }),
+    args: launch.args === undefined ? [] : stringList(launch.args, `${label}.args`),
+    env,
+    ...(stdio ? { stdio } : {}),
+    ...(launch.prepare === undefined
+      ? {}
+      : { prepare: stringValue(launch.prepare, `${label}.prepare`) }),
+    requiredPaths: launch.requiredPaths === undefined
+      ? []
+      : stringList(launch.requiredPaths, `${label}.requiredPaths`).map((entry, index) =>
+          safeRelativePath(entry, `${label}.requiredPaths[${index}]`)
+        ),
+  };
+}
+
+function resolveReadiness(raw, label) {
+  const readiness = objectValue(raw, label);
+  const mode = stringValue(readiness.mode, `${label}.mode`);
+  if (!READINESS_MODES.has(mode)) throw new Error(`${label}.mode is unsupported`);
+  const timeoutMs = readiness.timeoutMs === undefined
+    ? undefined
+    : Number(readiness.timeoutMs);
+  if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+    throw new Error(`${label}.timeoutMs must be a positive number`);
+  }
+  const startupTimeoutMs = readiness.startupTimeoutMs === undefined
+    ? undefined
+    : Number(readiness.startupTimeoutMs);
+  if (startupTimeoutMs !== undefined && (!Number.isFinite(startupTimeoutMs) || startupTimeoutMs <= 0)) {
+    throw new Error(`${label}.startupTimeoutMs must be a positive number`);
+  }
+  if (
+    readiness.degradedStatuses !== undefined
+    && !Array.isArray(readiness.degradedStatuses)
+  ) {
+    throw new Error(`${label}.degradedStatuses must be an array`);
+  }
+  const degradedStatuses = readiness.degradedStatuses === undefined
+    ? []
+    : readiness.degradedStatuses.map((status, index) => {
+        const parsed = Number(status);
+        if (!Number.isInteger(parsed) || parsed < 100 || parsed > 599) {
+          throw new Error(`${label}.degradedStatuses[${index}] is invalid`);
+        }
+        return parsed;
+      });
+  if (mode === "text" && readiness.expectedText === undefined) {
+    throw new Error(`${label}.expectedText is required for text readiness`);
+  }
+  return {
+    mode,
+    ...(readiness.expectedService === undefined
+      ? {}
+      : { expectedService: stringValue(readiness.expectedService, `${label}.expectedService`) }),
+    ...(readiness.expectedText === undefined
+      ? {}
+      : { expectedText: stringValue(readiness.expectedText, `${label}.expectedText`) }),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    ...(startupTimeoutMs === undefined ? {} : { startupTimeoutMs }),
+    ...(readiness.timeoutEnv === undefined
+      ? {}
+      : { timeoutEnv: envName(readiness.timeoutEnv, `${label}.timeoutEnv`) }),
+    degradedStatuses,
+  };
+}
+
+function resolveService(raw, label, { workspaces, endpoints }) {
+  const service = objectValue(raw, label);
+  const id = stringValue(service.id, `${label}.id`);
+  if (!ID_PATTERN.test(id)) throw new Error(`${label}.id is invalid`);
+  const workspace = stringValue(service.workspace, `${label}.workspace`);
+  const endpoint = stringValue(service.endpoint, `${label}.endpoint`);
+  if (!Object.hasOwn(workspaces, workspace)) {
+    throw new Error(`${label}.workspace is unknown`);
+  }
+  if (!Object.hasOwn(endpoints, endpoint)) {
+    throw new Error(`${label}.endpoint is unknown`);
+  }
+  const criticality = objectValue(service.criticality, `${label}.criticality`);
+  const localCriticality = stringValue(criticality.local, `${label}.criticality.local`);
+  const remoteCriticality = stringValue(criticality.remote, `${label}.criticality.remote`);
+  if (!CRITICALITIES.has(localCriticality) || !CRITICALITIES.has(remoteCriticality)) {
+    throw new Error(`${label}.criticality contains an unsupported value`);
+  }
+  return {
+    id,
+    label: stringValue(service.label, `${label}.label`),
+    workspace,
+    endpoint,
+    criticality: { local: localCriticality, remote: remoteCriticality },
+    launch: resolveLaunch(service.launch, `${label}.launch`),
+    readiness: resolveReadiness(service.readiness, `${label}.readiness`),
+  };
+}
+
+function resolveProfiles(raw, runtimeIds) {
+  const profiles = objectValue(raw, "descriptor.profiles");
+  const result = {};
+  for (const [name, rawProfile] of Object.entries(profiles)) {
+    if (!ID_PATTERN.test(name)) throw new Error(`descriptor.profiles.${name} is invalid`);
+    const profile = objectValue(rawProfile, `descriptor.profiles.${name}`);
+    const preCore = stringList(
+      profile.preCore,
+      `descriptor.profiles.${name}.preCore`,
+    );
+    const optional = stringList(
+      profile.optional,
+      `descriptor.profiles.${name}.optional`,
+    );
+    const selected = [...preCore, ...optional];
+    if (new Set(selected).size !== selected.length) {
+      throw new Error(`descriptor.profiles.${name} contains duplicate runtimes`);
+    }
+    for (const runtimeId of selected) {
+      if (!runtimeIds.has(runtimeId)) {
+        throw new Error(`descriptor.profiles.${name} references unknown runtime ${runtimeId}`);
+      }
+    }
+    result[name] = {
+      preCore,
+      optional,
+      externalRuntimeIds: selected,
+    };
+  }
+  if (!["core", "local", "all"].every((name) => Object.hasOwn(result, name))) {
+    throw new Error("descriptor.profiles must define core, local and all");
+  }
+  return result;
+}
+
 export function resolveExternalModRuntimes(
   descriptor,
   {
@@ -205,7 +378,9 @@ export function resolveExternalModRuntimes(
   } = {},
 ) {
   const value = objectValue(descriptor, "descriptor");
-  if (value.schemaVersion !== "1.0") throw new Error("unsupported runtime descriptor version");
+  if (!["1.0", "2.0"].includes(value.schemaVersion)) {
+    throw new Error("unsupported runtime descriptor version");
+  }
   const roots = resolveRoots(value.roots, { repoRoot, homeDir, env });
   if (!Array.isArray(value.runtimes) || value.runtimes.length === 0) {
     throw new Error("descriptor.runtimes must be a non-empty array");
@@ -216,34 +391,55 @@ export function resolveExternalModRuntimes(
     if (!ID_PATTERN.test(id)) throw new Error(`${id} is not a valid runtime id`);
     const workspaces = objectValue(runtime.workspaces, `${id}.workspaces`);
     const endpoints = objectValue(runtime.endpoints, `${id}.endpoints`);
+    const resolvedWorkspaces = Object.fromEntries(
+      Object.entries(workspaces).map(([name, workspace]) => [
+        name,
+        resolveWorkspace(workspace, `${id}.workspaces.${name}`, {
+          roots,
+          repoRoot,
+          env,
+          exists,
+        }),
+      ]),
+    );
+    const resolvedEndpoints = Object.fromEntries(
+      Object.entries(endpoints).map(([name, endpoint]) => [
+        name,
+        resolveEndpoint(endpoint, `${id}.endpoints.${name}`, env),
+      ]),
+    );
+    const services = runtime.services === undefined
+      ? []
+      : runtime.services.map((service, serviceIndex) =>
+          resolveService(service, `${id}.services[${serviceIndex}]`, {
+            workspaces: resolvedWorkspaces,
+            endpoints: resolvedEndpoints,
+          })
+        );
+    if (new Set(services.map((service) => service.id)).size !== services.length) {
+      throw new Error(`${id}.services ids must be unique`);
+    }
     return {
       id,
       label: stringValue(runtime.label, `${id}.label`),
       adapter: stringValue(runtime.adapter, `${id}.adapter`),
-      workspaces: Object.fromEntries(
-        Object.entries(workspaces).map(([name, workspace]) => [
-          name,
-          resolveWorkspace(workspace, `${id}.workspaces.${name}`, {
-            roots,
-            repoRoot,
-            env,
-            exists,
-          }),
-        ]),
-      ),
-      endpoints: Object.fromEntries(
-        Object.entries(endpoints).map(([name, endpoint]) => [
-          name,
-          resolveEndpoint(endpoint, `${id}.endpoints.${name}`, env),
-        ]),
-      ),
+      workspaces: resolvedWorkspaces,
+      endpoints: resolvedEndpoints,
+      services,
     };
   });
   const ids = runtimes.map(({ id }) => id);
   if (new Set(ids).size !== ids.length) throw new Error("runtime ids must be unique");
+  const serviceIds = runtimes.flatMap((runtime) => runtime.services.map(({ id }) => id));
+  if (new Set(serviceIds).size !== serviceIds.length) {
+    throw new Error("runtime service ids must be globally unique");
+  }
   return {
-    schemaVersion: "1.0",
+    schemaVersion: value.schemaVersion,
     roots,
+    profiles: value.schemaVersion === "2.0"
+      ? resolveProfiles(value.profiles, new Set(ids))
+      : undefined,
     runtimes,
     byId: Object.fromEntries(runtimes.map((runtime) => [runtime.id, runtime])),
   };

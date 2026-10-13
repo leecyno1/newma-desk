@@ -28,208 +28,6 @@ def _document(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     return serialized
 
 
-class LocalResearchFolderRepo:
-    """Legacy MongoDB adapter retained for old report consumers."""
-
-    def __init__(self, db: Any):
-        self.db = db
-
-    def ensure_indexes(self) -> None:
-        self.db.local_research_folders.create_index("path", unique=True)
-        self.db.local_research_documents.create_index(
-            [("folder_id", 1), ("relative_path", 1)], unique=True
-        )
-        self.db.local_research_documents.create_index("content_hash")
-        self.db.research_reports.create_index("fund_ids")
-
-    def create_folder(self, folder: Dict[str, Any]) -> Dict[str, Any]:
-        result = self.db.local_research_folders.insert_one(dict(folder))
-        return {**_serialize(folder), "id": str(result.inserted_id)}
-
-    def list_folders(self) -> List[Dict[str, Any]]:
-        return [_document(item) for item in self.db.local_research_folders.find({}).sort("created_at", -1)]
-
-    def get_folder(self, folder_id: str) -> Optional[Dict[str, Any]]:
-        from bson import ObjectId
-
-        return _document(self.db.local_research_folders.find_one({"_id": ObjectId(folder_id)}))
-
-    def update_folder(self, folder_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        from bson import ObjectId
-        from pymongo import ReturnDocument
-
-        doc = self.db.local_research_folders.find_one_and_update(
-            {"_id": ObjectId(folder_id)},
-            {"$set": fields},
-            return_document=ReturnDocument.AFTER,
-        )
-        return _document(doc)
-
-    def get_document(self, folder_id: str, relative_path: str) -> Optional[Dict[str, Any]]:
-        return _document(self.db.local_research_documents.find_one({
-            "folder_id": folder_id,
-            "relative_path": relative_path,
-        }))
-
-    def find_document_by_hash(
-        self,
-        content_hash: str,
-        exclude_folder_id: Optional[str] = None,
-        exclude_relative_path: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        query: Dict[str, Any] = {"content_hash": content_hash, "report_id": {"$nin": [None, ""]}}
-        if exclude_folder_id and exclude_relative_path:
-            query["$nor"] = [{"folder_id": exclude_folder_id, "relative_path": exclude_relative_path}]
-        return _document(self.db.local_research_documents.find_one(query))
-
-    def upsert_document(self, document: Dict[str, Any]) -> Dict[str, Any]:
-        from pymongo import ReturnDocument
-
-        doc = self.db.local_research_documents.find_one_and_update(
-            {"folder_id": document["folder_id"], "relative_path": document["relative_path"]},
-            {"$set": dict(document)},
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
-        return _document(doc)
-
-    def create_report(self, report: Dict[str, Any]) -> Dict[str, Any]:
-        result = self.db.research_reports.insert_one(dict(report))
-        return {**_serialize(report), "id": str(result.inserted_id)}
-
-    def update_report(self, report_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        from bson import ObjectId
-        from pymongo import ReturnDocument
-
-        doc = self.db.research_reports.find_one_and_update(
-            {"_id": ObjectId(report_id)},
-            {"$set": fields},
-            return_document=ReturnDocument.AFTER,
-        )
-        return _document(doc)
-
-    def get_report(self, report_id: str) -> Optional[Dict[str, Any]]:
-        from bson import ObjectId
-
-        return _document(self.db.research_reports.find_one({"_id": ObjectId(report_id)}))
-
-    def list_reports_for_fund(self, wind_code: str) -> List[Dict[str, Any]]:
-        cursor = self.db.research_reports.find({"fund_ids": wind_code}).sort([
-            ("report_date", -1),
-            ("updated_at", -1),
-        ])
-        return [_document(item) for item in cursor]
-
-    def list_reports_for_manager_exact(self, manager_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-        cursor = self.db.research_reports.find({
-            "$or": [
-                {"manager_id": manager_id},
-                {"manager_links.manager_id": manager_id},
-            ]
-        }).sort([
-            ("report_date", -1),
-            ("updated_at", -1),
-        ]).limit(max(1, min(int(limit), 200)))
-        return [_document(item) for item in cursor]
-
-    def list_confirmed_manager_ids(self, folder_id: Optional[str] = None) -> List[str]:
-        query: Dict[str, Any] = {
-            "$or": [
-                {"manager_id": {"$nin": [None, ""]}},
-                {"manager_links.manager_id": {"$nin": [None, ""]}},
-            ]
-        }
-        if folder_id:
-            query["local_folder_id"] = folder_id
-        manager_ids = {
-            str(item.get("manager_id") or "").strip()
-            for item in self.db.research_reports.find(query, {"manager_id": 1, "manager_links": 1})
-            if str(item.get("manager_id") or "").strip()
-        }
-        manager_ids.update(
-            str(link.get("manager_id") or "").strip()
-            for item in self.db.research_reports.find(query, {"manager_links": 1})
-            for link in item.get("manager_links") or []
-            if str(link.get("manager_id") or "").strip()
-        )
-        return sorted(manager_ids)
-
-    def list_manager_review_reports(self, folder_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        query: Dict[str, Any] = {"review_proposals": {"$elemMatch": {"kind": "manager"}}}
-        if folder_id:
-            query["local_folder_id"] = folder_id
-        return [
-            _document(item)
-            for item in self.db.research_reports.find(query).sort("updated_at", -1)
-        ]
-
-    def list_report_manager_links(self, report_id: str) -> List[Dict[str, Any]]:
-        report = self.get_report(report_id) or {}
-        links = list(report.get("manager_links") or [])
-        manager_id = str(report.get("manager_id") or "").strip()
-        if manager_id and not any(str(item.get("manager_id") or "") == manager_id for item in links):
-            links.append({
-                "manager_id": manager_id,
-                "manager_name": report.get("manager_name") or manager_id,
-                "source": "legacy_research_reports.manager_id",
-            })
-        return links
-
-    def set_report_manager_link(
-        self,
-        report_id: str,
-        manager_id: str,
-        manager_name: str,
-        source: str = "research_memo_review",
-        confirmed_at: Optional[str] = None,
-    ) -> None:
-        from bson import ObjectId
-
-        link = {
-            "manager_id": manager_id,
-            "manager_name": manager_name,
-            "source": source,
-            "confirmed_at": confirmed_at,
-        }
-        self.db.research_reports.update_one(
-            {"_id": ObjectId(report_id)},
-            {"$pull": {"manager_links": {"manager_id": manager_id}}},
-        )
-        self.db.research_reports.update_one(
-            {"_id": ObjectId(report_id)},
-            {"$push": {"manager_links": link}},
-        )
-
-    def remove_report_manager_link(self, report_id: str, manager_id: str) -> None:
-        from bson import ObjectId
-
-        self.db.research_reports.update_one(
-            {"_id": ObjectId(report_id)},
-            {"$pull": {"manager_links": {"manager_id": manager_id}}},
-        )
-
-    def list_pending_reviews(self, folder_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        query: Dict[str, Any] = {"review_proposals": {"$elemMatch": {"review_status": "pending"}}}
-        if folder_id:
-            query["local_folder_id"] = folder_id
-        pending: List[Dict[str, Any]] = []
-        for report in self.db.research_reports.find(query).sort("updated_at", -1):
-            for proposal in report.get("review_proposals", []):
-                if proposal.get("review_status") != "pending":
-                    continue
-                if proposal.get("kind") == "fund" and proposal.get("extraction_source") == "tushare.fund_manager":
-                    continue
-                pending.append({
-                    "report_id": str(report["_id"]),
-                    "report_title": report.get("title") or "无标题纪要",
-                    "report_date": report.get("report_date"),
-                    "report_date_source": report.get("report_date_source"),
-                    "report_date_precision": report.get("report_date_precision"),
-                    **_serialize(proposal),
-                })
-        return pending
-
-
 class PostgresLocalResearchFolderRepo:
     """PostgreSQL-backed local memo index used by the main application."""
 
@@ -241,7 +39,7 @@ class PostgresLocalResearchFolderRepo:
         "review_proposals", "review_status", "local_folder_id", "local_relative_path",
         "local_source_path", "source_hash", "extraction_status", "extraction_provider",
         "extraction_model", "llm_extraction_status", "llm_extraction_error", "created_at",
-        "updated_at",
+        "updated_at", "embedding_status", "embedding_source",
     }
     JSON_FIELDS = {"key_points", "review_proposals", "last_scan_counts"}
 
@@ -417,7 +215,7 @@ class PostgresLocalResearchFolderRepo:
                        manager.management_years AS manager_management_years
                 FROM research_report_managers link
                 LEFT JOIN managers manager ON manager.wind_code = link.manager_id
-                WHERE link.report_id = CAST(:report_id AS UUID)
+                WHERE link.report_id = :report_id
                 ORDER BY link.confirmed_at, link.manager_name
             """), {"report_id": report_id}).fetchall()
         return [self._row(row) or {} for row in rows]
@@ -437,7 +235,7 @@ class PostgresLocalResearchFolderRepo:
                 INSERT INTO research_report_managers (
                     report_id, manager_id, manager_name, source, confirmed_at, updated_at
                 ) VALUES (
-                    CAST(:report_id AS UUID), :manager_id, :manager_name, :source,
+                    :report_id, :manager_id, :manager_name, :source,
                     COALESCE(CAST(:confirmed_at AS TIMESTAMPTZ), NOW()), NOW()
                 )
                 ON CONFLICT (report_id, manager_id) DO UPDATE SET
@@ -459,7 +257,7 @@ class PostgresLocalResearchFolderRepo:
         with self.engine.begin() as conn:
             conn.execute(text("""
                 DELETE FROM research_report_managers
-                WHERE report_id = CAST(:report_id AS UUID)
+                WHERE report_id = :report_id
                   AND manager_id = :manager_id
             """), {"report_id": report_id, "manager_id": manager_id})
 
@@ -532,7 +330,7 @@ class PostgresLocalResearchFolderRepo:
                 report_id, index_status, error, updated_at
             ) VALUES (
                 CAST(:folder_id AS UUID), :relative_path, :source_path, :size, :mtime_ns, :content_hash,
-                CAST(:report_id AS UUID), :index_status, :error, :updated_at
+                :report_id, :index_status, :error, :updated_at
             )
             ON CONFLICT (folder_id, relative_path) DO UPDATE SET
                 source_path = EXCLUDED.source_path,
@@ -571,7 +369,7 @@ class PostgresLocalResearchFolderRepo:
         allowed = {key: value for key, value in fields.items() if key in self.REPORT_FIELDS and key != "created_at"}
         if not allowed:
             return self.get_report(report_id)
-        sql = f"UPDATE research_reports SET {self._assignments(allowed)} WHERE id = CAST(:id AS UUID) RETURNING *"
+        sql = f"UPDATE research_reports SET {self._assignments(allowed)} WHERE id = :id RETURNING *"
         with self.engine.begin() as conn:
             row = conn.execute(text(sql), {**self._params(allowed), "id": report_id}).fetchone()
         return self._with_manager_links(self._row(row))
@@ -580,8 +378,22 @@ class PostgresLocalResearchFolderRepo:
         from sqlalchemy import text
 
         with self.engine.connect() as conn:
-            row = conn.execute(text("SELECT * FROM research_reports WHERE id = CAST(:id AS UUID)"), {"id": report_id}).fetchone()
+            row = conn.execute(text("SELECT * FROM research_reports WHERE id = :id"), {"id": report_id}).fetchone()
         return self._with_manager_links(self._row(row))
+
+    def delete_report(self, report_id: str) -> bool:
+        from sqlalchemy import text
+
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM research_report_managers WHERE report_id = :id"),
+                {"id": report_id},
+            )
+            result = conn.execute(
+                text("DELETE FROM research_reports WHERE id = :id"),
+                {"id": report_id},
+            )
+        return bool(result.rowcount)
 
     def list_reports(
         self,

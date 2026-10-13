@@ -225,9 +225,10 @@
     },
     {
       "id": "newma.mainline.draft",
-      "kind": "mainline_stage",
+      "kind": "capability_session",
       "stage": "draft",
       "timeout_seconds": 2400,
+      "message": "已生成初稿生产请求，等待 Newma Agent Runtime 基于当前证据与 Brief 生成交付物。",
       "artifacts": [
         {
           "type": "evidence_ledger",
@@ -2361,124 +2362,6 @@
   ],
   "capability_adapters": [
     {
-      "id": "codex",
-      "name": "Codex CLI",
-      "kind": "local_cli",
-      "binary": "codex",
-      "mode": "output_only",
-      "stages": [
-        "brief",
-        "draft",
-        "transwrite",
-        "postmortem"
-      ]
-    },
-    {
-      "id": "claude",
-      "name": "Claude Code",
-      "kind": "local_cli",
-      "binary": "claude",
-      "mode": "output_only",
-      "stages": [
-        "brief",
-        "draft",
-        "transwrite",
-        "postmortem"
-      ]
-    },
-    {
-      "id": "gemini",
-      "name": "Gemini CLI",
-      "kind": "local_cli",
-      "binary": "gemini",
-      "mode": "output_only",
-      "stages": [
-        "intake",
-        "brief",
-        "draft",
-        "transwrite"
-      ]
-    },
-    {
-      "id": "cursor-agent",
-      "name": "Cursor Agent",
-      "kind": "local_cli",
-      "binary": "cursor-agent",
-      "mode": "output_only",
-      "stages": [
-        "draft",
-        "transwrite"
-      ]
-    },
-    {
-      "id": "opencode",
-      "name": "OpenCode",
-      "kind": "local_cli",
-      "binary": "opencode",
-      "mode": "output_only",
-      "stages": [
-        "draft",
-        "transwrite"
-      ]
-    },
-    {
-      "id": "qwen",
-      "name": "Qwen Code",
-      "kind": "local_cli",
-      "binary": "qwen",
-      "mode": "output_only",
-      "stages": [
-        "brief",
-        "draft",
-        "transwrite"
-      ]
-    },
-    {
-      "id": "qoder-cli",
-      "name": "Qoder CLI",
-      "kind": "local_cli",
-      "binary": "qodercli",
-      "mode": "output_only",
-      "stages": [
-        "draft",
-        "transwrite"
-      ]
-    },
-    {
-      "id": "copilot",
-      "name": "GitHub Copilot CLI",
-      "kind": "local_cli",
-      "binary": "copilot",
-      "mode": "detect_only",
-      "stages": [
-        "draft",
-        "transwrite"
-      ]
-    },
-    {
-      "id": "aider",
-      "name": "Aider",
-      "kind": "local_cli",
-      "binary": "aider",
-      "mode": "detect_only",
-      "stages": [
-        "draft",
-        "transwrite"
-      ]
-    },
-    {
-      "id": "hermes",
-      "name": "Hermes CLI",
-      "kind": "local_cli",
-      "binary": "hermes",
-      "mode": "output_only",
-      "stages": [
-        "brief",
-        "draft",
-        "transwrite"
-      ]
-    },
-    {
       "id": "html-anything",
       "name": "HTML Anything",
       "kind": "local_project",
@@ -2559,7 +2442,7 @@
       "required_paths": [
         "node_modules"
       ],
-      "embed_mode": "new_window",
+      "embed_mode": "iframe",
   "agent_bridge": {
     "kind": "mcp",
     "endpoint": "${NEWMA_DESK_OPENCHATCUT_MCP_ORIGIN:-http://127.0.0.1:5199}/api/external-mcp/mcp",

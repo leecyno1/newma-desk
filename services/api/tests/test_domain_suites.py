@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -356,6 +357,35 @@ def test_spa_static_files_falls_back_to_index(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "suite" in response.text
+
+
+def test_domain_suites_receive_resolved_tushare_before_import(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUSHARE_TOKEN", "old-test-token")
+    monkeypatch.setenv("NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME", "0")
+    monkeypatch.setenv("VIBEDESK_INTEGRATED_DOMAIN_RUNTIME", "0")
+    backend = tmp_path / "research" / "backend"
+    backend.mkdir(parents=True)
+    (backend / "app.py").touch()
+    imported_tokens = []
+
+    def load_module(*_args):
+        imported_tokens.append(os.environ.get("TUSHARE_TOKEN"))
+        return SimpleNamespace(app=FastAPI())
+
+    monkeypatch.setattr("vibe_visualization_api.domain_suites._load_module", load_module)
+    monkeypatch.setattr("vibe_visualization_api.domain_suites._add_import_path", lambda _: None)
+    settings = Settings(
+        enable_domain_suites=True,
+        investment_workspace=backend.parent,
+        trading_workspace=tmp_path / "missing-trading",
+        tushare_token="configured-test-token",
+        _env_file=None,
+    )
+
+    runtime = mount_domain_suites(FastAPI(), settings)
+
+    assert runtime.mounted["research"] is True
+    assert imported_tokens == ["configured-test-token"]
 
 
 def test_domain_suites_are_opt_in_for_isolated_app_factories(tmp_path: Path) -> None:

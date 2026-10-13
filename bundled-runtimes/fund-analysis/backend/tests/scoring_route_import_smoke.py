@@ -10,7 +10,7 @@ from routes.scoring import router
 def main() -> int:
     app = FastAPI()
     app.include_router(router)
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()['paths'])
     expected = {"/api/scoring/fund/{wind_code}", "/api/scoring/fund/{wind_code}/recalculate"}
     if not expected.issubset(paths):
         print(f"Missing scoring paths: {paths}")

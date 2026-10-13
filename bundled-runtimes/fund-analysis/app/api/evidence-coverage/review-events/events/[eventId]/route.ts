@@ -8,10 +8,13 @@ export async function PATCH(
   try {
     const { eventId } = await params
     const body = await request.json()
+    if (!['open', 'acknowledged', 'resolved'].includes(body?.status)) {
+      return NextResponse.json({ error: '事件状态只能为待处理、已知悉或已解决' }, { status: 400 })
+    }
     const response = await fetch(`${backendApiBaseUrl}/api/alerts/events/${encodeURIComponent(eventId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ status: body.status }),
       cache: 'no-store',
     })
     const payload = await response.json().catch(() => ({}))

@@ -752,6 +752,13 @@ class ModStoreService:
         else:
             entry = runtime.entry.model_dump(by_alias=True, mode="json")
 
+        manifest_template = descriptor.manifest.model_dump(
+            by_alias=True,
+            exclude={"schema_version"},
+            exclude_none=True,
+            mode="json",
+        )
+        presentation_override = manifest_template.pop("presentation", {})
         manifest_data = {
             "schemaVersion": descriptor.manifest.schema_version,
             "id": descriptor.id,
@@ -761,13 +768,9 @@ class ModStoreService:
                 "englishName": _english_mod_name(descriptor.id),
                 "description": descriptor.description,
                 "titleOwner": "host",
+                **presentation_override,
             },
-            **descriptor.manifest.model_dump(
-                by_alias=True,
-                exclude={"schema_version"},
-                exclude_none=True,
-                mode="json",
-            ),
+            **manifest_template,
             "entry": entry,
         }
         try:

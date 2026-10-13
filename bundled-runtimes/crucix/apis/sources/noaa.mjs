@@ -32,6 +32,9 @@ export async function getSevereAlerts() {
 // Briefing — severe weather events that could impact markets/supply chains
 export async function briefing() {
   const alerts = await getSevereAlerts();
+  if (alerts?.error || !Array.isArray(alerts?.features)) {
+    return { source: 'NOAA/NWS', timestamp: new Date().toISOString(), error: 'Weather alerts unavailable' };
+  }
   const features = alerts?.features || [];
 
   // Categorize by impact type

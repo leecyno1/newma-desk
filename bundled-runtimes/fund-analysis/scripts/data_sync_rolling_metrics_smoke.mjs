@@ -57,7 +57,7 @@ assertIncludes(navEvidenceService, 'nav_shape_conflicts_with_declared_fund_type'
 assertIncludes(navEvidenceService, 'mapping_missing', 'NAV evidence exposes missing benchmark mapping')
 assertIncludes(metricFactory, 'item.get("accum_nav") or item.get("adj_nav")', 'metric factory prefers consistent accumulated NAV for return metrics')
 assertIncludes(tushareService, '"adj_nav": adjusted_nav', 'Tushare NAV sync keeps adjusted NAV evidence')
-assertIncludes(tushareService, '("accum_nav", "adj_nav", "unit_nav")', 'Tushare NAV sync chooses one consistent performance column')
+assertIncludes(tushareService, '("adj_nav", "accum_nav", "unit_nav")', 'Tushare NAV sync chooses one consistent performance column by adj-first priority')
 assertIncludes(tushareService, 'def get_benchmark_nav', 'Tushare adapter exposes index benchmark NAV')
 assertIncludes(tushareService, 'tushare.index_daily', 'Tushare benchmark rows retain source lineage')
 assertIncludes(tushareService, 'DR007.IB', 'Tushare adapter requests the interbank DR007 evidence code')

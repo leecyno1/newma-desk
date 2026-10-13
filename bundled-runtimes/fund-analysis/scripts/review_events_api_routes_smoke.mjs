@@ -52,7 +52,7 @@ for (const route of legacyRoutes) {
 
 const activeSurfaces = [
   'app/(dashboard)/funds/page.tsx',
-  'app/(dashboard)/funds/[id]/FundDetailClient.tsx',
+  'app/(dashboard)/funds/[id]/SimpleFundDetailClient.tsx',
   'app/(dashboard)/market/MarketBrowserClient.tsx',
   'app/(dashboard)/managers/[id]/page.tsx',
   'app/(dashboard)/analysis/comparison/page.tsx',

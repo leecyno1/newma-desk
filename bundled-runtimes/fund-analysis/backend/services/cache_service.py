@@ -527,13 +527,18 @@ def invalidate_fund_cache(wind_code: str) -> int:
     cache = get_cache()
     patterns = [
         f"fund:detail:{wind_code}",
-        f"fund:detail:v",
+        *[f"fund:detail:v{version}:{wind_code}" for version in range(1, 11)],
         "fund:list:",
         f"fund:perf:{wind_code}",
         f"fund:risk:{wind_code}",
         f"fund:score:{wind_code}",
         f"holdings:{wind_code}:",
         f"nav:{wind_code}:",
+        # 净值路由包含版本号，旧前缀 nav:{code}: 无法清掉这些缓存。
+        f"fund:nav:v2:{wind_code}:",
+        f"fund:nav:v3:{wind_code}:",
+        f"fund:nav:v4:{wind_code}:",
+        f"fund:nav-chart:{wind_code}:",
         f"barra:exposures:{wind_code}:",
     ]
 

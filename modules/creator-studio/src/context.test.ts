@@ -47,7 +47,7 @@ describe("Creator Studio Agent context", () => {
     expect(actions.get("creator.node.run")).toBe(false);
   });
 
-  it("exposes the same explicit publish confirmation to the Desk Agent", () => {
+  it("exposes the same explicit publish confirmation to the Newma Agent", () => {
     const node = {
       id: "publish_execute",
       name: "执行发布",
@@ -82,7 +82,7 @@ describe("Creator Studio Agent context", () => {
     expect((context.data.summary as Record<string, unknown>).publishState).toBeTruthy();
   });
 
-  it("publishes marketplace choices and presets to the Desk Agent", () => {
+  it("publishes marketplace choices and presets to the Newma Agent", () => {
     const marketplace = {
       counts: { projects: 0, repositories: 0, skills: 0, pipelines: 1, templates: 0, ready: 1 },
       pipelines: [{

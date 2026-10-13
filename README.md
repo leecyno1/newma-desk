@@ -1,15 +1,15 @@
 # Newma-Desk
 
-Newma-Desk 是 **MODS 开发规范**的参考实现，也是一个面向人和 Agent 的可生长工作台。
+Newma-Desk 是 **MODS 开发规范**的参考实现，也是一个既可挂载 Newma、又可独立运行的可生长工作台。
 
 MODS 是一种革命性的新开发规范，其意义与 MCP、Skills 类似：MCP 统一 Agent 与外部能力的连接方式，Skills 沉淀可复用的工作流，而 MODS 在 Skills 之上进一步把工作流封装为**可复用、可安装、可组合的可视化模组与插件**。它让一项能力不再只是一段由 Agent 执行的流程，还能够拥有长期可用的界面、交互、数据连接和运行状态。
 
 本项目主要用于生成、运行和管理 MODS 所需的统一前端与后端基座，重点提供两类基础能力：
 
-1. **统一接口与规则**：提供统一的数据接口、模型接口、Agent 接口，以及服务发现、调用、鉴权和生命周期管理规则。
-2. **统一前端界面接口**：统一管理菜单、一级与二级导航、标签栏、图像生成、图表生成、互动网页动画、Agent 提问，以及 MODS 之间的上下文传递、联动和组合。
+1. **统一接口与规则**：提供统一的数据、模型、Agent、Action、Context、Artifact、工作流状态，以及服务发现、调用、鉴权和生命周期管理规则。
+2. **统一前端界面接口**：统一管理菜单、一级与二级导航、标签栏、图表、互动页面和 Copilot，以及 MODS 之间的上下文传递、联动和组合。
 
-Newma-Desk 可以把一次需求固化为长期可用的 `Mod`：每个 Mod 都有独立 HTML 页面、页面地址、数据连接和 AI 入口。Vibe Research 与 Vibe Trading 已作为内置领域运行时并入 Newma-Desk，不再作为独立产品启动；Deepsee 等外部服务通过适配层接入。
+Newma-Desk 可以把一次需求固化为长期可用的 `Mod`：每个 Mod 都有独立 HTML 页面、页面地址、数据连接和统一 Agent 上下文入口。Vibe Research 与 Vibe Trading 已作为内置领域运行时并入 Newma-Desk，不再作为独立产品启动；Deepsee 等外部服务通过适配层接入。
 
 > Skill 固化“怎么完成工作”，Mod 固化“怎么看、怎么操作、怎么长期使用”。
 
@@ -24,7 +24,7 @@ Newma-Desk 可以把一次需求固化为长期可用的 `Mod`：每个 Mod 都�
 | Mod | 可独立安装、访问、升级的功能单元 |
 | View | Mod 内的具体 HTML 页面 |
 | Skill | Agent 可重复执行的工作方法 |
-| Connector | 数据、Agent 或模型的连接方式 |
+| Connector | 数据、Agent、模型或外部领域运行时的连接方式 |
 | Mod Store | 从 Git 商店发现、安装和更新 Mod |
 
 ## 当前 MVP
@@ -33,8 +33,8 @@ Newma-Desk 可以把一次需求固化为长期可用的 `Mod`：每个 Mod 都�
 - Mod Manifest 控制侧边栏分组、顺序、名称、图标和页面入口。
 - Desk UI 提供统一的指标、表格、ECharts、Markdown、筛选器和操作按钮样式。
 - ViewSpec 使用 `data-vibe-*` 语义结构，让 Agent 直接读取 HTML 和结构化数据。
-- Model Gateway：传统一次性模型调用，支持 OpenAI-compatible、本地兼容模型和 Anthropic/Claude。
-- Agent Gateway：可直接调用本机 Codex CLI、Claude Code、Gemini CLI、Qoder CLI、MiniMax CLI，也可接入 Hermes WebUI；按“用户 + Agent + Mod”保留长期上下文。
+- Mod 通过 Bridge 发布结构化 Context；缺失时由同源 DOM / HTML 和受限 PNG 视觉快照依次兜底。
+- Agent Runtime Seam 支持两种 Adapter：挂载 Newma 时复用宿主 Agent；独立运行时使用 Desk Agent / Model Gateway、本地 Copilot 和本机 CLI。
 - 项目内 `mods/` 是官方商店目录；当前共 95 个 Mod，按 16 个一级投资模块统一归类。Research、Trading 等运行时可以复用，但导航归属与运行端口解耦。
 - 侧边栏按 Mod 分类显示固定语义色；用户自定义分类会根据分类名称自动获得稳定颜色。
 - Deepsee 作为独立服务运行；Newma-Desk 商店中的 11 个 Deepsee Mods 直接加载其 `/embed/*` 页面，不复制后端、SQLite 或业务源码。
@@ -42,23 +42,20 @@ Newma-Desk 可以把一次需求固化为长期可用的 `Mod`：每个 Mod 都�
 ## 架构
 
 ```text
-Newma-Desk / Sidebar
-        |
-        +-- Independent HTML Mod
-        |       |
-        |       +-- Data Connector
-        |       +-- Model Gateway -> GPT / Claude / Local Model
-        |       +-- Agent Gateway -> Hermes / Future Agent Runtime
-        |
-        +-- ViewSpec / Mod SDK / Desk UI
+Mod / Unified Copilot
+          |
+          v
+ Agent Runtime Seam
+          |
+          +-- Newma Host Adapter
+          |     -> current Newma session / memory / skills / tools
+          |
+          +-- Desk Gateway Adapter
+                -> local Agent CLI or Newma/Hermes-compatible Runtime
+                -> OpenAI-compatible or Anthropic model provider
 ```
 
-Model Gateway 和 Agent Gateway 是两条并列链路，执行时不会互相串联：
-
-```text
-Mod -> Model Gateway -> Model
-Mod -> Agent Gateway -> Agent Runtime -> Memory / Skills / Tools
-```
+挂载模式只显示宿主 Copilot；独立模式只显示 Desk Copilot。两个 Adapter 共享同一套 Mod Context、DOM / HTML 与视觉快照链路，不会同时执行同一请求。
 
 ## 一级投资模块
 
@@ -126,11 +123,25 @@ npm run runtime:bootstrap
 cp .env.example .env
 ```
 
+统一启动器自动读取仓库根目录的 `.env`，已有进程环境变量优先。宏观与资金数据使用 `TUSHARE_TOKEN`；填写后需重启服务。该文件只保存在本机，不应提交 Git，也不要把密钥放入 `VITE_` 等前端变量。从仓库根目录直接启动 API 时，同样读取此配置。
+
 推荐用统一开发启动器启动 Newma-Desk 和全部已准备好的本地运行时：
 
 ```bash
 npm run dev:stack
 ```
+
+统一启动器默认使用 `all` Profile，兼容原来的完整启动行为。机器资源有限或只调试核心链路时，可按需缩小运行范围：
+
+```bash
+# Desk、API、Research / Trading 与 World Intelligence
+npm run dev:stack -- --profile core
+
+# 核心 + Crucix、政策采集、InStock、基金与投决
+npm run dev:stack -- --profile local
+```
+
+`all` 还会启动 OpenChatCut、Seven Cycle 和 Deepsee。也可通过 `NEWMA_DESK_RUNTIME_PROFILE=core|local|all` 设置默认 Profile，命令行参数优先。
 
 Research 与 Trading 不再分别启动 `5899 / 5901 / 8900 / 8899`。它们的领域 API 被挂载到 Newma-Desk API 的 `/api/research`、`/api/trading`，前端构建产物由 `/mod-runtime/research`、`/mod-runtime/trading` 统一托管。World Intelligence 由统一启动器在 `8501` 管理，并由 Newma-Desk API 通过 `/api/global-intel/*` 代理。标准用户入口仍只有 Desk `5888` 与 API `8911`；`5891` 仅保留给市场模组的独立开发模式。
 
@@ -140,6 +151,15 @@ Research 与 Trading 不再分别启动 `5899 / 5901 / 8900 / 8899`。它们的�
 npm run dev:status
 ```
 
+状态检查使用相同 Profile，例如 `npm run dev:status -- --profile core` 只检查核心链路。
+状态探测会并行执行，并在每行显示探测时延。Newma 或本地运维程序需要机器可读结果时，可直接运行：
+
+```bash
+node scripts/dev-stack.mjs --check --json --profile core
+```
+
+JSON 报告包含固定 Schema 版本、Profile、生成时间、核心/全部就绪摘要，以及每个运行时的状态、入口、时延和失败原因。
+
 统一启动器把 Newma-Desk API、Desk、Research、Trading 和 World Intelligence 视为核心运行时；InStock、Fund Analysis、Orchestra、Seven Cycle、Deepsee 与 OpenChatCut 是仓内可选运行时。可选 Mod 不可用时会显示 `WARN/MISS`，但不会关闭已经就绪的 Desk。需要把全部 Mod 都纳入检查时使用：
 
 ```bash
@@ -147,13 +167,17 @@ npm run dev:status -- --strict
 ```
 
 核心启动等待时间可通过 `NEWMA_DESK_STARTUP_TIMEOUT_MS` 调整；可选 Mod 使用独立的 `NEWMA_DESK_OPTIONAL_STARTUP_TIMEOUT_MS`，默认 30 秒。Seven Cycle 的健康响应会读取 Catalog 状态，单次探测默认允许 5 秒，可通过 `NEWMA_DESK_SEVEN_CYCLE_HEALTH_TIMEOUT_MS` 调整，避免慢盘场景被误判为掉线。
+启动器会在 `dist/index.html` 缺失，或源码、配置、锁文件更新后才重建内置前端。独立构建任务默认两个并行执行，可通过 `NEWMA_DESK_RUNTIME_BUILD_CONCURRENCY` 调整；需要排除本地缓存影响时使用 `npm run dev:stack -- --rebuild` 强制重建。World Intelligence、Crucix 和政策采集等 pre-core 运行时也会并行启动。
 统一启动器默认使用 `runtime/newma-desk-stack.pid` 做单实例保护；重复执行 `npm run dev:stack` 会直接提示现有进程，不会重复占用 Mods 端口。确需改变锁文件位置时，可设置 `NEWMA_DESK_STACK_PID_FILE`。
-`runtime:bootstrap` 会基于仓内只读快照生成 Seven Cycle 的本机 Catalog。一般启动不需要修复；如果只是移动了同一份已验证数据，可设置 `NEWMA_DESK_SEVEN_CYCLE_REPAIR_CATALOG_ON_START=1` 启用严格的设备漂移修复。
+启动器还会在 `runtime/newma-desk-managed-processes.json` 保存本次亲自拉起的进程身份。异常退出后的下一次启动只清理 PID 与身份同时匹配的旧 Mod，不会终止复用服务或身份不明的进程。账本位置可通过 `NEWMA_DESK_STACK_PROCESS_LEDGER_FILE` 覆盖。
+External Mod 的 Profile、工作区、启动命令、环境、关键性与健康探测统一声明在 `config/external-mod-runtimes.json`。普通 Mod 不再在 `scripts/dev-stack.mjs` 重复编写启动函数；只有 OpenChatCut、Seven Cycle 这类需要本机多版本选择的运行时保留具名 Launch Adapter。
+需要本机隔离环境的 External Mod Runtime 通过 Runtime Preparation Hook 准备依赖。该 Hook 只在首次拉起或监控恢复前执行；已经健康运行并被复用的 Mod 不再重复检查或安装环境。
+`runtime:bootstrap` 会基于仓内只读快照生成 Seven Cycle 的本机 Catalog。统一启动器每次真正拉起该 Mod 前都会验证这个派生索引；缺失或与当前磁盘身份不符时会自动重建。`NEWMA_DESK_SEVEN_CYCLE_REPAIR_CATALOG_ON_START=1` 仅保留给严格的设备漂移审计。
 
 ### 外部 Mod Runtime Descriptor
 
-World Intelligence、Deepsee、Seven Cycle、InStock 与 Orchestra 统一由
-[`config/external-mod-runtimes.json`](config/external-mod-runtimes.json) 声明工作区候选、HTTP 入口和健康路径。这个 Runtime Descriptor 是启动生命周期的公共 Interface；Node 启动器和 Python Agent Gateway 各自通过 Adapter 读取它，因此端口、路径发现和允许的来源只需要维护一处。
+World Intelligence、Crucix、Policy RSSHub、Deepsee、Seven Cycle、InStock、Fund Analysis、OpenChatCut 与 Orchestra 统一由
+[`config/external-mod-runtimes.json`](config/external-mod-runtimes.json) 声明 Runtime Profile、工作区候选、服务命令、环境、HTTP 入口和 Readiness Probe。这个 Runtime Descriptor 是启动生命周期的公共 Interface；Desk 启动器与 Newma Runtime 的 Workspace Adapter 可以读取它，因此 Profile、端口、启动规则、路径发现和允许的来源只需要维护一处。
 
 默认首先使用 `bundled-runtimes/` 中的仓内源码。环境变量和旧项目目录只用于开发者主动覆盖，不是正常启动依赖：
 
@@ -191,21 +215,22 @@ npm run dev -w @newma-desk/market-daily -- \
 
 打开 `http://127.0.0.1:5888`。
 
-## AI 配置
+## Agent 与 Copilot 配置
 
-打开 Newma-Desk 后，点击侧边栏底部的“Agent 设置”：
+打开侧边栏底部“Agent 设置”，可以选择：
 
-- 自动发现本机已安装的 Codex CLI、Claude Code、Gemini CLI、Qoder CLI 和 MiniMax CLI。
-- 全局设置只管理 CLI 发现、路径、命令档位和任务路由；Mod 设置只选择 Agent、模型和档位，不保存路径或密钥。
-- Deepsee 的批量摘要可单独选择 CLI 和模型；默认使用无记忆 `batch` 任务，失败回退兼容 AI。
-- 点击“测试”会走完整的 Desk → Agent Gateway → 本机 CLI 链路。
-- 本机 CLI 使用各自已有的登录态，不在网页里保存订阅账号或 API Key。
+- `自动选择`：挂载 Newma 时使用当前宿主会话；独立运行时使用 Desk Gateway 中已配置的 Adapter。
+- `Newma Runtime`：挂载时直接交给宿主；独立运行时连接 Newma / Hermes 兼容入口。
+- `本地 Agent CLI`：自动发现本机 Codex、Claude、Gemini、Qoder、MiniMax CLI，并使用各 CLI 已有登录态。
 
-本机 CLI 的工作目录按 Mod 隔离：Investment Mods 使用 `NEWMA_DESK_INVESTMENT_WORKSPACE`，Trading Mods 使用 `NEWMA_DESK_TRADING_WORKSPACE`，其他 Mod 使用 `NEWMA_DESK_WORKSPACE_ROOT`。
+快速问答、深度研究、批量处理和编码修改可以分别路由。快速模型未配置时，快速问答自动降级到所选 Agent CLI 的快速档。所有 Mod 使用同一个 Copilot Interface，前端会把实际 Adapter 写入请求，避免显示入口与后台执行入口不一致。
 
-常用环境变量：
+独立运行常用配置：
 
 ```text
+NEWMA_DESK_AGENT_DEFAULT_ADAPTER=codex-cli
+NEWMA_DESK_HERMES_WEBUI_BASE_URL=http://127.0.0.1:8788
+
 NEWMA_DESK_MODEL_DEFAULT_ADAPTER=openai-compatible
 NEWMA_DESK_OPENAI_BASE_URL=https://api.openai.com/v1
 NEWMA_DESK_OPENAI_API_KEY=
@@ -213,22 +238,18 @@ NEWMA_DESK_OPENAI_MODEL=gpt-5.6
 
 NEWMA_DESK_ANTHROPIC_API_KEY=
 NEWMA_DESK_ANTHROPIC_MODEL=claude-sonnet-4-5
-
-NEWMA_DESK_AGENT_DEFAULT_ADAPTER=codex-cli
-NEWMA_DESK_AGENT_TIMEOUT_SECONDS=300
-NEWMA_DESK_WORKSPACE_ROOT=.
-NEWMA_DESK_INVESTMENT_WORKSPACE=bundled-runtimes/vibe-research
-NEWMA_DESK_TRADING_WORKSPACE=bundled-runtimes/vibe-trading
-NEWMA_DESK_WORLD_INTEL_WORKSPACE=bundled-runtimes/world-intel-mcp
-NEWMA_DESK_WORLD_INTEL_URL=http://127.0.0.1:8501
-NEWMA_DESK_MOD_SESSION_SECRET=请在生产环境设置固定随机值
-NEWMA_DESK_MOD_SESSION_TTL_SECONDS=900
-
-# Hermes WebUI 是可选的外部 Agent Adapter
-NEWMA_DESK_HERMES_WEBUI_BASE_URL=http://127.0.0.1:8787
 ```
 
-API Key 只保存在服务端，不会下发给 Mod 前端。
+本机 CLI 工作目录按 Mod 隔离：Investment Mods 使用 `NEWMA_DESK_INVESTMENT_WORKSPACE`，Trading Mods 使用 `NEWMA_DESK_TRADING_WORKSPACE`，其他 Mod 使用 `NEWMA_DESK_WORKSPACE_ROOT`。网页不保存 CLI 订阅账号。
+
+Mod Session 与外部领域运行时仍可单独配置：
+
+```text
+NEWMA_DESK_MOD_SESSION_SECRET=请在生产环境设置固定随机值
+NEWMA_DESK_MOD_SESSION_TTL_SECONDS=900
+NEWMA_DESK_WORLD_INTEL_WORKSPACE=bundled-runtimes/world-intel-mcp
+NEWMA_DESK_WORLD_INTEL_URL=http://127.0.0.1:8501
+```
 
 ## 兼容策略
 
@@ -261,7 +282,7 @@ npm run test:release:static
 
 `shell:mods:check` 防止 Desk Shell 直接依赖业务 Mod。当前只保留 `global-intelligence` 与 `market-daily` 两个已有内嵌例外；新增业务 Mod 必须通过 Manifest + Bridge 接入。`mods:data:check` 验证官方默认 Mod 的 Data Action 确实存在 Provider，并校验 Capability 与权限一致。`test:release:static` 已包含这两项门禁。
 
-Manifest 的兼容等级只是声明。运行中的 Mod 还需要通过 `npm run mods:certify` 检查 health、embed、Bridge、窄屏布局和相应等级的 Agent Context，才算获得 Runtime Certification。
+Manifest 的兼容等级只是声明。运行中的 Mod 还需要通过 `npm run mods:certify` 检查 health、embed、Bridge、窄屏布局和相应等级的 Mod Page Context，才算获得 Runtime Certification。
 
 完整发布验收可以一次执行：
 

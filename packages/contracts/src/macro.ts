@@ -4,7 +4,7 @@ const sourceSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   url: z.string().url(),
-}).strict();
+}).passthrough();
 
 const freshnessSchema = z.object({
   status: z.enum(["fresh", "stale", "unknown"]),
@@ -40,7 +40,7 @@ export const macroIndicatorSchema = z.object({
     period: z.string().min(1),
     value: z.number(),
   }).strict()).max(24),
-}).strict();
+}).passthrough();
 
 export const macroCalendarEventSchema = z.object({
   id: z.string().min(1),
@@ -49,7 +49,7 @@ export const macroCalendarEventSchema = z.object({
   region: z.string().min(1),
   currency: z.string().nullable(),
   title: z.string().min(1),
-  importance: z.enum(["high", "medium", "low"]),
+  importance: z.enum(["high", "medium", "low", "unknown"]),
   status: z.enum(["scheduled", "released"]),
   actual: z.number().nullable(),
   forecast: z.number().nullable(),
@@ -57,7 +57,7 @@ export const macroCalendarEventSchema = z.object({
   source: sourceSchema,
   evidenceId: z.string().min(1),
   asOf: z.string().min(1),
-}).strict();
+}).passthrough();
 
 const regimeDimensionSchema = z.object({
   label: z.string().min(1),
@@ -75,11 +75,32 @@ export const macroMonitorFeedSchema = z.object({
     days: z.number().int().min(1).max(30),
   }).strict(),
   regime: z.object({
+    overall: z.object({ label: z.string(), summary: z.string(), signals: z.array(z.string()), evidenceIds: z.array(z.string()) }).optional(),
     growth: regimeDimensionSchema,
     inflation: regimeDimensionSchema,
     liquidity: regimeDimensionSchema,
     confidence: confidenceSchema,
-  }).strict(),
+  }).passthrough(),
+  decisionReview: z.object({
+    adoption: z.string().min(1),
+    thesis: z.string().min(1),
+    scope: z.string().min(1),
+    supportingEvidence: z.array(z.object({ dimension: z.string(), signal: z.enum(["positive", "neutral", "negative", "mixed", "unknown"]), summary: z.string(), evidenceIds: z.array(z.string()) })),
+    counterEvidence: z.array(z.string()),
+    checks: z.array(z.string()),
+    nextReviewEvents: z.array(z.object({ id: z.string(), date: z.string().date(), title: z.string(), importance: z.enum(["high", "medium", "low", "unknown"]), ratingBasis: z.enum(["source", "rule", "unknown"]).optional(), evidenceId: z.string() })),
+  }).optional(),
+  liquidity: z.object({
+    assessment: z.object({
+      signal: z.enum(["supportive", "restrictive", "mixed"]),
+      complete: z.boolean(),
+      supportiveCount: z.number().int().nonnegative(),
+      restrictiveCount: z.number().int().nonnegative(),
+      observedCount: z.number().int().nonnegative(),
+      method: z.string().min(1),
+      items: z.array(z.object({ id: z.string(), name: z.string(), period: z.string(), change: z.number(), unit: z.string(), vote: z.enum(["supportive", "restrictive", "flat"]) })),
+    }),
+  }).passthrough().optional(),
   indicators: z.array(macroIndicatorSchema),
   events: z.array(macroCalendarEventSchema),
   sources: z.array(z.object({
@@ -96,7 +117,7 @@ export const macroMonitorFeedSchema = z.object({
     reason: z.string().min(1),
   }).strict()),
   disclaimer: z.string().min(1),
-}).strict();
+}).passthrough();
 
 export type MacroIndicator = z.infer<typeof macroIndicatorSchema>;
 export type MacroCalendarEvent = z.infer<typeof macroCalendarEventSchema>;

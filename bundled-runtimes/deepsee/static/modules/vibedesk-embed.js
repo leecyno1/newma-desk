@@ -47,6 +47,7 @@
         instanceId: '',
         grants: { permissions: [], actions: [] },
         connected: false,
+        runtimeAvailable: false,
     };
     const appliedAppearanceVariables = new Set();
     const configListeners = new Set();
@@ -69,6 +70,14 @@
         }
     }
 
+    function agentRuntimeAvailable(value) {
+        if (!value || typeof value !== 'object') return false;
+        const host = (value.owner === 'newma' || value.owner === 'numa')
+            && value.aiExecution === 'host';
+        const gateway = value.owner === 'desk' && value.aiExecution === 'gateway';
+        return value.requestMessage === 'vibedesk:copilot-open' && (host || gateway);
+    }
+
     function selectEmbeddedModule() {
         document.querySelectorAll('.module-tabs .tab[data-module]').forEach((tab) => {
             tab.classList.toggle('active', tab.dataset.module === moduleId);
@@ -76,6 +85,21 @@
         document.querySelectorAll('.module-panel[id]').forEach((panel) => {
             panel.classList.toggle('active', panel.id === moduleId);
         });
+    }
+
+    function hideRuntimeOwnedSettings() {
+        if (moduleId !== 'function-settings') return;
+        const panel = document.getElementById('function-settings');
+        if (!panel) return;
+        ['settings-ai-config', 'settings-prompts'].forEach((id) => {
+            const section = document.getElementById(id);
+            if (!section) return;
+            section.dataset.navHidden = '1';
+            section.hidden = true;
+        });
+        panel.querySelectorAll(
+            '[data-open-settings="settings-ai-config"],[data-open-settings="settings-prompts"]'
+        ).forEach((card) => card.remove());
     }
 
     function buildSettingsSecondaryNavigationFallback() {
@@ -163,6 +187,7 @@
     }
 
     function activateEmbeddedModule() {
+        hideRuntimeOwnedSettings();
         selectEmbeddedModule();
         let attempts = 0;
         let nativeActivated = false;
@@ -275,6 +300,9 @@
 
     function pageContext() {
         const panel = document.getElementById(moduleId);
+        const visibleRoot = moduleId === 'function-settings'
+            ? panel?.querySelector('.settings-section.active-settings-section:not(.hidden)') || panel
+            : panel;
         const heading = String(
             panel?.dataset.panelTitle
             || panel?.querySelector('h1,h2,.news-title,.analysis-title-main')?.textContent
@@ -315,12 +343,39 @@
                     risks: textAt('newsMetricRisks'),
                 }
                 : {};
+        const visibleText = String(visibleRoot?.innerText || '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim()
+            .slice(0, 40000);
+        const clone = visibleRoot?.cloneNode(true);
+        if (clone instanceof HTMLElement) {
+            clone.querySelectorAll(
+                'script,style,noscript,template,svg,canvas,input,textarea,select,button,[hidden],.hidden,[aria-hidden="true"]'
+            ).forEach((element) => element.remove());
+            clone.querySelectorAll('[style]').forEach((element) => element.removeAttribute('style'));
+        }
+        const renderedHtml = clone instanceof HTMLElement
+            ? clone.outerHTML.replace(/\s+/g, ' ').trim().slice(0, 24000)
+            : '';
         return {
             view: { id: deskModId, title: heading || deskModId },
             visibleBlocks,
-            selection: {},
+            selection: {
+                path: `${window.location.pathname}${window.location.search}`,
+                embedModule: moduleId,
+            },
             filters,
-            data: { freshness: 'unknown', summary },
+            data: {
+                asOf: new Date().toISOString(),
+                source: 'deepsee-rendered-page',
+                freshness: 'fresh',
+                summary: {
+                    ...summary,
+                    contextSource: 'dom-html-fallback',
+                    visibleText,
+                    renderedHtml,
+                },
+            },
             actions: state.grants.actions.map((id) => ({ id, available: true })),
             tasks: Array.from(activeTasks.values()).slice(-20).map((task) => ({
                 id: task.id,
@@ -340,136 +395,6 @@
             context: pageContext(),
         }, state.parentOrigin);
     }
-
-    async function gatewayRequest(path, payload, options = {}) {
-        if (!state.gatewayOrigin) throw new Error('VibeDesk Gateway is not configured');
-        const method = options.method || 'POST';
-        const hasBody = method !== 'GET' && method !== 'HEAD';
-        const response = await fetch(`${state.gatewayOrigin}${path}`, {
-            method,
-            credentials: 'omit',
-            redirect: 'error',
-            headers: {
-                Accept: 'application/json',
-                ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-                ...(options.userScoped ? { 'X-User-Id': state.userId } : {}),
-            },
-            ...(hasBody ? { body: JSON.stringify(payload || {}) } : {}),
-        });
-        let body;
-        try { body = await response.json(); } catch (_) { body = undefined; }
-        if (!response.ok) {
-            const detail = body && typeof body.detail === 'string'
-                ? body.detail
-                : `VibeDesk Gateway returned HTTP ${response.status}`;
-            throw new Error(detail);
-        }
-        return body;
-    }
-
-    function agentDisplayName(id) {
-        return ({
-            'codex-cli': 'Codex CLI',
-            'claude-cli': 'Claude Code',
-            'gemini-cli': 'Gemini CLI',
-            'qoder-cli': 'Qoder CLI',
-            'minimax-cli': 'MiniMax CLI',
-            'hermes-webui': 'Hermes WebUI',
-            'openai-compatible': '模型通道',
-            'anthropic': 'Anthropic 模型通道',
-        })[id] || id || '未配置';
-    }
-
-    function renderAgentSettings(preferences, capabilityPayload, deepseeConfig) {
-        const grid = document.getElementById('deskAgentProfileGrid');
-        const status = document.getElementById('deskAgentStatus');
-        if (!grid || !status) return;
-        const settingsLink = document.getElementById('deskAgentSettingsLink');
-        if (settingsLink) {
-            let deskOrigin = state.parentOrigin;
-            if (!deskOrigin) {
-                try { deskOrigin = new URL(document.referrer).origin; } catch (_) { deskOrigin = ''; }
-            }
-            settingsLink.href = `${deskOrigin || 'http://127.0.0.1:5888'}/?view=agent-settings`;
-            settingsLink.target = '_top';
-        }
-        const profiles = [
-            ['deep', '深度研究'],
-            ['batch', '批量处理'],
-            ['edit', '编码修改'],
-            ['quick', '快速问答'],
-        ];
-        const targets = preferences?.profileTargets || {};
-        const adapters = Array.isArray(capabilityPayload?.adapters)
-            ? capabilityPayload.adapters
-            : [];
-        const agent = deepseeConfig?.desk_agent || {};
-        const adapterSelect = document.getElementById('deskAgentAdapter');
-        const modelOptions = document.getElementById('deskAgentModelOptions');
-        const updateModelOptions = () => {
-            if (!modelOptions) return;
-            modelOptions.replaceChildren();
-            const selectedAdapter = adapters.find((item) => item && item.id === adapterSelect?.value);
-            (selectedAdapter?.models || []).forEach((model) => {
-                const option = document.createElement('option');
-                option.value = String(model);
-                modelOptions.appendChild(option);
-            });
-        };
-        if (adapterSelect) {
-            adapterSelect.replaceChildren();
-            const inherited = document.createElement('option');
-            inherited.value = '';
-            inherited.textContent = '沿用 Desk 全局 batch 路由';
-            adapterSelect.appendChild(inherited);
-            adapters.filter((item) => item && item.kind === 'local-cli').forEach((item) => {
-                const option = document.createElement('option');
-                option.value = String(item.id || '');
-                option.textContent = `${agentDisplayName(item.id)}${item.available === false ? '（未安装）' : ''}`;
-                option.disabled = item.available === false;
-                adapterSelect.appendChild(option);
-            });
-            adapterSelect.value = String(agent.adapter || '');
-            adapterSelect.onchange = updateModelOptions;
-        }
-        const modelInput = document.getElementById('deskAgentModel');
-        if (modelInput) modelInput.value = String(agent.model || '');
-        updateModelOptions();
-        const profileSelect = document.getElementById('deskAgentCommandProfile');
-        if (profileSelect) profileSelect.value = String(agent.commandProfile || agent.command_profile || 'batch');
-        grid.replaceChildren();
-        profiles.forEach(([id, label]) => {
-            const card = document.createElement('div');
-            card.className = 'settings-runtime-card';
-            const target = String(targets[id] || (id === 'quick' ? 'openai-compatible' : preferences?.defaultAdapter || ''));
-            const adapter = adapters.find((item) => item && item.id === target);
-            const availability = adapter && adapter.available === false ? '不可用' : '已配置';
-            card.innerHTML = `<div class="settings-runtime-name"></div><div class="settings-runtime-meta"></div>`;
-            card.querySelector('.settings-runtime-name').textContent = label;
-            card.querySelector('.settings-runtime-meta').textContent = `${agentDisplayName(target)} · ${availability}`;
-            grid.appendChild(card);
-        });
-        const count = adapters.filter((item) => item && item.available !== false).length;
-        status.textContent = `已连接 · ${count} 个入口可用`;
-    }
-
-    async function refreshAgentSettings() {
-        if (moduleId !== 'function-settings') return;
-        const status = document.getElementById('deskAgentStatus');
-        if (status) status.textContent = '读取中…';
-        try {
-            const [preferences, capabilities, deepseeConfig] = await Promise.all([
-                gatewayRequest('/api/agent/preferences', null, { method: 'GET', userScoped: true }),
-                gatewayRequest('/api/capabilities', null, { method: 'GET' }),
-                fetch('/api/ai/config', { headers: { Accept: 'application/json' } }).then((response) => response.ok ? response.json() : ({})),
-            ]);
-            renderAgentSettings(preferences, capabilities, deepseeConfig);
-        } catch (error) {
-            if (status) status.textContent = `连接失败：${String(error?.message || error).slice(0, 60)}`;
-        }
-    }
-
-    window.__vibedeskRefreshAgentSettings = refreshAgentSettings;
 
     function invokeAction(actionId, input = {}) {
         if (!state.connected || !state.instanceId || !state.parentOrigin) {
@@ -496,29 +421,20 @@
         });
     }
 
-    async function waitForTask(task, options = {}) {
-        const taskId = typeof task === 'string' ? task : task?.id;
-        if (!taskId) throw new Error('Agent task id is missing');
-        const actionId = options.actionId || '';
-        const timeoutMs = Math.max(1000, Math.min(300000, Number(options.timeoutMs || 300000)));
-        const deadline = Date.now() + timeoutMs;
-        while (Date.now() < deadline) {
-            const current = await gatewayRequest(
-                `/api/agent/tasks/${encodeURIComponent(taskId)}`,
-                null,
-                { method: 'GET', userScoped: true }
-            );
-            activeTasks.set(taskId, { id: taskId, status: current.status || 'unknown', actionId });
-            if (['completed', 'failed', 'cancelled'].includes(current.status)) {
-                publishContext();
-                if (current.status !== 'completed') {
-                    throw new Error(current.error || `Agent task ${current.status}`);
-                }
-                return current;
-            }
-            await new Promise((resolve) => window.setTimeout(resolve, 500));
+    function requestAgent(input = {}) {
+        if (!state.connected || !state.instanceId || !state.parentOrigin || !state.runtimeAvailable) {
+            throw new Error('Agent Runtime 尚未连接');
         }
-        throw new Error('Agent task timed out');
+        publishContext();
+        const prompt = String(input.prompt || '').trim().slice(0, 8000);
+        window.parent.postMessage({
+            type: 'vibedesk:copilot-open',
+            instanceId: state.instanceId,
+            modId: state.moduleId,
+            mode: input.mode === 'edit' ? 'edit' : 'ask',
+            ...(prompt ? { prompt } : {}),
+        }, state.parentOrigin);
+        return true;
     }
 
     const bridge = Object.freeze({
@@ -533,23 +449,14 @@
             if (state.gatewayOrigin) listener(this.getConfig());
             return () => configListeners.delete(listener);
         },
-        createAgentTask(input = {}) {
-            return gatewayRequest('/api/agent/tasks', {
-                ...input,
-                moduleId: state.moduleId || input.moduleId || moduleId,
-            }, { userScoped: true });
+        canRequestAgent() {
+            return state.connected && state.runtimeAvailable;
         },
-        createModelResponse(input = {}) {
-            return gatewayRequest('/api/model/responses', {
-                ...input,
-                moduleId: state.moduleId || input.moduleId || moduleId,
-            });
-        },
+        requestAgent,
         canInvokeAction(actionId) {
             return state.connected && state.grants.actions.includes(actionId);
         },
         invokeAction,
-        waitForTask,
         publishContext,
     });
     window.VibeDeskBridge = bridge;
@@ -578,6 +485,7 @@
                 permissions: Array.isArray(data.grants?.permissions) ? [...data.grants.permissions] : [],
                 actions: Array.isArray(data.grants?.actions) ? [...data.grants.actions] : [],
             };
+            state.runtimeAvailable = agentRuntimeAvailable(data.runtime);
             state.connected = true;
             applyTheme(data.environment?.theme, data.appearance);
             window.parent.postMessage({
@@ -587,7 +495,6 @@
                 modId: state.moduleId,
             }, state.parentOrigin);
             notifyConfig();
-            refreshAgentSettings();
             return;
         }
 
@@ -635,7 +542,6 @@
         state.userId = typeof data.userId === 'string' && data.userId ? data.userId : 'local-user';
         applyTheme(data.theme, data.appearance);
         notifyConfig();
-        refreshAgentSettings();
     });
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -643,7 +549,6 @@
         if (state.theme) applyTheme(state.theme, state.appearance);
         sendHello();
         sendReady();
-        refreshAgentSettings();
     });
     window.addEventListener('load', sendReady);
 })(window);

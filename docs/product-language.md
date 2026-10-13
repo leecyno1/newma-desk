@@ -1,10 +1,10 @@
 # Newma-Desk 产品词汇与命名
 
-更新日期：2026-08-18
+更新日期：2026-08-29
 
 ## 产品定义
 
-Newma-Desk 是一个面向人和 Agent 的可生长工作台。用户可以把临时需求固化成长期可使用、可更新、可继续迭代的 Mod。
+Newma-Desk 是既可挂载 Newma、又可独立运行的可生长工作台。用户可以把临时需求固化成长期可使用、可更新、可继续迭代的 Mod。
 
 推荐对外表述：
 
@@ -21,7 +21,7 @@ Newma-Desk 是一个面向人和 Agent 的可生长工作台。用户可以把�
 | Skill | Agent 可重复执行的工作流和技巧 | `Skill` |
 | Desk UI | 统一视觉变量和基础组件 | `@newma-desk/desk-ui` |
 | ViewSpec | 面向人和 Agent 的 HTML 语义规范 | `ViewSchema` |
-| Mod SDK | 数据、AI、导航和跨 Mod 通信入口 | `@newma-desk/mod-sdk` |
+| Mod SDK | 数据、Context、导航、宿主 Agent Request 和跨 Mod 通信入口 | `@newma-desk/mod-sdk` |
 | Mod Bridge | Desk、Mod 和其他页面之间的事件桥 | `ModBridge` |
 | Mod Library | Mod 安装、启停和更新入口 | 后续 MVP |
 
@@ -31,13 +31,16 @@ Newma-Desk 是一个面向人和 Agent 的可生长工作台。用户可以把�
 - Mod 回答“用户和 Agent 在哪里长期查看和操作”。
 - View 是 Mod 中的具体页面，不承担安装和发布职责。
 - 一个 Mod 未来可以有多个 View；当前 MVP 保持一个 Mod 对应一个主 View。
-- Agent Gateway 管理 Agent 的长期 Session；Model Gateway 只进行传统模型调用。
+- Agent Runtime Seam 统一 Mod 与 Copilot 的 AI Interface。
+- 挂载 Newma 时由 Newma Host Adapter 管理模型、Agent、长期 Session、记忆、Skills 和工具执行。
+- 独立运行时由 Desk Gateway Adapter 连接本地 CLI、模型 Provider 或 Newma / Hermes 兼容 Runtime。
+- Desk 始终提供 Mod Page Context、Visual Context、领域 Action、Artifact 与 Workflow State。
 
 ## 默认导航
 
 一级模块固定为：全球、宏观、政策、资金、市场、行业、公司、基金、配置、交易、策略、风险、量化、投决、创作、深瞳。显示名称使用两个汉字；稳定 ID 和完整能力边界见 [`investment-domain-mod-standard.md`](./investment-domain-mod-standard.md)。
 
-二级面板直接显示 Mod 页面，不显示来源项目文件夹。自定义项目直接进入一级列表；Desk 的 Provider、权限和 Agent 接入统一放在面板底部“栏目数据与能力”。
+二级面板直接显示 Mod 页面，不显示来源项目文件夹。自定义项目直接进入一级列表；Desk 的 Provider 与权限设置统一放在面板底部“栏目数据与能力”。挂载 Newma 时使用宿主 Agent 设置；独立运行时使用 Desk 的 Agent 设置。
 
 当前示例的历史 ID 仍为 `market-daily`，但产品名称和 npm 包已经使用 Market Pulse。等数据迁移机制稳定后，再将持久化 ID 迁移为 `market-pulse`，避免现在破坏既有 Snapshot、Agent Session 和上游调用。
 

@@ -1,4 +1,10 @@
-import { modPageContextSchema, type ModPageContext } from "@newma-desk/contracts";
+import {
+  MAX_BRIDGE_VISUAL_CAPTURE_BYTES,
+  modPageContextSchema,
+  modVisualContextSchema,
+  type ModPageContext,
+  type ModVisualCapturePayload,
+} from "@newma-desk/contracts";
 
 const HOST_PROTOCOL = "newma:mod-host:v1" as const;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -20,6 +26,22 @@ export interface NewmaHostContextRequest {
   modId: string;
   workspaceId: string;
   reason: "initial" | "agent" | "refresh";
+}
+
+export interface NewmaHostVisualContextRequest {
+  type: "newma:mod-visual-context-request";
+  protocol: typeof HOST_PROTOCOL;
+  requestId: string;
+  projectId: string;
+  modId: string;
+  workspaceId: string;
+  reason: "agent" | "refresh";
+  maxBytes: number;
+}
+
+export interface NewmaHostAgentRequest {
+  mode: "ask" | "edit";
+  prompt?: string;
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -100,6 +122,33 @@ export function parseNewmaHostContextRequest(
   return row as unknown as NewmaHostContextRequest;
 }
 
+export function parseNewmaHostVisualContextRequest(
+  value: unknown,
+): NewmaHostVisualContextRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (
+    row.type !== "newma:mod-visual-context-request" ||
+    row.protocol !== HOST_PROTOCOL ||
+    typeof row.requestId !== "string" ||
+    !ID_PATTERN.test(row.requestId) ||
+    typeof row.projectId !== "string" ||
+    !ID_PATTERN.test(row.projectId) ||
+    typeof row.modId !== "string" ||
+    !MOD_ID_PATTERN.test(row.modId) ||
+    typeof row.workspaceId !== "string" ||
+    !ID_PATTERN.test(row.workspaceId) ||
+    !["agent", "refresh"].includes(String(row.reason)) ||
+    typeof row.maxBytes !== "number" ||
+    !Number.isInteger(row.maxBytes) ||
+    row.maxBytes < 64 * 1024 ||
+    row.maxBytes > MAX_BRIDGE_VISUAL_CAPTURE_BYTES
+  ) {
+    return null;
+  }
+  return row as unknown as NewmaHostVisualContextRequest;
+}
+
 export function postNewmaHostContext(input: {
   context: ModPageContext;
   identity: NewmaHostIdentity;
@@ -118,6 +167,59 @@ export function postNewmaHostContext(input: {
       workspaceId: input.identity.workspaceId,
       context,
       updatedAt: Date.now(),
+    },
+    input.identity.parentTargetOrigin,
+  );
+}
+
+export function postNewmaHostVisualContext(input: {
+  capture?: ModVisualCapturePayload;
+  identity: NewmaHostIdentity;
+  modId: string;
+  requestId: string;
+  target?: Window;
+}): void {
+  const message = input.capture
+    ? modVisualContextSchema.parse({
+        type: "vibedesk:visual-context",
+        requestId: input.requestId,
+        instanceId: input.identity.workspaceId,
+        modId: input.modId,
+        ok: true,
+        capture: input.capture,
+      })
+    : undefined;
+  (input.target ?? window.parent).postMessage(
+    {
+      type: "newma:mod-visual-context",
+      protocol: HOST_PROTOCOL,
+      requestId: input.requestId,
+      projectId: input.identity.projectId,
+      modId: input.modId,
+      workspaceId: input.identity.workspaceId,
+      ok: Boolean(message),
+      ...(message?.ok ? { capture: message.capture } : {}),
+    },
+    input.identity.parentTargetOrigin,
+  );
+}
+
+export function postNewmaHostAgentRequest(input: {
+  identity: NewmaHostIdentity;
+  modId: string;
+  request: NewmaHostAgentRequest;
+  target?: Window;
+}): void {
+  const prompt = input.request.prompt?.trim().slice(0, 8_000);
+  (input.target ?? window.parent).postMessage(
+    {
+      type: "newma:agent-request",
+      protocol: HOST_PROTOCOL,
+      projectId: input.identity.projectId,
+      modId: input.modId,
+      workspaceId: input.identity.workspaceId,
+      mode: input.request.mode,
+      ...(prompt ? { prompt } : {}),
     },
     input.identity.parentTargetOrigin,
   );

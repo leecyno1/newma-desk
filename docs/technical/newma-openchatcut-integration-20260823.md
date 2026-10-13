@@ -23,7 +23,7 @@
 ```mermaid
 flowchart LR
   UI[Newma 可视化节点] --> CC[Creator Command Interface]
-  AG[Desk Agent 侧边栏] --> CC
+  AG[Newma Agent 会话] --> CC
   CC --> RC[Creator Run Control]
   RC --> ES[Editor Session Runtime]
   ES --> OA[OpenChatCut Adapter]
@@ -50,7 +50,7 @@ manual_edit
 → Creator Editor Session
 → 打开 OpenChatCut 人工时间线
 → 绑定并持久化 OpenChatCut Project ID
-→ 打开 Desk Agent，预填剪辑要求，用户确认发送
+→ 请求当前 Newma Agent，预填剪辑要求，用户确认发送
 → Codex 动态注入 OpenChatCut MCP
 → openchatcut_status / target_project
 → begin_edit_session(approvalMode=manual)

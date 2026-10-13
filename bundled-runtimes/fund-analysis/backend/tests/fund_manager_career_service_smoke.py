@@ -125,8 +125,9 @@ def main():
     assert payload["benchmark"]["status"] == "available"
     assert payload["metrics"]["benchmark_return"] is not None
     assert payload["metrics"]["excess_return"] is not None
-    assert payload["metrics"]["downside_risk"] is not None
-    assert payload["metrics"]["sortino_ratio"] is not None
+    assert payload["metrics"].get("downside_risk") is None
+    assert payload["metrics"].get("sortino_ratio") is None
+    assert payload["evidence"]["daily_risk_eligible"] is False
     assert payload["metrics"]["record_breaking_days_ratio"] == 0.75
     assert payload["peer_ranking"]["status"] == "sufficient"
     assert payload["peer_ranking"]["peer_group_name"] == "主动权益核心"
@@ -134,7 +135,7 @@ def main():
     assert payload["peer_ranking"]["metrics"]["total_return"]["peer_count"] == 5
     assert payload["peer_ranking"]["metrics"]["total_return"]["percentile"] == 50.0
     assert "max_drawdown" in payload["peer_ranking"]["metrics"]
-    assert "sharpe_ratio" in payload["peer_ranking"]["metrics"]
+    assert payload["peer_ranking"]["metrics"]["sharpe_ratio"]["sample_status"] == "target_metric_unavailable"
     assert "record_breaking_days_ratio" in payload["peer_ranking"]["metrics"]
     assert payload["events"][0]["date"] == "2026-02-01"
     assert payload["events"][0]["chart_date"] == "2026-02-02"

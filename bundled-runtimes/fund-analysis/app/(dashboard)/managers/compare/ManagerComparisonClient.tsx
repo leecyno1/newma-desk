@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
+import { FundNavigationContext, useFundPageData } from '@/lib/newma-desk/page-data'
 import {
   ArrowLeft,
   BarChart3,
@@ -292,6 +293,7 @@ export default function ManagerComparisonClient({
   initialCategory: string
 }) {
   const router = useRouter()
+  const deskNavigate = useContext(FundNavigationContext)
   const [managerIds, setManagerIds] = useState(() => Array.from(new Set(initialManagerIds)).slice(0, 4))
   const [selectedSummaries, setSelectedSummaries] = useState<Record<string, ManagerSummary>>({})
   const [category, setCategory] = useState(initialCategory)
@@ -301,6 +303,8 @@ export default function ManagerComparisonClient({
   const [payload, setPayload] = useState<ComparisonPayload | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [searchError, setSearchError] = useState('')
+  const [applied, setApplied] = useState<Record<string, unknown> | null>(null)
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ManagerSummary[]>([])
   const [searching, setSearching] = useState(false)
@@ -314,6 +318,9 @@ export default function ManagerComparisonClient({
 
   useEffect(() => {
     const controller = new AbortController()
+    setSearchResults([])
+    setSearchError('')
+    setSearching(true)
     const timer = window.setTimeout(async () => {
       setSearching(true)
       try {
@@ -321,10 +328,11 @@ export default function ManagerComparisonClient({
         if (query.trim()) params.set('keyword', query.trim())
         const response = await fetch(`/api/managers/browser?${params.toString()}`, { signal: controller.signal })
         const data = await response.json()
+        if (controller.signal.aborted) return
         if (!response.ok) throw new Error(data.error || '搜索暂时不可用')
         setSearchResults(Array.isArray(data.managers) ? data.managers : [])
       } catch (caught) {
-        if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : '搜索暂时不可用')
+        if (!controller.signal.aborted) setSearchError(caught instanceof Error ? caught.message : '搜索暂时不可用')
       } finally {
         if (!controller.signal.aborted) setSearching(false)
       }
@@ -336,6 +344,9 @@ export default function ManagerComparisonClient({
   }, [query])
 
   useEffect(() => {
+    setPayload(null)
+    setApplied(null)
+    setError('')
     if (managerIds.length < 2) {
       setPayload(null)
       setLoading(false)
@@ -352,16 +363,19 @@ export default function ManagerComparisonClient({
       try {
         const response = await fetch(`/api/managers/compare?${params.toString()}`, { signal: controller.signal })
         const data = await response.json()
+        if (controller.signal.aborted) return
         if (!response.ok) throw new Error(data.detail || data.error || '基金经理对比暂时不可用')
         const comparison = data as ComparisonPayload
         setPayload(comparison)
+        setApplied({ managerIds: [...managerIds], category: comparison.selected_category ?? category,
+          products: { ...productCodes } })
         setSelectedSummaries((current) => ({
           ...current,
           ...Object.fromEntries((comparison.managers || []).map((manager) => [manager.id, manager])),
         }))
         if (!category && comparison.selected_category) {
           setCategory(comparison.selected_category)
-          router.replace(comparisonHref(managerIds, comparison.selected_category, productCodes), { scroll: false })
+          navigate(managerIds, comparison.selected_category, productCodes)
         }
         if (!historyManagerId || !managerIds.includes(historyManagerId)) setHistoryManagerId(managerIds[0])
       } catch (caught) {
@@ -381,10 +395,10 @@ export default function ManagerComparisonClient({
   const metricMeta = commonPeriod?.metric_meta || defaultMetricMeta
   const highlightEligible = Boolean(commonPeriod?.status === 'available' && commonPeriod.highlight_eligible)
   const activeHistoryManager = comparedManagers.find((manager) => manager.id === historyManagerId) || comparedManagers[0]
-  const filteredHistory = (activeHistoryManager?.history || []).filter((item) => {
+  const filteredHistory = useMemo(() => (activeHistoryManager?.history || []).filter((item) => {
     const needle = historyKeyword.trim().toLowerCase()
     return !needle || `${item.title || ''} ${item.summary || ''} ${(item.tags || []).join(' ')}`.toLowerCase().includes(needle)
-  })
+  }), [activeHistoryManager, historyKeyword])
 
   const selectedRows = useMemo(() => managerIds.map((managerId) => (
     comparedManagers.find((manager) => manager.id === managerId)
@@ -393,8 +407,24 @@ export default function ManagerComparisonClient({
   )), [comparedManagers, managerIds, selectedSummaries])
 
   function navigate(nextIds: string[], nextCategory = category, nextProducts = productCodes) {
-    router.replace(comparisonHref(nextIds, nextCategory, nextProducts), { scroll: false })
+    const href = comparisonHref(nextIds, nextCategory, nextProducts)
+    if (!deskNavigate?.('/managers/compare', href.split('?')[1] || '')) router.replace(href, { scroll: false })
   }
+
+  useFundPageData(useMemo(() => ({ title: '基金经理对比', selection: null,
+    filters: { requested: { managerIds, category, productCodes }, applied, search: query,
+      historyManagerId, historyKeyword, highlight },
+    visibleBlocks: [{ id: 'manager-comparison', type: 'table', title: '经理及共同区间产品对比' }],
+    summary: { view: 'manager-comparison', status: managerIds.length < 2 ? 'needs-selection' : loading ? 'loading' : error ? 'error' : payload?.status ?? 'not-loaded',
+      error: error || null, result: !loading && !error && payload ? { ...payload,
+        managers: payload.managers.map(manager => ({ ...manager, current_products: manager.current_products?.slice(0, 30),
+          selected_category_products: manager.selected_category_products?.slice(0, 30),
+          product_tenures: manager.product_tenures?.slice(0, 40), history: manager.history?.slice(0, 20) })) } : null,
+      search: { status: searching ? 'loading' : searchError ? 'error' : 'ready', error: searchError || null, rows: searchResults },
+      history: { managerId: activeHistoryManager?.id ?? null, rows: filteredHistory.slice(0, 20) },
+      boundary: '比较经理所选同类产品的真实共同区间，不把不同任期的总收益直接排名。高亮须通过服务端可比性与覆盖门禁。' },
+  }), [managerIds, category, productCodes, applied, query, historyManagerId, historyKeyword, highlight, loading, error, payload,
+    searching, searchError, searchResults, activeHistoryManager, filteredHistory]))
 
   function addManager(manager: ManagerSummary) {
     if (managerIds.includes(manager.id) || managerIds.length >= 4) return
@@ -441,16 +471,10 @@ export default function ManagerComparisonClient({
         <span className="text-xs text-[#718078]">只比较同一专业分类的真实基金产品</span>
       </div>
 
-      <section className="relative overflow-hidden border border-[#cfd8d1] bg-[#173f35] px-6 py-8 text-white sm:px-8 sm:py-10">
-        <div className="absolute -right-24 -top-28 h-80 w-80 rounded-full border border-white/10" />
-        <div className="absolute -right-4 top-16 h-48 w-48 rounded-full border border-white/10" />
-        <div className="relative flex justify-end">
-          <div className="grid grid-cols-2 gap-px overflow-hidden border border-white/20 bg-white/20 text-[#18231e] sm:grid-cols-4">
-            <div className="bg-[#f7f5ed] px-5 py-4"><strong className="block text-2xl">{managerIds.length} / 4</strong><span className="text-[11px] text-[#68756e]">已选经理</span></div>
-            <div className="bg-[#f7f5ed] px-5 py-4"><strong className="block text-2xl">{commonCategories.length}</strong><span className="text-[11px] text-[#68756e]">共同分类</span></div>
-            <div className="bg-[#f7f5ed] px-5 py-4"><strong className="block text-2xl">{commonPeriod?.observation_count || 0}</strong><span className="text-[11px] text-[#68756e]">共同交易日</span></div>
-          </div>
-        </div>
+      <section aria-label="经理对比概况" className="flex flex-wrap gap-x-8 gap-y-3 border-y border-[#cfd8d1] py-3 text-sm text-[#68756e]">
+        <span>已选经理 <strong className="ml-2 tabular-nums text-[#18231e]">{managerIds.length} / 4</strong></span>
+        <span>共同分类 <strong className="ml-2 tabular-nums text-[#18231e]">{payload ? commonCategories.length : '—'}</strong></span>
+        <span>共同交易日 <strong className="ml-2 tabular-nums text-[#18231e]">{commonPeriod?.observation_count ?? '—'}</strong></span>
       </section>
 
       <section className="grid gap-5 border border-[#d9e0db] bg-white p-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] sm:p-6">
@@ -495,7 +519,8 @@ export default function ManagerComparisonClient({
         </div>
       </section>
 
-      {error ? <section className="border-l-4 border-[#b77964] bg-[#fff6f1] px-5 py-4 text-sm text-[#855746]"><div className="flex items-start gap-2"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />{error}</div></section> : null}
+      {searchError ? <p role="alert" className="text-sm text-[#855746]">经理搜索失败：{searchError}</p> : null}
+      {error ? <section role="alert" className="border-l-4 border-[#b77964] bg-[#fff6f1] px-5 py-4 text-sm text-[#855746]"><div className="flex items-start gap-2"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />{error}</div></section> : null}
 
       {managerIds.length >= 2 ? (
         <section className="border border-[#d9e0db] bg-white p-5 sm:p-6">

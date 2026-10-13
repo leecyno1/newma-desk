@@ -2,7 +2,7 @@
   "schemaVersion": "1.0",
   "id": "market-scanner",
   "name": "选股扫描",
-  "description": "基于共享行情与自选标的筛选趋势、量能和估值候选，并将结果交给 Desk Agent 继续分析。",
+  "description": "基于共享行情与自选标的筛选趋势、量能和估值候选，并将结果交给 Newma Agent 继续分析。",
   "version": "0.1.1",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-desk",

@@ -1,6 +1,6 @@
+import base64
 import json
 import sqlite3
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -8,8 +8,6 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.agent_gateway.fakes import FakeAgentAdapter
-from tests.model_gateway.fakes import FakeModelAdapter
 from vibe_visualization_api.config import Settings
 from vibe_visualization_api.control_plane.actions import (
     TradeConfirmationService,
@@ -21,6 +19,8 @@ from vibe_visualization_api.data_services.models import (
 )
 from vibe_visualization_api.main import create_app
 from vibe_visualization_api.snapshots.store import SnapshotStore
+from tests.agent_gateway.fakes import FakeAgentAdapter
+from tests.model_gateway.fakes import FakeModelAdapter
 
 
 MANIFEST = {
@@ -134,16 +134,6 @@ class FakeRefreshService:
 
 
 @pytest.fixture
-def fake_adapter() -> FakeAgentAdapter:
-    return FakeAgentAdapter()
-
-
-@pytest.fixture
-def fake_model_adapter() -> FakeModelAdapter:
-    return FakeModelAdapter()
-
-
-@pytest.fixture
 def fake_data_client() -> FakeDataClient:
     return FakeDataClient()
 
@@ -156,8 +146,6 @@ def fake_refresh_service() -> FakeRefreshService:
 @pytest.fixture
 def client(
     tmp_path: Path,
-    fake_adapter: FakeAgentAdapter,
-    fake_model_adapter: FakeModelAdapter,
     fake_data_client: FakeDataClient,
     fake_refresh_service: FakeRefreshService,
 ) -> Iterator[TestClient]:
@@ -196,14 +184,14 @@ def client(
     settings = Settings(
         runtime_dir=tmp_path,
         database_path=tmp_path / "actions.db",
+        trade_confirmation_secret="test-confirmation-secret",
         agent_default_adapter="fake",
         model_default_adapter="fake-model",
-        trade_confirmation_secret="test-confirmation-secret",
     )
     application = create_app(
         settings,
-        agent_adapters=[fake_adapter],
-        model_adapters=[fake_model_adapter],
+        agent_adapters=[FakeAgentAdapter()],
+        model_adapters=[FakeModelAdapter()],
         data_services=[service, alternate_service],
         data_service_client=fake_data_client,
         scheduler_service=fake_refresh_service,
@@ -249,10 +237,9 @@ def _audit_details(database_path: Path) -> list[dict[str, object]]:
     return [json.loads(row[0]) for row in rows]
 
 
-def test_published_module_can_call_declared_agent_capability(
+def test_legacy_agent_action_uses_the_standalone_gateway(
     client: TestClient,
     tmp_path: Path,
-    fake_adapter: FakeAgentAdapter,
 ) -> None:
     _publish(client)
     SnapshotStore(tmp_path, tmp_path / "actions.db").write_success(
@@ -273,25 +260,20 @@ def test_published_module_can_call_declared_agent_capability(
     )
 
     assert response.status_code == 202
-    assert response.json()["request"]["moduleId"] == "market-daily"
-    assert response.json()["request"]["capability"] == "market.explain"
-    deadline = time.monotonic() + 1
-    while not fake_adapter.requests and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert fake_adapter.requests[0].input == {}
-    assert "解释市场异动" in fake_adapter.requests[0].prompt
-    assert "breadth" in fake_adapter.requests[0].prompt
+    task = response.json()
+    assert task["request"]["moduleId"] == "market-daily"
+    assert task["request"]["capability"] == "market.explain"
+    assert task["request"]["adapter"] == "fake"
     audit = _audit_details(tmp_path / "actions.db")[-1]
     assert audit["decision"] == "allowed"
+    assert audit["runtime"] == "local"
     assert audit["user_id"] == "alice"
-    assert audit["task_id"].startswith("task-")
+    assert audit["task_id"] == task["id"]
 
 
-def test_model_mode_does_not_create_agent_task_or_session(
+def test_legacy_model_mode_uses_the_standalone_gateway(
     client: TestClient,
     tmp_path: Path,
-    fake_adapter: FakeAgentAdapter,
-    fake_model_adapter: FakeModelAdapter,
 ) -> None:
     _publish(client)
     SnapshotStore(tmp_path, tmp_path / "actions.db").write_success(
@@ -318,8 +300,7 @@ def test_model_mode_does_not_create_agent_task_or_session(
     assert response.status_code == 200
     assert response.json()["adapter"] == "fake-model"
     assert response.json()["model"] == "chosen-model"
-    assert fake_adapter.requests == []
-    assert len(fake_model_adapter.requests) == 1
+    assert response.json()["answer"].startswith("fake model: ")
     with sqlite3.connect(tmp_path / "actions.db") as connection:
         session_table = connection.execute(
             """
@@ -339,8 +320,6 @@ def test_model_mode_does_not_create_agent_task_or_session(
 
 def test_manifest_1_1_agent_binding_cannot_be_changed_by_payload(
     client: TestClient,
-    fake_adapter: FakeAgentAdapter,
-    fake_model_adapter: FakeModelAdapter,
 ) -> None:
     _publish(client, MANIFEST_V1_1)
 
@@ -351,8 +330,6 @@ def test_manifest_1_1_agent_binding_cannot_be_changed_by_payload(
     )
 
     assert response.status_code == 422
-    assert fake_adapter.requests == []
-    assert fake_model_adapter.requests == []
 
 
 def test_manifest_1_1_requires_a_scoped_session_token(
@@ -425,7 +402,6 @@ def test_manifest_1_1_rejects_a_session_from_another_mod_instance(
 
 def test_manifest_1_1_validates_inline_action_input_before_dispatch(
     client: TestClient,
-    fake_model_adapter: FakeModelAdapter,
 ) -> None:
     manifest = json.loads(json.dumps(MANIFEST_V1_1))
     manifest["actions"]["market.summarize"]["inputSchema"] = {
@@ -444,12 +420,10 @@ def test_manifest_1_1_validates_inline_action_input_before_dispatch(
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "schema_input_invalid"
-    assert fake_model_adapter.requests == []
 
 
-def test_manifest_1_1_validates_inline_action_output(
+def test_manifest_1_1_validates_standalone_model_output(
     client: TestClient,
-    fake_model_adapter: FakeModelAdapter,
 ) -> None:
     manifest = json.loads(json.dumps(MANIFEST_V1_1))
     manifest["actions"]["market.summarize"]["outputSchema"] = {
@@ -466,13 +440,11 @@ def test_manifest_1_1_validates_inline_action_output(
 
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "schema_output_invalid"
-    assert len(fake_model_adapter.requests) == 1
 
 
-def test_manifest_1_1_routes_agent_action_with_declared_memory_scope(
+def test_manifest_1_1_routes_agent_action_through_the_standalone_gateway(
     client: TestClient,
     tmp_path: Path,
-    fake_adapter: FakeAgentAdapter,
 ) -> None:
     manifest = json.loads(json.dumps(MANIFEST_V1_1))
     manifest["actions"]["market.explain"]["binding"]["profile"] = "batch"
@@ -517,25 +489,20 @@ def test_manifest_1_1_routes_agent_action_with_declared_memory_scope(
     )
 
     assert response.status_code == 202
-    deadline = time.monotonic() + 1
-    while not fake_adapter.requests and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert fake_adapter.requests[0].memory_scope == "user-agent-mod"
-    assert fake_adapter.requests[0].profile == "batch"
-    structured = fake_adapter.requests[0].context["vibedesk"]
-    assert structured["mod"] == {"id": "market-daily", "revision": 1}
-    assert structured["workspace"] == {"id": "desk-1"}
-    assert structured["page"]["selection"] == {
-        "symbol": "600519",
-        "market": "CN",
+    task_request = response.json()["request"]
+    assert task_request["profile"] == "batch"
+    assert task_request["memoryScope"] == "user-agent-mod"
+    assert task_request["adapter"] == "fake"
+    assert task_request["context"]["vibedesk"]["scope"] == {
+        "workspaceId": "desk-1",
+        "moduleId": "market-daily",
+        "instanceId": "instance-1",
+        "subjectKey": "instance-1",
     }
-    assert "breadth" in fake_adapter.requests[0].prompt
 
 
-def test_manifest_1_1_routes_model_action_without_creating_agent_task(
+def test_manifest_1_1_routes_model_action_through_the_standalone_gateway(
     client: TestClient,
-    fake_adapter: FakeAgentAdapter,
-    fake_model_adapter: FakeModelAdapter,
 ) -> None:
     _publish(client, MANIFEST_V1_1)
 
@@ -546,11 +513,11 @@ def test_manifest_1_1_routes_model_action_without_creating_agent_task(
     )
 
     assert response.status_code == 200
-    assert fake_adapter.requests == []
-    assert len(fake_model_adapter.requests) == 1
-    request = fake_model_adapter.requests[0]
-    assert request.capability == "market.summarize"
-    assert request.input == {"date": "2026-07-23"}
+    assert response.json() == {
+        "answer": "fake model: 总结市场",
+        "adapter": "fake-model",
+        "model": "fake-default",
+    }
 
 
 def test_manifest_1_1_routes_declared_data_action(
@@ -665,6 +632,91 @@ def test_mod_session_persists_structured_context_for_agent_reading(
     assert loaded.json()["revision"] == 1
 
 
+def test_mod_session_saves_current_browser_visual_context(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+    headers = _session_headers(client, user_id="alice", workspace_id="desk-1")
+    headers["Content-Type"] = "image/png"
+    image = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+
+    response = client.post(
+        "/api/modules/market-daily/visual-context?width=1280&height=720",
+        headers=headers,
+        content=image,
+    )
+
+    assert response.status_code == 201
+    capture = response.json()
+    assert capture["status"] == "ready"
+    assert capture["source"] == "browser-mod-bridge"
+    assert capture["image"]["mimeType"] == "image/png"
+    assert capture["image"]["width"] == 1280
+    assert capture["delivery"] == {
+        "mode": "artifact-reference",
+        "adapterReadable": True,
+    }
+    assert "path" not in capture["image"]
+    artifact_id = capture["image"]["artifactId"]
+    assert (tmp_path / "mod-page-captures" / f"{artifact_id}.png").read_bytes() == image
+
+
+def test_mod_session_can_request_server_visual_fallback(
+    client: TestClient,
+) -> None:
+    _publish(client, MANIFEST_V1_1)
+    headers = _session_headers(client, user_id="alice", workspace_id="desk-1")
+    service = client.app.state.visual_context_capture
+    original_capture = service.capture
+
+    async def capture(
+        module_id: str,
+        shell_origin: str | None = None,
+        workspace_id: str | None = None,
+    ):
+        assert module_id == "market-daily"
+        assert shell_origin
+        assert workspace_id == "desk-1"
+        return {
+            "status": "ready",
+            "source": "server-playwright",
+            "captureMode": "reopened-module",
+            "capturedAt": "2026-08-30T00:00:00+00:00",
+            "moduleId": module_id,
+            "dom": {"text": "市场曲面", "html": "<main>市场曲面</main>"},
+            "image": {
+                "artifactId": "0123456789abcdef0123456789abcdef",
+                "mimeType": "image/png",
+                "width": 1440,
+                "height": 1000,
+                "bytes": 1024,
+            },
+            "delivery": {
+                "mode": "artifact-reference",
+                "adapterReadable": True,
+            },
+        }
+
+    service.capture = capture
+    try:
+        response = client.post(
+            "/api/modules/market-daily/visual-context/capture",
+            headers=headers,
+        )
+    finally:
+        service.capture = original_capture
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["source"] == "server-playwright"
+    assert payload["dom"]["text"] == "市场曲面"
+    assert payload["delivery"]["adapterReadable"] is True
+    assert "path" not in json.dumps(payload)
+
+
 def test_published_module_can_call_declared_data_capability(
     client: TestClient,
     fake_data_client: FakeDataClient,
@@ -683,10 +735,9 @@ def test_published_module_can_call_declared_data_capability(
     ]
 
 
-def test_market_refresh_runs_locally_instead_of_creating_an_agent_task(
+def test_market_refresh_runs_as_a_local_domain_action(
     client: TestClient,
     tmp_path: Path,
-    fake_adapter: FakeAgentAdapter,
     fake_refresh_service: FakeRefreshService,
 ) -> None:
     _publish(
@@ -706,7 +757,6 @@ def test_market_refresh_runs_locally_instead_of_creating_an_agent_task(
     assert response.status_code == 200
     assert response.json()["data"]["asOf"] == "2026-07-20T15:00:00+08:00"
     assert fake_refresh_service.calls == ["market-daily"]
-    assert fake_adapter.requests == []
     audit = _audit_details(tmp_path / "actions.db")[-1]
     assert audit["decision"] == "allowed"
     assert audit["snapshot_id"] == "snapshot-1"

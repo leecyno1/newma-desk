@@ -23,6 +23,27 @@
       "maxFileBytes": 430000
     },
     {
+      "id": "workflow-center-runtime",
+      "path": "modules/workflow-center/dist",
+      "required": true,
+      "maxTotalBytes": 850000,
+      "maxFileBytes": 680000
+    },
+    {
+      "id": "policy-analysis-runtime",
+      "path": "modules/policy-analysis/dist",
+      "required": true,
+      "maxTotalBytes": 480000,
+      "maxFileBytes": 400000
+    },
+    {
+      "id": "capital-flow-runtime",
+      "path": "modules/capital-flow/dist",
+      "required": true,
+      "maxTotalBytes": 500000,
+      "maxFileBytes": 410000
+    },
+    {
       "id": "research-suite",
       "path": "bundled-runtimes/vibe-research/frontend/dist",
       "required": false,

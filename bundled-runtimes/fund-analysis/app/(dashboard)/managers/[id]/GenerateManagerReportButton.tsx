@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useContext, useState } from 'react'
+import { FundNavigationContext } from '@/lib/newma-desk/page-data'
 import { useRouter } from 'next/navigation'
 import { LoaderCircle, Sparkles } from 'lucide-react'
 import { backendApiBaseUrl } from '@/lib/backend-api'
@@ -8,12 +9,15 @@ import { backendApiBaseUrl } from '@/lib/backend-api'
 /** 经理详情页的 AI 分析报告生成入口（研究输出，生成后跳转报告详情） */
 export default function GenerateManagerReportButton({ managerId }: { managerId: string }) {
   const router = useRouter()
+  const deskNavigation = useContext(FundNavigationContext)
+  const [reportHref, setReportHref] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const generate = async () => {
     setLoading(true)
     setError('')
+    setReportHref('')
     try {
       const response = await fetch(
         `${backendApiBaseUrl}/api/reports/manager/${encodeURIComponent(managerId)}`,
@@ -23,7 +27,9 @@ export default function GenerateManagerReportButton({ managerId }: { managerId: 
       if (!response.ok) throw new Error(payload.detail || '生成失败')
       const reportId = payload.id || payload.report_id
       if (reportId) {
-        router.push(`/reports/${reportId}`)
+        const href = `/reports/${encodeURIComponent(reportId)}`
+        if (deskNavigation) setReportHref(href)
+        else router.push(href)
       } else {
         setError('报告已生成但未返回编号，请在报告列表中查看')
       }
@@ -45,7 +51,7 @@ export default function GenerateManagerReportButton({ managerId }: { managerId: 
         {loading ? (
           <>
             <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-            AI 分析生成中（约 1 分钟）…
+            AI 分析生成中…
           </>
         ) : (
           <>
@@ -55,6 +61,7 @@ export default function GenerateManagerReportButton({ managerId }: { managerId: 
         )}
       </button>
       {error ? <span className="text-[11px] text-[#a05a52]">{error}</span> : null}
+      {reportHref ? <a href={reportHref} className="text-sm underline">报告已生成，查看报告</a> : null}
       <span className="text-[10px] text-[#8d9a92]">基于任期指标与调研纪要，研究输出不构成投资建议</span>
     </div>
   )

@@ -70,4 +70,23 @@ describe("macro monitor contract", () => {
       regime: {}, indicators: [], events: [], sources: [], gaps: [], disclaimer: "test",
     })).toThrow();
   });
+
+  it("accepts an observed liquidity assessment and traceable adoption review", () => {
+    const parsed = macroMonitorFeedSchema.parse({
+      schemaVersion: "newma-desk.macro-monitor.v1", generatedAt: "2026-10-05T00:00:00Z",
+      horizon: { start: "2026-10-05", end: "2026-10-12", days: 7 },
+      regime: { overall: { label: "过渡混合", summary: "信号分化", signals: [], evidenceIds: [] },
+        growth: { label: "增长", signal: "unknown", summary: "缺数", evidenceIds: [] },
+        inflation: { label: "价格", signal: "unknown", summary: "缺数", evidenceIds: [] },
+        liquidity: { label: "流动性", signal: "unknown", summary: "缺数", evidenceIds: [] },
+        confidence: { level: "low", score: 0, rationale: "数据时效覆盖率，不是判断概率" } },
+      decisionReview: { adoption: "暂缓采纳，先补证", thesis: "数据不足", scope: "研究复核",
+        supportingEvidence: [], counterEvidence: [], checks: ["补齐有效观测"], nextReviewEvents: [] },
+      liquidity: { assessment: { signal: "mixed", complete: false, supportiveCount: 0,
+        restrictiveCount: 0, observedCount: 0, method: "不外推", items: [] }, groups: [], indicators: [] },
+      indicators: [], events: [], sources: [], gaps: [], disclaimer: "仅供研究",
+    });
+    expect(parsed.decisionReview?.adoption).toBe("暂缓采纳，先补证");
+    expect(parsed.liquidity?.assessment.complete).toBe(false);
+  });
 });

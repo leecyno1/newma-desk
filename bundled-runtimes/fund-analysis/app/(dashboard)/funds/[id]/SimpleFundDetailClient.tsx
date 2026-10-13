@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { useFundPageData } from '@/lib/newma-desk/page-data'
 import {
   ArrowLeft,
   ArrowRight,
@@ -23,7 +24,7 @@ import {
 } from 'lucide-react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { CamelFund } from '@/lib/backend-api'
-import { buildFundMarketEnvironment, type FundMarketEnvironment } from '@/lib/fund-market-environment'
+import { buildFundMarketEnvironment, type FundMarketEnvironment, type MarketEnvironmentNavPoint } from '@/lib/fund-market-environment'
 import {
   asRecord,
   drawdownMetric,
@@ -49,18 +50,21 @@ import FundProductProfilePanel, { type FundProductProfile } from './FundProductP
 import FundFofHoldingPanel, { type FundFofHoldingSnapshot } from './FundFofHoldingPanel'
 import FundDataQualityPanel, { type FundDataQualitySnapshot } from './FundDataQualityPanel'
 import FundDrawdownRecoveryPanel, { type FundDrawdownRecoverySnapshot } from './FundDrawdownRecoveryPanel'
+import FundDerivedSeriesCharts, { type FundDerivedSeriesSnapshot } from './FundDerivedSeriesCharts'
 import FundPeriodPerformancePanel, { type FundPeriodPerformanceSnapshot } from './FundPeriodPerformancePanel'
 import FundShareClassPanel, { type FundShareClassSnapshot } from './FundShareClassPanel'
 import FundManagerHistoryPanel, { type FundManagerHistorySnapshot } from './FundManagerHistoryPanel'
 import FundManagerTenurePerformancePanel, { type FundManagerTenurePerformance } from './FundManagerTenurePerformancePanel'
 import GenerateFundReportButton from './GenerateFundReportButton'
+import RefreshFundNavButton from './RefreshFundNavButton'
 
 export type FundNavPoint = {
   date: string
   nav: number
   unitNav: number | null
   accumNav: number | null
-  navBasis: 'accum_nav' | 'unit_nav'
+  adjNav: number | null
+  navBasis: 'adj_nav' | 'accum_nav' | 'unit_nav'
   benchmarkNav: number | null
 }
 
@@ -479,6 +483,7 @@ export type FundPlainLanguageBrief = {
 type Props = {
   fund: CamelFund
   nav: FundNavPoint[]
+  performanceNav: MarketEnvironmentNavPoint[]
   evaluationWindows: Record<string, FundEvaluation>
   evaluationHistory: FundEvaluationHistoryItem[]
   assessmentSummary: FundAssessmentSummary
@@ -491,6 +496,7 @@ type Props = {
   managerTenurePerformance: FundManagerTenurePerformance
   assetAllocation: FundAssetAllocationSnapshot
   drawdownRecovery: FundDrawdownRecoverySnapshot
+  derivedSeries: FundDerivedSeriesSnapshot
   periodPerformance: FundPeriodPerformanceSnapshot
   fofHoldings: FundFofHoldingSnapshot
   bondAnomaly: FundBondAnomalySnapshot
@@ -583,7 +589,7 @@ function metricValue(metric: FundPeerMetric) {
   return metric.value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
 }
 
-function chartWindow(nav: FundNavPoint[], observations: number, startDate = '', endDate = '') {
+function chartWindow<T extends { date: string }>(nav: T[], observations: number, startDate = '', endDate = '') {
   if (!nav.length) return []
   if (startDate || endDate) {
     const dated = nav.filter((point) => (!startDate || point.date >= startDate) && (!endDate || point.date <= endDate))
@@ -610,7 +616,9 @@ function buildChartSeries(nav: FundNavPoint[]) {
   const baseFundNav = aligned[0]?.nav ?? null
   const baseBenchmarkNav = aligned[0]?.benchmarkNav ?? null
   const benchmarkObservations = aligned.filter((point) => point.benchmarkNav != null).length
-  const navBasis = aligned.some((point) => point.navBasis === 'accum_nav') ? 'accum_nav' : 'unit_nav'
+  const navBasis = aligned.some((point) => point.navBasis === 'adj_nav')
+    ? 'adj_nav' as const
+    : aligned.some((point) => point.navBasis === 'accum_nav') ? 'accum_nav' as const : 'unit_nav' as const
   const data = aligned.map((point) => ({
     ...point,
     fundGrowth: baseFundNav != null && baseFundNav > 0 ? ((point.nav / baseFundNav) - 1) * 100 : null,
@@ -816,10 +824,10 @@ function MarketEnvironmentPanel({ profile, benchmark, windowLabel }: { profile: 
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-[#28745c]"><ChartNoAxesCombined className="h-4 w-4" />市场环境表现</div>
           <h2 className="mt-3 text-xl font-bold text-[#1b2922]">市场涨时跟得上，跌时守得住吗</h2>
-          <p className="mt-2 text-xs leading-6 text-[#68746e]">使用{windowLabel}基金与 {benchmark} 的共同月末净值计算；只解释历史表现，不改变基金评分。</p>
+          <p className="mt-2 text-xs leading-6 text-[#68746e]">使用{windowLabel}基金复权净值与{profile.benchmarkIdentityVerified ? benchmark : '库存基准（身份待核验）'}的连续月末端点；只解释历史表现，不改变基金评分。</p>
         </div>
         <span className={`rounded-sm px-2.5 py-1 text-[11px] font-bold ${profile.status === 'ready' ? 'bg-[#e2f0e8] text-[#1f684e]' : 'bg-[#fff1d2] text-[#815a16]'}`}>
-          {profile.status === 'ready' ? `${profile.monthlyPeriods} 个月度样本` : profile.status === 'partial' ? '样本偏少' : '证据不足'}
+          {profile.status === 'ready' ? `${profile.monthlyPeriods} 个月度样本` : profile.status === 'partial' ? '部分证据 · 请核验基准与样本' : '证据不足'}
         </span>
       </div>
 
@@ -1449,7 +1457,7 @@ const contractTenorLabels: Record<string, string> = {
   over_10y: '10年以上',
 }
 
-export default function SimpleFundDetailClient({ fund, nav, evaluationWindows, evaluationHistory, assessmentSummary, detailHighlights, plainLanguageBrief, researchMemos, dataQuality, shareClasses, managerHistory, managerTenurePerformance, assetAllocation, drawdownRecovery, periodPerformance, fofHoldings, bondAnomaly, bondDuration, bondHoldings, holderStructure, holdingSnapshot, holdingChanges, holdingStyle, holdingExperience, productProfile }: Props) {
+export default function SimpleFundDetailClient({ fund, nav, performanceNav, evaluationWindows, evaluationHistory, assessmentSummary, detailHighlights, plainLanguageBrief, researchMemos, dataQuality, shareClasses, managerHistory, managerTenurePerformance, assetAllocation, drawdownRecovery, derivedSeries, periodPerformance, fofHoldings, bondAnomaly, bondDuration, bondHoldings, holderStructure, holdingSnapshot, holdingChanges, holdingStyle, holdingExperience, productProfile }: Props) {
   const [window, setWindow] = useState<(typeof windows)[number]['value']>('1y')
   const selectedWindow = windows.find((item) => item.value === window) || windows[1]
   const evaluation = evaluationWindows[window] || evaluationWindows['1y']
@@ -1463,7 +1471,7 @@ export default function SimpleFundDetailClient({ fund, nav, evaluationWindows, e
     [metricEndDate, metricObservations, metricStartDate, nav],
   )
   const chartSeries = useMemo(() => buildChartSeries(selectedNav), [selectedNav])
-  const marketEnvironment = useMemo(() => buildFundMarketEnvironment(selectedNav), [selectedNav])
+  const marketEnvironment = useMemo(() => buildFundMarketEnvironment(chartWindow(performanceNav, metricObservations, metricStartDate, metricEndDate)), [performanceNav, metricObservations, metricStartDate, metricEndDate])
   const chartData = chartSeries.data
   const chartMatchesEvaluation = Boolean(
     metricStartDate
@@ -1482,6 +1490,29 @@ export default function SimpleFundDetailClient({ fund, nav, evaluationWindows, e
   const selectedDrawdown = drawdownMetric(typedFund, window)
   const selectedVolatility = volatilityMetric(typedFund, window)
   const selectedSharpe = sharpeMetric(typedFund, window)
+  useFundPageData(useMemo(() => ({
+    selection:{symbol:fund.windCode,name:fund.name,assetType:fund.type.toUpperCase().includes('ETF') ? 'etf' as const : 'fund' as const},
+    filters:{window,chartStart:chartSeries.startDate,chartEnd:chartSeries.endDate},
+    visibleBlocks:[{id:'fund-detail-facts',type:'summary',title:'当前基金事实'}, {id:'fund-detail-performance',type:'table',title:'当前评价窗口'}, {id:'fund-detail-holdings',type:'table',title:'披露持仓及覆盖'}],
+    summary:{
+      status:'ready',fund:{symbol:fund.windCode,name:fund.name,type:fund.type,nav:fund.nav,navDate:fund.navDate,totalAsset:fund.totalAsset},
+      evaluation:{status:evaluation.status,score:evaluation.score,asOfDate:evaluation.asOfDate,window,
+        peerGroup:evaluation.peerGroup,benchmark:evaluation.benchmark,method:evaluation.calculationMethod},
+      performance:{return:selectedReturn,maxDrawdown:selectedDrawdown,volatility:selectedVolatility,sharpe:selectedSharpe,
+        sampleStart:chartSeries.startDate,sampleEnd:chartSeries.endDate,observations:chartSeries.observations,navBasis:chartSeries.navBasis,chartMatchesEvaluation},
+      periodPerformance,
+      marketEnvironment,
+      derivedSeries:{status:derivedSeries.status,window:derivedSeries.window,navBasis:derivedSeries.navBasis,
+        historyStart:derivedSeries.historyStart,historyEnd:derivedSeries.historyEnd,observations:derivedSeries.observations,
+        drawdownPointCount:derivedSeries.drawdownSeries.length,rollingPointCount:derivedSeries.rollingReturnSeries.length,
+        latestDrawdown:derivedSeries.drawdownSeries.at(-1) ?? null,latestRollingReturn:derivedSeries.rollingReturnSeries.at(-1) ?? null,
+        missingItems:derivedSeries.missingItems,boundary:derivedSeries.boundary},
+      holdings:{quarter:holdingSnapshot.latestQuarter,source:holdingSnapshot.source,summary:holdingSnapshot.summary,
+        rows:holdingSnapshot.holdings.slice(0,10),returnedCount:Math.min(10,holdingSnapshot.holdings.length),totalCount:holdingSnapshot.holdings.length},
+      dataQuality,
+      boundary:'复用当前页已加载事实，不重新调用 AI。收益和权重为小数比例；净值日、评价日、持仓报告日及公告日分别解释。前十大不是完整穿透，不能将缺失视作零。',
+    },
+  }), [fund,window,evaluation,selectedReturn,selectedDrawdown,selectedVolatility,selectedSharpe,chartSeries,chartMatchesEvaluation,holdingSnapshot,dataQuality,derivedSeries,periodPerformance,marketEnvironment]))
   const selectedWindowLabel = windowLabels[window] || window
   const declaredBaseFee = baseFeeRate(fund)
   const feePeerMetric = evaluation.peerMetrics.find((metric) => metric.key === 'expense_ratio' && metric.sampleStatus === 'sufficient')
@@ -1691,7 +1722,8 @@ export default function SimpleFundDetailClient({ fund, nav, evaluationWindows, e
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="flex items-center gap-2 text-lg font-bold"><ChartNoAxesCombined className="h-5 w-5 text-[#28745c]" />历史净值</h2>
-              <p className="mt-1 text-xs leading-6 text-[#7a8580]">默认使用累计净值处理分红和份额折算；累计净值缺失时才使用单位净值。</p>
+              <p className="mt-1 text-xs leading-6 text-[#7a8580]">默认使用复权净值（分红再投资口径）处理分红和份额折算；复权缺失时依次回退累计净值、单位净值。</p>
+              <RefreshFundNavButton key={fund.windCode} windCode={fund.windCode} />
             </div>
             <div className="inline-flex border border-[#cfd6d0] bg-[#f7f8f5] p-1">
               {windows.map((item) => (
@@ -1713,7 +1745,7 @@ export default function SimpleFundDetailClient({ fund, nav, evaluationWindows, e
               </ResponsiveContainer>
               <div className="mt-2 flex flex-wrap gap-4 text-[11px] text-[#68746e]"><span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-4 bg-[#176a52]" />本基金</span>{chartData.some((point) => point.benchmarkGrowth != null) ? <span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-4 bg-[#9a7c45]" />{benchmark}</span> : null}</div>
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t border-[#edf0ed] pt-3 text-[10px] text-[#87918c]">
-                <span>{chartSeries.navBasis === 'accum_nav' ? '累计净值口径' : '单位净值口径'}</span>
+                <span>{chartSeries.navBasis === 'adj_nav' ? '复权净值口径' : chartSeries.navBasis === 'accum_nav' ? '累计净值口径' : '单位净值口径'}</span>
                 <span>{formatDate(chartSeries.startDate)} 至 {formatDate(chartSeries.endDate)}</span>
                 <span>{chartSeries.observations} 个净值日 · {chartMatchesEvaluation ? '与评价窗口一致' : '按可核验区间展示'}</span>
                 {chartSeries.benchmarkObservations ? <span>基准共同日期 {chartSeries.benchmarkObservations} 个 · 覆盖 {formatPercent(chartSeries.benchmarkCoverage, 0)}</span> : <span>当前没有可核验基准曲线</span>}
@@ -1752,6 +1784,8 @@ export default function SimpleFundDetailClient({ fund, nav, evaluationWindows, e
       <FundPeriodPerformancePanel snapshot={periodPerformance} />
 
       <FundDrawdownRecoveryPanel snapshot={drawdownRecovery} />
+
+      <FundDerivedSeriesCharts series={derivedSeries} />
 
       <section>
         <div className="flex flex-wrap items-end justify-between gap-3 pb-4">

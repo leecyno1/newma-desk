@@ -14,7 +14,7 @@ import {
   type ModHostConnection,
 } from "@newma-desk/mod-sdk";
 
-import { creatorClient, type DeskAgentPreferences } from "./api";
+import { creatorClient } from "./api";
 import { buildCreatorContext } from "./context";
 import { CreateRunDialog } from "./CreateRunDialog";
 import { ArtifactPreviewModal } from "./ArtifactPreviewModal";
@@ -170,7 +170,6 @@ export function CreatorStudioApp() {
   const [marketplacePresets, setMarketplacePresets] = useState<MarketplacePreset[]>([]);
   const [capabilities, setCapabilities] = useState<CapabilityDetection>();
   const [system, setSystem] = useState<Record<string, unknown>>();
-  const [deskAgentPreferences, setDeskAgentPreferences] = useState<DeskAgentPreferences>();
   const [loading, setLoading] = useState(true);
   const [marketLoading, setMarketLoading] = useState(false);
   const [busyAction, setBusyAction] = useState("");
@@ -316,30 +315,7 @@ export function CreatorStudioApp() {
   useEffect(() => {
     if (!client || workspace !== "settings") return;
     if (!system) void client.system().then(setSystem).catch(() => undefined);
-    if (!deskAgentPreferences) {
-      void client.agentPreferences().then(setDeskAgentPreferences).catch(() => undefined);
-    }
-  }, [client, deskAgentPreferences, system, workspace]);
-
-  const syncCreatorAgent = useCallback(async (agentId: string) => {
-    const adapterMap: Record<string, string> = {
-      codex: "codex-cli",
-      claude: "claude-cli",
-      gemini: "gemini-cli",
-      hermes: "hermes-webui",
-    };
-    const adapter = adapterMap[agentId];
-    if (!adapter) throw new Error("该 CLI 暂未接入统一 Desk Agent，保留 Creator 本地选择");
-    if (!client) throw new Error("Desk Agent 服务尚未连接");
-    const current = deskAgentPreferences || await client.agentPreferences();
-    const next = await client.saveAgentPreferences({
-      defaultAdapter: current.defaultAdapter,
-      moduleOverrides: current.moduleOverrides,
-      profileTargets: { ...current.profileTargets, edit: adapter },
-      moduleProfileOverrides: current.moduleProfileOverrides,
-    });
-    setDeskAgentPreferences(next);
-  }, [client, deskAgentPreferences]);
+  }, [client, system, workspace]);
 
   const dispatchAction = useCallback<ActionDispatcher>(async (actionId, input = {}) => {
     if (!client) throw new Error("Desk 身份尚未就绪");
@@ -383,12 +359,6 @@ export function CreatorStudioApp() {
         const result = await client.detectCapabilities();
         setCapabilities(result);
         return result;
-      }
-      if (actionId === "creator.agent.test") {
-        return await client.testAgent(
-          String(input.agentId || ""),
-          String(input.binOverride || ""),
-        );
       }
       if (actionId === "creator.marketplace.check-compatibility") {
         return await client.marketplaceCompatibility({
@@ -593,6 +563,7 @@ export function CreatorStudioApp() {
             openArtifact={(path: string, label?: string) => {
               if (path) setPreviewArtifact({ path, label });
             }}
+            requestAgent={host?.config.runtime ? (request) => host.requestAgent(request) : undefined}
           />
         )}
         {workspace === "marketplace" && <MarketplaceView
@@ -609,8 +580,6 @@ export function CreatorStudioApp() {
           <SettingsView
             system={system}
             capabilities={capabilities}
-            deskAgentPreferences={deskAgentPreferences}
-            onSyncAgent={syncCreatorAgent}
             busy={Boolean(busyAction)}
             dispatch={dispatchAction}
           />

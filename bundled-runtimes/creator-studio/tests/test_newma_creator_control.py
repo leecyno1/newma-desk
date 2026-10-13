@@ -39,6 +39,24 @@ def test_registry_exposes_six_vertical_stages_with_horizontal_nodes():
     assert "dasheng" not in json.dumps(registry, ensure_ascii=False).lower()
 
 
+def test_integrated_registry_delegates_agent_execution_to_newma_runtime():
+    registry = load_registry()
+    capability_modes = {
+        str(item.get("mode"))
+        for item in registry.get("capability_adapters", [])
+    }
+    draft_adapter = next(
+        item
+        for item in registry["execution_adapters"]
+        if item["id"] == "newma.mainline.draft"
+    )
+
+    assert "output_only" not in capability_modes
+    assert "detect_only" not in capability_modes
+    assert draft_adapter["kind"] == "capability_session"
+    assert "Newma Agent Runtime" in draft_adapter["message"]
+
+
 def test_node_material_validation_accepts_manual_and_upstream_inputs():
     registry = load_registry()
     report = validate_node_materials(

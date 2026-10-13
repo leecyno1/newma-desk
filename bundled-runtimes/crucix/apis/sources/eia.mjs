@@ -1,8 +1,8 @@
 // EIA — US Energy Information Administration
-// Oil prices, natural gas, crude inventories. Free API key required.
-// Gracefully degrades without key.
+// Oil prices, natural gas, crude inventories. Falls back to public EIA/FRED tables.
 
 import { safeFetch } from '../utils/fetch.mjs';
+import { energyNumber, energyPeriod, fetchPublicSeries } from './eia-public.mjs';
 import '../utils/env.mjs';
 
 const BASE = 'https://api.eia.gov/v2';
@@ -62,73 +62,58 @@ function buildUrl(apiKey, path, params, length = 10) {
 // Fetch a single EIA series
 export async function fetchSeries(apiKey, seriesDef, length = 10) {
   const url = buildUrl(apiKey, seriesDef.path, seriesDef.params, length);
-  return safeFetch(url);
+  // Leave enough time for the public fallback within the orchestrator's 30s budget.
+  return safeFetch(url, { timeout: 8000, retries: 0 });
 }
 
-// Extract latest value from EIA response
-function extractLatest(resp) {
-  const data = resp?.response?.data;
-  if (!data?.length) return null;
-  return {
-    value: parseFloat(data[0].value),
-    period: data[0].period,
-    unit: data[0]['unit-name'] || data[0].unit || null,
-  };
-}
-
-// Extract recent values for trend analysis
-function extractRecent(resp, count = 5) {
-  const data = resp?.response?.data;
-  if (!data?.length) return [];
-  return data.slice(0, count).map(d => ({
-    value: parseFloat(d.value),
-    period: d.period,
-  }));
+async function loadSeries(apiKey, definition) {
+  const seriesId = definition.params.facets.series[0];
+  if (apiKey) {
+    const response = await fetchSeries(apiKey, definition);
+    const recent = (response?.response?.data || []).map(row => ({
+      value: energyNumber(row.value), period: energyPeriod(row.period),
+      unit: row['unit-name'] || row.unit || row.units || null,
+    })).filter(row => row.value !== null && row.period).sort((a, b) => b.period.localeCompare(a.period)).slice(0, 5);
+    if (recent.length) return { ...recent[0], recent };
+  }
+  // Do not copy provider error text: it can contain the API key or full request URL.
+  const reason = apiKey ? 'EIA API 未返回有效观测，改用同口径公开数据。' : '未配置 EIA API Key，改用同口径公开数据。';
+  try {
+    return await fetchPublicSeries(seriesId, reason);
+  } catch (error) {
+    return { error: `${reason}备用来源暂不可用：${error.name === 'TimeoutError' ? '请求超时' : '请求失败或数据无效'}。` };
+  }
 }
 
 // Briefing — oil prices, gas prices, inventories
 export async function briefing(apiKey) {
-  if (!apiKey) {
-    return {
-      source: 'EIA',
-      error: 'No EIA API key. Register free at https://www.eia.gov/opendata/register.php',
-      hint: 'Set EIA_API_KEY environment variable',
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  const [wtiResp, brentResp, gasResp, inventoryResp] = await Promise.all([
-    fetchSeries(apiKey, OIL_SERIES.wti),
-    fetchSeries(apiKey, OIL_SERIES.brent),
-    fetchSeries(apiKey, GAS_SERIES.henryHub),
-    fetchSeries(apiKey, INVENTORY_SERIES.crudeStocks),
+  const results = await Promise.all([
+    loadSeries(apiKey, OIL_SERIES.wti), loadSeries(apiKey, OIL_SERIES.brent),
+    loadSeries(apiKey, GAS_SERIES.henryHub), loadSeries(apiKey, INVENTORY_SERIES.crudeStocks),
   ]);
+  const ids = ['wti', 'brent', 'naturalGas', 'crudeStocks'];
+  const gaps = Object.fromEntries(results.flatMap((row, i) => row.error ? [[ids[i], row.error]] : []));
+  const [wti, brent, gas, inv] = results.map(row => row.error ? null : row);
+  const spread = wti && brent && wti.period === brent.period ? +(brent.value - wti.value).toFixed(2) : null;
 
   const signals = [];
 
   // Oil prices
-  const wti = extractLatest(wtiResp);
-  const brent = extractLatest(brentResp);
-  const wtiRecent = extractRecent(wtiResp, 5);
-  const brentRecent = extractRecent(brentResp, 5);
-
   if (wti && wti.value > 100) signals.push(`WTI crude above $100 at $${wti.value}/bbl`);
   if (wti && wti.value < 50) signals.push(`WTI crude below $50 at $${wti.value}/bbl — supply glut or demand destruction`);
-  if (brent && wti && (brent.value - wti.value) > 10) {
-    signals.push(`Brent-WTI spread wide at $${(brent.value - wti.value).toFixed(2)} — supply/logistics divergence`);
+  if (spread !== null && spread > 10) {
+    signals.push(`Brent-WTI spread wide at $${spread.toFixed(2)} — supply/logistics divergence`);
   }
 
   // Gas prices
-  const gas = extractLatest(gasResp);
   if (gas && gas.value > 6) signals.push(`Natural gas elevated at $${gas.value}/MMBtu`);
   if (gas && gas.value > 9) signals.push(`Natural gas crisis-level at $${gas.value}/MMBtu`);
 
   // Inventories
-  const inv = extractLatest(inventoryResp);
-  const invRecent = extractRecent(inventoryResp, 5);
+  const invRecent = inv?.recent || [];
 
   // Check week-over-week inventory change
-  if (invRecent.length >= 2) {
+  if (invRecent.length >= 2 && Date.parse(invRecent[0].period) - Date.parse(invRecent[1].period) === 7 * 86400000) {
     const weekChange = invRecent[0].value - invRecent[1].value;
     if (Math.abs(weekChange) > 5000) {
       const direction = weekChange > 0 ? 'build' : 'draw';
@@ -139,10 +124,12 @@ export async function briefing(apiKey) {
   return {
     source: 'EIA',
     timestamp: new Date().toISOString(),
+    gaps,
+    ...(Object.keys(gaps).length === 4 ? { error: '能源 API 与公开备用数据均不可用' } : {}),
     oilPrices: {
-      wti: wti ? { ...wti, label: OIL_SERIES.wti.label, recent: wtiRecent } : null,
-      brent: brent ? { ...brent, label: OIL_SERIES.brent.label, recent: brentRecent } : null,
-      spread: wti && brent ? +(brent.value - wti.value).toFixed(2) : null,
+      wti: wti ? { ...wti, label: OIL_SERIES.wti.label } : null,
+      brent: brent ? { ...brent, label: OIL_SERIES.brent.label } : null,
+      spread,
     },
     gasPrice: gas ? { ...gas, label: GAS_SERIES.henryHub.label } : null,
     inventories: {

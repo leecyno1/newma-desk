@@ -4,15 +4,20 @@ import {
   deskHandoffSchema,
   deskInitSchema,
   deskUiActionRequestSchema,
+  deskVisualContextRequestSchema,
+  MAX_BRIDGE_VISUAL_CAPTURE_BYTES,
   modActionRequestSchema,
+  modAgentRequestSchema,
   modContextSchema,
   modHelloSchema,
   modHandoffResultSchema,
   modUiActionResultSchema,
+  modVisualContextSchema,
   modPageContextSchema,
   type DeskContextRequest,
   type DeskHandoff,
   type DeskInit,
+  type DeskVisualContextRequest,
   type ModPageContext,
   type WikiHandoff,
 } from "@newma-desk/contracts";
@@ -31,6 +36,7 @@ export interface ModHostConfig {
     | "storage"
     | "theme"
     | "handoff"
+    | "visual-context"
   >;
   timeoutMs?: number;
   requestTimeoutMs?: number;
@@ -120,6 +126,20 @@ export type ModContextProvider = () =>
   | ModPageContext
   | Promise<ModPageContext>;
 
+export interface ModVisualCapture {
+  image: Blob | string;
+  width: number;
+  height: number;
+  capturedAt?: string;
+  title?: string;
+}
+
+export type ModVisualCaptureProvider = (request: {
+  reason: "agent" | "refresh";
+  maxBytes: number;
+  mediaTypes: readonly ["image/png"];
+}) => ModVisualCapture | Promise<ModVisualCapture>;
+
 export type ModUiActionHandler = (
   actionId: string,
   input: Record<string, unknown>,
@@ -136,6 +156,7 @@ export type ModHostConnection =
       config: DeskInit;
       subscribe(handler: (config: DeskInit) => void): () => void;
       setContextProvider(provider: ModContextProvider): () => void;
+      setVisualCaptureProvider(provider: ModVisualCaptureProvider): () => void;
       setUiActionHandler(handler: ModUiActionHandler): () => void;
       setHandoffHandler(handler: ModHandoffHandler): () => void;
       publishContext(context: ModPageContext): void;
@@ -143,6 +164,7 @@ export type ModHostConnection =
         actionId: string,
         input?: Record<string, unknown>,
       ): Promise<T>;
+      requestAgent(request?: { prompt?: string; mode?: "ask" | "edit" }): void;
       close(): void;
     };
 
@@ -202,6 +224,104 @@ function standaloneThemeMode(root: HTMLElement): "light" | "dark" {
   return "light";
 }
 
+function compactText(value: unknown, limit: number): string {
+  return typeof value === "string"
+    ? value.replace(/\s+/g, " ").trim().slice(0, limit)
+    : "";
+}
+
+function renderedDomContext(target: Window, modId: string): ModPageContext {
+  const document = target.document;
+  const contentRoot = document?.querySelector?.("main")
+    ?? document?.querySelector?.("#root")
+    ?? document?.body;
+  const title = compactText(
+    contentRoot?.querySelector?.("h1")?.textContent ?? document?.title,
+    160,
+  ) || modId;
+  const pathname = compactText(target.location?.pathname, 100);
+  const viewId = compactText(
+    `${modId}:${pathname || "page"}`.replace(/[^a-zA-Z0-9:_-]+/g, "-"),
+    128,
+  ) || modId;
+  const visibleBlocks = contentRoot?.querySelectorAll
+    ? Array.from(contentRoot.querySelectorAll<HTMLElement>("h1, h2, h3, [role=heading]"))
+      .map((heading, index) => ({
+        id: compactText(heading.id || `${viewId}-heading-${index + 1}`, 128),
+        type: heading.tagName.toLowerCase().slice(0, 80),
+        title: compactText(heading.textContent, 160),
+      }))
+      .filter((heading) => heading.title)
+      .slice(0, 80)
+    : [];
+  let renderedHtml = "";
+  if (contentRoot?.cloneNode) {
+    const clone = contentRoot.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("script, style, noscript, template, svg, canvas, input[type=password], input[type=hidden]")
+      .forEach((element) => element.remove());
+    clone.querySelectorAll<HTMLElement>("[style]")
+      .forEach((element) => element.removeAttribute("style"));
+    renderedHtml = compactText(clone.outerHTML, 24_000);
+  }
+  const location = compactText(
+    `${target.location?.pathname ?? ""}${target.location?.search ?? ""}${target.location?.hash ?? ""}`,
+    1_000,
+  );
+
+  return {
+    view: { id: viewId, title },
+    visibleBlocks,
+    selection: { location },
+    filters: {},
+    data: {
+      source: "newma-module-sdk-rendered-dom",
+      freshness: "unknown",
+      summary: {
+        contextSource: "dom-html-fallback",
+        visibleText: compactText(contentRoot?.textContent, 16_000),
+        renderedHtml,
+        warning: "这是当前已渲染页面的 DOM/HTML 兜底，不是 Manifest，也不等同于结构化业务数据。",
+      },
+    },
+    actions: [],
+    tasks: [],
+  };
+}
+
+function pngDataUrlByteLength(dataUrl: string): number {
+  const prefix = "data:image/png;base64,";
+  if (!dataUrl.startsWith(prefix)) {
+    throw new Error("Visual capture must be a PNG data URL");
+  }
+  const payload = dataUrl.slice(prefix.length);
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.floor((payload.length * 3) / 4) - padding;
+}
+
+async function visualCaptureDataUrl(
+  image: Blob | string,
+  maxBytes: number,
+): Promise<string> {
+  if (typeof image === "string") {
+    if (pngDataUrlByteLength(image) > maxBytes) {
+      throw new Error("Visual capture exceeds the requested size limit");
+    }
+    return image;
+  }
+  if (image.type !== "image/png") {
+    throw new Error("Visual capture must use image/png");
+  }
+  if (image.size <= 0 || image.size > maxBytes) {
+    throw new Error("Visual capture exceeds the requested size limit");
+  }
+  const bytes = new Uint8Array(await image.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 32_768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
+  }
+  return `data:image/png;base64,${globalThis.btoa(binary)}`;
+}
+
 export function connectModHost(
   config: ModHostConfig,
   runtime: ModHostRuntime = defaultRuntime(),
@@ -250,9 +370,9 @@ export function connectModHost(
     let closed = false;
     let activeConfig: DeskInit | undefined;
     let contextProvider: ModContextProvider | undefined;
+    let visualCaptureProvider: ModVisualCaptureProvider | undefined;
     let uiActionHandler: ModUiActionHandler | undefined;
     let handoffHandler: ModHandoffHandler | undefined;
-    const queuedContextRequests: DeskContextRequest[] = [];
     const queuedHandoffs: DeskHandoff[] = [];
     const subscriptions = new Set<(config: DeskInit) => void>();
     const pendingActions = new Map<
@@ -274,8 +394,8 @@ export function connectModHost(
       runtime.window.removeEventListener("message", handleMessage);
       config.signal?.removeEventListener("abort", handleAbort);
       subscriptions.clear();
-      queuedContextRequests.length = 0;
       queuedHandoffs.length = 0;
+      visualCaptureProvider = undefined;
       uiActionHandler = undefined;
       handoffHandler = undefined;
       for (const pending of pendingActions.values()) {
@@ -304,14 +424,76 @@ export function connectModHost(
       );
     };
     const respondWithContext = async (contextRequest: DeskContextRequest) => {
-      if (!contextProvider) {
-        queuedContextRequests.splice(0, queuedContextRequests.length, contextRequest);
+      try {
+        const context = contextProvider
+          ? await contextProvider()
+          : renderedDomContext(runtime.window, config.modId);
+        publishContext(context, contextRequest.requestId);
+      } catch {
+        publishContext(
+          renderedDomContext(runtime.window, config.modId),
+          contextRequest.requestId,
+        );
+      }
+    };
+    const respondWithVisualContext = async (
+      visualRequest: DeskVisualContextRequest,
+    ) => {
+      if (
+        !config.capabilities?.includes("visual-context") ||
+        !visualCaptureProvider
+      ) {
+        post(modVisualContextSchema.parse({
+          type: "vibedesk:visual-context",
+          requestId: visualRequest.requestId,
+          instanceId: visualRequest.instanceId,
+          modId: visualRequest.modId,
+          ok: false,
+          error: {
+            code: "visual_context_unavailable",
+            message: "Mod visual capture provider is unavailable",
+          },
+        }));
         return;
       }
       try {
-        publishContext(await contextProvider(), contextRequest.requestId);
-      } catch {
-        // A failed provider must not leak application errors across origins.
+        const capture = await visualCaptureProvider({
+          reason: visualRequest.reason,
+          maxBytes: visualRequest.maxBytes,
+          mediaTypes: visualRequest.mediaTypes,
+        });
+        const dataUrl = await visualCaptureDataUrl(
+          capture.image,
+          Math.min(visualRequest.maxBytes, MAX_BRIDGE_VISUAL_CAPTURE_BYTES),
+        );
+        post(modVisualContextSchema.parse({
+          type: "vibedesk:visual-context",
+          requestId: visualRequest.requestId,
+          instanceId: visualRequest.instanceId,
+          modId: visualRequest.modId,
+          ok: true,
+          capture: {
+            dataUrl,
+            width: capture.width,
+            height: capture.height,
+            capturedAt: capture.capturedAt ?? new Date().toISOString(),
+            ...(capture.title ? { title: capture.title } : {}),
+          },
+        }));
+      } catch (reason) {
+        post(modVisualContextSchema.parse({
+          type: "vibedesk:visual-context",
+          requestId: visualRequest.requestId,
+          instanceId: visualRequest.instanceId,
+          modId: visualRequest.modId,
+          ok: false,
+          error: {
+            code: "visual_context_failed",
+            message: reason instanceof Error
+              ? reason.message.slice(0, 500)
+              : "Mod visual capture failed",
+          },
+        }));
       }
     };
     const respondToHandoff = async (request: DeskHandoff) => {
@@ -359,10 +541,15 @@ export function connectModHost(
         setContextProvider(provider: ModContextProvider) {
           if (closed) throw new Error("Newma-Desk host connection is closed");
           contextProvider = provider;
-          const queued = queuedContextRequests.splice(0);
-          for (const request of queued) void respondWithContext(request);
           return () => {
             if (contextProvider === provider) contextProvider = undefined;
+          };
+        },
+        setVisualCaptureProvider(provider: ModVisualCaptureProvider) {
+          if (closed) throw new Error("Newma-Desk host connection is closed");
+          visualCaptureProvider = provider;
+          return () => {
+            if (visualCaptureProvider === provider) visualCaptureProvider = undefined;
           };
         },
         setUiActionHandler(handler: ModUiActionHandler) {
@@ -384,6 +571,23 @@ export function connectModHost(
         publishContext(context: ModPageContext) {
           if (closed) throw new Error("Newma-Desk host connection is closed");
           publishContext(context);
+        },
+        requestAgent(
+          request: { prompt?: string; mode?: "ask" | "edit" } = {},
+        ) {
+          if (closed || !activeConfig) {
+            throw new Error("Newma-Desk host connection is closed");
+          }
+          if (!activeConfig.runtime) {
+            throw new Error("Agent Runtime is unavailable");
+          }
+          post(modAgentRequestSchema.parse({
+            type: "vibedesk:copilot-open",
+            instanceId: activeConfig.instanceId,
+            modId: activeConfig.modId,
+            mode: request.mode ?? "ask",
+            ...(request.prompt ? { prompt: request.prompt } : {}),
+          }));
         },
         invokeAction<T = unknown>(
           actionId: string,
@@ -467,6 +671,17 @@ export function connectModHost(
         contextRequest.data.instanceId === activeConfig.instanceId
       ) {
         void respondWithContext(contextRequest.data);
+        return;
+      }
+
+      const visualRequest = deskVisualContextRequestSchema.safeParse(message.data);
+      if (
+        visualRequest.success &&
+        activeConfig &&
+        visualRequest.data.modId === activeConfig.modId &&
+        visualRequest.data.instanceId === activeConfig.instanceId
+      ) {
+        void respondWithVisualContext(visualRequest.data);
         return;
       }
 

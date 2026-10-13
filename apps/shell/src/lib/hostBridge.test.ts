@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   newmaHostIdentityFromLocation,
   parseNewmaHostContextRequest,
+  parseNewmaHostVisualContextRequest,
+  postNewmaHostAgentRequest,
   postNewmaHostContext,
+  postNewmaHostVisualContext,
 } from "./hostBridge";
 
 describe("Newma host bridge", () => {
@@ -96,5 +99,66 @@ describe("Newma host bridge", () => {
       "/?host=newma&project=market-surface&workspace=newma-mod-market-123&parentOrigin=http%3A%2F%2Fevil.example",
     );
     expect(newmaHostIdentityFromLocation()).toBeNull();
+  });
+
+  it("forwards visual fallback and Agent drafts to the owning Newma runtime", () => {
+    const identity = {
+      projectId: "market-surface",
+      workspaceId: "newma-mod-market-123",
+      parentOrigin: "https://newma.example",
+      parentMessageOrigin: "https://newma.example",
+      parentTargetOrigin: "https://newma.example",
+    };
+    expect(parseNewmaHostVisualContextRequest({
+      type: "newma:mod-visual-context-request",
+      protocol: "newma:mod-host:v1",
+      requestId: "visual-1",
+      projectId: identity.projectId,
+      modId: "market-daily",
+      workspaceId: identity.workspaceId,
+      reason: "agent",
+      maxBytes: 5 * 1024 * 1024,
+    })).toMatchObject({ requestId: "visual-1", reason: "agent" });
+
+    const target = { postMessage: vi.fn() } as unknown as Window;
+    postNewmaHostVisualContext({
+      identity,
+      modId: "market-daily",
+      requestId: "visual-1",
+      target,
+      capture: {
+        dataUrl: "data:image/png;base64,iVBORw==",
+        width: 1280,
+        height: 720,
+        capturedAt: "2026-08-29T08:00:00+08:00",
+        title: "当前市场曲面",
+      },
+    });
+    postNewmaHostAgentRequest({
+      identity,
+      modId: "market-daily",
+      request: { mode: "ask", prompt: "分析当前页面" },
+      target,
+    });
+
+    expect(target.postMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        type: "newma:mod-visual-context",
+        requestId: "visual-1",
+        ok: true,
+        capture: expect.objectContaining({ title: "当前市场曲面" }),
+      }),
+      identity.parentTargetOrigin,
+    );
+    expect(target.postMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        type: "newma:agent-request",
+        mode: "ask",
+        prompt: "分析当前页面",
+      }),
+      identity.parentTargetOrigin,
+    );
   });
 });

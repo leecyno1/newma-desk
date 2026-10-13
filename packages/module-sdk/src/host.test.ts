@@ -400,6 +400,11 @@ describe("connectModHost", () => {
         model: "https://desk.example/api/model",
         data: "https://desk.example/api/data-services",
       },
+      runtime: {
+        owner: "newma",
+        aiExecution: "host",
+        requestMessage: "vibedesk:copilot-open",
+      },
       grants: { permissions: ["market.read"], actions: ["market.explain"] },
     } as const;
     dispatch({
@@ -425,6 +430,17 @@ describe("connectModHost", () => {
       "https://desk.example",
     );
     if (!resolved.embedded) throw new Error("expected embedded connection");
+    resolved.requestAgent({ mode: "edit", prompt: "优化当前画布" });
+    expect(parent.postMessage).toHaveBeenCalledWith(
+      {
+        type: "vibedesk:copilot-open",
+        instanceId: "instance-1",
+        modId: "market-daily",
+        mode: "edit",
+        prompt: "优化当前画布",
+      },
+      "https://desk.example",
+    );
     const update = vi.fn();
     resolved.subscribe(update);
     dispatch({
@@ -439,6 +455,39 @@ describe("connectModHost", () => {
       expect.objectContaining({
         environment: expect.objectContaining({ theme: "light" }),
       }),
+    );
+    resolved.close();
+  });
+
+  it("rejects Agent requests when the host did not attach an Agent Runtime", async () => {
+    const { parent, runtime, dispatch } = embeddedRuntime();
+    const connection = connectModHost(
+      { modId: "market-daily", parentOrigin: "https://desk.example" },
+      runtime,
+    );
+    dispatch({
+      origin: "https://desk.example",
+      source: parent,
+      data: {
+        type: "vibedesk:init",
+        protocolVersion: "1.0",
+        instanceId: "instance-local",
+        modId: "market-daily",
+        user: { id: "alice" },
+        workspace: { id: "default" },
+        environment: { theme: "dark", locale: "zh-CN", timezone: "Asia/Shanghai" },
+        gateways: {
+          actions: "https://desk.example/api/mods/market-daily/actions",
+          data: "https://desk.example/api/data-services",
+        },
+        grants: { permissions: [], actions: [] },
+      },
+    } as MessageEvent);
+
+    const resolved = await connection;
+    if (!resolved.embedded) throw new Error("expected embedded connection");
+    expect(() => resolved.requestAgent({ prompt: "分析当前页" })).toThrow(
+      "Agent Runtime is unavailable",
     );
     resolved.close();
   });
@@ -627,6 +676,140 @@ describe("connectModHost", () => {
     } as MessageEvent);
 
     await expect(action).resolves.toEqual({ id: "task-1" });
+    connection.close();
+  });
+
+  it("returns a current visual capture through the optional provider", async () => {
+    const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
+    const pending = connectModHost(
+      {
+        modId: "market-daily",
+        parentOrigin: "https://desk.example",
+        capabilities: ["context", "visual-context"],
+      },
+      runtime,
+    );
+    dispatch({
+      origin: "https://desk.example",
+      source: parent,
+      data: {
+        type: "vibedesk:init",
+        protocolVersion: "1.0",
+        instanceId: "instance-visual",
+        modId: "market-daily",
+        user: { id: "alice" },
+        workspace: { id: "desk-1" },
+        environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+        gateways: {
+          actions: "https://desk.example/api/mods/market-daily/actions",
+          agent: "https://desk.example/api/agent",
+          model: "https://desk.example/api/model",
+          data: "https://desk.example/api/data-services",
+        },
+        grants: { permissions: [], actions: [] },
+      },
+    } as MessageEvent);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+    connection.setVisualCaptureProvider(() => ({
+      image: "data:image/png;base64,iVBORw==",
+      width: 1280,
+      height: 720,
+      title: "当前市场曲面",
+    }));
+
+    dispatch({
+      origin: "https://desk.example",
+      source: parent,
+      data: {
+        type: "vibedesk:visual-context-request",
+        requestId: "visual-1",
+        instanceId: "instance-visual",
+        modId: "market-daily",
+        reason: "agent",
+        maxBytes: 5 * 1024 * 1024,
+        mediaTypes: ["image/png"],
+      },
+    } as MessageEvent);
+
+    await vi.waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "vibedesk:visual-context",
+          requestId: "visual-1",
+          ok: true,
+          capture: expect.objectContaining({
+            dataUrl: "data:image/png;base64,iVBORw==",
+            width: 1280,
+            height: 720,
+          }),
+        }),
+        "https://desk.example",
+      );
+    });
+    connection.close();
+  });
+
+  it("returns rendered DOM fallback when no page context provider is registered", async () => {
+    const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
+    const pending = connectModHost(
+      {
+        modId: "workflow-designer",
+        parentOrigin: "https://desk.example",
+        capabilities: ["context"],
+      },
+      runtime,
+    );
+    dispatch({
+      origin: "https://desk.example",
+      source: parent,
+      data: {
+        type: "vibedesk:init",
+        protocolVersion: "1.0",
+        instanceId: "instance-fallback",
+        modId: "workflow-designer",
+        user: { id: "alice" },
+        workspace: { id: "desk-1" },
+        environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+        gateways: {
+          actions: "https://desk.example/api/mods/workflow-designer/actions",
+          agent: "https://desk.example/api/agent",
+          model: "https://desk.example/api/model",
+          data: "https://desk.example/api/data-services",
+        },
+        grants: { permissions: [], actions: [] },
+      },
+    } as MessageEvent);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+
+    dispatch({
+      origin: "https://desk.example",
+      source: parent,
+      data: {
+        type: "vibedesk:context-request",
+        requestId: "context-fallback",
+        instanceId: "instance-fallback",
+        modId: "workflow-designer",
+        reason: "agent",
+      },
+    } as MessageEvent);
+    await Promise.resolve();
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vibedesk:context",
+        requestId: "context-fallback",
+        context: expect.objectContaining({
+          view: { id: "workflow-designer:page", title: "workflow-designer" },
+          data: expect.objectContaining({
+            source: "newma-module-sdk-rendered-dom",
+            summary: expect.objectContaining({ contextSource: "dom-html-fallback" }),
+          }),
+        }),
+      }),
+      "https://desk.example",
+    );
     connection.close();
   });
 

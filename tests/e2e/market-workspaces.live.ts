@@ -247,7 +247,7 @@ test.describe("Newma-Desk chart workspace Mods", () => {
     expect(errors).toEqual([]);
   });
 
-  test("replays security selection into another Mod and persists structured Agent context", async ({ page, request }) => {
+  test("replays security selection into another Mod and persists structured Context", async ({ page, request }) => {
     const errors = collectConsoleErrors(page);
     await page.goto(`${shellOrigin}/?mod=market-sentiment`);
     const sentiment = embeddedWorkspace(page, "market-sentiment");
@@ -259,8 +259,7 @@ test.describe("Newma-Desk chart workspace Mods", () => {
       .click();
     const multi = embeddedWorkspace(page, "multi-timeframe");
     await expect(multi.getByText("中芯国际", { exact: true }).first()).toBeVisible();
-    await page.getByRole("button", { name: "问当前 Mod" }).click();
-    await expect(page.getByRole("complementary", { name: "多周期分析 Agent" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "问当前 Mod" })).toHaveCount(0);
 
     await expect.poll(async () => {
       return page.evaluate(() => ({

@@ -113,7 +113,7 @@ metric + operator + value + rationale
 
 ## 8. Agent Context
 
-右侧 Desk Agent 可以读取当前候选的筛选方法、正反假设、信号、评分、风险、催化剂、任务、来源、缺口与交接状态。
+右侧 Newma Agent 可以读取当前候选的筛选方法、正反假设、信号、评分、风险、催化剂、任务、来源、缺口与交接状态。
 
 默认问题组：
 

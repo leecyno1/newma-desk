@@ -1,3 +1,8 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from services.fund_evaluation_methodology import FundEvaluationMethodology
 from services.fund_evaluation_service import FundEvaluationService
 

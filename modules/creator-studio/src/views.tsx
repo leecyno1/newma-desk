@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   Clock3,
   Database,
+  ExternalLink,
   FileOutput,
   FileUp,
   Gauge,
@@ -39,7 +40,6 @@ import type {
   SnapshotNode,
   SnapshotStage,
 } from "./types";
-import type { DeskAgentPreferences } from "./api";
 
 function parseOpenChatCutProjectId(value: string): string | undefined {
   const input = value.trim();
@@ -568,6 +568,7 @@ export function WorkbenchView({
   onCreate,
   fetchPreview,
   openArtifact,
+  requestAgent,
 }: {
   snapshot?: CreatorSnapshot;
   selectedStage?: SnapshotStage;
@@ -577,6 +578,7 @@ export function WorkbenchView({
   onCreate(): void;
   fetchPreview?(path: string): Promise<{ content?: string }>;
   openArtifact?(path: string, label?: string): void;
+  requestAgent?(request: { mode: "ask" | "edit"; prompt: string }): void;
 }) {
   const [tab, setTab] = useState<(typeof WORKSPACE_TABS)[number][0]>("status");
   const [materialType, setMaterialType] = useState("");
@@ -584,6 +586,7 @@ export function WorkbenchView({
   const [artifactType, setArtifactType] = useState("");
   const [artifactPath, setArtifactPath] = useState("");
   const [selectedEditorId, setSelectedEditorId] = useState("");
+  const [embeddedEditorUrl, setEmbeddedEditorUrl] = useState("");
   const [editorOutputType, setEditorOutputType] = useState("");
   const [editorOutputPath, setEditorOutputPath] = useState("");
   const [agentPrompt, setAgentPrompt] = useState("请根据当前分镜、素材清单和节点反馈完成剪辑，先生成可审核提案，不要直接改正式时间线。");
@@ -627,6 +630,17 @@ export function WorkbenchView({
     selectedNode?.editorSession?.externalProject?.projectId,
     selectedNode?.id,
     snapshot?.run.title,
+  ]);
+
+  useEffect(() => {
+    const launch = selectedNode?.editorSession?.launch;
+    setEmbeddedEditorUrl(
+      launch?.embedMode === "iframe" && launch.launchUrl ? launch.launchUrl : "",
+    );
+  }, [
+    selectedNode?.id,
+    selectedNode?.editorSession?.launch?.embedMode,
+    selectedNode?.editorSession?.launch?.launchUrl,
   ]);
 
   useEffect(() => {
@@ -734,8 +748,11 @@ export function WorkbenchView({
     const node = next.stages
       .find((stage) => stage.id === selectedStage.id)
       ?.nodes.find((item) => item.id === selectedNode.id);
-    const launchUrl = node?.editorSession?.launch?.launchUrl;
-    if (launchUrl) window.open(launchUrl, "_blank", "noopener,noreferrer");
+    const launch = node?.editorSession?.launch;
+    if (launch?.launchUrl) {
+      if (launch.embedMode === "iframe") setEmbeddedEditorUrl(launch.launchUrl);
+      else window.open(launch.launchUrl, "_blank", "noopener,noreferrer");
+    }
   };
   const saveEditor = async (event: FormEvent) => {
     event.preventDefault();
@@ -747,6 +764,7 @@ export function WorkbenchView({
     setEditorOutputPath("");
   };
   const startAgentEdit = async () => {
+    if (!requestAgent) return;
     const externalProjectId = selectedEditorId === "openchatcut" ? currentProjectId() : "";
     if (externalProjectId === null) return;
     const next = await dispatch("creator.editor.start-agent", {
@@ -760,13 +778,12 @@ export function WorkbenchView({
     const node = next.stages
       .find((stage) => stage.id === selectedStage.id)
       ?.nodes.find((item) => item.id === selectedNode.id);
-    const launchUrl = node?.editorSession?.launch?.launchUrl;
-    if (launchUrl) window.open(launchUrl, "_blank", "noopener,noreferrer");
-    window.parent.postMessage({
-      type: "vibedesk:copilot-open",
-      mode: "edit",
-      prompt: agentPrompt.trim(),
-    }, "*");
+    const launch = node?.editorSession?.launch;
+    if (launch?.launchUrl) {
+      if (launch.embedMode === "iframe") setEmbeddedEditorUrl(launch.launchUrl);
+      else window.open(launch.launchUrl, "_blank", "noopener,noreferrer");
+    }
+    requestAgent({ mode: "edit", prompt: agentPrompt.trim() });
   };
   const reviewProposal = async (decision: "applied" | "rejected") => {
     await dispatch("creator.editor.review-proposal", {
@@ -1081,6 +1098,25 @@ export function WorkbenchView({
 
             {tab === "editor" && (
               <div className="split-panel">
+                {embeddedEditorUrl && (
+                  <section className="embedded-editor-shell full">
+                    <header>
+                      <div>
+                        <span>OPENCHATCUT TIMELINE</span>
+                        <h3>节点内剪辑台</h3>
+                        <small>可视化时间线与 Newma Agent 操作同一个工程</small>
+                      </div>
+                      <a className="secondary-button" href={embeddedEditorUrl} target="_blank" rel="noreferrer">
+                        <ExternalLink size={14} />独立打开
+                      </a>
+                    </header>
+                    <iframe
+                      title="OpenChatCut 内嵌剪辑台"
+                      src={embeddedEditorUrl}
+                      allow="clipboard-read; clipboard-write; microphone; camera; fullscreen"
+                    />
+                  </section>
+                )}
                 <section className="workspace-card action-form">
                   <div className="section-heading compact"><div><span>HUMAN EDIT</span><h3>人工时间线</h3></div><Wrench size={18} /></div>
                   {!selectedNode.editorSession ? (
@@ -1129,7 +1165,8 @@ export function WorkbenchView({
                         <li>你在编辑器审核后一次提交或拒绝</li>
                       </ol>
                       <label className="field"><span>本次剪辑要求</span><textarea rows={4} value={agentPrompt} onChange={(event) => setAgentPrompt(event.target.value)} /></label>
-                      <button className="primary-button" disabled={busy || !canRunAction(selectedNode, "creator.editor.start-agent")} onClick={() => void startAgentEdit()}><MessageSquareText size={15} />打开编辑器与 Agent</button>
+                      <button className="primary-button" disabled={busy || !requestAgent || !canRunAction(selectedNode, "creator.editor.start-agent")} onClick={() => void startAgentEdit()}><MessageSquareText size={15} />打开编辑器与 Agent</button>
+                      {!requestAgent && <small className="quiet-card">AI 剪辑需要从 Newma Runtime 中打开 Creator Studio。</small>}
                     </>
                   ) : <p className="quiet-card">当前编辑器没有注册 Agent 协同接口，请选择 OpenChatCut。</p>}
                 </section>
@@ -1635,177 +1672,81 @@ export function MarketplaceView({
 export function SettingsView({
   system,
   capabilities,
-  deskAgentPreferences,
-  onSyncAgent,
   busy,
   dispatch,
 }: {
   system?: Record<string, unknown>;
   capabilities?: CapabilityDetection;
-  deskAgentPreferences?: DeskAgentPreferences;
-  onSyncAgent?: (agentId: string) => Promise<void>;
   busy: boolean;
   dispatch: ActionDispatcher;
 }) {
-  const [selectedAgent, setSelectedAgent] = useState<string>(() =>
-    typeof window !== "undefined" ? localStorage.getItem("newma.creator-studio.selected-agent") || "" : ""
-  );
-  const [binOverride, setBinOverride] = useState<string>(() =>
-    typeof window !== "undefined" ? localStorage.getItem("newma.creator-studio.agent-bin-override") || "" : ""
-  );
-  const [testResults, setTestResults] = useState<Record<string, { status: string; msg: string; ms?: number }>>({});
-  const [testingId, setTestingId] = useState<string>("");
-  const [syncMessage, setSyncMessage] = useState<string>("");
-
-  const deskAdapterToCreatorAgent: Record<string, string> = {
-    "codex-cli": "codex",
-    "claude-cli": "claude",
-    "gemini-cli": "gemini",
-    "hermes-webui": "hermes",
-  };
-
-  useEffect(() => {
-    const deskAdapter = deskAgentPreferences?.profileTargets?.edit
-      || deskAgentPreferences?.defaultAdapter
-      || "";
-    const mapped = deskAdapterToCreatorAgent[deskAdapter];
-    if (!mapped || (selectedAgent && !deskAgentPreferences?.updatedAt)) return;
-    setSelectedAgent(mapped);
-    localStorage.setItem("newma.creator-studio.selected-agent", mapped);
-  }, [deskAgentPreferences, selectedAgent]);
-
-  const selectAgent = (agentId: string) => {
-    setSelectedAgent(agentId);
-    localStorage.setItem("newma.creator-studio.selected-agent", agentId);
-    setSyncMessage("");
-    if (!agentId || !onSyncAgent) return;
-    void onSyncAgent(agentId)
-      .then(() => setSyncMessage("已同步到 Desk Agent 的编码修改路由"))
-      .catch((reason) => setSyncMessage(`本地选择已保存，Desk 同步失败：${reason instanceof Error ? reason.message : "未知错误"}`));
-  };
-  const updateBinOverride = (val: string) => {
-    setBinOverride(val);
-    if (val.trim()) localStorage.setItem("newma.creator-studio.agent-bin-override", val.trim());
-    else localStorage.removeItem("newma.creator-studio.agent-bin-override");
-  };
-  const testAgent = async (agentId: string) => {
-    setTestingId(agentId);
-    try {
-      const result = await dispatch("creator.agent.test", { agentId, binOverride }) as unknown as {
-        status: string; stdout?: string; stderr?: string; duration_ms?: number;
-      };
-      const ok = result?.status === "succeeded" && (result?.stdout || "").includes("AGENT_TEST_OK");
-      setTestResults((prev) => ({
-        ...prev,
-        [agentId]: {
-          status: ok ? "ok" : "fail",
-          msg: ok ? "测试通过" : (result?.stderr?.slice(0, 100) || result?.stdout?.slice(0, 100) || "未收到预期响应"),
-          ms: result?.duration_ms,
-        },
-      }));
-    } catch (err) {
-      setTestResults((prev) => ({
-        ...prev,
-        [agentId]: { status: "fail", msg: err instanceof Error ? err.message.slice(0, 100) : "测试失败" },
-      }));
-    } finally {
-      setTestingId("");
-    }
-  };
-
   useEffect(() => {
     if (!capabilities && !busy) {
       void dispatch("creator.capability.detect");
     }
   }, [busy, capabilities, dispatch]);
 
+  const localTools = capabilities?.capabilities.filter(
+    (item) => item.mode !== "output_only" && item.mode !== "detect_only",
+  ) ?? [];
+
   return (
     <div className="settings-view">
       <section className="settings-hero">
-        <div data-mod-page-title><span className="eyebrow">PROJECT CONTROL</span><h1>Creator Studio 设置</h1><p>选择默认 Agent CLI，所有节点执行将使用您指定的本地 Agent。</p></div>
+        <div data-mod-page-title><span className="eyebrow">PROJECT CONTROL</span><h1>Creator Studio 设置</h1><p>这里只管理创作项目与确定性执行依赖；Agent、模型、Skills 和会话统一由 Newma Runtime 管理。</p></div>
         <button className="primary-button" disabled={busy} onClick={() => void dispatch("creator.capability.detect")}><Gauge size={16} />刷新检测</button>
       </section>
 
-      <section className="capability-board agent-selector">
-        <div className="section-heading"><div><span>DEFAULT AGENT</span><h2>选择工作流 Agent</h2></div><small>{selectedAgent ? `当前: ${selectedAgent}` : "未选择（将自动按优先级匹配）"}</small></div>
-        {deskAgentPreferences && (
-          <p className="agent-hint">Desk 当前编码路由：{deskAgentPreferences.profileTargets?.edit || deskAgentPreferences.defaultAdapter}。Creator 选择会同步到这里。</p>
-        )}
-        {syncMessage && <p className="agent-hint">{syncMessage}</p>}
-        <p className="agent-hint">点击已安装的 Agent 设为默认。所有阶段的 CLI 调用将使用所选 Agent。未选择时按 qoder-cli → claude → codex → gemini 顺序自动匹配。<br />
-          <span className="legend-inline"><span className="legend-dot legend-dot-green" /> 已安装可用</span>
-          <span className="legend-inline"><span className="legend-dot legend-dot-yellow" /> 有问题</span>
-          <span className="legend-inline"><span className="legend-dot legend-dot-red" /> 未安装</span>
-        </p>
+      <section className="capability-board">
+        <div className="section-heading"><div><span>RUNTIME OWNERSHIP</span><h2>执行权分工</h2></div><small>单一 Agent Runtime</small></div>
+        <div className="settings-grid">
+          <article className="workspace-card">
+            <div className="section-heading compact"><div><span>NEWMA</span><h3>Agent Runtime</h3></div><CircleDot size={18} /></div>
+            <p className="agent-hint">负责模型、Agent、会话、记忆、Skills 与工具权限。Creator 节点需要 AI 时，只提交页面 Context 和执行请求。</p>
+          </article>
+          <article className="workspace-card">
+            <div className="section-heading compact"><div><span>DESK</span><h3>Creator Run Control</h3></div><Workflow size={18} /></div>
+            <p className="agent-hint">负责素材、节点状态、审核、交付物、编辑器会话和发布回执，不保存第二套 Agent 配置。</p>
+          </article>
+        </div>
+      </section>
+
+      <section className="capability-board">
+        <div className="section-heading"><div><span>LOCAL TOOLS</span><h2>确定性执行依赖</h2></div><small>{localTools.filter((item) => item.available).length} / {localTools.length} 可用</small></div>
+        <p className="agent-hint">这里只检测渲染、媒体处理等本地工具，不检测或调用 Codex、Claude、Gemini 等 Agent CLI。</p>
         <div className="capability-grid agent-grid">
-          {capabilities?.capabilities.map((item) => {
+          {localTools.map((item) => {
             let status: "available" | "warning" | "unavailable";
             if (!item.available) {
               status = "unavailable";
-            } else if (!item.version || !item.path || item.mode === "detect_only" || item.mode === "media_runtime") {
+            } else if (!item.version || !item.path) {
               status = "warning";
             } else {
               status = "available";
             }
-            const canSelect = status === "available";
             return (
               <article
-                className={`agent-status-${status} ${status === "available" ? "available" : status === "warning" ? "warning" : "unavailable"} ${selectedAgent === item.id ? "selected-agent" : ""}`}
+                className={`agent-status-${status} ${status === "available" ? "available" : status === "warning" ? "warning" : "unavailable"}`}
                 key={item.id}
-                onClick={canSelect ? () => selectAgent(item.id) : undefined}
-                style={canSelect ? { cursor: "pointer" } : undefined}
               >
                 <div>
-                  {selectedAgent === item.id
-                    ? <Check size={16} className="status-icon status-icon-selected" />
-                    : status === "available"
-                      ? <CircleDot size={16} className="status-icon status-icon-green" />
-                      : status === "warning"
-                        ? <CircleAlert size={16} className="status-icon status-icon-yellow" />
-                        : <CircleAlert size={16} className="status-icon status-icon-red" />}
+                  {status === "available"
+                    ? <CircleDot size={16} className="status-icon status-icon-green" />
+                    : status === "warning"
+                      ? <CircleAlert size={16} className="status-icon status-icon-yellow" />
+                      : <CircleAlert size={16} className="status-icon status-icon-red" />}
                   <strong>{item.name}</strong>
                 </div>
                 <span>{item.mode}</span>
                 <small>{item.version || (item.available ? "已检测（信息不全）" : "未安装")}</small>
-                {item.path && <small className="agent-path">{item.path}</small>}
+                {item.path && <small className="agent-path">可执行文件：{item.path.split(/[\\/]/).filter(Boolean).at(-1)}</small>}
                 {item.stages?.length ? <div className="agent-stages">{item.stages.slice(0, 4).map((s) => <span key={s}>{s}</span>)}</div> : null}
-                {status === "available" && (
-                  <div className="agent-test-row" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      className="text-button agent-test-btn"
-                      disabled={testingId === item.id}
-                      onClick={(e) => { e.stopPropagation(); void testAgent(item.id); }}
-                    >
-                      {testingId === item.id ? "测试中…" : "测试"}
-                    </button>
-                    {testResults[item.id] && (
-                      <span className={`agent-test-result agent-test-${testResults[item.id].status}`}>
-                        {testResults[item.id].status === "ok" ? "✓" : "✗"} {testResults[item.id].msg}
-                        {testResults[item.id].ms ? ` (${testResults[item.id].ms}ms)` : ""}
-                      </span>
-                    )}
-                  </div>
-                )}
               </article>
             );
-          }) ?? <p className="quiet-card">正在检测本地 CLI…</p>}
+          })}
+          {!capabilities ? <p className="quiet-card">正在检测本地执行依赖…</p> : null}
+          {capabilities && localTools.length === 0 ? <p className="quiet-card">当前没有需要单独配置的本地执行依赖。</p> : null}
         </div>
-        {selectedAgent && (
-          <button className="text-button" onClick={() => selectAgent("")}>清除选择（恢复自动匹配）</button>
-        )}
-        {selectedAgent && (
-          <div className="agent-bin-override">
-            <label>
-              <small>自定义 binary 路径（可选，覆盖自动检测）</small>
-              <input
-                type="text"
-                value={binOverride}
-                onChange={(e) => updateBinOverride(e.target.value)}
-                placeholder={`例: /usr/local/bin/${selectedAgent}`}
-              />
-            </label>
-          </div>
-        )}
       </section>
 
       <div className="settings-grid">

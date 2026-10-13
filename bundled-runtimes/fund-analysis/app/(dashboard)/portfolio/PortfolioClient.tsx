@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useFundPageData } from '@/lib/newma-desk/page-data'
+import { portfolioEvidence, portfolioHistoryVerified, portfolioHistoryUnavailable } from '@/lib/portfolio-evidence'
 import {
   BadgeCheck,
   ClipboardList,
@@ -74,24 +76,28 @@ type Analysis = {
   }
   style_aggregate: {
     status: string
-    coverage: number
+    coverage: number | null
     coverage_note?: string
     reason?: string
-    factors?: Array<{ factor: string; label: string; unit: string | null; weighted_exposure: number }>
+    factors?: Array<{ factor: string; label: string; unit: string | null; weighted_exposure: number | null; coverage?: number; quarters?: string[]; undated?: boolean; status?: string }>
   }
   correlation: {
     status: string
     lookback_days: number
+    methodology_version?: string
+    nav_basis?: string
+    note?: string
     reason?: string
-    pairs?: Array<{ fund_a: string; fund_b: string; correlation: number | null; overlap_days: number; status: string }>
+    pairs?: Array<{ fund_a: string; fund_b: string; correlation: number | null; overlap_days: number; return_intervals?: number; start_date?: string | null; end_date?: string | null; status: string }>
   }
   boundary: string
 }
 
 type PerfMetrics = {
   cumulative_return: number
-  annualized_return: number
-  annualized_volatility: number
+  annualized_return: number | null
+  annualized_volatility: number | null
+  volatility_note?: string
   max_drawdown: number
   sample_days: number
   start_date: string | null
@@ -100,9 +106,11 @@ type PerfMetrics = {
 
 type Backtest = {
   status: string
+  methodology_version?: string
+  nav_basis?: string
   reason?: string
   weights_basis?: string
-  sample?: { days: number; start_date: string; end_date: string; lookback_days: number }
+  sample?: { days: number; start_date: string; end_date: string; lookback_days: number; return_intervals?: number; omitted_union_dates?: number; data_lag_calendar_days?: number }
   metrics?: PerfMetrics
   curve?: Array<{ date: string; value: number }>
   benchmark?: {
@@ -112,6 +120,8 @@ type Backtest = {
     name?: string | null
     status: string
     basis_note?: string
+    reason?: string
+    aligned_to_portfolio?: boolean
     metrics?: PerfMetrics
     excess_return?: number
   }
@@ -122,14 +132,16 @@ type Monitor = {
   status: string
   summary?: string
   rebalance_threshold?: number
-  rebalance_needed?: boolean
+  rebalance_needed?: boolean | null
+  target_assessable?: boolean
+  weights_basis?: string
   target_deviations?: Array<{
     peer_group_key: string
     peer_group_name: string | null
-    target_weight: number
-    actual_weight: number
-    deviation: number
-    needs_rebalance: boolean
+    target_weight: number | null
+    actual_weight: number | null
+    deviation: number | null
+    needs_rebalance: boolean | null
   }>
   style_drifts?: Array<{
     wind_code: string
@@ -138,6 +150,8 @@ type Monitor = {
     level: string | null
     label: string | null
     note: string
+    previous_quarter?: string | null
+    latest_quarter?: string | null
   }>
   drift_alerts?: Array<{ wind_code: string; level: string | null; label: string | null }>
   boundary?: string
@@ -145,6 +159,7 @@ type Monitor = {
 
 type TradeList = {
   status: string
+  reason?: string
   total_amount?: number | null
   items?: Array<{
     wind_code: string
@@ -212,9 +227,31 @@ export default function PortfolioClient() {
   const [tradeInput, setTradeInput] = useState('')
   const [tradeAmount, setTradeAmount] = useState('')
   const [tradeLoading, setTradeLoading] = useState(false)
+  const [listLoading, setListLoading] = useState(true)
+  const [listError, setListError] = useState('')
+  const [analysisError, setAnalysisError] = useState('')
+  const [backtestError, setBacktestError] = useState('')
+  const [monitorError, setMonitorError] = useState('')
+  const [tradeError, setTradeError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [backtestApplied, setBacktestApplied] = useState<number | null>(null)
+  const [tradeApplied, setTradeApplied] = useState<{ positions: string; amount: string } | null>(null)
+  const revision = useRef(0)
+  const listRequest = useRef(0)
+  const backtestRequest = useRef(0)
+  const monitorRequest = useRef(0)
+  const tradeRequest = useRef(0)
+
+  const clearResults = useCallback(() => {
+    setBacktest(null); setBacktestApplied(null); setBacktestLoading(false); setBacktestError('')
+    setMonitor(null); setMonitorLoading(false); setMonitorError('')
+    setTradeList(null); setTradeApplied(null); setTradeLoading(false); setTradeError('')
+  }, [])
 
   const selectPortfolio = (portfolioId: string) => {
     if (portfolioId === selectedId) return
+    ++revision.current
+    clearResults()
     setDetail(null)
     setAnalysis(null)
     setWeightDraft({})
@@ -228,61 +265,83 @@ export default function PortfolioClient() {
     setTradeAmount('')
     setAddCode('')
     setError('')
+    setAnalysisError('')
     setNotice('')
     setSelectedId(portfolioId)
   }
 
   const loadPortfolios = useCallback(async () => {
-    setLoading(true)
+    const request = ++listRequest.current
+    setListLoading(true)
+    setListError('')
     try {
       const response = await fetch('/api/portfolios', { cache: 'no-store' })
       const payload = await response.json()
+      if (request !== listRequest.current) return
+      if (!response.ok) throw new Error(payload.detail || payload.error || '组合列表暂时不可用')
       setPortfolios(payload.data || [])
-      if (!selectedId && (payload.data || []).length) {
-        setSelectedId(payload.data[0].id)
-      }
+      setSelectedId(current => current || payload.data?.[0]?.id || null)
     } catch (exc) {
-      setError(`组合列表加载失败: ${exc}`)
+      if (request === listRequest.current) setListError(`组合列表加载失败: ${exc}`)
     } finally {
-      setLoading(false)
+      if (request === listRequest.current) setListLoading(false)
     }
-  }, [selectedId])
+  }, [])
 
   const loadDetail = useCallback(async (portfolioId: string) => {
+    const request = ++revision.current
+    clearResults()
+    setDetail(null)
+    setAnalysis(null)
+    setWeightDraft({})
+    setAnalysisError('')
     setLoading(true)
     setError('')
     try {
-      const [detailResponse, analysisResponse] = await Promise.all([
+      const [detailResult, analysisResult] = await Promise.allSettled([
         fetch(`/api/portfolios/${portfolioId}`, { cache: 'no-store' }),
         fetch(`/api/portfolios/${portfolioId}/analysis`, { cache: 'no-store' }),
       ])
+      if (request !== revision.current) return
+      if (detailResult.status === 'rejected') throw new Error('读取组合失败')
+      const detailResponse = detailResult.value
+      const payload = await detailResponse.json()
+      if (request !== revision.current) return
       if (detailResponse.ok) {
-        const payload = await detailResponse.json()
         setDetail(payload)
         setWeightDraft(
           Object.fromEntries(
             (payload.holdings || []).map((item: Holding) => [
               item.wind_code,
-              item.weight != null ? (Number(item.weight) * 100).toFixed(1) : '',
+              item.weight != null ? String(Number((Number(item.weight) * 100).toFixed(6))) : '',
             ]),
           ),
         )
       } else {
-        setDetail(null)
+        throw new Error(payload.detail || payload.error || '组合详情暂时不可用')
       }
-      setAnalysis(analysisResponse.ok ? await analysisResponse.json() : null)
+      try {
+        if (analysisResult.status === 'rejected' || !analysisResult.value.ok) throw new Error('组合穿透读取失败，请刷新重试')
+        const data = await analysisResult.value.json()
+        if (data.correlation && !portfolioHistoryVerified(data.correlation)) {
+          data.correlation = { status: 'unsupported_methodology', lookback_days: data.correlation.lookback_days, reason: portfolioHistoryUnavailable, pairs: [] }
+        }
+        if (request === revision.current) setAnalysis(data)
+      } catch (exc) {
+        if (request === revision.current) setAnalysisError(exc instanceof Error ? exc.message : '穿透读取失败')
+      }
     } catch (exc) {
-      setError(`组合详情加载失败: ${exc}`)
+      if (request === revision.current) setError(`组合详情加载失败: ${exc}`)
     } finally {
-      setLoading(false)
+      if (request === revision.current) setLoading(false)
     }
-  }, [])
+  }, [clearResults])
 
   const beginTargetsEdit = () => {
     const rows: Array<{ key: string; name: string; weight: string }> = (detail?.targets || []).map((item) => ({
       key: item.peer_group_key,
       name: item.peer_group_name || '',
-      weight: item.target_weight != null && Number(item.target_weight) > 0 ? (Number(item.target_weight) * 100).toFixed(1) : '',
+      weight: item.target_weight != null ? String(Number((Number(item.target_weight) * 100).toFixed(6))) : '',
     }))
     // 监控披露的实际分组（尚未配置目标的）也预填，便于直接补权重
     const known = new Set(rows.map((row) => row.key))
@@ -301,6 +360,9 @@ export default function PortfolioClient() {
     setTargetsSaving(true)
     setTargetsError('')
     try {
+      if (targetRows.some(row => (row.key.trim() || row.name.trim() || row.weight.trim()) && (!row.key.trim() || !row.weight.trim()))) {
+        throw new Error('请补齐每一行的同类组和目标权重，或删除该行')
+      }
       const targets = targetRows
         .filter((row) => row.key.trim() && row.weight.trim())
         .map((row) => ({
@@ -308,9 +370,10 @@ export default function PortfolioClient() {
           peer_group_name: row.name.trim() || null,
           target_weight: Number(row.weight) / 100,
         }))
-      if (targets.some((item) => !(item.target_weight > 0))) {
+      if (targets.some((item) => !Number.isFinite(item.target_weight) || !(item.target_weight > 0) || item.target_weight > 1)) {
         throw new Error('目标权重必须为正数（百分比）')
       }
+      if (new Set(targets.map(item => item.peer_group_key)).size !== targets.length) throw new Error('同类组不能重复')
       const total = targets.reduce((sum, item) => sum + item.target_weight, 0)
       if (targets.length && Math.abs(total - 1) > 0.005) {
         throw new Error(`权重合计需为 100%（当前 ${(total * 100).toFixed(1)}%）`)
@@ -324,9 +387,6 @@ export default function PortfolioClient() {
       if (!response.ok) throw new Error(payload.detail || payload.error || '保存失败')
       setTargetsEditing(false)
       await loadDetail(detail.id)
-      if (monitor) {
-        await runMonitor()
-      }
     } catch (exc) {
       setTargetsError(exc instanceof Error ? exc.message : String(exc))
     } finally {
@@ -343,9 +403,15 @@ export default function PortfolioClient() {
     if (selectedId) void loadDetail(selectedId)
   }, [selectedId, loadDetail])
 
+  useEffect(() => () => { ++revision.current; ++listRequest.current }, [])
+
   const createPortfolio = async () => {
     const name = newName.trim()
     if (!name) return
+    if (saving || targetsSaving) return
+    setSaving(true)
+    setError('')
+    setNotice('')
     try {
       const response = await fetch('/api/portfolios', {
         method: 'POST',
@@ -360,12 +426,18 @@ export default function PortfolioClient() {
       setNotice(`组合「${name}」已创建，请在详情中添加持仓。`)
     } catch (exc) {
       setError(`创建组合失败: ${exc}`)
+    } finally {
+      setSaving(false)
     }
   }
 
   const addHolding = async () => {
     const code = addCode.trim().toUpperCase()
     if (!code || !selectedId) return
+    if (saving || targetsSaving) return
+    setSaving(true)
+    setError('')
+    setNotice('')
     try {
       const response = await fetch(`/api/portfolios/${selectedId}/holdings`, {
         method: 'POST',
@@ -380,11 +452,17 @@ export default function PortfolioClient() {
       await loadPortfolios()
     } catch (exc) {
       setError(`添加持仓失败: ${exc}`)
+    } finally {
+      setSaving(false)
     }
   }
 
   const removeHolding = async (code: string) => {
     if (!selectedId) return
+    if (saving || targetsSaving) return
+    setSaving(true)
+    setError('')
+    setNotice('')
     try {
       const response = await fetch(`/api/portfolios/${selectedId}/holdings/${encodeURIComponent(code)}`, { method: 'DELETE' })
       const payload = await response.json()
@@ -394,27 +472,51 @@ export default function PortfolioClient() {
       await loadPortfolios()
     } catch (exc) {
       setError(`移除持仓失败: ${exc}`)
+    } finally {
+      setSaving(false)
     }
   }
 
   const applyEqualWeights = async () => {
     if (!selectedId) return
+    if (saving || targetsSaving) return
+    setSaving(true)
+    setError('')
+    setNotice('')
     try {
       const response = await fetch(`/api/portfolios/${selectedId}/weights/equal`, { method: 'POST' })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || '等权失败')
       setNotice('已按等权设置全部持仓。')
       await loadDetail(selectedId)
+      await loadPortfolios()
     } catch (exc) {
       setError(`等权失败: ${exc}`)
+    } finally {
+      setSaving(false)
     }
   }
 
   const saveCustomWeights = async () => {
     if (!selectedId || !detail) return
+    if (detail.holdings.some(item => !(weightDraft[item.wind_code] ?? '').trim())) {
+      setError('请填写每只基金的权重；空白不代表 0%')
+      return
+    }
     const items = detail.holdings
       .map((item) => ({ wind_code: item.wind_code, weight: Number(weightDraft[item.wind_code]) / 100 }))
-      .filter((item) => Number.isFinite(item.weight))
+    if (items.some(item => !Number.isFinite(item.weight) || item.weight <= 0 || item.weight > 0.4)) {
+      setError('每只基金的权重须大于 0% 且不超过 40%；零权重基金请移出组合')
+      return
+    }
+    if (Math.abs(items.reduce((sum, item) => sum + item.weight, 0) - 1) > 0.005) {
+      setError('基金权重合计需为 100%')
+      return
+    }
+    if (saving || targetsSaving) return
+    setSaving(true)
+    setError('')
+    setNotice('')
     try {
       const response = await fetch(`/api/portfolios/${selectedId}/weights`, {
         method: 'PUT',
@@ -425,43 +527,64 @@ export default function PortfolioClient() {
       if (!response.ok) throw new Error(payload.detail || '保存失败')
       setNotice('自定义权重已保存。')
       await loadDetail(selectedId)
+      await loadPortfolios()
     } catch (exc) {
       setError(`保存权重失败: ${exc}`)
+    } finally {
+      setSaving(false)
     }
   }
 
   const overlapPairs = analysis?.overlap?.pairs || []
   const correlationPairs = analysis?.correlation?.pairs || []
   const styleFactors = analysis?.style_aggregate?.factors || []
+  const evidence = useMemo(() => portfolioEvidence(detail?.holdings || [], detail?.targets || [], analysis?.weights, monitor), [detail, analysis, monitor])
 
   const runBacktest = async () => {
     if (!selectedId) return
+    const version = revision.current, request = ++backtestRequest.current, lookback = backtestLookback
+    setBacktest(null); setBacktestApplied(null); setBacktestError('')
     setBacktestLoading(true)
     try {
       const response = await fetch(`/api/portfolios/${selectedId}/backtest?lookback_days=${backtestLookback}`, { cache: 'no-store' })
-      setBacktest(response.ok ? await response.json() : null)
+      const payload = await response.json()
+      if (version !== revision.current || request !== backtestRequest.current) return
+      if (!response.ok) throw new Error(payload.detail || payload.error || '回测接口暂时不可用')
+      if (payload.benchmark?.status === 'available' && payload.benchmark.aligned_to_portfolio !== true) {
+        payload.benchmark = { ...payload.benchmark, status: 'unaligned', metrics: undefined, excess_return: undefined,
+          basis_note: undefined, reason: '基准未完成同区间对齐，暂不展示超额收益。' }
+      }
+      setBacktest(portfolioHistoryVerified(payload) ? payload : { status: 'unsupported_methodology', reason: portfolioHistoryUnavailable })
+      setBacktestApplied(lookback)
     } catch (exc) {
-      setError(`回测失败: ${exc}`)
+      if (version === revision.current && request === backtestRequest.current) setBacktestError(`回测失败: ${exc}`)
     } finally {
-      setBacktestLoading(false)
+      if (version === revision.current && request === backtestRequest.current) setBacktestLoading(false)
     }
   }
 
   const runMonitor = async () => {
     if (!selectedId) return
+    const version = revision.current, request = ++monitorRequest.current
+    setMonitor(null); setMonitorError('')
     setMonitorLoading(true)
     try {
       const response = await fetch(`/api/portfolios/${selectedId}/monitor`, { cache: 'no-store' })
-      setMonitor(response.ok ? await response.json() : null)
+      const payload = await response.json()
+      if (version !== revision.current || request !== monitorRequest.current) return
+      if (!response.ok) throw new Error(payload.detail || payload.error || '监控接口暂时不可用')
+      setMonitor(payload)
     } catch (exc) {
-      setError(`监控失败: ${exc}`)
+      if (version === revision.current && request === monitorRequest.current) setMonitorError(`监控失败: ${exc}`)
     } finally {
-      setMonitorLoading(false)
+      if (version === revision.current && request === monitorRequest.current) setMonitorLoading(false)
     }
   }
 
   const generateTradeList = async () => {
     if (!selectedId) return
+    const version = revision.current, request = ++tradeRequest.current
+    setTradeList(null); setTradeApplied(null); setTradeError('')
     const currentPositions = tradeInput
       .split('\n')
       .map((line) => line.trim())
@@ -471,6 +594,22 @@ export default function PortfolioClient() {
         return { wind_code: (parts[0] || '').toUpperCase(), weight: parts[1] != null ? Number(parts[1]) / 100 : undefined }
       })
       .filter((item) => item.wind_code)
+    if (!currentPositions.length || currentPositions.some(item => item.weight == null || !Number.isFinite(item.weight) || item.weight < 0 || item.weight > 1)) {
+      setTradeError('请逐行填写基金代码及 0% 至 100% 的权重；未知持仓不能按零计算')
+      return
+    }
+    if (new Set(currentPositions.map(item => item.wind_code)).size !== currentPositions.length) {
+      setTradeError('当前持仓中有重复基金代码，请先合并')
+      return
+    }
+    if (Math.abs(currentPositions.reduce((sum, item) => sum + (item.weight ?? 0), 0) - 1) > 0.005) {
+      setTradeError('当前基金持仓权重合计需为 100%；现金和其他资产请在组合中心管理')
+      return
+    }
+    if (tradeAmount.trim() && (!Number.isFinite(Number(tradeAmount)) || Number(tradeAmount) <= 0)) {
+      setTradeError('投资金额须为正数，未知金额请留空')
+      return
+    }
     setTradeLoading(true)
     try {
       const response = await fetch(`/api/portfolios/${selectedId}/trade-list`, {
@@ -481,18 +620,60 @@ export default function PortfolioClient() {
           total_amount: Number(tradeAmount) || null,
         }),
       })
-      setTradeList(response.ok ? await response.json() : null)
+      const payload = await response.json()
+      if (version !== revision.current || request !== tradeRequest.current) return
+      if (!response.ok) throw new Error(payload.detail || payload.error || '清单接口暂时不可用')
+      setTradeList(payload)
+      setTradeApplied({ positions: tradeInput, amount: tradeAmount })
     } catch (exc) {
-      setError(`交易清单生成失败: ${exc}`)
+      if (version === revision.current && request === tradeRequest.current) setTradeError(`交易清单生成失败: ${exc}`)
     } finally {
-      setTradeLoading(false)
+      if (version === revision.current && request === tradeRequest.current) setTradeLoading(false)
     }
   }
 
+  useFundPageData(useMemo(() => ({
+    selection: null,
+    filters: { portfolioId: selectedId, weightDraftPercent: weightDraft,
+      targetDraft: targetsEditing ? targetRows : null,
+      backtest: { requestedDays: backtestLookback, appliedDays: backtestApplied },
+      trade: { requested: { positions: tradeInput, amount: tradeAmount }, applied: tradeApplied } },
+    visibleBlocks: [{ id: 'portfolio-holdings', type: 'table', title: '研究组合与已保存权重' },
+      { id: 'portfolio-analysis', type: 'summary', title: '穿透、回测、监控与研究清单' }],
+    summary: {
+      status: saving || targetsSaving ? 'saving' : loading || listLoading ? 'loading' : error ? 'error' : detail ? 'ready' : 'idle',
+      error: error || null, notice: notice || null,
+      list: { status: listLoading ? 'loading' : listError ? 'error' : 'ready', error: listError || null,
+        count: listError || listLoading ? null : portfolios.length, rows: portfolios.slice(0, 50) },
+      portfolio: detail ? { id: detail.id, name: detail.name, objective: detail.objective, status: detail.status,
+        targets: detail.targets, holdings: detail.holdings.slice(0, 200), holdingsTruncated: detail.holdings.length > 200,
+        weightSummary: detail.weight_summary } : null,
+      analysis: { status: loading ? 'loading' : analysisError ? 'error' : analysis ? 'ready' : 'not-loaded', error: analysisError || null,
+        result: analysis ? { ...analysis,
+          coverageInterpretation: 'style_aggregate.coverage 是基金快照计算权重覆盖，不是底层资产穿透率；因子未提供 coverage 或 quarters 时该因子的覆盖或披露期未知。weighted_exposure 只是已知部分的加权贡献，不能视作全组合暴露。',
+          overlap: { ...analysis.overlap, pairs: analysis.overlap.pairs?.slice(0, 100) },
+          correlation: { ...analysis.correlation, pairs: analysis.correlation.pairs?.slice(0, 100) } } : null },
+      backtest: { status: backtestLoading ? 'loading' : backtestError ? 'error' : backtest ? 'ready' : 'not-run', error: backtestError || null,
+        result: backtest ? { ...backtest, curve: undefined, curvePointCount: backtest.curve?.length ?? 0,
+          curveTail: backtest.curve?.slice(-12), curveTruncated: (backtest.curve?.length ?? 0) > 12 } : null },
+      evidence,
+      monitor: { status: monitorLoading ? 'loading' : monitorError ? 'error' : monitor ? 'ready' : 'not-run', error: monitorError || null,
+        result: monitor ? { ...monitor, summary: evidence.summary, rebalance_needed: evidence.rebalanceNeeded,
+          target_deviations: monitor.target_deviations?.map(item => ({ ...item, needs_rebalance: evidence.targetAssessable ? item.needs_rebalance : null })) } : null },
+      tradeList: { status: tradeLoading ? 'loading' : tradeError ? 'error' : tradeList ? 'ready' : 'not-run', error: tradeError || null,
+        result: tradeList ? { ...tradeList, items: tradeList.items?.slice(0, 100), itemsTruncated: (tradeList.items?.length ?? 0) > 100 } : null },
+      targetSaveError: targetsError || null,
+      boundary: '这是研究型基金组合，不是账户实盘。已保存成分权重、同类组目标和未保存草稿分别记录；草稿不参与现有分析。分析实际使用权重以 analysis.weights 为准。当前权重历史回看不是实盘业绩，前十大重叠不是完整穿透。交易清单仅为试算、不执行交易，未知日期与缺失证据不能当作最新或零风险。',
+    },
+  }), [selectedId, weightDraft, targetsEditing, targetRows, backtestLookback, backtestApplied, tradeInput, tradeAmount, tradeApplied,
+    saving, targetsSaving, loading, listLoading, error, notice, listError, portfolios, detail, analysisError, analysis, evidence,
+    backtestLoading, backtestError, backtest, monitorLoading, monitorError, monitor, tradeLoading, tradeError, tradeList, targetsError]))
+
   return (
-    <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
-      <header className="flex flex-wrap items-center justify-end gap-3">
-        <button type="button" className={button} onClick={() => (selectedId ? loadDetail(selectedId) : loadPortfolios())}>
+    <fieldset disabled={saving || targetsSaving} className="mx-auto min-w-0 max-w-7xl space-y-4 border-0 p-2 md:p-3">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-[#5c6b61]">研究组合 · 草稿与已保存配置分离 · 不执行交易</p>
+        <button type="button" className={button} disabled={loading || listLoading} onClick={() => { void loadPortfolios(); if (selectedId) void loadDetail(selectedId) }}>
           <RefreshCw className="mr-1 inline h-4 w-4" aria-hidden="true" />
           刷新
         </button>
@@ -512,7 +693,7 @@ export default function PortfolioClient() {
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        <aside className={card}>
+        <aside className={`${card} self-start`}>
           <h2 className={label}>组合列表</h2>
           <div className="mt-2 flex gap-2">
             <input
@@ -521,7 +702,7 @@ export default function PortfolioClient() {
               placeholder="新组合名称"
               className="min-w-0 flex-1 rounded-lg border border-[#c8d4cb] px-2 py-1.5 text-sm"
             />
-            <button type="button" className={primaryButton} onClick={createPortfolio} disabled={!newName.trim()}>
+            <button type="button" aria-label="创建研究组合" className={primaryButton} onClick={createPortfolio} disabled={!newName.trim() || listLoading}>
               <Plus className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
@@ -531,6 +712,8 @@ export default function PortfolioClient() {
                 <button
                   type="button"
                   onClick={() => selectPortfolio(item.id)}
+                  aria-pressed={selectedId === item.id}
+                  style={{ borderLeft: `3px solid ${selectedId === item.id ? 'var(--vibe-accent)' : 'transparent'}` }}
                   className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
                     selectedId === item.id ? 'bg-[#e7f0ea] font-medium text-[#1f2d26]' : 'text-[#3d5347] hover:bg-[#f2f6f3]'
                   }`}
@@ -542,7 +725,9 @@ export default function PortfolioClient() {
                 </button>
               </li>
             ))}
-            {!portfolios.length && !loading ? (
+            {listError ? <li role="alert" className="text-sm">{listError}，请点击刷新重试。</li> : null}
+            {listLoading ? <li className="text-sm">正在读取组合列表…</li> : null}
+            {!portfolios.length && !listLoading && !listError ? (
               <li className="rounded-lg bg-[#f7f9f8] px-3 py-3 text-sm text-[#748079]">暂无组合，先创建一个。</li>
             ) : null}
           </ul>
@@ -557,7 +742,7 @@ export default function PortfolioClient() {
                   加载中…
                 </span>
               ) : (
-                '选择或创建一个组合开始构建。'
+                error ? '组合读取失败，请刷新重试。' : '选择或创建一个组合开始构建。'
               )}
             </div>
           ) : (
@@ -571,9 +756,9 @@ export default function PortfolioClient() {
                   <div className="flex items-center gap-2 text-sm">
                     <BadgeCheck className="h-4 w-4 text-[#28745c]" aria-hidden="true" />
                     {detail.weight_summary.is_complete ? (
-                      <span className="text-emerald-800">权重已配置（{pct(detail.weight_summary.total_weight)}）</span>
+                      <span className="text-[#28745c]">权重已配置（{pct(detail.weight_summary.total_weight)}）</span>
                     ) : (
-                      <span className="text-amber-700">权重未配齐（{pct(detail.weight_summary.total_weight)}），穿透暂按等权</span>
+                      <span className="text-amber-700">权重未配齐（{pct(detail.weight_summary.total_weight)}），请核对下方计算权重</span>
                     )}
                   </div>
                 </div>
@@ -591,7 +776,7 @@ export default function PortfolioClient() {
                       <tbody>
                         {targetRows.map((row, index) => {
                           return (
-                            <tr key={`${row.key}-${index}`} className="border-b border-[#f0f4f1]">
+                            <tr key={index} className="border-b border-[#f0f4f1]">
                               <td className="py-1.5 pr-2">
                                 <input
                                   value={row.key}
@@ -650,7 +835,7 @@ export default function PortfolioClient() {
                         <strong className="mx-1 text-[#1f2d26]">
                           {targetRows.reduce((sum, item) => sum + (Number(item.weight) || 0), 0).toFixed(1)}%
                         </strong>
-                        （需为 100%；留空行保存时忽略；清空全部保存 = 移除目标配置）
+                        （需为 100%；完全空白行忽略；清空全部保存 = 移除目标配置）
                       </span>
                       <div className="flex items-center gap-2">
                         <button
@@ -678,7 +863,7 @@ export default function PortfolioClient() {
                         </button>
                       </div>
                     </div>
-                    {targetsError ? <p className="mt-2 text-xs text-[#a05a52]">{targetsError}</p> : null}
+                    {targetsError ? <p role="alert" className="mt-2 text-xs text-[#a05a52]">{targetsError}</p> : null}
                   </div>
                 ) : detail.targets.length ? (
                   <div className="mt-3">
@@ -802,6 +987,10 @@ export default function PortfolioClient() {
                   <GitCompareArrows className="h-4 w-4 text-[#28745c]" aria-hidden="true" />
                   组合穿透
                 </h3>
+                {analysisError ? <p role="alert" className="mt-2 text-sm">{analysisError}；不能据此判断重叠或风险为零。</p> : null}
+                <p className="mt-2 text-xs text-[#748079]">下列结果使用已保存配置；编辑中的权重和目标需保存后才生效。</p>
+                {analysis ? <p className="mt-2 text-xs text-[#748079]">本次穿透计算权重：{Object.entries(analysis.weights || {}).map(([code, weight]) => `${code} ${pct(weight)}`).join(' · ') || '未提供'}。权重未配齐时服务可能使用等权假设，不代表真实仓位。</p> : null}
+                {analysis ? <p className="mt-1 text-sm">{evidence.calculationMatchesSaved ? '计算权重与已保存成分一致。' : '计算权重未能与完整已保存成分核对，结果仅供假设研究。'}</p> : null}
 
                 <h4 className={`${label} mt-3`}>重仓股重叠（同一披露季度前十大）</h4>
                 {overlapPairs.length ? (
@@ -826,49 +1015,55 @@ export default function PortfolioClient() {
                     </tbody>
                   </table>
                 ) : (
-                  <p className="mt-1 text-sm text-[#748079]">{analysis?.overlap?.reason || '至少两只持仓才能比较重叠。'}</p>
+                  <p className="mt-1 text-sm text-[#748079]">{analysis?.overlap?.reason || '尚无可核验的重叠结果，不能判断是否分散。'}</p>
                 )}
 
-                <h4 className={`${label} mt-4`}>风格暴露聚合（权重加权，最新披露季度）</h4>
+                <h4 className={`${label} mt-4`}>风格已知贡献（各基金最新披露期，可能跨期）</h4>
                 {styleFactors.length ? (
-                  <div className="mt-1 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+                  <div className="mt-1 overflow-x-auto"><table className="w-full text-sm">
+                    <thead><tr className="border-b border-[#e4e9e5] text-left text-xs text-[#748079]"><th className="py-2">因子 / 单位</th><th>已知加权贡献</th><th>因子覆盖权重</th><th>披露期</th></tr></thead><tbody>
                     {styleFactors.map((factor) => (
-                      <div key={factor.factor} className="flex items-baseline justify-between border-b border-[#f0f4f1] py-1">
-                        <span className="text-[#3d5347]">{factor.label}</span>
-                        <span className="font-medium text-[#1f2d26]">{factor.weighted_exposure.toFixed(3)}</span>
-                      </div>
+                      <tr key={factor.factor} className="border-b border-[#f0f4f1]">
+                        <td className="py-2 pr-3">{factor.label} · {factor.unit || '单位未提供'}</td>
+                        <td className="pr-3 tabular-nums">{factor.status === 'incomparable_units' ? '单位不一致，不能聚合' : factor.weighted_exposure != null && Number.isFinite(factor.weighted_exposure) ? factor.weighted_exposure.toFixed(3) : '—'}</td>
+                        <td className="pr-3 tabular-nums">{pct(factor.coverage)}</td>
+                        <td>{factor.quarters?.length ? factor.quarters.join(' / ') : '未提供'}{factor.undated ? ' · 含未知期' : ''}</td>
+                      </tr>
                     ))}
-                  </div>
+                    </tbody></table></div>
                 ) : (
-                  <p className="mt-1 text-sm text-[#748079]">{analysis?.style_aggregate?.reason || '暂无风格快照可聚合。'}</p>
+                  <p className="mt-1 text-sm text-[#748079]">{analysis?.style_aggregate?.reason || '尚无可核验的风格聚合结果。'}</p>
                 )}
                 {analysis?.style_aggregate?.status === 'available' ? (
-                  <p className="mt-1 text-xs text-[#748079]">覆盖 {pct(analysis.style_aggregate.coverage)} 权重的持仓；未覆盖部分为残差。</p>
+                  <p className="mt-2 text-xs text-[#748079]">服务报告的基金快照覆盖权重 {pct(analysis.style_aggregate.coverage)}，不是底层资产穿透率。因子未返回覆盖权重或披露期时显示“— / 未提供”，不能解释为全覆盖；已知贡献不补齐未知部分，也不重新归一化。</p>
                 ) : null}
 
-                <h4 className={`${label} mt-4`}>净值收益率相关性</h4>
+                <h4 className={`${label} mt-4`}>复权收益相关性（配对共同区间）</h4>
                 {correlationPairs.length ? (
                   <table className="mt-1 w-full text-sm">
                     <thead>
                       <tr className="border-b border-[#e4e9e5] text-left text-xs text-[#748079]">
                         <th className="py-1.5 pr-3">配对</th>
                         <th className="py-1.5 pr-3">相关系数</th>
-                        <th className="py-1.5">重叠天数</th>
+                        <th className="py-1.5 pr-3">收益区间数</th>
+                        <th className="py-1.5">实际样本期</th>
                       </tr>
                     </thead>
                     <tbody>
                       {correlationPairs.map((pair) => (
                         <tr key={`${pair.fund_a}-${pair.fund_b}-corr`} className="border-b border-[#f0f4f1]">
                           <td className="py-1.5 pr-3">{pair.fund_a} × {pair.fund_b}</td>
-                          <td className="py-1.5 pr-3">{pair.correlation != null ? pair.correlation.toFixed(4) : '样本不足'}</td>
-                          <td className="py-1.5">{pair.overlap_days} 天</td>
+                          <td className="py-1.5 pr-3">{pair.correlation != null ? pair.correlation.toFixed(4) : pair.status === 'zero_variance' ? '常数序列，未定义' : '样本不足'}</td>
+                          <td className="py-1.5 pr-3">{pair.return_intervals ?? '—'}</td>
+                          <td className="py-1.5">{pair.start_date || '未知'} → {pair.end_date || '未知'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 ) : (
-                  <p className="mt-1 text-sm text-[#748079]">{analysis?.correlation?.reason || '至少两只持仓才能计算相关性。'}</p>
+                  <p className="mt-1 text-sm text-[#748079]">{analysis?.correlation?.reason || '尚无可核验的相关性结果。'}</p>
                 )}
+                {analysis?.correlation?.note ? <p className="mt-2 text-xs text-[#748079]">{analysis.correlation.note}</p> : null}
 
                 <p className="mt-4 border-t border-[#f0f4f1] pt-2 text-xs text-[#748079]">{analysis?.boundary}</p>
               </div>
@@ -882,12 +1077,12 @@ export default function PortfolioClient() {
                   <div className="flex items-center gap-2">
                     <select
                       value={backtestLookback}
-                      onChange={(event) => setBacktestLookback(Number(event.target.value))}
+                      onChange={(event) => { ++backtestRequest.current; setBacktestLookback(Number(event.target.value)); setBacktest(null); setBacktestApplied(null); setBacktestError(''); setBacktestLoading(false) }}
                       className="rounded-lg border border-[#c8d4cb] px-2 py-1.5 text-sm"
                       aria-label="回看窗口"
                     >
-                      <option value={365}>回看 365 天</option>
-                      <option value={730}>回看 730 天</option>
+                      <option value={365}>回看 365 自然日</option>
+                      <option value={730}>回看 730 自然日</option>
                     </select>
                     <button type="button" className={primaryButton} onClick={runBacktest} disabled={backtestLoading || !detail.holdings.length}>
                       {backtestLoading ? (
@@ -898,6 +1093,7 @@ export default function PortfolioClient() {
                     </button>
                   </div>
                 </div>
+                {backtestError ? <p role="alert" className="mt-2 text-sm">{backtestError}</p> : null}
                 {!backtest ? (
                   <p className="mt-2 text-sm text-[#748079]">以当前权重合成历史组合净值，输出累计收益/年化/最大回撤/波动，并与分类映射基准对比。样本不足时会明确拒答。</p>
                 ) : backtest.status !== 'available' ? (
@@ -905,21 +1101,22 @@ export default function PortfolioClient() {
                 ) : (
                   <div className="mt-3 space-y-3">
                     <p className="text-xs text-[#748079]">
-                      样本 {backtest.sample?.days} 天（{backtest.sample?.start_date} → {backtest.sample?.end_date}）；{backtest.weights_basis}
+                      复权净值 · {backtest.sample?.days} 个共同净值点 / {backtest.sample?.return_intervals ?? '未知'} 个收益区间（{backtest.sample?.start_date} → {backtest.sample?.end_date}）；{backtest.weights_basis}
                     </p>
+                    <p className="text-xs text-[#748079]">最新共同净值距计算日 {backtest.sample?.data_lag_calendar_days ?? '未知'} 个自然日；区间内剔除非共同日期 {backtest.sample?.omitted_union_dates ?? '未知'} 个。{backtest.metrics?.volatility_note}</p>
                     <div className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                       {[
                         ['累计收益', backtest.metrics?.cumulative_return != null ? pct(backtest.metrics.cumulative_return) : '—'],
                         ['年化收益', backtest.metrics?.annualized_return != null ? pct(backtest.metrics.annualized_return) : '—'],
                         ['最大回撤', backtest.metrics?.max_drawdown != null ? pct(backtest.metrics.max_drawdown) : '—'],
                         ['年化波动', backtest.metrics?.annualized_volatility != null ? pct(backtest.metrics.annualized_volatility) : '—'],
-                        ...(backtest.benchmark?.status === 'available'
+                        ...(backtest.benchmark?.status === 'available' && backtest.benchmark.aligned_to_portfolio === true
                           ? ([
                               ['基准累计（' + (backtest.benchmark.name || backtest.benchmark.code || backtest.benchmark.source) + '）', pct(backtest.benchmark.metrics?.cumulative_return)],
-                              ['相对基准超额', pct(backtest.benchmark.excess_return)],
+                              ['同区间累计收益差', pct(backtest.benchmark.excess_return)],
                             ] as Array<[string, string]>)
                           : [
-                              ['基准对比', '数据不足（持仓无分类映射基准净值）'],
+                              ['基准对比', backtest.benchmark?.reason || '基准未完成同区间对齐'],
                             ] as Array<[string, string]>),
                       ].map(([key, value]) => (
                         <div key={key} className="flex items-baseline justify-between border-b border-[#f0f4f1] py-1">
@@ -932,7 +1129,7 @@ export default function PortfolioClient() {
                       <h4 className={label}>组合净值曲线（归一化）</h4>
                       <Sparkline series={(backtest.curve || []).map((point) => point.value)} color="#28745c" />
                       <p className="mt-1 text-xs text-[#748079]">
-                        起点归一为 1；样本期内共 {(backtest.curve || []).length} 个交易日。{backtest.benchmark?.basis_note || ''}
+                        含起点 1，共 {(backtest.curve || []).length} 个净值点。{backtest.benchmark?.basis_note || ''}
                       </p>
                     </div>
                   </div>
@@ -956,13 +1153,15 @@ export default function PortfolioClient() {
                     )}
                   </button>
                 </div>
+                {monitorError ? <p role="alert" className="mt-2 text-sm">{monitorError}</p> : null}
                 {!monitor ? (
                   <p className="mt-2 text-sm text-[#748079]">检查目标配置偏离（同类组权重对比，阈值 5%）与成分风格漂移信号，输出再平衡研究提示。</p>
                 ) : (
                   <div className="mt-3 space-y-3">
-                    <p className={`rounded-lg px-3 py-2 text-sm ${monitor.rebalance_needed ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-900'}`}>
-                      {monitor.summary}
+                    <p className="border-l-2 border-[#28745c] pl-3 text-sm" role="status">
+                      {evidence.summary}
                     </p>
+                    <p className="text-xs text-[#748079]">风格可判定部分占已保存权重 {pct(evidence.assessedWeight)}；{evidence.missingCodes.length ? `待补证：${evidence.missingCodes.join('、')}` : '无缺失成分不等于无风险'}。未包含账户现金、其他资产或实时风险。</p>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
@@ -981,7 +1180,7 @@ export default function PortfolioClient() {
                               <td className="py-1.5 pr-3">{pct(item.target_weight)}</td>
                               <td className="py-1.5 pr-3">{pct(item.actual_weight)}</td>
                               <td className={`py-1.5 pr-3 ${item.deviation != null && item.deviation < 0 ? 'text-[#a05a52]' : ''}`}>{item.deviation != null ? pct(item.deviation) : '—'}</td>
-                              <td className="py-1.5">{item.needs_rebalance ? '偏离超阈值' : '—'}</td>
+                              <td className="py-1.5">{!evidence.targetAssessable ? '待补证' : item.needs_rebalance ? '偏离超阈值' : '未超阈值'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -997,6 +1196,7 @@ export default function PortfolioClient() {
                             <span className={`ml-auto text-xs ${drift.level === 'high' ? 'text-[#a05a52] font-semibold' : drift.level === 'medium' ? 'text-amber-700' : 'text-[#748079]'}`}>
                               {drift.label || drift.status}
                             </span>
+                            <span className="w-full text-xs text-[#748079]">{drift.previous_quarter || '起始期未提供'} → {drift.latest_quarter || '结束期未提供'} · {drift.note || '未返回判定依据'}</span>
                           </li>
                         ))}
                       </ul>
@@ -1016,12 +1216,13 @@ export default function PortfolioClient() {
                   </h3>
                 </div>
                 <p className="mt-2 text-sm text-[#748079]">
-                  输入当前实际持仓（每行「代码 权重%」，权重可省略），生成从当前持仓到目标组合的申赎建议清单。仅供专业用户自行决策。
+                  输入完整的当前基金持仓（每行「代码 权重%」，合计 100%），生成与已保存研究组合的差异试算。未知权重不能当作零；不含现金或其他资产，不执行交易。
                 </p>
                 <div className="mt-3 grid gap-3 md:grid-cols-[1fr_180px]">
                   <textarea
                     value={tradeInput}
-                    onChange={(event) => setTradeInput(event.target.value)}
+                    disabled={tradeLoading}
+                    onChange={(event) => { setTradeInput(event.target.value); setTradeList(null); setTradeApplied(null); setTradeError('') }}
                     placeholder={'588000.SH 60\n510310.SH 40'}
                     rows={4}
                     className="w-full rounded-lg border border-[#c8d4cb] px-2 py-1.5 text-sm"
@@ -1030,7 +1231,8 @@ export default function PortfolioClient() {
                   <div className="space-y-2">
                     <input
                       value={tradeAmount}
-                      onChange={(event) => setTradeAmount(event.target.value)}
+                      disabled={tradeLoading}
+                      onChange={(event) => { setTradeAmount(event.target.value); setTradeList(null); setTradeApplied(null); setTradeError('') }}
                       placeholder="总投资金额（元）可选"
                       inputMode="decimal"
                       className="w-full rounded-lg border border-[#c8d4cb] px-2 py-1.5 text-sm"
@@ -1045,7 +1247,8 @@ export default function PortfolioClient() {
                     </button>
                   </div>
                 </div>
-                {tradeList?.items?.length ? (
+                {tradeError ? <p role="alert" className="mt-2 text-sm">{tradeError}</p> : null}
+                {tradeList?.status === 'available' && tradeList.items?.length ? (
                   <div className="mt-3 overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
@@ -1075,8 +1278,10 @@ export default function PortfolioClient() {
                       </tbody>
                     </table>
                   </div>
+                ) : tradeList?.status === 'available' && Array.isArray(tradeList.items) && !tradeList.items.length ? (
+                  <p className="mt-3 text-sm text-[#748079]">在本次输入和差异阈值下，没有生成调整项；不代表实际账户已核对一致。</p>
                 ) : tradeList ? (
-                  <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">当前持仓与目标组合已一致，无需申赎调整。</p>
+                  <p role="alert" className="mt-3 text-sm">{tradeList.reason || '证据不足，尚不能生成有效清单。'}</p>
                 ) : null}
                 {tradeList?.boundary ? (
                   <p className="mt-3 border-t border-[#f0f4f1] pt-2 text-xs text-[#748079]">{tradeList.boundary}</p>
@@ -1086,6 +1291,6 @@ export default function PortfolioClient() {
           )}
         </section>
       </div>
-    </div>
+    </fieldset>
   )
 }

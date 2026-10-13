@@ -2,12 +2,14 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useMemo, useState, useTransition } from 'react'
-import { ArrowLeft, BarChart3, Bot, Building2, CalendarRange, CircleAlert, ExternalLink, FileText, GitCompareArrows, Network, Plus, Search, ShieldCheck, Sparkles, X } from 'lucide-react'
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useContext, useMemo, useState, useTransition } from 'react'
+import { FundNavigationContext, useFundPageData } from '@/lib/newma-desk/page-data'
+import { ArrowLeft, BarChart3, Bot, Building2, CalendarRange, CircleAlert, ExternalLink, FileText, GitCompareArrows, Network, Plus, Search, ShieldCheck, Sparkles, Target, X } from 'lucide-react'
+import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { CamelFund } from '@/lib/backend-api'
 import EvidenceTriptychStrip from './EvidenceTriptychStrip'
 import DecisionSupportPanel from './DecisionSupportPanel'
+import { buildYearlyChartData } from './yearlyChartData'
 import {
   asRecord,
   formatAsset,
@@ -30,6 +32,7 @@ type WindowEvaluation = {
   peerRank: number | null
   peerCount: number | null
   peerPercentile: number | null
+  dimensionScores: Record<string, number>
 }
 
 type CalendarPeriodPerformance = {
@@ -38,6 +41,8 @@ type CalendarPeriodPerformance = {
   isYtd: boolean
   return: number
   coverageStatus: string
+  actualStartDate: string
+  actualEndDate: string
   observationCoverage: number | null
   rank: number | null
   peerCount: number
@@ -169,6 +174,7 @@ export type MemoHighlight = {
 type AlignedFundMetrics = {
   windCode: string
   navBasis: string
+  methodology?: Record<string, unknown>
   observations: number
   totalReturn: number | null
   annualizedReturn: number | null
@@ -250,6 +256,24 @@ export type HoldingSimilaritySnapshot = {
 }
 
 const colors = ['#176a52', '#a45d45', '#6b7334', '#2e6284', '#7b5384', '#8a702e']
+
+const dimensionLabels: Record<string, string> = {
+  return: '收益能力',
+  excess_return: '超额收益',
+  active_efficiency: '主动管理效率',
+  drawdown_control: '回撤控制',
+  risk: '风险控制',
+  risk_adjusted: '风险调整后收益',
+  consistency: '表现稳定性',
+  manager_tenure: '经理任期',
+  tracking_quality: '跟踪质量',
+  cost_efficiency: '成本效率',
+  scale_liquidity: '规模与流动性',
+  income_competitiveness: '收益竞争力',
+  capital_preservation: '净值稳定性',
+  income_stability: '收益稳定性',
+  data_quality: '数据质量',
+}
 const windows = [
   { value: '6m', label: '近 6 月' },
   { value: '1y', label: '近 1 年' },
@@ -379,9 +403,10 @@ function formatPercentagePoints(value: number | null) {
   return value == null ? '' : `${(value * 100).toFixed(1)} 个百分点`
 }
 
-export default function SimpleComparisonClient({ funds, alignedComparison, holdingSimilarity }: { funds: ComparisonFund[]; alignedComparison: AlignedComparison | null; holdingSimilarity: HoldingSimilaritySnapshot | null }) {
+export default function SimpleComparisonClient({ funds, alignedComparison, holdingSimilarity, initialWindow = '1y' }: { funds: ComparisonFund[]; alignedComparison: AlignedComparison | null; holdingSimilarity: HoldingSimilaritySnapshot | null; initialWindow?: '6m' | '1y' | '3y' }) {
   const router = useRouter()
-  const [window, setWindow] = useState<(typeof windows)[number]['value']>('1y')
+  const deskNavigate = useContext(FundNavigationContext)
+  const [window, setWindow] = useState<(typeof windows)[number]['value']>(initialWindow)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<CamelFund[]>([])
   const [searching, setSearching] = useState(false)
@@ -397,6 +422,27 @@ export default function SimpleComparisonClient({ funds, alignedComparison, holdi
   const alignedWindow = alignedComparison?.windows?.[window]
   const alignedReady = alignedWindow?.status === 'available' || alignedWindow?.status === 'partial'
   const alignedRankingEligible = alignedWindow?.rankingEligible === true
+  useFundPageData(useMemo(() => ({ title: '基金同类比较', selection: null,
+    filters: { codes: funds.map(item => item.fund.windCode), window, search: query },
+    visibleBlocks: [{ id: 'fund-comparison', type: 'table', title: '同类与统一区间比较' }],
+    summary: { view: 'comparison', status: isNavigating ? 'loading' : 'ready', comparable,
+      rows: funds.map(item => ({ symbol: item.fund.windCode, name: item.fund.name,
+        classification: item.classification, evaluation: item.evaluationWindows[window],
+        holdings: item.holding, periodPerformance: item.periodPerformance, managerTenure: item.managerTenurePerformance })),
+      aligned: alignedWindow ? { ...alignedWindow, chart: alignedWindow.chart?.slice(-5) } : null,
+      holdingSimilarity, search: { loading: searching, error: searchError || null,
+        rows: results.map(item => ({ symbol: item.windCode, name: item.name })) },
+      evidenceBoundary: '只在同类及实际共同区间可用时比较；基金业绩与经理任职业绩分别保留，缺失不等于零。' },
+  }), [funds, window, query, isNavigating, comparable, alignedWindow, holdingSimilarity, searching, searchError, results]))
+  const navigateComparison = (codes: string[]) => {
+    const href = compareHref(codes)
+    const params = new URLSearchParams(href.split('?')[1] || '')
+    params.set('window', window)
+    const search = params.toString()
+    startTransition(() => {
+      if (!deskNavigate?.('/compare', search)) router.push(`/compare?${search}`)
+    })
+  }
   const alignedLeaderFallback = alignedReady && !alignedRankingEligible ? '部分区间不排名' : '数据待补'
   const chartData = useMemo(() => (alignedWindow?.chart || []).map((point) => ({ date: point.date, ...point.values })), [alignedWindow])
   const alignedMetric = (item: ComparisonFund, key: keyof AlignedFundMetrics) => {
@@ -415,7 +461,7 @@ export default function SimpleComparisonClient({ funds, alignedComparison, holdi
     : null
   const returnLeader = alignedRankingEligible ? metricLeader(funds, (item) => alignedMetric(item, 'totalReturn')) : null
   const drawdownLeader = alignedRankingEligible ? metricLeader(funds, (item) => alignedMetric(item, 'maxDrawdown'), 'high') : null
-  const sharpeLeader = alignedRankingEligible ? metricLeader(funds, (item) => alignedMetric(item, 'sharpeRatio')) : null
+  const sharpeLeader = alignedRankingEligible && funds.every(item => alignedMetric(item, 'sharpeRatio') != null) ? metricLeader(funds, (item) => alignedMetric(item, 'sharpeRatio')) : null
   const sevenDayYieldLeader = metricLeader(funds, (item) => latestMetric(item.fund as SimpleFund, 'seven_day_annualized_yield'))
   const incomePer10000Leader = metricLeader(funds, (item) => latestMetric(item.fund as SimpleFund, 'income_per_10000'))
   const assetLeader = metricLeader(funds, (item) => numberValue(item.fund.totalAsset))
@@ -425,7 +471,7 @@ export default function SimpleComparisonClient({ funds, alignedComparison, holdi
     return value == null ? null : Math.abs(value)
   }, 'low')
   const expenseLeader = metricLeader(funds, (item) => latestMetric(item.fund as SimpleFund, 'expense_ratio'), 'low')
-  const volatilityLeader = alignedRankingEligible ? metricLeader(funds, (item) => alignedMetric(item, 'annualizedVolatility'), 'low') : null
+  const volatilityLeader = alignedRankingEligible && funds.every(item => alignedMetric(item, 'annualizedVolatility') != null) ? metricLeader(funds, (item) => alignedMetric(item, 'annualizedVolatility'), 'low') : null
   const currentDrawdownLeader = alignedRankingEligible ? metricLeader(funds, (item) => alignedMetric(item, 'currentDrawdown')) : null
   const maxDrawdownLeader = alignedRankingEligible ? metricLeader(funds, (item) => alignedMetric(item, 'maxDrawdown')) : null
   const underwaterLeader = alignedRankingEligible ? metricLeader(funds, (item) => alignedMetric(item, 'longestUnderwaterDays'), 'low') : null
@@ -436,6 +482,32 @@ export default function SimpleComparisonClient({ funds, alignedComparison, holdi
   const calendarYears = useMemo(() => Array.from(new Set(
     funds.flatMap((item) => item.periodPerformance.periods.map((period) => period.year)),
   )).sort((left, right) => right - left).slice(0, 5), [funds])
+  const radarDimensions = useMemo(() => {
+    if (funds.length < 2) return [] as string[]
+    const perFund = funds.map((item) => selectedEvaluation(item, window).dimensionScores || {})
+    return Object.keys(perFund[0] || {}).filter((key) => perFund.every((scores) => {
+      const value = scores[key]
+      return typeof value === 'number' && Number.isFinite(value)
+    }))
+  }, [funds, window])
+  const radarData = useMemo(() => radarDimensions.map((key) => {
+    const row: Record<string, number | string> = { dimension: dimensionLabels[key] || key }
+    for (const item of funds) {
+      row[item.fund.windCode] = Number(selectedEvaluation(item, window).dimensionScores[key].toFixed(1))
+    }
+    return row
+  }), [funds, window, radarDimensions])
+  const yearlyChartData = useMemo(() => buildYearlyChartData(
+    funds.map((item) => ({ windCode: item.fund.windCode, periods: item.periodPerformance.periods })),
+    calendarYears,
+  ), [calendarYears, funds])
+  const yearlyChartReady = yearlyChartData.length > 0
+  const navCutoffDates = funds.map((item) => item.periodPerformance.latestNavDate).filter(Boolean).sort()
+  const navCutoffLabel = navCutoffDates.length === 0
+    ? '最近净值截至 —'
+    : navCutoffDates[0] === navCutoffDates[navCutoffDates.length - 1]
+      ? `最近净值截至 ${navCutoffDates[0]}`
+      : `各基金净值截止日不同（${navCutoffDates[0]} ~ ${navCutoffDates[navCutoffDates.length - 1]}）`
 
   async function searchFunds() {
     const keyword = query.trim()
@@ -472,11 +544,11 @@ export default function SimpleComparisonClient({ funds, alignedComparison, holdi
       setSearchError(`当前已锁定“${lockedPeerGroup}”，只能添加同类基金。`)
       return
     }
-    startTransition(() => router.push(compareHref([...selectedCodes, fund.windCode])))
+    navigateComparison([...selectedCodes, fund.windCode])
   }
 
   function removeFund(code: string) {
-    startTransition(() => router.push(compareHref(selectedCodes.filter((item) => item !== code))))
+    navigateComparison(selectedCodes.filter((item) => item !== code))
   }
 
   return (
@@ -589,7 +661,9 @@ export default function SimpleComparisonClient({ funds, alignedComparison, holdi
               {alignedRankingEligible ? '完整共同区间' : alignedReady ? '部分共同区间 · 不排名' : '共同日期不足'}
             </span>
           </div>
-          <p className="mt-2 text-[11px] leading-5 text-[#859089]">所有基金只使用共同有净值的日期，累计净值优先；不使用各自不同的起点制造虚假可比性。{alignedReady ? ` 所选窗口覆盖 ${(Number(alignedWindow.calendarCoverageRatio || 0) * 100).toFixed(0)}%，共同净值密度 ${(Number(alignedWindow.observationCoverageRatio || 0) * 100).toFixed(0)}%。` : ''}</p>
+          <p className="mt-2 text-[11px] leading-5 text-[#859089]">仅使用共同日期的复权净值，收益按实际日期跨度年化；缺口或稀疏样本不输出日频风险，不使用各自不同的起点制造虚假可比性。{alignedReady ? ` 所选窗口覆盖 ${(Number(alignedWindow.calendarCoverageRatio || 0) * 100).toFixed(0)}%，共同净值密度 ${(Number(alignedWindow.observationCoverageRatio || 0) * 100).toFixed(0)}%。` : ''}</p>
+          {alignedReady && Object.values(alignedWindow.funds).some(item => item.methodology?.calendar_status === 'verified') ? <p data-testid="trading-calendar-evidence" className="mt-2 text-xs leading-5 text-[#28624e]">国内交易日历已核验（Tushare）：正常休市不算缺口。日频风险只采样开市日；休市日披露不混入252日年化，仍保留在共同日期的收益与回撤曲线中。</p> : null}
+          {alignedReady && Object.values(alignedWindow.funds).some(item => item.methodology?.daily_risk_eligible === false) ? <p className="mt-2 text-xs leading-5 text-[#835f25]">日频风险待核验：存在开市日净值缺口、共同日期不完整，或市场日历未覆盖。跨市场产品不套用国内日历；缺证基金暂不比较波动率和 Sharpe 高低。</p> : null}
           {alignedReady && !alignedRankingEligible ? <p className="mt-2 text-[11px] font-bold leading-5 text-[#835f25]">当前只展示实际可见期，不宣布收益、回撤、波动或修复速度领先。</p> : null}
         </section>
       ) : null}
@@ -804,6 +878,35 @@ export default function SimpleComparisonClient({ funds, alignedComparison, holdi
             ) : <div className="mt-6 grid h-64 place-items-center border border-dashed border-[#cdd5cf] text-sm text-[#79847e]">当前区间没有可用净值数据</div>}
           </section>
 
+          <section className="border border-[#dbe1dc] bg-white p-5 sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-bold"><Target className="h-5 w-5 text-[#28745c]" />维度得分对比</h2>
+                <p className="mt-1 text-xs leading-6 text-[#7a8580]">{selectedWindow.label}各维度得分（0—100），只取所有基金都有有效评分的共同维度；任一基金证据不足的维度不出现在坐标轴上。</p>
+              </div>
+            </div>
+            {radarDimensions.length >= 3 ? (
+              <div className="mt-6 h-[320px] w-full sm:h-[380px]">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 320, height: 320 }}>
+                  <RadarChart data={radarData} outerRadius="72%">
+                    <PolarGrid stroke="#e1e6e2" />
+                    <PolarAngleAxis dataKey="dimension" tick={{ fontSize: 11, fill: '#57645d' }} />
+                    <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#96a09a' }} axisLine={false} tickCount={4} />
+                    <Tooltip formatter={(value, name) => [`${Number(value).toFixed(1)} 分`, name]} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {funds.map((item, index) => (
+                      <Radar key={item.fund.windCode} dataKey={item.fund.windCode} name={item.fund.name || item.fund.windCode} stroke={colors[index]} fill={colors[index]} fillOpacity={0.12} isAnimationActive={false} />
+                    ))}
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="mt-6 border border-dashed border-[#cdd5cf] px-5 py-6 text-center text-xs leading-6 text-[#79847e]">
+                所有基金共同拥有有效得分的维度不足 3 个（{radarDimensions.length ? `当前仅 ${radarDimensions.length} 个` : '当前没有'}），暂不绘制雷达图；各维度得分以下方评价表为准。
+              </div>
+            )}
+          </section>
+
           <section>
             <div className="pb-4">
               <h2 className="text-lg font-bold">核心指标</h2>
@@ -870,8 +973,27 @@ export default function SimpleComparisonClient({ funds, alignedComparison, holdi
                   <h2 className="flex items-center gap-2 text-lg font-bold"><CalendarRange className="h-5 w-5 text-[#28745c]" />年度业绩稳定性</h2>
                   <p className="mt-1 text-xs leading-6 text-[#7a8580]">按自然年度比较真实净值收益、同类名次和同类中位数，优先看多年表现是否持续。</p>
                 </div>
-                <span className="text-xs text-[#7a8580]">最近净值截至 {funds.map((item) => item.periodPerformance.latestNavDate).filter(Boolean).sort().at(0) || '—'}</span>
+                <span className="text-xs text-[#7a8580]">{navCutoffLabel}</span>
               </div>
+              {yearlyChartReady ? (
+                <div className="border-b border-[#e1e6e2] p-5 sm:p-6">
+                  <div className="h-[280px] w-full">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 320, height: 280 }}>
+                      <BarChart data={yearlyChartData} margin={{ top: 8, right: 8, bottom: 4, left: -12 }}>
+                        <CartesianGrid stroke="#e6eae6" strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="year" tick={{ fontSize: 11, fill: '#718078' }} tickLine={false} axisLine={false} />
+                        <YAxis tick={{ fontSize: 11, fill: '#718078' }} tickLine={false} axisLine={false} tickFormatter={(value) => `${Number(value).toFixed(0)}%`} />
+                        <Tooltip formatter={(value, name) => [value == null ? '—' : `${Number(value).toFixed(1)}%`, name]} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        {funds.map((item, index) => (
+                          <Bar key={item.fund.windCode} dataKey={item.fund.windCode} name={item.fund.name || item.fund.windCode} fill={colors[index]} maxBarSize={28} isAnimationActive={false} />
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <p className="mt-3 text-[10px] leading-5 text-[#87918c]">只绘制净值覆盖完整、且同年净值截止日一致的自然年度收益；截止日不一致或部分区间、同类名次和同类中位数见下表。</p>
+                </div>
+              ) : null}
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1080px] border-collapse text-left text-xs">
                   <thead className="bg-[#f1f4f1] text-[#66726c]">
@@ -888,7 +1010,7 @@ export default function SimpleComparisonClient({ funds, alignedComparison, holdi
                       <tr key={item.fund.windCode}>
                         <td className="px-4 py-4">
                           <strong className="text-sm text-[#26342d]">{item.fund.name || item.fund.windCode}</strong>
-                          <span className="mt-1 block text-[10px] text-[#87918c]">{item.periodPerformance.navBasis === 'accum_nav' ? '累计净值' : '单位净值'}</span>
+                          <span className="mt-1 block text-[10px] text-[#87918c]">{item.periodPerformance.navBasis === 'adj_nav' ? '复权净值' : item.periodPerformance.navBasis === 'accum_nav' ? '累计净值' : '单位净值'}</span>
                         </td>
                         {calendarYears.map((year) => {
                           const period = item.periodPerformance.periods.find((entry) => entry.year === year)
@@ -905,6 +1027,9 @@ export default function SimpleComparisonClient({ funds, alignedComparison, holdi
                                   ? `中位数 ${formatSignedPercent(period.peerMedianReturn)}`
                                   : `净值覆盖 ${period.observationCoverage == null ? '—' : `${(period.observationCoverage * 100).toFixed(0)}%`}`}
                               </span>
+                              {period.isYtd && period.actualEndDate ? (
+                                <span className="mt-1 block text-[10px] text-[#929b96]">截至 {formatDate(period.actualEndDate)}</span>
+                              ) : null}
                             </td>
                           )
                         })}

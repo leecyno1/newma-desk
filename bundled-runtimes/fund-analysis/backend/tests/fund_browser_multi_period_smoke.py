@@ -1,3 +1,8 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from services.fund_research_snapshot_service import FundResearchSnapshotService
 from services.fund_browser_service import FundBrowserService
 

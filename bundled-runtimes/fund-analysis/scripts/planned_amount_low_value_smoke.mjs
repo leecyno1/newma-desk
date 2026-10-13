@@ -30,28 +30,31 @@ function assertAllowsMinOne(content, label) {
   }
 }
 
-const files = [
-  ['app/(dashboard)/managers/page.tsx', 'manager list page'],
-  ['app/(dashboard)/managers/[id]/page.tsx', 'manager detail page'],
+// 经理列表/详情页的计划金额输入已随旧 dashboard 改造（98790a6）移除，
+// 金额入口现存于分析页与市场页。
+const numericInputFiles = [
   ['app/(dashboard)/analysis/manager/page.tsx', 'manager analysis page'],
   ['app/(dashboard)/analysis/fund/FundAnalysisClient.tsx', 'fund analysis page'],
+]
+
+// 市场浏览器的金额输入是纯文本框（无 min 属性），天然允许输入 1，
+// 只需守护它不重新引入 10/100 的 UI 级拦截。
+const textInputFiles = [
   ['app/(dashboard)/market/MarketBrowserClient.tsx', 'market browser'],
 ]
 
-for (const [relativePath, label] of files) {
+for (const [relativePath, label] of [...numericInputFiles, ...textInputFiles]) {
   const content = read(relativePath)
-  assertAllowsMinOne(content, label)
+  if (numericInputFiles.some(([path]) => path === relativePath)) {
+    assertAllowsMinOne(content, label)
+  }
   assertNotIncludes(content, "min={purchasePlan === 'lump_sum' ? 100 : 10}", `${label} must not block low planned amount at UI level`)
   assertNotIncludes(content, "step={purchasePlan === 'lump_sum' ? 100 : 10}", `${label} must not force 10/100 amount steps`)
 }
 
-const managerList = read('app/(dashboard)/managers/page.tsx')
-const managerDetail = read('app/(dashboard)/managers/[id]/page.tsx')
 const managerAnalysis = read('app/(dashboard)/analysis/manager/page.tsx')
 const acceptance = read('scripts/fund_research_acceptance_smoke.mjs')
 
-assertIncludes(managerList, 'return Number.isFinite(amount) && amount > 0 ? String(Math.round(amount)) : defaultPlannedAmountForPlan(purchasePlan)', 'manager list preserves any positive planned amount')
-assertIncludes(managerDetail, 'return Number.isFinite(amount) && amount > 0 ? String(Math.round(amount)) : defaultPlannedAmountForPlan(purchasePlan)', 'manager detail preserves any positive planned amount')
 assertIncludes(managerAnalysis, 'return Number.isFinite(amount) && amount > 0 ? String(Math.round(amount)) : defaultPlannedAmountForPlan(purchasePlan)', 'manager analysis preserves any positive planned amount')
 assertIncludes(acceptance, 'scripts/planned_amount_low_value_smoke.mjs', 'fund research acceptance includes low planned amount smoke')
 

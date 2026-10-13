@@ -1,17 +1,10 @@
 #!/usr/bin/env python3
-"""按日积累基金评价历史快照。
-
-对最近有滚动指标面板的基金逐只调用 FundEvaluationHistoryService.save_current：
-- 评价没有变化时不重复写入（服务内部去重），因此可以每日安全重跑；
-- 输出 JSON 摘要供 scheduled_update runbook 记录。
-
-选基口径：metric_snapshots 中 fund 维度最近更新的 target_id（评价输入已就绪的基金）。
-"""
+"""按窗口轮换保存基金评价快照，未变化时只记录调度尝试，输出 JSON 批次摘要。"""
 import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
@@ -29,69 +22,91 @@ from services.fund_evaluation_service import FundEvaluationService  # noqa: E402
 from database import get_engine  # noqa: E402
 
 
-def pick_candidates(limit: int) -> List[str]:
-    """选基优先级：组合持仓 > 已有快照基金（保证时序连续）> 最近有指标的新基金。
-
- 组合持仓优先：保证组合页评价摘要尽快可用（否则用户在推荐页看到评分、
- 组合页却长期显示暂无快照）。"""
+def pick_candidates(limit: int, fresh_quota: Optional[int] = None, window: str = "1y") -> List[str]:
+    """组合持仓优先，各候选池按窗口尝试时间轮换，并预留新基金配额。"""
     from sqlalchemy import text
 
+    if limit <= 0:
+        return []
+    if fresh_quota is None:
+        fresh_quota = max(10, limit // 5)
+    fresh_quota = min(limit, max(0, fresh_quota))
+
     engine = get_engine()
-    holdings_query = text(
-        """
-        SELECT DISTINCT h.wind_code
-        FROM portfolio_holdings h
-        JOIN portfolios p ON p.id = h.portfolio_id
-        WHERE p.status IN ('draft', 'active')
-        """
-    )
-    continuity_query = text(
-        """
-        SELECT wind_code
-        FROM fund_evaluation_snapshots
-        GROUP BY wind_code
-        ORDER BY MAX(created_at) DESC
+    holdings_query = text("""
+        SELECT f.wind_code
+        FROM funds f
+        WHERE EXISTS (
+            SELECT 1 FROM portfolio_holdings h
+            JOIN portfolios p ON p.id = h.portfolio_id
+            WHERE h.wind_code = f.wind_code AND p.status IN ('draft', 'active')
+        )
+        ORDER BY (f.raw_data -> 'evaluation_snapshot_attempts' ->> :window)::timestamptz ASC NULLS FIRST,
+                 f.wind_code
         LIMIT :limit
-        """
-    )
+    """)
+    continuity_query = text("""
+        SELECT latest.wind_code
+        FROM (
+            SELECT wind_code, MAX(created_at) AS last_created_at
+            FROM fund_evaluation_snapshots
+            WHERE evaluation_window = :window
+            GROUP BY wind_code
+        ) latest
+        JOIN funds f ON f.wind_code = latest.wind_code
+        WHERE NOT (f.wind_code = ANY(CAST(:holdings AS text[])))
+        ORDER BY GREATEST(latest.last_created_at,
+                         (f.raw_data -> 'evaluation_snapshot_attempts' ->> :window)::timestamptz) ASC,
+                 latest.wind_code
+        LIMIT :limit
+    """)
+    fresh_query = text("""
+        SELECT metrics.target_id
+        FROM (
+            SELECT target_id, MAX(as_of_date) AS last_as_of_date
+            FROM metric_snapshots
+            WHERE target_type = 'fund'
+            GROUP BY target_id
+        ) metrics
+        JOIN funds f ON f.wind_code = metrics.target_id
+        WHERE NOT (f.wind_code = ANY(CAST(:holdings AS text[])))
+          AND NOT EXISTS (
+              SELECT 1 FROM fund_evaluation_snapshots s
+              WHERE s.wind_code = f.wind_code AND s.evaluation_window = :window
+          )
+        ORDER BY (f.raw_data -> 'evaluation_snapshot_attempts' ->> :window)::timestamptz ASC NULLS FIRST,
+                 metrics.last_as_of_date DESC, metrics.target_id
+        LIMIT :limit
+    """)
     with engine.connect() as conn:
-        holdings = [
-            str(row[0]).strip().upper()
-            for row in conn.execute(holdings_query).fetchall()
-            if row[0]
-        ]
-        continuity = [
-            str(row[0]).strip().upper()
-            for row in conn.execute(continuity_query, {"limit": limit}).fetchall()
-            if row[0]
-        ]
-        remaining = limit - len(continuity)
-        fresh: List[str] = []
-        if remaining > 0:
-            fresh_query = text(
-                """
-                SELECT target_id
-                FROM metric_snapshots
-                WHERE target_type = 'fund'
-                  AND target_id NOT IN (SELECT wind_code FROM fund_evaluation_snapshots)
-                GROUP BY target_id
-                ORDER BY MAX(as_of_date) DESC, target_id
-                LIMIT :limit
-                """
+        holdings = [row[0] for row in conn.execute(holdings_query, {"limit": limit, "window": window})]
+        remaining = limit - len(holdings)
+        if not remaining:
+            return holdings
+        params = {"limit": remaining, "window": window, "holdings": holdings}
+        continuity = [row[0] for row in conn.execute(continuity_query, params)]
+        fresh = [row[0] for row in conn.execute(fresh_query, params)] if fresh_quota else []
+    fresh_limit = min(fresh_quota, remaining)
+    continuity_limit = remaining - fresh_limit
+    return (
+        holdings + continuity[:continuity_limit] + fresh[:fresh_limit]
+        + continuity[continuity_limit:] + fresh[fresh_limit:]
+    )[:limit]
+
+
+def record_attempt(wind_code: str, window: str) -> None:
+    from sqlalchemy import text
+
+    with get_engine().begin() as conn:
+        conn.execute(text("""
+            UPDATE funds
+            SET raw_data = jsonb_set(
+                COALESCE(raw_data, '{}'::jsonb), '{evaluation_snapshot_attempts}',
+                COALESCE(raw_data -> 'evaluation_snapshot_attempts', '{}'::jsonb)
+                || jsonb_build_object(CAST(:window AS text), CURRENT_TIMESTAMP)
             )
-            fresh = [
-                str(row[0]).strip().upper()
-                for row in conn.execute(fresh_query, {"limit": remaining}).fetchall()
-                if row[0]
-            ]
-    # 去重自防：三级列表间不应重叠，但保守合并（组合持仓最优先）
-    seen: set = set()
-    ordered: List[str] = []
-    for code in holdings + continuity + fresh:
-        if code and code not in seen:
-            seen.add(code)
-            ordered.append(code)
-    return ordered[:limit]
+            WHERE wind_code = :wind_code
+        """), {"wind_code": wind_code, "window": window})
 
 
 def main() -> int:
@@ -103,7 +118,7 @@ def main() -> int:
 
     codes = [str(code).strip().upper() for code in args.codes if str(code).strip()]
     if not codes:
-        codes = pick_candidates(args.limit)
+        codes = pick_candidates(args.limit, window=args.window)
 
     history_service = FundEvaluationHistoryService(
         evaluation_service=FundEvaluationService(),
@@ -121,6 +136,10 @@ def main() -> int:
                 unchanged.append(code)
         except Exception as exc:  # 单只失败不阻断整批
             failed[code] = str(exc)[:200]
+        try:
+            record_attempt(code, args.window)
+        except Exception as exc:
+            failed[code] = f"记录调度尝试失败: {str(exc)[:150]}; {failed.get(code, '')}"[:200]
 
     print(
         json.dumps(
@@ -137,7 +156,7 @@ def main() -> int:
             indent=2,
         )
     )
-    return 0 if len(failed) < len(codes) else 1
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

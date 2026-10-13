@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 
-const frontendBaseUrl = process.env.FRONTEND_BASE_URL || 'http://127.0.0.1:3010'
-const backendBaseUrl = process.env.BACKEND_API_URL || 'http://127.0.0.1:8005'
+const frontendBaseUrl = process.env.FRONTEND_BASE_URL || 'http://127.0.0.1:3035'
+const backendBaseUrl = process.env.BACKEND_API_URL || 'http://127.0.0.1:8035'
 const codes = ['000961.OF', '007538.OF', '008390.OF']
 
 function assert(condition, message) {
@@ -30,7 +30,7 @@ assert(comparisonClient.includes('最新持仓差异'), 'comparison must show ho
 assert(comparisonClient.includes('重仓相似度'), 'comparison must show pairwise disclosed-holding similarity')
 assert(comparisonClient.includes('不是完整组合相关性'), 'comparison must explain the holding-similarity boundary')
 assert(comparisonClient.includes('selectedEvaluation(item, window)'), 'comparison must switch peer samples with the selected window')
-assert(comparisonClient.includes('所有基金只使用共同有净值的日期'), 'comparison must explain the shared NAV date gate')
+assert(comparisonClient.includes('仅使用共同日期的复权净值'), 'comparison must explain the shared adjusted NAV date gate')
 assert(comparisonClient.includes('部分共同区间 · 不排名'), 'comparison must not rank funds when the selected window is only partially covered')
 assert(comparisonClient.includes('alignedWindow?.rankingEligible === true'), 'comparison leaders must require full aligned-window coverage')
 assert(comparisonClient.includes("alignedMetric(item, 'totalReturn')"), 'comparison metrics must use the aligned interval')
@@ -85,7 +85,7 @@ const alignedResponse = await fetch(`${backendBaseUrl}/api/funds/compare-aligned
 })
 assert(alignedResponse.ok, `aligned comparison unavailable: ${alignedResponse.status}`)
 const aligned = await alignedResponse.json()
-assert(aligned.methodology === 'same_period_shared_nav_dates_v1', 'aligned comparison methodology missing')
+assert(aligned.methodology === 'same_period_adjusted_calendar_v3', 'aligned comparison methodology missing')
 assert(aligned.simulation_used === false, 'aligned comparison must reject simulated NAV')
 for (const window of ['6m', '1y', '3y']) {
   const evidence = aligned.windows?.[window]

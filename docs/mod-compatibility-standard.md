@@ -7,6 +7,8 @@ Manifest：1.1
 Bridge Protocol：1.0  
 ViewSpec：1.0
 
+2026-09-20 上下文时效约定：每次提问重新调用嵌入页 provider 或向 iframe 请求当前状态。内层请求最多等待 5 秒，外部 Newma 客户端等待 6.5 秒。超时仅允许读取此刻可访问的同源 DOM；不可访问或页面卸载时返回无上下文，不能把上次选择、筛选、数据作为本轮新回包。
+
 本文定义 Mod 如何独立运行、嵌入 Newma-Desk、调用数据与 AI 能力，以及如何被人和 Agent 共同理解。文中的“必须”“应该”“可以”分别对应 MUST、SHOULD、MAY。
 
 ## 1. 核心边界
@@ -449,7 +451,7 @@ Mod 使用相同 `requestId` 返回 Context：
 }
 ```
 
-Agent Action 执行前，Desk 应使用 `reason: agent` 主动刷新一次 Context；持久化成功或短超时后再创建任务。Agent Gateway 按“用户 + Workspace + Mod”读取 Context，并放入统一的 `context.vibedesk.page`，不得把页面 Context 清空。
+Newma Agent 执行前，Desk 应使用 `reason: agent` 主动刷新一次 Context，并把结果交给当前 Newma 会话。Desk 不创建 Agent Task，也不解释模型输出。结构化 Context 缺失时，Desk 依次使用同源渲染 DOM / HTML 与受限 PNG 视觉快照兜底，并明确标注来源。
 
 ### 7.4 宿主代理 Action
 
@@ -466,25 +468,47 @@ Agent Action 执行前，Desk 应使用 `reason: agent` 主动刷新一次 Conte
 }
 ```
 
-Desk 校验来源、实例、Manifest、Session、权限和 Schema 后代理调用，并通过 `vibedesk:action-result` 返回成功结果或标准错误。Mod 不得通过输入参数改变 Manifest 声明的 Agent、Model、Data 或 Local 路由。
+Desk 校验来源、实例、Manifest、Session、权限和 Schema。Data / Local Action 由 Desk 领域 Module 执行；Agent / Model Action 先同步 Context：挂载 Newma 时转成 Host Runtime Handoff，独立运行或直接调用 Control Plane 时由 Desk Gateway Adapter 执行。Manifest 1.1 的调用方不得通过输入参数改变声明的路由。
 
-### 7.5 Desk Mod Copilot
+### 7.5 Agent Runtime Seam
 
-Newma-Desk 在宿主层提供统一的右侧 Mod Copilot。该能力属于 Desk，不属于单个 Mod：
+模型、Agent、会话、记忆、Skills 和工具执行不属于单个 Mod。Mod 只依赖 Agent Runtime Seam：
 
-- 抽屉、会话显示、停止任务、Agent 选择、问答/修改模式由 Desk 统一实现。
-- 每次发送前，Desk 必须使用 `reason: agent` 请求当前页面 Context。
-- 支持 Context Bridge 的 Mod 显示“已同步当前页面”；未支持的 Mod 使用 Manifest、入口和版本作为明确标注的降级上下文。
-- 对话记忆按“用户 + Agent + Mod”隔离，切换 Mod 不得串用前端消息或后端长期上下文。
-- “提问”模式必须只读；本机 Agent 应使用只读沙箱，不得修改工程或外部状态。
-- “修改”模式必须由用户在界面显式选择，并以 `capability: module.edit` 和 `context.vibedesk.mode: edit` 双重声明；Agent 只能写入当前 Mod 映射的 Workspace。
-- 修改完成后必须返回改动文件、行为变化和验证结果，不得读取或输出 `.env`、密钥和登录凭据。
+- 挂载 Newma 时下发 Newma Host Adapter：
 
-Mod 可以在独立运行时保留自己的问答入口；嵌入 Newma-Desk 时，通用“针对本页问答”入口应该隐藏，避免出现两套会话、两套 Agent 设置和重复的右侧抽屉。业务专属的 AI 复盘、摘要、自动回复、研究沉淀和 Action 不属于重复能力，不应因此移除。
+```json
+{
+  "runtime": {
+    "owner": "newma",
+    "aiExecution": "host",
+    "requestMessage": "vibedesk:copilot-open"
+  }
+}
+```
+
+- 独立 Desk 下发 Desk Gateway Adapter，并注入受控 Agent / Model Gateway：
+
+```json
+{
+  "runtime": {
+    "owner": "desk",
+    "aiExecution": "gateway",
+    "requestMessage": "vibedesk:copilot-open"
+  }
+}
+```
+
+- Mod 使用正式 SDK `host.requestAgent()`；消息必须携带握手得到的 `instanceId` 与 `modId`。
+- Desk 校验 iframe 窗口、origin、Bridge Ack、实例和 Mod；Host Adapter 向 Newma 发送请求，Gateway Adapter 创建本地任务。
+- 每次执行前，Desk 必须使用 `reason: agent` 获取当前页面 Context；Runtime 可以继续请求视觉快照。
+- “提问”与“修改”的最终权限、模型、会话、沙箱和工具策略由当前 Adapter 决定。
+- 独立打开只打开 Mod Surface，不得自动携带错误的预设问题或创建与 Desk Copilot 竞争的页面内对话框。
+
+业务专属的 AI 复盘、摘要、自动回复和研究沉淀可以保留为 Mod Action，但执行权仍由 Agent Runtime Seam 持有。Mod 只负责准备领域 Context、参数和交付物约束。
 
 ### 7.6 报告型 Skill 的 Agent-only 规则
 
-主要产物是分析文字、研究报告、备忘录、摘要或一次性图表的 Skill，默认只作为 Desk / Numa Agent 能力，不创建 Mod 页面，不进入一级或二级导航，也不启动独立服务。用户从当前 Mod 右侧 Agent 或 Numa 对话触发，Skill 可以读取当前 Mod Context，并通过统一数据接口补充更长区间行情、财务、公告、新闻和研究档案。
+主要产物是分析文字、研究报告、备忘录、摘要或一次性图表的 Skill，默认只作为 Desk / Newma Agent 能力，不创建 Mod 页面，不进入一级或二级导航，也不启动独立服务。用户从当前 Mod 右侧 Agent 或 Newma 对话触发，Skill 可以读取当前 Mod Context，并通过统一数据接口补充更长区间行情、财务、公告、新闻和研究档案。
 
 结果遵循渐进展示：短结果直接作为对话消息；较长结果在消息中折叠；带图表、HTML 或完整文档的结果生成可展开 Artifact；需要长期沉淀时由用户执行“保存到研究档案”。Artifact 仍属于当前会话和来源 Mod，不因此获得独立导航身份。
 
@@ -495,7 +519,7 @@ Mod 可以在独立运行时保留自己的问答入口；嵌入 Newma-Desk 时�
 - 可视化本身是主要工作界面，例如 K 线、产业链图谱、回测实验或组合管理；
 - 多次 Agent 对话不能替代该交互工作台。
 
-Agent-only Skill 必须复用用户统一 Agent 设置和 Secret Interface；不得声明页面路由、`navigation`、独立端口、自带对话抽屉或第二套模型配置。报告需要确定性计算或数据时，Agent 通过声明的 Data Action 调用，不把 API Key 放入提示词或浏览器。
+Agent-only Skill 必须复用当前 Agent Runtime Adapter 的设置和 Secret Interface；不得声明页面路由、`navigation`、独立端口、自带对话抽屉或第二套模型配置。报告需要确定性计算或数据时，Agent 通过声明的 Data Action 调用，不把 API Key 放入提示词或浏览器。
 
 运行时由 Desk 后端根据当前已发布 Mod 的 `navigation.project.id`，从 `config/finance-project-intake.json` 筛出该栏目允许使用的 `agent-capability`，并在进入已选 Agent 前注入 `vibedesk.agentOnlyCapabilities`。该目录只包含来源 ID、名称、能力 ID 和输出策略，不包含仓库地址、依赖、Secret 名称或任何凭据；浏览器和 Mod 不能自行声明或扩充此目录。它是能力白名单而非安装状态，Agent 必须先核验实际可用性，不可用时说明缺口并降级到 Desk 数据。`module.edit` 不注入此目录，避免把投研能力误当成源码修改权限。
 

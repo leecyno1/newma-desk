@@ -4,6 +4,7 @@
 
 # Research market-data adapter retained by the Integrated Domain Runtime.
 akshare>=1.10,<2
+pypdf>=6,<7
 
 # mootdx is intentionally excluded from the unified environment. Its latest
 # release requires httpx<0.26, while Desk and Trading require httpx>=0.28.

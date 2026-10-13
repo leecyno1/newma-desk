@@ -9,6 +9,7 @@ import logging
 from datetime import datetime, timezone
 
 from ..fetcher import Fetcher
+from ..source_time import parse_rss_time as _parse_published, source_cache_timing
 
 try:
     import feedparser
@@ -43,23 +44,6 @@ _CACHE_TTL = 600  # 10 minutes
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _parse_published(entry: dict) -> str | None:
-    """Parse RSS entry published date to ISO 8601."""
-    import time as _time
-
-    for field in ("published_parsed", "updated_parsed"):
-        parsed_tuple = entry.get(field)
-        if parsed_tuple is not None:
-            try:
-                epoch = _time.mktime(parsed_tuple[:9])
-                dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
-                return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            except (ValueError, TypeError, OverflowError):
-                pass
-
-    return entry.get("published") or entry.get("updated")
 
 
 def _flag_severity(title: str, summary: str) -> tuple[bool, list[str]]:
@@ -109,6 +93,7 @@ async def fetch_disease_outbreaks(
             return []
 
         parsed = feedparser.parse(xml_text)
+        timing = source_cache_timing(fetcher.cache, f"health:rss:{safe_name}")
         items: list[dict] = []
 
         for entry in parsed.get("entries", [])[:30]:
@@ -120,6 +105,8 @@ async def fetch_disease_outbreaks(
                 "title": title,
                 "link": entry.get("link", ""),
                 "published": _parse_published(entry),
+                "updated": _parse_published(entry, "updated"),
+                **timing,
                 "summary": summary[:200] if len(summary) > 200 else summary,
                 "organization": name,
                 "is_high_concern": is_high_concern,
@@ -134,7 +121,7 @@ async def fetch_disease_outbreaks(
         all_items.extend(items)
 
     # Sort by published date descending
-    all_items.sort(key=lambda item: item.get("published") or "", reverse=True)
+    all_items.sort(key=lambda item: item.get("published") or item.get("updated") or "", reverse=True)
     all_items = all_items[:limit]
 
     # Counts

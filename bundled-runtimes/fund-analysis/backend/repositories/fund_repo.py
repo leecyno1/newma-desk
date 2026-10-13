@@ -714,24 +714,40 @@ class FundRepo:
                 holdings_has_wind_code = has_holdings_table and _column_exists(conn, "holdings", "wind_code")
                 holdings_has_fund_id = has_holdings_table and _column_exists(conn, "holdings", "fund_id")
 
-            holding_predicates = []
+            holdings_cte = ""
+            funds_source = "funds"
+            holding_matches = []
+            valid_holding_clause = """
+                NULLIF(h.quarter, '') IS NOT NULL
+                AND NULLIF(h.stock_code, '') IS NOT NULL
+                AND h.weight IS NOT NULL
+                AND h.weight > 0
+            """
             if holdings_has_wind_code:
-                holding_predicates.append("h.wind_code = funds.wind_code")
+                holding_matches.append(f"""
+                    SELECT h.wind_code AS matched_fund_code
+                    FROM holdings h
+                    WHERE h.wind_code IS NOT NULL AND {valid_holding_clause}
+                """)
             if holdings_has_fund_id:
-                holding_predicates.append("h.fund_id = funds.id::text")
+                distinct_identity_clause = "AND h.wind_code IS DISTINCT FROM f.wind_code" if holdings_has_wind_code else ""
+                holding_matches.append(f"""
+                    SELECT f.wind_code AS matched_fund_code
+                    FROM holdings h
+                    JOIN funds f ON h.fund_id = f.id::text
+                    WHERE {valid_holding_clause} {distinct_identity_clause}
+                """)
 
-            if has_holdings_table and holding_predicates:
-                holding_count_expr = f"""
-                    (
-                        SELECT COUNT(*)
-                        FROM holdings h
-                        WHERE ({' OR '.join(holding_predicates)})
-                          AND NULLIF(h.quarter, '') IS NOT NULL
-                          AND NULLIF(h.stock_code, '') IS NOT NULL
-                          AND h.weight IS NOT NULL
-                          AND h.weight > 0
+            if holding_matches:
+                holdings_cte = f"""
+                    WITH holding_counts AS MATERIALIZED (
+                        SELECT matched_fund_code, COUNT(*) AS matched_holding_count
+                        FROM ({' UNION ALL '.join(holding_matches)}) matched_holdings
+                        GROUP BY matched_fund_code
                     )
                 """
+                funds_source = "funds LEFT JOIN holding_counts ON holding_counts.matched_fund_code = funds.wind_code"
+                holding_count_expr = "COALESCE(holding_counts.matched_holding_count, 0)"
                 holdings_clause = f"({holding_count_expr}) >= 5"
             sales_risk_level_expr = "NULLIF(UPPER(fsr.risk_level), '')"
             source_identity_clause = """
@@ -1099,8 +1115,9 @@ class FundRepo:
             order_column = sort_map.get(sort_by, "updated_at")
             order_direction = "ASC" if str(sort_order).lower() == "asc" else "DESC"
 
-            count_sql = f"SELECT COUNT(*) as total FROM funds WHERE {where_sql}"
+            count_sql = f"{holdings_cte} SELECT COUNT(*) as total FROM {funds_source} WHERE {where_sql}"
             research_checklist_aggregate_sql = f"""
+                {holdings_cte}
                 SELECT
                     checklist_status,
                     NULLIF(checklist_primary_gap, '') AS checklist_primary_gap,
@@ -1109,13 +1126,14 @@ class FundRepo:
                     SELECT
                         ({research_checklist_status_expr}) AS checklist_status,
                         ({research_checklist_primary_gap_expr}) AS checklist_primary_gap
-                    FROM funds
+                    FROM {funds_source}
                     WHERE {where_sql}
                 ) checklist_universe
                 GROUP BY checklist_status, NULLIF(checklist_primary_gap, '')
                 ORDER BY count DESC
             """
             data_sql = f"""
+                {holdings_cte}
                 SELECT funds.*,
                        ({screening_score_expr})::int AS screening_score,
                        ({evidence_coverage_score_expr})::int AS evidence_coverage_score,
@@ -1124,7 +1142,7 @@ class FundRepo:
                        6::int AS research_checklist_total_count,
                        ({research_checklist_status_expr}) AS research_checklist_status,
                        ({research_checklist_primary_gap_expr}) AS research_checklist_primary_gap
-                FROM funds
+                FROM {funds_source}
                 WHERE {where_sql}
                 ORDER BY {order_column} {order_direction} NULLS LAST
                 LIMIT :limit OFFSET :offset

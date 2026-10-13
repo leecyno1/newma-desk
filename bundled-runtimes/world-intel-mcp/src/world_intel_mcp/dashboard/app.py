@@ -379,6 +379,12 @@ async def api_overview(request):
     return JSONResponse(data, headers={"Access-Control-Allow-Origin": "*"})
 
 
+async def api_maritime_warnings(request):
+    """Targeted read using the shared cache, without a global scan."""
+    data = await maritime.fetch_nav_warnings(_ensure_fetcher(), request.query_params.get("navarea"))
+    return JSONResponse(data)
+
+
 async def api_stream(request):
     """SSE endpoint — shared progressive collection with cached replay."""
 
@@ -803,6 +809,7 @@ app = Starlette(
     routes=[
         Route("/", index),
         Route("/api/overview", api_overview),
+        Route("/api/maritime/warnings", api_maritime_warnings),
         Route("/api/stream", api_stream),
         Route("/api/static", api_static),
         Route("/api/health", api_health),

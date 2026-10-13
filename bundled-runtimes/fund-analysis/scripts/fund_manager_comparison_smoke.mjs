@@ -34,7 +34,7 @@ if (payload.common_period?.status === 'available') {
 }
 
 const page = await requireResponse(`/managers/compare?${params}`)
-if (!page.includes('基金经理对比')) throw new Error('manager comparison page missing title')
+if (!page.includes('已选经理')) throw new Error('manager comparison page missing title')
 const clientSource = await readFile(new URL('../app/(dashboard)/managers/compare/ManagerComparisonClient.tsx', import.meta.url), 'utf8')
 const renderedSource = `${page}\n${clientSource}`
 for (const required of ['先看结论', '创新高天数占比', '经理评价摘要', '同类任期排名', '管理起始日', '代表产品', '有据字段']) {

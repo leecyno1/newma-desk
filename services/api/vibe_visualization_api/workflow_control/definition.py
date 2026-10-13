@@ -40,6 +40,13 @@ def normalize_workflow_matrix(document: dict[str, Any]) -> dict[str, Any]:
             node["stageId"] = stages[min(index, len(stages) - 1)]["id"]
         node["promotedToMenu"] = bool(node.get("promotedToMenu", False))
 
+    for edge in normalized.get("edges", []):
+        edge.setdefault("name", "")
+        edge.setdefault("description", "")
+        edge.setdefault("kind", "handoff")
+        edge.setdefault("condition", "")
+        edge.setdefault("parameters", {})
+
     normalized["lanes"] = lanes
     normalized["stages"] = stages
     return normalized

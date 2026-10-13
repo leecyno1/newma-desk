@@ -107,6 +107,35 @@ async def test_hermes_adapter_reuses_module_session_across_turns(
 
 
 @pytest.mark.asyncio
+async def test_hermes_task_memory_does_not_reuse_or_replace_old_module_session(tmp_path: Path) -> None:
+    sessions: list[str] = []
+    started: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/session/new":
+            sessions.append(f"isolated-{len(sessions) + 1}")
+            return httpx.Response(200, json={"session": {"session_id": sessions[-1]}})
+        if request.url.path == "/api/chat/start":
+            started.append(json.loads(request.content)["session_id"])
+            return httpx.Response(200, json={"stream_id": f"stream-{len(started)}"})
+        if request.url.path == "/api/chat/stream":
+            return httpx.Response(200, text=_sse("当前底稿分析", started[-1]), headers={"Content-Type": "text/event-stream"})
+        raise AssertionError(f"Unexpected request: {request.url}")
+
+    store = AgentModuleSessionStore(tmp_path / "gateway.db")
+    settings = Settings(runtime_dir=tmp_path, database_path=tmp_path / "gateway.db", hermes_webui_base_url="http://hermes.test")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        adapter = HermesWebUIAdapter(settings, store, client=client)
+        store.set("alice", adapter.id, "earnings-workbench", "old-company-session")
+        request = AgentTaskCreate(user_id="alice", module_id="earnings-workbench", prompt="当前底稿", memory_scope="task")
+        first = await _events(adapter, "first", request)
+        second = await _events(adapter, "second", request)
+    assert first[-1].type == second[-1].type == "completed"
+    assert started == ["isolated-1", "isolated-2"]
+    assert store.get("alice", adapter.id, "earnings-workbench").upstream_session_id == "old-company-session"
+
+
+@pytest.mark.asyncio
 async def test_hermes_adapter_returns_validated_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -376,6 +405,32 @@ async def test_hermes_adapter_description_marks_unreachable_service_unavailable(
 ) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("offline", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = HermesWebUIAdapter(
+        Settings(
+            runtime_dir=tmp_path,
+            database_path=tmp_path / "gateway.db",
+            hermes_webui_base_url="http://hermes.test",
+        ),
+        AgentModuleSessionStore(tmp_path / "gateway.db"),
+        client=client,
+    )
+    try:
+        description = await adapter.describe()
+    finally:
+        await client.aclose()
+
+    assert description["available"] is False
+
+
+@pytest.mark.asyncio
+async def test_hermes_adapter_description_rejects_an_unrelated_http_service(
+    tmp_path: Path,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/session/new"
+        return httpx.Response(404, json={"detail": "Not Found"})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     adapter = HermesWebUIAdapter(

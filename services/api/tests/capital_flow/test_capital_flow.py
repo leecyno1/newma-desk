@@ -2,6 +2,30 @@ import httpx
 import pytest
 
 from vibe_visualization_api.capital_flow.service import CapitalFlowService
+from vibe_visualization_api.capital_flow.routes import get_capital_flow, search_capital_flow_security
+from vibe_visualization_api.config import Settings
+
+
+@pytest.mark.asyncio
+async def test_capital_flow_routes_use_resolved_server_token(monkeypatch):
+    monkeypatch.setenv("TUSHARE_TOKEN", "old-test-token")
+    tokens = []
+
+    async def dashboard(service, code):
+        tokens.append(service._tushare_token)
+        return {"code": code}
+
+    async def search(service, query, limit):
+        tokens.append(service._tushare_token)
+        return {"items": []}
+
+    monkeypatch.setattr(CapitalFlowService, "dashboard", dashboard)
+    monkeypatch.setattr(CapitalFlowService, "search_securities", search)
+    settings = Settings(tushare_token="configured-test-token", _env_file=None)
+
+    assert await get_capital_flow("300308", settings) == {"code": "300308"}
+    assert await search_capital_flow_security("中际旭创", 8, settings) == {"items": []}
+    assert tokens == ["configured-test-token", "configured-test-token"]
 
 
 @pytest.mark.asyncio

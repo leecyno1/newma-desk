@@ -25,6 +25,14 @@ const reportTypeLabel = (reportType: string | null | undefined) => {
   return '研究报告'
 }
 
+// 经理报告 target_id 为「姓名|性别|学历」复合串，展示仅取姓名，避免列表标题出现 ID 尾巴
+const displayTargetId = (targetType: unknown, targetId: unknown) => {
+  const raw = String(targetId ?? '').trim()
+  if (!raw) return ''
+  if (String(targetType) === 'manager' && raw.includes('|')) return raw.split('|')[0].trim() || raw
+  return raw
+}
+
 const cleanPreview = (content: string) =>
   content
     .replace(/^<!--[\s\S]*?-->\s*/u, '')
@@ -307,7 +315,7 @@ function mapReport(report: Record<string, unknown>) {
 
   return {
     id: report.id,
-    title: `${targetId} ${reportTypeLabel(reportType)}`,
+    title: `${displayTargetId(targetType, targetId)} ${reportTypeLabel(reportType)}`,
     targetId,
     targetType,
     reportType,

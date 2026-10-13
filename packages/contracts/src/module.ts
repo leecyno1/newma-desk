@@ -263,6 +263,7 @@ export const modPresentationSchema = z
     englishName: z.string().min(1).max(80),
     description: z.string().min(1).max(240),
     titleOwner: z.literal("host"),
+    chrome: z.enum(["standard", "canvas"]).optional(),
   })
   .strict();
 

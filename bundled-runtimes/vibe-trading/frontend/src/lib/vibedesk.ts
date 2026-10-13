@@ -15,10 +15,23 @@ export interface VibeDeskModSession {
 let currentConfig: VibeDeskConfig | null = null;
 let currentSession: VibeDeskModSession | null = null;
 let bridgeInstanceId: string | null = null;
+let newmaRuntimeAvailable = false;
 let contextSummaryProvider: (() => Record<string, unknown>) | null = null;
 const waiters = new Set<(config: VibeDeskConfig) => void>();
 const sessionWaiters = new Set<(session: VibeDeskModSession) => void>();
 const appliedAppearanceVariables = new Set<string>();
+
+function agentRuntimeAvailable(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const runtime = value as Record<string, unknown>;
+  const requestMessage = runtime.requestMessage === "vibedesk:copilot-open";
+  const host =
+    (runtime.owner === "newma" || runtime.owner === "numa") &&
+    runtime.aiExecution === "host";
+  const gateway =
+    runtime.owner === "desk" && runtime.aiExecution === "gateway";
+  return requestMessage && (host || gateway);
+}
 
 export const isVibeDeskEmbedded = window.parent !== window;
 document.documentElement.dataset.vibedeskEmbedded = isVibeDeskEmbedded ? "true" : "false";
@@ -95,7 +108,7 @@ function announceContextBridge(config: VibeDeskConfig) {
       modId: config.moduleId,
       protocolVersions: ["1.0"],
       sdkVersion: "vibe-trading-0.1.11",
-      capabilities: ["context", "theme"],
+      capabilities: ["agent", "context", "theme"],
     },
     config.gatewayOrigin,
   );
@@ -116,6 +129,12 @@ function visiblePageContext() {
     .replace(/\n{3,}/g, "\n\n")
     .trim()
     .slice(0, 40_000);
+  const clone = document.body.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("script, style, noscript, template, svg, canvas, input[type=password], input[type=hidden]")
+    .forEach((element) => element.remove());
+  clone.querySelectorAll<HTMLElement>("[style]")
+    .forEach((element) => element.removeAttribute("style"));
+  const renderedHtml = clone.outerHTML.replace(/\s+/g, " ").trim().slice(0, 24_000);
   let structuredSummary: Record<string, unknown> = {};
   try {
     structuredSummary = contextSummaryProvider?.() ?? {};
@@ -138,20 +157,46 @@ function visiblePageContext() {
       asOf: new Date().toISOString(),
       source: "vibe-trading-rendered-page",
       freshness: "fresh",
-      summary: { visibleText, ...structuredSummary },
+      summary: {
+        contextSource: "dom-html-fallback",
+        visibleText,
+        renderedHtml,
+        ...structuredSummary,
+      },
     },
     actions: [],
     tasks: [],
   };
 }
 
+function postPageContext(linkedRequestId?: string) {
+  if (!currentConfig || !bridgeInstanceId) return false;
+  window.parent.postMessage(
+    {
+      type: "vibedesk:context",
+      requestId: linkedRequestId
+        || `context-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      instanceId: bridgeInstanceId,
+      modId: currentConfig.moduleId,
+      context: visiblePageContext(),
+    },
+    currentConfig.gatewayOrigin,
+  );
+  return true;
+}
+
 export function registerVibeDeskContextSummary(
   provider: () => Record<string, unknown>,
 ): () => void {
   contextSummaryProvider = provider;
+  queueMicrotask(() => postPageContext());
   return () => {
     if (contextSummaryProvider === provider) contextSummaryProvider = null;
   };
+}
+
+export function publishVibeDeskContext() {
+  return postPageContext();
 }
 
 function safeOrigin(value: unknown): string | null {
@@ -309,19 +354,22 @@ if (isVibeDeskEmbedded) {
       const initTheme = data.environment?.theme === "dark" ? "dark" : "light";
       currentConfig.theme = initTheme;
       applyEmbeddedTheme(initTheme, data.appearance);
-      if (
-        !data.session ||
-        typeof data.session.accessToken !== "string" ||
-        typeof data.session.expiresAt !== "string"
-      ) return;
       bridgeInstanceId = data.instanceId;
-      currentSession = {
-        accessToken: data.session.accessToken,
-        expiresAt: data.session.expiresAt,
-        instanceId: data.instanceId,
-      };
-      for (const resolve of sessionWaiters) resolve(currentSession);
-      sessionWaiters.clear();
+      newmaRuntimeAvailable = agentRuntimeAvailable(data.runtime);
+      currentSession = null;
+      if (
+        data.session &&
+        typeof data.session.accessToken === "string" &&
+        typeof data.session.expiresAt === "string"
+      ) {
+        currentSession = {
+          accessToken: data.session.accessToken,
+          expiresAt: data.session.expiresAt,
+          instanceId: data.instanceId,
+        };
+        for (const resolve of sessionWaiters) resolve(currentSession);
+        sessionWaiters.clear();
+      }
       window.parent.postMessage(
         {
           type: "vibedesk:ack",
@@ -331,6 +379,7 @@ if (isVibeDeskEmbedded) {
         },
         currentConfig.gatewayOrigin,
       );
+      queueMicrotask(() => postPageContext());
       return;
     }
     if (data.type === "vibedesk:context-request") {
@@ -342,16 +391,7 @@ if (isVibeDeskEmbedded) {
         data.instanceId !== bridgeInstanceId ||
         typeof data.requestId !== "string"
       ) return;
-      window.parent.postMessage(
-        {
-          type: "vibedesk:context",
-          requestId: data.requestId,
-          instanceId: bridgeInstanceId,
-          modId: currentConfig.moduleId,
-          context: visiblePageContext(),
-        },
-        currentConfig.gatewayOrigin,
-      );
+      postPageContext(data.requestId);
       return;
     }
     if (data.type !== "vibedesk:config") return;
@@ -373,6 +413,7 @@ if (isVibeDeskEmbedded) {
     };
     currentSession = null;
     bridgeInstanceId = null;
+    newmaRuntimeAvailable = false;
     applyEmbeddedTheme(theme, data.appearance);
     announceContextBridge(currentConfig);
     window.dispatchEvent(new CustomEvent("vibedesk:config", { detail: currentConfig }));
@@ -432,10 +473,20 @@ export async function waitForVibeDeskModSession(
   });
 }
 
-export async function openVibeDeskCopilot(): Promise<boolean> {
+export async function openVibeDeskCopilot(input: {
+  mode?: "ask" | "edit";
+  prompt?: string;
+} = {}): Promise<boolean> {
   if (!isVibeDeskEmbedded) return false;
   const config = await waitForVibeDeskConfig();
-  if (!config) return false;
-  window.parent.postMessage({ type: "vibedesk:copilot-open" }, config.gatewayOrigin);
+  if (!config || !bridgeInstanceId || !newmaRuntimeAvailable) return false;
+  const prompt = input.prompt?.trim().slice(0, 8_000);
+  window.parent.postMessage({
+    type: "vibedesk:copilot-open",
+    instanceId: bridgeInstanceId,
+    modId: config.moduleId,
+    mode: input.mode ?? "ask",
+    ...(prompt ? { prompt } : {}),
+  }, config.gatewayOrigin);
   return true;
 }

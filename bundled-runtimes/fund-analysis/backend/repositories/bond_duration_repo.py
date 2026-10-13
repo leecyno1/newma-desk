@@ -1,6 +1,7 @@
 """中债分期限指数与债基估算久期 Repository。"""
 
 import json
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 try:
@@ -115,21 +116,48 @@ class BondDurationRepo:
         from sqlalchemy import text
 
         sql = text("""
-            SELECT indicator, COUNT(DISTINCT series_key) AS series_count,
+            SELECT series_key, indicator,
                    COUNT(*) AS observations, MIN(trade_date) AS start_date,
                    MAX(trade_date) AS end_date
             FROM bond_index_series
-            GROUP BY indicator
+            WHERE value > 0 AND value < 'Infinity'::numeric AND trade_date <= CURRENT_DATE
+            GROUP BY series_key, indicator
         """)
         with self.engine.connect() as conn:
             rows = conn.execute(sql).fetchall()
-        indicators = {
-            str(row.indicator): self._serialize(dict(row._mapping))
-            for row in rows
-        }
+        return self._inventory_from_rows([self._serialize(dict(row._mapping)) for row in rows])
+
+    @staticmethod
+    def _inventory_from_rows(rows: List[Dict[str, Any]], as_of: Optional[date] = None) -> Dict[str, Any]:
+        from services.chinabond_index_service import ChinaBondIndexService
+
+        stale_before = ((as_of or date.today()) - timedelta(days=7)).isoformat()
+        by_key = {(row["series_key"], row["indicator"]): row for row in rows}
+        coverage = []
+        missing_items = []
+        indicators = {}
+        for definition in ChinaBondIndexService.definitions():
+            for indicator in ChinaBondIndexService.INDICATORS:
+                row = by_key.get((definition["series_key"], indicator), {})
+                end_date = str(row.get("end_date") or "")[:10]
+                status = "missing" if not row else "stale" if end_date < stale_before else "ready"
+                coverage.append({"series_key": definition["series_key"], "indicator": indicator, **row, "status": status})
+                if status != "ready":
+                    label = "财富指数" if indicator == "wealth" else "久期"
+                    missing_items.append(f"{definition['group_label']}·{definition['period_label']} {label}：" + ("缺失" if status == "missing" else f"截至 {end_date}，已超过7日时效窗口"))
+                if row:
+                    aggregate = indicators.setdefault(indicator, {"series_count": 0, "observations": 0, "start_date": row["start_date"], "end_date": row["end_date"]})
+                    aggregate["series_count"] += 1
+                    aggregate["observations"] += int(row["observations"])
+                    aggregate["start_date"] = min(aggregate["start_date"], row["start_date"])
+                    aggregate["end_date"] = max(aggregate["end_date"], row["end_date"])
         return {
-            "status": "ready" if all(int((indicators.get(key) or {}).get("series_count") or 0) >= 20 for key in ("wealth", "duration")) else "incomplete",
+            "status": "incomplete" if missing_items else "ready",
             "indicators": indicators,
+            "coverage": coverage,
+            "missing_items": missing_items,
+            "expected_pairs": len(coverage),
+            "ready_pairs": sum(item["status"] == "ready" for item in coverage),
         }
 
     def upsert_estimate(self, row: Dict[str, Any]) -> None:

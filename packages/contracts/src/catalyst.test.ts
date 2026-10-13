@@ -42,4 +42,11 @@ describe("catalyst calendar contract", () => {
   it("rejects a window without boundaries", () => {
     expect(() => catalystEventSchema.parse({ ...event, windowStart: undefined })).toThrow();
   });
+
+  it("accepts partial source coverage", () => {
+    expect(catalystFeedSchema.shape.sources.element.parse({
+      id: "news-concept-radar", label: "概念主题雷达", status: "partial", count: 1,
+      asOf: "2026-08-03",
+    }).status).toBe("partial");
+  });
 });

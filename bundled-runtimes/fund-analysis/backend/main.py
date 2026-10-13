@@ -16,6 +16,10 @@ for _env_file in (_root_dir / ".env.local", _root_dir / ".env", _backend_dir / "
         print(f"[CONFIG] Loaded .env from {_env_file}")
 
 sys.path.insert(0, os.path.dirname(__file__))
+from database import load_shared_database_environment
+from runtime_config import load_shared_model_environment
+load_shared_database_environment()
+load_shared_model_environment()
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -30,7 +34,7 @@ import json
 
 from routes import funds, fund_companies, home, managers, scoring, reports, research_reports, research_memos, research_folders, watchlists
 from routes import attribution, barra, brinson, export, data_sync, data_health, metrics, fund_pools, alerts, investment_analysis, fund_browser, market_indices, newma_desk, investment_theses, anomaly_scanner, fund_watches, research_queue, decision_postmortems, research_decision_logs, research_signals, decision_support, portfolio
-from service_registry import get_data_service, get_scoring_engine, get_db
+from service_registry import get_data_service, get_scoring_engine
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -93,25 +97,10 @@ async def lifespan(app: FastAPI):
     scoring_eng = get_scoring_engine()
     logger.info("Scoring engine initialized")
 
-    # 初始化 PostgreSQL 数据库表
-    try:
-        from database import init_database
-        init_database()
-    except Exception as e:
-        logger.warning(f"Database init warning: {e}")
-
-    db = get_db()
-    if db is not None:
-        logger.info("MongoDB connected (research reports)")
-
-    # 初始化向量数据库
-    try:
-        from services.vector_db_service import get_vector_db
-        vector_db = get_vector_db()
-        info = vector_db.get_collection_info()
-        logger.info(f"Vector DB connected: {info.get('name')} with {info.get('points_count', 0)} points")
-    except Exception as e:
-        logger.warning(f"Vector DB init warning: {e}")
+    from database import prepare_database
+    database_mode = os.environ.get("FUND_DATABASE_INIT_MODE", "check").strip().lower()
+    prepare_database(database_mode)
+    logger.info("Database startup mode: %s", database_mode)
 
     logger.info("Application startup complete")
     yield
@@ -178,6 +167,7 @@ app.include_router(portfolio.router, tags=["基金组合"])
 async def health_check():
     from service_registry import DATA_SOURCE
     from database import check_database_health
+    from services.portfolio_service import HISTORY_METHODOLOGY
     data_svc = get_data_service()
     database_health = check_database_health(min_fund_count=1)
     status = "ok" if database_health.get("status") == "ok" else "degraded"
@@ -188,6 +178,8 @@ async def health_check():
         "data_source": DATA_SOURCE,
         "mock_mode": data_svc.mock_mode,
         "database": database_health,
+        "database_init_mode": os.environ.get("FUND_DATABASE_INIT_MODE", "check").strip().lower(),
+        "portfolio_history_methodology": HISTORY_METHODOLOGY,
     }
     if status != "ok":
         return JSONResponse(status_code=503, content=payload)

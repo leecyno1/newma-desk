@@ -69,7 +69,7 @@ export async function chatStream(messages: ChatMsg[], context: string, handlers:
   // Desk 握手未就绪时直接报错，避免意外调用已退役的 /api/chat。
   if (usesUnifiedDeskAgent) {
     throw new ApiError(
-      "Desk Agent 尚未就绪，请从 Newma-Desk 打开本模块并检查统一 Agent 设置",
+      "Agent Runtime 尚未就绪，请从 Newma 或独立 Desk 打开本模块",
       503,
     );
   }

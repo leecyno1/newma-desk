@@ -1,3 +1,8 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from services.peer_comparison_service import PeerComparisonService
 from services.professional_scoring_service import ProfessionalScoringService
 

@@ -22,16 +22,21 @@ import {
   deskContextRequestSchema,
   deskHandoffSchema,
   deskUiActionRequestSchema,
+  deskVisualContextRequestSchema,
+  MAX_BRIDGE_VISUAL_CAPTURE_BYTES,
   modAckSchema,
   modActionRequestSchema,
+  modAgentRequestSchema,
   modContextSchema,
   modEventSchema,
   modHandoffResultSchema,
   modHelloSchema,
   modUiActionResultSchema,
+  modVisualContextSchema,
   type DeskInit,
   type ModManifest,
   type ModPageContext,
+  type ModVisualCapturePayload,
   type WikiHandoff,
   type WikiLink,
 } from "@newma-desk/contracts";
@@ -46,14 +51,23 @@ import type {
 
 import type { ShellEventBus } from "../events/ShellEventBus";
 import {
+  captureModVisualContext,
   invokeModSessionAction,
   issueModSession,
   ModSessionRequestError,
   saveModContext,
+  saveModVisualContext,
   type ModSession,
   type ModSessionIssuerInput,
+  type SavedModVisualContext,
 } from "../api/modSessions";
 import { resolveModUrl } from "../lib/moduleUrl";
+import { createContextWriter } from "../lib/contextWriter";
+import type {
+  AgentRuntimeBinding,
+  AgentRuntimeMode,
+  AgentRuntimeRequest,
+} from "../lib/agentRuntime";
 
 const EmbeddedMarketFrame = lazy(() => import("./EmbeddedMarketFrame"));
 const EmbeddedIntelligenceFrame = import.meta.env.DEV
@@ -67,15 +81,19 @@ interface ModFrameProps {
   embedded?: boolean;
   userId?: string;
   workspaceId?: string;
+  instanceId?: string;
   locale?: string;
   timezone?: string;
   sessionIssuer?: (input: ModSessionIssuerInput) => Promise<ModSession>;
   actionInvoker?: typeof invokeModSessionAction;
   contextSaver?: typeof saveModContext;
+  visualContextSaver?: typeof saveModVisualContext;
+  visualContextCapturer?: typeof captureModVisualContext;
+  agentRuntime?: AgentRuntimeBinding;
   copilotOpen?: boolean;
   onToggleCopilot?: () => void;
-  onRequestCopilotOpen?: (request?: CopilotOpenRequest) => void;
   onContextPublished?: (context: ModPageContext) => void;
+  onNavigate?: (targetModId: string, search: string) => void;
   wikiSubjectName?: string;
   wikiLinks?: WikiLink[];
   wikiLoading?: boolean;
@@ -84,10 +102,7 @@ interface ModFrameProps {
   onOpenWikiLink?: (link: WikiLink) => void;
 }
 
-export interface CopilotOpenRequest {
-  prompt?: string;
-  mode?: "ask" | "edit";
-}
+export type CopilotOpenRequest = AgentRuntimeRequest;
 
 function embeddedMarketMod(manifest: ModManifest) {
   if (manifest.entry.type === "external") return undefined;
@@ -138,6 +153,8 @@ function createEmbeddedMarketHost(input: {
   contextProviderRef: { current: ModContextProvider | undefined };
   uiActionHandlerRef: { current: ModUiActionHandler | undefined };
   handoffHandlerRef: { current: ModHandoffHandler | undefined };
+  runtimeMode?: AgentRuntimeMode;
+  requestAgent(request?: CopilotOpenRequest): void;
   onContextPublished?: (context: ModPageContext) => void;
 }): LocalEmbeddedMarketHost {
   let config = createDeskInit(
@@ -148,6 +165,7 @@ function createEmbeddedMarketHost(input: {
     input.theme,
     input.locale,
     input.timezone,
+    input.runtimeMode,
   );
   const subscribers = new Set<(config: DeskInit) => void>();
   const queuedHandoffs = new Set<{
@@ -178,7 +196,7 @@ function createEmbeddedMarketHost(input: {
     });
     return sessionPromise;
   };
-  const saveContext = async (context: ModPageContext) => {
+  const contextWriter = createContextWriter(async (context) => {
     let currentSession = await ensureSession();
     try {
       await input.contextSaver(currentSession, context);
@@ -187,7 +205,7 @@ function createEmbeddedMarketHost(input: {
       currentSession = await ensureSession(true);
       await input.contextSaver(currentSession, context);
     }
-  };
+  });
   const invokeAction = async <T = unknown>(
     actionId: string,
     actionInput: Record<string, unknown>,
@@ -218,6 +236,9 @@ function createEmbeddedMarketHost(input: {
         if (input.contextProviderRef.current === provider) input.contextProviderRef.current = undefined;
       };
     },
+    setVisualCaptureProvider() {
+      return () => undefined;
+    },
     setUiActionHandler(handler) {
       input.uiActionHandlerRef.current = handler;
       return () => {
@@ -227,13 +248,19 @@ function createEmbeddedMarketHost(input: {
     publishContext(context) {
       input.latestContextRef.current = context;
       input.onContextPublished?.(context);
-      void saveContext(context).catch(() => undefined);
+      void contextWriter.write(context).catch(() => undefined);
     },
     invokeAction: async <T = unknown>(actionId: string, actionInput: Record<string, unknown> = {}): Promise<T> => {
       if (!declaredActionIds(input.manifest).includes(actionId)) {
         throw new Error(`Mod 未声明动作 ${actionId}`);
       }
       return invokeAction<T>(actionId, actionInput);
+    },
+    requestAgent(request = {}) {
+      if (!input.runtimeMode) {
+        throw new Error("Agent Runtime is unavailable");
+      }
+      input.requestAgent(request);
     },
     setHandoffHandler(handler) {
       input.handoffHandlerRef.current = handler;
@@ -252,6 +279,7 @@ function createEmbeddedMarketHost(input: {
       };
     },
     close() {
+      contextWriter.close();
       subscribers.clear();
       for (const pending of queuedHandoffs) {
         window.clearTimeout(pending.timer);
@@ -260,11 +288,8 @@ function createEmbeddedMarketHost(input: {
       queuedHandoffs.clear();
     },
     requestContext(reason = "agent") {
-      if (input.latestContextRef.current) {
-        return Promise.resolve(input.latestContextRef.current);
-      }
       return Promise.resolve(input.contextProviderRef.current?.()).then((context) => {
-        if (context) input.latestContextRef.current = context;
+        input.latestContextRef.current = context;
         return context;
       });
     },
@@ -307,6 +332,7 @@ function createEmbeddedMarketHost(input: {
         theme,
         input.locale,
         input.timezone,
+        input.runtimeMode,
       );
       for (const subscriber of subscribers) subscriber(config);
     },
@@ -341,12 +367,35 @@ export interface ModFrameHandle {
   requestContext(
     reason?: "initial" | "agent" | "refresh",
   ): Promise<ModPageContext | undefined>;
+  requestVisualContext(
+    reason?: "agent" | "refresh",
+  ): Promise<SavedModVisualContext | undefined>;
+  requestVisualCapture(
+    reason?: "agent" | "refresh",
+  ): Promise<ModVisualCapturePayload | undefined>;
+  requestAgentEvidence(
+    reason?: "agent" | "refresh",
+  ): Promise<ModAgentEvidence>;
   reload(): void;
   invokeUiAction<T = unknown>(
     actionId: string,
     input?: Record<string, unknown>,
   ): Promise<T>;
   deliverHandoff(handoff: WikiHandoff): Promise<unknown>;
+}
+
+export type ModAgentEvidenceSource =
+  | "structured"
+  | "dom-html"
+  | "visual"
+  | "manifest";
+
+export interface ModAgentEvidence {
+  page?: ModPageContext;
+  source: ModAgentEvidenceSource;
+  visual?: SavedModVisualContext;
+  freshness: "live" | "fresh" | "stale" | "unknown";
+  warnings: string[];
 }
 
 function createInstanceId(): string {
@@ -356,10 +405,37 @@ function createInstanceId(): string {
   );
 }
 
+function redactLocalFilesystemPaths(value: string): string {
+  return value
+    .replace(
+      /(?:\/(?:Users|Volumes|home|opt|private|tmp)\/|\/var\/folders\/)[^<>"'\n\r]*/g,
+      "[local-path]",
+    )
+    .replace(
+      /[A-Za-z]:\\Users\\[^<>"'\n\r]*/g,
+      "[local-path]",
+    );
+}
+
 function declaredActionIds(manifest: ModManifest): string[] {
   return manifest.schemaVersion === "1.1"
     ? Object.keys(manifest.actions)
     : manifest.agentCapabilities;
+}
+
+function runtimeActionPrompt(
+  manifest: ModManifest,
+  actionId: string,
+  input: Record<string, unknown>,
+): string {
+  const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
+  const parameters = Object.fromEntries(
+    Object.entries(input).filter(([key]) => key !== "prompt"),
+  );
+  const parameterText = Object.keys(parameters).length
+    ? `\n\n动作：${actionId}\n参数：${JSON.stringify(parameters)}`
+    : `\n\n动作：${actionId}`;
+  return `${prompt || `请处理当前「${manifest.name}」页面的 AI 动作。`}${parameterText}`;
 }
 
 function isRecoverableSessionError(reason: unknown): boolean {
@@ -377,6 +453,7 @@ function createDeskInit(
   theme: "light" | "dark",
   locale: string,
   timezone: string,
+  runtimeMode?: AgentRuntimeMode,
   session?: ModSession,
 ): DeskInit {
   const origin = window.location.origin;
@@ -391,11 +468,32 @@ function createDeskInit(
     appearance: createNewmaDeskAppearance(theme),
     gateways: {
       actions: `${origin}/api/mods/${encodeURIComponent(manifest.id)}/actions`,
-      agent: `${origin}/api/agent`,
-      model: `${origin}/api/model`,
+      ...(runtimeMode === "local"
+        ? {
+            agent: `${origin}/api/agent`,
+            model: `${origin}/api/model`,
+          }
+        : {}),
       data: `${origin}/api/data-services`,
       storage: `${origin}/api/mods/${encodeURIComponent(manifest.id)}/storage`,
     },
+    ...(runtimeMode === "newma"
+      ? {
+          runtime: {
+            owner: "newma" as const,
+            aiExecution: "host" as const,
+            requestMessage: "vibedesk:copilot-open" as const,
+          },
+        }
+      : runtimeMode === "local"
+        ? {
+            runtime: {
+              owner: "desk" as const,
+              aiExecution: "gateway" as const,
+              requestMessage: "vibedesk:copilot-open" as const,
+            },
+          }
+        : {}),
     grants: {
       permissions: session?.grants.permissions ?? manifest.permissions,
       actions: session?.grants.actions ?? declaredActionIds(manifest),
@@ -418,6 +516,132 @@ function logIgnoredMessage(reason: string) {
   }
 }
 
+function sameOriginFrameContext(
+  frame: HTMLIFrameElement,
+  manifest: ModManifest,
+): ModPageContext | undefined {
+  try {
+    const document = frame.contentDocument;
+    const target = frame.contentWindow;
+    if (!document || !target) return undefined;
+    const contentRoot = document.querySelector<HTMLElement>("main")
+      ?? document.querySelector<HTMLElement>("#root")
+      ?? document.body;
+    if (!contentRoot) return undefined;
+    const compact = (value: unknown, limit: number) =>
+      typeof value === "string"
+        ? value.replace(/\s+/g, " ").trim().slice(0, limit)
+        : "";
+    const viewId = compact(`${manifest.id}:${target.location.pathname}`.replace(/[^a-zA-Z0-9:_-]+/g, "-"), 128)
+      || manifest.id;
+    const title = compact(
+      contentRoot.querySelector("h1")?.textContent ?? document.title,
+      160,
+    ) || manifest.name;
+    const clone = contentRoot.cloneNode(true) as HTMLElement;
+    const visualElementCount = Array.from(
+      contentRoot.querySelectorAll<HTMLElement>(
+        "canvas, svg, img, video, [role=img], [data-visual-context]",
+      ),
+    ).filter((element) => {
+      if (element instanceof HTMLCanvasElement || element instanceof HTMLVideoElement) {
+        return true;
+      }
+      const rect = element.getBoundingClientRect();
+      return rect.width >= 240 && rect.height >= 120;
+    }).length;
+    clone.querySelectorAll("script, style, noscript, template, svg, canvas, input[type=password], input[type=hidden]")
+      .forEach((element) => element.remove());
+    clone.querySelectorAll<HTMLElement>("[style]")
+      .forEach((element) => element.removeAttribute("style"));
+    return {
+      view: { id: viewId, title },
+      visibleBlocks: Array.from(
+        contentRoot.querySelectorAll<HTMLElement>("h1, h2, h3, [role=heading]"),
+      ).map((heading, index) => ({
+        id: compact(heading.id || `${viewId}-heading-${index + 1}`, 128),
+        type: heading.tagName.toLowerCase().slice(0, 80),
+        title: compact(heading.textContent, 160),
+      })).filter((block) => block.title).slice(0, 80),
+      selection: {
+        location: compact(
+          `${target.location.pathname}${target.location.search}${target.location.hash}`,
+          1_000,
+        ),
+      },
+      filters: {},
+      data: {
+        source: "newma-desk-same-origin-dom",
+        freshness: "unknown",
+        summary: {
+          contextSource: "dom-html-fallback",
+          visibleText: redactLocalFilesystemPaths(compact(contentRoot.innerText, 16_000)),
+          renderedHtml: redactLocalFilesystemPaths(compact(clone.outerHTML, 24_000)),
+          visualElementCount,
+          warning: "Mod 未返回结构化上下文，Desk 已读取当前同源页面的渲染 DOM/HTML。",
+        },
+      },
+      actions: [],
+      tasks: [],
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function pageContextSource(
+  context?: ModPageContext,
+): "structured" | "dom-html" | "visual" | undefined {
+  if (!context) return undefined;
+  const summary = context.data.summary;
+  if (summary?.contextSource === "server-playwright-dom") return "visual";
+  return summary?.contextSource === "dom-html-fallback"
+    ? "dom-html"
+    : "structured";
+}
+
+function pageNeedsVisualEvidence(context?: ModPageContext): boolean {
+  if (!context) return true;
+  if (pageContextSource(context) !== "dom-html") return false;
+  const summary = context.data.summary;
+  return typeof summary?.visualElementCount === "number"
+    ? summary.visualElementCount > 0
+    : true;
+}
+
+function pageContextFromVisual(
+  visual: SavedModVisualContext,
+  manifest: ModManifest,
+): ModPageContext | undefined {
+  const text = visual.dom?.text.trim();
+  const html = visual.dom?.html.trim();
+  if (!text && !html) return undefined;
+  return {
+    view: {
+      id: `${manifest.id}:visual`,
+      title: visual.title ?? manifest.name,
+    },
+    visibleBlocks: [],
+    selection: {},
+    filters: {},
+    data: {
+      asOf: visual.capturedAt,
+      source: "newma-desk-server-playwright",
+      freshness: "fresh",
+      summary: {
+        contextSource: "server-playwright-dom",
+        visibleText: text ?? "",
+        renderedHtml: html ?? "",
+        textTruncated: Boolean(visual.dom?.textTruncated),
+        htmlTruncated: Boolean(visual.dom?.htmlTruncated),
+        warning: "Mod 未提供结构化上下文，Desk 已重新打开同一 Mod 入口并保存视觉证据；瞬时筛选与未保存状态可能未保留。",
+      },
+    },
+    actions: [],
+    tasks: [],
+  };
+}
+
 const ENGLISH_TITLE_TOKENS: Record<string, string> = {
   ai: "AI",
   cn: "CN",
@@ -434,6 +658,32 @@ function fallbackEnglishName(modId: string) {
     .split("-")
     .map((token) => ENGLISH_TITLE_TOKENS[token] ?? `${token[0]?.toUpperCase() ?? ""}${token.slice(1)}`)
     .join(" ");
+}
+
+function deskStandaloneUrl(modId: string): string | undefined {
+  const url = new URL(window.location.href);
+  if (
+    url.searchParams.get("standalone") === "1" &&
+    url.searchParams.get("mod") === modId
+  ) {
+    return undefined;
+  }
+  for (const key of [
+    "preview",
+    "module",
+    "view",
+    "directory",
+    "handoff",
+    "host",
+    "project",
+    "parentOrigin",
+  ]) {
+    url.searchParams.delete(key);
+  }
+  url.searchParams.set("mod", modId);
+  url.searchParams.delete("copilot");
+  url.searchParams.set("standalone", "1");
+  return url.toString();
 }
 
 function FrameToolbar({
@@ -544,15 +794,19 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       embedded = false,
       userId = "local-user",
       workspaceId = "local-workspace",
+      instanceId: providedInstanceId,
       locale = globalThis.navigator?.language || "zh-CN",
       timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
       sessionIssuer = issueModSession,
       actionInvoker = invokeModSessionAction,
       contextSaver = saveModContext,
+      visualContextSaver = saveModVisualContext,
+      visualContextCapturer = captureModVisualContext,
+      agentRuntime,
       copilotOpen = false,
       onToggleCopilot,
-      onRequestCopilotOpen,
       onContextPublished,
+      onNavigate,
       wikiSubjectName,
       wikiLinks = [],
       wikiLoading = false,
@@ -575,7 +829,9 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       const src = new URL(resolveModUrl(manifest.entry));
       if (
         manifest.entry.type !== "external" ||
-        src.pathname.startsWith("/mod-runtime/")
+        src.pathname.startsWith("/mod-runtime/") ||
+        src.hostname === "localhost" ||
+        src.hostname.startsWith("127.")
       ) {
         src.searchParams.set("__newma_mod_version", manifest.version);
       }
@@ -587,6 +843,10 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       };
     }
   }, [embeddedMarket, manifest.entry, manifest.version]);
+  const standaloneUrl = useMemo(
+    () => embedded ? undefined : deskStandaloneUrl(manifest.id),
+    [embedded, manifest.id],
+  );
   const [frameState, setFrameState] = useState<"loading" | "ready" | "error">(
     "loading",
   );
@@ -598,8 +858,10 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   >("pending");
   const frameRef = useRef<HTMLIFrameElement>(null);
   const themeRef = useRef(theme);
-  const onRequestCopilotOpenRef = useRef(onRequestCopilotOpen);
+  const agentRuntimeRef = useRef(agentRuntime);
   const onContextPublishedRef = useRef(onContextPublished);
+  const onNavigateRef = useRef(onNavigate);
+  onNavigateRef.current = onNavigate;
   const handshakeRef = useRef(false);
   const acknowledgedRef = useRef(false);
   const sessionRef = useRef<ModSession | undefined>(undefined);
@@ -615,15 +877,30 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       reason: "initial" | "agent" | "refresh",
     ) => Promise<ModPageContext | undefined>
   >(undefined);
+  const requestVisualContextRef = useRef<
+    (
+      reason: "agent" | "refresh",
+    ) => Promise<SavedModVisualContext | undefined>
+  >(undefined);
+  const requestVisualCaptureRef = useRef<
+    (
+      reason: "agent" | "refresh",
+    ) => Promise<ModVisualCapturePayload | undefined>
+  >(undefined);
+  const requestAgentEvidenceRef = useRef<
+    (reason: "agent" | "refresh") => Promise<ModAgentEvidence>
+  >(undefined);
   const invokeUiActionRef = useRef<
     <T = unknown>(actionId: string, input?: Record<string, unknown>) => Promise<T>
   >(undefined);
   const deliverHandoffRef = useRef<
     (handoff: WikiHandoff) => Promise<unknown>
   >(undefined);
-  const [instanceId] = useState(createInstanceId);
+  const [generatedInstanceId] = useState(createInstanceId);
+  const instanceId = providedInstanceId ?? generatedInstanceId;
+  const agentRuntimeMode = agentRuntime?.mode;
   themeRef.current = theme;
-  onRequestCopilotOpenRef.current = onRequestCopilotOpen;
+  agentRuntimeRef.current = agentRuntime;
   onContextPublishedRef.current = onContextPublished;
 
   useEffect(() => {
@@ -642,6 +919,32 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
           return embeddedMarketHostRef.current.requestContext(reason);
         }
         return requestContextRef.current?.(reason) ?? Promise.resolve(undefined);
+      },
+      requestVisualContext(reason = "agent") {
+        if (embeddedMarketHostRef.current) return Promise.resolve(undefined);
+        return requestVisualContextRef.current?.(reason)
+          ?? Promise.resolve(undefined);
+      },
+      requestVisualCapture(reason = "agent") {
+        if (embeddedMarketHostRef.current) return Promise.resolve(undefined);
+        return requestVisualCaptureRef.current?.(reason)
+          ?? Promise.resolve(undefined);
+      },
+      requestAgentEvidence(reason = "agent") {
+        if (embeddedMarketHostRef.current) {
+          return embeddedMarketHostRef.current.requestContext(reason).then((page) => ({
+            page,
+            source: page ? "structured" : "manifest",
+            freshness: page?.data.freshness ?? "unknown",
+            warnings: page ? [] : ["当前嵌入式 Mod 未返回页面上下文。"],
+          }));
+        }
+        return requestAgentEvidenceRef.current?.(reason)
+          ?? Promise.resolve({
+            source: "manifest",
+            freshness: "unknown",
+            warnings: ["当前 Mod 取证通道尚未就绪。"],
+          });
       },
       reload() {
         if (embeddedMarketHostRef.current) return;
@@ -675,6 +978,9 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
   useLayoutEffect(() => {
     if (embeddedMarket) {
       requestContextRef.current = undefined;
+      requestVisualContextRef.current = undefined;
+      requestVisualCaptureRef.current = undefined;
+      requestAgentEvidenceRef.current = undefined;
       invokeUiActionRef.current = undefined;
       deliverHandoffRef.current = undefined;
       return;
@@ -689,6 +995,13 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       string,
       {
         resolve(context?: ModPageContext): void;
+        timer: number;
+      }
+    >();
+    const pendingVisualContextRequests = new Map<
+      string,
+      {
+        resolve(capture?: ModVisualCapturePayload): void;
         timer: number;
       }
     >();
@@ -745,6 +1058,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
           themeRef.current,
           locale,
           timezone,
+          agentRuntimeMode,
           session,
         ),
         expectedOrigin,
@@ -797,6 +1111,10 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       }
     };
 
+    const contextWriter = createContextWriter((context) =>
+      withSessionRecovery((session) => contextSaver(session, context)),
+    );
+
     const postInit = async () => {
       const session =
         manifest.schemaVersion === "1.1" ? await ensureSession() : undefined;
@@ -809,6 +1127,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
           themeRef.current,
           locale,
           timezone,
+          agentRuntimeMode,
           session,
         ),
         expectedOrigin,
@@ -822,9 +1141,16 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       return new Promise((resolve) => {
         const timer = window.setTimeout(() => {
           pendingContextRequests.delete(requestId);
-          if (!latestContextRef.current) setContextState("missing");
-          resolve(latestContextRef.current);
-        }, 1_500);
+          const fallback = sameOriginFrameContext(frame, manifest);
+          latestContextRef.current = fallback;
+          if (fallback) {
+            setContextState("received");
+            onContextPublishedRef.current?.(fallback);
+          } else {
+            setContextState("missing");
+          }
+          resolve(fallback);
+        }, reason === "initial" ? 2_500 : 5_000);
         pendingContextRequests.set(requestId, { resolve, timer });
         frame.contentWindow?.postMessage(
           deskContextRequestSchema.parse({
@@ -839,6 +1165,96 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       });
     };
     requestContextRef.current = requestContext;
+
+    const requestVisualCapture = (
+      reason: "agent" | "refresh",
+    ): Promise<ModVisualCapturePayload | undefined> => {
+      if (
+        !acknowledgedRef.current ||
+        !helloCapabilities.has("visual-context")
+      ) {
+        return Promise.resolve(undefined);
+      }
+      const requestId = createInstanceId();
+      return new Promise((resolve) => {
+        const timer = window.setTimeout(() => {
+          pendingVisualContextRequests.delete(requestId);
+          resolve(undefined);
+        }, 8_000);
+        pendingVisualContextRequests.set(requestId, { resolve, timer });
+        frame.contentWindow?.postMessage(
+          deskVisualContextRequestSchema.parse({
+            type: "vibedesk:visual-context-request",
+            requestId,
+            instanceId,
+            modId: manifest.id,
+            reason,
+            maxBytes: MAX_BRIDGE_VISUAL_CAPTURE_BYTES,
+            mediaTypes: ["image/png"],
+          }),
+          expectedOrigin,
+        );
+      });
+    };
+    requestVisualCaptureRef.current = requestVisualCapture;
+
+    const requestVisualContext = async (
+      reason: "agent" | "refresh",
+    ): Promise<SavedModVisualContext | undefined> => {
+      const capture = await requestVisualCapture(reason);
+      if (capture) {
+        const saved = await withSessionRecovery((session) =>
+          visualContextSaver(session, capture),
+        ).catch(() => undefined);
+        if (saved) return saved;
+      }
+      return withSessionRecovery((session) =>
+        visualContextCapturer(session),
+      ).catch(() => undefined);
+    };
+    requestVisualContextRef.current = requestVisualContext;
+
+    const requestAgentEvidence = async (
+      reason: "agent" | "refresh",
+    ): Promise<ModAgentEvidence> => {
+      const eagerVisual = helloCapabilities.has("visual-context")
+        ? requestVisualContext(reason)
+        : undefined;
+      let page = await requestContext(reason);
+      const warnings: string[] = [];
+      let visual: SavedModVisualContext | undefined;
+      if (
+        pageNeedsVisualEvidence(page) ||
+        helloCapabilities.has("visual-context")
+      ) {
+        visual = await (eagerVisual ?? requestVisualContext(reason));
+        if (!visual) {
+          warnings.push("当前页面没有可交付给 Agent 的视觉快照。");
+        } else if (!page) {
+          page = pageContextFromVisual(visual, manifest);
+        }
+        if (visual?.source === "server-playwright") {
+          warnings.push("服务端视觉兜底会重新打开同一 Mod，瞬时筛选与未保存状态可能未保留。");
+        }
+      }
+      const source = pageContextSource(page)
+        ?? (visual ? "visual" : "manifest");
+      if (source === "dom-html") {
+        warnings.push("当前 Mod 使用渲染 DOM/HTML 兜底，未提供完整结构化字段。");
+      } else if (source === "visual") {
+        warnings.push("当前 Mod 仅提供页面截图与渲染文本，没有结构化业务上下文。");
+      } else if (source === "manifest") {
+        warnings.push("当前 Mod 未返回页面证据，只能使用 Manifest 基础信息。");
+      }
+      return {
+        page,
+        source,
+        visual,
+        freshness: page?.data.freshness ?? "unknown",
+        warnings,
+      };
+    };
+    requestAgentEvidenceRef.current = requestAgentEvidence;
 
     const invokeUiAction = <T = unknown>(
       actionId: string,
@@ -945,6 +1361,17 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       });
     };
 
+    const forwardAgentRequest = (request: CopilotOpenRequest) => {
+      const runtime = agentRuntimeRef.current;
+      if (!runtime) {
+        logIgnoredMessage("Agent Runtime is unavailable");
+        return;
+      }
+      void requestContext("agent")
+        .catch(() => undefined)
+        .then(() => runtime.request(request));
+    };
+
     const handleLoad = () => {
       setFrameState("ready");
       registerCurrentWindow();
@@ -968,6 +1395,14 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       }
 
       const hello = modHelloSchema.safeParse(message.data);
+      if (message.data?.type === 'vibedesk:navigate') {
+        if (acknowledgedRef.current && message.data.modId === manifest.id &&
+          message.data.instanceId === instanceId && typeof message.data.targetModId === 'string' &&
+          typeof message.data.search === 'string' && message.data.search.length <= 4096) {
+          onNavigateRef.current?.(message.data.targetModId, message.data.search);
+        }
+        return;
+      }
       if (hello.success) {
         if (hello.data.modId !== manifest.id) {
           logIgnoredMessage("hello Mod id mismatch");
@@ -1014,16 +1449,21 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         return;
       }
 
-      if (
-        message.data &&
-        typeof message.data === "object" &&
-        message.data.type === "vibedesk:copilot-open"
-      ) {
-        const prompt = typeof message.data.prompt === "string"
-          ? message.data.prompt.trim().slice(0, 8_000)
-          : undefined;
-        const mode = message.data.mode === "edit" ? "edit" : "ask";
-        onRequestCopilotOpenRef.current?.({ prompt, mode });
+      const agentRequest = modAgentRequestSchema.safeParse(message.data);
+      if (agentRequest.success) {
+        if (
+          !acknowledgedRef.current ||
+          !helloCapabilities.has("agent") ||
+          agentRequest.data.modId !== manifest.id ||
+          agentRequest.data.instanceId !== instanceId
+        ) {
+          logIgnoredMessage("Agent request handshake mismatch");
+          return;
+        }
+        forwardAgentRequest({
+          prompt: agentRequest.data.prompt,
+          mode: agentRequest.data.mode,
+        });
         return;
       }
 
@@ -1045,9 +1485,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         latestContextRef.current = context.data.context;
         setContextState("received");
         onContextPublishedRef.current?.(context.data.context);
-        void withSessionRecovery((session) =>
-          contextSaver(session, context.data.context),
-        )
+        void contextWriter.write(context.data.context)
           .then(
             () =>
               finishContextRequest(
@@ -1062,6 +1500,33 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
               );
             },
           );
+        return;
+      }
+
+      const visualContext = modVisualContextSchema.safeParse(message.data);
+      if (visualContext.success) {
+        if (
+          !acknowledgedRef.current ||
+          visualContext.data.modId !== manifest.id ||
+          visualContext.data.instanceId !== instanceId
+        ) {
+          logIgnoredMessage("visual context handshake mismatch");
+          return;
+        }
+        const pending = pendingVisualContextRequests.get(
+          visualContext.data.requestId,
+        );
+        if (!pending) return;
+        pendingVisualContextRequests.delete(visualContext.data.requestId);
+        window.clearTimeout(pending.timer);
+        const capture = visualContext.data.ok
+          ? visualContext.data.capture
+          : undefined;
+        if (!capture) {
+          pending.resolve(undefined);
+          return;
+        }
+        pending.resolve(capture);
         return;
       }
 
@@ -1118,20 +1583,46 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
           manifest.schemaVersion === "1.1"
             ? manifest.actions[actionRequest.data.actionId]
             : undefined;
+        const runtimeBinding =
+          manifest.schemaVersion === "1.0" ||
+          actionDefinition?.binding.type === "agent" ||
+          actionDefinition?.binding.type === "model";
         const synchronizeContext =
-          actionDefinition?.binding.type === "agent"
+          runtimeBinding
             ? requestContext("agent")
             : Promise.resolve();
         void synchronizeContext
-          .then(() =>
-            withSessionRecovery((session) =>
+          .then(() => {
+            if (runtimeBinding && agentRuntimeRef.current) {
+              agentRuntimeRef.current.request({
+                mode:
+                  actionDefinition?.binding.type === "agent" &&
+                  actionDefinition.binding.profile === "edit"
+                    ? "edit"
+                    : "ask",
+                prompt: runtimeActionPrompt(
+                  manifest,
+                  actionRequest.data.actionId,
+                  actionRequest.data.input,
+                ),
+              });
+              return {
+                status: 202,
+                body: {
+                  status: "runtime_handoff",
+                  runtime: agentRuntimeMode,
+                  actionId: actionRequest.data.actionId,
+                },
+              };
+            }
+            return withSessionRecovery((session) =>
               actionInvoker(
                 session,
                 actionRequest.data.actionId,
                 actionRequest.data.input,
               ),
-            ),
-          )
+            );
+          })
           .then(({ status, body }) => {
             currentWindow.postMessage(
               deskActionResultSchema.parse({
@@ -1195,14 +1686,20 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     frame.addEventListener("error", handleError);
     window.addEventListener("message", handleMessage);
     return () => {
+      contextWriter.close();
       frame.removeEventListener("load", handleLoad);
       frame.removeEventListener("error", handleError);
       window.removeEventListener("message", handleMessage);
       for (const pending of pendingContextRequests.values()) {
         window.clearTimeout(pending.timer);
-        pending.resolve(latestContextRef.current);
+        pending.resolve(undefined);
       }
       pendingContextRequests.clear();
+      for (const pending of pendingVisualContextRequests.values()) {
+        window.clearTimeout(pending.timer);
+        pending.resolve(undefined);
+      }
+      pendingVisualContextRequests.clear();
       for (const pending of pendingUiActions.values()) {
         window.clearTimeout(pending.timer);
         pending.reject(new Error("Mod frame was closed"));
@@ -1214,6 +1711,9 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       }
       pendingHandoffs.clear();
       requestContextRef.current = undefined;
+      requestVisualContextRef.current = undefined;
+      requestVisualCaptureRef.current = undefined;
+      requestAgentEvidenceRef.current = undefined;
       invokeUiActionRef.current = undefined;
       deliverHandoffRef.current = undefined;
       if (registeredWindow) eventBus.unregister(registeredWindow);
@@ -1229,8 +1729,11 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     workspaceId,
     actionInvoker,
     contextSaver,
+    visualContextSaver,
+    visualContextCapturer,
     sessionIssuer,
     embeddedMarket,
+    agentRuntimeMode,
   ]);
 
   useEffect(() => {
@@ -1263,6 +1766,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
             theme,
             locale,
             timezone,
+            agentRuntimeMode,
             session,
           ),
           origin,
@@ -1280,6 +1784,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     userId,
     workspaceId,
     embeddedMarket,
+    agentRuntimeMode,
   ]);
 
   if (resolution.error || !resolution.src) {
@@ -1291,13 +1796,17 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     );
   }
 
+  const chrome = manifest.presentation?.chrome ?? "standard";
+  const showToolbar = !embedded && chrome === "standard";
+
   if (embeddedMarket) {
+    const embeddedHostKey = `${embeddedMarket.key}:${agentRuntimeMode ?? "none"}`;
     if (
       !embeddedMarketHostRef.current ||
-      embeddedMarketKeyRef.current !== embeddedMarket.key
+      embeddedMarketKeyRef.current !== embeddedHostKey
     ) {
       embeddedMarketHostRef.current?.close();
-      embeddedMarketKeyRef.current = embeddedMarket.key;
+      embeddedMarketKeyRef.current = embeddedHostKey;
       latestContextRef.current = undefined;
       embeddedContextProviderRef.current = undefined;
       embeddedUiActionHandlerRef.current = undefined;
@@ -1316,6 +1825,12 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         contextProviderRef: embeddedContextProviderRef,
         uiActionHandlerRef: embeddedUiActionHandlerRef,
         handoffHandlerRef: embeddedHandoffHandlerRef,
+        runtimeMode: agentRuntimeMode,
+        requestAgent: (request) => {
+          const runtime = agentRuntimeRef.current;
+          if (!runtime) throw new Error("Agent Runtime is unavailable");
+          runtime.request(request ?? {});
+        },
         onContextPublished: (context) => {
           setContextState("received");
           onContextPublishedRef.current?.(context);
@@ -1332,12 +1847,14 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         data-vibedesk-bridge-state="acknowledged"
         data-vibedesk-context-state={contextState}
         data-vibedesk-embedded={embedded || undefined}
+        data-vibedesk-chrome={chrome}
       >
-        {!embedded ? (
+        {showToolbar ? (
           <FrameToolbar
             manifest={manifest}
             copilotOpen={copilotOpen}
             onToggleCopilot={onToggleCopilot}
+            externalUrl={standaloneUrl}
             wikiSubjectName={wikiSubjectName}
             wikiLinks={wikiLinks}
             wikiLoading={wikiLoading}
@@ -1377,13 +1894,14 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
       data-vibedesk-bridge-state={bridgeState}
       data-vibedesk-context-state={contextState}
       data-vibedesk-embedded={embedded || undefined}
+      data-vibedesk-chrome={chrome}
     >
-      {!embedded ? (
+      {showToolbar ? (
         <FrameToolbar
           manifest={manifest}
           copilotOpen={copilotOpen}
           onToggleCopilot={onToggleCopilot}
-          externalUrl={resolution.src}
+          externalUrl={standaloneUrl}
           wikiSubjectName={wikiSubjectName}
           wikiLinks={wikiLinks}
           wikiLoading={wikiLoading}

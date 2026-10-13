@@ -76,7 +76,12 @@ class ManagerTenurePeerRankingService:
         target_entity_id = str(tenure.get("entity_id") or context.get("entity_id") or "")
         valid_peers: List[Dict[str, Any]] = []
         nav_available_count = 0
+        # 风险排名两边使用本次同区间净值统计，不混用旧任期快照的Sharpe。
+        target_values["sharpe_ratio"] = None
         for summary in summaries:
+            if str(summary.get("wind_code") or "").upper() == target_code:
+                target_period = self._peer_value(summary, requested_days, expected_observations)
+                target_values["sharpe_ratio"] = (target_period or {}).get("sharpe_ratio")
             if target_entity_id and str(summary.get("entity_id") or "") == target_entity_id:
                 continue
             nav_available_count += 1
@@ -87,7 +92,7 @@ class ManagerTenurePeerRankingService:
         if target_values["annualized_return"] is None:
             target_values["annualized_return"] = self._annualized_return(
                 target_values["total_return"],
-                int(tenure.get("metric_observations") or 0),
+                requested_days,
             )
         metrics = {
             metric_name: self._rank_metric(
@@ -128,7 +133,8 @@ class ManagerTenurePeerRankingService:
             },
             "metrics": metrics,
             "source": "peer_group_members+fund_nav+manager_fund_tenures.performance_snapshot",
-            "methodology_version": "manager_tenure_same_period_peer_rank_v3",
+            "methodology_version": "manager_tenure_exchange_calendar_peer_rank_v5",
+            "risk_source": "local.postgres.fund_nav.same_period_calendar_gated",
         }
 
     def _peer_value(
@@ -157,7 +163,7 @@ class ManagerTenurePeerRankingService:
             "wind_code": str(summary.get("wind_code") or ""),
             "total_return": total_return,
             "record_breaking_days_ratio": self._number(summary.get("record_breaking_days_ratio")),
-            "annualized_return": self._annualized_return(total_return, observations),
+            "annualized_return": self._annualized_return(total_return, (last_date - first_date).days),
             "max_drawdown": self._number(summary.get("max_drawdown")),
             "sharpe_ratio": self._number(summary.get("sharpe_ratio")),
         }
@@ -210,14 +216,14 @@ class ManagerTenurePeerRankingService:
             "status": status,
             "target_code": target_code,
             "metrics": {},
-            "methodology_version": "manager_tenure_same_period_peer_rank_v3",
+            "methodology_version": "manager_tenure_exchange_calendar_peer_rank_v5",
         }
 
     @staticmethod
-    def _annualized_return(total_return: Optional[float], observations: int) -> Optional[float]:
-        if total_return is None or total_return <= -1 or observations < 2:
+    def _annualized_return(total_return: Optional[float], elapsed_days: int) -> Optional[float]:
+        if total_return is None or total_return <= -1 or elapsed_days < 1:
             return None
-        return (1 + total_return) ** (252 / (observations - 1)) - 1
+        return (1 + total_return) ** (365.25 / elapsed_days) - 1
 
     @staticmethod
     def _date(value: Any) -> Optional[date]:

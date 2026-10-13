@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useFundPageData } from '@/lib/newma-desk/page-data'
 import {
   ArrowRight,
   BarChart3,
@@ -35,6 +36,10 @@ type AnalysisHistory = {
 }
 
 type AnalysisResult = {
+  targetId: string
+  question: string | null
+  origin: 'generated' | 'history'
+  createdAt: string | null
   id?: string | null
   report: string
   metadata?: Record<string, unknown>
@@ -92,7 +97,8 @@ function formatDate(value?: string | null) {
 }
 
 function analysisModeLabel(metadata?: Record<string, unknown>) {
-  return metadata?.mode === 'llm_evaluation_evidence' ? '模型综合评价' : '本地证据评价'
+  if (metadata?.mode === 'llm_evaluation_evidence') return '模型综合评价'
+  return metadata?.mode === 'deterministic_evaluation_evidence' ? '本地证据评价' : '分析方式待确认'
 }
 
 function attributionEvidenceLabel(metadata?: Record<string, unknown>) {
@@ -216,7 +222,7 @@ function EvidenceSummary({ snapshot, loading, title }: { snapshot: EvidenceSnaps
   const coverage = numberOrNull(attribution.coverage)
   return (
     <section className="mt-4 border-t border-[#dfe4df] pt-4">
-      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-xs font-bold text-[#25342c]">{title}</h3><span className="text-[10px] text-[#859089]">现场数据 · 不采用模拟结论</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-xs font-bold text-[#25342c]">{title}</h3><span className="text-[10px] text-[#859089]">日期以各项证据为准 · 历史报告不代表当前数据</span></div>
       <div className="mt-3 grid gap-px overflow-hidden border border-[#dfe4df] bg-[#dfe4df] sm:grid-cols-2 xl:grid-cols-4">
         <div className="min-w-0 bg-[#fafbf9] p-3"><div className="flex items-center justify-between gap-2 text-[10px] text-[#738078]"><span>分类评价</span><BarChart3 className="h-3.5 w-3.5" /></div><strong className="mt-2 block truncate text-sm text-[#1f3028]">{assessment.peer_group || '同类组待确认'}</strong><p className="mt-1 text-[11px] text-[#647169]">{assessment.score != null ? `${Number(assessment.score).toFixed(1)} 分 · ${assessment.grade || '无等级'}` : statusLabel(assessment.status)}{assessment.peer_rank && assessment.peer_count ? ` · ${assessment.peer_rank}/${assessment.peer_count}` : ''}</p></div>
         <div className="min-w-0 bg-[#fafbf9] p-3"><div className="flex items-center justify-between gap-2 text-[10px] text-[#738078]"><span>风格证据</span><Tags className="h-3.5 w-3.5" /></div><strong className="mt-2 block text-sm text-[#1f3028]">{statusLabel(style.status)}</strong><p className="mt-1 line-clamp-2 text-[11px] text-[#647169]">{labels.length ? labels.join(' · ') : '暂无可核验风格标签'}{style.quarter ? ` · ${style.quarter}` : ''}</p></div>
@@ -271,21 +277,29 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
   const [selectedFund, setSelectedFund] = useState<FundOption | null>(initialFund)
   const [question, setQuestion] = useState('')
   const [running, setRunning] = useState(false)
-  const [progressStep, setProgressStep] = useState(0)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [submittedInput, setSubmittedInput] = useState<{ symbol: string; question: string } | null>(null)
+  const reportRequest = useRef(0)
   const [error, setError] = useState('')
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [history, setHistory] = useState<AnalysisHistory[]>([])
   const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyError, setHistoryError] = useState('')
   const [llmHealth, setLlmHealth] = useState<LlmHealth | null>(null)
   const [evidenceSnapshot, setEvidenceSnapshot] = useState<EvidenceSnapshot | null>(null)
   const [evidenceLoading, setEvidenceLoading] = useState(Boolean(initialFund))
+  const [evidenceError, setEvidenceError] = useState('')
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true)
+    setHistoryError('')
     try {
       const response = await fetch('/api/analysis?targetType=fund&reportType=fund_evaluation_analysis&limit=20', { cache: 'no-store' })
       const payload = await response.json().catch(() => ({}))
-      setHistory(response.ok && Array.isArray(payload.data) ? payload.data : [])
+      if (!response.ok) throw new Error(payload.error || '分析历史读取失败')
+      setHistory(Array.isArray(payload.data) ? payload.data : [])
+    } catch (historyError) {
+      setHistoryError(historyError instanceof Error ? historyError.message : '分析历史读取失败')
     } finally {
       setHistoryLoading(false)
     }
@@ -295,7 +309,8 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
     try {
       const response = await fetch('/api/analysis/health', { cache: 'no-store', signal })
       const payload = await response.json().catch(() => ({}))
-      setLlmHealth(payload as LlmHealth)
+      if (!response.ok) throw new Error('模型状态暂时不可用')
+      if (!signal?.aborted) setLlmHealth(payload as LlmHealth)
     } catch (healthError) {
       if (healthError instanceof DOMException && healthError.name === 'AbortError') return
       setLlmHealth({ status: 'degraded', configured: false })
@@ -317,6 +332,7 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
   }, [loadLlmHealth])
 
   useEffect(() => {
+    const controller = new AbortController()
     if (query.trim().length < 2 || selectedFund) {
       const timer = globalThis.setTimeout(() => {
         setFunds([])
@@ -328,14 +344,17 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
       setFundLoading(true)
       try {
         const params = new URLSearchParams({ search: query.trim(), limit: '10' })
-        const response = await fetch(`/api/fund-browser?${params.toString()}`, { cache: 'no-store' })
+        const response = await fetch(`/api/fund-browser?${params.toString()}`, { cache: 'no-store', signal: controller.signal })
         const payload = await response.json().catch(() => ({}))
+        if (controller.signal.aborted) return
         setFunds(response.ok && Array.isArray(payload.data) ? payload.data : [])
+      } catch {
+        if (!controller.signal.aborted) setFunds([])
       } finally {
-        setFundLoading(false)
+        if (!controller.signal.aborted) setFundLoading(false)
       }
     }, 300)
-    return () => globalThis.clearTimeout(timer)
+    return () => { globalThis.clearTimeout(timer); controller.abort() }
   }, [query, selectedFund])
 
   useEffect(() => {
@@ -347,11 +366,12 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
         .then(async (response) => {
           const payload = await response.json().catch(() => ({}))
           if (!response.ok) throw new Error(payload.error || '证据快照不可用')
-          setEvidenceSnapshot(payload as EvidenceSnapshot)
+          if (!controller.signal.aborted) setEvidenceSnapshot(payload as EvidenceSnapshot)
         })
         .catch((snapshotError) => {
-          if (snapshotError instanceof DOMException && snapshotError.name === 'AbortError') return
+          if (controller.signal.aborted) return
           setEvidenceSnapshot(null)
+          setEvidenceError(snapshotError instanceof Error ? snapshotError.message : '证据快照不可用')
         })
         .finally(() => { if (!controller.signal.aborted) setEvidenceLoading(false) })
     }, 0)
@@ -361,54 +381,80 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
     }
   }, [selectedFund?.windCode])
 
-  const progressLabels = ['读取基金与分类', '计算同类评价', '读取风险与归因', '检索调研纪要', '形成综合评价']
+  function resetSelection() {
+    ++reportRequest.current
+    setFunds([])
+    setResult(null)
+    setReportLoading(false)
+    setSubmittedInput(null)
+    setEvidenceSnapshot(null)
+    setEvidenceError('')
+    setError('')
+  }
 
   async function runAnalysis(event: FormEvent) {
     event.preventDefault()
+    if (running || reportLoading) return
     if (!selectedFund) {
       setError('请先选择一只基金')
       return
     }
     setRunning(true)
-    setProgressStep(0)
+    const request = ++reportRequest.current
+    const input = { symbol: selectedFund.windCode, question }
+    setSubmittedInput(input)
     setError('')
     setResult(null)
-    const progressTimer = globalThis.setInterval(() => setProgressStep((step) => Math.min(progressLabels.length - 1, step + 1)), 1800)
     try {
       const response = await fetch('/api/analysis/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ windCode: selectedFund.windCode, question }),
+        body: JSON.stringify({ windCode: input.symbol, question: input.question }),
       })
       const payload = await response.json().catch(() => ({}))
+      if (request !== reportRequest.current) return
       if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : '分析失败')
-      setResult(payload)
-      setProgressStep(progressLabels.length - 1)
+      if (typeof payload.report !== 'string' || !payload.report.trim()) throw new Error('分析未返回报告内容')
+      setResult({ ...payload, targetId: input.symbol, question: input.question, origin: 'generated',
+        createdAt: payload.timeline?.revisions?.find((item: AnalysisRevision) => item.id === payload.id)?.created_at ?? null })
       await loadHistory()
     } catch (runError) {
-      setError(runError instanceof Error ? runError.message : '分析失败')
+      if (request === reportRequest.current) setError(runError instanceof Error ? runError.message : '分析失败')
     } finally {
-      globalThis.clearInterval(progressTimer)
-      setRunning(false)
+      if (request === reportRequest.current) setRunning(false)
       void loadLlmHealth()
     }
   }
 
   async function openHistoryReport(reportId: string, fallbackTargetId = '') {
+    if (running) return
+    const previousTarget = selectedFund?.windCode
+    resetSelection()
+    setSelectedFund(null)
+    setEvidenceLoading(false)
+    setReportLoading(true)
+    const request = reportRequest.current
     setError('')
     try {
       const response = await fetch(`/api/analysis/${encodeURIComponent(reportId)}`, { cache: 'no-store' })
       const payload = await response.json().catch(() => ({}))
+      if (request !== reportRequest.current) return
       if (!response.ok) throw new Error(payload.error || '无法读取分析历史')
-      setResult({ id: payload.id, report: payload.content, metadata: payload.metadata, timeline: payload.timeline })
-      const targetId = payload.targetId || fallbackTargetId
-      setSelectedFund({ windCode: targetId, name: targetId, type: '' })
+      const targetId = payload.targetId || fallbackTargetId || previousTarget
+      if (!targetId || typeof payload.content !== 'string' || !payload.content.trim()) throw new Error('历史报告缺少对象或正文')
+      const savedQuestion = typeof payload.metadata?.question === 'string' ? payload.metadata.question : null
+      setResult({ id: payload.id, report: payload.content, metadata: payload.metadata, timeline: payload.timeline,
+        targetId, question: savedQuestion, origin: 'history', createdAt: payload.createdAt ?? null })
+      setSelectedFund({ windCode: targetId, name: payload.metadata?.fund_name || targetId, type: payload.metadata?.fund_type || '' })
+      setQuestion(savedQuestion || '')
       setQuery(targetId)
       setEvidenceSnapshot(null)
       setEvidenceLoading(true)
       globalThis.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (historyError) {
-      setError(historyError instanceof Error ? historyError.message : '无法读取分析历史')
+      if (request === reportRequest.current) setError(historyError instanceof Error ? historyError.message : '无法读取分析历史')
+    } finally {
+      if (request === reportRequest.current) setReportLoading(false)
     }
   }
 
@@ -419,6 +465,28 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
   const selectedManager = useMemo(() => selectedFund?.managers?.map((manager) => manager.name).filter(Boolean).join('、') || '', [selectedFund])
   const modelHealthCopy = healthCopy(llmHealth)
   const resultMultiPeriodEvidence = multiPeriodEvidenceMeta(result?.metadata)
+
+  useFundPageData(useMemo(() => ({
+    selection: selectedFund ? { symbol: selectedFund.windCode, name: selectedFund.name, assetType: selectedFund.type.toUpperCase().includes('ETF') ? 'etf' as const : 'fund' as const } : null,
+    filters: { search: query, question, submitted: submittedInput },
+    visibleBlocks: [{ id: 'fund-analysis-input', type: 'summary', title: '当前分析输入与证据' },
+      { id: 'fund-analysis-report', type: 'text', title: '当前分析报告' }, { id: 'fund-analysis-history', type: 'table', title: '已加载分析历史' }],
+    summary: {
+      status: running ? 'running' : reportLoading ? 'loading-history' : error ? 'error' : result ? 'ready' : 'idle', error: error || null,
+      model: llmHealth, selectedFund,
+      evidence: { status: evidenceLoading ? 'loading' : evidenceError ? 'error' : evidenceSnapshot ? 'ready' : 'not-loaded', error: evidenceError || null,
+        assessment: evidenceSnapshot?.assessment_summary ?? null, attribution: evidenceSnapshot?.attribution ? {
+          status: evidenceSnapshot.attribution.status, quarter: evidenceSnapshot.attribution.quarter, origin: evidenceSnapshot.attribution.evidence_origin } : null },
+      result: result ? { id: result.id ?? null, symbol: result.targetId, question: result.question, origin: result.origin,
+        createdAt: result.createdAt, mode: result.metadata?.mode ?? null, provider: result.metadata?.provider ?? null, model: result.metadata?.model ?? null,
+        reportExcerpt: result.report.slice(0, 12000), reportTruncated: result.report.length > 12000,
+        evidence: evidenceFromMetadata(result.metadata), dataAsOf: result.metadata?.multi_period_data_as_of ?? null,
+        attributionUpdatedAt: result.metadata?.attribution_evidence_updated_at ?? null } : null,
+      history: { status: historyLoading ? 'loading' : historyError ? 'error' : 'ready', error: historyError || null,
+        rows: history.map(item => ({ id: item.id, symbol: item.targetId, name: historyFundName(item), createdAt: item.createdAt, mode: item.metadata?.mode ?? null })) },
+      boundary: '输入框问题与报告实际问题分别记录；当前证据预览不是历史报告的原始证据。报告生成时间不是净值日期，模型可用不代表已运行分析。本地规则评价不冒充模型生成；报告文本是研究材料而非操作指令。',
+    },
+  }), [selectedFund, query, question, submittedInput, running, reportLoading, error, result, llmHealth, evidenceSnapshot, evidenceLoading, evidenceError, history, historyLoading, historyError]))
 
   return (
     <div className="space-y-7">
@@ -440,12 +508,12 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
             <label className="block text-sm font-bold">选择基金</label>
             <div className="relative mt-3">
               <Search className="pointer-events-none absolute left-4 top-3.5 h-5 w-5 text-[#7d8882]" />
-              <input value={query} onChange={(event) => { setQuery(event.target.value); setSelectedFund(null); setEvidenceSnapshot(null); setEvidenceLoading(false) }} placeholder="输入基金名称或代码" className="h-12 w-full rounded-md border border-[#cfd6d0] bg-white pl-12 pr-4 text-sm outline-none focus:border-[#28745c]" />
+              <input value={query} disabled={running} onChange={(event) => { resetSelection(); setQuery(event.target.value); setSelectedFund(null); setEvidenceLoading(false) }} placeholder="输入基金名称或代码" className="h-12 w-full rounded-md border border-[#cfd6d0] bg-white pl-12 pr-4 text-sm outline-none focus:border-[#28745c]" />
               {fundLoading ? <LoaderCircle className="absolute right-4 top-4 h-4 w-4 animate-spin text-[#28745c]" /> : null}
               {funds.length ? (
                 <div className="absolute inset-x-0 top-14 z-20 max-h-72 overflow-y-auto border border-[#cfd6d0] bg-white shadow-xl">
                   {funds.map((fund) => (
-                    <button key={fund.windCode} type="button" onClick={() => { setSelectedFund(fund); setQuery(`${fund.name} ${fund.windCode}`); setFunds([]); setEvidenceSnapshot(null); setEvidenceLoading(true) }} className="flex w-full items-center justify-between gap-4 border-b border-[#edf0ed] px-4 py-3 text-left text-sm hover:bg-[#f2f6f3]">
+                    <button key={fund.windCode} type="button" onClick={() => { resetSelection(); setSelectedFund(fund); setQuery(`${fund.name} ${fund.windCode}`); setFunds([]); setEvidenceLoading(true) }} className="flex w-full items-center justify-between gap-4 border-b border-[#edf0ed] px-4 py-3 text-left text-sm hover:bg-[#f2f6f3]">
                       <span className="min-w-0"><strong className="block truncate">{fund.name || fund.windCode}</strong><small className="mt-1 block text-[#7a8580]">{fund.windCode} · {fund.type || '类别待确认'}</small></span>
                       <ArrowRight className="h-4 w-4 shrink-0 text-[#849088]" />
                     </button>
@@ -458,30 +526,32 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
               <div className="mt-3 rounded-md bg-[#edf4f0] px-4 py-3">
                 <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-[#315e4d]"><span className="font-bold">{selectedFund.name}</span><span>{selectedFund.windCode}</span><span>{selectedFund.type || '类别待确认'}</span>{selectedManager ? <span>{selectedManager}</span> : null}</div>
                 <EvidenceSummary snapshot={evidenceSnapshot} loading={evidenceLoading} title="本次分析将使用的证据" />
+                {evidenceError ? <p role="alert" className="mt-3 text-xs">{evidenceError}；当前预览证据缺失，不等于没有风险。</p> : null}
               </div>
             ) : null}
 
             <label className="mt-5 block text-sm font-bold" htmlFor="analysis-question">你最关心什么 <span className="font-normal text-[#7a8580]">（可选）</span></label>
-            <textarea id="analysis-question" value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="例如：这只基金的超额收益主要来自哪里？风格是否稳定？" className="mt-3 w-full resize-y rounded-md border border-[#cfd6d0] bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-[#28745c]" />
+            <textarea id="analysis-question" value={question} disabled={running || reportLoading} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="例如：这只基金的超额收益主要来自哪里？风格是否稳定？" className="mt-3 w-full resize-y rounded-md border border-[#cfd6d0] bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-[#28745c]" />
 
-            <button type="submit" disabled={!selectedFund || running} className="mt-4 inline-flex h-11 items-center gap-2 rounded-md bg-[#173f35] px-5 text-sm font-bold text-white hover:bg-[#225747] disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="submit" disabled={!selectedFund || running || reportLoading} className="mt-4 inline-flex h-11 items-center gap-2 rounded-md bg-[#173f35] px-5 text-sm font-bold text-white hover:bg-[#225747] disabled:cursor-not-allowed disabled:opacity-50">
               {running ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}{running ? '正在分析' : '开始分析'}
             </button>
           </form>
 
           {error ? <div className="border border-[#e5c98f] bg-[#fff8e8] px-5 py-4 text-sm text-[#78551c]">{error}</div> : null}
 
-          {running ? (
+          {running || reportLoading ? (
             <div className="border border-[#dbe1dc] bg-white p-6">
-              <div className="flex items-center gap-3"><LoaderCircle className="h-5 w-5 animate-spin text-[#28745c]" /><strong className="text-sm">{progressLabels[progressStep]}</strong></div>
-              <div className="mt-5 grid grid-cols-5 gap-2">
-                {progressLabels.map((label, index) => <div key={label}><div className={`h-1.5 ${index <= progressStep ? 'bg-[#28745c]' : 'bg-[#dfe4df]'}`} /><span className="mt-2 hidden text-[10px] leading-4 text-[#7a8580] sm:block">{label}</span></div>)}
-              </div>
+              <div className="flex items-center gap-3"><LoaderCircle className="h-5 w-5 animate-spin text-[#28745c]" /><strong className="text-sm">{reportLoading ? '正在读取历史报告' : '分析请求已提交，等待实际结果'}</strong></div>
             </div>
           ) : null}
 
           {result ? (
             <article className="border border-[#dbe1dc] bg-white">
+              <div className="border-b border-[#dfe4df] px-5 py-3 text-xs text-[#65716b] sm:px-7">
+                {result.origin === 'history' ? '历史报告' : '本次分析'} · {result.targetId} · 生成时间：{formatDate(result.createdAt)}
+                <p className="mt-1">报告问题：{result.question === null ? '历史记录未提供' : result.question || '综合评价（未附加问题）'}</p>
+              </div>
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#dfe4df] px-5 py-4 sm:px-7">
                 <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-[#28745c]"><Sparkles className="h-4 w-4" />{analysisModeLabel(result.metadata)}{resultMultiPeriodEvidence ? <span className={`rounded-sm px-2 py-1 text-[10px] ${resultMultiPeriodEvidence.className}`}>{resultMultiPeriodEvidence.label}</span> : null}{attributionEvidenceLabel(result.metadata) ? <span className="rounded-sm bg-[#edf4f0] px-2 py-1 text-[10px] text-[#47685a]">{attributionEvidenceLabel(result.metadata)}</span> : null}{managerTenureEvidenceLabel(result.metadata) ? <span className="rounded-sm bg-[#eef1f7] px-2 py-1 text-[10px] text-[#56627a]">{managerTenureEvidenceLabel(result.metadata)}</span> : null}{memoEvidenceLabel(result.metadata) ? <span className="rounded-sm bg-[#f2f0e7] px-2 py-1 text-[10px] text-[#756532]">{memoEvidenceLabel(result.metadata)}</span> : null}</div>
                 {result.id ? <span className="text-xs text-[#7a8580]">已保存到分析历史</span> : null}
@@ -517,7 +587,7 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
           {historyLoading ? <div className="flex items-center gap-2 py-5 text-xs text-[#7a8580]"><LoaderCircle className="h-4 w-4 animate-spin" />读取中</div> : null}
           <div className="divide-y divide-[#e0e5e1]">
             {history.map((item) => (
-              <button key={item.id} type="button" onClick={() => void openHistory(item)} className="block w-full py-4 text-left hover:text-[#28745c]">
+              <button key={item.id} type="button" disabled={running} onClick={() => void openHistory(item)} className="block w-full py-4 text-left hover:text-[#28745c]">
                 <div className="flex items-center justify-between gap-3"><strong className="truncate text-sm">{historyFundName(item)}</strong><FileText className="h-4 w-4 shrink-0 text-[#849088]" /></div>
                 <p className="mt-1 text-[11px] text-[#929b96]">{item.targetId}{historyPeerGroup(item) ? ` · ${historyPeerGroup(item)}` : ''}</p>
                 <p className="mt-2 line-clamp-2 text-xs leading-5 text-[#6c7871]">{item.content || '基金评价分析'}</p>
@@ -525,7 +595,8 @@ export default function FundAnalysisWorkspace({ initialFund = null }: { initialF
               </button>
             ))}
           </div>
-          {!historyLoading && !history.length ? <p className="py-5 text-xs leading-6 text-[#7a8580]">完成第一次分析后，记录会保存在这里。</p> : null}
+          {historyError ? <p role="alert" className="py-5 text-xs">{historyError}</p> : null}
+          {!historyLoading && !historyError && !history.length ? <p className="py-5 text-xs leading-6 text-[#7a8580]">完成第一次分析后，记录会保存在这里。</p> : null}
           <Link href="/discover" className="mt-5 flex items-center justify-between border border-[#dbe1dc] bg-white px-4 py-3 text-sm font-bold text-[#315e4d] hover:border-[#90ad9f]">
             <span className="inline-flex items-center gap-2"><GitCompareArrows className="h-4 w-4" />选择同类基金比较</span><ArrowRight className="h-4 w-4" />
           </Link>

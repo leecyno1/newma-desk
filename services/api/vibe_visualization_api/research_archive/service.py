@@ -262,6 +262,33 @@ class ResearchArchiveService:
     def __init__(self, storage: ModStorageStore):
         self._storage = storage
 
+    def earnings_inputs(self, *, user_id: str, workspace_id: str) -> dict[str, Any]:
+        """Read saved revenue, capital facts and adopted notes, excluding MD&A."""
+        try:
+            document = self._storage.get(
+                user_id=user_id, workspace_id=workspace_id,
+                module_id="earnings-workbench", namespace="earnings-workbench", key="workbooks",
+            )
+        except ModStorageNotFoundError:
+            return {"revision": 0, "workbooks": []}
+        workbooks = []
+        for row in _rows(document.get("value"), "workbooks"):
+            metrics = [metric for metric in _rows(row, "metrics") if metric.get("id") == "revenue"]
+            capital = [metric for metric in _rows(row, "operatingMetrics") if metric.get("id") in {
+                "capital-cash-funds", "capital-short-borrowings", "capital-long-borrowings", "capital-bonds-payable",
+                "capital-current-noncurrent-liabilities", "capital-lease-liabilities", "capital-share-capital", "capital-customer-deposits",
+            }]
+            source_ids = {source_id for metric in metrics + capital for source_id in metric.get("sourceIds", []) if isinstance(source_id, str)}
+            sources = [
+                {key: value for key, value in source.items() if key != "discussion"}
+                for source in _rows(row, "sourceMaterials") if source.get("id") in source_ids or isinstance(source.get("capitalNote"), dict)
+            ]
+            workbooks.append({
+                **{key: row.get(key) for key in ("id", "updatedAt", "security", "fiscalPeriod", "mode")},
+                "metrics": metrics, "operatingMetrics": capital, "sourceMaterials": sources,
+            })
+        return {"revision": document["revision"], "workbooks": workbooks}
+
     def list(self, *, user_id: str, workspace_id: str) -> dict[str, Any]:
         entries: list[dict[str, Any]] = []
         for module_id, namespace, key, parser in SOURCES:

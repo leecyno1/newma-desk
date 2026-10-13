@@ -109,10 +109,13 @@ async def test_codex_cli_task_scope_does_not_read_or_persist_memory(
         trading_workspace=tmp_path,
         agent_timeout_seconds=5,
     )
+    store = AgentConversationStore(settings.database_path)
+    store.append_exchange("local-user", "codex", "quant-agent", "旧公司财报", "FIRST_ANSWER")
+    previous = store.recent("local-user", "codex", "quant-agent")
     adapter = LocalCliAgentAdapter(
         "codex",
         settings,
-        AgentConversationStore(settings.database_path),
+        store,
     )
     request = AgentTaskCreate(
         module_id="quant-agent",
@@ -126,6 +129,68 @@ async def test_codex_cli_task_scope_does_not_read_or_persist_memory(
     assert first[-1].data["answer"] == "FIRST_ANSWER"
     assert second[-1].data["answer"] == "FIRST_ANSWER"
     assert second[-1].data["memory"] == "task"
+    assert store.recent("local-user", "codex", "quant-agent") == previous
+
+
+@pytest.mark.asyncio
+async def test_codex_cli_receives_saved_mod_visual_as_image_attachment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = tmp_path / "codex"
+    executable.write_text(
+        """#!/usr/bin/env python3
+import pathlib
+import sys
+
+prompt = sys.stdin.read()
+out_index = sys.argv.index("--output-last-message") + 1
+attached = "--image" in sys.argv and "视觉快照已作为图片附件" in prompt
+pathlib.Path(sys.argv[out_index]).write_text("IMAGE_OK" if attached else "IMAGE_MISSING", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ.get('PATH', '')}")
+    image_path = tmp_path / "capture.png"
+    image_path.write_bytes(b"png")
+
+    class VisualResolver:
+        def resolve_image(self, artifact_id: str):
+            return image_path if artifact_id.startswith("012345") else None
+
+    settings = Settings(
+        runtime_dir=tmp_path,
+        database_path=tmp_path / "gateway.db",
+        workspace_root=tmp_path,
+        investment_workspace=tmp_path,
+        trading_workspace=tmp_path,
+        agent_timeout_seconds=5,
+    )
+    adapter = LocalCliAgentAdapter(
+        "codex",
+        settings,
+        AgentConversationStore(settings.database_path),
+        visual_context_capture=VisualResolver(),
+    )
+    request = AgentTaskCreate(
+        module_id="quant-agent",
+        prompt="解释当前图表",
+        context={
+            "vibedesk": {
+                "visual": {
+                    "image": {
+                        "artifactId": "0123456789abcdef0123456789abcdef"
+                    }
+                }
+            }
+        },
+    )
+
+    events = await _collect(adapter, request)
+
+    assert events[-1].type == "completed"
+    assert events[-1].data["answer"] == "IMAGE_OK"
 
 
 @pytest.mark.asyncio

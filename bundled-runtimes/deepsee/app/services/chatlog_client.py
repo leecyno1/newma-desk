@@ -10,8 +10,12 @@ class ChatlogClient:
         self.base = (base or settings.CHATLOG_HTTP_BASE or "").rstrip("/")
 
     def get_sessions(self):
-        url = f"{self.base}/api/v1/session"
-        r = requests.get(url, timeout=settings.CHATLOG_HTTP_SESSION_TIMEOUT_SECONDS)
+        url = f"{self.base}/api/v1/sessions"
+        r = requests.get(
+            url,
+            params={"limit": "500"},
+            timeout=settings.CHATLOG_HTTP_SESSION_TIMEOUT_SECONDS,
+        )
         r.raise_for_status()
         # Some builds return plain text instead of JSON
         ctype = r.headers.get("content-type", "")
@@ -23,22 +27,50 @@ class ChatlogClient:
         return r.text
 
     def get_chatlog(self, time_range: str, talker: Optional[str] = None, limit: Optional[int] = None, offset: Optional[int] = None):
-        # Some chatlog builds may require single-day query. Accept 'YYYY-MM-DD' or 'YYYY-MM-DD~YYYY-MM-DD'.
-        params = {"time": time_range, "format": "json"}
-        if talker:
-            params["talker"] = talker
+        if not talker:
+            return {"messages": []}
+        params = {"time": time_range, "chat": talker}
         if limit is not None:
             params["limit"] = str(limit)
         if offset is not None:
             params["offset"] = str(offset)
-        url = f"{self.base}/api/v1/chatlog"
+        url = f"{self.base}/api/v1/history"
         r = requests.get(url, params=params, timeout=settings.CHATLOG_HTTP_TIMEOUT_SECONDS)
         # Some versions return 400 for range queries; try fallback to single day for end date
         if r.status_code == 400 and "~" in time_range:
             # try split and query each day will be handled at higher level; here just raise
             r.raise_for_status()
         r.raise_for_status()
-        return r.json()
+        payload = r.json()
+        return self._normalize_history(payload, talker=talker)
+
+    @staticmethod
+    def _normalize_history(payload, *, talker: str):
+        if not isinstance(payload, dict):
+            return payload
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            return payload
+        normalized = []
+        username = str(payload.get("username") or talker)
+        talker_name = str(payload.get("chat") or username)
+        is_chatroom = bool(payload.get("is_group"))
+        for item in messages:
+            if not isinstance(item, dict):
+                continue
+            row = dict(item)
+            row["talker"] = username
+            row["talkerName"] = talker_name
+            row["isChatRoom"] = is_chatroom
+            row["isSelf"] = bool(row.get("is_self"))
+            row["senderName"] = row.get("sender")
+            row["sender"] = row.get("sender_id") or row.get("sender")
+            if row.get("media_url") and not row.get("contents"):
+                row["contents"] = {"url": row["media_url"]}
+            normalized.append(row)
+        result = dict(payload)
+        result["messages"] = normalized
+        return result
 
     @staticmethod
     def extract_talker_ids(session_payload) -> list[str]:
@@ -54,7 +86,12 @@ class ChatlogClient:
                             break
             return list(talkers)
         if isinstance(session_payload, dict):
-            items = session_payload.get("items") or session_payload.get("data") or []
+            items = (
+                session_payload.get("sessions")
+                or session_payload.get("items")
+                or session_payload.get("data")
+                or []
+            )
             for it in items:
                 if isinstance(it, dict):
                     for key in ("talker", "username", "id", "wxid", "chat_id"):

@@ -243,7 +243,8 @@ class BatchSyncOrchestrator:
 
             # 7. 保存净值序列
             if nav_data:
-                self.nav_repo.upsert_nav_series(wind_code, nav_data, replace_range=True)
+                if not self.nav_repo.upsert_nav_series(wind_code, nav_data, replace_range=True):
+                    raise ValueError("净值写入失败，本次净值事务已回滚")
 
             # 8. 保存持仓
             if holdings:

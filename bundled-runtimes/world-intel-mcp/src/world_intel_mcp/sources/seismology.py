@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from ..fetcher import Fetcher
+from ..source_time import source_cache_timing
 
 logger = logging.getLogger("world-intel-mcp.sources.seismology")
 
@@ -42,13 +43,15 @@ async def fetch_earthquakes(
         "starttime": starttime,
     }
 
+    cache_key = f"seismology:quakes:{min_magnitude}:{hours}"
     data = await fetcher.get_json(
         url=_USGS_ENDPOINT,
         source="usgs",
-        cache_key=f"seismology:quakes:{min_magnitude}:{hours}",
+        cache_key=cache_key,
         cache_ttl=300,
         params=params,
     )
+    timing = source_cache_timing(fetcher.cache, cache_key)
 
     if data is None:
         logger.warning("USGS API returned no data")
@@ -57,7 +60,9 @@ async def fetch_earthquakes(
             "count": 0,
             "query": {"min_magnitude": min_magnitude, "hours": hours},
             "source": "usgs",
-            "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            **timing,
+            "timestamp": timing["collected_at"],
+            "error": "USGS 数据暂时不可用，不能据此判断当前无地震",
         }
 
     earthquakes = []
@@ -94,5 +99,6 @@ async def fetch_earthquakes(
         "count": len(earthquakes),
         "query": {"min_magnitude": min_magnitude, "hours": hours},
         "source": "usgs",
-        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        **timing,
+        "timestamp": timing["collected_at"],
     }

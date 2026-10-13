@@ -64,7 +64,7 @@ Desk 按用户和工作区读取以下已存在的 Mod Storage 文档，并即�
 
 ## 5. Agent Context
 
-研究档案页面向 Desk Agent 提供：
+研究档案页面向 Newma Agent 提供：
 
 - 总档案数、可见档案数和分类型数量；
 - 草稿、待更新和失效档案数量；
@@ -79,5 +79,5 @@ Agent 需要正文时，应根据 `sourceModId + artifactId` 回到来源 Mod �
 2. 来源文档不存在或格式异常时独立降级；
 3. 索引响应不包含来源正文；
 4. 上传文件与结构化档案在同一页面可检索；
-5. 选择引用后，Desk Agent Context 包含来源和档案 ID；
+5. 选择引用后，Newma Agent Context 包含来源和档案 ID；
 6. 点击来源引用可回到对应 Mod。

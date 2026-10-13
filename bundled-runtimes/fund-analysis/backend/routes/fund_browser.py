@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/fund-browser", tags=["基金浏览器"])
 
 
 @router.get("")
-async def browse_funds(
+def browse_funds(
     keyword: Optional[str] = Query(None),
     peer_group: Optional[str] = Query(None),
     page: int = Query(1, ge=1),

@@ -5,7 +5,7 @@ import type { ExecutionMode, HealthStatus, RunSnapshot } from '@/types/orchestra
 type Freshness = 'live' | 'fresh' | 'stale' | 'unknown';
 
 const MAX_DECISION_CONTEXT_BYTES = 14 * 1024;
-const TRUNCATION_NOTICE = '\n\n[内容过长，已为 VibeDesk Agent 上下文截断]';
+const TRUNCATION_NOTICE = '\n\n[内容过长，已为 Newma Agent Context 截断]';
 
 function utf8Bytes(value: string): number {
   let total = 0;

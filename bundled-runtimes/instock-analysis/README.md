@@ -94,7 +94,7 @@ A 股候选是独立的 `instock-stock-candidates` Module。它从 Desk `market.
 
 研究组合是独立的 `instock-research-book` Module。它校验观察理由、证伪条件、Snapshot 引用与目标研究暴露，并汇总行业、风险和集中度。项目不持久化组合、不恢复 MySQL attention、不包含下单；未来 Desk 提供持久化时直接保存和恢复同一结构化合同。完整合同见 `docs/research-book-contract.md`。
 
-产业链研究是独立的 `instock-industry-chain` Module。它只接受 Newma-Desk Agent/Data 形成的点时产业链拓扑与证据包，由项目侧确定性校验并输出关键节点、瓶颈层、候选研究优先级、证据覆盖、风险惩罚和证伪条件；项目自身不联网抓取供应链、公告或社交媒体数据，数值分数也不代表收益预测或买卖信号。轮动页面仅提供入口，产业链页面负责证据审计；完整输入 Schema、非真实联调示例与 Web 适配方式见 `docs/supply-chain-research-contract.md`。
+产业链研究是独立的 `instock-industry-chain` Module。它只接受 Newma Agent 与 Desk Data 形成的点时产业链拓扑与证据包，由项目侧确定性校验并输出关键节点、瓶颈层、候选研究优先级、证据覆盖、风险惩罚和证伪条件；项目自身不联网抓取供应链、公告或社交媒体数据，数值分数也不代表收益预测或买卖信号。轮动页面仅提供入口，产业链页面负责证据审计；完整输入 Schema、非真实联调示例与 Web 适配方式见 `docs/supply-chain-research-contract.md`。
 
 发布前可以从项目根目录执行一键门槛。默认只运行项目离线检查；`--live` 会复用已经运行的 Newma-Desk 栈，调用宿主原生 Suite Compiler、DataServiceDescriptor / JSON Schema 校验、主题检查、核心栈健康检查、Level 2 认证，并通过宿主 `DataServiceClient` 真实调用 13 个主要规范分析 capability。InStock readiness、13 个主要 capability、11 个页面合同均为硬门槛；旧供应链 capability 只做兼容检查。其他可选或外部 Mod 的降级只记录为 warning，不代替 InStock 的发布结论。该脚本不启动独立 InStock 服务，也不包含 Docker 路径：
 

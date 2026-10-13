@@ -100,7 +100,7 @@ def node_key(stage_id: str, node_id: str) -> str:
 
 
 class CreatorStudioService:
-    """Deep Module shared by visual controls and Desk Agent UI actions."""
+    """Deep Module shared by visual controls and Newma Agent UI actions."""
 
     def __init__(self, database_path: Path, creator_workspace: Path):
         self.registry = CreatorRegistry(creator_workspace)
@@ -130,10 +130,14 @@ class CreatorStudioService:
 
     def system_info(self) -> dict[str, Any]:
         registry = self.registry.load()
+        try:
+            registry_path = self.registry.path.relative_to(self.registry.workspace)
+        except ValueError:
+            registry_path = Path(self.registry.path.name)
         return {
             "schemaVersion": "newma.creator-studio-system.v1",
-            "workspace": str(self.registry.workspace),
-            "registryPath": str(self.registry.path),
+            "workspace": self.registry.workspace.name,
+            "registryPath": str(registry_path),
             "product": registry.get("product", {}),
             "navigation": registry.get("navigation", {}),
             "stageCount": len(registry.get("stages", [])),
@@ -342,16 +346,6 @@ class CreatorStudioService:
                     raise CreatorCommandError(
                         "publish execution requires a fresh explicit confirmation"
                     )
-            # Merge agent CLI selection from command.input into state parameters
-            agent_cli = str(command.input.get("agent_cli") or "").strip()
-            agent_cli_bin = str(command.input.get("agent_cli_bin") or "").strip()
-            if agent_cli or agent_cli_bin:
-                merged_params = dict(state.get("parameters") or {})
-                if agent_cli:
-                    merged_params["agent_cli"] = agent_cli
-                if agent_cli_bin:
-                    merged_params["agent_cli_bin"] = agent_cli_bin
-                state["parameters"] = merged_params
             state["attempt"] = int(state.get("attempt") or 0) + 1
             requested_at = now_iso()
             job_id = f"job-{uuid4().hex[:12]}"
@@ -1590,10 +1584,6 @@ class CreatorStudioService:
 
     def detect_capabilities(self) -> dict[str, Any]:
         return self.control_adapter.detect_capabilities()
-
-    def test_agent(self, *, agent_id: str, bin_override: str = "") -> dict[str, Any]:
-        """Run a minimal hello prompt through the specified CLI agent to verify it works."""
-        return self.control_adapter.test_agent(agent_id, bin_override)
 
     def preview_artifact(self, path: str) -> dict[str, Any]:
         """Safely read a file for artifact preview.

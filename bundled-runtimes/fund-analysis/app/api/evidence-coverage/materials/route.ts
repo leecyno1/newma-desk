@@ -68,6 +68,7 @@ export async function GET(request: Request) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null)
+    const createOnly = body?.createOnly === true
     const rules = normalizeRules(body)
     if (rules.length === 0) {
       return NextResponse.json({ error: '请求体必须包含 rules 数组' }, { status: 400 })
@@ -80,6 +81,10 @@ export async function POST(request: NextRequest) {
     const failed = []
     for (const item of rules) {
       const rule = item as Record<string, unknown>
+      if (createOnly && (typeof rule?.platform !== 'string' || !rule.platform.trim())) {
+        failed.push({ windCode: rule?.windCode || null, error: '新增来源必须填写实际平台或机构' })
+        continue
+      }
       if (!isValidWindCode(rule.windCode)) {
         failed.push({ windCode: rule.windCode || null, error: 'windCode 格式不正确' })
         continue
@@ -95,7 +100,7 @@ export async function POST(request: NextRequest) {
           windCode: String(rule.windCode).trim().toUpperCase(),
           riskLevel: typeof rule.riskLevel === 'string' ? rule.riskLevel.trim().toUpperCase() : rule.riskLevel,
         } as SalesRuleInput
-        saved.push(await upsertSalesRule(String(rule.windCode).trim().toUpperCase(), normalizedRule, String(rule.platform || 'manual')))
+        saved.push(await upsertSalesRule(String(rule.windCode).trim().toUpperCase(), normalizedRule, String(rule.platform || 'manual').trim(), createOnly))
       } catch (error) {
         failed.push({
           windCode: rule.windCode,

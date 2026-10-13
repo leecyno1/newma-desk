@@ -254,7 +254,7 @@ export function InterfaceSettings({
         <div className="settings-section-heading">
           <div>
             <h2 id="theme-heading">主题</h2>
-            <p>Desk 与 Numa Agent 共用 Verdigris 深绿、暖金和紧凑的信息密度。</p>
+            <p>Desk 与 Newma Agent 共用 Verdigris 深绿、暖金和紧凑的信息密度。</p>
           </div>
         </div>
         <div className="theme-option-grid">

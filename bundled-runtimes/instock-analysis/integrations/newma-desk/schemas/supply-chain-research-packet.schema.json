@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://instock.local/schemas/supply-chain-research-packet.schema.json",
   "title": "InStock Supply Chain Research Packet",
-  "description": "Point-in-time evidence packet assembled by the Newma-Desk Agent and Data runtime. It is research input, not a trading instruction.",
+  "description": "Point-in-time evidence packet assembled by the Newma Agent Runtime and Desk Data layer. It is research input, not a trading instruction.",
   "type": "object",
   "required": ["schema_version", "theme", "market", "as_of", "evidence", "layers", "candidates"],
   "properties": {

@@ -8,6 +8,38 @@ from vibe_visualization_api.config import Settings, resolve_database_path
 from vibe_visualization_api.external_mod_runtimes import resolve_runtime_workspace
 
 
+def test_tushare_reads_shared_dotenv_and_keeps_secret_private(tmp_path, monkeypatch):
+    monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        'TUSHARE_TOKEN="local-test-token"\n'
+        "NEWMA_DESK_RUNTIME_PROFILE=core\nVITE_API_PROXY_TARGET=http://localhost:8911\n"
+    )
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.tushare_token.get_secret_value() == "local-test-token"
+    assert "local-test-token" not in settings.model_dump_json()
+    assert "local-test-token" not in repr(settings)
+
+
+def test_tushare_configuration_priority(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("TUSHARE_TOKEN=file-test-token\n")
+    monkeypatch.setenv("TUSHARE_TOKEN", "process-test-token")
+
+    assert Settings(_env_file=env_file).tushare_token.get_secret_value() == "process-test-token"
+    assert Settings(tushare_token="explicit-test-token", _env_file=env_file).tushare_token.get_secret_value() == "explicit-test-token"
+
+
+def test_disabling_dotenv_also_disables_legacy_sources(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
+    (tmp_path / ".env").write_text("TUSHARE_TOKEN=do-not-load\n")
+
+    assert Settings(_env_file=None).tushare_token.get_secret_value() == ""
+
+
 def test_newma_desk_environment_names_take_priority(monkeypatch) -> None:
     monkeypatch.setenv("NEWMA_DESK_DATABASE_PATH", "runtime/current.db")
     monkeypatch.setenv("VIBEDESK_DATABASE_PATH", "runtime/previous-brand.db")
@@ -201,12 +233,6 @@ def test_research_and_trading_default_to_in_tree_mod_projects() -> None:
     assert settings.investment_web_url == "http://127.0.0.1:8911"
     assert settings.trading_web_url == "http://127.0.0.1:8911"
     assert settings.research_base_url == "http://127.0.0.1:8911/api/research"
-
-
-def test_hermes_webui_defaults_to_the_standard_managed_node_port() -> None:
-    settings = Settings(_env_file=None)
-
-    assert settings.hermes_webui_base_url == "http://127.0.0.1:8788"
 
 
 def test_empty_external_workspace_environment_uses_descriptor_discovery(

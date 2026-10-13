@@ -13,6 +13,7 @@ import string
 from datetime import datetime, timezone
 
 from ..fetcher import Fetcher
+from ..source_time import parse_rss_time as _parse_published, source_cache_timing
 
 try:
     import feedparser
@@ -475,37 +476,6 @@ _PUNCT_RE = re.compile(f"[{re.escape(string.punctuation)}]")
 # ---------------------------------------------------------------------------
 
 
-def _parse_published(entry: dict) -> str | None:
-    """Parse an RSS entry's published date to ISO 8601 UTC string.
-
-    feedparser stores the parsed time struct in ``published_parsed``.
-    Falls back to the raw ``published`` string if parsing fails.
-    """
-    import time as _time
-
-    parsed_tuple = entry.get("published_parsed")
-    if parsed_tuple is not None:
-        try:
-            epoch = _time.mktime(parsed_tuple[:9])
-            dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
-            return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-        except (ValueError, TypeError, OverflowError):
-            pass
-
-    # Fallback: try updated_parsed
-    updated_tuple = entry.get("updated_parsed")
-    if updated_tuple is not None:
-        try:
-            epoch = _time.mktime(updated_tuple[:9])
-            dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
-            return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-        except (ValueError, TypeError, OverflowError):
-            pass
-
-    # Last resort: return raw string or None
-    return entry.get("published") or entry.get("updated")
-
-
 def _truncate(text: str | None, max_len: int = 200) -> str:
     """Truncate text to max_len characters, appending '...' if trimmed."""
     if not text:
@@ -570,7 +540,7 @@ def _balanced_news_sample(items: list[dict], limit: int) -> list[dict]:
             break
         add(item)
 
-    selected.sort(key=lambda item: item.get("published") or "", reverse=True)
+    selected.sort(key=lambda item: item.get("published") or item.get("updated") or "", reverse=True)
     return selected
 
 
@@ -626,6 +596,8 @@ async def fetch_news_feed(
 
     def _parse_feed(xml_text: str, feed_name: str, cat: str) -> list[dict]:
         parsed = feedparser.parse(xml_text)
+        safe_name = feed_name.lower().replace(" ", "_")
+        timing = source_cache_timing(fetcher.cache, f"news:rss:{safe_name}")
         items: list[dict] = []
         for entry in parsed.get("entries", []):
             published = _parse_published(entry)
@@ -641,6 +613,8 @@ async def fetch_news_feed(
                 "title": entry.get("title", ""),
                 "link": entry.get("link", ""),
                 "published": published,
+                "updated": _parse_published(entry, "updated"),
+                **timing,
                 "summary": _truncate(summary_raw, 500),
                 "content": _truncate(content, 3000),
                 "feed_name": feed_name,
@@ -714,7 +688,7 @@ async def fetch_news_feed(
 
     # Sort by published date descending (entries without dates go last)
     all_items.sort(
-        key=lambda item: item.get("published") or "",
+        key=lambda item: item.get("published") or item.get("updated") or "",
         reverse=True,
     )
 

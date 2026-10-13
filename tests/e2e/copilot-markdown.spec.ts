@@ -1,0 +1,176 @@
+import {expect,test} from '@playwright/test';
+import {existsSync,readFileSync} from 'node:fs';
+import path from 'node:path';
+
+const report=path.resolve('output/moutai-2024-discussion-acceptance.md');
+test('saved real Agent analysis renders financial tables in desktop and narrow Copilot',async({page,context},testInfo)=>{
+  test.skip(!existsSync(report),'Requires the saved answer from real annual-report acceptance');
+  // Replay a completed real answer to test presentation, without a new model call.
+  const content=readFileSync(report,'utf8').split('\n---\n\n')[1];
+  expect(content).toContain('## 核心结论');
+  const workspace=`copilot-markdown-${Date.now()}`;
+  const key=`newma-desk.mod-copilot.messages.v1.${workspace}.earnings-workbench`;
+  await page.addInitScript(({workspace,key,content})=>{
+    localStorage.setItem('vibedesk.userId.v1','copilot-markdown');
+    localStorage.setItem('vibedesk.workspaceId.v1',workspace);
+    localStorage.setItem(key,JSON.stringify([{id:'real-answer-replay',role:'assistant',content}]));
+  },{workspace,key,content});
+  await page.route('https://fonts.googleapis.com/**',route=>route.abort());
+  let modelCalls=0;
+  page.on('request',request=>{if(request.method()==='POST'&&/\/api\/(agent\/tasks|model\/responses)$/.test(request.url()))modelCalls++});
+  await page.goto(`http://127.0.0.1:5888/?mod=earnings-workbench&copilot=1&workspace=${workspace}`);
+  const answer=page.locator('.copilot-message.assistant').last();
+  await expect(answer.getByRole('heading',{name:'核心结论',exact:true})).toBeVisible();
+  await expect(answer.locator('strong').first()).toContainText('2024');
+  // Export the original full answer even while only its preview is shown.
+  const downloadPromise=page.waitForEvent('download');
+  await answer.getByRole('button',{name:'下载 Markdown',exact:true}).click();
+  const download=await downloadPromise;
+  expect(download.suggestedFilename()).toBe('earnings-workbench-real-answer-replay.md');
+  const exported=testInfo.outputPath(download.suggestedFilename());
+  await download.saveAs(exported);
+  expect(readFileSync(exported,'utf8')).toBe(content);
+  await context.grantPermissions(['clipboard-read','clipboard-write'],{origin:'http://127.0.0.1:5888'});
+  await answer.getByRole('button',{name:'复制全文',exact:true}).click();
+  await expect(answer.getByRole('status')).toHaveText('已复制全文');
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(content);
+  await answer.getByRole('button',{name:'展开完整回答',exact:true}).click();
+  await expect(answer.getByRole('table')).toHaveCount(3);
+  const table=answer.getByRole('region',{name:'分析表格，可横向滚动'}).first();
+  await expect(table.getByRole('cell',{name:'1,708.99亿元',exact:true})).toBeVisible();
+  await table.scrollIntoViewIfNeeded();
+  await page.locator('.mod-copilot').screenshot({path:testInfo.outputPath('real-answer-desktop.png'),animations:'disabled'});
+  await page.setViewportSize({width:390,height:844});
+  await table.scrollIntoViewIfNeeded();
+  const sizes=await table.evaluate(element=>({width:element.clientWidth,scroll:element.scrollWidth,panel:element.closest('.mod-copilot')!.getBoundingClientRect().width,viewport:innerWidth}));
+  expect(sizes.scroll).toBeGreaterThan(sizes.width);
+  expect(sizes.panel).toBeLessThanOrEqual(sizes.viewport);
+  const numberLines=await table.getByRole('cell',{name:'170,899,152,276.34元',exact:true}).evaluate(cell=>{
+    const range=document.createRange();range.setStart(cell.firstChild!,0);range.setEnd(cell.firstChild!,'170,899,152,276.34'.length);
+    return new Set([...range.getClientRects()].map(rect=>Math.round(rect.top))).size;
+  });
+  expect(numberLines).toBe(1);
+  await table.evaluate(element=>{element.scrollLeft=element.scrollWidth});
+  expect(await table.evaluate(element=>element.scrollLeft)).toBeGreaterThan(0);
+  await page.screenshot({path:testInfo.outputPath('real-answer-narrow.png'),animations:'disabled'});
+  await answer.getByRole('button',{name:'收起完整回答',exact:true}).click();
+  await expect(answer.getByRole('table')).toHaveCount(0);
+  const actions=answer.locator('.copilot-answer-actions');
+  await actions.scrollIntoViewIfNeeded();
+  const bounds=await actions.evaluate(element=>({right:element.getBoundingClientRect().right,viewport:innerWidth,scroll:element.scrollWidth,width:element.clientWidth}));
+  expect(bounds.right).toBeLessThanOrEqual(bounds.viewport);
+  expect(bounds.scroll).toBeLessThanOrEqual(bounds.width);
+  await page.locator('.mod-copilot').screenshot({path:testInfo.outputPath('answer-actions-narrow.png'),animations:'disabled'});
+  await page.reload();
+  await expect(answer.getByRole('heading',{name:'核心结论',exact:true})).toBeVisible();
+  expect(JSON.parse((await page.evaluate(key=>localStorage.getItem(key),key))!)[0].content).toBe(content);
+  expect(modelCalls).toBe(0);
+});
+
+test('clipboard refusal keeps a selectable original answer and download available',async({page},testInfo)=>{
+  const workspace=`copilot-export-${Date.now()}`;
+  const content='## 留存测试\n\n'+Array.from({length:24},(_,i)=>`第 ${i+1} 项财务核对`).join('\n\n')+'\n\n最后的依据：170,899,152,276.34元';
+  await page.addInitScript(({workspace,content})=>{
+    localStorage.setItem('vibedesk.userId.v1','copilot-export');
+    localStorage.setItem('vibedesk.workspaceId.v1',workspace);
+    localStorage.setItem(`newma-desk.mod-copilot.messages.v1.${workspace}.earnings-workbench`,JSON.stringify([{id:'export-answer',role:'assistant',content}]));
+    Object.defineProperty(navigator,'clipboard',{value:{writeText:async()=>{throw new DOMException('Denied','NotAllowedError')}}});
+  },{workspace,content});
+  await page.route('https://fonts.googleapis.com/**',route=>route.abort());
+  await page.goto(`http://127.0.0.1:5888/?mod=earnings-workbench&copilot=1&workspace=${workspace}`);
+  const answer=page.locator('.copilot-message.assistant');
+  await expect(answer.getByRole('button',{name:'展开完整回答',exact:true})).toBeVisible();
+  await answer.getByRole('button',{name:'复制全文',exact:true}).click();
+  await expect(answer.getByRole('status')).toContainText('浏览器未允许自动复制');
+  const source=answer.getByRole('textbox',{name:'手动复制完整回答'});
+  await expect(source).toHaveValue(content);
+  await source.focus();
+  expect(await source.evaluate(element=>(element as HTMLTextAreaElement).selectionEnd)).toBe(content.length);
+  const pending=page.waitForEvent('download');
+  await answer.getByRole('button',{name:'下载 Markdown',exact:true}).click();
+  const download=await pending;
+  const exported=testInfo.outputPath('manual-copy-answer.md');
+  await download.saveAs(exported);
+  expect(readFileSync(exported,'utf8')).toBe(content);
+});
+
+test('answer identity follows the submitted workbook rather than later page edits',async({page},testInfo)=>{
+  const workspace=`copilot-identity-${Date.now()}`;
+  await page.addInitScript(workspace=>{
+    localStorage.setItem('vibedesk.userId.v1','copilot-identity');
+    localStorage.setItem('vibedesk.workspaceId.v1',workspace);
+  },workspace);
+  await page.route('https://fonts.googleapis.com/**',route=>route.abort());
+  await page.route('**/api/model/providers',route=>route.fulfill({json:{providers:[{id:'openai-compatible',name:'上下文验收模型',available:true,capabilities:['chat','module.explain'],default:true}]}}));
+  let complete!:()=>void;
+  const pending=new Promise<void>(resolve=>{complete=resolve});
+  let submitted:Record<string,any>|undefined;
+  // Stub inference only; the workbook and its context bridge remain real.
+  await page.route('**/api/model/responses',async route=>{
+    submitted=route.request().postDataJSON();
+    await pending;
+    await route.fulfill({json:{answer:'上下文关联验收回答',adapter:'openai-compatible',model:'context-test'}});
+  });
+  const ready=page.waitForResponse(r=>r.request().method()==='GET'&&r.url().includes('/storage/earnings-workbench/workbooks'));
+  await page.goto(`http://127.0.0.1:5888/?mod=earnings-workbench&copilot=1&workspace=${workspace}`);
+  await ready;
+  const frame=page.frameLocator('iframe[title="财报研究"]');
+  await frame.getByRole('textbox',{name:'公司名称',exact:true}).fill('贵州茅台');
+  await frame.getByRole('textbox',{name:'证券代码',exact:true}).fill('600519');
+  await frame.getByRole('textbox',{name:'报告期',exact:true}).fill('2024年报');
+  await frame.getByLabel('期末日期',{exact:true}).fill('2024-12-31');
+  await frame.getByLabel('财务口径',{exact:true}).selectOption('annual');
+  await frame.getByRole('button',{name:'保存',exact:true}).click();
+  await expect(frame.getByText('已保存到 Desk 工作区',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'快速',exact:true}).click();
+  await page.getByPlaceholder('快速询问当前页面…').fill('核对当前研究对象');
+  await page.getByRole('button',{name:'发送',exact:true}).click();
+  await expect.poll(()=>submitted?.context?.vibedesk?.page?.selection?.name).toBe('贵州茅台');
+  await frame.getByRole('textbox',{name:'公司名称',exact:true}).fill('另一公司');
+  await frame.getByRole('textbox',{name:'报告期',exact:true}).fill('2025年报');
+  complete();
+  const answer=page.locator('.copilot-message.assistant').last();
+  await expect(answer).toContainText('上下文关联验收回答');
+  const identity=answer.locator('.copilot-answer-context');
+  await expect(identity.locator('summary')).toContainText('贵州茅台 · 600519 · CN · 2024年报');
+  await identity.locator('summary').click();
+  await expect(identity).toContainText('2024-12-31');
+  await expect(identity).toContainText(submitted!.context.vibedesk.page.selection.workbookId);
+  await expect(identity).not.toContainText('另一公司');
+  await page.locator('.mod-copilot').screenshot({path:testInfo.outputPath('answer-context.png'),animations:'disabled'});
+  await page.reload();
+  await expect(answer.locator('.copilot-answer-context summary')).toContainText('贵州茅台 · 600519 · CN · 2024年报');
+  // Research remains task-scoped; only an explicitly selected answer is attached.
+  let agentRequest:Record<string,any>|undefined;
+  let agentSequence=0;
+  await page.route('**/api/agent/tasks',async route=>{
+    agentRequest=route.request().postDataJSON();
+    await route.fulfill({status:202,json:{id:`isolated-earnings-test-${++agentSequence}`,status:'queued'}});
+  });
+  await page.route('**/api/agent/tasks/isolated-earnings-test-*',route=>route.fulfill({json:{id:route.request().url().split('/').pop(),status:'completed',result:{answer:'独立任务验收回答'}}}));
+  await page.getByRole('button',{name:'研究',exact:true}).click();
+  await expect(page.getByText(/不自动继承旧对话/)).toBeVisible();
+  await answer.getByRole('button',{name:'基于此回答追问',exact:true}).click();
+  await page.getByPlaceholder('就当前页面提问…').fill('分析当前底稿现金流');
+  await page.getByRole('button',{name:'发送',exact:true}).click();
+  await expect(answer).toContainText('独立任务验收回答');
+  expect(agentRequest?.memoryScope).toBe('task');
+  expect(agentRequest?.context.vibedesk.page.selection.name).toBe('贵州茅台');
+  expect(agentRequest?.context.vibedesk.followup.content).toBe('上下文关联验收回答');
+  await page.getByRole('button',{name:'基于此回答追问',exact:true}).first().click();
+  await frame.getByRole('textbox',{name:'报告期',exact:true}).fill('2025年报');
+  agentRequest=undefined;
+  await page.getByPlaceholder('就当前页面提问…').fill('继续');
+  await page.getByRole('button',{name:'发送',exact:true}).click();
+  await expect(page.getByRole('region',{name:'追问引用'}).getByRole('alert')).toContainText('未发送');
+  expect(agentRequest).toBeUndefined();
+  await expect(page.getByPlaceholder('就当前页面提问…')).toHaveValue('继续');
+  await page.locator('.mod-copilot').screenshot({path:testInfo.outputPath('followup-mismatch.png'),animations:'disabled'});
+  await page.getByRole('button',{name:'取消引用',exact:true}).click();
+  await page.getByRole('button',{name:'发送',exact:true}).click();
+  await expect.poll(()=>agentRequest?.memoryScope).toBe('task');
+  expect(agentRequest?.context.vibedesk.followup).toBeUndefined();
+  await expect(page.getByRole('button',{name:'停止',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'修改',exact:true}).click();
+  await expect(page.getByText(/不自动继承旧对话/)).toHaveCount(0);
+});

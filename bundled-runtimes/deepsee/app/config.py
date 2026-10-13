@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     CORS_ALLOW_ORIGINS: str | None = None
 
     # chatlog
-    CHATLOG_HTTP_BASE: str = Field(default="http://127.0.0.1:5030")
+    CHATLOG_HTTP_BASE: str = Field(default="http://127.0.0.1:5031")
     CHATLOG_DIR: str | None = None
     CHATLOG_HTTP_SESSION_TIMEOUT_SECONDS: int = Field(default=5)
     CHATLOG_HTTP_TIMEOUT_SECONDS: int = Field(default=10)
@@ -48,12 +48,6 @@ class Settings(BaseSettings):
     SILICONFLOW_MODEL: str | None = "gpt-5.5"
     SILICONFLOW_TOOL_MODEL: str | None = "MiniMax-M3"
     AI_MAX_PARALLEL: int = 32
-    # Newma-Desk Agent Gateway. Disabled by default until batch output is verified.
-    DESK_AGENT_ENABLED: bool = False
-    DESK_AGENT_BASE_URL: str = "http://127.0.0.1:8911"
-    DESK_AGENT_TOKEN: str | None = None
-    DESK_AGENT_MODULE_ID: str = "deepsee-news"
-    DESK_AGENT_TIMEOUT_SECONDS: int = Field(default=180)
     ONEPAGE_IMAGE_MODE: str = Field(default="auto")  # auto | image | local
     ONEPAGE_IMAGE_API_URL: str | None = None
     ONEPAGE_IMAGE_API_KEY: str | None = None

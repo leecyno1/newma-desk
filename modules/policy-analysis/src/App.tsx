@@ -89,33 +89,95 @@ function timestampLabel(value?: string | null) {
 }
 
 function buildContext(
+  moduleId: string,
   data: PolicyDashboard | null,
   selected: PolicyEvent | null,
   filters: Record<string, unknown>,
   wikiEntity?: PolicyEntity,
+  interpretation?: PolicyInterpretation,
 ): ModPageContext {
+  const currentView = filters.view as View;
   const wiki = selected ? policyWikiContext(selected, wikiEntity) : undefined;
+  const relatedPolicies = selected
+    ? (data?.events ?? [])
+      .filter((event) => selected.relatedPolicyIds.includes(event.id))
+      .map((event) => ({
+        id: event.id,
+        title: event.title,
+        date: event.date,
+        summary: event.summary,
+        sourceUrl: event.sourceUrl,
+      }))
+    : [];
+  const visibleBlocks = currentView === "interpretation"
+    ? [
+        { id: "selected-policy", type: "policy-document", title: "当前政策" },
+        { id: "rule-baseline", type: "policy-interpretation", title: "可审计规则基线" },
+        { id: "historical-comparison", type: "policy-comparison", title: "历史政策对比" },
+      ]
+    : currentView === "sources"
+      ? [{ id: "policy-sources", type: "source-registry", title: "官方政策渠道" }]
+      : [
+          {
+            id: currentView === "calendar" ? "policy-calendar" : "policy-feed",
+            type: currentView === "calendar" ? "event-calendar" : "policy-feed",
+            title: currentView === "calendar" ? "政策发布日程" : "政策流",
+          },
+          { id: "policy-assessment", type: "policy-assessment", title: "政策量级评估" },
+        ];
   return {
-    view: { id: "policy-analysis", title: "政策分析" },
-    visibleBlocks: [
-      { id: "policy-calendar", type: "event-calendar", title: "政策发布日程" },
-      { id: "policy-assessment", type: "policy-assessment", title: "政策量级评估" },
-      { id: "policy-sources", type: "source-registry", title: "官方政策渠道" },
-    ],
-    selection: selected ? { policyId: selected.id, title: selected.title, level: selected.level } : {},
+    view: { id: moduleId, title: VIEW_META[currentView].title },
+    visibleBlocks,
+    selection: selected ? {
+      policyId: selected.id,
+      title: selected.title,
+      date: selected.date,
+      institution: selected.institution,
+      category: selected.category,
+      level: selected.level,
+      lifecycleStage: selected.lifecycleStage,
+      documentType: selected.documentType,
+      summary: selected.summary,
+      rationale: selected.rationale,
+      marketScope: selected.marketScope,
+      sourceUrl: selected.sourceUrl,
+    } : {},
     filters,
     data: {
       source: "official-policy-registry",
       freshness: data ? "fresh" : "unknown",
-      ...(data ? { asOf: data.generatedAt, summary: data.summary } : {}),
+      ...(data ? {
+        asOf: data.generatedAt,
+        summary: {
+          dashboard: data.summary,
+          relatedPolicies,
+          ...(interpretation ? { ruleAnalysis: interpretation } : {}),
+        },
+      } : {}),
     },
-    actions: [{
-      id: "policy.refresh", label: "刷新政策数据", available: true,
-      inputSchema: { type: "object", additionalProperties: false },
-    }],
+    actions: [
+      {
+        id: "policy.refresh", label: "刷新政策数据", available: true,
+        inputSchema: { type: "object", additionalProperties: false },
+      },
+      ...(moduleId === "policy-interpretation" ? [{
+        id: "policy.interpret",
+        label: "交给 Newma 深入解读",
+        available: selected?.status === "published",
+      }] : []),
+    ],
     ...(wiki ? { wiki } : {}),
     tasks: [],
   };
+}
+
+function policyAgentPrompt(event: PolicyEvent): string {
+  return [
+    `请用快速、轻量的方式深入解读当前政策《${event.title}》。`,
+    "先读取当前「政策解读」Mod 的结构化页面上下文；以 selection、relatedPolicies、ruleAnalysis 和官方链接为证据。",
+    "输出核心结论、已知事实、影响推断、历史差异、关键不确定性和最需要关注的三件事。",
+    "不得把摘要当作政策全文；没有两份官方正文时，明确说明不能进行逐字稿对比，不要补造数据。",
+  ].join("\n");
 }
 
 function wikiSubject(entity: PolicyEntity): WikiSubjectRef {
@@ -195,7 +257,7 @@ function CalendarMonth({ month, events, selectedId, onSelect }: {
 
 function InterpretationReport({ report }: { report: PolicyInterpretation }) {
   return <div className="interpretation-report">
-    <div className="interpretation-mode"><Sparkles /><strong>{report.mode === "ai" ? "轻量 Agent 解读" : "规则分析"}</strong><span>{report.mode === "ai" ? `${report.adapter ?? "本地 Agent"} · ${report.model ?? "默认模型"}` : "Agent 不可用，已使用可审计规则"}</span></div>
+    <div className="interpretation-mode"><ShieldCheck /><strong>可审计规则基线</strong><span>Desk 只整理官方摘要与历史差异；深入分析由 Newma Runtime 执行</span></div>
     <section><h3><ShieldCheck />影响分析</h3><div className="analysis-columns"><div><b>事实</b>{report.impactAnalysis.facts.map((item) => <p key={item}>{item}</p>)}</div><div><b>影响推断</b>{report.impactAnalysis.inferences.map((item) => <p key={item}>{item}</p>)}</div><div><b>不确定性</b>{report.impactAnalysis.uncertainties.map((item) => <p key={item}>{item}</p>)}</div></div></section>
     <section><h3><Clock3 />同类政策历史对比推演</h3>{report.historicalComparison.matchedPolicies.length ? <div className="history-matches">{report.historicalComparison.matchedPolicies.map((item) => <span key={item.id}>{item.date} · {item.title}</span>)}</div> : <p className="muted-note">尚未识别到同系列历史政策。</p>}<div className="comparison-points"><div><b>新增</b>{report.historicalComparison.added.map((item) => <span key={item}>{item}</span>)}</div><div><b>减少</b>{report.historicalComparison.removed.map((item) => <span key={item}>{item}</span>)}</div><div><b>延续</b>{report.historicalComparison.shared.map((item) => <span key={item}>{item}</span>)}</div></div><small>{report.historicalComparison.note}</small></section>
     <section className={"transcript-status " + report.transcriptComparison.status}><h3><TextSearch />逐字稿对比</h3><strong>{report.transcriptComparison.status === "available" ? "正文对比已完成" : "缺少可比对的官方正文"}</strong><p>{report.transcriptComparison.note}</p></section>
@@ -246,10 +308,11 @@ export function PolicyAnalysisApp() {
   const selected = useMemo(() => {
     return filtered.find((event) => event.id === selectedId) ?? filtered[0] ?? null;
   }, [filtered, selectedId]);
+  const currentInterpretation = selected ? interpretations[selected.id] : undefined;
   const wikiEntity = selected?.entities.find((entity) => entity.canonicalId === wikiEntityId);
   const filters = useMemo(() => ({ view, documentType, lifecycle, level, query }), [documentType, level, lifecycle, query, view]);
-  const contextRef = useRef(buildContext(data, selected, filters, wikiEntity));
-  contextRef.current = buildContext(data, selected, filters, wikiEntity);
+  const contextRef = useRef(buildContext(moduleId, data, selected, filters, wikiEntity, currentInterpretation));
+  contextRef.current = buildContext(moduleId, data, selected, filters, wikiEntity, currentInterpretation);
 
   useEffect(() => {
     document.title = VIEW_META[view].title + " · Newma-Desk";
@@ -274,7 +337,7 @@ export function PolicyAnalysisApp() {
     let unsubscribe: () => void = () => undefined;
     void connectModHost({
       modId: moduleId, parentOrigin: parentOrigin(), sdkVersion: "0.1.0",
-      capabilities: ["actions", "context", "theme"], signal: controller.signal,
+      capabilities: ["actions", "agent", "context", "theme"], signal: controller.signal,
     }).then((connection) => {
       close = connection.close;
       if (!connection.embedded) return;
@@ -316,7 +379,7 @@ export function PolicyAnalysisApp() {
   const comparisonBase = selected?.comparison ? data?.events.find(
     (event) => event.id === selected.comparison?.basePolicyId,
   ) : undefined;
-  const currentInterpretation = selected ? interpretations[selected.id] : undefined;
+  const newmaRuntimeAvailable = Boolean(host?.config.runtime);
   const activeLifecycleStages = view === "sources" ? [] : VIEW_LIFECYCLE_STAGES[view];
 
   function changeView(nextView: View) {
@@ -362,6 +425,17 @@ export function PolicyAnalysisApp() {
     try {
       const result = await interpretPolicyEvent(selected.id);
       setInterpretations((current) => ({ ...current, [selected.id]: result }));
+      if (host?.config.runtime) {
+        host.publishContext(buildContext(
+          moduleId,
+          data,
+          selected,
+          filters,
+          wikiEntity,
+          result,
+        ));
+        host.requestAgent({ mode: "ask", prompt: policyAgentPrompt(selected) });
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "政策解读失败");
     } finally { setInterpreting(false); }
@@ -425,8 +499,8 @@ export function PolicyAnalysisApp() {
           </section>
           <section className="interpretation-pane">
             {selected ? <>
-              <header className="interpretation-header"><div><span className={"level-tag l" + selected.level}>L{selected.level}</span><h2>{selected.title}</h2><p>{selected.institution} · {selected.date}</p></div><button type="button" onClick={() => void generateInterpretation()} disabled={interpreting}>{interpreting ? <RefreshCw className="spin" /> : <Sparkles />}{currentInterpretation ? "重新解读" : "开始解读"}</button></header>
-              {currentInterpretation ? <InterpretationReport report={currentInterpretation} /> : <div className="interpretation-empty"><BrainCircuit /><strong>使用轻量 Agent 解读</strong><span>只读取当前政策摘要和关联官方文件，输出事实、影响推断、不确定性与历史差异。</span></div>}
+              <header className="interpretation-header"><div><span className={"level-tag l" + selected.level}>L{selected.level}</span><h2>{selected.title}</h2><p>{selected.institution} · {selected.date}</p></div><button type="button" onClick={() => void generateInterpretation()} disabled={interpreting}>{interpreting ? <RefreshCw className="spin" /> : newmaRuntimeAvailable ? <Sparkles /> : <ShieldCheck />}{currentInterpretation ? (newmaRuntimeAvailable ? "交给 Newma 重新解读" : "刷新规则分析") : (newmaRuntimeAvailable ? "规则基线 + Newma 解读" : "生成规则分析")}</button></header>
+              {currentInterpretation ? <InterpretationReport report={currentInterpretation} /> : <div className="interpretation-empty"><BrainCircuit /><strong>{newmaRuntimeAvailable ? "由 Newma Runtime 深入解读" : "生成可审计规则分析"}</strong><span>{newmaRuntimeAvailable ? "页面先生成规则基线，再把当前政策上下文交给 Newma 的轻量 Agent。" : "当前为独立 Desk，仅生成基于官方摘要的规则基线；AI 分析需从 Newma 中打开。"}</span></div>}
             </> : <div className="empty-state">选择一条已发布政策</div>}
           </section>
         </div>

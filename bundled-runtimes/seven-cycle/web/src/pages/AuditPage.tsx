@@ -1,11 +1,43 @@
 import { Archive, Check, ExternalLink, FileClock, ShieldAlert } from 'lucide-react'
+import { useEffect } from 'react'
 import LoadingState from '../components/LoadingState'
 import StatusBadge from '../components/StatusBadge'
 import { useResearchData } from '../hooks/useResearchData'
 import { loadAudit } from '../lib/data'
+import { publishVibeDeskContext, registerVibeDeskContextProvider } from '../lib/vibedesk'
 
 export default function AuditPage() {
   const { data, error } = useResearchData(loadAudit)
+  useEffect(() => {
+    const unregister = registerVibeDeskContextProvider(() => {
+      if (!data) return null
+      return {
+        view: { id: 'audit', title: '数据身份、校准与研究版本' },
+        visibleBlocks: [
+          { id: 'audit-sources', type: 'table', title: '研究结论来源' },
+          { id: 'audit-rules', type: 'rules', title: '发布规则' },
+          { id: 'audit-calibrations', type: 'timeline', title: '周期校准记录' },
+        ],
+        selection: {}, filters: {},
+        data: {
+          source: 'Circle Seven Cycle Research', freshness: 'unknown',
+          summary: {
+            contextSource: 'structured-page-provider',
+            auditBaseline: data.meta.asOf,
+            generated: data.meta.generated,
+            sources: data.sources.map((source) => ({ entity: source.entity, source: source.source, asOf: source.asOf, vintage: source.vintage, status: source.status })),
+            publication: data.governance.cycles.map((cycle) => ({ id: cycle.id, name: cycle.name, ...cycle.publication })),
+            proxyCount: data.proxyColumns?.length ?? 0,
+            calibrationCount: data.calibrations.length,
+            caveat: '审计基线和生成日期不是每条来源的观测期或原始发布日。',
+          },
+        },
+        actions: [], tasks: [],
+      }
+    })
+    void publishVibeDeskContext()
+    return unregister
+  }, [data])
   if (!data) return <LoadingState error={error} />
 
   return (

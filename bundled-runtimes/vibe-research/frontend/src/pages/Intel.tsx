@@ -37,6 +37,7 @@ import {
 } from "@/lib/api";
 import {
   loadCrucixSnapshot,
+  crucixSourcesDegraded,
   type CrucixNewsItem,
   type CrucixSnapshot,
 } from "@/lib/crucix";
@@ -65,6 +66,18 @@ type TabKey = typeof TABS[number]["key"];
 type SignalFilter = "all" | "rising" | "risk" | "opportunity" | "verify";
 type SortMode = "attention" | "latest";
 interface Digest { loading?: boolean; text?: string; err?: string; needKey?: boolean }
+
+interface NewsPanelContext {
+  tab: TabKey;
+  selection: Record<string, unknown>;
+  filters: Record<string, unknown>;
+  summary: Record<string, unknown>;
+  loading: boolean;
+  asOf?: string;
+  freshness?: "fresh" | "stale" | "unknown";
+}
+
+type FeedRefresh = { tab: TabKey; run: () => Promise<unknown> };
 
 const SENTIMENT_LABEL: Record<NewsSentiment, string> = {
   positive: "正面",
@@ -121,12 +134,7 @@ function chineseItemTitle(item: RadarItem) {
   if (original && !isGeneratedCategoryTitle(original)) return original;
   const summary = stripHtml(item.summary);
   if (summary) return summary.length > 88 ? `${summary.slice(0, 88)}…` : summary;
-  const industry = item.industry_name || "全球资讯";
-  const signal = item.signal === "risk" ? "风险"
-    : item.signal === "opportunity" ? "机会"
-      : item.verification_status && item.verification_status !== "常规报道" ? "待核验"
-        : "最新";
-  return `自动聚类：${industry}｜${signal}动态`;
+  return "";
 }
 
 function chineseTopicTitle(topic: NewsMonitorTopic) {
@@ -146,10 +154,7 @@ function chineseTopicTitle(topic: NewsMonitorTopic) {
 }
 
 function hasTopicTitle(topic: NewsMonitorTopic) {
-  return Boolean(
-    stripHtml(topic.headline)
-    || topic.items.some((item) => stripHtml(item.zh) || stripHtml(item.title)),
-  );
+  return Boolean(chineseTopicTitle(topic));
 }
 
 function titleKey(value: string) {
@@ -208,8 +213,9 @@ function localTime(value: string | null | undefined) {
 }
 
 function generatedTimestamp(data: RadarData | null) {
-  if (!data?.generated_at) return null;
-  const parsed = new Date(data.generated_at_iso || data.generated_at.replace(" ", "T"));
+  const timestamp = data?.generated_at_iso || data?.generated_at?.replace(" ", "T");
+  if (!timestamp) return null;
+  const parsed = new Date(timestamp);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -217,9 +223,10 @@ function dataFreshness(data: RadarData | null) {
   const generated = generatedTimestamp(data);
   if (!generated) return { label: "尚未抓取", stale: true };
   const ageMinutes = Math.max(0, Math.round((Date.now() - generated.getTime()) / 60_000));
+  const stale = Boolean(data?.refresh?.stale) || ageMinutes >= (data?.refresh?.interval_minutes || 15);
   if (ageMinutes > 24 * 60) return { label: `${Math.floor(ageMinutes / 1440)} 天前`, stale: true };
   if (ageMinutes > 90) return { label: `${Math.floor(ageMinutes / 60)} 小时前`, stale: true };
-  return { label: ageMinutes < 2 ? "刚刚" : `${ageMinutes} 分钟前`, stale: false };
+  return { label: ageMinutes < 2 ? "刚刚" : `${ageMinutes} 分钟前`, stale };
 }
 
 function topicSearchText(topic: NewsMonitorTopic) {
@@ -305,8 +312,8 @@ function CrucixNewsPanel({
           <p>只展示有原始标题、且未与当前新闻池重复的事件。</p>
         </div>
         <span className="news-crucix-health">
-          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : snapshot ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-          {snapshot ? `来源 ${snapshot.sourceHealth.ok}/${snapshot.sourceHealth.queried}` : loading ? "读取中" : "暂未就绪"}
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : snapshot && !error && !crucixSourcesDegraded(snapshot) && snapshot.freshness.status === "fresh" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+          {snapshot ? `采集正常 ${snapshot.sourceHealth.ok}/${snapshot.sourceHealth.queried}${error ? " · 上次快照" : crucixSourcesDegraded(snapshot) ? " · 部分降级" : ""}` : loading ? "读取中" : "暂未就绪"}
         </span>
       </header>
       {items.length ? (
@@ -383,8 +390,8 @@ function TopicDetail({ topic }: { topic: NewsMonitorTopic | undefined }) {
     if (!topic) return;
     if (!hasLlm()) { setDigest({ needKey: true }); return; }
     setDigest({ loading: true });
-    const evidence = topic.items.slice(0, 8).map((item) => (
-      `[${item.time}] ${item.source}｜${item.zh || item.title}${item.summary ? `｜${item.summary}` : ""}`
+    const evidence = topic.items.filter((item) => chineseItemTitle(item)).slice(0, 8).map((item) => (
+      `[${item.time}] ${item.source}｜${chineseItemTitle(item)}${item.summary ? `｜${item.summary}` : ""}`
     )).join("\n");
     const prompt = [
       "请基于以下同一新闻事件的公开报道，用中文输出三个简短部分：",
@@ -412,7 +419,7 @@ function TopicDetail({ topic }: { topic: NewsMonitorTopic | undefined }) {
   const displayTitle = chineseTopicTitle(topic);
   const originalTitle = topicOriginalTitle(topic, displayTitle);
   const readableSummary = hasChinese(topic.summary) ? stripHtml(topic.summary) : "";
-  const titledItems = topic.items.filter((item) => stripHtml(item.zh) || stripHtml(item.title));
+  const titledItems = topic.items.filter((item) => chineseItemTitle(item));
 
   return (
     <article className="news-detail">
@@ -545,6 +552,7 @@ function NewsMonitorPanel({
   setSort,
   selectedTopicId,
   setSelectedTopicId,
+  onContextChange,
 }: {
   data: RadarData;
   query: string; setQuery: (value: string) => void;
@@ -552,6 +560,7 @@ function NewsMonitorPanel({
   signal: SignalFilter; setSignal: (value: SignalFilter) => void;
   sort: SortMode; setSort: (value: SortMode) => void;
   selectedTopicId: string; setSelectedTopicId: (value: string) => void;
+  onContextChange: (context: NewsPanelContext) => void;
 }) {
   const monitor = data.monitor;
   const initialTopics = useMemo(
@@ -561,6 +570,7 @@ function NewsMonitorPanel({
   const summary = monitor?.summary;
   const [visibleTopics, setVisibleTopics] = useState<NewsMonitorTopic[]>(initialTopics);
   const [topicTotal, setTopicTotal] = useState(summary?.topic_count || initialTopics.length);
+  const [topicsAsOf, setTopicsAsOf] = useState(data.generated_at_iso || data.generated_at || undefined);
   const [industryCounts, setIndustryCounts] = useState<Record<string, number>>({});
   const [topicsLoading, setTopicsLoading] = useState(false);
   const [topicsError, setTopicsError] = useState("");
@@ -568,6 +578,7 @@ function NewsMonitorPanel({
 
   useEffect(() => {
     const currentRequest = ++requestId.current;
+    setTopicsLoading(true);
     const timer = window.setTimeout(async () => {
       setTopicsLoading(true);
       setTopicsError("");
@@ -576,6 +587,7 @@ function NewsMonitorPanel({
         if (requestId.current !== currentRequest) return;
         const titledTopics = page.items.filter(hasTopicTitle);
         setVisibleTopics(titledTopics);
+        setTopicsAsOf(page.generated_at_iso || data.generated_at_iso || data.generated_at || undefined);
         setTopicTotal(page.total);
         setIndustryCounts(page.industry_counts || {});
       } catch {
@@ -592,13 +604,17 @@ function NewsMonitorPanel({
           return matchesQuery && matchesIndustry && matchesSignal;
         });
         setVisibleTopics(fallback);
+        setTopicsAsOf(data.generated_at_iso || data.generated_at || undefined);
         setTopicTotal(fallback.length);
         setTopicsError("完整主题查询失败，当前显示缓存结果");
       } finally {
         if (requestId.current === currentRequest) setTopicsLoading(false);
       }
     }, query.trim() ? 180 : 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      requestId.current += 1;
+    };
   }, [data.generated_at_iso, industry, initialTopics, query, signal, sort]);
 
   const loadMoreTopics = async () => {
@@ -614,6 +630,7 @@ function NewsMonitorPanel({
         ...page.items.filter(hasTopicTitle).filter((topic) => !current.some((item) => item.id === topic.id)),
       ]);
       setTopicTotal(page.total);
+      setTopicsAsOf(page.generated_at_iso || data.generated_at_iso || data.generated_at || undefined);
       setIndustryCounts(page.industry_counts || {});
     } catch {
       if (requestId.current === currentRequest) setTopicsError("加载更多主题失败");
@@ -623,6 +640,27 @@ function NewsMonitorPanel({
   };
 
   const selected = visibleTopics.find((topic) => topic.id === selectedTopicId) || visibleTopics[0];
+
+  useEffect(() => {
+    onContextChange({
+      tab: "monitor",
+      selection: { topicId: selected?.id ?? null, topic: selected ?? null, displayTitle: selected ? chineseTopicTitle(selected) : null },
+      filters: { query, industry, signal, sort },
+      loading: topicsLoading,
+      asOf: topicsAsOf,
+      summary: {
+        loadedTopicCount: visibleTopics.length,
+        totalMatchingTopics: topicTotal,
+        topics: visibleTopics.slice(0, 20).map((topic) => ({
+          id: topic.id, title: chineseTopicTitle(topic), sources: topic.sources,
+          latestAt: topic.latest_at, signal: topic.signal, attention: topic.attention_score,
+          evidenceKeys: topic.items.map((item) => item.url).filter((url) => /^https?:\/\//.test(url || "")).slice(0, 8),
+        })),
+        topicsLimited: visibleTopics.length > 20,
+        error: topicsError || null,
+      },
+    });
+  }, [onContextChange, selected, query, industry, signal, sort, topicsLoading, visibleTopics, topicTotal, topicsError, topicsAsOf]);
 
   if (!monitor || !summary) {
     return <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">监测数据尚未生成，请刷新资讯。</div>;
@@ -685,13 +723,13 @@ function NewsMonitorPanel({
           </div>
         </section>
 
-        <aside className="news-detail-panel"><TopicDetail topic={selected} /></aside>
+        <aside className="news-detail-panel"><TopicDetail key={selected?.id} topic={selected} /></aside>
       </div>
     </div>
   );
 }
 
-function RawNewsPanel({ data }: { data: RadarData }) {
+function RawNewsPanel({ data, onContextChange }: { data: RadarData; onContextChange: (context: NewsPanelContext) => void }) {
   const [active, setActive] = useState("all");
   const [query, setQuery] = useState("");
   const current = active === "all" ? null : data.industries.find((industry) => industry.key === active) || null;
@@ -704,11 +742,25 @@ function RawNewsPanel({ data }: { data: RadarData }) {
       return true;
     }).sort((left, right) => radarItemTimestamp(right) - radarItemTimestamp(left));
   }, [data.industries]);
-  const items = (current?.items || allItems).filter((item) => {
-    if (!stripHtml(item.zh) && !stripHtml(item.title)) return false;
+  const items = useMemo(() => (current?.items || allItems).filter((item) => {
+    if (!chineseItemTitle(item)) return false;
     const text = [item.zh, item.title, item.summary, item.source].join(" ").toLocaleLowerCase();
     return !query.trim() || text.includes(query.trim().toLocaleLowerCase());
-  });
+  }), [current, allItems, query]);
+  useEffect(() => {
+    onContextChange({
+      tab: "raw", selection: {}, filters: { query, industry: active }, loading: false,
+      summary: {
+        totalMatchingItems: items.length,
+        items: items.slice(0, 30).map((item) => ({
+          title: chineseItemTitle(item), originalTitle: stripHtml(item.title), source: item.source, url: item.url,
+          evidenceKey: /^https?:\/\//.test(item.url || "") ? item.url : null,
+          publishedAt: item.published_at || item.time, summary: item.summary,
+        })),
+        itemsLimited: items.length > 30,
+      },
+    });
+  }, [onContextChange, query, active, items]);
   return (
     <div className="news-raw-layout">
       <aside className="news-industry-rail">
@@ -866,10 +918,15 @@ function feedStockLabel(stocks: FeedStock[]) {
   return `${stocks[0].name} 等 ${stocks.length} 只`;
 }
 
-function WatchlistFeed({ kind }: { kind: "filings" | "news" }) {
+function WatchlistFeed({ kind, onContextChange, onRefreshReady }: {
+  kind: "filings" | "news";
+  onContextChange: (context: NewsPanelContext) => void;
+  onRefreshReady: (refresh: FeedRefresh | null) => void;
+}) {
   const [codes, setCodes] = useState<string[]>(loadWatch);
   const feedCache = useMemo(() => createVibeDeskSnapshotCache<FeedRow[]>(`news-watch:${kind}`, 2, 1024 * 1024), [kind]);
   const [rows, setRows] = useState<FeedRow[]>(() => cachedFeedRows(feedCache.read()?.value || []));
+  const [asOf, setAsOf] = useState<string | undefined>(() => feedCache.read()?.updatedAt);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const [query, setQuery] = useState("");
@@ -879,7 +936,7 @@ function WatchlistFeed({ kind }: { kind: "filings" | "news" }) {
   const [depNote, setDepNote] = useState<string | null>(null);
 
   const load = useCallback(async (symbols: string[]) => {
-    if (!symbols.length) { setRows([]); return; }
+    if (!symbols.length) { setRows([]); setAsOf(undefined); return { rows: [], asOf: undefined }; }
     setLoading(true); setErr(null); setDepNote(null);
     try {
       const nameOf: Record<string, string> = {};
@@ -889,10 +946,12 @@ function WatchlistFeed({ kind }: { kind: "filings" | "news" }) {
       } catch { /* Name enrichment is optional. */ }
 
       const output: FeedRow[] = [];
+      let failedSymbols: string[] = [];
       if (kind === "filings") {
         const responses = await Promise.all(symbols.map((symbol) => api.announcements(symbol)
-          .then((items) => ({ symbol, items }))
-          .catch(() => ({ symbol, items: [] as Announcement[] }))));
+          .then((items) => ({ symbol, items, failed: false }))
+          .catch(() => ({ symbol, items: [] as Announcement[], failed: true }))));
+        failedSymbols = responses.filter((response) => response.failed).map((response) => response.symbol);
         for (const { symbol, items } of responses) for (const item of items) output.push({
           stocks: [{ code: symbol, name: nameOf[symbol] || symbol }], when: item.date,
           title: item.title.replace(/^[^:：]*[:：]/, ""), meta: item.type, url: item.url,
@@ -900,11 +959,12 @@ function WatchlistFeed({ kind }: { kind: "filings" | "news" }) {
       } else {
         let dependency: string | null = null;
         const responses = await Promise.all(symbols.map((symbol) => api.news(symbol)
-          .then((items) => ({ symbol, items }))
+          .then((items) => ({ symbol, items, failed: false }))
           .catch((reason) => {
             if (reason instanceof ApiError && reason.status === 501) dependency = reason.message;
-            return { symbol, items: [] as NewsItem[] };
+            return { symbol, items: [] as NewsItem[], failed: true };
           })));
+        failedSymbols = responses.filter((response) => response.failed).map((response) => response.symbol);
         for (const { symbol, items } of responses) for (const item of items) {
           const name = nameOf[symbol] || symbol;
           const relevance = newsRelevance(item, symbol, name);
@@ -916,6 +976,14 @@ function WatchlistFeed({ kind }: { kind: "filings" | "news" }) {
         }
         if (dependency && output.length === 0) setDepNote(dependency);
       }
+      if (failedSymbols.length === symbols.length) throw new Error("资讯来源暂时不可用");
+      if (failedSymbols.length) {
+        output.push(...rowsRef.current.flatMap((row) => {
+          const stocks = row.stocks.filter((stock) => failedSymbols.includes(stock.code));
+          return stocks.length ? [{ ...row, stocks }] : [];
+        }));
+        setErr(`${failedSymbols.length} 只股票更新失败，已保留可用的历史记录`);
+      }
       const nextRows = compactFeedRows(output).sort((left, right) => {
         const timeDifference = feedTimestamp(right.when) - feedTimestamp(left.when);
         if (timeDifference) return timeDifference;
@@ -925,9 +993,13 @@ function WatchlistFeed({ kind }: { kind: "filings" | "news" }) {
         return FILING_TONE_WEIGHT[rightTone] - FILING_TONE_WEIGHT[leftTone];
       }).slice(0, MAX_ROWS);
       setRows(nextRows);
-      feedCache.write(nextRows);
+      const refreshedAt = new Date().toISOString();
+      setAsOf(refreshedAt);
+      feedCache.write(nextRows, refreshedAt);
+      return { rows: nextRows, asOf: refreshedAt, failedSymbols };
     } catch (reason) {
-      setErr(rowsRef.current.length ? "更新失败，正在显示上次数据" : reason instanceof ApiError ? reason.message : "加载失败");
+      setErr(rowsRef.current.length ? "更新失败，正在显示上次数据" : reason instanceof Error ? reason.message : "加载失败");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -935,6 +1007,19 @@ function WatchlistFeed({ kind }: { kind: "filings" | "news" }) {
 
   useEffect(() => { const symbols = loadWatch(); setCodes(symbols); void load(symbols); }, [load]);
   const refresh = () => { const symbols = loadWatch(); setCodes(symbols); void load(symbols); };
+  useEffect(() => {
+    onRefreshReady({
+      tab: kind === "filings" ? "filings" : "watch-news",
+      run: async () => {
+        const symbols = loadWatch();
+        setCodes(symbols);
+        const result = await load(symbols);
+        if (!result) throw new Error("当前资讯刷新失败，已保留上次数据");
+        return { rowCount: result.rows.length, refreshedAt: result.asOf, failedSymbols: result.failedSymbols || [] };
+      },
+    });
+    return () => onRefreshReady(null);
+  }, [kind, load, onRefreshReady]);
 
   const counts = useMemo(() => {
     const result = new Map<string, number>();
@@ -959,6 +1044,22 @@ function WatchlistFeed({ kind }: { kind: "filings" | "news" }) {
     }
     return output;
   }, [visibleRows]);
+
+  useEffect(() => {
+    onContextChange({
+      tab: kind === "filings" ? "filings" : "watch-news",
+      selection: { stockCode: activeCode === "all" ? null : activeCode, watchlist: codes },
+      filters: { query, stockCode: activeCode },
+      loading,
+      asOf,
+      freshness: !asOf ? "unknown" : err || depNote ? "stale" : "fresh",
+      summary: {
+        totalItems: rows.length, totalMatchingItems: visibleRows.length,
+        items: visibleRows.slice(0, 30), itemsLimited: visibleRows.length > 30,
+        error: err || depNote || null,
+      },
+    });
+  }, [onContextChange, kind, activeCode, codes, query, loading, asOf, err, depNote, rows.length, visibleRows]);
 
   if (!codes.length) return (
     <div className="rounded-lg border border-dashed border-border/70 p-8 text-center text-sm text-muted-foreground">
@@ -1039,58 +1140,66 @@ function WatchlistFeed({ kind }: { kind: "filings" | "news" }) {
 }
 
 function newsContext(input: {
-  tab: TabKey; data: RadarData | null; selectedTopicId: string;
-  query: string; industry: string; signal: SignalFilter; sort: SortMode; loading: boolean;
+  tab: TabKey; data: RadarData | null; panel: NewsPanelContext | null; loading: boolean;
   crucix: CrucixSnapshot | null;
   linkedSubject?: VibeDeskWikiSubject;
 }): VibeDeskPageContext {
-  const selected = input.data?.monitor?.topics.find((topic) => topic.id === input.selectedTopicId);
-  const primarySubject = input.linkedSubject ?? (selected ? {
+  const panel = input.panel?.tab === input.tab ? input.panel : null;
+  const radarTab = input.tab === "monitor" || input.tab === "raw";
+  const selected = panel?.selection.topic as NewsMonitorTopic | null | undefined;
+  const tabLabel = TABS.find((item) => item.key === input.tab)!.label;
+  const busy = (radarTab && (input.loading || Boolean(input.data?.refresh?.refreshing))) || !panel || panel.loading;
+  const primarySubject = selected ? {
     type: "topic" as const,
     canonicalId: `topic:news:${encodeURIComponent(selected.id).slice(0, 200)}`,
-    displayName: selected.headline || selected.label,
-  } : undefined);
+    displayName: chineseTopicTitle(selected),
+  } : input.tab === "monitor" && panel?.filters.query === input.linkedSubject?.displayName
+    ? input.linkedSubject : undefined;
+  const visibleBlocks: VibeDeskPageContext["visibleBlocks"] = input.tab === "monitor" ? [
+    ...(input.data?.monitor?.summary ? [{ id: "news-monitor-summary", type: "monitor-metrics", title: "舆情监测摘要" }] : []),
+    ...(panel ? [{ id: "news-topic-clusters", type: "topic-clusters", title: "新闻主题事件簇" }] : []),
+    ...(selected ? [{ id: "news-topic-evidence", type: "evidence-detail", title: "事件证据与来源视角" }] : []),
+    { id: "crucix-news", type: "external-intelligence", title: "Crucix 全球公开源快讯" },
+  ] : panel ? [{ id: `news-${input.tab}`, type: "news-list", title: tabLabel }] : [];
   return {
-    view: { id: "news-radar", title: "新闻与舆情" },
-    visibleBlocks: [
-      { id: "news-monitor-summary", type: "monitor-metrics", title: "舆情监测摘要" },
-      { id: "news-topic-clusters", type: "topic-clusters", title: "新闻主题事件簇" },
-      { id: "news-topic-evidence", type: "evidence-detail", title: "事件证据与来源视角" },
-      { id: "crucix-news", type: "external-intelligence", title: "Crucix 全球公开源快讯" },
-      { id: "watchlist-news", type: "watchlist-feed", title: "自选股公告与新闻" },
-    ],
-    selection: { tab: input.tab, topicId: selected?.id || null, topic: selected || null },
-    filters: { query: input.query, industry: input.industry, signal: input.signal, sort: input.sort },
+    view: { id: "news-radar", title: `新闻与舆情 · ${tabLabel}` },
+    visibleBlocks,
+    selection: { tab: input.tab, topicId: null, topic: null, ...panel?.selection },
+    filters: panel?.filters || {},
     data: {
-      asOf: input.data?.generated_at_iso || input.data?.generated_at || new Date().toISOString(),
+      asOf: radarTab
+        ? panel?.asOf || input.data?.generated_at_iso || input.data?.generated_at || undefined
+        : panel?.asOf,
       source: "newma-desk.news-monitor.v1",
-      freshness: input.loading ? "unknown" : dataFreshness(input.data).stale ? "stale" : "fresh",
+      freshness: radarTab
+        ? !generatedTimestamp(input.data) ? "unknown" : dataFreshness(input.data).stale || panel?.summary.error ? "stale" : "fresh"
+        : panel?.freshness || "unknown",
       summary: {
-        monitor: input.data?.monitor?.summary || null,
-        sourceHealth: input.data?.stats || null,
-        crucix: input.crucix ? {
-          asOf: input.crucix.asOf,
-          newsCount: input.crucix.news.length,
-          sourceHealth: input.crucix.sourceHealth,
-        } : null,
-        caveat: input.data?.monitor?.caveat || null,
+        tab: tabLabel,
+        loading: busy,
+        ...panel?.summary,
+        ...(radarTab ? { sourceHealth: input.data?.stats || null, refresh: input.data?.refresh || null } : {}),
+        ...(input.tab === "monitor" ? {
+          monitor: input.data?.monitor?.summary || null,
+          caveat: input.data?.monitor?.caveat || null,
+          crucix: input.crucix ? {
+            asOf: input.crucix.asOf,
+            newsCount: input.crucix.news.length,
+            sourceHealth: input.crucix.sourceHealth,
+          } : null,
+        } : {}),
       },
     },
     actions: [{
       id: "news.refresh",
-      label: "刷新新闻与舆情",
-      available: !input.loading,
+      label: `刷新${tabLabel}`,
+      available: !busy,
       inputSchema: { type: "object", additionalProperties: false },
     }],
     ...(primarySubject ? {
-      wiki: {
-        primarySubject,
-        relatedSubjects: [],
-        conceptIds: [],
-        intent: "news.monitor",
-      },
+      wiki: { primarySubject, relatedSubjects: [], conceptIds: [], intent: "news.monitor" },
     } : {}),
-    tasks: input.loading ? [{ id: "news-radar-refresh", status: "running", actionId: "news.refresh" }] : [],
+    tasks: busy ? [{ id: "news-radar-refresh", status: "running", actionId: "news.refresh" }] : [],
   };
 }
 
@@ -1109,6 +1218,9 @@ export function Intel() {
   const [signal, setSignal] = useState<SignalFilter>("all");
   const [sort, setSort] = useState<SortMode>("attention");
   const [selectedTopicId, setSelectedTopicId] = useState("");
+  const [panelContext, setPanelContext] = useState<NewsPanelContext | null>(null);
+  const feedRefreshRef = useRef<FeedRefresh | null>(null);
+  const registerFeedRefresh = useCallback((refresh: FeedRefresh | null) => { feedRefreshRef.current = refresh; }, []);
   const [linkedSubject, setLinkedSubject] = useState<VibeDeskWikiSubject>();
   const [crucix, setCrucix] = useState<CrucixSnapshot | null>(null);
   const [crucixLoading, setCrucixLoading] = useState(true);
@@ -1167,13 +1279,8 @@ export function Intel() {
     void loadRadar();
     void loadCrucix();
   }), [loadCrucix, loadRadar, radarCache]);
-  useEffect(() => {
-    const topics = (data?.monitor?.topics || []).filter(hasTopicTitle);
-    if (topics.length && !topics.some((topic) => topic.id === selectedTopicId)) setSelectedTopicId(topics[0].id);
-  }, [data, selectedTopicId]);
-
-  const contextRef = useRef<VibeDeskPageContext>(newsContext({ tab, data, selectedTopicId, query, industry, signal, sort, loading: loading || refreshing, crucix, linkedSubject }));
-  contextRef.current = newsContext({ tab, data, selectedTopicId, query, industry, signal, sort, loading: loading || refreshing, crucix, linkedSubject });
+  const contextRef = useRef<VibeDeskPageContext>(newsContext({ tab, data, panel: panelContext, loading: loading || refreshing, crucix, linkedSubject }));
+  contextRef.current = newsContext({ tab, data, panel: panelContext, loading: loading || refreshing, crucix, linkedSubject });
   useEffect(() => registerVibeDeskContextProvider(() => contextRef.current), []);
   useEffect(() => registerVibeDeskHandoffHandler((handoff) => {
     if (!["security", "etf", "fund", "topic"].includes(handoff.subject.type)) {
@@ -1188,11 +1295,17 @@ export function Intel() {
   }), []);
   useEffect(() => registerVibeDeskUiActionHandler(async (actionId) => {
     if (actionId !== "news.refresh") throw new Error(`不支持页面动作：${actionId}`);
+    const activeTab = contextRef.current.selection.tab;
+    if (activeTab === "filings" || activeTab === "watch-news") {
+      const refresh = feedRefreshRef.current;
+      if (!refresh || refresh.tab !== activeTab) throw new Error("当前资讯页尚未就绪");
+      return refresh.run();
+    }
     const next = await loadRadar(true);
     if (!next) throw new Error("新闻与舆情刷新失败");
     return { refreshedAt: next.generated_at_iso || next.generated_at, summary: next.monitor?.summary || null };
   }), [loadRadar]);
-  useEffect(() => { void publishVibeDeskContext(); }, [crucix, data, industry, linkedSubject, loading, query, refreshing, selectedTopicId, signal, sort, tab]);
+  useEffect(() => { void publishVibeDeskContext(); }, [crucix, data, panelContext, linkedSubject, loading, refreshing, tab]);
 
   const freshness = dataFreshness(data);
   const summary = data?.monitor?.summary;
@@ -1255,13 +1368,13 @@ export function Intel() {
 
       {error && <div className="news-inline-error"><AlertCircle className="h-4 w-4" />{error}</div>}
       {tab === "monitor" ? <CrucixNewsPanel items={crucixNews} snapshot={crucix} loading={crucixLoading} error={crucixError} /> : null}
-      {loading && !data ? (
+      {!radarTab ? (
+        <WatchlistFeed key={tab} kind={tab === "filings" ? "filings" : "news"} onContextChange={setPanelContext} onRefreshReady={registerFeedRefresh} />
+      ) : loading && !data ? (
         <div className="news-loading"><Loader2 className="h-4 w-4 animate-spin" />正在载入新闻与舆情…</div>
       ) : data ? (
-        tab === "monitor" ? <NewsMonitorPanel data={data} query={query} setQuery={setQuery} industry={industry} setIndustry={setIndustry} signal={signal} setSignal={setSignal} sort={sort} setSort={setSort} selectedTopicId={selectedTopicId} setSelectedTopicId={setSelectedTopicId} />
-          : tab === "raw" ? <RawNewsPanel data={data} />
-            : tab === "filings" ? <WatchlistFeed key="filings" kind="filings" />
-              : <WatchlistFeed key="news" kind="news" />
+        tab === "monitor" ? <NewsMonitorPanel data={data} query={query} setQuery={setQuery} industry={industry} setIndustry={setIndustry} signal={signal} setSignal={setSignal} sort={sort} setSort={setSort} selectedTopicId={selectedTopicId} setSelectedTopicId={setSelectedTopicId} onContextChange={setPanelContext} />
+          : <RawNewsPanel data={data} onContextChange={setPanelContext} />
       ) : null}
 
       <details className="news-method-note">

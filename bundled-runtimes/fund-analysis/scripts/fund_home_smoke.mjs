@@ -17,7 +17,7 @@ if (!Array.isArray(home.featured_managers) || home.featured_managers.length === 
 if (!Array.isArray(home.latest_research_memos) || home.latest_research_memos.length === 0) throw new Error('latest research memos missing')
 
 const page = await requireResponse('/')
-for (const required of ['先找基金，再看懂它', '哪些类别现在能用', '最近入库的基金经理纪要', '选定基金后，再让 AI 综合评价']) {
+for (const required of ['基金名称 / 代码 / 经理 / 公司', '主动基金评价覆盖', '最近入库纪要', 'AI 研究分析']) {
   if (!page.includes(required)) throw new Error(`home page missing: ${required}`)
 }
 for (const forbidden of ['机构交易情绪', '择时信号', '配置建议', '计划金额', '销售规则']) {

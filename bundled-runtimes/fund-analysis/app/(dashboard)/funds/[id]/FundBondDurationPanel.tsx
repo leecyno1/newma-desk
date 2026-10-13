@@ -30,6 +30,7 @@ export type FundBondDurationSnapshot = {
   missingItems: string[]
   limitations: string[]
   sourceUrl: string
+  indexCoverage?: { ready: number; expected: number } | null
 }
 
 function formatDate(value: string) {
@@ -43,6 +44,7 @@ function formatDuration(value: number | null) {
 }
 
 function normalizeSnapshot(payload: Record<string, unknown>): FundBondDurationSnapshot {
+  const inventory = payload.index_inventory as Record<string, unknown> | undefined
   const numberOrNull = (value: unknown) => {
     const parsed = Number(value)
     return value == null || value === '' || !Number.isFinite(parsed) ? null : parsed
@@ -76,6 +78,8 @@ function normalizeSnapshot(payload: Record<string, unknown>): FundBondDurationSn
     missingItems: Array.isArray(payload.missing_items) ? payload.missing_items.map(String) : [],
     limitations: Array.isArray(payload.limitations) ? payload.limitations.map(String) : [],
     sourceUrl: String(payload.source_url || ''),
+    indexCoverage: inventory && typeof inventory.ready_pairs === 'number' && typeof inventory.expected_pairs === 'number'
+      ? { ready: inventory.ready_pairs, expected: inventory.expected_pairs } : null,
   }
 }
 
@@ -103,14 +107,15 @@ export default function FundBondDurationPanel({ initialSnapshot, fundType, windC
   }
 
   const hasResult = snapshot.estimatedDuration != null
-  const weakEvidence = snapshot.status === 'low_fit'
+  const weakEvidence = !snapshot.formalDurationReady
 
   return (
     <section className="overflow-hidden border border-[#dbe1dc] bg-white">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#e1e6e2] p-5 sm:p-6">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold"><Gauge className="h-5 w-5 text-[#28745c]" />净值回归久期</h2>
-          <p className="mt-1 text-xs leading-6 text-[#7a8580]">用基金周收益和 20 条真实中债分期限指数现场估算，只解释利率敏感度，不参与基金评分。</p>
+          <p className="mt-1 text-xs leading-6 text-[#7a8580]">基金复权周收益对齐中债分期限指数估算，不是持仓披露久期，也不参与基金评分。首次测算可能需要补齐指数。</p>
+          {snapshot.indexCoverage ? <p className="mt-1 text-xs text-[#65716b]">指数数据就绪 {snapshot.indexCoverage.ready}/{snapshot.indexCoverage.expected} 项（20 条指数 × 财富值/久期；7日时效检查）</p> : null}
         </div>
         <div className="flex items-center gap-3">
           {snapshot.sourceUrl ? <a href={snapshot.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-[#28745c]">中债来源<ExternalLink className="h-3.5 w-3.5" /></a> : null}
@@ -121,13 +126,14 @@ export default function FundBondDurationPanel({ initialSnapshot, fundType, windC
       </div>
 
       {error ? <div className="flex gap-3 border-b border-[#ead0cb] bg-[#fff4f2] px-5 py-4 text-xs text-[#8a433b]"><CircleAlert className="h-4 w-4 shrink-0" />{error}</div> : null}
+      {snapshot.missingItems.length > 0 && hasResult ? <p className="border-b border-[#ead0cb] bg-[#fff8e8] px-5 py-3 text-xs leading-6 text-[#7b5719]">{snapshot.missingItems.join('；')}</p> : null}
 
       {hasResult ? (
         <>
           <div className="grid gap-px bg-[#e1e6e2] sm:grid-cols-2 xl:grid-cols-4">
             {[
-              ['估算久期', formatDuration(snapshot.estimatedDuration)],
-              ['久期区间', snapshot.durationBucket || '—'],
+              ['估算久期', weakEvidence ? '暂不可用' : formatDuration(snapshot.estimatedDuration)],
+              ['久期区间', weakEvidence ? '暂不判定' : snapshot.durationBucket || '—'],
               ['回归拟合度', snapshot.rSquared == null ? '—' : `${(snapshot.rSquared * 100).toFixed(1)}%`],
               ['有效样本', `${snapshot.observations} 周`],
             ].map(([label, value]) => <div key={label} className="bg-white p-5"><div className="text-xs font-bold text-[#66726c]">{label}</div><div className="mt-2 text-xl font-bold text-[#1d2923]">{value}</div></div>)}
@@ -148,7 +154,8 @@ export default function FundBondDurationPanel({ initialSnapshot, fundType, windC
             </div>
             <div className="bg-[#f8faf8] p-5 sm:p-6">
               <span className={`inline-flex px-2.5 py-1 text-[11px] font-bold ${weakEvidence ? 'bg-[#fff0d2] text-[#7b5719]' : 'bg-[#e1eee7] text-[#246149]'}`}>{snapshot.fitLabel}</span>
-              <p className="mt-4 text-xs leading-6 text-[#59675f]">{weakEvidence ? '拟合较弱，当前久期只能作为辅助线索，不能当作基金正式披露久期。' : '拟合度通过门槛，可作为理解基金利率敏感度的量化证据。'}</p>
+              <p className="mt-4 text-xs leading-6 text-[#59675f]">{weakEvidence ? '拟合或时效未通过门槛，只作辅助线索，不能当作当前有效久期。' : '拟合度通过门槛，可作为理解基金利率敏感度的量化证据。'}</p>
+              {weakEvidence ? <p className="mt-2 text-xs text-[#7c8781]">原始模型输出 {formatDuration(snapshot.estimatedDuration)}，仅供诊断，不作久期分类依据。</p> : null}
               <p className="mt-3 text-[11px] leading-6 text-[#7c8781]">样本区间 {formatDate(snapshot.dataStart)}—{formatDate(snapshot.dataEnd)}。可转债、股票、杠杆和信用利差变化会进入回归残差。</p>
             </div>
           </div>
@@ -156,7 +163,7 @@ export default function FundBondDurationPanel({ initialSnapshot, fundType, windC
       ) : (
         <div className="flex gap-3 px-5 py-7 text-sm text-[#65716b] sm:px-6">
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-[#8d6a2f]" />
-          <div><strong>{snapshot.status === 'insufficient_evidence' ? '净值样本不足' : '尚未测算久期'}</strong><p className="mt-1 text-xs leading-6">{snapshot.missingItems[0] || '点击“现场测算久期”后运行，不会批量占用资源。'}</p></div>
+          <div><strong>{snapshot.status === 'insufficient_evidence' ? '测算证据不足' : '尚未测算久期'}</strong><p className="mt-1 text-xs leading-6">{snapshot.missingItems.slice(0, 3).join('；') || '点击“现场测算久期”后运行。只处理当前基金及所需指数。'}</p></div>
         </div>
       )}
     </section>

@@ -17,6 +17,57 @@ export type FundSelection = {
   assetType: 'fund' | 'etf'
 }
 
+export type FundPageObservation = {
+  title?: string
+  selection?: FundSelection | null
+  filters: Record<string, unknown>
+  summary: Record<string, unknown>
+  visibleBlocks: NewmaDeskPageContext['visibleBlocks']
+}
+
+// Keep list/detail navigation inside the same Desk module; standalone URLs stay unchanged.
+export function fundDiscoverDeskHref(pathname: string, search = ''): string | null {
+  if (pathname !== '/discover' && !/^\/funds\/[^/]+$/.test(pathname)) return null
+  const params = new URLSearchParams(search)
+  if (pathname.startsWith('/funds/')) params.set('symbol', decodeURIComponent(pathname.slice('/funds/'.length)))
+  else { params.delete('symbol'); params.delete('fundCode'); params.delete('name'); params.delete('assetType') }
+  return `/mod/fund-research/discover${params.size ? `?${params}` : ''}`
+}
+
+// Map business routes to the six installed Desk workspaces, including drill-downs.
+export function fundDeskDestination(pathname: string, search = '') {
+  const params = new URLSearchParams(search)
+  let workspace: FundResearchWorkspaceId | undefined
+  const discover = fundDiscoverDeskHref(pathname, search)
+  if (discover) return { workspace: 'discover' as const, href: discover, search: discover.split('?')[1] || '' }
+  const routes: Record<string, FundResearchWorkspaceId> = {
+    '/research': 'research', '/analysis': 'analysis', '/analysis/advanced': 'advanced',
+    '/recommendations': 'recommendations', '/portfolio': 'portfolio',
+  }
+  workspace = routes[pathname]
+  if (pathname === '/compare') { workspace = 'discover'; params.set('view', 'compare') }
+  if (pathname === '/managers') { workspace = 'research'; params.set('view', 'managers') }
+  if (pathname === '/managers/compare') { workspace = 'research'; params.set('view', 'manager-compare') }
+  if (pathname === '/reports') { workspace = 'research'; params.set('view', 'reports') }
+  if (pathname === '/evidence-coverage') { workspace = 'research'; params.set('view', 'evidence') }
+  if (pathname === '/alerts' || pathname === '/sales-rules') {
+    workspace = 'research'; params.set('view', 'evidence')
+    params.set('section', pathname === '/alerts' ? 'review-events' : 'materials')
+  }
+  if (/^\/reports\/[^/]+$/.test(pathname) && !['/reports/search', '/reports/upload'].includes(pathname)) {
+    workspace = 'research'
+    params.set('view', 'report')
+    params.set('reportId', decodeURIComponent(pathname.slice('/reports/'.length)))
+  }
+  if (/^\/managers\/[^/]+$/.test(pathname) && pathname !== '/managers/compare') {
+    workspace = 'research'
+    params.set('view', 'managers')
+    params.set('managerId', decodeURIComponent(pathname.slice('/managers/'.length)))
+  }
+  if (!workspace) return null
+  return { workspace, search: params.toString(), href: `/mod/fund-research/${workspace}${params.size ? `?${params}` : ''}` }
+}
+
 export type FundResearchCapability = {
   name: string
   purpose: string
@@ -174,30 +225,38 @@ export function buildFundResearchPageContext(input: {
   filters?: Record<string, unknown>
   asOf?: string
   tasks?: NewmaDeskPageContext['tasks']
+  observation?: FundPageObservation
 }): NewmaDeskPageContext {
+  const observation = input.observation
+  const selection = observation?.selection === undefined ? input.selection : observation.selection
   return {
-    view: { id: input.workspace.modId, title: input.workspace.title },
-    visibleBlocks: [
+    view: { id: input.workspace.modId, title: observation?.title ?? input.workspace.title },
+    visibleBlocks: observation?.visibleBlocks ?? [
       { id: 'fund-selection-summary', type: 'summary', title: input.workspace.purpose },
       { id: 'fund-selection-capabilities', type: 'table', title: '可用能力' },
       { id: 'fund-selection-actions', type: 'actions', title: '可执行操作' },
     ],
-    selection: input.selection ? {
-      symbol: input.selection.symbol,
-      name: input.selection.name ?? input.selection.symbol,
+    selection: selection ? {
+      symbol: selection.symbol,
+      name: selection.name ?? selection.symbol,
       market: 'CN',
-      assetType: input.selection.assetType,
+      assetType: selection.assetType,
     } : {},
-    filters: input.filters ?? {},
+    filters: observation?.filters ?? input.filters ?? {},
     data: {
-      asOf: input.asOf ?? new Date().toISOString(),
-      source: 'fund-analysis/fund-research-snapshot',
-      freshness: 'fresh',
+      ...(input.asOf ? { asOf: input.asOf } : {}),
+      source: observation ? 'fund-analysis/page-state' : 'fund-analysis/capability-description',
+      freshness: 'unknown',
       summary: {
         workspace: input.workspace.id,
         capabilities: input.workspace.capabilities,
         productScope: 'browse-research-evaluate-attribute-recommend-compose',
         restrictions: ['no-trading', 'no-suitability', 'no-investment-decision'],
+        contextStatus: observation ? 'page-data' : 'capabilities-only',
+        evidenceBoundary: observation
+          ? '仅使用当前页已加载数据；各字段日期分别列出，页面打开时间不是数据日期。未知不等于零，缺失不等于无风险。'
+          : '此页尚未提供结构化研究数据，仅有功能说明和选择对象；不能据此生成基金研究结论。',
+        page: observation?.summary ?? null,
       },
     },
     actions: input.workspace.actions.map((action) => ({ ...action, available: true })),

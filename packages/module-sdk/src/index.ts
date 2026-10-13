@@ -3,10 +3,11 @@ import {
   type ModEvent,
 } from "@newma-desk/contracts";
 
-export * from "./agent";
 export * from "./artifact";
+export * from "./agent";
 export * from "./cache";
 export * from "./data";
+export * from "./gateway";
 export * from "./host";
 export * from "./model";
 export * from "./storage";

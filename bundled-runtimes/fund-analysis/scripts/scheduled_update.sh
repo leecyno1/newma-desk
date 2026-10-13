@@ -24,12 +24,26 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# ------------------------- PATH 补全 -------------------------
+# launchd 启动时 PATH 仅 /usr/bin:/bin:/usr/sbin:/sbin，不含 Homebrew 目录，
+# 会让所有 npm 任务 exit=127、依赖 psql/pg_dump 的备份任务失败。
+for brew_bin in /opt/homebrew/bin /usr/local/bin; do
+  if [[ -d "$brew_bin" && ":$PATH:" != *":$brew_bin:"* ]]; then
+    PATH="$brew_bin:$PATH"
+  fi
+done
+export PATH
+
 # ------------------------- 环境加载 -------------------------
 set -a
 for env_file in .env.local .env backend/.env; do
   [[ -f "$env_file" ]] && source "$env_file" || true
 done
 set +a
+
+# Desk 的副本只访问自己的后端，不调用独立项目的 8005。
+BACKEND_API_URL="${BACKEND_API_URL:-http://127.0.0.1:8035}"
+BACKEND_API_URL="${BACKEND_API_URL%/}"
 
 LOG_ROOT="${SCHEDULED_UPDATE_LOG_ROOT:-$ROOT_DIR/logs/scheduled_update}"
 LOCK_ROOT="${SCHEDULED_UPDATE_LOCK_ROOT:-$ROOT_DIR/.scheduled_update.locks}"
@@ -46,23 +60,26 @@ mkdir -p "$DAY_LOG_DIR" "$LOCK_ROOT"
 #   命令：直接放在数组里，用 -- 分隔 npm run 参数
 declare -a TASKS=(
   "funds:backfill-browser-core|daily|npm run funds:backfill-browser-core"
-  "funds:backfill-peer-evaluation|daily|npm run funds:backfill-peer-evaluation -- --limit 100"
+  "funds:backfill-peer-evaluation|daily|npm run funds:backfill-peer-evaluation -- --limit 1000"
   "research:sync-ima|daily|npm run research:sync-ima"
   "research:sync-manager-identities|daily|npm run research:sync-manager-identities"
+  "managers:snapshot-backlog|daily|.venv/bin/python backend/scripts/sync_fund_manager_tenure.py --snapshot-backlog 3 --throttle 0.5"
 
-  "research:signals-scan|daily|curl -fsS --max-time 300 http://127.0.0.1:8005/api/research-signals/scan"
-  "anomalies:scan|daily|curl -fsS --max-time 300 http://127.0.0.1:8005/api/anomalies/scan"
-  "watches:scan|daily|curl -fsS --max-time 300 -X POST http://127.0.0.1:8005/api/watches/scan"
+  "research:signals-scan|daily|curl -fsS --max-time 300 '${BACKEND_API_URL}/api/research-signals/scan'"
+  "anomalies:scan|daily|curl -fsS --max-time 300 '${BACKEND_API_URL}/api/anomalies/scan'"
+  "watches:scan|daily|curl -fsS --max-time 300 -X POST '${BACKEND_API_URL}/api/watches/scan'"
+  "alerts:scan|daily|curl -fsS --max-time 300 -X POST '${BACKEND_API_URL}/api/alerts/scan'"
 
-  "evaluation:snapshots|daily|.venv/bin/python backend/scripts/save_evaluation_snapshots.py --limit 50"
+  "evaluation:snapshots|daily|.venv/bin/python backend/scripts/save_evaluation_snapshots.py --limit 150"
   "ops:backup-postgres|daily|bash scripts/backup_postgres.sh"
 
   "funds:update-universe|weekly|npm run funds:update-universe"
   "funds:sync-manager-universe|weekly|npm run funds:sync-manager-universe"
   "funds:sync-manager-tenure|weekly|npm run funds:sync-manager-tenure"
+  "funds:sync-dividends|weekly|npm run funds:sync-dividends -- --limit 300"
   "funds:sync-product-profiles|weekly|npm run funds:sync-product-profiles -- --limit 100"
 
-  "funds:sync-holdings|quarterly|npm run funds:sync-holdings -- --limit 100"
+  "funds:sync-holdings|quarterly|npm run funds:sync-holdings -- --limit 900"
   "funds:sync-bond-holdings|quarterly|npm run funds:sync-bond-holdings -- --limit 100"
   "data:sync-holding-style|quarterly|npm run data:sync-holding-style"
 

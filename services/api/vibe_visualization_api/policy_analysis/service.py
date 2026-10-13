@@ -107,7 +107,7 @@ def compare_policy_events(current: dict, previous: dict) -> dict:
 
 
 def build_policy_interpretation(event: dict, related: list[dict]) -> dict:
-    """Build an auditable fallback when the model provider is unavailable."""
+    """Build the auditable rule baseline exposed by the Policy Analysis Module."""
     ordered = sorted(related, key=lambda item: (item["date"], item["id"]))
     previous = ordered[-1] if ordered else None
     comparison = compare_policy_events(event, previous) if previous else None
@@ -115,7 +115,7 @@ def build_policy_interpretation(event: dict, related: list[dict]) -> dict:
         "policyId": event["id"],
         "title": event["title"],
         "sourceUrl": event["sourceUrl"],
-        "mode": "rule-fallback",
+        "mode": "rule",
         "impactAnalysis": {
             "facts": [event["summary"], *event.get("rationale", [])],
             "inferences": [

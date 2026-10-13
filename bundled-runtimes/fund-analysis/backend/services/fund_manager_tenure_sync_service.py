@@ -9,6 +9,8 @@ from services.manager_tenure_metric_service import ManagerTenureMetricService
 from services.manager_tenure_coverage import build_manager_tenure_coverage
 from services.metric_factory import MetricFactory
 from services.fund_nav_evidence_service import FundNavDataEnrichmentService
+from services.performance_nav_series import normalize_performance_rows, performance_evidence
+from services.fund_trading_calendar import fund_risk_calendar
 
 
 class FundManagerTenureSyncService:
@@ -361,7 +363,7 @@ class FundManagerTenureSyncService:
             start_date=start_date,
             end_date=end_date,
         )
-        nav_series = enrichment.get("nav_series") or nav_series
+        nav_series = [{**row, "risk_calendar": fund_risk_calendar(fund)} for row in enrichment.get("nav_series") or nav_series]
         points = self.metric_factory._normalize_nav_series(nav_series)
         if len(points) < 2:
             return {"status": "unavailable", "reason": "insufficient_nav", "observations": len(points)}
@@ -370,6 +372,7 @@ class FundManagerTenureSyncService:
             {
                 "date": item.get("date") or item.get("trade_date"),
                 "nav": item.get("benchmark_nav"),
+                "risk_calendar": item.get("risk_calendar"),
             }
             for item in nav_series
             if item.get("benchmark_nav") is not None
@@ -388,7 +391,9 @@ class FundManagerTenureSyncService:
             for item in nav_series
         ]
         nav_saved = self.nav_repo.upsert_nav_series(fund_code, persisted_nav, replace_range=True)
-        normalized = [{"date": day, "nav": nav} for day, nav in points]
+        if not nav_saved:
+            return {"status": "unavailable", "reason": "nav_write_failed", "observations": len(points)}
+        normalized = nav_series
         coverage = build_manager_tenure_coverage(
             start_date,
             points[0][0],
@@ -399,7 +404,7 @@ class FundManagerTenureSyncService:
         risk_metrics = self.metric_factory.calculate_risk_metrics(normalized)
         relative_metrics = self.metric_factory.calculate_relative_metrics(
             normalized,
-            [{"date": day, "nav": nav} for day, nav in benchmark_points],
+            benchmark_series,
         ) if benchmark_points else {}
         return {
             "status": "available",
@@ -420,6 +425,7 @@ class FundManagerTenureSyncService:
             "excess_return": relative_metrics.get("excess_return"),
             "nav_points_saved": len(persisted_nav) if nav_saved else 0,
             "source": "tushare.fund_nav",
+            "methodology": performance_evidence(normalize_performance_rows(normalized)),
             **coverage,
         }
 

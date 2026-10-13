@@ -19,6 +19,7 @@ from scripts.sync_fund_ranking_metrics import (
     manager_tenure_peer_gap_states,
     round_robin_peer_candidates,
     save_latest_fund_facts,
+    save_enrichment_metric_facts,
     sync_fof_lookthrough,
 )
 
@@ -26,9 +27,12 @@ from scripts.sync_fund_ranking_metrics import (
 class FakeMetricRepo:
     def __init__(self):
         self.saved = []
+        self.batches = []
 
-    def upsert_metric(self, **payload):
-        self.saved.append(payload)
+    def upsert_metrics(self, records):
+        self.batches.append(records)
+        self.saved.extend(records)
+        return records
 
 
 class FakeFofHoldingService:
@@ -80,6 +84,14 @@ def main() -> int:
         raise AssertionError(f"Ranking sync must persist real fee and AUM facts: {metric_repo.saved}")
     if any(item.get("details", {}).get("source") != "funds.total_asset+funds.raw_data.tushare" for item in metric_repo.saved):
         raise AssertionError(f"Static evaluation metrics need explicit source lineage: {metric_repo.saved}")
+    assert len(metric_repo.batches) == 1
+    enrichment_repo = FakeMetricRepo()
+    assert save_enrichment_metric_facts(enrichment_repo, "CASH.TEST", {
+        "performance_facts": {"seven_day_annualized_yield": 0.015, "income_per_10000": 0.41,
+                              "seven_day_yield_source": "tushare.fund_daily"},
+    }, date(2026, 8, 11)) == 2
+    assert len(enrichment_repo.batches) == 1
+    assert {row["metric_name"] for row in enrichment_repo.saved} == {"seven_day_annualized_yield", "income_per_10000"}
 
     fof_service = FakeFofHoldingService()
     fof_result = sync_fof_lookthrough(

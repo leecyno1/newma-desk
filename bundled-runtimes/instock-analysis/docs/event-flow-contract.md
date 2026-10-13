@@ -2,7 +2,7 @@
 
 ## 定位
 
-`instock-event-flow` 是 evidence-first 的事件与资金工作台。它既可按 A 股代码读取 Desk 已托管数据，也保留 Desk Agent 点时事件包输入；项目负责确定性去重、时效、来源覆盖、异常强度、方向和证券归并。
+`instock-event-flow` 是 evidence-first 的事件与资金工作台。它既可按 A 股代码读取 Desk 已托管数据，也保留 Newma Agent 点时事件包输入；项目负责确定性去重、时效、来源覆盖、异常强度、方向和证券归并。
 
 ## 接口
 

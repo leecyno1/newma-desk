@@ -42,7 +42,7 @@ def _check_llm_provider() -> CheckResult:
 
         _ensure_dotenv()
         return CheckResult(
-            name="VibeDesk Agent Gateway",
+            name="Newma Agent Runtime Adapter",
             status="ready",
             message="managed by the Desk-level Agent settings",
             impact="",

@@ -642,9 +642,7 @@ class FundResearchSnapshotService:
         manager_ids: List[str],
         limit: int,
     ) -> List[Dict[str, Any]]:
-        reports = self._mongo_research_reports(wind_code, limit)
-        if len(reports) < limit:
-            reports.extend(self._postgres_research_reports(wind_code, limit - len(reports)))
+        reports = self._postgres_research_reports(wind_code, limit)
         if len(reports) < limit and manager_ids:
             reports.extend(self._postgres_manager_research_reports(
                 wind_code,
@@ -660,33 +658,6 @@ class FundResearchSnapshotService:
             key=lambda item: str(item.get("report_date") or ""),
             reverse=True,
         )[:limit]
-
-    def _mongo_research_reports(self, wind_code: str, limit: int) -> List[Dict[str, Any]]:
-        from service_registry import get_db
-
-        db = get_db()
-        if db is None:
-            return []
-        rows = []
-        for doc in db.research_reports.find({"fund_ids": wind_code}).sort("report_date", -1).limit(limit):
-            rows.append({
-                "id": str(doc.get("_id", "")),
-                "title": doc.get("title"),
-                "report_date": doc.get("report_date"),
-                "manager_id": doc.get("manager_id"),
-                "manager_name": doc.get("manager_name"),
-                "source": doc.get("source"),
-                "summary": doc.get("summary", ""),
-                "key_points": doc.get("key_points", []),
-                "classifications": doc.get("classifications", []),
-                "style_labels": doc.get("style_labels", []),
-                "fund_classifications": doc.get("classifications", []),
-                "fund_style_labels": doc.get("style_labels", []),
-                "manager_classifications": [],
-                "manager_style_labels": [],
-                "evidence_scope": "fund_specific",
-            })
-        return rows
 
     def _postgres_research_reports(self, wind_code: str, limit: int) -> List[Dict[str, Any]]:
         from database import get_engine

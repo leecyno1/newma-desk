@@ -42,7 +42,23 @@ Newma-Desk 左侧显示十六个核心栏目与用户自定义项目的中文方
 
 ## Integrated Domain Runtime
 
-把第一方 Research / Trading Mod Suite 收敛到 Desk 核心交付物中的运行方式。该 Module 只暴露经过权限筛选的领域 Interface，复用 Desk Agent、模型设置、调度和确认能力；生产环境使用一套固定依赖，不加载嵌套工作区的虚拟环境，也不启动上游自带 Agent、频道或后台任务。
+把第一方 Research / Trading Mod Suite 收敛到 Desk 核心交付物中的运行方式。该 Module 只暴露经过权限筛选的领域 Interface，并把 AI 请求交给 Agent Runtime Seam；生产环境使用一套固定依赖，不加载嵌套工作区的虚拟环境，也不启动领域项目自带的第二套 Agent、频道或后台任务。
+
+## Agent Runtime Seam
+
+Desk 的 Mod、Action 与 Copilot 只依赖一个稳定的 Agent Runtime Interface，不直接依赖具体模型或 CLI。挂载 Newma 时由 Newma Host Adapter 接管模型、会话、记忆、Skills 和工具执行；独立运行时由 Desk Gateway Adapter 提供模型网关、Agent 设置、本地 Copilot，并连接本机 Codex、Claude、Gemini、Qoder、MiniMax CLI 或 Newma / Hermes 兼容 Runtime。两种 Adapter 共享 Mod Page Context、Mod Visual Context、Artifact 与审计语义，不能同时抢占同一请求。
+
+## Agent Runtime Binding
+
+Shell 为当前 Mod 创建的唯一运行时绑定，明确保存 `newma` 或 `local` 模式及 Agent Request 入口。ModuleFrame 只消费该 Binding，不根据 iframe、工具栏或 Copilot 是否可见推断运行时所有权；没有有效 Newma Host Identity 的嵌入页面不获得宿主执行权。
+
+## Newma Host Adapter
+
+Agent Runtime Seam 在 Newma 挂载模式下的 Adapter。Bridge 以 `owner=newma`、`aiExecution=host` 声明执行权，并把带 `instanceId` 与 `modId` 的 Agent Request 交给当前 Newma 会话；Desk 不在后台重复创建本地任务。
+
+## Desk Gateway Adapter
+
+Agent Runtime Seam 在独立模式下的 Adapter。Bridge 以 `owner=desk`、`aiExecution=gateway` 注入受控 Agent / Model Gateway；Desk 统一发现本机 CLI、连接 Newma / Hermes 兼容 Runtime、保存路由偏好并提供本地 Copilot。各 Mod 不得绕过该 Seam 直接执行任意命令或保存模型凭据。
 
 ## Creator Studio Suite
 
@@ -86,7 +102,7 @@ Workflow Node 的持久化异步执行记录。Job 保存 Run、Node、Executor�
 
 ## Collaborative Editing Session
 
-Editor Session Runtime 中允许人工时间线操作与 Desk Agent 对话操作并存的会话形态。编辑器在会话期间掌握真实时间线，Creator Run Control 掌握任务、审核和交付物；两种入口必须调用编辑器同一命令层，不能各自维护工程副本。
+Editor Session Runtime 中允许人工时间线操作与 Newma Agent 对话操作并存的会话形态。编辑器在会话期间掌握真实时间线，Creator Run Control 掌握任务、审核和交付物；两种入口必须调用编辑器同一命令层，不能各自维护工程副本。
 
 ## Edit Proposal
 
@@ -148,9 +164,29 @@ Workflow Matrix 的横向流程阶段，也是画布上方可切换的三级标�
 
 Workflow Template 某一版本的执行实例。Run 保存节点状态、责任快照、领取租约、数据版本、交付物版本和事件序列；并发命令必须携带 expected revision，过期命令不得覆盖当前状态。
 
+## Organization Workflow Runtime
+
+驱动 Workflow Run 持久执行的深 Module。它只暴露启动、推进、暂停、恢复和取消 Interface，内部统一处理 Trigger、条件边、节点就绪、Retry、Timeout、Idempotency 和重启恢复；责任、授权、Run document、Artifact 与审计仍由 Workflow Control 掌握。Runtime 只能通过注册的 Node Execution Adapter 执行结构化请求，不能接收任意 Shell、Python 或用户脚本。
+
+## Workflow Runtime Job
+
+Organization Workflow Runtime 为一次 Workflow Run Execution 中的单个 Node 建立的持久任务。Job 保存 Executor ID、尝试次数、超时、可执行时间、租约、输入、结果和错误；应用重启后可继续领取未完成 Job，重复 Trigger 通过 Organization、Run 和 Idempotency Key 的唯一约束返回同一 Execution。
+
 ## Organization Workflow Node
 
 Organization Workflow 中最小的责任、执行、审核与交付范围。Node 可声明 task、review、gate 或 automation 类型、role key、前置节点、矩阵坐标、是否提升为 Lane 入口、是否需要审核和预期输出；Node 不依赖 Creator Studio 的创作 Stage。
+
+## Workflow Agent Runtime Adapter
+
+Organization Workflow Runtime 复用统一 Agent Gateway 执行节点的受控 Adapter。它创建持久 Agent Task、把 Task ID 保存到 Workflow Job、在后续 Tick 轮询结果，并把完成输出写入节点 `runtimeOutput`；独立 Desk 可使用本地 Agent CLI，Newma / Hermes 环境可使用兼容 Runtime。它不直接执行 Shell、模型调用或另建 Agent 内核。
+
+## Workflow Remote Server Agent Adapter
+
+Organization Workflow Runtime 把节点交给另一台 Desk API 的受控 Adapter。目标必须是 active `server_agent` Principal、声明 `workflow.execute` 能力且主机位于配置白名单；请求使用共享 HMAC 密钥签名并绑定 Workspace、HTTP Method、Path、Timestamp 与原始 Body。远端收到任务后仍调用自身现有 Agent Gateway，不能绕过 Gateway 直接执行模型、CLI 或任意命令。
+
+## Workflow HTTP Capability Adapter
+
+Organization Workflow Runtime 调用已登记 Data Service Capability 的受控 Adapter。节点只保存 `capabilityId`、可选 `serviceId`、结构化输入与上下文映射，不能保存或覆盖 URL、HTTP Method、Header 和认证信息；真实目标、Schema、Host 白名单、服务端 Secret 与响应校验全部复用 Data Service Registry 和 Client。默认只允许 read Permission，write Permission 必须通过服务端配置显式开启。
 
 ## Node Assignment
 
@@ -180,21 +216,57 @@ Organization Workflow Node 产生的版本化交付物引用。Artifact 保存�
 
 Organization Workflow 的追加式事件账本。每条事件保存组织、Run、事件类型、实际执行 Principal、accountable Principal、Delegation Grant、时间和最小载荷；它是权限调查、责任复盘与跨 Agent 协作验真的事实源。
 
+## Workflow Runtime Worker
+
+运行在 API 生命周期内的持久工作流推进器。它扫描 queued、到期 retry、失效 lease、运行超时和等待中的外部 Agent Job，并通过现有 Workflow Runtime Engine 推进；页面关闭不会停止任务。前端只轮询读取状态，人工“推进”只作为诊断入口。
+
+## Workflow Trigger
+
+Event 与 Schedule 的持久触发定义。Schedule 必须选择固定间隔或标准 Cron 表达式；Cron 保存 IANA 时区并按该时区计算下一次触发。Trigger 指向一个蓝本 Run，但每次触发都会复制模板版本、责任分配和审核人，生成新的 Run 与 Runtime Execution；确定性 Run ID 和 Runtime 幂等键阻止事件重放、Worker 重启或并发扫描造成重复执行。API 直接启动仍只作用于明确指定的 Run。
+
+## Workflow Signed Webhook
+
+外部系统发布 Workflow Event 的服务端入口。调用方使用共享 HMAC-SHA256 密钥对 Timestamp、`webhook:{workspaceId}:{eventType}` Scope 和原始 JSON Body 签名；Runtime 校验时间窗口、签名、Body 大小与幂等键后才分发对应 Trigger。
+
 ## Notification Inbox
 
 Creator Studio Suite 的统一消息入口。它聚合待审核 Gate、新交付物、阻塞 Node、发布失败和 Handoff 就绪事件，并在顶部计数器与动态通知中投影；真实状态仍由运行事件和快照提供，通知本身不是状态源。
 
 ## Runtime Descriptor
 
-External Mod Runtime 的统一声明文件。它描述稳定 ID、工作区发现候选、环境变量、HTTP 入口和健康路径，不包含用户账号、密钥或个人绝对路径。Node 启动器与 Python Agent Gateway 分别通过自己的 Adapter 读取同一个 Runtime Descriptor。
+External Mod Runtime 的统一声明文件。2.0 版本同时描述稳定 ID、Runtime Profile、工作区发现候选、服务启动命令、参数、环境、Preparation Adapter、关键性、HTTP 入口和 Readiness Probe，不包含用户账号、密钥或个人绝对路径。普通运行时直接使用声明式 command；只有确实需要本机多版本选择的运行时才使用具名 Launch Adapter。健康路径必须是轻量、无业务查询的专用入口，不能通过渲染首页来证明进程存活。Desk 启动器与 Newma Runtime 的 Workspace Adapter 可以读取同一个 Runtime Descriptor。
+
+## Runtime Ownership Ledger
+
+统一开发启动器记录自己实际拉起的本地 Mod 进程及进程身份的最小账本。正常停止后账本删除；启动器异常退出时账本保留，下一次启动只终止 PID 与进程身份同时匹配的旧进程组。复用的外部进程不进入账本，身份不匹配的 PID 永不自动终止。
+
+## Runtime Status Report
+
+统一开发启动器对所选 Runtime Profile 并行探测后生成的版本化状态报告。报告保持 Runtime Descriptor 中的服务顺序，记录每个运行时的 criticality、状态、入口、探测时延和失败原因，并同时给出核心与全部运行时是否就绪；人类终端输出和机器可读 JSON 必须由同一份报告派生。
+
+## Runtime Build Queue
+
+统一开发启动器执行内置 Mod 构建任务的受控并发 Module。各任务独立判断产物是否过期并写入自己的 dist；Queue 限制同时构建数量、保持结果顺序，并在首个失败后停止领取新任务，等待已在执行的构建结束后再返回失败。
+
+## Runtime Preparation Hook
+
+External Mod Runtime 在本机首次拉起或被监督器恢复前执行的可选准备 Interface，用于创建隔离环境、校验依赖或完成必要安装。已健康运行并被复用的 Runtime 不执行准备；准备失败按 Runtime criticality 进入核心失败或可选降级，并沿既有冷却与监控链重试。
 
 ## Runtime Certification
 
 在真实 Desk 与 Mod 运行环境中执行的兼容验收。Manifest 中的等级只是声明；只有 health、embed、Bridge、响应式布局以及等级要求的 Agent Context 检查全部通过，才能获得对应认证等级。
 
+## Mod Visual Context
+
+由支持 `visual-context` 的 Mod 通过 Bridge 提供的当前浏览器视觉快照。它保存用户此刻的筛选、画布视角和临时选择，Desk 只把受限 PNG 写入本地 Artifact，并向 Agent Context 传递不含文件路径的引用；该快照优先于服务端重新打开页面生成的视觉兜底，未声明能力的 Mod 继续使用结构化 Context、渲染 DOM/HTML 和服务端截图链路。
+
+## Agent Evidence Acquisition
+
+ModuleFrame 向 Copilot 提供的统一取证 Interface。它按“结构化 Context → 同源渲染 DOM/HTML → 当前浏览器视觉快照 → 服务端重开同一 Mod 的视觉兜底 → Manifest”收集证据，并返回来源、新鲜度、警告与视觉 Artifact。当前请求取得的 page、Mod 元数据和视觉引用拥有最高优先级；Context Store 只能补缺，不能用旧缓存覆盖本次证据。服务端重开截图必须标记 `reopened-module`，因为瞬时筛选和未保存状态可能无法复现。
+
 ## Evidence Ledger
 
-个股研究中可追溯事实的统一账本。每条证据保留稳定 ID、来源、原字段、截止日期、单位、币种、置信度与数据缺口，研究结论和 Desk Agent 都只能引用账本中实际存在的证据。
+个股研究中可追溯事实的统一账本。每条证据保留稳定 ID、来源、原字段、截止日期、单位、币种、置信度与数据缺口，研究结论和 Newma Agent 都只能引用账本中实际存在的证据。
 
 ## Market Research Adapter
 

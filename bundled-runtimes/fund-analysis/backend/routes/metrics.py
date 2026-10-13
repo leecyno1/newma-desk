@@ -3,6 +3,7 @@
 """
 from datetime import date
 from typing import Any, Dict, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import SQLAlchemyError
@@ -29,6 +30,27 @@ def get_fund_metrics(fund_code: str) -> Dict[str, Any]:
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=503, detail=f"Metric store unavailable: {exc.__class__.__name__}") from exc
     return {"fund_code": fund_code, "metrics": metrics, "count": len(metrics)}
+
+
+@router.get('/fund/{fund_code}/archives')
+def list_metric_archives(fund_code: str, limit: int = Query(10, ge=1, le=20)):
+    """失效指标归档摘要，不进入当前评分或同类排名。"""
+    try:
+        archives = get_metric_snapshot_repo().list_invalidation_archives(fund_code, limit)
+    except SQLAlchemyError as exc:
+        raise HTTPException(503, '指标归档暂不可读取') from exc
+    return {'fund_code': fund_code, 'archives': archives, 'count': len(archives)}
+
+
+@router.get('/fund/{fund_code}/archives/{archive_id}')
+def get_metric_archive(fund_code: str, archive_id: UUID):
+    try:
+        archive = get_metric_snapshot_repo().get_invalidation_archive(fund_code, archive_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(503, '指标归档暂不可读取') from exc
+    if archive is None:
+        raise HTTPException(404, '该基金没有这份指标归档')
+    return {'fund_code': fund_code, 'archive': archive, 'eligible_for_scoring': False}
 
 
 @router.post("/fund/{fund_code}/recalculate")

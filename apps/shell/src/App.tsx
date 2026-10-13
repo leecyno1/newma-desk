@@ -1,4 +1,5 @@
 import { AlertTriangle, Boxes, Eye, LoaderCircle, RotateCw } from "lucide-react";
+import { canNavigateWithinSuite, modNavigationSearch, withModNavigationSearch } from './lib/modNavigation';
 import {
   lazy,
   Suspense,
@@ -32,7 +33,6 @@ import {
 import { ModCopilot } from "./components/ModCopilot";
 import {
   ModFrame,
-  type CopilotOpenRequest,
   type ModFrameHandle,
 } from "./components/ModuleFrame";
 import { InterfaceSettings } from "./components/InterfaceSettings";
@@ -56,9 +56,18 @@ import { loadWorkspaceIdentity } from "./lib/workspaceIdentity";
 import {
   newmaHostIdentityFromLocation,
   parseNewmaHostContextRequest,
+  parseNewmaHostVisualContextRequest,
+  postNewmaHostAgentRequest,
   postNewmaHostContext,
+  postNewmaHostVisualContext,
 } from "./lib/hostBridge";
 import { compileSidebarNavigation } from "./lib/sidebarNavigation";
+import {
+  loadAgentRuntimePreference,
+  type AgentRuntimeBinding,
+  type AgentRuntimePreference,
+  type AgentRuntimeRequest,
+} from "./lib/agentRuntime";
 
 const ACTIVE_MOD_KEY = "vibedesk.activeMod";
 const LEGACY_ACTIVE_MODULE_KEY = "vibe.shell.activeModule";
@@ -113,8 +122,20 @@ function copilotFromLocation(): boolean {
   return value === "1" || value === "true" || value === "open";
 }
 
+function standaloneFromLocation(): boolean {
+  const value = new URLSearchParams(window.location.search).get("standalone");
+  return value === "1" || value === "true";
+}
+
 function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : "Mod 加载失败";
+}
+
+function createShellInstanceId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `mod-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  );
 }
 
 function storedSelection(): string | null {
@@ -176,6 +197,7 @@ function writeModLocation(
   modId: string,
   mode: "push" | "replace",
   handoffId?: string,
+  entrySearch = '',
 ) {
   const url = new URL(window.location.href);
   url.searchParams.delete("preview");
@@ -183,6 +205,8 @@ function writeModLocation(
   url.searchParams.delete("view");
   url.searchParams.delete("directory");
   url.searchParams.set("mod", modId);
+  if (entrySearch) url.searchParams.set('modSearch', entrySearch);
+  else url.searchParams.delete('modSearch');
   if (handoffId) url.searchParams.set("handoff", handoffId);
   else url.searchParams.delete("handoff");
   window.history[mode === "push" ? "pushState" : "replaceState"](
@@ -229,6 +253,7 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
   const [modules, setModules] = useState<StoredMod[]>([]);
   const modulesRef = useRef<StoredMod[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
+  const [entrySearch, setEntrySearch] = useState(() => modNavigationSearch(new URLSearchParams(window.location.search).get('modSearch')));
   const [activeView, setActiveView] = useState<ShellView>(() =>
     embedded ? "mod" : viewFromLocation(),
   );
@@ -236,6 +261,8 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
     () => (embedded ? undefined : directoryFromLocation()),
   );
   const [themeMode, setThemeMode] = useState<ThemeMode>(loadThemeMode);
+  const [agentRuntimePreference, setAgentRuntimePreference] =
+    useState<AgentRuntimePreference>(loadAgentRuntimePreference);
   const [prefersDark, setPrefersDark] = useState(systemPrefersDark);
   const [categoryOverrides, setCategoryOverrides] = useState(
     loadCategoryOverrides,
@@ -271,12 +298,15 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
   const [handoffError, setHandoffError] = useState<string>();
   const [handoffRetryNonce, setHandoffRetryNonce] = useState(0);
   const moduleFrameRef = useRef<ModFrameHandle>(null);
+  const pendingHostContextRequestsRef = useRef<Array<{ modId: string; requestId: string }>>([]);
+  const moduleInstanceIdsRef = useRef(new Map<string, string>());
   const previewRequestRef = useRef<AbortController | undefined>(undefined);
   const previewRequestSequenceRef = useRef(0);
   const wikiRequestRef = useRef<AbortController | undefined>(undefined);
   const wikiContextKeyRef = useRef("");
   const deliveringHandoffRef = useRef<string | undefined>(undefined);
   const resolvedTheme = resolveTheme(themeMode, prefersDark);
+  const standalone = !embedded && standaloneFromLocation();
 
   useEffect(() => {
     if (embedded) return;
@@ -294,24 +324,47 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
     const handleHostRequest = (event: MessageEvent): void => {
       if (event.source !== window.parent) return;
       if (event.origin !== newmaHostIdentity.parentMessageOrigin) return;
-      const request = parseNewmaHostContextRequest(event.data);
+      const contextRequest = parseNewmaHostContextRequest(event.data);
       if (
-        !request ||
-        request.projectId !== newmaHostIdentity.projectId ||
-        request.workspaceId !== newmaHostIdentity.workspaceId ||
-        request.modId !== selectedId
+        contextRequest &&
+        contextRequest.projectId === newmaHostIdentity.projectId &&
+        contextRequest.workspaceId === newmaHostIdentity.workspaceId &&
+        contextRequest.modId === selectedId
       ) {
-        return;
-      }
-      void moduleFrameRef.current
-        ?.requestContext(request.reason)
-        .then((context) => {
+        pendingHostContextRequestsRef.current.push({
+          modId: contextRequest.modId,
+          requestId: contextRequest.requestId,
+        });
+        void moduleFrameRef.current?.requestContext(contextRequest.reason).then((context) => {
           if (!context) return;
+          const pending = pendingHostContextRequestsRef.current;
+          const index = pending.findIndex((request) => request.requestId === contextRequest.requestId);
+          if (index < 0) return;
+          pending.splice(index, 1);
           postNewmaHostContext({
             context,
             identity: newmaHostIdentity,
-            modId: request.modId,
-            requestId: request.requestId,
+            modId: contextRequest.modId,
+            requestId: contextRequest.requestId,
+          });
+        });
+        return;
+      }
+      const visualRequest = parseNewmaHostVisualContextRequest(event.data);
+      if (
+        !visualRequest ||
+        visualRequest.projectId !== newmaHostIdentity.projectId ||
+        visualRequest.workspaceId !== newmaHostIdentity.workspaceId ||
+        visualRequest.modId !== selectedId
+      ) return;
+      void moduleFrameRef.current
+        ?.requestVisualCapture(visualRequest.reason)
+        .then((capture) => {
+          postNewmaHostVisualContext({
+            capture,
+            identity: newmaHostIdentity,
+            modId: visualRequest.modId,
+            requestId: visualRequest.requestId,
           });
         });
     };
@@ -487,6 +540,7 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
     setPreviewError(undefined);
     setPreviewLoading(false);
     const selection = preferredMod(modulesRef.current);
+    setEntrySearch(modNavigationSearch(params.get('modSearch')));
     setSelectedId(selection?.moduleId);
     if (selection) rememberSelection(selection.moduleId);
   }, [cancelPreviewRequest, embedded, loadPreviewValue]);
@@ -507,12 +561,13 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
     };
   }, [cancelPreviewRequest, loadRegistry, syncLocation]);
 
-  const selectModule = (module: StoredMod, handoffId?: string) => {
+  const selectModule = (module: StoredMod, handoffId?: string, search = '') => {
     cancelPreviewRequest();
     setPreviewMode(false);
     setPreview(undefined);
     setPreviewError(undefined);
     setSelectedId(module.moduleId);
+    setEntrySearch(modNavigationSearch(search));
     setActiveView("mod");
     setSuiteSettingsDirectoryId(undefined);
     setHandoffLocationId(handoffId);
@@ -523,7 +578,7 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
       setWikiActiveLinkId(undefined);
     }
     rememberSelection(module.moduleId);
-    writeModLocation(module.moduleId, "push", handoffId);
+    writeModLocation(module.moduleId, "push", handoffId, modNavigationSearch(search));
   };
 
   const openAgentSettings = () => {
@@ -600,11 +655,11 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
     if (rawPreview !== null) void loadPreviewValue(rawPreview);
   };
 
-  const changeCopilotOpen = (open: boolean) => {
+  const changeCopilotOpen = useCallback((open: boolean) => {
     if (embedded) return;
     setCopilotOpen(open);
     if (activeView === "mod" && !previewMode) writeCopilotLocation(open);
-  };
+  }, [activeView, embedded, previewMode]);
 
   const selected = modules.find((module) => module.moduleId === selectedId);
   const sidebarNavigation = useMemo(
@@ -619,7 +674,49 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
   const activeSuite = suiteSettingsDirectoryId
     ? sidebarNavigation.directoriesById.get(suiteSettingsDirectoryId)
     : undefined;
-  const activeModule = previewMode ? preview : selected;
+  const activeModule = useMemo(() => previewMode ? preview : selected && ({ ...selected,
+    manifest: withModNavigationSearch(selected.manifest, entrySearch),
+  }), [previewMode, preview, selected, entrySearch]);
+  const requestAgentRuntime = useCallback((request: AgentRuntimeRequest) => {
+    if (!activeModule) return;
+    if (embedded) {
+      if (!newmaHostIdentity) return;
+      postNewmaHostAgentRequest({
+        identity: newmaHostIdentity,
+        modId: activeModule.moduleId,
+        request: {
+          mode: request.mode ?? "ask",
+          prompt: request.prompt,
+        },
+      });
+      return;
+    }
+    changeCopilotOpen(true);
+    if (request.prompt) {
+      setCopilotPrefill({
+        id: Date.now(),
+        moduleId: activeModule.moduleId,
+        prompt: request.prompt,
+        mode: request.mode ?? "ask",
+      });
+    }
+  }, [activeModule, changeCopilotOpen, embedded, newmaHostIdentity]);
+  const agentRuntime = useMemo<AgentRuntimeBinding | undefined>(() => {
+    if (embedded && !newmaHostIdentity) return undefined;
+    return {
+      mode: embedded ? "newma" : "local",
+      request: requestAgentRuntime,
+    };
+  }, [embedded, newmaHostIdentity, requestAgentRuntime]);
+  let activeModuleInstanceId: string | undefined;
+  if (activeModule) {
+    const instanceKey = `${identity.workspaceId}:${activeModule.moduleId}@${activeModule.revision}:${previewMode ? "preview" : "published"}`;
+    activeModuleInstanceId = moduleInstanceIdsRef.current.get(instanceKey);
+    if (!activeModuleInstanceId) {
+      activeModuleInstanceId = createShellInstanceId();
+      moduleInstanceIdsRef.current.set(instanceKey, activeModuleInstanceId);
+    }
+  }
   const showEmpty =
     registryLoaded &&
     !registryLoading &&
@@ -646,6 +743,17 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
         identity: newmaHostIdentity,
         modId: activeModule.moduleId,
       });
+      const pending = pendingHostContextRequestsRef.current;
+      pendingHostContextRequestsRef.current = [];
+      for (const request of pending) {
+        if (request.modId !== activeModule.moduleId) continue;
+        postNewmaHostContext({
+          context,
+          identity: newmaHostIdentity,
+          modId: request.modId,
+          requestId: request.requestId,
+        });
+      }
     }
 
     const nextWikiContext = context.wiki;
@@ -835,8 +943,12 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
   };
 
   return (
-    <div className="shell-layout" data-embedded={embedded || undefined}>
-      {!embedded ? (
+    <div
+      className="shell-layout"
+      data-embedded={embedded || undefined}
+      data-standalone={standalone || undefined}
+    >
+      {!embedded && !standalone ? (
         <Sidebar
           navigation={sidebarNavigation}
           selectedId={
@@ -905,7 +1017,13 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
               </div>
             )}
           >
-            <AgentSettings modules={modules} userId={identity.userId} />
+            <AgentSettings
+              modules={modules}
+              userId={identity.userId}
+              runtimePreference={agentRuntimePreference}
+              hostRuntimeAvailable={Boolean(embedded && newmaHostIdentity)}
+              onRuntimePreferenceChange={setAgentRuntimePreference}
+            />
           </Suspense>
         ) : activeView === "suite-settings" && activeSuite ? (
           <SuiteSettings
@@ -947,25 +1065,20 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
               theme={resolvedTheme}
               userId={identity.userId}
               workspaceId={identity.workspaceId}
+              instanceId={activeModuleInstanceId}
               embedded={embedded}
               copilotOpen={embedded ? false : copilotOpen}
+              agentRuntime={agentRuntime}
               onToggleCopilot={
                 embedded ? undefined : () => changeCopilotOpen(!copilotOpen)
               }
-              onRequestCopilotOpen={
-                embedded ? undefined : (request?: CopilotOpenRequest) => {
-                  changeCopilotOpen(true);
-                  if (request?.prompt) {
-                    setCopilotPrefill({
-                      id: Date.now(),
-                      moduleId: activeModule.moduleId,
-                      prompt: request.prompt,
-                      mode: request.mode ?? "ask",
-                    });
-                  }
-                }
-              }
               onContextPublished={handleContextPublished}
+              onNavigate={(targetModId, search) => {
+                const target = modulesRef.current.find(module => module.moduleId === targetModId);
+                if (!previewMode && target && canNavigateWithinSuite(activeModule.manifest, target.manifest)) {
+                  selectModule(target, undefined, search);
+                }
+              }}
               wikiSubjectName={wikiContext?.primarySubject.displayName}
               wikiLinks={wikiLinks}
               wikiLoading={wikiLoading}
@@ -979,6 +1092,7 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
                 open={copilotOpen}
                 userId={identity.userId}
                 workspaceId={identity.workspaceId}
+                runtimePreference={agentRuntimePreference}
                 onClose={() => changeCopilotOpen(false)}
                 onEditCompleted={() => moduleFrameRef.current?.reload()}
                 onOpenAgentSettings={openAgentSettings}
@@ -987,9 +1101,13 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
                     ? copilotPrefill
                     : undefined
                 }
-                requestContext={() =>
-                  moduleFrameRef.current?.requestContext("agent") ??
-                  Promise.resolve(undefined)
+                requestEvidence={() =>
+                  moduleFrameRef.current?.requestAgentEvidence("agent") ??
+                  Promise.resolve({
+                    source: "manifest",
+                    freshness: "unknown",
+                    warnings: ["当前 Mod 取证通道尚未就绪。"],
+                  })
                 }
                 invokeUiAction={(actionId, input) =>
                   moduleFrameRef.current?.invokeUiAction(actionId, input) ??
@@ -999,7 +1117,7 @@ export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
             ) : null}
           </div>
         ) : null}
-        {!embedded && lastEvent ? (
+        {!embedded && !standalone && lastEvent ? (
           <div className="shell-event-log" aria-label="Mod 事件日志">
             <span>最近事件</span>
             <code>{eventSummary(lastEvent)}</code>

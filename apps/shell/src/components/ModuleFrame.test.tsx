@@ -1,11 +1,13 @@
 import { createRef, useEffect, useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ModEvent, ModManifest } from "@newma-desk/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ModSessionRequestError } from "../api/modSessions";
 import { ShellEventBus } from "../events/ShellEventBus";
 import { ModFrame, type ModFrameHandle } from "./ModuleFrame";
+
+const embeddedPage = vi.hoisted(() => ({ symbol: "600519" }));
 
 vi.mock("./EmbeddedMarketFrame", () => ({
   default: ({
@@ -30,7 +32,7 @@ vi.mock("./EmbeddedMarketFrame", () => ({
     hostConnection?.setContextProvider?.(() => ({
       view: { id: "market-scanner", title: "市场扫描器" },
       visibleBlocks: [],
-      selection: { symbol: "600519" },
+      selection: { symbol: embeddedPage.symbol },
       filters: {},
       data: {},
       actions: [],
@@ -118,7 +120,11 @@ function dispatchFromFrame(
   window.dispatchEvent(new MessageEvent("message", { data, origin, source }));
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+  embeddedPage.symbol = "600519";
+});
 
 describe("ModFrame event boundary", () => {
   it("renders first-party market workspaces inside the Desk instead of an iframe", async () => {
@@ -174,6 +180,55 @@ describe("ModFrame event boundary", () => {
     eventBus.close();
   });
 
+  it("opens a Desk-hosted standalone Mod surface without a local Agent", () => {
+    const eventBus = new ShellEventBus();
+    render(
+      <ModFrame
+        manifest={connectedManifest}
+        eventBus={eventBus}
+        theme="light"
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "独立打开" });
+    const url = new URL(link.getAttribute("href") ?? "", window.location.href);
+    expect(url.origin).toBe(window.location.origin);
+    expect(url.searchParams.get("mod")).toBe("market-daily");
+    expect(url.searchParams.get("copilot")).toBeNull();
+    expect(url.searchParams.get("standalone")).toBe("1");
+    expect(url.pathname).not.toBe("/modules/market-daily/");
+    eventBus.close();
+  });
+
+  it("gives canvas presentations the full frame without the host toolbar", () => {
+    const eventBus = new ShellEventBus();
+    render(
+      <ModFrame
+        manifest={{
+          ...connectedManifest,
+          presentation: {
+            englishName: "Market Daily",
+            description: "统一查看行情、盘口与技术指标。",
+            titleOwner: "host",
+            chrome: "canvas",
+          },
+        }}
+        eventBus={eventBus}
+        theme="light"
+      />,
+    );
+
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "市场行情" }),
+    ).not.toBeInTheDocument();
+    const frame = screen.getByTitle("市场行情");
+    expect(frame.closest("section")).toHaveAttribute(
+      "data-vibedesk-chrome",
+      "canvas",
+    );
+    eventBus.close();
+  });
+
   it("accepts an initial context request for an embedded first-party workspace", async () => {
     const eventBus = new ShellEventBus();
     const frameHandle = createRef<ModFrameHandle>();
@@ -197,6 +252,10 @@ describe("ModFrame event boundary", () => {
     await expect(
       frameHandle.current?.requestContext("initial"),
     ).resolves.toMatchObject({ selection: { symbol: "600519" } });
+    embeddedPage.symbol = "000001";
+    await expect(
+      frameHandle.current?.requestContext("agent"),
+    ).resolves.toMatchObject({ selection: { symbol: "000001" } });
     eventBus.close();
   });
 
@@ -235,7 +294,7 @@ describe("ModFrame event boundary", () => {
     const eventBus = new ShellEventBus();
     const frameHandle = createRef<ModFrameHandle>();
     const contextSaver = vi.fn(async (_session: { accessToken: string }) => undefined);
-    render(
+    const mounted = render(
       <ModFrame
         ref={frameHandle}
         manifest={connectedManifest}
@@ -323,6 +382,217 @@ describe("ModFrame event boundary", () => {
     await expect(pending).resolves.toMatchObject({
       selection: { symbol: "600519" },
     });
+    vi.spyOn(frame, "contentDocument", "get").mockReturnValue(null);
+    vi.useFakeTimers();
+    const timedOut = frameHandle.current.requestContext("agent");
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    await expect(timedOut).resolves.toBeUndefined();
+    const detached = frameHandle.current.requestContext("agent");
+    mounted.unmount();
+    await expect(detached).resolves.toBeUndefined();
+    eventBus.close();
+  });
+
+  it("uploads a Mod-provided current visual capture for the Desk copilot", async () => {
+    const eventBus = new ShellEventBus();
+    const frameHandle = createRef<ModFrameHandle>();
+    const visualContextSaver = vi.fn(async () => ({
+      status: "ready" as const,
+      source: "browser-mod-bridge" as const,
+      capturedAt: "2026-08-28T00:00:00+00:00",
+      moduleId: "market-daily",
+      image: {
+        artifactId: "0123456789abcdef0123456789abcdef",
+        mimeType: "image/png" as const,
+        width: 1280,
+        height: 720,
+        bytes: 4,
+      },
+    }));
+    render(
+      <ModFrame
+        ref={frameHandle}
+        manifest={connectedManifest}
+        eventBus={eventBus}
+        theme="light"
+        visualContextSaver={visualContextSaver}
+        sessionIssuer={async (input) => ({
+          sessionId: "session-visual",
+          instanceId: input.instanceId,
+          accessToken: "token",
+          tokenType: "Bearer",
+          expiresAt: "2099-07-23T10:00:00+08:00",
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          moduleId: input.modId,
+          revision: 1,
+          grants: { permissions: [], actions: [] },
+        })}
+      />,
+    );
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow || !frameHandle.current) throw new Error("expected Mod frame");
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    dispatchFromFrame(frame, {
+      type: "vibedesk:hello",
+      modId: "market-daily",
+      protocolVersions: ["1.0"],
+      capabilities: ["context", "visual-context"],
+    });
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "vibedesk:init" }),
+        "http://127.0.0.1:5891",
+      ),
+    );
+    const init = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:init",
+    )?.[0] as { instanceId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:ack",
+      protocolVersion: "1.0",
+      instanceId: init.instanceId,
+      modId: "market-daily",
+    });
+    postMessage.mockClear();
+
+    const rawPending = frameHandle.current.requestVisualCapture("agent");
+    const rawRequest = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:visual-context-request",
+    )?.[0] as { requestId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:visual-context",
+      requestId: rawRequest.requestId,
+      instanceId: init.instanceId,
+      modId: "market-daily",
+      ok: true,
+      capture: {
+        dataUrl: "data:image/png;base64,iVBORw==",
+        width: 1280,
+        height: 720,
+        capturedAt: "2026-08-28T00:00:00+08:00",
+        title: "当前市场曲面",
+      },
+    });
+    await expect(rawPending).resolves.toMatchObject({
+      width: 1280,
+      height: 720,
+      title: "当前市场曲面",
+    });
+    expect(visualContextSaver).not.toHaveBeenCalled();
+
+    postMessage.mockClear();
+    const pending = frameHandle.current.requestVisualContext("agent");
+    const request = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:visual-context-request",
+    )?.[0] as { requestId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:visual-context",
+      requestId: request.requestId,
+      instanceId: init.instanceId,
+      modId: "market-daily",
+      ok: true,
+      capture: {
+        dataUrl: "data:image/png;base64,iVBORw==",
+        width: 1280,
+        height: 720,
+        capturedAt: "2026-08-28T00:00:00+08:00",
+        title: "当前市场曲面",
+      },
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      source: "browser-mod-bridge",
+      image: { artifactId: "0123456789abcdef0123456789abcdef" },
+    });
+    expect(visualContextSaver).toHaveBeenCalledWith(
+      expect.objectContaining({ moduleId: "market-daily" }),
+      expect.objectContaining({ title: "当前市场曲面" }),
+    );
+
+    postMessage.mockClear();
+    const evidencePending = frameHandle.current.requestAgentEvidence("agent");
+    const contextRequest = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:context-request",
+    )?.[0] as { requestId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:context",
+      requestId: contextRequest.requestId,
+      instanceId: init.instanceId,
+      modId: "market-daily",
+      context: {
+        view: { id: "market-daily", title: "当前市场曲面" },
+        visibleBlocks: [],
+        selection: {},
+        filters: {},
+        data: {
+          freshness: "fresh",
+          summary: {
+            contextSource: "dom-html-fallback",
+            visibleText: "当前市场曲面",
+            visualElementCount: 1,
+          },
+        },
+        actions: [],
+        tasks: [],
+      },
+    });
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "vibedesk:visual-context-request" }),
+        "http://127.0.0.1:5891",
+      ),
+    );
+    const evidenceVisualRequest = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:visual-context-request",
+    )?.[0] as { requestId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:visual-context",
+      requestId: evidenceVisualRequest.requestId,
+      instanceId: init.instanceId,
+      modId: "market-daily",
+      ok: true,
+      capture: {
+        dataUrl: "data:image/png;base64,iVBORw==",
+        width: 1280,
+        height: 720,
+        capturedAt: "2026-08-28T00:00:00+08:00",
+        title: "当前市场曲面",
+      },
+    });
+
+    await expect(evidencePending).resolves.toMatchObject({
+      source: "dom-html",
+      freshness: "fresh",
+      visual: {
+        source: "browser-mod-bridge",
+        image: { artifactId: "0123456789abcdef0123456789abcdef" },
+      },
+    });
     eventBus.close();
   });
 
@@ -392,7 +662,7 @@ describe("ModFrame event boundary", () => {
     eventBus.close();
   });
 
-  it("opens the shared Desk copilot when the current Mod requests it", () => {
+  it("forwards a scoped Mod Agent request after the bridge handshake", async () => {
     const eventBus = new ShellEventBus();
     const onRequestCopilotOpen = vi.fn();
     render(
@@ -400,29 +670,226 @@ describe("ModFrame event boundary", () => {
         manifest={manifest}
         eventBus={eventBus}
         theme="light"
-        onRequestCopilotOpen={onRequestCopilotOpen}
+        agentRuntime={{ mode: "local", request: onRequestCopilotOpen }}
       />,
     );
     const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error("expected iframe window");
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    dispatchFromFrame(frame, {
+      type: "vibedesk:hello",
+      modId: "market-daily",
+      protocolVersions: ["1.0"],
+      capabilities: ["agent", "context"],
+    });
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "vibedesk:init" }),
+        "http://127.0.0.1:5891",
+      ),
+    );
+    const init = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:init",
+    )?.[0] as {
+      instanceId: string;
+      runtime?: { owner: string; aiExecution: string; requestMessage: string };
+    };
+    expect(init.runtime).toEqual({
+      owner: "desk",
+      aiExecution: "gateway",
+      requestMessage: "vibedesk:copilot-open",
+    });
+    dispatchFromFrame(frame, {
+      type: "vibedesk:ack",
+      protocolVersion: "1.0",
+      instanceId: init.instanceId,
+      modId: "market-daily",
+    });
 
     dispatchFromFrame(frame, {
       type: "vibedesk:copilot-open",
+      instanceId: init.instanceId,
+      modId: "market-daily",
       mode: "edit",
       prompt: "按分镜完成粗剪",
     });
 
-    expect(onRequestCopilotOpen).toHaveBeenCalledTimes(1);
-    expect(onRequestCopilotOpen).toHaveBeenCalledWith({
-      mode: "edit",
-      prompt: "按分镜完成粗剪",
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "vibedesk:context-request",
+          reason: "agent",
+        }),
+        "http://127.0.0.1:5891",
+      ),
+    );
+    const contextRequest = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:context-request" &&
+        "reason" in message &&
+        message.reason === "agent",
+    )?.[0] as { requestId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:context",
+      requestId: contextRequest.requestId,
+      instanceId: init.instanceId,
+      modId: "market-daily",
+      context: {
+        view: { id: "market-daily", title: "市场行情" },
+        visibleBlocks: [],
+        selection: { symbol: "600519" },
+        filters: {},
+        data: { freshness: "fresh" },
+        actions: [],
+        tasks: [],
+      },
     });
+    await waitFor(() => {
+      expect(onRequestCopilotOpen).toHaveBeenCalledTimes(1);
+      expect(onRequestCopilotOpen).toHaveBeenCalledWith({
+        mode: "edit",
+        prompt: "按分镜完成粗剪",
+      });
+    });
+    eventBus.close();
+  });
+
+  it("uses the explicit Runtime Binding instead of presentation embedding", async () => {
+    const eventBus = new ShellEventBus();
+    render(
+      <ModFrame
+        manifest={manifest}
+        eventBus={eventBus}
+        theme="light"
+        agentRuntime={{ mode: "newma", request: vi.fn() }}
+      />,
+    );
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error("expected iframe window");
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    dispatchFromFrame(frame, {
+      type: "vibedesk:hello",
+      modId: "market-daily",
+      protocolVersions: ["1.0"],
+      capabilities: ["agent"],
+    });
+
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "vibedesk:init" }),
+        "http://127.0.0.1:5891",
+      ),
+    );
+    const init = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:init",
+    )?.[0] as {
+      runtime?: { owner: string; aiExecution: string; requestMessage: string };
+      gateways: { agent?: string; model?: string };
+    };
+    expect(init.runtime).toEqual({
+      owner: "newma",
+      aiExecution: "host",
+      requestMessage: "vibedesk:copilot-open",
+    });
+    expect(init.gateways.agent).toBeUndefined();
+    expect(init.gateways.model).toBeUndefined();
+    eventBus.close();
+  });
+
+  it("rejects unscoped or undeclared Mod Agent requests", async () => {
+    const eventBus = new ShellEventBus();
+    const onRequestCopilotOpen = vi.fn();
+    render(
+      <ModFrame
+        manifest={manifest}
+        eventBus={eventBus}
+        theme="light"
+        agentRuntime={{ mode: "local", request: onRequestCopilotOpen }}
+      />,
+    );
+    const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error("expected iframe window");
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+
+    dispatchFromFrame(frame, {
+      type: "vibedesk:hello",
+      modId: "market-daily",
+      protocolVersions: ["1.0"],
+      capabilities: ["context"],
+    });
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "vibedesk:init" }),
+        "http://127.0.0.1:5891",
+      ),
+    );
+    const init = postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "vibedesk:init",
+    )?.[0] as { instanceId: string };
+    dispatchFromFrame(frame, {
+      type: "vibedesk:ack",
+      protocolVersion: "1.0",
+      instanceId: init.instanceId,
+      modId: "market-daily",
+    });
+    postMessage.mockClear();
+
+    dispatchFromFrame(frame, {
+      type: "vibedesk:copilot-open",
+      mode: "ask",
+      prompt: "缺少作用域",
+    });
+    dispatchFromFrame(frame, {
+      type: "vibedesk:copilot-open",
+      instanceId: init.instanceId,
+      modId: "market-daily",
+      mode: "ask",
+      prompt: "未声明 Agent 能力",
+    });
+
+    await Promise.resolve();
+    expect(onRequestCopilotOpen).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vibedesk:context-request",
+        reason: "agent",
+      }),
+      "http://127.0.0.1:5891",
+    );
     eventBus.close();
   });
 
   it("negotiates the hello, init, and acknowledgement protocol", () => {
     const eventBus = new ShellEventBus();
+    const onNavigate = vi.fn();
     const view = render(
-      <ModFrame manifest={manifest} eventBus={eventBus} theme="light" />,
+      <ModFrame manifest={manifest} eventBus={eventBus} theme="light" onNavigate={onNavigate} />,
     );
     const frame = screen.getByTitle("市场行情") as HTMLIFrameElement;
     const frameBoundary = frame.closest("section");
@@ -477,9 +944,19 @@ describe("ModFrame event boundary", () => {
             "--vibe-accent": "#a87432",
           }),
         }),
+        gateways: expect.not.objectContaining({
+          agent: expect.anything(),
+          model: expect.anything(),
+        }),
         grants: { permissions: [], actions: [] },
       }),
     );
+    expect(init).not.toHaveProperty("runtime");
+
+    const navigation = { type: 'vibedesk:navigate', modId: init.modId,
+      instanceId: init.instanceId, targetModId: 'fund-discover', search: 'symbol=000171.OF' };
+    dispatchFromFrame(frame, navigation);
+    expect(onNavigate).not.toHaveBeenCalled();
 
     dispatchFromFrame(frame, {
       type: "vibedesk:ack",
@@ -488,6 +965,12 @@ describe("ModFrame event boundary", () => {
       modId: init.modId,
     });
     postMessage.mockClear();
+    dispatchFromFrame(frame, navigation, 'https://untrusted.example');
+    dispatchFromFrame(frame, { ...navigation, instanceId: 'old-instance' });
+    dispatchFromFrame(frame, navigation, 'http://127.0.0.1:5891', window);
+    expect(onNavigate).not.toHaveBeenCalled();
+    dispatchFromFrame(frame, navigation);
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith('fund-discover', 'symbol=000171.OF');
     view.rerender(
       <ModFrame manifest={manifest} eventBus={eventBus} theme="dark" />,
     );
@@ -530,6 +1013,21 @@ describe("ModFrame event boundary", () => {
 
     expect(frame.src).toBe(
       "http://127.0.0.1:5891/modules/market-daily/?__newma_mod_version=0.1.0",
+    );
+    eventBus.close();
+  });
+
+  it("revalidates a local external Mod when its version changes", () => {
+    const eventBus = new ShellEventBus();
+    render(
+      <ModFrame
+        manifest={{ ...manifest, id: "seven-cycle-research", name: "周期叠加", version: "0.1.1", entry: { type: "external", url: "http://127.0.0.1:4174/" } }}
+        eventBus={eventBus}
+        theme="light"
+      />,
+    );
+    expect((screen.getByTitle("周期叠加") as HTMLIFrameElement).src).toBe(
+      "http://127.0.0.1:4174/?__newma_mod_version=0.1.1",
     );
     eventBus.close();
   });

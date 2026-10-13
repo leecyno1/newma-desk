@@ -3,11 +3,19 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 const shellOrigin = process.env.NEWMA_DESK_E2E_ORIGIN ?? "http://127.0.0.1:5888";
+const apiOrigin = process.env.NEWMA_DESK_E2E_API_ORIGIN ?? shellOrigin;
 
-test("paper backtest materializes Strategy Ledger and shares it with Desk Agent", async ({
+test("paper backtest materializes Strategy Ledger and publishes its Context", async ({
   page,
+  request,
 }) => {
   test.slow();
+  const userId = "e2e-backtest-user";
+  const workspaceId = `e2e-backtest-${Date.now()}`;
+  await page.addInitScript(({ user, workspace }) => {
+    localStorage.setItem("vibedesk.userId.v1", user);
+    localStorage.setItem("vibedesk.workspaceId.v1", workspace);
+  }, { user: userId, workspace: workspaceId });
   await page.goto(`${shellOrigin}/?mod=backtest-lab`, { waitUntil: "domcontentloaded" });
   const frame = page.frameLocator('iframe[title="回测实验室"]');
   await expect(frame.getByText(/策略实验账本|Strategy Experiment Ledger/, { exact: true })).toBeVisible();
@@ -84,33 +92,6 @@ test("paper backtest materializes Strategy Ledger and shares it with Desk Agent"
     status: "completed",
   });
 
-  let agentPayload: Record<string, unknown> | undefined;
-  await page.route("**/api/agent/tasks**", async (route) => {
-    const url = new URL(route.request().url());
-    if (route.request().method() === "POST" && url.pathname === "/api/agent/tasks") {
-      agentPayload = route.request().postDataJSON() as Record<string, unknown>;
-      await route.fulfill({
-        status: 202,
-        contentType: "application/json",
-        body: JSON.stringify({ id: "strategy-ledger-e2e", status: "queued" }),
-      });
-      return;
-    }
-    if (route.request().method() === "GET" && url.pathname === "/api/agent/tasks/strategy-ledger-e2e") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          id: "strategy-ledger-e2e",
-          status: "completed",
-          result: { answer: "STRATEGY_LEDGER_CONTEXT_OK" },
-        }),
-      });
-      return;
-    }
-    await route.continue();
-  });
-
   await frame.getByRole("button", { name: /刷新|Refresh/ }).click();
   await frame.getByPlaceholder(/搜索运行 ID|Search run id/i).fill(created.run_id);
   const report = frame.getByRole("article").filter({ hasText: created.run_id });
@@ -118,33 +99,30 @@ test("paper backtest materializes Strategy Ledger and shares it with Desk Agent"
   await expect(report.getByText("SMA Crossover", { exact: true })).toBeVisible();
   await expect(report.getByText(/仅纸面回测|Paper only/, { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "问当前 Mod" }).click();
-  const drawer = page.getByRole("complementary", { name: "回测实验室 Agent" });
-  await drawer.getByPlaceholder("就当前页面提问…").fill("比较当前筛选到的策略实验");
-  await drawer.getByRole("button", { name: "发送" }).click();
-  await expect(drawer).toContainText("STRATEGY_LEDGER_CONTEXT_OK");
-  expect(agentPayload).toMatchObject({
-    moduleId: "backtest-lab",
-    context: {
-      vibedesk: {
-        source: "mod-bridge",
-        page: {
-          data: {
-            source: "vibe-trading-rendered-page",
-            summary: {
-              strategyLedger: {
-                schemaVersion: "newma-desk.strategy-ledger.v1",
-                executionPolicy: "paper-only",
-                experimentCount: 1,
-                experiments: [
-                  {
-                    runId: created.run_id,
-                    strategy: { id: "vibe-trading.sma-crossover" },
-                  },
-                ],
-              },
+  await expect.poll(async () => {
+    const response = await request.get(`${apiOrigin}/api/mods/backtest-lab/context`, {
+      headers: {
+        "X-User-Id": userId,
+        "X-Workspace-Id": workspaceId,
+      },
+    });
+    if (response.status() === 404) return null;
+    expect(response.status()).toBe(200);
+    return (await response.json() as { context: Record<string, unknown> }).context;
+  }).toMatchObject({
+    data: {
+      source: "vibe-trading-rendered-page",
+      summary: {
+        strategyLedger: {
+          schemaVersion: "newma-desk.strategy-ledger.v1",
+          executionPolicy: "paper-only",
+          experimentCount: 1,
+          experiments: [
+            {
+              runId: created.run_id,
+              strategy: { id: "vibe-trading.sma-crossover" },
             },
-          },
+          ],
         },
       },
     },

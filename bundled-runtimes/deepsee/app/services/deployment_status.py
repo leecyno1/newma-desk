@@ -139,10 +139,10 @@ def probe_chatlog_http(base_url: str | None = None, timeout: float | None = None
         return {
             "ok": False,
             "error": "CHATLOG_HTTP_BASE empty",
-            "hint": "请在 .env 配置 chatlog HTTP 地址，例如 http://127.0.0.1:5030",
+            "hint": "请在 .env 配置 chatlog HTTP 地址，例如 http://127.0.0.1:5031",
         }
     effective_timeout = float(timeout or getattr(settings, "CHATLOG_HTTP_SESSION_TIMEOUT_SECONDS", 5) or 5)
-    url = f"{base}/api/v1/session"
+    url = f"{base}/api/v1/sessions?limit=1"
     system_name = platform.system().lower()
     if system_name.startswith("win"):
         hint = "Windows 请先打开微信电脑版，并运行 scripts\\run_chatlog_windows.ps1 start"

@@ -20,6 +20,10 @@ from vibe_visualization_api.portfolio_center.models import (
     PortfolioRiskActionUpdate,
     PortfolioRiskPolicy,
     PortfolioRiskPolicyInput,
+    PortfolioRiskReport,
+    PortfolioDashboard,
+    PortfolioPerformanceResult,
+    PortfolioPerformanceRequest,
 )
 
 
@@ -139,12 +143,31 @@ CREATE TABLE IF NOT EXISTS portfolio_risk_actions (
 CREATE INDEX IF NOT EXISTS portfolio_risk_action_scope_time
 ON portfolio_risk_actions(user_id, workspace_id, updated_at, id);
 
+CREATE TABLE IF NOT EXISTS portfolio_risk_reports (
+  user_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  saved_at TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  PRIMARY KEY (user_id, workspace_id, id)
+);
+
 CREATE TABLE IF NOT EXISTS portfolio_migrations (
   user_id TEXT NOT NULL,
   workspace_id TEXT NOT NULL,
   migration_id TEXT NOT NULL,
   applied_at TEXT NOT NULL,
   PRIMARY KEY (user_id, workspace_id, migration_id)
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_import_snapshots (
+  user_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  saved_at TEXT NOT NULL,
+  snapshot TEXT NOT NULL,
+  report TEXT NOT NULL,
+  PRIMARY KEY (user_id, workspace_id, id)
 );
 """
 
@@ -161,6 +184,54 @@ class PortfolioStore:
     def __init__(self, database_path: Path):
         self._database_path = database_path
 
+    def save_import_snapshot(self, *, user_id: str, workspace_id: str, snapshot: dict, report: dict) -> dict:
+        serialized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+        with self._connect() as connection:
+            self._prepare(connection)
+            connection.execute('BEGIN IMMEDIATE')
+            existing = connection.execute('SELECT * FROM portfolio_import_snapshots WHERE user_id=? AND workspace_id=? AND snapshot=? ORDER BY saved_at DESC LIMIT 1', (user_id, workspace_id, serialized)).fetchone()
+            if existing and json.loads(existing['report']) == report:
+                return self._import_snapshot(existing)
+            snapshot_id, saved_at = str(uuid4()), datetime.now(UTC).isoformat()
+            connection.execute('INSERT INTO portfolio_import_snapshots VALUES (?,?,?,?,?,?)', (user_id, workspace_id, snapshot_id, saved_at, serialized, json.dumps(report, ensure_ascii=False)))
+        return {"id": snapshot_id, "savedAt": saved_at, "snapshot": snapshot, "report": report}
+
+    @staticmethod
+    def _import_snapshot(row) -> dict:
+        return {"id": row['id'], "savedAt": row['saved_at'], "snapshot": json.loads(row['snapshot']), "report": json.loads(row['report'])}
+
+    def list_import_snapshots(self, *, user_id: str, workspace_id: str) -> list[dict]:
+        with self._connect() as connection:
+            self._prepare(connection)
+            rows = connection.execute('SELECT * FROM portfolio_import_snapshots WHERE user_id=? AND workspace_id=? ORDER BY saved_at DESC LIMIT 50', (user_id, workspace_id)).fetchall()
+        return [self._import_snapshot(row) for row in rows]
+
+    def get_import_snapshot(self, *, user_id: str, workspace_id: str, snapshot_id: str) -> dict:
+        with self._connect() as connection:
+            self._prepare(connection)
+            row = connection.execute('SELECT * FROM portfolio_import_snapshots WHERE user_id=? AND workspace_id=? AND id=?', (user_id, workspace_id, snapshot_id)).fetchone()
+        if row is None:
+            raise PortfolioNotFoundError('组合快照不存在')
+        return self._import_snapshot(row)
+
+    def list_import_products(self, *, user_id: str, workspace_id: str) -> list[dict]:
+        """One latest-dated snapshot per explicit product; never net products together."""
+        with self._connect() as connection:
+            self._prepare(connection)
+            rows = connection.execute('''
+                SELECT * FROM (
+                    SELECT *, ROW_NUMBER() OVER (
+                        PARTITION BY json_extract(snapshot, '$.productId')
+                        ORDER BY json_extract(snapshot, '$.asOf') DESC, saved_at DESC, id DESC
+                    ) AS product_rank
+                    FROM portfolio_import_snapshots
+                    WHERE user_id=? AND workspace_id=?
+                      AND COALESCE(json_extract(snapshot, '$.productId'), '') <> ''
+                ) WHERE product_rank=1
+                ORDER BY json_extract(snapshot, '$.productId')
+            ''', (user_id, workspace_id)).fetchall()
+        return [self._import_snapshot(row) for row in rows]
+
     def _connect(self) -> sqlite3.Connection:
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self._database_path, timeout=10)
@@ -171,6 +242,13 @@ class PortfolioStore:
     @staticmethod
     def _prepare(connection: sqlite3.Connection) -> None:
         connection.executescript(SCHEMA)
+        risk_columns = {row['name'] for row in connection.execute('PRAGMA table_info(portfolio_risk_actions)')}
+        if 'due_at' not in risk_columns:
+            connection.execute('ALTER TABLE portfolio_risk_actions ADD COLUMN due_at TEXT')
+        if 'source_snapshot_id' not in risk_columns:
+            connection.execute('ALTER TABLE portfolio_risk_actions ADD COLUMN source_snapshot_id TEXT')
+        if 'review_snapshot_id' not in risk_columns:
+            connection.execute('ALTER TABLE portfolio_risk_actions ADD COLUMN review_snapshot_id TEXT')
         columns = {
             row["name"]
             for row in connection.execute("PRAGMA table_info(portfolio_activities)")
@@ -292,6 +370,8 @@ class PortfolioStore:
             {
                 "id": row["id"],
                 "ruleId": row["rule_id"],
+                "sourceSnapshotId": row['source_snapshot_id'],
+                "reviewSnapshotId": row['review_snapshot_id'],
                 "severity": row["severity"],
                 "status": row["status"],
                 "title": row["title"],
@@ -301,6 +381,7 @@ class PortfolioStore:
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
                 "resolvedAt": row["resolved_at"],
+                "dueAt": row["due_at"],
             }
         )
 
@@ -804,7 +885,7 @@ class PortfolioStore:
             rows = connection.execute(
                 """
                 SELECT * FROM portfolio_risk_actions
-                WHERE user_id = ? AND workspace_id = ?
+                WHERE user_id = ? AND workspace_id = ? AND source_snapshot_id IS NULL
                 ORDER BY updated_at DESC, id DESC
                 """,
                 (user_id, workspace_id),
@@ -817,17 +898,26 @@ class PortfolioStore:
         user_id: str,
         workspace_id: str,
         action: PortfolioRiskActionCreate,
+        source_snapshot_id: str | None = None,
     ) -> PortfolioRiskAction:
         identifier = str(uuid4())
         now = self._now()
         with self._connect() as connection:
             self._prepare(connection)
+            connection.execute('BEGIN IMMEDIATE')
+            if source_snapshot_id:
+                existing = connection.execute('''SELECT * FROM portfolio_risk_actions
+                    WHERE user_id=? AND workspace_id=? AND source_snapshot_id=? AND rule_id=?
+                      AND status IN ('open','acknowledged')''',
+                    (user_id, workspace_id, source_snapshot_id, action.rule_id)).fetchone()
+                if existing:
+                    return self._risk_action(existing)
             connection.execute(
                 """
                 INSERT INTO portfolio_risk_actions (
                   user_id, workspace_id, id, rule_id, severity, status,
-                  title, detail, owner, note, created_at, updated_at, resolved_at
-                ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, NULL)
+                  title, detail, owner, note, created_at, updated_at, resolved_at, source_snapshot_id
+                ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, NULL, ?)
                 """,
                 (
                     user_id,
@@ -841,6 +931,7 @@ class PortfolioStore:
                     action.note,
                     now,
                     now,
+                    source_snapshot_id,
                 ),
             )
             row = connection.execute(
@@ -852,6 +943,19 @@ class PortfolioStore:
             ).fetchone()
         assert row is not None
         return self._risk_action(row)
+
+    def list_snapshot_risk_actions(self, *, user_id: str, workspace_id: str, snapshot_id: str) -> list[PortfolioRiskAction]:
+        saved = self.get_import_snapshot(user_id=user_id, workspace_id=workspace_id, snapshot_id=snapshot_id)
+        product_id = saved['snapshot'].get('productId') or ''
+        with self._connect() as connection:
+            rows = connection.execute('''SELECT a.* FROM portfolio_risk_actions a
+                JOIN portfolio_import_snapshots s ON s.id=a.source_snapshot_id
+                  AND s.user_id=a.user_id AND s.workspace_id=a.workspace_id
+                WHERE a.user_id=? AND a.workspace_id=?
+                  AND (a.source_snapshot_id=? OR (?<>'' AND json_extract(s.snapshot,'$.productId')=?))
+                ORDER BY a.updated_at DESC, a.id DESC''',
+                (user_id, workspace_id, snapshot_id, product_id, product_id)).fetchall()
+        return [self._risk_action(row) for row in rows]
 
     def update_risk_action(
         self,
@@ -875,8 +979,33 @@ class PortfolioStore:
             current = self._risk_action(row)
             fields = update.model_fields_set
             status_value = update.status if "status" in fields else current.status
+            status_value = status_value or current.status
             owner = update.owner if "owner" in fields else current.owner
             note = update.note if "note" in fields else current.note
+            due_at = update.due_at if "due_at" in fields else current.due_at
+            if current.status in {"resolved", "waived"}:
+                raise PortfolioConflictError("已结案记录不可修改；如风险再次发生，请新建处置。")
+            review_snapshot_id = update.review_snapshot_id if 'review_snapshot_id' in fields else current.review_snapshot_id
+            if review_snapshot_id:
+                if not current.source_snapshot_id or review_snapshot_id == current.source_snapshot_id:
+                    raise PortfolioConflictError('复核须关联不同于来源的产品快照；原股票账本处置不支持此关联。')
+                source = connection.execute('SELECT * FROM portfolio_import_snapshots WHERE user_id=? AND workspace_id=? AND id=?', (user_id, workspace_id, current.source_snapshot_id)).fetchone()
+                review = connection.execute('SELECT * FROM portfolio_import_snapshots WHERE user_id=? AND workspace_id=? AND id=?', (user_id, workspace_id, review_snapshot_id)).fetchone()
+                if source is None or review is None:
+                    raise PortfolioNotFoundError('来源或复核快照不存在')
+                old, new = json.loads(source['snapshot']), json.loads(review['snapshot'])
+                if not old.get('productId') or new.get('productId') != old['productId']:
+                    raise PortfolioConflictError('复核快照必须明确归属同一产品；未归属快照不能跨版本关联。')
+                if new['asOf'] < old['asOf'] or review['saved_at'] <= source['saved_at']:
+                    raise PortfolioConflictError('复核快照须为来源之后保存的版本，且持仓日不能早于来源。')
+            if status_value != "open" and not owner:
+                raise PortfolioConflictError("请填写处置负责人。")
+            if status_value == "acknowledged" and not due_at:
+                raise PortfolioConflictError("接手处置前请填写期限。")
+            if status_value in {"resolved", "waived"} and not note:
+                raise PortfolioConflictError("结案必须填写复核依据，豁免必须填写理由。")
+            if status_value == 'resolved' and current.status != 'acknowledged':
+                raise PortfolioConflictError('请先接手处理，再复核结案。')
             now = self._now()
             resolved_at = (
                 now if status_value in {"resolved", "waived"} else None
@@ -884,15 +1013,17 @@ class PortfolioStore:
             connection.execute(
                 """
                 UPDATE portfolio_risk_actions
-                SET status = ?, owner = ?, note = ?, updated_at = ?, resolved_at = ?
+                SET status = ?, owner = ?, note = ?, due_at = ?, updated_at = ?, resolved_at = ?, review_snapshot_id = ?
                 WHERE user_id = ? AND workspace_id = ? AND id = ?
                 """,
                 (
                     status_value,
                     owner,
                     note,
+                    due_at.isoformat() if due_at else None,
                     now,
                     resolved_at,
+                    review_snapshot_id,
                     user_id,
                     workspace_id,
                     action_id,
@@ -907,6 +1038,36 @@ class PortfolioStore:
             ).fetchone()
         assert row is not None
         return self._risk_action(row)
+
+    def save_risk_report(self, dashboard: PortfolioDashboard, performance: PortfolioPerformanceResult | None = None, analysis_input: PortfolioPerformanceRequest | None = None) -> PortfolioRiskReport:
+        report = PortfolioRiskReport(id=str(uuid4()), saved_at=datetime.now(UTC), dashboard=dashboard, performance=performance, analysis_input=analysis_input or PortfolioPerformanceRequest())
+        with self._connect() as connection:
+            self._prepare(connection)
+            connection.execute(
+                'INSERT INTO portfolio_risk_reports VALUES (?, ?, ?, ?, ?)',
+                (dashboard.user_id, dashboard.workspace_id, report.id, report.saved_at.isoformat(), report.model_dump_json(by_alias=True)),
+            )
+        return report
+
+    def list_risk_reports(self, *, user_id: str, workspace_id: str) -> list[PortfolioRiskReport]:
+        with self._connect() as connection:
+            self._prepare(connection)
+            rows = connection.execute(
+                'SELECT payload FROM portfolio_risk_reports WHERE user_id = ? AND workspace_id = ? ORDER BY saved_at DESC LIMIT 50',
+                (user_id, workspace_id),
+            ).fetchall()
+        return [PortfolioRiskReport.model_validate_json(row['payload']) for row in rows]
+
+    def get_risk_report(self, *, user_id: str, workspace_id: str, report_id: str) -> PortfolioRiskReport:
+        with self._connect() as connection:
+            self._prepare(connection)
+            row = connection.execute(
+                'SELECT payload FROM portfolio_risk_reports WHERE user_id = ? AND workspace_id = ? AND id = ?',
+                (user_id, workspace_id, report_id),
+            ).fetchone()
+        if row is None:
+            raise PortfolioNotFoundError('风险评估不存在或不属于当前工作区。')
+        return PortfolioRiskReport.model_validate_json(row['payload'])
 
     def import_legacy_document(
         self,

@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { FundNavigationContext, useFundPageData } from '@/lib/newma-desk/page-data'
 import Link from 'next/link'
 import { Search, Sparkles, FileText, Calendar, Tag, ChevronLeft, ChevronRight, ShieldCheck, Download } from 'lucide-react'
 import { buildBuyBeforeEvidenceQueue, type BuyBeforeEvidenceQueueItem } from '@/lib/report-buy-before-evidence-queue'
@@ -151,17 +153,6 @@ const buyBeforeGateOptions = [
   { value: 'research_ready', label: '证据较完整', desc: '仍需正式研究复核' },
   { value: 'missing', label: '未标注', desc: '缺少可解析的研究总闸门' },
 ]
-
-function initialUrlFilter(options: Array<{ value: string }>, key: string, fallback = 'all') {
-  if (typeof window === 'undefined') return fallback
-  const value = new URLSearchParams(window.location.search).get(key)
-  return options.some((option) => option.value === value) ? value || fallback : fallback
-}
-
-function initialUrlText(key: string) {
-  if (typeof window === 'undefined') return ''
-  return new URLSearchParams(window.location.search).get(key) || ''
-}
 
 function reportTypeClass(reportType: string) {
   if (reportType === 'fund_pre_purchase_check') return 'bg-amber-100 text-amber-800'
@@ -519,27 +510,37 @@ function reportReuseAssessment(report: Report) {
   }
 }
 
-export default function ReportsPage() {
+function ReportsContent() {
+  const query = useSearchParams()
+  const navigateDesk = useContext(FundNavigationContext)
+  const requestSequence = useRef(0)
   const [reports, setReports] = useState<Report[]>([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState(() => initialUrlText('search'))
-  const [reportType, setReportType] = useState(() => initialUrlFilter(reportTypeOptions, 'reportType'))
-  const [salesGate, setSalesGate] = useState(() => initialUrlFilter(salesGateOptions, 'salesGate'))
-  const [buyBeforeGate, setBuyBeforeGate] = useState(() => initialUrlFilter(buyBeforeGateOptions, 'buyBeforeGate'))
+  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState(query.get('search') || '')
+  const [submittedSearch, setSubmittedSearch] = useState(search)
+  const [reportType, setReportType] = useState(query.get('reportType') || 'all')
+  const [salesGate, setSalesGate] = useState(query.get('salesGate') || 'all')
+  const [buyBeforeGate, setBuyBeforeGate] = useState(query.get('buyBeforeGate') || 'all')
+  const [applied, setApplied] = useState<Record<string, unknown> | null>(null)
   const [evidenceQueueCategory, setEvidenceQueueCategory] = useState('all')
   const [evidenceQueueScenario, setEvidenceQueueScenario] = useState<'all' | 'sip' | 'lump_sum'>('all')
   const [buyBeforeGateFacets, setBuyBeforeGateFacets] = useState<BuyBeforeGateFacets | null>(null)
   const [buyBeforeEvidenceQueueFacet, setBuyBeforeEvidenceQueueFacet] = useState<BuyBeforeEvidenceQueueItem[] | null>(null)
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState(Math.max(1, Number(query.get('page')) || 1))
   const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState<number | null>(null)
 
-  const syncUrlFilters = useCallback((next: { reportType?: string; salesGate?: string; buyBeforeGate?: string; search?: string }) => {
-    const params = new URLSearchParams(globalThis.location.search)
+  const listParams = useMemo(() => new URLSearchParams({ reportType, salesGate, buyBeforeGate, search: submittedSearch, page: String(page) }), [reportType, salesGate, buyBeforeGate, submittedSearch, page])
+  const listReturnTo = `/reports?${listParams}`
+  const syncUrlFilters = useCallback((next: { reportType?: string; salesGate?: string; buyBeforeGate?: string; search?: string; page?: number }) => {
+    const params = new URLSearchParams()
     const nextValues = {
       reportType,
       salesGate,
       buyBeforeGate,
-      search,
+      search: submittedSearch,
+      page: 1,
       ...next,
     }
     ;([
@@ -547,17 +548,26 @@ export default function ReportsPage() {
       ['salesGate', nextValues.salesGate],
       ['buyBeforeGate', nextValues.buyBeforeGate],
       ['search', nextValues.search],
+      ['page', String(nextValues.page)],
     ] as Array<[string, string | undefined]>).forEach(([key, value]) => {
       if (value && value !== 'all') params.set(key, value)
       else params.delete(key)
     })
     const nextQuery = params.toString()
+    if (navigateDesk?.('/reports', nextQuery)) return
     const nextUrl = `${globalThis.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`
     globalThis.history.replaceState(null, '', nextUrl)
-  }, [buyBeforeGate, reportType, salesGate, search])
+  }, [buyBeforeGate, reportType, salesGate, submittedSearch, navigateDesk])
 
   const fetchReports = useCallback(async () => {
+    const sequence = ++requestSequence.current
     setLoading(true)
+    setError(null)
+    setReports([])
+    setApplied(null)
+    setTotal(null)
+    setBuyBeforeGateFacets(null)
+    setBuyBeforeEvidenceQueueFacet(null)
     try {
       const params = new URLSearchParams({
         page: page.toString(),
@@ -566,38 +576,59 @@ export default function ReportsPage() {
         salesGate,
         buyBeforeGate,
         includeBuyBeforeFacets: '1',
-        ...(search && { search })
+        ...(submittedSearch && { search: submittedSearch })
       })
 
       const response = await fetch(`/api/reports?${params}`)
       const data = await response.json()
+      if (sequence !== requestSequence.current) return
+      if (!response.ok) throw new Error(data.error || '读取报告列表失败')
 
       setReports(data.data || [])
       setTotalPages(data.pagination?.totalPages || 1)
+      setTotal(data.pagination?.total ?? null)
+      setApplied({ page, reportType, salesGate, buyBeforeGate, search: submittedSearch })
       setBuyBeforeGateFacets(data.facets?.buyBeforeGate || null)
       setBuyBeforeEvidenceQueueFacet(data.facets?.buyBeforeEvidenceQueue || null)
     } catch (error) {
+      if (sequence !== requestSequence.current) return
+      setError(error instanceof Error ? error.message : '读取报告列表失败')
       console.error('获取调研报告列表失败:', error)
       setBuyBeforeGateFacets(null)
       setBuyBeforeEvidenceQueueFacet(null)
     } finally {
-      setLoading(false)
+      if (sequence === requestSequence.current) setLoading(false)
     }
-  }, [page, reportType, salesGate, buyBeforeGate, search])
+  }, [page, reportType, salesGate, buyBeforeGate, submittedSearch])
 
   useEffect(() => {
     const timeout = globalThis.setTimeout(() => {
       void fetchReports()
     }, 0)
-    return () => globalThis.clearTimeout(timeout)
+    return () => { globalThis.clearTimeout(timeout); requestSequence.current++ }
   }, [fetchReports])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     setPage(1)
-    syncUrlFilters({ search })
-    void fetchReports()
+    setSubmittedSearch(search.trim())
+    syncUrlFilters({ search: search.trim() })
+    if (page === 1 && submittedSearch === search.trim()) void fetchReports()
   }
+
+  const changePage = (nextPage: number) => {
+    setPage(nextPage)
+    syncUrlFilters({ page: nextPage })
+  }
+  useFundPageData(useMemo(() => ({ title: '研究报告列表', selection: null,
+    filters: { requested: { reportType, salesGate, buyBeforeGate, search: submittedSearch, page }, draftSearch: search, applied, evidenceQueueCategory, evidenceQueueScenario },
+    visibleBlocks: [{ id: 'reports', type: 'table', title: '当前页研究报告与复查证据' }],
+    summary: { view: 'reports', status: loading ? 'loading' : error ? 'error' : 'ready', error,
+      total, totalPages: applied ? totalPages : null, rows: !loading && !error ? reports : [],
+      facets: buyBeforeGateFacets, queue: buyBeforeEvidenceQueueFacet,
+      boundary: '列表是历史研究留痕，不是当前基金表现。报告生成日不代表证据更新日；缺项或读取失败不等于无需复核。' },
+  }), [reportType, salesGate, buyBeforeGate, submittedSearch, page, search, applied, evidenceQueueCategory, evidenceQueueScenario,
+    loading, error, total, totalPages, reports, buyBeforeGateFacets, buyBeforeEvidenceQueueFacet]))
 
   const currentPageGateSummary = reports.reduce((summary, report) => {
     const status = report.currentSalesRuleGate?.status || 'none'
@@ -839,8 +870,9 @@ export default function ReportsPage() {
   ]
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-end">
+    <div className="fund-report space-y-6">
+      <div className="flex items-center justify-between">
+        <Link href="/research" className="text-sm underline">返回调研库</Link>
         <div className="flex flex-wrap gap-2">
           <Link
             href="/investor-selection"
@@ -879,6 +911,8 @@ export default function ReportsPage() {
         ))}
       </div>
 
+      {!loading && !error ? <details className="space-y-4">
+      <summary className="cursor-pointer text-sm font-semibold">研究复核与补证概况 · 本页 {reports.length} 份报告（展开查看）</summary>
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -1201,6 +1235,7 @@ export default function ReportsPage() {
       </div>
 
       {/* 搜索栏 */}
+      </details> : null}
       <div className="bg-white p-4 rounded-lg shadow">
         <form onSubmit={handleSearch} className="flex gap-4">
           <div className="flex-1 relative">
@@ -1226,6 +1261,11 @@ export default function ReportsPage() {
       <div className="bg-white rounded-lg shadow">
         {loading ? (
           <div className="p-8 text-center text-gray-500">加载中...</div>
+        ) : error ? (
+          <div role="alert" className="p-6 text-sm">
+            <p>{error}；不能据此判断没有报告或无需复核。</p>
+            <button type="button" className="mt-3 underline" onClick={() => void fetchReports()}>重试读取列表</button>
+          </div>
         ) : reports.length === 0 ? (
           <div className="p-8 text-center">
             <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -1537,7 +1577,7 @@ export default function ReportsPage() {
                         </span>
                       )}
                       <Link
-                        href={report.actionHref || `/reports/${report.id}`}
+                        href={appendReturnTo(`/reports/${encodeURIComponent(report.id)}`, listReturnTo)}
                         className="inline-flex rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
                       >
                         查看报告
@@ -1554,14 +1594,14 @@ export default function ReportsPage() {
             <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200">
               <div className="flex-1 flex justify-between sm:hidden">
                 <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  onClick={() => changePage(Math.max(1, page - 1))}
                   disabled={page === 1}
                   className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                 >
                   上一页
                 </button>
                 <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() => changePage(Math.min(totalPages, page + 1))}
                   disabled={page === totalPages}
                   className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                 >
@@ -1577,14 +1617,16 @@ export default function ReportsPage() {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    aria-label="上一页"
+                    onClick={() => changePage(Math.max(1, page - 1))}
                     disabled={page === 1}
                     className="relative inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    aria-label="下一页"
+                    onClick={() => changePage(Math.min(totalPages, page + 1))}
                     disabled={page === totalPages}
                     className="relative inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                   >
@@ -1598,4 +1640,8 @@ export default function ReportsPage() {
       </div>
     </div>
   )
+}
+
+export default function ReportsPage() {
+  return <Suspense fallback={<p role="status">正在读取报告筛选…</p>}><ReportsContent /></Suspense>
 }

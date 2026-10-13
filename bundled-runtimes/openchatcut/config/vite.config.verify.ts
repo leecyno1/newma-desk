@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { applyAuthoritativeLocalProvider } from './vite.config.ts';
+import {
+  applyAuthoritativeLocalProvider,
+  OPENCHATCUT_WARMUP_FILES,
+} from './vite.config.ts';
+
+assert.deepEqual(
+  OPENCHATCUT_WARMUP_FILES,
+  ['src/main.tsx'],
+  'Vite warmup paths stay relative to the OpenChatCut root',
+);
 
 const inherited = { LLM_PROVIDER: 'openai' };
 applyAuthoritativeLocalProvider(

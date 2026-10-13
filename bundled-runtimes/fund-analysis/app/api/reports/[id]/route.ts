@@ -26,6 +26,14 @@ const reportTypeLabel = (reportType: string | null | undefined) => {
   return '研究报告'
 }
 
+// 经理报告 target_id 为「姓名|性别|学历」复合串，展示时仅取姓名，避免标题/对象出现 ID 尾巴
+const displayTargetId = (targetType: unknown, targetId: unknown) => {
+  const raw = String(targetId ?? '').trim()
+  if (!raw) return ''
+  if (String(targetType) === 'manager' && raw.includes('|')) return raw.split('|')[0].trim() || raw
+  return raw
+}
+
 const cleanReportContent = (content: string) =>
   content
     .replace(/^<!--[\s\S]*?-->\s*/u, '')
@@ -673,12 +681,13 @@ export async function GET(
 
     return NextResponse.json({
       id: payload.id,
-      title: payload.title || `${payload.target_id || ''} ${reportTypeLabel(payload.report_type)}`,
+      title: payload.title || `${displayTargetId(payload.target_type, payload.target_id)} ${reportTypeLabel(payload.report_type)}`,
       content,
       summary: payload.summary || content.slice(0, 500),
       reportDate: payload.created_at,
       source: payload.source || (mode === 'llm' && model ? `${sourceLabel} · ${model}` : sourceLabel),
       targetId: payload.target_id || '',
+      displayTargetId: displayTargetId(payload.target_type, payload.target_id),
       targetType: payload.target_type || '',
       reportType: payload.report_type || '',
       reportTypeLabel: reportTypeLabel(payload.report_type),

@@ -8,6 +8,7 @@ import LoadingState from '../components/LoadingState'
 import StatusBadge from '../components/StatusBadge'
 import { useResearchData } from '../hooks/useResearchData'
 import { loadCycleResearch } from '../lib/data'
+import { publishVibeDeskContext, registerVibeDeskContextProvider } from '../lib/vibedesk'
 
 const statusIcon = {
   formal: ShieldCheck,
@@ -42,6 +43,40 @@ export default function CyclesPage() {
       setShowEvidenceDetails(false)
     }
   }, [requested, selected])
+
+  useEffect(() => {
+    const unregister = registerVibeDeskContextProvider(() => {
+      if (!data || !cycle) return null
+      const diagnostic = data.diagnostics?.[cycle.id]
+      return {
+        view: { id: 'cycles', title: '七周期证据与历史曲线' },
+        visibleBlocks: [
+          { id: 'cycle-selector', type: 'selection', title: '七周期选择' },
+          { id: 'cycle-detail', type: 'research', title: `${cycle.id} · ${cycle.name}` },
+          { id: 'cycle-evidence', type: 'evidence', title: '当前证据与发布门槛' },
+        ],
+        selection: { cycleId: cycle.id, cycleName: cycle.name },
+        filters: { evidenceDetailsExpanded: showEvidenceDetails },
+        data: {
+          source: 'Circle Seven Cycle Research', freshness: 'unknown',
+          summary: {
+            contextSource: 'structured-page-provider',
+            generated: data.meta.generated,
+            governanceAsOf: data.governance.asOf,
+            centerPriorMonths: cycle.centerPriorMonths,
+            role: cycle.role,
+            publication: cycle.publication,
+            directionPublication: diagnostic?.directionPublication ?? null,
+            currentEvidenceAsOf: cycle.id === 'C4' ? data.C4Realtime?.latest?.date : diagnostic?.regimeRefactor?.meta?.asOfPeriod ?? null,
+            caveat: '治理基线和生成日期不等于最新观测期；被阻断的相位、预测或资产统计不得当作已发布结论。',
+          },
+        },
+        actions: [], tasks: [],
+      }
+    })
+    void publishVibeDeskContext()
+    return unregister
+  }, [cycle, data, showEvidenceDetails])
 
   if (!data || !cycle) return <LoadingState error={error} />
   const diagnostic = data.diagnostics?.[cycle.id]

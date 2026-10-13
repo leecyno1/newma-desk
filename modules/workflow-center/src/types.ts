@@ -42,11 +42,23 @@ export interface WorkflowNodeDefinition {
   laneId: string;
   stageId: string;
   promotedToMenu: boolean;
+  canvasX?: number | null;
+  canvasY?: number | null;
+  executorId?: string | null;
+  executorParameters?: Record<string, unknown>;
+  retryLimit?: number;
+  retryDelaySeconds?: number;
+  timeoutSeconds?: number;
 }
 
 export interface WorkflowEdge {
   source: string;
   target: string;
+  name?: string;
+  description?: string;
+  kind?: "handoff" | "data" | "condition" | "approval";
+  condition?: string;
+  parameters?: Record<string, unknown>;
 }
 
 export interface WorkflowTemplate {
@@ -190,4 +202,67 @@ export interface WorkflowRunSnapshot {
   nodeData: Array<{ runId: string; nodeId: string; slotKey: string; version: number; payload: unknown; createdBy: string; createdAt: string }>;
   artifacts: WorkflowArtifact[];
   events: WorkflowEvent[];
+}
+
+export interface WorkflowRuntimeJob {
+  id: string;
+  organizationId: string;
+  executionId: string;
+  runId: string;
+  nodeId: string;
+  position: number;
+  executorId: string;
+  status: string;
+  attempt: number;
+  maxAttempts: number;
+  timeoutSeconds: number;
+  retryDelaySeconds: number;
+  availableAt?: string | null;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: string | null;
+  startedAt?: string | null;
+  deadlineAt?: string | null;
+  completedAt?: string | null;
+  input: Record<string, unknown>;
+  result?: Record<string, unknown> | null;
+  error?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowRuntimeExecution {
+  id: string;
+  organizationId: string;
+  runId: string;
+  status: string;
+  triggerType: string;
+  idempotencyKey: string;
+  requestedBy: string;
+  userId: string;
+  input: Record<string, unknown>;
+  error?: Record<string, unknown> | null;
+  createdAt: string;
+  startedAt?: string | null;
+  pausedAt?: string | null;
+  completedAt?: string | null;
+  updatedAt: string;
+  jobs: WorkflowRuntimeJob[];
+}
+
+export interface WorkflowRuntimeTrigger {
+  id: string;
+  organizationId: string;
+  runId: string;
+  triggerType: "event" | "schedule";
+  eventType?: string | null;
+  intervalSeconds?: number | null;
+  cronExpression?: string | null;
+  timezone?: string | null;
+  nextFireAt?: string | null;
+  enabled: boolean;
+  requestedBy: string;
+  userId: string;
+  input: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
 }

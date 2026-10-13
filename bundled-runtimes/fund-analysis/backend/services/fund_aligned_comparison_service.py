@@ -5,12 +5,12 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-from math import ceil
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.fund_drawdown_recovery_service import FundDrawdownRecoveryService
 from services.metric_factory import MetricFactory
+from services.performance_nav_series import normalize_performance_rows, performance_evidence, daily_risk_rows
 
 
 class FundAlignedComparisonService:
@@ -53,21 +53,23 @@ class FundAlignedComparisonService:
         earliest = self.today - timedelta(days=max(self.WINDOWS.values()) + 30)
         series: Dict[str, List[Tuple[date, float]]] = {}
         bases: Dict[str, str] = {}
+        source_rows = {}
         for code in codes:
             rows = self.nav_repo.get_nav_series(code, earliest.isoformat(), self.today.isoformat())
+            source_rows[code] = normalize_performance_rows(rows, as_of_date=self.today)
             points, basis = self._normalize_series(rows)
             series[code] = points
             bases[code] = basis
 
         missing_codes = [code for code in codes if len(series[code]) < 2]
         windows = {
-            key: self._build_window(codes, series, bases, key, days)
+            key: self._build_window(codes, series, bases, key, days, source_rows)
             for key, days in self.WINDOWS.items()
         }
         available_windows = [item for item in windows.values() if item.get("status") in {"available", "partial"}]
         return {
             "status": "available" if available_windows else "insufficient",
-            "methodology": "same_period_shared_nav_dates_v1",
+            "methodology": "same_period_adjusted_calendar_v3",
             "risk_free_rate": self.metric_factory.risk_free_rate,
             "missing_codes": missing_codes,
             "windows": windows,
@@ -87,6 +89,7 @@ class FundAlignedComparisonService:
         bases: Dict[str, str],
         window: str,
         days: int,
+        source_rows: Dict[str, List[Dict[str, Any]]],
     ) -> Dict[str, Any]:
         if any(len(series[code]) < 2 for code in codes):
             return self._empty_window(window, "fund_nav_missing")
@@ -108,16 +111,25 @@ class FundAlignedComparisonService:
         fund_metrics = []
         for code in codes:
             aligned = [
-                {"date": item_date, "nav": values_by_code[code][item_date]}
+                {"date": item_date, "nav": values_by_code[code][item_date], "risk_calendar": source_rows[code][0].get("risk_calendar")}
                 for item_date in common_dates
             ]
             metrics: Dict[str, Any] = {}
             metrics.update(self.metric_factory.calculate_return_metrics(aligned))
-            metrics.update(self.metric_factory.calculate_risk_metrics(aligned))
+            bounded_rows = [row for row in source_rows[code]
+                            if common_dates[0] <= row["date"] <= common_dates[-1]]
+            evidence = performance_evidence(bounded_rows)
+            evidence["daily_risk_eligible"] = evidence["daily_risk_eligible"] and {row["date"] for row in daily_risk_rows(bounded_rows)} <= set(common_dates)
+            if evidence["daily_risk_eligible"]:
+                metrics.update(self.metric_factory.calculate_risk_metrics(aligned))
+            else:
+                evidence["risk_annualization"] = "unavailable"
+                metrics["max_drawdown"] = self.metric_factory._max_drawdown([(row["date"], row["nav"]) for row in aligned])
             drawdown = FundDrawdownRecoveryService.analyze(aligned)
             fund_metrics.append({
                 "wind_code": code,
                 "nav_basis": bases[code],
+                "methodology": evidence,
                 "observations": len(common_dates),
                 "total_return": metrics.get("total_return"),
                 "annualized_return": metrics.get("annualized_return"),
@@ -173,7 +185,7 @@ class FundAlignedComparisonService:
             "funds": fund_metrics,
             "chart": chart,
             "scope_note": (
-                "所有基金只使用共同有净值的日期，累计净值优先；收益、风险、回撤和修复时间均按该共同区间重算。"
+                "所有基金只使用共同有复权净值的日期；收益、风险、回撤和修复时间均按该共同区间重算。缺口或稀疏样本不输出日频风险。"
                 + ("共同区间覆盖所选窗口且净值密度充足，可比较相对位置。" if ranking_eligible
                    else "共同区间未完整覆盖所选窗口或净值较稀疏，只展示实际可见期，不输出领先排名。")
             ),
@@ -208,40 +220,6 @@ class FundAlignedComparisonService:
 
     @classmethod
     def _normalize_series(cls, rows: List[Dict[str, Any]]) -> Tuple[List[Tuple[date, float]], str]:
-        parsed = []
-        for row in rows:
-            item_date = cls._parse_date(row.get("date") or row.get("trade_date"))
-            unit_nav = cls._positive_number(row.get("nav") or row.get("unit_nav"))
-            accum_nav = cls._positive_number(row.get("accum_nav"))
-            if item_date is not None and (unit_nav is not None or accum_nav is not None):
-                parsed.append((item_date, unit_nav, accum_nav))
-        if not parsed:
-            return [], "unavailable"
-
-        use_accum = sum(1 for _, _, value in parsed if value is not None) >= max(2, ceil(len(parsed) * 0.9))
-        normalized: Dict[date, float] = {}
-        for item_date, unit_nav, accum_nav in parsed:
-            value = accum_nav if use_accum else unit_nav
-            if value is not None:
-                normalized[item_date] = value
-        return sorted(normalized.items()), "accum_nav" if use_accum else "unit_nav"
-
-    @staticmethod
-    def _parse_date(value: Any) -> Optional[date]:
-        if isinstance(value, datetime):
-            return value.date()
-        if isinstance(value, date):
-            return value
-        text = str(value or "").strip()[:10]
-        try:
-            return date.fromisoformat(text) if text else None
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _positive_number(value: Any) -> Optional[float]:
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
-            return None
-        return parsed if parsed > 0 else None
+        normalized = normalize_performance_rows(rows)
+        points = [(row["date"], row["nav"]) for row in normalized if row["nav"] is not None]
+        return points, normalized[0]["nav_basis"] if points else "unavailable"

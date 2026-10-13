@@ -75,6 +75,7 @@ def _parse_gtimg(data: str) -> dict[str, dict]:
 
         result[code] = {
             "name": vals[1],
+            "quote_time": vals[30],
             "price": num(3),
             "last_close": num(4),
             "open": num(5),
@@ -323,26 +324,171 @@ def disclosure(code: str) -> list[dict]:
 
 def announcements(code: str, limit: int = 15) -> list[dict]:
     """个股近期公告（东财公开接口，仅 requests，稳定）。返回 日期/标题/类型/详情链接。"""
+    return _announcement_page(code, limit=limit)["items"]
+
+
+def announcement_search(code: str, begin: str, end: str, category: str = "all", page: int = 1) -> dict:
+    """按披露日期检索，日期窗口不代表报告所属期，分类可能漏掉其他类的更正公告。"""
+    from datetime import date, timezone
+    start, finish = date.fromisoformat(begin), date.fromisoformat(end)
+    if start > finish or not 1 <= page <= 500 or category not in ("all", "financial"):
+        raise ValueError("公告检索日期、分类或页码无效")
+    result = _announcement_page(code, limit=20, page=page, begin=begin, end=end, category=category)
+    return {**result, "symbol": code, "begin": begin, "end": end, "category": category,
+            "retrievedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
+
+
+def _announcement_page(code: str, limit: int = 15, page: int = 1, begin: str | None = None, end: str | None = None, category: str = "all") -> dict:
     import requests
 
+    params = {"sr": -1, "page_size": limit, "page_index": page, "ann_type": "A",
+              "client_source": "web", "stock_list": code, "f_node": 1 if category == "financial" else 0, "s_node": 0}
+    if begin:
+        params["begin_time"] = begin
+    if end:
+        params["end_time"] = end
     r = requests.get(
         "https://np-anotice-stock.eastmoney.com/api/security/ann",
-        params={"sr": -1, "page_size": limit, "page_index": 1, "ann_type": "A",
-                "client_source": "web", "stock_list": code, "f_node": 0, "s_node": 0},
+        params=params,
         headers={"User-Agent": UA}, timeout=20,
     )
-    lst = (r.json().get("data") or {}).get("list") or []
+    r.raise_for_status()
+    payload = r.json()
+    if payload.get("success") != 1 or not isinstance(payload.get("data"), dict):
+        raise ValueError("公告源未成功返回检索结果，不视为零条公告")
+    data = payload["data"]
+    lst = data.get("list")
+    if not isinstance(lst, list):
+        raise ValueError("公告列表缺失，不视为零条公告")
     out = []
     for a in lst:
         cols = [c.get("column_name") for c in (a.get("columns") or []) if c.get("column_name")]
         art = a.get("art_code", "")
         out.append({
+            "announcementId": art,
             "date": (a.get("notice_date", "") or "")[:10],
             "title": a.get("title", ""),
             "type": cols[0] if cols else "",
             "url": f"https://data.eastmoney.com/notices/detail/{code}/{art}.html" if art else "",
         })
-    return out
+    total = data.get("total_hits")
+    total = int(total) if str(total).isdigit() else None
+    return {"items": out, "page": page, "pageSize": limit, "total": total,
+            "hasMore": page * limit < total if total is not None else len(out) == limit}
+
+
+def _announcement_metadata(code: str, announcement_id: str, segment: int = 1) -> dict:
+    import requests
+
+    if not re.fullmatch(r"\d{6}", code) or not re.fullmatch(r"AN\d{10,30}", announcement_id) or not 1 <= segment <= 1000:
+        raise ValueError("证券代码、公告编号或文字分段无效")
+    response = requests.get(
+        "https://np-cnotice-stock.eastmoney.com/api/content/ann",
+        params={"art_code": announcement_id, "client_source": "web", "page_index": segment},
+        headers={"User-Agent": UA}, timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    data = payload.get("data") or {}
+    if payload.get("success") != 1 or data.get("art_code") != announcement_id:
+        raise ValueError("公告源未返回对应公告")
+    if not any(str(item.get("stock")) == code for item in (data.get("security") or [])):
+        raise ValueError("公告不属于当前证券，未读取为本公司证据")
+    return data
+
+
+def announcement_text(code: str, announcement_id: str, segment: int = 1) -> dict:
+    """读取东财公告文字转录，不下载 PDF，不推断最新报告期。"""
+    from datetime import timezone
+    from urllib.parse import urlparse
+
+    data = _announcement_metadata(code, announcement_id, segment)
+    content = data.get("notice_content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("本分段无可读取文字，请打开公告详情或 PDF 核验；不能视为已读正文")
+    pdf = data.get("attach_url") or ""
+    parsed = urlparse(pdf)
+    pdf = pdf if parsed.scheme == "https" and parsed.hostname == "pdf.dfcfw.com" else None
+    count = data.get("page_size")
+    count = int(count) if str(count).isdigit() and int(count) > 0 else None
+    if count is not None and segment > count:
+        raise ValueError("请求分段超出公告源返回范围")
+    return {
+        "announcementId": announcement_id, "symbol": code,
+        "title": data.get("notice_title") or announcement_id,
+        "date": str(data.get("notice_date") or "")[:10],
+        "url": f"https://data.eastmoney.com/notices/detail/{code}/{announcement_id}.html",
+        "pdfUrl": pdf, "text": content[:60000], "truncated": len(content) > 60000,
+        "segment": segment, "segmentCount": count,
+        "contentOrigin": "provider-transcription",
+        "retrievedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
+_ANN_PDF_CACHE: dict[str, tuple[float, bytes, str]] = {}
+
+
+def _announcement_pdf_bytes(pdf_url: str) -> tuple[bytes, str]:
+    import requests
+    from datetime import timezone
+
+    cached = _ANN_PDF_CACHE.get(pdf_url)
+    if cached and time.monotonic() - cached[0] < 600:
+        return cached[1], cached[2]
+    with requests.get(pdf_url, headers={"User-Agent": UA}, timeout=20, stream=True, allow_redirects=False) as response:
+        response.raise_for_status()
+        if response.status_code != 200:
+            raise ValueError("PDF 附件跳转或暂不可用，请打开公告详情核对")
+        content = bytearray()
+        for chunk in response.iter_content(65536):
+            content.extend(chunk)
+            if len(content) > 20 * 1024 * 1024:
+                raise ValueError("PDF 超过 20 MB 阅读上限，请打开原件核对")
+    if not content.startswith(b"%PDF-"):
+        raise ValueError("来源未返回 PDF，可能是网页校验或错误页；请打开原件核对，本次未读取正文")
+    retrieved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if len(_ANN_PDF_CACHE) >= 4:
+        _ANN_PDF_CACHE.pop(next(iter(_ANN_PDF_CACHE)))
+    _ANN_PDF_CACHE[pdf_url] = (time.monotonic(), bytes(content), retrieved_at)
+    return bytes(content), retrieved_at
+
+
+def announcement_pdf_page(code: str, announcement_id: str, page: int = 1) -> dict:
+    """Read one physical PDF page; never relabel provider text segments as pages."""
+    from io import BytesIO
+    from urllib.parse import urlparse
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise DependencyMissing("PDF 阅读需要安装 Research requirements 中的 pypdf") from exc
+
+    if not 1 <= page <= 1000:
+        raise ValueError("PDF 页码须在 1 至 1000 之间")
+    data = _announcement_metadata(code, announcement_id)
+    pdf_url = data.get("attach_url") or ""
+    parsed = urlparse(pdf_url)
+    if parsed.scheme != "https" or parsed.hostname != "pdf.dfcfw.com" or parsed.port not in (None, 443) or parsed.username or parsed.password:
+        raise ValueError("公告源没有提供可读取的 PDF 附件")
+    # Only the verified provider attachment is fetched, never a caller-supplied URL.
+    content, retrieved_at = _announcement_pdf_bytes(pdf_url)
+    reader = PdfReader(BytesIO(content))
+    if reader.is_encrypted:
+        raise ValueError("PDF 已加密，请打开原件核对")
+    count = len(reader.pages)
+    if page > count:
+        raise ValueError(f"PDF 共 {count} 页，请选择范围内页码")
+    pdf_page = reader.pages[page - 1]
+    text = (pdf_page.extract_text(extraction_mode="layout") or "") if '/Contents' in pdf_page else ""
+    return {
+        "announcementId": announcement_id, "symbol": code,
+        "title": data.get("notice_title") or announcement_id,
+        "date": str(data.get("notice_date") or "")[:10],
+        "url": f"https://data.eastmoney.com/notices/detail/{code}/{announcement_id}.html",
+        "pdfUrl": pdf_url, "text": text[:60000], "truncated": len(text) > 60000,
+        "pdfPage": page, "pdfPageCount": count,
+        "contentOrigin": "pdf-text",
+        "retrievedAt": retrieved_at,
+    }
 
 
 def fund_announcements(code: str, limit: int = 20) -> list[dict]:
@@ -537,15 +683,18 @@ def pe_digestion(current_pe: float, cagr: float, target_pe: float = 30) -> float
     return math.log(current_pe / target_pe) / math.log(1 + cagr)
 
 
-def financials(code: str) -> dict:
+def financials(code: str, basis: str = "ytd") -> dict:
     """财务关键指标（同花顺财务摘要，最新报告期）—— 干净可靠的营收/净利/ROE/毛利率等。
 
     注：mootdx finance() 的营收/净利数值不可靠(实测放大数倍)，故财务摘要走此源。
     """
+    indicators = {"ytd": "按报告期", "quarter": "按单季度", "annual": "按年度"}
+    if basis not in indicators:
+        raise ValueError("不支持该财务口径；TTM 不自动计算")
     df = akshare_call(
         "stock_financial_abstract_ths",
         symbol=code,
-        indicator="按报告期",
+        indicator=indicators[basis],
     )
     if df is None or df.empty:
         return {}
@@ -553,10 +702,11 @@ def financials(code: str) -> dict:
 
     def g(k):
         v = row.get(k)
-        return None if v in (False, "false", "", None) else v
+        return None if v is None or v is False or (isinstance(v, str) and v in ("false", "")) else v
 
     return {
         "period": g("报告期"),
+        "basis": basis,
         "revenue": g("营业总收入"), "revenue_yoy": g("营业总收入同比增长率"),
         "net_profit": g("净利润"), "net_profit_yoy": g("净利润同比增长率"),
         "eps": g("基本每股收益"), "bvps": g("每股净资产"),

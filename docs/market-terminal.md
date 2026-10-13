@@ -11,14 +11,14 @@ KLineChart 图表内核
         ↑
 市场终端 Mod（OpenTerminalUI 风格的高密度交互）
         ↑
-Newma-Desk Data Service + Bridge + Mod Context + Desk Copilot
+Newma-Desk Data Service + Bridge + Mod Context + Newma Agent Runtime
 ```
 
 - KLineChart 只负责 K 线、指标、画线与可视区间，不承载数据源或 Agent 逻辑。
 - OpenTerminalUI 仅作为信息密度、快捷操作和终端布局参考，不复制它的业务代码。
 - 行情、搜索、报价、K 线、指数和市场概览统一经过 `market-data` Data Service。
 - 当前标的、周期、复权、指标、可视区间和报价摘要通过 Mod Context 交给 Desk。
-- 提问和修改统一使用 Newma-Desk 右侧 Desk Copilot；市场终端内部不再保留重复的 Agent、模型选择和回答区。
+- 提问和修改统一使用宿主 Newma 会话；市场终端内部不再保留重复的 Agent、模型选择和回答区。
 
 ## 当前能力
 
@@ -71,7 +71,7 @@ Newma-Desk Data Service + Bridge + Mod Context + Desk Copilot
 2. Chart Kit 已提供通用注释/信号图层、交易点图层与跨图表十字光标组；用户画线和系统注释使用独立 overlay group。
 3. 市场扫描器已支持 AND/OR 条件表达式，覆盖涨跌幅、量比、成交额、PE、PB，并可在本机保存、恢复、更新和删除。
 4. 交易回放可保存为 Newma-Desk Replay Artifact，API 提供创建、列表、最近、读取、发布和受 CSP 保护的 HTML 查看页。
-5. Desk Agent 可通过标准 UI Action 协议执行 `market.refresh`、`market.set-timeframe`、`chart.set-indicator`、`market.set-alert`、`workspace.save-layout`；动作受当前 Mod Manifest 和页面上下文约束。
+5. Newma Agent 可通过标准 UI Action 协议执行 `market.refresh`、`market.set-timeframe`、`chart.set-indicator`、`market.set-alert`、`workspace.save-layout`；动作受当前 Mod Manifest 和页面上下文约束。
 
 下一阶段可把扫描表达式作为量化实验室输入，并让 Replay Artifact 与每日复盘、研究笔记建立显式引用关系。
 

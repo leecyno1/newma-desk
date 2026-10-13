@@ -53,7 +53,7 @@ describe('VibeDesk bridge', () => {
     const truncated = truncateContextText(oversized);
 
     expect(new TextEncoder().encode(truncated).byteLength).toBeLessThanOrEqual(14 * 1024);
-    expect(truncated).toContain('已为 VibeDesk Agent 上下文截断');
+    expect(truncated).toContain('已为 Newma Agent Context 截断');
     expect(truncated.length).toBeLessThan(oversized.length);
   });
 

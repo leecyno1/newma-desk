@@ -244,140 +244,10 @@ def test_extract_message_features_falls_back_to_single_item_retry(monkeypatch):
     assert calls["n"] == 1
 
 
-def test_cli_summarizes_fifty_messages_in_one_task(monkeypatch):
+def test_minutes_refine_prompt_requires_batch_json_array(monkeypatch):
     from app.services import ai_tools
 
     calls = []
-
-    class _FakeDeskAgent:
-        def summarize(self, messages, prompt, **kwargs):
-            calls.append({"messages": messages, "prompt": prompt, **kwargs})
-            return json.dumps(
-                [{"id": item["id"], "summary": f"摘要 {item['id']}"} for item in messages],
-                ensure_ascii=False,
-            )
-
-    fake_agent = _FakeDeskAgent()
-    monkeypatch.setattr(ai_tools, "load_ai_config", lambda: {"tool_prompts": {}})
-    monkeypatch.setattr(
-        ai_tools.DeskAgentClient,
-        "from_config",
-        classmethod(lambda cls, config: fake_agent),
-    )
-    monkeypatch.setattr(
-        ai_tools,
-        "siliconflow_tool_chat",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("不应调用兼容模型")),
-    )
-
-    messages = [
-        {"id": str(index), "content": f"第 {index} 条聊天记录，包含足够的信息用于摘要。"}
-        for index in range(1, 51)
-    ]
-    out = ai_tools.extract_message_features(messages, batch_size=50, concurrency=3)
-
-    assert len(calls) == 1
-    assert len(calls[0]["messages"]) == 50
-    assert calls[0]["module_id"] == "deepsee-wechat"
-    assert calls[0]["capability"] == "deepsee.wechat.batch-summarize"
-    assert calls[0]["operation"] == "message-summary"
-    assert all(out[str(index)]["summary"].startswith("ai:") for index in range(1, 51))
-    assert all(item["source"] == "desk-agent" for item in out["__debug__"])
-
-
-def test_wechat_cli_summarizes_one_hundred_messages_in_one_task(monkeypatch):
-    from app.services import ai_tools
-
-    calls = []
-
-    class _FakeDeskAgent:
-        def summarize(self, messages, prompt, **kwargs):
-            calls.append({"messages": messages, **kwargs})
-            return json.dumps(
-                [{"id": item["id"], "summary": f"摘要 {item['id']}"} for item in messages],
-                ensure_ascii=False,
-            )
-
-    fake_agent = _FakeDeskAgent()
-    monkeypatch.setattr(ai_tools, "load_ai_config", lambda: {"tool_prompts": {}})
-    monkeypatch.setattr(
-        ai_tools.DeskAgentClient,
-        "from_config",
-        classmethod(lambda cls, config: fake_agent),
-    )
-    messages = [
-        {"id": str(index), "content": f"第 {index} 条微信记录，包含足够信息用于摘要。"}
-        for index in range(1, 101)
-    ]
-
-    out = ai_tools.extract_message_features(messages, batch_size=100, concurrency=3)
-
-    assert len(calls) == 1
-    assert len(calls[0]["messages"]) == 100
-    assert calls[0]["module_id"] == "deepsee-wechat"
-    assert calls[0]["capability"] == "deepsee.wechat.batch-summarize"
-    assert len([key for key in out if not key.startswith("__")]) == 100
-
-
-def test_cli_summary_kinds_use_their_own_declared_agent_capabilities(monkeypatch):
-    from app.services import ai_tools
-
-    calls = []
-
-    class _FakeDeskAgent:
-        def summarize(self, messages, prompt, **kwargs):
-            calls.append(kwargs)
-            return json.dumps(
-                [{"id": item["id"], "summary": "摘要"} for item in messages],
-                ensure_ascii=False,
-            )
-
-    monkeypatch.setattr(ai_tools, "load_ai_config", lambda: {"tool_prompts": {}})
-    monkeypatch.setattr(
-        ai_tools.DeskAgentClient,
-        "from_config",
-        classmethod(lambda cls, config: _FakeDeskAgent()),
-    )
-
-    expected = {
-        "email_message_summary": ("deepsee-email", "deepsee.email.batch-summarize"),
-        "minutes_summary": ("deepsee-minutes", "deepsee.minutes.batch-summarize"),
-        "minutes_refine": ("deepsee-minutes", "deepsee.minutes.batch-refine"),
-        "media_content_summary": ("deepsee-media", "deepsee.media.batch-summarize"),
-        "mp_content_summary": (
-            "deepsee-official-accounts",
-            "deepsee.official-accounts.batch-summarize",
-        ),
-    }
-    for prompt_key in expected:
-        ai_tools.extract_message_features(
-            [{"id": prompt_key, "content": "这是一条足够长的待摘要内容。"}],
-            batch_size=1,
-            concurrency=1,
-            prompt_key=prompt_key,
-        )
-
-    assert [
-        (call["module_id"], call["capability"])
-        for call in calls
-    ] == list(expected.values())
-
-
-def test_minutes_refine_cli_prompt_requires_batch_json_array(monkeypatch):
-    from app.services import ai_tools
-
-    calls = []
-
-    class _FakeDeskAgent:
-        def summarize(self, messages, prompt, **kwargs):
-            calls.append(prompt)
-            return json.dumps(
-                [
-                    {"id": item["id"], "summary": "ai: ok", "refined": "整理结果"}
-                    for item in messages
-                ],
-                ensure_ascii=False,
-            )
 
     monkeypatch.setattr(
         ai_tools,
@@ -391,11 +261,17 @@ def test_minutes_refine_cli_prompt_requires_batch_json_array(monkeypatch):
             }
         },
     )
-    monkeypatch.setattr(
-        ai_tools.DeskAgentClient,
-        "from_config",
-        classmethod(lambda cls, config: _FakeDeskAgent()),
-    )
+    def _fake_chat(prompt, **_kwargs):
+        calls.append(prompt)
+        return json.dumps(
+            [
+                {"id": item_id, "summary": "ai: ok", "refined": "整理结果"}
+                for item_id in ("m1", "m2")
+            ],
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(ai_tools, "siliconflow_tool_chat", _fake_chat)
 
     out = ai_tools.extract_message_features(
         [
@@ -413,41 +289,6 @@ def test_minutes_refine_cli_prompt_requires_batch_json_array(monkeypatch):
     assert "必须返回单元素 JSON 数组" in prompt_text
     assert out["m1"]["refined"] == "整理结果"
     assert out["m2"]["refined"] == "整理结果"
-
-
-def test_cli_missing_item_uses_local_fallback_without_retry(monkeypatch):
-    from app.services import ai_tools
-
-    calls = {"count": 0}
-
-    class _FakeDeskAgent:
-        def summarize(self, messages, prompt, **kwargs):
-            calls["count"] += 1
-            return json.dumps(
-                [{"id": item["id"], "summary": f"摘要 {item['id']}"} for item in messages[:-1]],
-                ensure_ascii=False,
-            )
-
-    fake_agent = _FakeDeskAgent()
-    monkeypatch.setattr(ai_tools, "load_ai_config", lambda: {"tool_prompts": {}})
-    monkeypatch.setattr(
-        ai_tools.DeskAgentClient,
-        "from_config",
-        classmethod(lambda cls, config: fake_agent),
-    )
-
-    messages = [
-        {"id": str(index), "content": f"第 {index} 条聊天记录，包含待提取的关键信息。"}
-        for index in range(1, 51)
-    ]
-    out = ai_tools.extract_message_features(messages, batch_size=50, concurrency=1)
-
-    assert calls["count"] == 1
-    assert out["50"]["summary_origin"] == "fallback"
-    assert out["50"]["summary"].startswith("ai:")
-    assert any(item["id"] == "50" and item["local_fallback"] for item in out["__debug__"])
-
-
 def test_extract_message_features_parses_concatenated_json_objects_without_retry(monkeypatch):
     from app.services import ai_tools
 

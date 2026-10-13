@@ -18,6 +18,23 @@ const httpUrlSchema = z
 
 export const bridgeProtocolVersionSchema = z.literal("1.0");
 
+export const MAX_BRIDGE_VISUAL_CAPTURE_BYTES = 5 * 1024 * 1024;
+export const MAX_BRIDGE_VISUAL_DATA_URL_CHARS = 7_100_000;
+
+const pngDataUrlSchema = z
+  .string()
+  .min("data:image/png;base64,".length + 4)
+  .max(MAX_BRIDGE_VISUAL_DATA_URL_CHARS)
+  .refine((value) => {
+    const prefix = "data:image/png;base64,";
+    if (!value.startsWith(prefix)) return false;
+    const payload = value.slice(prefix.length);
+    return (
+      payload.length % 4 === 0 &&
+      /^[A-Za-z0-9+/]+={0,2}$/.test(payload)
+    );
+  }, "visual capture must be a base64 PNG data URL");
+
 const cssVariableMapSchema = z
   .record(z.string().min(1).max(200))
   .superRefine((value, context) => {
@@ -106,6 +123,7 @@ export const modHelloSchema = z
           "storage",
           "theme",
           "handoff",
+          "visual-context",
         ]),
       )
       .max(20)
@@ -132,12 +150,30 @@ export const deskInitSchema = z
     gateways: z
       .object({
         actions: httpUrlSchema,
-        agent: httpUrlSchema,
-        model: httpUrlSchema,
+        agent: httpUrlSchema.optional(),
+        model: httpUrlSchema.optional(),
         data: httpUrlSchema,
         storage: httpUrlSchema.optional(),
       })
       .strict(),
+    runtime: z
+      .union([
+        z
+          .object({
+            owner: z.enum(["newma", "numa"]),
+            aiExecution: z.literal("host"),
+            requestMessage: z.literal("vibedesk:copilot-open"),
+          })
+          .strict(),
+        z
+          .object({
+            owner: z.literal("desk"),
+            aiExecution: z.literal("gateway"),
+            requestMessage: z.literal("vibedesk:copilot-open"),
+          })
+          .strict(),
+      ])
+      .optional(),
     grants: z
       .object({
         permissions: z.array(z.string()).max(500),
@@ -253,6 +289,57 @@ export const modContextSchema = z
   })
   .strict();
 
+export const deskVisualContextRequestSchema = z
+  .object({
+    type: z.literal("vibedesk:visual-context-request"),
+    requestId: requestIdSchema,
+    instanceId: instanceIdSchema,
+    modId: modIdSchema,
+    reason: z.enum(["agent", "refresh"]),
+    maxBytes: z
+      .number()
+      .int()
+      .min(64 * 1024)
+      .max(MAX_BRIDGE_VISUAL_CAPTURE_BYTES),
+    mediaTypes: z.tuple([z.literal("image/png")]),
+  })
+  .strict();
+
+const modVisualContextBaseSchema = z.object({
+  type: z.literal("vibedesk:visual-context"),
+  requestId: requestIdSchema,
+  instanceId: instanceIdSchema,
+  modId: modIdSchema,
+});
+
+export const modVisualContextSchema = z.discriminatedUnion("ok", [
+  modVisualContextBaseSchema
+    .extend({
+      ok: z.literal(true),
+      capture: z
+        .object({
+          dataUrl: pngDataUrlSchema,
+          width: z.number().int().min(1).max(8192),
+          height: z.number().int().min(1).max(8192),
+          capturedAt: z.string().datetime({ offset: true }),
+          title: z.string().min(1).max(160).optional(),
+        })
+        .strict(),
+    })
+    .strict(),
+  modVisualContextBaseSchema
+    .extend({
+      ok: z.literal(false),
+      error: z
+        .object({
+          code: z.string().min(1).max(120),
+          message: z.string().min(1).max(500),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
+
 export const modActionRequestSchema = z
   .object({
     type: z.literal("vibedesk:action-request"),
@@ -261,6 +348,16 @@ export const modActionRequestSchema = z
     modId: modIdSchema,
     actionId: actionIdSchema,
     input: z.record(z.unknown()).default({}),
+  })
+  .strict();
+
+export const modAgentRequestSchema = z
+  .object({
+    type: z.literal("vibedesk:copilot-open"),
+    instanceId: instanceIdSchema,
+    modId: modIdSchema,
+    mode: z.enum(["ask", "edit"]).default("ask"),
+    prompt: z.string().trim().min(1).max(8_000).optional(),
   })
   .strict();
 
@@ -377,7 +474,16 @@ export type ModAck = z.infer<typeof modAckSchema>;
 export type ModPageContext = z.infer<typeof modPageContextSchema>;
 export type DeskContextRequest = z.infer<typeof deskContextRequestSchema>;
 export type ModContext = z.infer<typeof modContextSchema>;
+export type DeskVisualContextRequest = z.infer<
+  typeof deskVisualContextRequestSchema
+>;
+export type ModVisualContext = z.infer<typeof modVisualContextSchema>;
+export type ModVisualCapturePayload = Extract<
+  ModVisualContext,
+  { ok: true }
+>["capture"];
 export type ModActionRequest = z.infer<typeof modActionRequestSchema>;
+export type ModAgentRequest = z.infer<typeof modAgentRequestSchema>;
 export type DeskActionResult = z.infer<typeof deskActionResultSchema>;
 export type DeskUiActionRequest = z.infer<typeof deskUiActionRequestSchema>;
 export type ModUiActionResult = z.infer<typeof modUiActionResultSchema>;

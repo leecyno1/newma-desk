@@ -365,10 +365,22 @@ def _quote_identity(market: str, symbol: str, name: str = "") -> dict[str, Any]:
     }
 
 
+def _price_as_of(value: str | None, timezone: str) -> str | None:
+    if not value:
+        return None
+    for pattern in ('%Y%m%d%H%M%S', '%Y/%m/%d %H:%M:%S', '%Y-%m-%d %H:%M:%S'):
+        try:
+            return datetime.strptime(value, pattern).replace(tzinfo=ZoneInfo(timezone)).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
 def _cn_quote(symbol: str, raw: dict[str, Any]) -> dict[str, Any]:
     identity = _quote_identity("CN", symbol, str(raw.get("name") or symbol))
     return {
         **identity,
+        "priceAsOf": _price_as_of(raw.get('quote_time'), 'Asia/Shanghai'),
         "price": raw.get("price"),
         "change": raw.get("change_amt"),
         "changePct": raw.get("change_pct"),
@@ -410,6 +422,7 @@ def _global_quote(market: str, symbol: str, raw: dict[str, Any]) -> dict[str, An
         identity["exchange"] = raw["market"]
     return {
         **identity,
+        "priceAsOf": _price_as_of(quote.get('quote_time'), quote.get('quote_timezone') or identity['timezone']),
         "price": price,
         "change": change,
         "changePct": quote.get("change_pct"),

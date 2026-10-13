@@ -69,59 +69,6 @@ STATUS_MAP = {
     "cancelled": "cancelled",
 }
 
-CLI_ADAPTERS: dict[str, dict[str, Any]] = {
-    "claude": {
-        "binary": "claude",
-        "version_args": ["--version"],
-        "args": ["--print"],
-        "prompt_via_stdin": True,
-    },
-    "codex": {
-        "binary": "codex",
-        "version_args": ["--version"],
-        "args": ["exec", "--skip-git-repo-check"],
-        "prompt_via_stdin": True,
-    },
-    "gemini": {
-        "binary": "gemini",
-        "version_args": ["--version"],
-        "args": [],
-        "prompt_via_stdin": True,
-    },
-    "cursor-agent": {
-        "binary": "cursor-agent",
-        "version_args": ["--version"],
-        "args": ["--print"],
-        "prompt_via_stdin": True,
-    },
-    "opencode": {
-        "binary": "opencode",
-        "version_args": ["--version"],
-        "args": ["run"],
-        "prompt_via_stdin": True,
-    },
-    "qwen": {
-        "binary": "qwen",
-        "version_args": ["--version"],
-        "args": [],
-        "prompt_via_stdin": True,
-    },
-    "qoder-cli": {
-        "binary": "qodercli",
-        "version_args": ["-v"],
-        "args": ["-p", "-"],
-        "prompt_via_stdin": True,
-    },
-    "hermes": {
-        "binary": "hermes",
-        "version_args": ["version"],
-        "args": ["chat", "-Q", "-q"],
-        "prompt_via_stdin": False,
-        "prompt_as_last_arg": True,
-    },
-}
-
-
 def approve_stage_gate(run_id: str, stage: str, gate_file: str = "", selected_ids: str = "") -> dict[str, Any]:
     """把阶段 gate 文件状态翻 approved（desk review-gate approve 联动写盘）。
 
@@ -1871,29 +1818,6 @@ def execute_subprocess_adapter(
     command, output_dir = mainline_command(adapter, request)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build subprocess env: inherit parent env, then inject agent selection
-    env = os.environ.copy()
-    parameters = request.get("parameters") or {}
-    agent_cli = (
-        request.get("agent_cli")
-        or parameters.get("agent_cli")
-        or parameters.get("agentCli")
-        or ""
-    )
-    agent_bin = (
-        request.get("agent_cli_bin")
-        or parameters.get("agent_cli_bin")
-        or parameters.get("agentCliBin")
-        or ""
-    )
-    if agent_cli:
-        env["DRAFT_CLI_AGENT"] = str(agent_cli)
-        # Also set generic env vars other stages might read
-        env["NEWMA_CLI_AGENT"] = str(agent_cli)
-    if agent_bin:
-        env["DRAFT_CLI_BIN_OVERRIDE"] = str(agent_bin)
-        env["NEWMA_CLI_BIN_OVERRIDE"] = str(agent_bin)
-
     result = subprocess.run(
         [sys.executable, *command],
         cwd=ROOT,
@@ -1901,16 +1825,13 @@ def execute_subprocess_adapter(
         text=True,
         check=False,
         timeout=int(adapter.get("timeout_seconds") or 1800),
-        env=env,
     )
     payload = parse_json_stdout(result.stdout)
     artifacts = discover_execution_artifacts(adapter, output_dir, payload)
     logs = [
         {
             "at": now_iso(),
-            "message": f"已调用 {adapter['id']}，退出码 {result.returncode}。" + (
-                f"（agent={agent_cli}）" if agent_cli else ""
-            ),
+            "message": f"已调用 {adapter['id']}，退出码 {result.returncode}。",
         }
     ]
     if result.stderr.strip():
@@ -2193,7 +2114,7 @@ def detect_cli_capabilities(registry: dict[str, Any]) -> dict[str, Any]:
         resolved = shutil.which(str(binary))
         version = None
         if resolved:
-            version_args = CLI_ADAPTERS.get(str(adapter.get("id")), {}).get("version_args", ["--version"])
+            version_args = adapter.get("version_args") or ["--version"]
             try:
                 result = subprocess.run(
                     [resolved, *version_args],
@@ -2221,58 +2142,6 @@ def detect_cli_capabilities(registry: dict[str, Any]) -> dict[str, Any]:
         "generated_at": now_iso(),
         "capabilities": rows,
         "available_count": sum(1 for row in rows if row["available"]),
-    }
-
-
-def invoke_cli(
-    agent_id: str,
-    prompt: str,
-    workdir: str,
-    timeout: int,
-    binary_override: str = "",
-) -> dict[str, Any]:
-    registry = load_registry()
-    registered = {row["id"]: row for row in registry.get("capability_adapters", [])}
-    adapter = registered.get(agent_id)
-    if not adapter or adapter.get("mode") != "output_only" or agent_id not in CLI_ADAPTERS:
-        raise ValueError(f"CLI 未注册为可调用的 output_only Adapter：{agent_id}")
-    definition = CLI_ADAPTERS[agent_id]
-    binary = ""
-    if binary_override.strip():
-        candidate = Path(binary_override).expanduser().resolve()
-        if not candidate.is_file() or not os.access(candidate, os.X_OK):
-            raise FileNotFoundError(f"CLI binary 不可执行：{candidate}")
-        binary = str(candidate)
-    else:
-        binary = shutil.which(definition["binary"])
-    if not binary:
-        raise FileNotFoundError(f"未安装 CLI：{definition['binary']}")
-    cwd = Path(workdir).expanduser().resolve()
-    if not cwd.is_dir() or cwd in {Path("/"), Path.home()}:
-        raise ValueError(f"不安全的工作目录：{cwd}")
-    args = [binary, *definition.get("args", [])]
-    input_text = prompt if definition.get("prompt_via_stdin") else None
-    if definition.get("prompt_as_last_arg"):
-        args.append(prompt)
-    started = time.monotonic()
-    result = subprocess.run(
-        args,
-        cwd=cwd,
-        input=input_text,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout,
-    )
-    return {
-        "schema_version": "newma.capability_invocation.v1",
-        "agent_id": agent_id,
-        "status": "succeeded" if result.returncode == 0 else "failed",
-        "exit_code": result.returncode,
-        "duration_ms": round((time.monotonic() - started) * 1000),
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "workdir": str(cwd),
     }
 
 
@@ -2868,16 +2737,7 @@ def parse_args() -> argparse.Namespace:
     init_parser.add_argument("--output-root", default="")
     init_parser.add_argument("--run-id", default="")
 
-    subparsers.add_parser("detect-capabilities", help="检测本机已安装的 CLI 能力。")
-
-    invoke_parser = subparsers.add_parser("invoke-cli", help="调用已注册的 output-only CLI Adapter。")
-    invoke_parser.add_argument("--agent", required=True)
-    invoke_parser.add_argument("--prompt", default="")
-    invoke_parser.add_argument("--prompt-file", default="")
-    invoke_parser.add_argument("--workdir", default=str(ROOT))
-    invoke_parser.add_argument("--timeout", type=int, default=180)
-    invoke_parser.add_argument("--bin-override", default="")
-    invoke_parser.add_argument("--output", default="")
+    subparsers.add_parser("detect-capabilities", help="检测本机已安装的确定性 CLI 依赖。")
 
     run_node_parser = subparsers.add_parser("run-node", help="调用节点已注册的白名单执行器。")
     run_node_parser.add_argument("--request-file", default="-", help="节点执行请求 JSON；- 表示 stdin。")
@@ -2965,23 +2825,6 @@ def main() -> int:
             return 0
         if args.command == "detect-capabilities":
             emit(detect_cli_capabilities(registry))
-            return 0
-        if args.command == "invoke-cli":
-            prompt = args.prompt
-            if args.prompt_file:
-                prompt = Path(args.prompt_file).expanduser().resolve().read_text(encoding="utf-8")
-            if not prompt.strip():
-                raise ValueError("prompt 或 prompt-file 不能为空")
-            emit(
-                invoke_cli(
-                    args.agent,
-                    prompt,
-                    args.workdir,
-                    args.timeout,
-                    args.bin_override,
-                ),
-                args.output,
-            )
             return 0
         if args.command == "run-node":
             request = (

@@ -82,7 +82,7 @@ export default function FundDrawdownRecoveryPanel({ snapshot }: { snapshot: Fund
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#e1e6e2] p-5 sm:p-6">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold"><TrendingDown className="h-5 w-5 text-[#28745c]" />回撤与修复</h2>
-          <p className="mt-1 text-xs leading-6 text-[#7a8580]">基于真实{snapshot.navBasis === 'accum_nav' ? '累计净值' : '单位净值'}，统计跌离前高、跌到谷底和恢复至原高点的时间。</p>
+          <p className="mt-1 text-xs leading-6 text-[#7a8580]">基于真实{snapshot.navBasis === 'adj_nav' ? '复权净值' : snapshot.navBasis === 'accum_nav' ? '累计净值' : '单位净值'}，统计跌离前高、跌到谷底和恢复至原高点的时间。</p>
         </div>
         <span className={`px-2.5 py-1 text-[11px] font-bold ${warning ? 'bg-[#fbe9e5] text-[#915248]' : 'bg-[#e2f0e8] text-[#1f684e]'}`}>{statusLabel(snapshot.status)}</span>
       </div>

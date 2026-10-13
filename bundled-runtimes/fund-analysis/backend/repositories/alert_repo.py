@@ -195,6 +195,41 @@ class AlertRepo:
             rows = conn.execute(text(sql), params).fetchall()
         return [_row_to_dict(row) for row in rows]
 
+    def event_exists(self, fund_id: str, event_type: str, detail_key: str, detail_value: str) -> bool:
+        from sqlalchemy import text
+
+        sql = """
+            SELECT 1
+            FROM alert_events
+            WHERE fund_id = :fund_id
+              AND event_type = :event_type
+              AND details ->> :detail_key = :detail_value
+            LIMIT 1
+        """
+        with self.engine.connect() as conn:
+            row = conn.execute(text(sql), {
+                "fund_id": fund_id,
+                "event_type": event_type,
+                "detail_key": detail_key,
+                "detail_value": detail_value,
+            }).fetchone()
+        return row is not None
+
+    def has_open_event(self, fund_id: str, event_type: str) -> bool:
+        from sqlalchemy import text
+
+        sql = """
+            SELECT 1
+            FROM alert_events
+            WHERE fund_id = :fund_id
+              AND event_type = :event_type
+              AND status <> 'resolved'
+            LIMIT 1
+        """
+        with self.engine.connect() as conn:
+            row = conn.execute(text(sql), {"fund_id": fund_id, "event_type": event_type}).fetchone()
+        return row is not None
+
     def update_event_status(self, event_id: str, status: str) -> Dict[str, Any]:
         from sqlalchemy import text
 

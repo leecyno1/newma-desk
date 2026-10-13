@@ -125,26 +125,6 @@ def validate_profiles(
             )
 
 
-def validate_newma_webui_route(config: dict, issues: list[str]) -> None:
-    api = config.get("services", {}).get("api", {})
-    extra_hosts = api.get("extra_hosts", {})
-    if isinstance(extra_hosts, list):
-        has_host_gateway = any(
-            str(entry).startswith(
-                ("host.docker.internal:", "host.docker.internal=")
-            )
-            for entry in extra_hosts
-        )
-    else:
-        has_host_gateway = "host.docker.internal" in extra_hosts
-    if not has_host_gateway:
-        issues.append("core:api cannot resolve the Docker host WebUI listener")
-
-    env_text = (SERVER / ".env.server.example").read_text(encoding="utf-8")
-    if "NEWMA_DESK_HERMES_WEBUI_BASE_URL=" not in env_text:
-        issues.append("core:.env.server.example is missing the Desk -> WebUI route")
-
-
 def main() -> int:
     if shutil.which("docker") is None:
         print("docker CLI with the Compose plugin is required", file=sys.stderr)
@@ -178,7 +158,6 @@ def main() -> int:
         },
         issues,
     )
-    validate_newma_webui_route(core, issues)
     validate_profiles(
         "integrations",
         integrations,

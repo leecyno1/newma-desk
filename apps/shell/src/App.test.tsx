@@ -594,254 +594,30 @@ describe("App", () => {
     expect(restoredPreferences.projects?.["market-daily"]?.label).toBeUndefined();
   });
 
-  it("opens Agent settings and persists a local CLI selection", async () => {
-    let savedBody: unknown;
+  it("exposes standalone Agent settings without loading them eagerly", async () => {
+    let legacyGatewayRequests = 0;
     serveRegistry([marketModule]);
     server.use(
-      http.get("/api/capabilities", () =>
-        HttpResponse.json({
-          adapters: [
-            {
-              id: "codex-cli",
-              name: "Codex CLI",
-              description: "本机 Codex",
-              kind: "local-cli",
-              available: true,
-              supportsMemory: true,
-              capabilities: [
-                "chat",
-                "module.explain",
-                "module.analyze",
-                "module.edit",
-              ],
-              default: true,
-            },
-            {
-              id: "claude-cli",
-              name: "Claude Code",
-              description: "本机 Claude",
-              kind: "local-cli",
-              available: true,
-              supportsMemory: true,
-              capabilities: [
-                "chat",
-                "module.explain",
-                "module.analyze",
-                "module.edit",
-              ],
-              default: false,
-            },
-          ],
-          moduleActions: [],
-        }),
-      ),
-      http.get("/api/agent/preferences", () =>
-        HttpResponse.json({
-          userId: "local-user",
-          defaultAdapter: "codex-cli",
-          moduleOverrides: {},
-          profileTargets: {},
-          moduleProfileOverrides: {},
-          updatedAt: null,
-        }),
-      ),
-      http.get("/api/model/providers", () =>
-        HttpResponse.json({
-          providers: [
-            {
-              id: "openai-compatible",
-              name: "快速模型",
-              available: true,
-              capabilities: ["chat", "module.explain"],
-              default: true,
-            },
-          ],
-        }),
-      ),
-      http.put("/api/agent/preferences", async ({ request }) => {
-        savedBody = await request.json();
-        return HttpResponse.json({
-          userId: "local-user",
-          ...(savedBody as object),
-          updatedAt: "2026-07-21T00:00:00Z",
-        });
+      http.get("/api/capabilities", () => {
+        legacyGatewayRequests += 1;
+        return new HttpResponse(null, { status: 410 });
+      }),
+      http.get("/api/agent/preferences", () => {
+        legacyGatewayRequests += 1;
+        return new HttpResponse(null, { status: 410 });
+      }),
+      http.get("/api/model/providers", () => {
+        legacyGatewayRequests += 1;
+        return new HttpResponse(null, { status: 410 });
       }),
     );
     render(<App />);
 
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Agent 设置" }),
-    );
+    expect(await screen.findByTitle("市场行情")).toBeVisible();
     expect(
-      await screen.findByRole("heading", { name: "Agent 设置" }),
+      screen.getByRole("button", { name: "Agent 设置" }),
     ).toBeVisible();
-    await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: "深度研究执行器" }),
-      "claude-cli",
-    );
-    await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: "市场行情深度研究执行器" }),
-      "claude-cli",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "保存设置" }),
-    );
-
-    await waitFor(() =>
-      expect(savedBody).toEqual({
-        defaultAdapter: "claude-cli",
-        moduleOverrides: {},
-        profileTargets: {
-          quick: "openai-compatible",
-          deep: "claude-cli",
-          batch: "codex-cli",
-          edit: "codex-cli",
-        },
-        moduleProfileOverrides: {
-          "market-daily": { deep: "claude-cli" },
-        },
-      }),
-    );
-    expect(
-      screen.getByText(/Agent 选择已保存/),
-    ).toBeVisible();
-  });
-
-  it("saves a batch-only CLI override for a Deepsee Mod", async () => {
-    let savedBody: unknown;
-    const deepseeWechat: StoredMod = {
-      moduleId: "deepsee-wechat",
-      revision: 1,
-      status: "published",
-      manifest: {
-        schemaVersion: "1.1",
-        id: "deepsee-wechat",
-        name: "Deepsee 微信",
-        version: "0.1.0",
-        category: "deepsee",
-        entry: { type: "static", url: "/modules/deepsee-wechat/" },
-        compatibility: { level: 2, bridgeProtocol: "1.0" },
-        permissions: ["deepsee.ai"],
-        dataServices: [],
-        actions: {
-          "deepsee.wechat.batch-analyze": {
-            binding: {
-              type: "agent",
-              capability: "deepsee.wechat.batch-analyze",
-              profile: "batch",
-              memoryScope: "task",
-            },
-            execution: "task",
-            permission: "deepsee.ai",
-            confirmation: "none",
-          },
-        },
-        events: { emits: [], accepts: [] },
-      },
-      createdAt: "2026-08-20T00:00:00Z",
-    };
-    serveRegistry([deepseeWechat]);
-    server.use(
-      http.get("/api/capabilities", () =>
-        HttpResponse.json({
-          adapters: [
-            {
-              id: "codex-cli",
-              name: "Codex CLI",
-              kind: "local-cli",
-              available: true,
-              supportsMemory: true,
-              capabilities: [
-                "chat",
-                "module.explain",
-                "module.analyze",
-                "module.edit",
-              ],
-              default: true,
-            },
-            {
-              id: "minimax-cli",
-              name: "MiniMax CLI",
-              kind: "local-cli",
-              available: true,
-              supportsMemory: false,
-              capabilities: ["module.analyze"],
-              default: false,
-            },
-          ],
-          moduleActions: [],
-        }),
-      ),
-      http.get("/api/agent/preferences", () =>
-        HttpResponse.json({
-          userId: "local-user",
-          defaultAdapter: "codex-cli",
-          moduleOverrides: {},
-          profileTargets: {
-            quick: "openai-compatible",
-            deep: "codex-cli",
-            batch: "codex-cli",
-            edit: "codex-cli",
-          },
-          moduleProfileOverrides: {},
-          updatedAt: null,
-        }),
-      ),
-      http.get("/api/model/providers", () =>
-        HttpResponse.json({
-          providers: [
-            {
-              id: "openai-compatible",
-              name: "快速模型",
-              available: true,
-              capabilities: ["chat", "module.explain"],
-              default: true,
-            },
-          ],
-        }),
-      ),
-      http.put("/api/agent/preferences", async ({ request }) => {
-        savedBody = await request.json();
-        return HttpResponse.json({
-          userId: "local-user",
-          ...(savedBody as object),
-          updatedAt: "2026-08-20T00:00:00Z",
-        });
-      }),
-    );
-    render(<App />);
-
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Agent 设置" }),
-    );
-    await userEvent.selectOptions(
-      await screen.findByRole("combobox", {
-        name: "Deepsee 微信批量处理执行器",
-      }),
-      "minimax-cli",
-    );
-    expect(
-      screen.queryByRole("combobox", {
-        name: "Deepsee 微信深度研究执行器",
-      }),
-    ).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "保存设置" }));
-
-    await waitFor(() =>
-      expect(savedBody).toEqual({
-        defaultAdapter: "codex-cli",
-        moduleOverrides: {},
-        profileTargets: {
-          quick: "openai-compatible",
-          deep: "codex-cli",
-          batch: "codex-cli",
-          edit: "codex-cli",
-        },
-        moduleProfileOverrides: {
-          "deepsee-wechat": { batch: "minimax-cli" },
-        },
-      }),
-    );
+    expect(legacyGatewayRequests).toBe(0);
   });
 
   it("uses Mod navigation metadata for the Newma-Desk sidebar", async () => {
@@ -1397,7 +1173,7 @@ describe("App", () => {
     ).toHaveAttribute("aria-current", "page");
   });
 
-  it("opens the Agent sidebar from a deep link and removes the URL flag on close", async () => {
+  it("opens the local Copilot from a standalone deep link", async () => {
     window.history.replaceState(null, "", "/?mod=market-daily&copilot=1");
     serveRegistry([marketModule]);
     server.use(
@@ -1419,19 +1195,69 @@ describe("App", () => {
         userId: "local-user",
         defaultAdapter: "codex-cli",
         moduleOverrides: {},
+        profileTargets: {},
+        moduleProfileOverrides: {},
         updatedAt: null,
       })),
+      http.get("/api/model/providers", () => HttpResponse.json({ providers: [] })),
     );
     render(<App />);
 
-    const toggle = await screen.findByRole("button", { name: "问当前 Mod" });
-    expect(toggle).toHaveAttribute("aria-pressed", "true");
-    await userEvent.click(
-      await screen.findByRole("button", { name: "关闭 Agent 侧栏" }),
-    );
+    expect(await screen.findByTitle("市场行情")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "问当前 Mod" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("complementary", { name: "市场行情 Agent" })).toBeVisible();
+    expect(window.location.search).toBe("?mod=market-daily&copilot=1");
+  });
 
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
-    expect(window.location.search).toBe("?mod=market-daily");
+  it("renders standalone Mod surfaces with the Desk Gateway Copilot", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/?mod=market-daily&copilot=1&standalone=1",
+    );
+    serveRegistry([marketModule]);
+    server.use(
+      http.get("/api/capabilities", () => HttpResponse.json({
+        adapters: [
+          {
+            id: "codex-cli",
+            name: "Codex CLI",
+            kind: "local-cli",
+            available: true,
+            supportsMemory: true,
+            capabilities: ["chat", "module.explain", "module.edit"],
+            default: true,
+          },
+        ],
+        moduleActions: [],
+      })),
+      http.get("/api/agent/preferences", () => HttpResponse.json({
+        userId: "local-user",
+        defaultAdapter: "codex-cli",
+        moduleOverrides: {},
+        profileTargets: {},
+        moduleProfileOverrides: {},
+        updatedAt: null,
+      })),
+      http.get("/api/model/providers", () => HttpResponse.json({ providers: [] })),
+    );
+    render(<App />);
+
+    expect(await screen.findByTitle("市场行情")).toBeVisible();
+    expect(document.querySelector(".shell-layout")).toHaveAttribute(
+      "data-standalone",
+      "true",
+    );
+    expect(
+      screen.queryByRole("navigation", { name: "Newma-Desk Mod 导航" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "问当前 Mod" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("complementary", { name: "市场行情 Agent" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "独立打开" })).not.toBeInTheDocument();
   });
 
   it("reuses the host shell when embedded and renders only the selected Mod", async () => {
@@ -1452,6 +1278,94 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: "关闭 Agent 侧栏" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "独立打开" })).not.toBeInTheDocument();
     expect(window.location.search).toBe("?mod=market-daily&copilot=1");
+  });
+
+  it("forwards embedded Mod Agent requests to the owning Newma session", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/?mod=market-daily&host=newma&project=market-surface&workspace=newma-mod-market-123&parentOrigin=https%3A%2F%2Fnewma.example",
+    );
+    serveRegistry([marketModule]);
+    const parentPost = vi
+      .spyOn(window, "postMessage")
+      .mockImplementation(() => undefined);
+
+    render(<App embedded />);
+
+    const frame = await screen.findByTitle("市场行情") as HTMLIFrameElement;
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) throw new Error("expected iframe window");
+    const framePost = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => undefined);
+    dispatchFromModFrame(frame, {
+      type: "vibedesk:hello",
+      modId: "market-daily",
+      protocolVersions: ["1.0"],
+      capabilities: ["agent", "context"],
+    });
+    await waitFor(() => expect(framePost).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "vibedesk:init" }),
+      new URL(frame.src).origin,
+    ));
+    const init = framePost.mock.calls.find(
+      ([message]) => typeof message === "object" && message !== null
+        && "type" in message && message.type === "vibedesk:init",
+    )?.[0] as { instanceId: string; modId: string };
+    dispatchFromModFrame(frame, {
+      type: "vibedesk:ack",
+      protocolVersion: "1.0",
+      instanceId: init.instanceId,
+      modId: init.modId,
+    });
+    dispatchFromModFrame(frame, {
+      type: "vibedesk:copilot-open",
+      instanceId: init.instanceId,
+      modId: init.modId,
+      mode: "ask",
+      prompt: "分析当前页面",
+    });
+
+    await waitFor(() => expect(framePost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vibedesk:context-request",
+        reason: "agent",
+      }),
+      new URL(frame.src).origin,
+    ));
+    const contextRequest = framePost.mock.calls.find(
+      ([message]) => typeof message === "object" && message !== null
+        && "type" in message && message.type === "vibedesk:context-request"
+        && "reason" in message && message.reason === "agent",
+    )?.[0] as { requestId: string };
+    dispatchFromModFrame(frame, {
+      type: "vibedesk:context",
+      requestId: contextRequest.requestId,
+      instanceId: init.instanceId,
+      modId: init.modId,
+      context: {
+        view: { id: "market-daily", title: "市场行情" },
+        visibleBlocks: [],
+        selection: { symbol: "600519" },
+        filters: {},
+        data: { freshness: "fresh" },
+        actions: [],
+        tasks: [],
+      },
+    });
+
+    await waitFor(() => expect(parentPost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "newma:agent-request",
+        protocol: "newma:mod-host:v1",
+        projectId: "market-surface",
+        modId: "market-daily",
+        workspaceId: "newma-mod-market-123",
+        prompt: "分析当前页面",
+      }),
+      "https://newma.example",
+    ));
   });
 
   it("fails closed when an embedded requested Mod is missing from the runtime", async () => {
@@ -1577,7 +1491,7 @@ describe("App", () => {
     ).toBeVisible();
   });
 
-  it("keeps an external URL and exposes it through the open link", async () => {
+  it("keeps an external iframe URL but opens it through the Desk standalone route", async () => {
     const external = storedModule({
       id: "external-research",
       name: "外部研究",
@@ -1591,11 +1505,13 @@ describe("App", () => {
       "src",
       "https://example.com/research?id=42",
     );
-    expect(screen.getByRole("link", { name: "独立打开" })).toHaveAttribute(
-      "href",
-      "https://example.com/research?id=42",
-    );
-    expect(screen.getByRole("link", { name: "独立打开" })).toHaveAttribute(
+    const openLink = screen.getByRole("link", { name: "独立打开" });
+    const openUrl = new URL(openLink.getAttribute("href") ?? "", window.location.href);
+    expect(openUrl.origin).toBe(window.location.origin);
+    expect(openUrl.searchParams.get("mod")).toBe("external-research");
+    expect(openUrl.searchParams.get("copilot")).toBeNull();
+    expect(openUrl.searchParams.get("standalone")).toBe("1");
+    expect(openLink).toHaveAttribute(
       "rel",
       "noreferrer",
     );

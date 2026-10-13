@@ -119,11 +119,15 @@ class FundNavEvidenceService:
         self,
         nav_series: List[Dict[str, Any]],
         benchmark_series: List[Dict[str, Any]],
+        benchmark_code: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """仅按真实共同日期对齐基准净值，不前值填充、不伪造覆盖率。"""
+        benchmark_code = str(benchmark_code or '').strip().upper() or None
         benchmark_by_date = {
-            normalized_date: value
+            normalized_date: (value, item.get('source'))
             for item in benchmark_series
+            if (not benchmark_code or not item.get('benchmark_code')
+                or str(item['benchmark_code']).strip().upper() == benchmark_code)
             if (normalized_date := self._date_text(item.get("date") or item.get("trade_date")))
             if (value := self._positive_number(item.get("nav") or item.get("close"))) is not None
         }
@@ -132,12 +136,14 @@ class FundNavEvidenceService:
         for item in nav_series:
             copied = dict(item)
             item_date = self._date_text(item.get("date") or item.get("trade_date"))
-            benchmark_nav = benchmark_by_date.get(item_date)
-            if benchmark_nav is not None:
-                copied["benchmark_nav"] = benchmark_nav
+            benchmark_point = benchmark_by_date.get(item_date)
+            copied['benchmark_nav'] = None
+            copied['benchmark_code'] = None
+            copied['benchmark_source'] = None
+            if benchmark_point is not None:
+                copied["benchmark_nav"], copied['benchmark_source'] = benchmark_point
+                copied['benchmark_code'] = benchmark_code
                 matched += 1
-            else:
-                copied.pop("benchmark_nav", None)
             enriched.append(copied)
         return enriched, matched
 
@@ -349,6 +355,7 @@ class FundNavDataEnrichmentService:
             enriched_series, benchmark_points = self.evidence_service.attach_benchmark_nav(
                 nav_series,
                 benchmark_series,
+                benchmark_code=benchmark_code,
             )
             if benchmark_points >= 2:
                 benchmark_status = "available"

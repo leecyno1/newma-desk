@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from services.metric_factory import MetricFactory
+from services.performance_nav_series import normalize_performance_rows, performance_evidence
 from services.fund_product_identity import fund_product_identity
 from services.manager_tenure_coverage import build_manager_tenure_coverage
 
@@ -151,15 +152,17 @@ class FundManagerCareerService:
 
         fund_series = [{"date": item["date"], "nav": item["nav"]} for item in metric_rows]
         benchmark_series = [
-            {"date": item["date"], "nav": item["benchmark_nav"]}
+            {"date": item["date"], "nav": item["benchmark_nav"], "risk_calendar": item.get("risk_calendar")}
             for item in metric_rows
             if item.get("benchmark_nav") is not None
         ]
         metrics: Dict[str, Any] = {}
-        metrics.update(self.metric_factory.calculate_return_metrics(fund_series))
-        metrics.update(self.metric_factory.calculate_risk_metrics(fund_series))
+        evidence_rows = normalize_performance_rows(nav_rows)
+        evidence_rows = [item for item in evidence_rows if metric_rows[0]["date"] <= item["date"] <= metric_rows[-1]["date"]]
+        metrics.update(self.metric_factory.calculate_return_metrics(evidence_rows))
+        metrics.update(self.metric_factory.calculate_risk_metrics(evidence_rows))
         if len(benchmark_series) >= 2:
-            metrics.update(self.metric_factory.calculate_relative_metrics(fund_series, benchmark_series))
+            metrics.update(self.metric_factory.calculate_relative_metrics(evidence_rows, benchmark_series))
 
         fund_base = metric_rows[0]["nav"]
         benchmark_base = next(
@@ -238,6 +241,7 @@ class FundManagerCareerService:
             "curve": curve,
             "events": events,
             "evidence": {
+                **performance_evidence(evidence_rows),
                 "nav_observations": len(metric_rows),
                 "memo_event_count": len(events),
                 "manager_tenure_start": tenure_start,
@@ -381,20 +385,7 @@ class FundManagerCareerService:
 
     @staticmethod
     def _normalize_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        normalized: Dict[date, Dict[str, Any]] = {}
-        for row in rows:
-            item_date = FundManagerCareerService._parse_date(row.get("date") or row.get("trade_date"))
-            value = FundManagerCareerService._positive_number(
-                row.get("accum_nav") or row.get("adj_nav") or row.get("nav") or row.get("unit_nav")
-            )
-            if item_date is None or value is None:
-                continue
-            normalized[item_date] = {
-                "date": item_date,
-                "nav": value,
-                "benchmark_nav": FundManagerCareerService._positive_number(row.get("benchmark_nav")),
-            }
-        return [normalized[key] for key in sorted(normalized)]
+        return [row for row in normalize_performance_rows(rows) if row["nav"] is not None]
 
     def _events(
         self,

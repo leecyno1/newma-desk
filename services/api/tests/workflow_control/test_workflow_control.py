@@ -430,7 +430,16 @@ def test_matrix_template_is_preserved_in_run(workflow):
                     "stageId": "decision",
                 },
             ],
-            edges=[{"source": "research-input", "target": "review-decision"}],
+            edges=[
+                {
+                    "source": "research-input",
+                    "target": "review-decision",
+                    "name": "提交复核",
+                    "kind": "condition",
+                    "condition": "evidence_count >= 3",
+                    "parameters": {"evidence_count": 3, "strict": True},
+                }
+            ],
         ),
     )
     run = run_for(service, owner, template, "矩阵运行")
@@ -438,6 +447,8 @@ def test_matrix_template_is_preserved_in_run(workflow):
     assert [lane["id"] for lane in run["lanes"]] == ["research", "review"]
     assert [stage["id"] for stage in run["stages"]] == ["input", "decision"]
     assert run["nodes"][0]["promotedToMenu"] is True
+    assert run["edges"][0]["name"] == "提交复核"
+    assert run["edges"][0]["parameters"] == {"evidence_count": 3, "strict": True}
 
 
 def test_completed_run_becomes_needs_rework_when_lineage_is_stale(workflow):

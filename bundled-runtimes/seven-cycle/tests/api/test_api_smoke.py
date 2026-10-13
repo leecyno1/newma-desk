@@ -257,7 +257,10 @@ def test_health_and_spa_share_the_verified_release(tmp_path: Path) -> None:
         "status": "ok",
         "web": "available",
     }
+    index = client.get("/")
+    assert index.headers["cache-control"] == "no-cache, must-revalidate"
     assert "Circle" in client.get("/cycles").text
+    assert client.get("/cycles").headers["cache-control"] == "no-cache, must-revalidate"
     assert client.get("/data/release.json").json() == {"status": "ready"}
     missing_api = client.get("/v1/missing")
     assert missing_api.status_code == 404

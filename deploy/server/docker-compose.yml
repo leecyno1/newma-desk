@@ -30,8 +30,6 @@ services:
     env_file: .env.server
     environment:
       <<: *core-environment
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     ports:
       - "8911:8911"
     volumes:

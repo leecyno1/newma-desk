@@ -184,7 +184,7 @@ export function MultiTimeframeWorkspace({
           </dl>
           <div className="inspector-note">
             <strong>联动状态</strong>
-            <span>证券、指标和主题已同步；当前聚焦周期会进入 Desk Agent 上下文。</span>
+            <span>证券、指标和主题已同步；当前聚焦周期会进入 Newma Agent Context。</span>
           </div>
         </aside>
       </div>

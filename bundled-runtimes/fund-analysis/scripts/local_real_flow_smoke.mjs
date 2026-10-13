@@ -26,12 +26,17 @@ assert(Array.isArray(fundsPayload.data) && fundsPayload.data.length >= 2, 'expec
 const [primaryFund, secondaryFund] = fundsPayload.data
 assert(primaryFund.windCode && primaryFund.id, `primary fund missing identifiers: ${JSON.stringify(primaryFund)}`)
 
-const detailPath = `/api/funds/${encodeURIComponent(primaryFund.id)}?purchasePlan=${purchasePlan}&plannedAmount=${plannedAmount}`
-const { response: detailResponse, payload: detailPayload } = await requestJson(detailPath)
-assert(detailResponse.ok, `fund detail failed: ${detailResponse.status}`)
-assert(detailPayload.windCode === primaryFund.windCode, 'fund detail should resolve the selected real fund')
-assert(detailPayload.buyEvidence, 'fund detail should expose buyEvidence')
-assert(detailPayload.peerPercentiles !== undefined, 'fund detail should expose peer percentile field, even if unavailable')
+// 详情页现行流程：/funds/{code} 研究画像页 + research-snapshot 证据（购买口径的
+// buyEvidence 由后续 compare-matrix 步骤逐基金验证）。
+const detailPageResponse = await fetch(`${baseUrl}/funds/${encodeURIComponent(primaryFund.windCode)}`)
+assert(detailPageResponse.ok, `fund detail page failed: ${detailPageResponse.status}`)
+const detailPageHtml = await detailPageResponse.text()
+assert(detailPageHtml.includes(primaryFund.name || primaryFund.windCode), 'fund detail page should render the selected real fund')
+
+const snapshotPath = `/api/funds/${encodeURIComponent(primaryFund.windCode)}/research-snapshot?window=1y`
+const { response: snapshotResponse, payload: snapshotPayload } = await requestJson(snapshotPath)
+assert(snapshotResponse.ok, `research snapshot failed: ${snapshotResponse.status}`)
+assert(snapshotPayload.evaluation || snapshotPayload.evaluation_windows, 'research snapshot should expose evaluation evidence with peer context')
 
 const compareCodes = [primaryFund.windCode, secondaryFund.windCode]
 const { response: compareResponse, payload: comparePayload } = await requestJson('/api/funds/compare-matrix', {

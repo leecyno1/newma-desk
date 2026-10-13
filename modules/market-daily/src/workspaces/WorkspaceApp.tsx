@@ -498,7 +498,7 @@ export function MarketWorkspaceApp({
       <footer className="workspace-statusbar">
         <span><i />{config.modId}</span>
         <span>当前标的事件：security.selected · {security.market}:{security.symbol}</span>
-        <span>{lastSavedLayout ? `最近布局：${lastSavedLayout.name}` : "右侧 Desk Agent 可读取并操作本页"}</span>
+        <span>{lastSavedLayout ? `最近布局：${lastSavedLayout.name}` : "右侧 Newma Agent 可读取并操作本页"}</span>
       </footer>
     </main>
   );

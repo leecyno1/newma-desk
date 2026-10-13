@@ -25,6 +25,7 @@ import type { FundFeeRule, FundProductProfile } from './FundProductProfilePanel'
 import type { FundFofHoldingSnapshot } from './FundFofHoldingPanel'
 import type { FundDataQualitySnapshot } from './FundDataQualityPanel'
 import type { FundDrawdownRecoverySnapshot } from './FundDrawdownRecoveryPanel'
+import type { FundDerivedSeriesSnapshot } from './FundDerivedSeriesCharts'
 import type { FundPeriodPerformanceSnapshot } from './FundPeriodPerformancePanel'
 import type { FundShareClassSnapshot } from './FundShareClassPanel'
 import type { FundManagerHistorySnapshot } from './FundManagerHistoryPanel'
@@ -326,7 +327,7 @@ function normalizeEvaluationHistoryItem(value: unknown): FundEvaluationHistoryIt
 async function loadFundDetail(code: string) {
   const endDate = new Date().toISOString().slice(0, 10)
   const navParams = new URLSearchParams({ start_date: dateYearsAgo(4), end_date: endDate })
-  const [snapshotResult, navResult, holdingsResult, assetAllocationResult, shareClassesResult, managerHistoryResult, fofHoldingsResult, bondDurationResult, bondAnomalyResult, bondHoldingsResult, holderStructureResult, holdingChangesResult, evaluationHistoryResult] = await Promise.allSettled([
+  const [snapshotResult, navResult, holdingsResult, assetAllocationResult, shareClassesResult, managerHistoryResult, fofHoldingsResult, bondDurationResult, bondAnomalyResult, bondHoldingsResult, holderStructureResult, holdingChangesResult, evaluationHistoryResult, derivedSeriesResult] = await Promise.allSettled([
     fetch(`${backendApiBaseUrl}/api/funds/${encodeURIComponent(code)}/research-snapshot?window=1y&include_research=true&include_attribution=true&live_attribution=false`, { cache: 'no-store' }),
     fetch(`${backendApiBaseUrl}/api/funds/${encodeURIComponent(code)}/nav?${navParams.toString()}`, { cache: 'no-store' }),
     fetch(`${backendApiBaseUrl}/api/funds/${encodeURIComponent(code)}/holdings`, { cache: 'no-store' }),
@@ -340,6 +341,7 @@ async function loadFundDetail(code: string) {
     fetch(`${backendApiBaseUrl}/api/funds/${encodeURIComponent(code)}/holder-structure?limit=10`, { cache: 'no-store' }),
     fetch(`${backendApiBaseUrl}/api/funds/${encodeURIComponent(code)}/holding-changes`, { cache: 'no-store' }),
     fetch(`${backendApiBaseUrl}/api/funds/${encodeURIComponent(code)}/evaluation-history?limit=60`, { cache: 'no-store' }),
+    fetch(`${backendApiBaseUrl}/api/funds/${encodeURIComponent(code)}/derived-series?window=1y`, { cache: 'no-store' }),
   ])
 
   if (snapshotResult.status !== 'fulfilled' || !snapshotResult.value.ok) return null
@@ -416,25 +418,30 @@ async function loadFundDetail(code: string) {
     .map((value) => {
       const point = asRecord(value)
       const unitNav = numberOrNull(point.unit_nav ?? point.nav)
-      const accumNav = numberOrNull(point.accum_nav ?? point.adj_nav)
+      const accumNav = numberOrNull(point.accum_nav)
+      const adjNav = numberOrNull(point.adj_nav)
       return {
         date: textValue(point.date),
         unitNav,
         accumNav,
+        adjNav,
         benchmarkNav: numberOrNull(point.benchmark_nav),
+        riskCalendar: textValue(point.risk_calendar) || null,
       }
     })
-    .filter((point) => point.date && (point.unitNav != null || point.accumNav != null))
+    .filter((point) => point.date)
     .sort((left, right) => left.date.localeCompare(right.date))
 
+  const adjNavCount = rawNavPoints.filter((point) => point.adjNav != null).length
   const accumNavCount = rawNavPoints.filter((point) => point.accumNav != null).length
   const unitNavCount = rawNavPoints.filter((point) => point.unitNav != null).length
-  const useAccumNav = accumNavCount >= 2 && accumNavCount >= unitNavCount
+  const useAdjNav = adjNavCount >= 2 && adjNavCount >= Math.max(accumNavCount, unitNavCount) * 0.6
+  const useAccumNav = !useAdjNav && accumNavCount >= 2 && accumNavCount >= unitNavCount
   const nav: FundNavPoint[] = rawNavPoints
     .map((point) => ({
       ...point,
-      nav: useAccumNav ? point.accumNav ?? Number.NaN : point.unitNav ?? Number.NaN,
-      navBasis: useAccumNav ? 'accum_nav' as const : 'unit_nav' as const,
+      nav: useAdjNav ? point.adjNav ?? Number.NaN : useAccumNav ? point.accumNav ?? Number.NaN : point.unitNav ?? Number.NaN,
+      navBasis: useAdjNav ? 'adj_nav' as const : useAccumNav ? 'accum_nav' as const : 'unit_nav' as const,
     }))
     .filter((point) => Number.isFinite(point.nav) && point.nav > 0)
 
@@ -575,6 +582,28 @@ async function loadFundDetail(code: string) {
     missingItems: stringArray(drawdownRecoveryPayload.missing_items),
   }
 
+  const derivedSeriesPayload = derivedSeriesResult.status === 'fulfilled' && derivedSeriesResult.value.ok
+    ? asRecord(await derivedSeriesResult.value.json().catch(() => ({})))
+    : {}
+  const derivedSeries: FundDerivedSeriesSnapshot = {
+    status: textValue(derivedSeriesPayload.status) || 'insufficient_evidence',
+    window: textValue(derivedSeriesPayload.window) || '1y',
+    navBasis: textValue(derivedSeriesPayload.nav_basis),
+    historyStart: textValue(derivedSeriesPayload.history_start),
+    historyEnd: textValue(derivedSeriesPayload.history_end),
+    observations: Number(derivedSeriesPayload.observations || 0),
+    drawdownSeries: (Array.isArray(derivedSeriesPayload.drawdown_series) ? derivedSeriesPayload.drawdown_series : []).map((value) => {
+      const point = asRecord(value)
+      return { date: textValue(point.date), drawdown: numberOrNull(point.drawdown) }
+    }).filter((point) => point.date && point.drawdown != null),
+    rollingReturnSeries: (Array.isArray(derivedSeriesPayload.rolling_return_series) ? derivedSeriesPayload.rolling_return_series : []).map((value) => {
+      const point = asRecord(value)
+      return { date: textValue(point.date), value: numberOrNull(point.value) }
+    }).filter((point) => point.date && point.value != null),
+    boundary: textValue(derivedSeriesPayload.boundary),
+    missingItems: stringArray(derivedSeriesPayload.missing_items),
+  }
+
   const periodPerformanceSummaryPayload = asRecord(periodPerformancePayload.summary)
   const normalizePeriodSummary = (value: unknown) => {
     const item = asRecord(value)
@@ -585,6 +614,7 @@ async function loadFundDetail(code: string) {
     }
   }
   const periodPerformance: FundPeriodPerformanceSnapshot = {
+    methodologyVersion: textValue(periodPerformancePayload.methodology_version),
     status: textValue(periodPerformancePayload.status) || 'insufficient_evidence',
     navBasis: textValue(periodPerformancePayload.nav_basis),
     latestNavDate: textValue(periodPerformancePayload.latest_nav_date),
@@ -612,6 +642,8 @@ async function loadFundDetail(code: string) {
         percentile: numberOrNull(item.percentile),
         peerMedianReturn: numberOrNull(item.peer_median_return),
         abovePeerMedian: typeof item.above_peer_median === 'boolean' ? item.above_peer_median : null,
+        calendarStatus: textValue(asRecord(item.methodology).calendar_status),
+        missingOpenDays: numberOrNull(asRecord(item.methodology).missing_open_days),
       }
     }).filter((item) => item.year > 0 && item.label && Number.isFinite(item.return)),
     summary: {
@@ -928,6 +960,9 @@ async function loadFundDetail(code: string) {
   }
 
   const bondDuration: FundBondDurationSnapshot = {
+    indexCoverage: typeof asRecord(bondDurationPayload.index_inventory).ready_pairs === 'number'
+      && typeof asRecord(bondDurationPayload.index_inventory).expected_pairs === 'number'
+      ? { ready: Number(asRecord(bondDurationPayload.index_inventory).ready_pairs), expected: Number(asRecord(bondDurationPayload.index_inventory).expected_pairs) } : null,
     windCode: textValue(bondDurationPayload.wind_code) || code,
     status: textValue(bondDurationPayload.status) || 'unavailable',
     asOfDate: textValue(bondDurationPayload.as_of_date),
@@ -998,6 +1033,7 @@ async function loadFundDetail(code: string) {
     }),
     peerGroupName: textValue(bondAnomalyPayload.peer_group_name),
     peerFundCount: Number(bondAnomalyPayload.peer_fund_count || 0),
+    currentPeerCount: numberOrNull(bondAnomalyPayload.current_peer_count),
     minimumPeerCount: Number(bondAnomalyPayload.minimum_peer_count || 5),
     peerModelReady: Boolean(bondAnomalyPayload.peer_model_ready),
     formalMonitorReady: Boolean(bondAnomalyPayload.formal_monitor_ready),
@@ -1423,7 +1459,7 @@ async function loadFundDetail(code: string) {
     navDate: fund.navDate || latestRawNavPoint?.date || latestNavPoint?.date || null,
   }
 
-  return { fund: resolvedFund, nav, evaluationWindows, evaluationHistory, assessmentSummary, detailHighlights, plainLanguageBrief, researchMemos, dataQuality, shareClasses, managerHistory, managerTenurePerformance, assetAllocation, drawdownRecovery, periodPerformance, fofHoldings, bondAnomaly, bondDuration, bondHoldings, holderStructure, holdingSnapshot, holdingChanges, holdingStyle, holdingExperience, productProfile }
+  return { fund: resolvedFund, nav, performanceNav: rawNavPoints.map(({ date, adjNav, benchmarkNav, riskCalendar }) => ({ date, adjNav, benchmarkNav, riskCalendar })), evaluationWindows, evaluationHistory, assessmentSummary, detailHighlights, plainLanguageBrief, researchMemos, dataQuality, shareClasses, managerHistory, managerTenurePerformance, assetAllocation, drawdownRecovery, derivedSeries, periodPerformance, fofHoldings, bondAnomaly, bondDuration, bondHoldings, holderStructure, holdingSnapshot, holdingChanges, holdingStyle, holdingExperience, productProfile }
 }
 
 export default async function FundDetailPage({ params }: { params: Promise<{ id: string }> }) {

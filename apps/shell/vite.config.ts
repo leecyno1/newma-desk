@@ -9,7 +9,12 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     build: {
       target: "es2022",
+      minify: "terser",
       modulePreload: { polyfill: false },
+      terserOptions: {
+        compress: { passes: 2 },
+        format: { comments: false },
+      },
     },
     optimizeDeps: {
       // MapLibre owns a dedicated module worker. Keeping it out of Vite's

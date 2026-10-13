@@ -4,7 +4,7 @@ import {
   normalizeGatewayBaseUrl,
   requestGatewayJson,
   type GatewayFetch,
-} from "./agent";
+} from "./gateway";
 
 
 export interface ModStorageDocument<T = unknown> {

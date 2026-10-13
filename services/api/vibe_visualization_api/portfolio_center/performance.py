@@ -38,6 +38,8 @@ def analyze_performance(
 ) -> PerformanceEstimate:
     if not close_series or len(close_series) != len(weights):
         raise ValueError("price series and weights must be non-empty and aligned")
+    if len({len(series) for series in close_series}) != 1:
+        raise ValueError("price series must be aligned by date before analysis")
     asset_returns = [_returns(series) for series in close_series]
     observations = min(len(items) for items in asset_returns)
     if observations < 8:
@@ -112,8 +114,10 @@ def analyze_performance(
     ordered = sorted(returns)
     var_index = max(0, math.ceil(observations * 0.05) - 1)
     value_at_risk = ordered[var_index]
-    tail = [item for item in returns if item <= value_at_risk]
-    conditional_value_at_risk = sum(tail) / len(tail)
+    # Fractional boundary weight keeps exactly 5% tail mass, including ties.
+    conditional_value_at_risk = value_at_risk + sum(
+        min(0.0, item - value_at_risk) for item in returns
+    ) / (observations * 0.05)
     return PerformanceEstimate(
         observations=observations,
         returns=tuple(returns),
@@ -137,9 +141,6 @@ def analyze_performance(
 
 
 def _returns(closes: list[float] | tuple[float, ...]) -> list[float]:
-    clean = [float(value) for value in closes if value > 0 and math.isfinite(value)]
-    return [
-        max(-0.8, min(3.0, clean[index] / clean[index - 1] - 1))
-        for index in range(1, len(clean))
-        if clean[index - 1] > _EPSILON
-    ]
+    if any(value <= 0 or not math.isfinite(value) for value in closes):
+        raise ValueError("invalid prices must not be bridged or clipped")
+    return [closes[index] / closes[index - 1] - 1 for index in range(1, len(closes))]

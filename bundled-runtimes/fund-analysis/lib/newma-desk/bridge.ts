@@ -81,6 +81,7 @@ export type NewmaDeskBridge = {
   embedded: boolean
   ready: Promise<NewmaDeskInit | null>
   getConfig: () => NewmaDeskInit | null
+  navigate: (targetModId: string, search: string) => boolean
   setContextProvider: (provider: ContextProvider) => () => void
   publishContext: () => Promise<boolean>
   emitEvent: (event: string, payload: Record<string, unknown>, target?: string) => boolean
@@ -237,6 +238,7 @@ export function createNewmaDeskBridge(options: {
   const eventListeners = new Set<EventListener>()
   const pendingActions = new Map<string, PendingAction>()
   let currentConfig: NewmaDeskInit | null = null
+  let pendingNavigation: { targetModId: string; search: string } | null = null
   let contextProvider: ContextProvider = () => options.initialContext
   let closed = false
   let resolveReady: (config: NewmaDeskInit | null) => void = () => undefined
@@ -281,6 +283,11 @@ export function createNewmaDeskBridge(options: {
       }
       applyNewmaDeskEnvironment(currentConfig.environment, currentConfig.appearance)
       post(buildAckMessage(currentConfig))
+      if (pendingNavigation) {
+        post({ type: 'vibedesk:navigate', modId: currentConfig.modId,
+          instanceId: currentConfig.instanceId, ...pendingNavigation })
+        pendingNavigation = null
+      }
       resolveReady(currentConfig)
       window.dispatchEvent(new CustomEvent('newma:configchange', { detail: currentConfig }))
       return
@@ -327,6 +334,17 @@ export function createNewmaDeskBridge(options: {
     embedded,
     ready,
     getConfig: () => currentConfig,
+    navigate(targetModId, search) {
+      if (!embedded || !parentOrigin || closed) return false
+      if (!currentConfig) {
+        // A known route is not unsupported just because init is still in flight.
+        // Keep only the latest user intent and send it after the validated ack.
+        pendingNavigation = { targetModId, search }
+        return post(buildHelloMessage(options.modId))
+      }
+      return post({ type: 'vibedesk:navigate', modId: currentConfig.modId,
+        instanceId: currentConfig.instanceId, targetModId, search })
+    },
     setContextProvider(provider) {
       contextProvider = provider
       return () => {
@@ -378,6 +396,7 @@ export function createNewmaDeskBridge(options: {
     close() {
       if (closed) return
       closed = true
+      pendingNavigation = null
       if (embedded && parentOrigin) window.removeEventListener('message', handleMessage)
       for (const pending of pendingActions.values()) {
         window.clearTimeout(pending.timer)

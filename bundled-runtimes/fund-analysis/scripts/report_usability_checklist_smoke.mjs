@@ -18,7 +18,7 @@ function assertIncludes(content, expected, label) {
   }
 }
 
-const reportDetailPage = read('app/(dashboard)/reports/[id]/page.tsx')
+const reportDetailPage = read('app/(dashboard)/reports/[id]/ReportDetailClient.tsx')
 const analysisDetailPage = read('app/(dashboard)/analysis/[id]/AnalysisDetailClient.tsx')
 const prePurchaseRoute = read('app/api/funds/[id]/research-review-report/route.ts')
 const reportDetailRoute = read('app/api/reports/[id]/route.ts')

@@ -39,7 +39,7 @@ def test_connectivity():
     checks = {}
     # chatlog
     try:
-        r = requests.get(f"{settings.CHATLOG_HTTP_BASE}/api/v1/session", timeout=3)
+        r = requests.get(f"{settings.CHATLOG_HTTP_BASE}/api/v1/sessions?limit=1", timeout=3)
         checks["chatlog"] = r.status_code
     except Exception as e:
         checks["chatlog"] = f"error: {e}"

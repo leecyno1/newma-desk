@@ -121,6 +121,7 @@ describe("moduleManifestSchema", () => {
       englishName: "Market Daily",
       description: "统一查看行情、盘口与技术指标。",
       titleOwner: "host" as const,
+      chrome: "canvas" as const,
     };
 
     expect(moduleManifestSchema.parse({ ...valid, presentation })).toMatchObject({

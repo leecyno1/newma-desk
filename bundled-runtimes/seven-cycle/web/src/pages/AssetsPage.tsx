@@ -8,6 +8,7 @@ import ResearchAssetMapping from '../components/ResearchAssetMapping'
 import StatusBadge from '../components/StatusBadge'
 import { useResearchData } from '../hooks/useResearchData'
 import { loadAssetStatistics } from '../lib/data'
+import { publishVibeDeskContext, registerVibeDeskContextProvider } from '../lib/vibedesk'
 import type { AssetRow } from '../types'
 
 const phases = ['recovery', 'expansion', 'downturn', 'contraction'] as const
@@ -115,6 +116,46 @@ export default function AssetsPage() {
     .map((asset) => ({ asset, score: (asset.phase_stats?.[phase].ann_return ?? 0) / Math.max(.01, asset.phase_stats?.[phase].ann_vol ?? .01) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 5), [phase, rows])
+
+  useEffect(() => {
+    const unregister = registerVibeDeskContextProvider(() => {
+      if (!data) return null
+      const visibleSelected = cycleId === 'C4' ? selected : null
+      return {
+        view: { id: 'assets', title: '资产统计与客观归因' },
+        visibleBlocks: [
+          { id: 'asset-filters', type: 'controls', title: '周期与资产筛选' },
+          { id: 'asset-statistics', type: 'statistics', title: '资产统计' },
+          { id: 'asset-inspector', type: 'evidence', title: visibleSelected?.name ?? '未选资产' },
+        ],
+        selection: { cycleId, phase, assetId: visibleSelected?.asset_id ?? null, assetName: visibleSelected?.name ?? null },
+        filters: { query, category, confidence, sortKey },
+        data: {
+          source: 'Circle Seven Cycle Research', freshness: 'unknown',
+          summary: {
+            contextSource: 'structured-page-provider',
+            generated: data.meta.generated,
+            historicalStatisticsAsOf: data.meta.historicalStatisticsAsOf ?? null,
+            forecastAsOf: data.meta.forecastAsOf ?? null,
+            forecastAssetDataThrough: data.meta.forecastAssetDataThrough ?? null,
+            publication: data.publication[cycleId] ?? 'blocked',
+            visibleAssetCount: rows.length,
+            selectedAsset: visibleSelected ? {
+              id: visibleSelected.asset_id, name: visibleSelected.name, category: visibleSelected.category,
+              dataIdentity: visibleSelected.data_identity, coverage: { start: visibleSelected.start, end: visibleSelected.end },
+              confidence: visibleSelected.confidence, oosR2: visibleSelected.oos_r2,
+              impactBpsPerSigma: visibleSelected.impact_bps_per_1sigma,
+              phaseStatistics: visibleSelected.phase_stats?.[phase] ?? null,
+            } : null,
+            caveat: '历史统计、预测输入和资产收益各有独立时点；历史关联不等于因果归因或投资建议。',
+          },
+        },
+        actions: [], tasks: [],
+      }
+    })
+    void publishVibeDeskContext()
+    return unregister
+  }, [category, confidence, cycleId, data, phase, query, rows, selected, sortKey])
 
   useEffect(() => {
     if (!selected || cycleId !== 'C4') {

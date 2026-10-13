@@ -2,7 +2,7 @@ import {
   normalizeGatewayBaseUrl,
   requestGatewayJson,
   type GatewayClientConfig,
-} from "./agent";
+} from "./gateway";
 
 
 export type GraphNodeKind =

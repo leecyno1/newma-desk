@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
@@ -87,6 +88,24 @@ class WorkflowPrincipalCreate(WorkflowModel):
     endpoint: str | None = Field(default=None, max_length=500)
     capabilities: list[str] = Field(default_factory=list, max_length=100)
 
+    @model_validator(mode="after")
+    def validate_endpoint(self):
+        if self.endpoint is None:
+            return self
+        parsed = urlsplit(self.endpoint)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("endpoint must be a plain HTTP(S) base URL")
+        if self.kind != PrincipalKind.SERVER_AGENT:
+            raise ValueError("only server agents may define an endpoint")
+        return self
+
 
 class WorkflowLaneDefinition(WorkflowModel):
     id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -111,11 +130,26 @@ class WorkflowNodeDefinition(WorkflowModel):
     lane_id: str | None = None
     stage_id: str | None = None
     promoted_to_menu: bool = False
+    canvas_x: float | None = None
+    canvas_y: float | None = None
+    executor_id: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,79}$",
+    )
+    executor_parameters: dict[str, Any] = Field(default_factory=dict, max_length=50)
+    retry_limit: int = Field(default=0, ge=0, le=10)
+    retry_delay_seconds: int = Field(default=0, ge=0, le=3600)
+    timeout_seconds: int = Field(default=300, ge=1, le=86400)
 
 
 class WorkflowEdgeDefinition(WorkflowModel):
     source: str
     target: str
+    name: str = Field(default="", max_length=120)
+    description: str = Field(default="", max_length=1000)
+    kind: Literal["handoff", "data", "condition", "approval"] = "handoff"
+    condition: str = Field(default="", max_length=1000)
+    parameters: dict[str, Any] = Field(default_factory=dict, max_length=50)
 
 
 class WorkflowTemplateCreate(WorkflowModel):

@@ -22,7 +22,7 @@ const researchReviewRoute = read('app/api/funds/[id]/research-review-report/rout
 const reportsRoute = read('app/api/reports/route.ts')
 const reportDetailRoute = read('app/api/reports/[id]/route.ts')
 const reportsPage = read('app/(dashboard)/reports/page.tsx')
-const reportDetailPage = read('app/(dashboard)/reports/[id]/page.tsx')
+const reportDetailPage = read('app/(dashboard)/reports/[id]/ReportDetailClient.tsx')
 const buyBeforeQueue = read('lib/report-buy-before-evidence-queue.ts')
 
 assertIncludes(researchReviewRoute, 'holdingExposureDecision: result.report.holdingExposureDecision', 'saved report carries holding exposure decision')

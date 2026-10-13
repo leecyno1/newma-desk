@@ -392,6 +392,7 @@ class WorkflowControlService:
         organization_id: str,
         actor_principal_id: str,
         request: WorkflowRunCreate,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
         template = self.repository.get_template(organization_id, request.template_id)
         version = request.template_version or template["currentVersion"]
@@ -429,7 +430,7 @@ class WorkflowControlService:
                     "updatedAt": timestamp,
                 }
             )
-        run_id = f"run-{uuid4().hex[:20]}"
+        run_id = run_id or f"run-{uuid4().hex[:20]}"
         document = {
             "id": run_id,
             "organizationId": organization_id,
@@ -452,6 +453,44 @@ class WorkflowControlService:
             actor_principal_id=actor_principal_id,
         )
 
+    def create_triggered_run(
+        self,
+        *,
+        organization_id: str,
+        actor_principal_id: str,
+        source_run_id: str,
+        run_id: str,
+        title: str,
+    ) -> dict[str, Any]:
+        try:
+            return self.repository.get_run(organization_id, run_id)
+        except WorkflowNotFoundError:
+            pass
+        source = self.repository.get_run(organization_id, source_run_id)
+        request = WorkflowRunCreate(
+            template_id=source["templateId"],
+            template_version=source["templateVersion"],
+            title=title,
+            assignments={
+                node["id"]: node["accountablePrincipalId"]
+                for node in source["nodes"]
+            },
+            reviewers={
+                node["id"]: node["reviewerPrincipalId"]
+                for node in source["nodes"]
+                if node.get("reviewerPrincipalId")
+            },
+        )
+        try:
+            return self.create_run(
+                organization_id=organization_id,
+                actor_principal_id=actor_principal_id,
+                request=request,
+                run_id=run_id,
+            )
+        except WorkflowConflictError:
+            return self.repository.get_run(organization_id, run_id)
+
     def run_snapshot(self, organization_id: str, run_id: str) -> dict[str, Any]:
         return {
             "run": self.repository.get_run(organization_id, run_id),
@@ -461,6 +500,139 @@ class WorkflowControlService:
                 organization_id, run_id=run_id, limit=300
             ),
         }
+
+    def authorize_runtime_execution(
+        self,
+        *,
+        organization_id: str,
+        actor_principal_id: str,
+        run_id: str,
+    ) -> dict[str, Any]:
+        """Authorize one runtime execution without exposing repository mutation."""
+
+        self.authorization.require(
+            organization_id=organization_id,
+            principal_id=actor_principal_id,
+            scope=WorkflowScope(type=WorkflowScopeType.RUN, run_id=run_id),
+            action=WorkflowAction.EXECUTE,
+        )
+        return self.repository.get_run(organization_id, run_id)
+
+    def record_runtime_output(
+        self,
+        *,
+        organization_id: str,
+        actor_principal_id: str,
+        run_id: str,
+        node_id: str,
+        execution_id: str,
+        job_id: str,
+        output: dict[str, Any],
+    ) -> dict[str, Any]:
+        decision = self.authorization.require(
+            organization_id=organization_id,
+            principal_id=actor_principal_id,
+            scope=WorkflowScope(type=WorkflowScopeType.RUN, run_id=run_id),
+            action=WorkflowAction.EXECUTE,
+        )
+        document = self.repository.get_run(organization_id, run_id)
+        node = self._node(document, node_id)
+        if node["status"] in TERMINAL_NODE_STATUSES:
+            return document
+        node["dataRevision"] += 1
+        node["status"] = "running"
+        node["updatedAt"] = now_iso()
+        updated, _record = self.repository.add_node_data(
+            organization_id=organization_id,
+            run_id=run_id,
+            node_id=node_id,
+            slot_key="runtimeOutput",
+            payload=output,
+            document=document,
+            expected_revision=document["revision"],
+            actor_principal_id=actor_principal_id,
+            accountable_principal_id=node.get("accountablePrincipalId"),
+            delegation_grant_id=decision.grant_id,
+        )
+        return updated
+
+    def runtime_transition_node(
+        self,
+        *,
+        organization_id: str,
+        actor_principal_id: str,
+        run_id: str,
+        node_id: str,
+        status: str,
+        execution_id: str,
+        job_id: str,
+        detail: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Apply a Runtime-owned node transition through Workflow Control."""
+
+        allowed_statuses = {
+            "ready",
+            "running",
+            "completed",
+            "failed",
+            "blocked",
+            "cancelled",
+            "skipped",
+        }
+        if status not in allowed_statuses:
+            raise WorkflowValidationError(f"unsupported runtime node status: {status}")
+        decision = self.authorization.require(
+            organization_id=organization_id,
+            principal_id=actor_principal_id,
+            scope=WorkflowScope(type=WorkflowScopeType.RUN, run_id=run_id),
+            action=WorkflowAction.EXECUTE,
+        )
+        current = self.repository.get_run(organization_id, run_id)
+        current_node = self._node(current, node_id)
+        if current_node["status"] == status:
+            return current
+        if current_node["status"] in TERMINAL_NODE_STATUSES:
+            return current
+        actual_status = (
+            "waiting_review"
+            if status == "completed" and current_node.get("requiresReview")
+            else status
+        )
+
+        def mutate(document: dict[str, Any]) -> dict[str, Any]:
+            node = self._node(document, node_id)
+            if node["status"] in TERMINAL_NODE_STATUSES:
+                return document
+            node["status"] = actual_status
+            if actual_status in {
+                "waiting_review",
+                "completed",
+                "failed",
+                "blocked",
+                "cancelled",
+                "skipped",
+            }:
+                node["claim"] = None
+            node["updatedAt"] = now_iso()
+            recalculate_run_status(document)
+            return document
+
+        return self.repository.mutate_run(
+            organization_id=organization_id,
+            run_id=run_id,
+            expected_revision=current["revision"],
+            mutate=mutate,
+            event_type=f"runtime.node.{actual_status}",
+            actor_principal_id=actor_principal_id,
+            accountable_principal_id=current_node.get("accountablePrincipalId"),
+            delegation_grant_id=decision.grant_id,
+            event_payload={
+                "nodeId": node_id,
+                "executionId": execution_id,
+                "jobId": job_id,
+                **(detail or {}),
+            },
+        )
 
     @staticmethod
     def _node(document: dict[str, Any], node_id: str) -> dict[str, Any]:

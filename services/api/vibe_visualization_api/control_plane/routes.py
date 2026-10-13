@@ -9,6 +9,7 @@ from fastapi import (
     File,
     Header,
     HTTPException,
+    Query,
     Request,
     Response,
     UploadFile,
@@ -18,6 +19,9 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from vibe_visualization_api.agent_gateway.models import AgentTaskCreate
+from vibe_visualization_api.control_plane.visual_context import (
+    MAX_VISUAL_CAPTURE_BYTES,
+)
 from vibe_visualization_api.control_plane.actions import payload_hash
 from vibe_visualization_api.control_plane.copilot_prompts import (
     build_mod_copilot_prompts,
@@ -343,9 +347,98 @@ async def update_mod_context(
         user_id=claims.user_id,
         workspace_id=claims.workspace_id,
         module_id=module_id,
+        instance_id=claims.instance_id,
         revision=claims.revision,
         context=update.context,
     )
+
+
+@router.post("/{module_id}/visual-context", status_code=201)
+async def save_mod_visual_context(
+    module_id: str,
+    request: Request,
+    width: int = Query(ge=1, le=8192),
+    height: int = Query(ge=1, le=8192),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    instance_id: str | None = Header(
+        default=None,
+        alias="X-Newma-Desk-Instance-Id",
+        min_length=1,
+        max_length=128,
+    ),
+    legacy_instance_id: str | None = Header(
+        default=None,
+        alias="X-Newma-Dock-Instance-Id",
+        min_length=1,
+        max_length=128,
+    ),
+) -> dict[str, object]:
+    claims = _validate_session(
+        request,
+        authorization,
+        _instance_id_header(instance_id, legacy_instance_id),
+    )
+    if claims.module_id != module_id:
+        raise HTTPException(403, "Mod session does not grant this visual context")
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].strip()
+    if media_type != "image/png":
+        raise HTTPException(415, "Visual context must use image/png")
+    payload = bytearray()
+    async for chunk in request.stream():
+        if len(payload) + len(chunk) > MAX_VISUAL_CAPTURE_BYTES:
+            raise HTTPException(413, "Visual context is too large")
+        payload.extend(chunk)
+    try:
+        return await run_in_threadpool(
+            request.app.state.visual_context_capture.save_browser_capture,
+            module_id,
+            bytes(payload),
+            width=width,
+            height=height,
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@router.post("/{module_id}/visual-context/capture", status_code=201)
+async def capture_mod_visual_context(
+    module_id: str,
+    request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    instance_id: str | None = Header(
+        default=None,
+        alias="X-Newma-Desk-Instance-Id",
+        min_length=1,
+        max_length=128,
+    ),
+    legacy_instance_id: str | None = Header(
+        default=None,
+        alias="X-Newma-Dock-Instance-Id",
+        min_length=1,
+        max_length=128,
+    ),
+) -> dict[str, object]:
+    claims = _validate_session(
+        request,
+        authorization,
+        _instance_id_header(instance_id, legacy_instance_id),
+    )
+    if claims.module_id != module_id:
+        raise HTTPException(403, "Mod session does not grant this visual context")
+    result = await request.app.state.visual_context_capture.capture(
+        module_id,
+        shell_origin=(
+            request.headers.get("origin")
+            or str(request.base_url).rstrip("/")
+        ),
+        workspace_id=claims.workspace_id,
+    )
+    if result.get("status") != "ready":
+        raise HTTPException(
+            503,
+            str(result.get("reason") or "Visual context is unavailable"),
+        )
+    return result
 
 
 @router.get(
@@ -434,9 +527,20 @@ async def invoke_module_action(
             raise HTTPException(403, "Mod session does not grant this action")
         user_id = claims.user_id
         workspace_id = claims.workspace_id
+        action_context = {
+            "vibedesk": {
+                "scope": {
+                    "workspaceId": workspace_id,
+                    "moduleId": module_id,
+                    "instanceId": claims.instance_id,
+                    "subjectKey": claims.instance_id,
+                }
+            }
+        }
     else:
         user_id = header_user_id or "local-user"
         workspace_id = header_workspace_id
+        action_context = {}
     base_audit: dict[str, object] = {
         "user_id": user_id,
         "action": action_id,
@@ -574,12 +678,12 @@ async def invoke_module_action(
         }
 
         if binding_type == "model":
-            service = request.app.state.model_gateway_service
-            response = await service.create_response(
+            response = await request.app.state.model_gateway_service.create_response(
                 ModelResponseCreate(
                     module_id=module_id,
                     capability=capability,
                     prompt=prompt_text,
+                    context=action_context,
                     input=clean_input,
                 ),
                 user_id=user_id,
@@ -598,6 +702,7 @@ async def invoke_module_action(
                     **base_audit,
                     "decision": "allowed",
                     "binding_type": "model",
+                    "runtime": "local",
                     "model_adapter": response.adapter,
                     "model": response.model,
                 },
@@ -608,13 +713,9 @@ async def invoke_module_action(
             )
 
         if binding_type == "agent":
-            async with request.app.state.agent_task_service_lock:
-                service = request.app.state.agent_task_service
-                if service is None:
-                    service = await run_in_threadpool(
-                        request.app.state.agent_task_service_factory
-                    )
-                    request.app.state.agent_task_service = service
+            service = await run_in_threadpool(
+                request.app.state.resolve_agent_task_service
+            )
             task = await service.create(
                 AgentTaskCreate(
                     user_id=user_id,
@@ -623,6 +724,7 @@ async def invoke_module_action(
                     profile=str(binding.get("profile", "deep")),
                     memory_scope=str(binding.get("memoryScope", "task")),
                     prompt=prompt_text,
+                    context=action_context,
                     input=clean_input,
                 ),
                 workspace_id=workspace_id,
@@ -641,13 +743,11 @@ async def invoke_module_action(
                     **base_audit,
                     "decision": "allowed",
                     "binding_type": "agent",
+                    "runtime": "local",
                     "task_id": task.id,
                 },
             )
-            return JSONResponse(
-                status_code=202,
-                content=encoded_task,
-            )
+            return JSONResponse(status_code=202, content=encoded_task)
 
         if binding_type == "data":
             service_id = binding.get("service")
@@ -743,20 +843,25 @@ async def invoke_module_action(
             }
         }
         if raw_mode == "model":
-            model_adapter = input_data.get("modelAdapter")
-            model = input_data.get("model")
-            service = request.app.state.model_gateway_service
-            response = await service.create_response(
+            response = await request.app.state.model_gateway_service.create_response(
                 ModelResponseCreate(
                     module_id=module_id,
                     capability=action_id,
                     prompt=prompt_text,
+                    context=action_context,
                     input=clean_input,
                     adapter=(
-                        model_adapter if isinstance(model_adapter, str) else None
+                        input_data.get("modelAdapter")
+                        if isinstance(input_data.get("modelAdapter"), str)
+                        else None
                     ),
-                    model=model if isinstance(model, str) else None,
-                )
+                    model=(
+                        input_data.get("model")
+                        if isinstance(input_data.get("model"), str)
+                        else None
+                    ),
+                ),
+                user_id=user_id,
             )
             await run_in_threadpool(
                 repository.record_action_audit,
@@ -765,7 +870,8 @@ async def invoke_module_action(
                 {
                     **base_audit,
                     "decision": "allowed",
-                    "gateway_mode": "model",
+                    "binding_type": "model",
+                    "runtime": "local",
                     "model_adapter": response.adapter,
                     "model": response.model,
                 },
@@ -775,23 +881,26 @@ async def invoke_module_action(
                 content=response.model_dump(mode="json"),
             )
 
-        agent_adapter = input_data.get("agentAdapter")
-        async with request.app.state.agent_task_service_lock:
-            service = request.app.state.agent_task_service
-            if service is None:
-                service = await run_in_threadpool(
-                    request.app.state.agent_task_service_factory
-                )
-                request.app.state.agent_task_service = service
+        service = await run_in_threadpool(
+            request.app.state.resolve_agent_task_service
+        )
         task = await service.create(
             AgentTaskCreate(
                 user_id=user_id,
                 module_id=module_id,
                 capability=action_id,
                 prompt=prompt_text,
+                context=action_context,
                 input=clean_input,
                 adapter=(
-                    agent_adapter if isinstance(agent_adapter, str) else None
+                    input_data.get("agentAdapter")
+                    if isinstance(input_data.get("agentAdapter"), str)
+                    else None
+                ),
+                model=(
+                    input_data.get("model")
+                    if isinstance(input_data.get("model"), str)
+                    else None
                 ),
             ),
             workspace_id=workspace_id,
@@ -803,11 +912,15 @@ async def invoke_module_action(
             {
                 **base_audit,
                 "decision": "allowed",
-                "gateway_mode": "agent",
+                "binding_type": "agent",
+                "runtime": "local",
                 "task_id": task.id,
             },
         )
-        return JSONResponse(status_code=202, content=task.model_dump(mode="json"))
+        return JSONResponse(
+            status_code=202,
+            content=task.model_dump(mode="json"),
+        )
 
     permissions = set(module.manifest.get("permissions", []))
     declared_services = module.manifest.get("dataServices", [])

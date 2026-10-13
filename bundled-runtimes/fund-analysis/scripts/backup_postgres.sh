@@ -15,22 +15,48 @@ BACKUP_DIR="${BACKUP_DIR:-$ROOT_DIR/backups/postgres}"
 RETENTION_COUNT="${RETENTION_COUNT:-14}"
 DB_NAME="${POSTGRES_DB:-fund_analysis}"
 
+# launchd 等极简环境的 PATH 不含 Homebrew 目录，psql/pg_dump 会找不到
+for brew_bin in /opt/homebrew/bin /usr/local/bin; do
+  if [[ -d "$brew_bin" && ":$PATH:" != *":$brew_bin:"* ]]; then
+    PATH="$brew_bin:$PATH"
+  fi
+done
+export PATH
+
 # 优先使用与服务器大版本匹配的 pg_dump；否则回退 PATH 中的 pg_dump
 PG_DUMP="${PG_DUMP:-}"
 if [[ -z "$PG_DUMP" ]]; then
   SERVER_VERSION="$(psql -d "$DB_NAME" -tAc 'SHOW server_version' 2>/dev/null | cut -d. -f1 || true)"
+  if [[ -z "$SERVER_VERSION" ]]; then
+    echo "backup WARN: psql 不可用或数据库未启动，无法判定服务端大版本，回退 PATH 中的 pg_dump" >&2
+  fi
   for candidate in "/opt/homebrew/opt/postgresql@${SERVER_VERSION}/bin/pg_dump" "/usr/local/opt/postgresql@${SERVER_VERSION}/bin/pg_dump"; do
     if [[ -n "$SERVER_VERSION" && -x "$candidate" ]]; then
       PG_DUMP="$candidate"
       break
     fi
   done
-  [[ -z "$PG_DUMP" ]] && PG_DUMP="$(command -v pg_dump)"
+  if [[ -z "$PG_DUMP" ]]; then
+    PG_DUMP="$(command -v pg_dump || true)"
+  fi
+fi
+
+# 二进制缺失必须显式报错：`command -v` 失败叠加 set -euo pipefail 会静默 exit 1，
+# 曾导致连续 20 天备份全败而日志里一行错误都没有。
+if [[ -z "$PG_DUMP" || ! -x "$PG_DUMP" ]]; then
+  echo "backup FAILED: 找不到 pg_dump（PATH=$PATH）。launchd 环境需确保 /opt/homebrew/bin 在 PATH 中。" >&2
+  exit 1
 fi
 
 # pg_restore 与 pg_dump 同目录（用于备份内容自检）
 PG_RESTORE="$(dirname "$PG_DUMP")/pg_restore"
-[[ -x "$PG_RESTORE" ]] || PG_RESTORE="$(command -v pg_restore)"
+if [[ ! -x "$PG_RESTORE" ]]; then
+  PG_RESTORE="$(command -v pg_restore || true)"
+fi
+if [[ -z "$PG_RESTORE" || ! -x "$PG_RESTORE" ]]; then
+  echo "backup FAILED: 找不到 pg_restore，无法执行备份内容自检（PATH=$PATH）" >&2
+  exit 1
+fi
 
 mkdir -p "$BACKUP_DIR"
 

@@ -76,7 +76,7 @@ Mod 不新增数据库、服务、端口或 Agent，复用：
 - `equityResearchComparison`：跨市场标准化指标和评分；
 - `equityResearch`：Evidence Ledger、报告期、来源和缺口；
 - Desk-managed Storage：保存同业集合、可比性判断和竞争结论；
-- Desk Agent：继续补充行业特定指标、市场份额和战略证据。
+- Newma Agent：继续补充行业特定指标、市场份额和战略证据。
 
 存储配置：
 

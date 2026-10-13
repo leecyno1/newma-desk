@@ -10,30 +10,34 @@ import {
   buildFundResearchPageContext,
   type FundResearchWorkspace,
   type FundSelection,
+  type FundPageObservation,
 } from './context'
 
-function selectionHref(workspace: FundResearchWorkspace, selection: FundSelection) {
+function selectionHref(workspaceId: string, selection: FundSelection) {
   const params = new URLSearchParams({
     symbol: selection.symbol,
     fundCode: selection.symbol,
     name: selection.name || selection.symbol,
     assetType: selection.assetType,
   })
-  return `/mod/fund-research/${workspace.id}?${params.toString()}`
+  return `/mod/fund-research/${workspaceId}?${params.toString()}`
 }
 
 export function useFundResearchDeskAdapter({
   workspace,
   selection,
+  observation,
 }: {
   workspace: FundResearchWorkspace
   selection: FundSelection | null
+  observation?: FundPageObservation
 }) {
   const router = useRouter()
+  const { id: workspaceId, modId } = workspace
   const bridgeRef = useRef<NewmaDeskBridge | null>(null)
   const context = useMemo(
-    () => buildFundResearchPageContext({ workspace, selection }),
-    [selection, workspace],
+    () => buildFundResearchPageContext({ workspace, selection, observation }),
+    [selection, workspace, observation],
   )
   const contextRef = useRef(context)
 
@@ -44,7 +48,7 @@ export function useFundResearchDeskAdapter({
 
   useEffect(() => {
     const bridge = createNewmaDeskBridge({
-      modId: workspace.modId,
+      modId,
       initialContext: contextRef.current,
     })
     bridgeRef.current = bridge
@@ -57,7 +61,7 @@ export function useFundResearchDeskAdapter({
       const symbol = event.payload.symbol.trim().toUpperCase().slice(0, 24)
       if (!symbol) return
 
-      router.replace(selectionHref(workspace, {
+      router.replace(selectionHref(workspaceId, {
         symbol,
         name: typeof event.payload.name === 'string'
           ? event.payload.name.trim().slice(0, 80)
@@ -72,5 +76,7 @@ export function useFundResearchDeskAdapter({
       bridge.close()
       bridgeRef.current = null
     }
-  }, [router, workspace])
+  }, [router, workspaceId, modId])
+
+  return (targetModId: string, search: string) => bridgeRef.current?.navigate(targetModId, search) ?? false
 }

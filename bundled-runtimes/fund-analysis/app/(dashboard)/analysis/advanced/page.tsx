@@ -15,17 +15,17 @@ export default async function PerformanceAttributionPage({
   const query = await searchParams
   const fundCode = query.fundCode || '000051.OF'
   let initialHistory: Record<string, unknown>[] = []
+  let initialHistoryError = ''
   try {
     const response = await fetch(
       `${backendApiBaseUrl}/api/attribution/fund/${encodeURIComponent(fundCode)}/history?limit=8`,
       { cache: 'no-store', signal: AbortSignal.timeout(30_000) },
     )
-    if (response.ok) {
-      const payload = await response.json()
-      initialHistory = Array.isArray(payload.history) ? payload.history : []
-    }
+    if (!response.ok) throw new Error('读取归因历史失败，请重试')
+    const payload = await response.json()
+    initialHistory = Array.isArray(payload.history) ? payload.history : []
   } catch {
-    initialHistory = []
+    initialHistoryError = '归因历史暂时不可用，不能据此判断没有历史记录'
   }
   return (
     <AttributionWorkspace
@@ -33,6 +33,7 @@ export default async function PerformanceAttributionPage({
       initialBenchmark={query.benchmark || ''}
       initialQuarter={query.quarter || latestCompletedQuarter()}
       initialHistory={initialHistory}
+      initialHistoryError={initialHistoryError}
       autoRun={query.run === '1'}
     />
   )

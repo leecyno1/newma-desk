@@ -31,6 +31,13 @@
       "outputSchema": {"type": "object", "additionalProperties": true},
       "permission": "research.read"
     },
+    "fund.risk.evidence": {
+      "method": "POST",
+      "path": "/fund-risk-evidence",
+      "inputSchema": {"type": "object", "required": ["symbol"], "properties": {"symbol": {"type": "string", "minLength": 1, "maxLength": 24}}, "additionalProperties": false},
+      "outputSchema": {"type": "object", "required": ["status", "symbol"], "additionalProperties": true},
+      "permission": "research.read"
+    },
     "fund.compare": {
       "method": "POST",
       "path": "/fund-compare",

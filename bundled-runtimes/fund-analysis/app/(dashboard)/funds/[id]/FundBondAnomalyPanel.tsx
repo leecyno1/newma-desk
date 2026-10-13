@@ -42,6 +42,7 @@ export type FundBondAnomalySnapshot = {
   chart: FundBondAnomalyChartPoint[]
   peerGroupName: string
   peerFundCount: number
+  currentPeerCount?: number | null
   minimumPeerCount: number
   peerModelReady: boolean
   formalMonitorReady: boolean
@@ -63,7 +64,8 @@ function formatDate(value: string) {
 function signalTone(signal: string) {
   if (signal === 'abnormal') return 'bg-[#fbe7e3] text-[#91483e]'
   if (signal === 'recent_abnormal') return 'bg-[#fff0d2] text-[#7b5719]'
-  return 'bg-[#e1eee7] text-[#246149]'
+  if (signal === 'normal') return 'bg-[#e1eee7] text-[#246149]'
+  return 'bg-[#edf2ef] text-[#5d6a63]'
 }
 
 export default function FundBondAnomalyPanel({ snapshot, fundType }: { snapshot: FundBondAnomalySnapshot; fundType: string }) {
@@ -92,7 +94,7 @@ export default function FundBondAnomalyPanel({ snapshot, fundType }: { snapshot:
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#e1e6e2] p-5 sm:p-6">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold"><Activity className="h-5 w-5 text-[#28745c]" />债基净值异常监控</h2>
-          <p className="mt-1 text-xs leading-6 text-[#7a8580]">26日净值下轨 + 债市调整期同类收益门槛。只提示异常复核，不参与基金评分。</p>
+          <p className="mt-1 text-xs leading-6 text-[#7a8580]">复权净值26期下轨 + 同区间同类收益门槛。不补齐缺失值；未触发不等于低风险。</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className={`px-2.5 py-1 text-[11px] font-bold ${signalTone(snapshot.currentSignal)}`}>{snapshot.currentLabel}</span>
@@ -103,12 +105,14 @@ export default function FundBondAnomalyPanel({ snapshot, fundType }: { snapshot:
 
       <div className="grid gap-px bg-[#e1e6e2] sm:grid-cols-2 xl:grid-cols-4">
         {[
-          ['最新日涨跌', formatPercent(snapshot.dailyReturn)],
-          ['近1周涨跌', formatPercent(snapshot.weeklyReturn)],
-          ['近1月异常日', `${snapshot.anomalyCounts.month || 0} 天`],
-          ['近1年异常日', `${snapshot.anomalyCounts.year || 0} 天`],
+          ['最新一期涨跌', formatPercent(snapshot.dailyReturn)],
+          ['近5期涨跌', formatPercent(snapshot.weeklyReturn)],
+          ['近22期已识别异常', snapshot.anomalyCounts.month == null ? '—' : `${snapshot.anomalyCounts.month} 次`],
+          ['近252期已识别异常', snapshot.anomalyCounts.year == null ? '—' : `${snapshot.anomalyCounts.year} 次`],
         ].map(([label, value]) => <div key={label} className="bg-white p-5"><div className="text-xs font-bold text-[#66726c]">{label}</div><div className="mt-2 text-xl font-bold text-[#1d2923]">{value}</div></div>)}
       </div>
+
+      {snapshot.missingItems.length ? <div className="border-t border-[#e1e6e2] bg-[#fff8e8] px-5 py-3 text-xs leading-6 text-[#7b5719] sm:px-6">{snapshot.missingItems.join('；')}</div> : null}
 
       <div className="grid border-t border-[#e1e6e2] xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.7fr)]">
         <div className="min-w-0 p-5 sm:p-6 xl:border-r xl:border-[#e1e6e2]">
@@ -135,7 +139,7 @@ export default function FundBondAnomalyPanel({ snapshot, fundType }: { snapshot:
             <div><strong className="block text-[#26342d]">同类债市调整</strong>{snapshot.peerGroupName || '标准化同类组'}等权指数跌破26日均值减1倍标准差。</div>
             <div><strong className="block text-[#26342d]">调整期异常</strong>基金日收益低于同类均值减3倍标准差。</div>
           </div>
-          <p className="mt-5 border-t border-[#dfe5e1] pt-4 text-[11px] leading-6 text-[#7b8680]">当前同类净值样本 {snapshot.peerFundCount} 只，门槛 {snapshot.minimumPeerCount} 只。{snapshot.limitations[0]}</p>
+          <p className="mt-5 border-t border-[#dfe5e1] pt-4 text-[11px] leading-6 text-[#7b8680]">历史可用同类 {snapshot.peerFundCount} 只；最新区间有效 {snapshot.currentPeerCount ?? '未知'} 只，门槛 {snapshot.minimumPeerCount} 只。{snapshot.limitations.join(' ')}</p>
         </div>
       </div>
 
@@ -148,7 +152,7 @@ export default function FundBondAnomalyPanel({ snapshot, fundType }: { snapshot:
               <tbody className="divide-y divide-[#edf0ed] text-[#4f5d56]">{snapshot.events.slice(0, 10).map((event) => <tr key={`${event.date}-${event.reason}`}><td className="px-5 py-3 font-medium text-[#26342d]">{formatDate(event.date)}</td><td className="px-5 py-3">{event.reason}</td><td className="px-5 py-3 text-right">{formatPercent(event.dailyReturn)}</td><td className="px-5 py-3 text-right">{event.peerThresholdReturn == null ? '—' : formatPercent(event.peerThresholdReturn)}</td><td className="px-5 py-3 text-right">{event.peerCount || '—'} 只</td></tr>)}</tbody>
             </table>
           </div>
-        ) : <p className="px-5 pb-6 text-xs leading-6 text-[#66726c] sm:px-6">近1年没有触发净值下轨或调整期同类异常。</p>}
+        ) : <p className="px-5 pb-6 text-xs leading-6 text-[#66726c] sm:px-6">已覆盖区间内未识别出异常。{snapshot.formalMonitorReady ? '这不代表基金没有风险。' : '监控证据尚不完整，不能据此判断正常。'}</p>}
       </div>
     </section>
   )

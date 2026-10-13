@@ -17,13 +17,17 @@ Workflow Control Module 让组织把投研、投决、创作、运营或其他�
 ```mermaid
 flowchart LR
   UI[工作流页面] --> I[Workflow Command Interface]
-  AG[Desk Agent / Server Agent] --> I
+  AG[Newma Agent / Server Agent] --> I
   I --> WC[Workflow Control Module]
+  I --> WR[Organization Workflow Runtime]
   WC --> DF[Template + Version]
   WC --> RN[Run + Node State]
   WC --> AU[Principal Authorization]
   WC --> AR[Artifact Lineage]
   WC --> EV[Audit Ledger]
+  WR --> JB[Persistent Execution + Job]
+  WR --> NA[Node Execution Adapter Registry]
+  WR --> WC
   ID[Local / Organization Identity Adapter] --> AU
   EX[Domain Execution Adapter] --> WC
 ```
@@ -73,8 +77,8 @@ Organization
 Template 保存：
 
 - Workflow Matrix：纵向 Lane、横向 Stage，以及每个 Node 的稳定坐标引用。
-- Node：ID、名称、说明、role key、task/review/gate/automation 类型、审核要求和预期输出。
-- Edge：source、target；图必须是 DAG。
+- Node：ID、名称、说明、role key、类型、审核要求、预期输出、Executor ID、Retry 和 Timeout。
+- Edge：source、target、条件和结构化参数；图必须是 DAG。
 - Version：定义、变更说明、创建人和时间。
 
 启动 Run 时固定 Template Version。模板的新版本不会改变已经启动的 Run。
@@ -114,7 +118,94 @@ stateDiagram-v2
   pending --> cancelled
 ```
 
-当前实现将 `claimed` 作为明确状态；第一次保存节点数据或 Artifact 后进入 `running`。Run 的全部节点进入 completed、cancelled 或 skipped 后，Run 进入 completed。
+当前实现将 `claimed` 作为明确状态；第一次保存节点数据或 Artifact 后进入 `running`。Run 含 cancelled 节点且其余节点也全部终止时进入 cancelled，否则全部 completed、cancelled 或 skipped 后进入 completed。
+
+## Organization Workflow Runtime
+
+Workflow Control 继续掌握责任、授权、Run document、Artifact 和审计；Runtime 只掌握 Execution、Job、Trigger、条件判断、Retry、Timeout、Pause、Resume、Cancel 和 Idempotency。
+
+```mermaid
+stateDiagram-v2
+  [*] --> queued
+  queued --> running
+  running --> paused
+  paused --> running
+  running --> completed
+  running --> failed
+  queued --> cancelled
+  running --> cancelled
+
+  state Job {
+    [*] --> pending
+    pending --> ready: 上游完成且条件成立
+    pending --> skipped: 条件不成立
+    ready --> leased
+    leased --> running
+    running --> completed
+    running --> waiting: 人工执行或审核
+    running --> retry_wait: 失败或超时
+    retry_wait --> ready
+    running --> failed: 重试耗尽
+  }
+```
+
+- `(organization, run, idempotencyKey)` 唯一，重复 Trigger 返回同一 Execution。
+- 条件表达式使用白名单 AST，只支持布尔、比较和 `run/node/data/artifact/result` 路径，不使用 `eval`。
+- Runtime Job 使用持久租约，应用重启后继续领取 pending、ready、retry_wait 或已过期 Job。
+- Adapter 只接收结构化参数。内置 `noop`、`data_transform`、`approval_wait`、`agent_handoff`、`agent_runtime`、`server_agent` 和 `http_capability`，不允许任意 Shell、Python 或用户脚本。
+- Adapter 输出保存为节点 `runtimeOutput` 数据版本，再由 Workflow Control 受控完成节点并写入 Audit Ledger。
+- `agent_runtime` 只通过现有 Agent Gateway 创建任务；独立 Desk 可路由到本地 CLI，Newma / Hermes 环境可路由到兼容 Runtime。Workflow 不直接执行模型或命令。
+- `server_agent` 把任务交给远端 Desk API；远端 Desk 仍通过自己的统一 Agent Gateway 选择 Newma、Hermes 或本地 CLI，不创建第二套 Agent 内核。
+- 远端 Principal 必须为 active、具备 `workflow.execute` 能力，且 Endpoint Host 位于 `NEWMA_DESK_WORKFLOW_SERVER_AGENT_ALLOWED_HOSTS` 白名单。
+- `http_capability` 只调用 Data Service Registry 中已登记的 Capability；节点不能覆盖 URL、Method、Header 或认证信息。
+- Agent Task ID 持久保存到 Job Result。后续 Tick 轮询同一任务，不增加执行尝试次数；失败或超时后才按 Retry Policy 创建新任务。
+- 运行中心在存在可调度 Job、到期重试或 Agent 外部任务时自动发送后续 Tick；人工“推进”仍保留用于立即检查和诊断。
+- Pause 停止 Workflow 继续调度，但不伪造外部任务暂停；Cancel 会同步取消仍在执行的 Agent Task。
+- 需要人工审核的 Agent 节点在 Agent 完成后进入 `waiting_review`，Runtime 不会再次轮询或绕过 Reviewer。
+
+### Trigger 与签名入口
+
+- Schedule Trigger 必须二选一：固定 `intervalSeconds`，或标准 Cron `cronExpression`。
+- Cron Trigger 保存 IANA `timezone`，默认 `Asia/Shanghai`；暂停时清空下一次时间，重新启用后从当前时间重新计算，不补跑停机期间的全部窗口。
+- 外部事件使用 `POST /api/workflows/runtime/webhooks/events/{eventType}`，Body 最大 256 KB。
+- Webhook Headers 为 `X-Workspace-Id`、`X-Newma-Webhook-Timestamp`、`X-Newma-Webhook-Signature`；签名 Scope 为 `webhook:{workspaceId}:{eventType}`。
+- HMAC-SHA256 消息为 `timestamp + "\\n" + scope + "\\n" + rawBody`，签名格式为 `sha256=<hex>`；默认只接受前后 300 秒内的请求。
+
+### Remote Server Agent Protocol
+
+目标 Endpoint 是远端 Desk API 基址，不是模型、Hermes 或 CLI 地址。双方配置同一个 `NEWMA_DESK_WORKFLOW_SERVER_AGENT_SECRET`。
+
+```text
+POST /api/workflows/runtime/remote-agent/tasks
+GET  /api/workflows/runtime/remote-agent/tasks/{taskId}
+POST /api/workflows/runtime/remote-agent/tasks/{taskId}/cancel
+```
+
+请求 Headers 为 `X-Workspace-Id`、`X-Newma-Agent-Timestamp`、`X-Newma-Agent-Signature`，签名 Scope 为 `remote-agent:{workspaceId}:{method}:{path}`。接收端把 Workspace 写入 Agent Task Context，后续查询和取消必须匹配同一 Workspace，避免跨组织读取任务。
+
+### Whitelisted HTTP Capability
+
+`http_capability` 复用现有 Data Service Registry 与 Client，因此沿用以下安全边界：
+
+- Capability ID、服务、Method、Path、输入与输出 Schema 都必须预先登记在 `data-service.json`。
+- 本地模式要求目标 Host 位于服务 Descriptor 的 `allowedHosts`；公网模式拒绝 localhost、私网、环回和链路本地地址。
+- 认证只读取 Descriptor 引用的服务端环境变量，不接受画布传入的 Token 或 Header。
+- 禁止重定向，输入与输出均按 JSON Schema 校验。
+- 默认只允许 `market.read`、`research.read`、`analysis.read`；write Permission 必须加入 `NEWMA_DESK_WORKFLOW_HTTP_ALLOWED_PERMISSIONS` 后才能执行。
+- Adapter 等待时间取节点 Timeout 与 `NEWMA_DESK_WORKFLOW_HTTP_TIMEOUT_SECONDS` 的较小值。
+
+节点参数示例：
+
+```json
+{
+  "capabilityId": "market.quote",
+  "serviceId": "market-data",
+  "input": { "market": "CN" },
+  "mapping": { "symbol": "input.symbol" }
+}
+```
+
+`mapping` 的路径只读取当前 Workflow Context 中的 `run`、`node`、`input`、`data`、`artifact` 和 `result`，用于把上游结果传入已登记 Capability。
 
 ## 授权模型
 
@@ -234,22 +325,29 @@ Artifact 保存：
 - Workspace ID 作为 Organization ID。
 - `X-Workflow-Principal-Id` 作为本地 Identity Adapter，便于在页面切换 Human 与 Server Agent 验证授权。
 
-若恢复远程部署，必须增加：
+Server Agent 的 HMAC 验签、时间窗口、防重放幂等和 Host 白名单已经实现。若恢复公网部署，仍必须增加：
 
 1. 可验证的用户和 Agent 凭证。
 2. Principal 与凭证映射。
-3. Server Agent 请求签名、防重放和短期令牌。
-4. 组织成员目录与停用同步。
+3. 每组织密钥轮换或短期服务令牌。
+4. 入口速率限制、HTTPS 与网络边界。
+5. 组织成员目录与停用同步。
 
 这些变化只替换 Identity Adapter；Workflow Command Interface、Grant、Assignment、Claim 和 Audit 语义保持不变。
 
 ## 当前交付与下一 Seam
 
-当前代码已实现模板版本、Run、Assignment、Grant、不扩权、撤销级联、Claim Lease、Node Data Revision、Artifact 版本与 stale 传播、审计及七个页面。
+当前代码已实现模板版本、Run、Assignment、Grant、不扩权、撤销级联、Claim Lease、Node Data Revision、Artifact 版本与 stale 传播、审计、持久 Workflow Runtime 状态机与 API，以及本地 Agent、远程 Agent、白名单 HTTP Capability 三类真实执行 Adapter。服务端 Runtime Worker 独立于浏览器推进 Execution、Agent 轮询、重试、超时与重启恢复；运行中心只读取服务端事实状态。流程编排可配置 Executor、Retry 和 Timeout。
 
-下一步应增加 `Node Execution Interface`，并在至少有两个真实执行实现时建立 Seam：
+Runtime 支持三类真实入口：
 
-- Desk Agent Task Adapter。
-- 远程 Server Agent Adapter。
+- API：直接启动指定 Run，创建后由 Worker 接管。
+- Event：持久 Event Trigger 按事件名匹配，并从蓝本 Run 生成新的 Run 实例。
+- Schedule：持久固定间隔或 Cron + 时区 Trigger 到期后生成新的 Run 实例；同一触发时刻使用确定性 Run ID 和幂等键，进程重启或并发扫描不会重复生成。
+- Signed Webhook：外部系统可用 HMAC 签名发布 Event，Workspace、事件名、时间戳和原始 Body 均受签名保护。
+
+Event 与 Schedule Trigger 保存创建者、蓝本 Run、默认输入和启用状态。每次触发生成独立 Run，不能反复修改已经完成的 Run。
+
+下一步是让流程编排直接读取 Capability Catalog，提供类型化参数表单；对显式开放的 write Permission 增加确认 Gate。公网身份认证、密钥轮换和入口限流仍属于恢复远程部署前的必做项。
 
 执行 Adapter 只能领取并执行已授权节点，不能自行修改 Assignment 或扩大 Grant。

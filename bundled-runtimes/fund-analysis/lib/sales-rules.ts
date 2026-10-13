@@ -377,7 +377,7 @@ export async function getMergedSalesRule(windCode: string) {
   return rules.get(windCode) || null
 }
 
-export async function upsertSalesRule(windCode: string, input: SalesRuleInput, platform = input.platform || 'manual') {
+export async function upsertSalesRule(windCode: string, input: SalesRuleInput, platform = input.platform || 'manual', createOnly = false) {
   await ensureSalesRulesTable()
   const purchaseStatus = input.purchaseStatus || 'unknown'
   const purchaseStatusLabel = input.purchaseStatusLabel || '申购待核'
@@ -418,8 +418,10 @@ export async function upsertSalesRule(windCode: string, input: SalesRuleInput, p
       source_updated_at = COALESCE(EXCLUDED.source_updated_at, fund_sales_rules.source_updated_at),
       notes = concat_ws(E'\n', fund_sales_rules.notes, EXCLUDED.notes),
       updated_at = now()
+    WHERE NOT ${createOnly}
     RETURNING *
   `
+  if (!rows[0]) throw new Error('该基金和平台已有来源记录，未覆盖；请先核对已有证据。')
   return mapRow(rows[0])
 }
 

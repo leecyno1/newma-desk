@@ -56,6 +56,8 @@ const KNOWN_PROJECT_MARKS = [
   ["vibe trading", "量化"],
   ["newma desk", "新桌"],
   ["newma dock", "新桌"],
+  ["newma agent", "牛马"],
+  // Legacy alias kept only so older saved project ids still render correctly.
   ["numa agent", "牛马"],
   ["deep see", "深瞳"],
   ["deepsee", "深瞳"],

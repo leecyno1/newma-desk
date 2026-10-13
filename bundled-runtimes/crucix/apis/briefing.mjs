@@ -5,6 +5,7 @@
 
 import './utils/env.mjs'; // Load API keys from .env
 import { pathToFileURL } from 'node:url';
+import { sourceOutcome, sourceHealth } from './utils/source-health.mjs';
 
 // === Tier 1: Core OSINT & Geopolitical ===
 import { briefing as gdelt } from './sources/gdelt.mjs';
@@ -58,9 +59,9 @@ export async function runSource(name, fn, ...args) {
       timer = setTimeout(() => reject(new Error(`Source ${name} timed out after ${SOURCE_TIMEOUT_MS / 1000}s`)), SOURCE_TIMEOUT_MS);
     });
     const data = await Promise.race([dataPromise, timeoutPromise]);
-    return { name, status: 'ok', durationMs: Date.now() - start, data };
+    return { name, ...sourceOutcome(name, data), durationMs: Date.now() - start, data };
   } catch (e) {
-    return { name, status: 'error', durationMs: Date.now() - start, error: e.message };
+    return { name, status: 'error', reason: /timed out|timeout/i.test(e.message) ? '来源请求超时' : '来源请求失败', durationMs: Date.now() - start };
   } finally {
     clearTimeout(timer);
   }
@@ -130,13 +131,14 @@ export async function fullBriefing() {
       sourcesFailed: sources.filter(s => s.status !== 'ok').length,
     },
     sources: Object.fromEntries(
-      sources.filter(s => s.status === 'ok').map(s => [s.name, s.data])
+      sources.filter(s => s.data).map(s => [s.name, s.data])
     ),
-    errors: sources.filter(s => s.status !== 'ok').map(s => ({ name: s.name, error: s.error })),
+    errors: sources.filter(s => s.status === 'error').map(s => ({ name: s.name, error: s.reason })),
     timing: Object.fromEntries(
-      sources.map(s => [s.name, { status: s.status, ms: s.durationMs }])
+      sources.map(s => [s.name, { status: s.status, reason: s.reason, ms: s.durationMs }])
     ),
   };
+  Object.assign(output.crucix, sourceHealth(output).counts);
 
   console.error(`[Crucix] Sweep complete in ${totalMs}ms — ${output.crucix.sourcesOk}/${sources.length} sources returned data`);
   return output;

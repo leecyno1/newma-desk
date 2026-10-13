@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -122,4 +123,40 @@ test("accepts previous NEWMA_DOCK environment names for compatibility", () => {
     catalog.byId["example-runtime"].endpoints.web.origin,
     "https://dock-brand.example",
   );
+});
+
+test("uses the lightweight Fund Analysis route for runtime health", async () => {
+  const configured = JSON.parse(await readFile(
+    new URL("../../config/external-mod-runtimes.json", import.meta.url),
+    "utf8",
+  ));
+  const fund = configured.runtimes.find(({ id }) => id === "fund-analysis");
+
+  assert.equal(fund.endpoints.web.defaultOrigin, "http://127.0.0.1:3035");
+  assert.equal(fund.endpoints.api.defaultOrigin, "http://127.0.0.1:8035");
+  assert.equal(fund.services.find(({ id }) => id === "fund-analysis-api").launch.env.FUND_DATABASE_INIT_MODE, "check");
+
+  assert.equal(
+    fund.endpoints.web.healthPath,
+    "/api/newma-desk/health",
+  );
+});
+
+test("ships Runtime Descriptor 2.0 with executable profile coverage", async () => {
+  const configured = JSON.parse(await readFile(
+    new URL("../../config/external-mod-runtimes.json", import.meta.url),
+    "utf8",
+  ));
+  const catalog = resolveExternalModRuntimes(configured, {
+    repoRoot: "/workspace/newma-desk",
+    homeDir: "/home/user",
+    env: {},
+    exists: () => false,
+  });
+
+  assert.equal(catalog.schemaVersion, "2.0");
+  assert.deepEqual(Object.keys(catalog.profiles), ["core", "local", "all"]);
+  for (const runtimeId of catalog.profiles.all.externalRuntimeIds) {
+    assert.ok(catalog.byId[runtimeId].services.length > 0, `${runtimeId} has no services`);
+  }
 });

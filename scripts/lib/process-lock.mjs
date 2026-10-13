@@ -30,7 +30,7 @@ function readLock(pidFile) {
   }
 }
 
-function processIsAlive(pid) {
+export function processIsAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
@@ -40,7 +40,7 @@ function processIsAlive(pid) {
   }
 }
 
-function processIdentity(pid) {
+export function processIdentity(pid) {
   if (process.platform === "win32") return null;
   try {
     const output = execFileSync(

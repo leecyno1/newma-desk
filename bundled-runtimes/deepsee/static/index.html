@@ -11,7 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts-wordcloud@2/dist/echarts-wordcloud.min.js"></script>
     <!-- Plotly: 数据看板可视化（更现代、交互更强） -->
     <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.30.0/plotly.min.js"></script>
-    <script src="/static/modules/vibedesk-embed.js?v=20260819"></script>
+    <script src="/static/modules/vibedesk-embed.js?v=20260829"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -9207,7 +9207,6 @@
                     </div>
                 </div>
                 <div class="settings-home-grid">
-                    <div class="settings-home-card" data-open-settings="settings-agent" style="--card-color:#0a84ff"><div class="settings-home-card-title">Desk Agent</div><div class="settings-home-card-desc">统一管理深度、批量和编码任务的 Agent 入口。</div><div class="settings-home-card-action">查看状态 →</div></div>
                     <div class="settings-home-card" data-open-settings="settings-ai-config" style="--card-color:#64748b"><div class="settings-home-card-title">Deepsee 兼容 AI</div><div class="settings-home-card-desc">保留消息、邮件、会议等旧引擎的模型与提示词配置。</div><div class="settings-home-card-action">进入兼容配置 →</div></div>
                     <div class="settings-home-card" data-open-settings="settings-prompts" style="--card-color:#7c3aed"><div class="settings-home-card-title">提示词管理</div><div class="settings-home-card-desc">大模型、小模型、AI回复和一页通提示词。</div><div class="settings-home-card-action">进入配置 →</div></div>
                     <div class="settings-home-card" data-open-settings="settings-wechat-engine" style="--card-color:#30b0c7"><div class="settings-home-card-title">微信引擎</div><div class="settings-home-card-desc">微信 API、回调、准入与发送链路。</div><div class="settings-home-card-action">进入配置 →</div></div>
@@ -9222,35 +9221,6 @@
                     <div class="settings-home-card" data-open-settings="settings-blackwhite" style="--card-color:#ff2d55"><div class="settings-home-card-title">黑白名单</div><div class="settings-home-card-desc">联系人、群聊与过滤名单管理。</div><div class="settings-home-card-action">进入配置 →</div></div>
                     <div class="settings-home-card" data-open-settings="settings-database-cleanup" style="--card-color:#8e8e93"><div class="settings-home-card-title">存储清理</div><div class="settings-home-card-desc">清理过期缓存，必要时再清理历史数据。</div><div class="settings-home-card-action">进入配置 →</div></div>
                 </div>
-            </div>
-            <div class="settings-section" id="settings-agent" data-nav-title="Desk Agent">
-                <h3>Desk Agent</h3>
-                <div class="settings-runtime-panel" id="deskAgentPanel">
-                    <div class="settings-runtime-head">
-                        <div><div class="settings-runtime-title">统一 Agent 路由</div><div class="settings-runtime-sub">深度研究、批量摘要和编码任务使用 Desk 的统一配置；本页不保存长期记忆。</div></div>
-                        <div style="display:flex;align-items:center;gap:8px;"><span id="deskAgentStatus" style="color:var(--text-muted);font-size:12px;">等待连接</span><span id="deskAgentCatalogStatus" style="color:var(--text-muted);font-size:12px;"></span><button class="test-btn" type="button" onclick="window.__vibedeskRefreshAgentSettings?.()">刷新</button></div>
-                    </div>
-                    <div id="deskAgentProfileGrid" class="settings-runtime-grid">
-                        <div class="settings-runtime-card"><div class="settings-runtime-name">正在读取 Desk Agent…</div><div class="settings-runtime-meta">连接后显示当前路由</div></div>
-                    </div>
-                    <div class="config-group" style="margin-top:10px;">
-                        <div class="config-inline-row">
-                            <label class="inline-field"><span>批量摘要 CLI</span><select id="deskAgentAdapter"><option value="">沿用 Desk 全局 batch 路由</option></select></label>
-                            <label class="inline-field"><span>模型</span><input id="deskAgentModel" type="text" list="deskAgentModelOptions" placeholder="留空使用 CLI 默认模型" autocomplete="off"><datalist id="deskAgentModelOptions"></datalist></label>
-                            <label class="inline-field"><span>命令档位</span><select id="deskAgentCommandProfile"><option value="batch">batch · 批量摘要</option><option value="quick">quick · 快速回答</option><option value="deep">deep · 深度分析</option></select></label>
-                        </div>
-                        <div class="ai-compact-note">这里是 Deepsee 的 Mod 子配置，只覆盖批量摘要的 CLI、模型和命令档位；CLI 路径、登录态、全局并发和其他任务路由仍由 Desk Agent 设置统一管理。</div>
-                    </div>
-                    <div class="settings-runtime-card" style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
-                        <div><div class="settings-runtime-name">批量摘要 CLI</div><div class="settings-runtime-meta">微信每批100条，邮件与会议50条，自媒体与公众号10条；失败只做本地兜底，不重复调用。</div></div>
-                        <label style="display:flex;align-items:center;gap:8px;white-space:nowrap;"><input id="deskAgentBatchEnabled" type="checkbox"> 启用</label>
-                    </div>
-                    <div class="config-actions" style="margin-top:10px;">
-                        <a id="deskAgentSettingsLink" class="test-btn" href="/?view=agent-settings" target="_top">打开 Desk Agent 设置</a>
-                        <button class="test-btn" type="button" onclick="window.__saveDeskAgentBatchConfig?.()">保存批量路由</button>
-                    </div>
-                </div>
-                <div class="ai-compact-note">已迁移微信、邮件、会议摘要与会议整理；即时回复、多模态、语音和图片仍保留原链路。</div>
             </div>
             <div class="settings-section" id="settings-ai-config" data-nav-title="Deepsee 兼容 AI">
                 <h3>Deepsee 兼容 AI</h3>
@@ -11218,8 +11188,8 @@
             const button = document.getElementById('newsBatchAnalyzeBtn');
             if (!button || button.disabled) return;
             const bridge = window.VibeDeskBridge;
-            if (!bridge || !bridge.isEmbedded || !bridge.canInvokeAction('deepsee.news.batch-analyze')) {
-                setNewsRefreshState(false, '请在 Newma-Desk 中使用 AI 批量解读');
+            if (!bridge || !bridge.isEmbedded || !bridge.canRequestAgent()) {
+                setNewsRefreshState(false, 'Agent Runtime 尚未连接');
                 return;
             }
             const items = (newsFilteredItems.length ? newsFilteredItems : newsAllItems).slice(0, 80);
@@ -11241,22 +11211,16 @@
             ].join('\n');
             button.disabled = true;
             const original = button.textContent;
-            button.textContent = '解读中…';
-            setNewsRefreshState(true, `Agent 批量解读中 · ${items.length} 条`);
+            button.textContent = '交接中…';
+            setNewsRefreshState(true, `正在同步页面上下文 · ${items.length} 条`);
             try {
-                const task = await bridge.invokeAction('deepsee.news.batch-analyze', {
-                    prompt,
-                    itemIds,
+                bridge.requestAgent({
+                    mode: 'ask',
+                    prompt: `${prompt}\n\n样本 ID：${itemIds.join(', ')}`,
                 });
-                const completed = await bridge.waitForTask(task, {
-                    actionId: 'deepsee.news.batch-analyze',
-                });
-                const answer = String(completed?.result?.answer || completed?.result?.message || '').trim();
-                const prediction = document.getElementById('newsPrediction');
-                if (prediction) prediction.textContent = answer || 'Agent 未返回可展示内容。';
-                setNewsRefreshState(false, `Agent 批量解读完成 · ${items.length} 条`);
+                setNewsRefreshState(false, `已交给统一 Copilot · ${items.length} 条`);
             } catch (error) {
-                setNewsRefreshState(false, `Agent 批量解读失败：${error?.message || error}`);
+                setNewsRefreshState(false, `交接失败：${error?.message || error}`);
             } finally {
                 button.disabled = false;
                 button.textContent = original || 'AI 批量解读';
@@ -14100,167 +14064,12 @@
             };
         }
 
-        function deskAgentSummaryFromAnswer(answer, modules) {
-            const raw = String(answer || '').trim();
-            if (!raw) return null;
-            const candidates = [raw.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()];
-            const start = raw.indexOf('{');
-            const end = raw.lastIndexOf('}');
-            if (start >= 0 && end > start) candidates.push(raw.slice(start, end + 1));
-            for (const candidate of candidates) {
-                try {
-                    const parsed = JSON.parse(candidate);
-                    if (parsed && typeof parsed === 'object' && (parsed.report || parsed.markdown)) {
-                        return parsed;
-                    }
-                } catch (_) { /* agent may return normal Markdown */ }
-            }
-            const selected = Array.isArray(modules) && modules.length ? modules : ['market'];
-            const primary = selected.includes('market') ? 'market' : selected[0];
-            const fieldMap = {
-                market: 'market_markdown',
-                meetings: 'meetings_markdown',
-                counter: 'counter_markdown',
-                contacts: 'top_contacts_markdown',
-                newswatch: 'newswatch_markdown',
-                mediawatch: 'mediawatch_markdown',
-                mpwatch: 'mpwatch_markdown',
-                minuteswatch: 'minuteswatch_markdown',
-            };
-            return {
-                status: 'ok',
-                modules: [primary],
-                report: { [fieldMap[primary] || 'market_markdown']: raw },
-                meta: { source: 'newma-desk-agent' },
-            };
-        }
-
-        function renderDeskAgentModels(adapter) {
-            const datalist = document.getElementById('deskAgentModelOptions');
-            if (!datalist) return;
-            const models = Array.isArray(adapter?.models) ? adapter.models : [];
-            datalist.innerHTML = models.map(model => `<option value="${escapeHtml(String(model))}"></option>`).join('');
-        }
-
-        function renderDeskAgentProfiles(adapter, selectedProfile) {
-            const select = document.getElementById('deskAgentCommandProfile');
-            if (!select) return;
-            const profiles = Array.isArray(adapter?.commandProfiles) && adapter.commandProfiles.length
-                ? adapter.commandProfiles
-                : ['batch'];
-            const details = adapter?.commandProfileDetails && typeof adapter.commandProfileDetails === 'object'
-                ? adapter.commandProfileDetails
-                : {};
-            select.innerHTML = profiles.map(profile => {
-                const detail = details[profile] && typeof details[profile] === 'object' ? details[profile] : {};
-                const label = String(detail.label || profile);
-                const description = String(detail.description || '');
-                return `<option value="${escapeHtml(String(profile))}">${escapeHtml(String(profile))} · ${escapeHtml(label)}${description ? `（${escapeHtml(description)}）` : ''}</option>`;
-            }).join('');
-            const preferred = String(selectedProfile || 'batch');
-            select.value = profiles.includes(preferred) ? preferred : (profiles.includes('batch') ? 'batch' : profiles[0]);
-        }
-
-        async function loadDeskAgentCatalog(config) {
-            const select = document.getElementById('deskAgentAdapter');
-            const status = document.getElementById('deskAgentCatalogStatus');
-            if (!select) return;
-            try {
-                const response = await fetch('/api/ai/desk-agent/capabilities?_ts=' + Date.now(), { cache: 'no-store' });
-                const payload = await response.json();
-                if (!response.ok || payload?.available !== true) {
-                    throw new Error(String(payload?.error || `HTTP ${response.status}`));
-                }
-                const rows = (Array.isArray(payload.adapters) ? payload.adapters : [])
-                    .filter(item => item && item.kind === 'local-cli' && item.available === true);
-                const configured = config && typeof config.desk_agent === 'object' ? config.desk_agent : {};
-                const configuredId = String(configured.adapter || '').trim();
-                select.innerHTML = '<option value="">沿用 Desk 全局 batch 路由</option>' + rows.map(item => {
-                    const version = String(item.version || '').trim();
-                    return `<option value="${escapeHtml(String(item.id))}">${escapeHtml(String(item.name || item.id))}${version ? ` · ${escapeHtml(version)}` : ''}</option>`;
-                }).join('');
-                select.value = rows.some(item => item.id === configuredId) ? configuredId : '';
-                const applySelection = () => {
-                    const adapter = rows.find(item => item.id === select.value);
-                    renderDeskAgentModels(adapter);
-                    renderDeskAgentProfiles(adapter, document.getElementById('deskAgentCommandProfile')?.value || configured.command_profile || 'batch');
-                    const model = document.getElementById('deskAgentModel');
-                    if (model && !model.value && adapter?.models?.length) model.placeholder = `留空使用 ${adapter.models[0]} 或 CLI 默认模型`;
-                };
-                select.onchange = applySelection;
-                applySelection();
-                window.__deskAgentCatalog = payload;
-                if (status) status.textContent = `已发现 ${rows.length} 个本机 CLI`;
-                const deskStatus = document.getElementById('deskAgentStatus');
-                if (deskStatus) deskStatus.textContent = 'Desk Agent 已连接';
-            } catch (error) {
-                select.innerHTML = '<option value="">沿用 Desk 全局 batch 路由</option>';
-                renderDeskAgentModels(null);
-                renderDeskAgentProfiles(null, 'batch');
-                if (status) status.textContent = `CLI 目录不可用：${String(error?.message || error).slice(0, 80)}`;
-                const deskStatus = document.getElementById('deskAgentStatus');
-                if (deskStatus) deskStatus.textContent = 'Desk Agent 未连接';
-            }
-        }
-
-        function loadDeskAgentBatchConfig(config) {
-            const input = document.getElementById('deskAgentBatchEnabled');
-            if (!input) return;
-            const agent = config && typeof config.desk_agent === 'object' ? config.desk_agent : {};
-            input.checked = agent.enabled === true;
-            const adapter = document.getElementById('deskAgentAdapter');
-            if (adapter) adapter.value = String(agent.adapter || '');
-            const model = document.getElementById('deskAgentModel');
-            if (model) model.value = String(agent.model || '');
-            const profile = document.getElementById('deskAgentCommandProfile');
-            if (profile) profile.value = String(agent.command_profile || 'batch');
-        }
-
-        async function saveDeskAgentBatchConfig() {
-            const input = document.getElementById('deskAgentBatchEnabled');
-            if (!input) return;
-            try {
-                const current = await (await fetch('/api/ai/config')).json();
-                const agent = current && typeof current.desk_agent === 'object' ? current.desk_agent : {};
-                const adapter = document.getElementById('deskAgentAdapter')?.value || '';
-                const model = document.getElementById('deskAgentModel')?.value?.trim() || '';
-                const commandProfile = document.getElementById('deskAgentCommandProfile')?.value || 'batch';
-                const response = await fetch('/api/ai/config', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({desk_agent: {
-                        enabled: Boolean(input.checked),
-                        base_url: agent.base_url || 'http://127.0.0.1:8911',
-                        module_id: agent.module_id || 'deepsee-news',
-                        adapter,
-                        model,
-                        command_profile: commandProfile,
-                        timeout_seconds: Number(agent.timeout_seconds || 180),
-                        has_token: Boolean(agent.has_token),
-                    }})
-                });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                alert(input.checked ? '批量摘要已切换到 Desk Agent' : '批量摘要已切回兼容 AI');
-            } catch (error) {
-                alert(`保存批量路由失败：${error?.message || error}`);
-            }
-        }
-        window.__saveDeskAgentBatchConfig = saveDeskAgentBatchConfig;
-        window.__vibedeskRefreshAgentSettings = async function() {
-            try {
-                await loadAiConfig();
-            } catch (_) {
-                try { await loadDeskAgentCatalog(); } catch (_) { }
-            }
-        };
-
-        async function runDeskAgentInsight(timePeriod, modules, items) {
+        async function requestAgentInsight(timePeriod, modules, items) {
             const bridge = window.VibeDeskBridge;
-            if (!bridge?.isEmbedded) return null;
-            if (!bridge.canInvokeAction('deepsee.insights.analyze')) {
-                throw new Error('Newma-Desk Agent 尚未完成连接');
+            if (!bridge?.isEmbedded || !bridge.canRequestAgent()) {
+                throw new Error('Agent Runtime 尚未连接');
             }
-            const evidence = (Array.isArray(items) ? items : []).slice(0, 80).map((item, index) => {
+            const evidence = (Array.isArray(items) ? items : []).slice(0, 30).map((item, index) => {
                 const derived = item?.derived && typeof item.derived === 'object' ? item.derived : {};
                 const text = String(
                     derived.key_info
@@ -14269,37 +14078,21 @@
                     || item?.content_text
                     || item?.content
                     || ''
-                ).replace(/\s+/g, ' ').trim().slice(0, 600);
-                return {
-                    id: String(item?.id ?? `sample-${index + 1}`).slice(0, 200),
-                    type: String(item?.type || item?.message_type || 'message').slice(0, 40),
-                    source: String(item?.sender_name || item?.sender_id || item?.source || '').slice(0, 120),
-                    time: String(item?.timestamp || item?.time || item?.created_at || '').slice(0, 80),
-                    text: text || '无可用正文',
-                };
+                ).replace(/\s+/g, ' ').trim().slice(0, 180);
+                const id = String(item?.id ?? `sample-${index + 1}`).slice(0, 80);
+                const source = String(item?.sender_name || item?.sender_id || item?.source || '未知来源').slice(0, 60);
+                const time = String(item?.timestamp || item?.time || item?.created_at || '').slice(0, 40);
+                return `${index + 1}. [${id}] ${source}${time ? ` · ${time}` : ''}：${text || '无可用正文'}`;
             });
             const prompt = [
-                '只分析 module_input.evidence 中已经提供的结构化样本，不扫描项目、数据库或其他文件。',
+                `请分析当前 Deepsee AI 洞察页面。时间范围：${timePeriod}；模块：${modules.join('、')}。`,
+                '页面结构化 Context、当前 DOM/HTML 已同步；下面仅补充本次筛选样本。',
+                '只使用当前页面和样本证据，不扫描项目、数据库或其他文件。',
                 '把事实、推断、风险和待核验项分开；不要编造缺失数据。',
-                '请严格返回 JSON（不要代码块），格式为：',
-                '{"modules":["market","meetings","counter","contacts","newswatch","mediawatch","mpwatch","minuteswatch"],"report":{"market_markdown":"...","meetings_markdown":"...","counter_markdown":"...","top_contacts_markdown":"...","newswatch_markdown":"...","mediawatch_markdown":"...","mpwatch_markdown":"...","minuteswatch_markdown":"..."}}',
-                '仅填写本次有证据支持的模块，Markdown 内容保持简洁并标注来源或待核验项。',
-                '如果 evidence 为空，直接在 market_markdown 说明当前筛选无样本，不要尝试补查。',
+                '先给核心结论，再给证据、风险、机会和待核验项；结论需标明对应样本。',
+                evidence.length ? `筛选样本：\n${evidence.join('\n')}` : '当前筛选无样本，不要补查或臆测。',
             ].join('\n');
-            const task = await bridge.invokeAction('deepsee.insights.analyze', {
-                prompt,
-                period: timePeriod,
-                modules,
-                itemIds: evidence.map((item) => item.id),
-                evidence,
-            });
-            const completed = await bridge.waitForTask(task, {
-                actionId: 'deepsee.insights.analyze',
-            });
-            return deskAgentSummaryFromAnswer(
-                completed?.result?.answer || completed?.result?.message,
-                modules,
-            );
+            return bridge.requestAgent({ prompt, mode: 'ask' });
         }
 
         // 最近一次参与分析的消息（按 period 已筛选），供前端回退使用，保持不同 period 的框架一致
@@ -14383,6 +14176,16 @@
                     return;
                 }
 
+                if (window.VibeDeskBridge?.isEmbedded) {
+                    await requestAgentInsight(
+                        lastAiPeriod,
+                        analysisParams.modules,
+                        filtered,
+                    );
+                    stopAnalysisCountdown('已交给统一 Copilot，请在右侧会话查看');
+                    return;
+                }
+
                 if (!contactRatings || Object.keys(contactRatings).length === 0) {
                     await loadContactRatingsFromBackend();
                 }
@@ -14403,16 +14206,7 @@
                     if (section) section.dataset.status = 'loading';
                 });
 
-                const deskAgentEnabled = Boolean(window.VibeDeskBridge?.isEmbedded);
-                if (deskAgentEnabled) {
-                    summaryPayload = await runDeskAgentInsight(
-                        lastAiPeriod,
-                        analysisParams.modules,
-                        filtered,
-                    );
-                }
-
-                if (!deskAgentEnabled && messageIds.length) {
+                if (messageIds.length) {
                     try {
                         const response = await fetch('/api/ai/summary', {
                             method: 'POST',
@@ -14443,7 +14237,7 @@
                     }
                 }
 
-                if (!summaryPayload && !deskAgentEnabled) {
+                if (!summaryPayload) {
                     summaryPayload = await runLocalSummary(filtered, prompts, analysisParams.modules, analysisParams.temperature);
                 }
 
@@ -20620,7 +20414,6 @@
                 'settings-blackwhite',
             ]);
             const AI_SECTION_IDS = new Set([
-                'settings-agent',
                 'settings-ai-config',
                 'settings-prompts',
             ]);
@@ -20662,7 +20455,6 @@
             const SECTION_ORDER = [
                 'settings-home',
                 'settings-system',
-                'settings-agent',
                 'settings-ai-config',
                 'settings-prompts',
                 'settings-keyword-filter',
@@ -21893,9 +21685,7 @@
             try{
                 const r = await fetch('/api/ai/config');
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
-	                const j = await r.json();
-	                loadDeskAgentBatchConfig(j);
-	                try { await loadDeskAgentCatalog(j); } catch (_) { /* catalog status is rendered in the panel */ }
+		                const j = await r.json();
 	                window.currentAiConfigApiUrl = String(j.api_url || '').trim();
 	                const isDashengProvider = String(j.api_url || '').trim() === DASHENG_CLOUD_API_URL;
 	                const providerMode = normalizeAiProviderMode(j.ai_provider_mode || (isDashengProvider && j.has_key ? 'dasheng' : 'custom'));

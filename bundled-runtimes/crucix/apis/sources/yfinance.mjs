@@ -41,7 +41,7 @@ async function fetchQuote(symbol) {
     });
 
     const result = data?.chart?.result?.[0];
-    if (!result) return null;
+    if (!result) return { symbol, error: 'No quote returned' };
 
     const meta = result.meta || {};
     const quotes = result.indicators?.quote?.[0] || {};
@@ -50,6 +50,7 @@ async function fetchQuote(symbol) {
 
     // Get current price and previous close
     const price = meta.regularMarketPrice ?? closes[closes.length - 1];
+    if (!Number.isFinite(price)) return { symbol, error: 'No valid quote price' };
     const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? closes[closes.length - 2];
     const change = price && prevClose ? price - prevClose : 0;
     const changePct = prevClose ? (change / prevClose) * 100 : 0;
@@ -75,6 +76,8 @@ async function fetchQuote(symbol) {
       currency: meta.currency || 'USD',
       exchange: meta.exchangeName || '',
       marketState: meta.marketState || 'UNKNOWN',
+      observedAt: Number.isFinite(meta.regularMarketTime) && meta.regularMarketTime > 0
+        ? new Date(meta.regularMarketTime * 1000).toISOString() : null,
       history,
     };
   } catch (e) {
@@ -96,14 +99,14 @@ export async function collect() {
   let ok = 0;
   let failed = 0;
 
-  for (const r of results) {
+  for (const [index, r] of results.entries()) {
     const q = r.status === 'fulfilled' ? r.value : null;
-    if (q && !q.error) {
+    if (q && !q.error && Number.isFinite(q.price)) {
       quotes[q.symbol] = q;
       ok++;
     } else {
       failed++;
-      const sym = q?.symbol || 'unknown';
+      const sym = symbols[index];
       quotes[sym] = q || { symbol: sym, error: 'fetch failed' };
     }
   }
@@ -126,5 +129,5 @@ export async function collect() {
 }
 
 function pickGroup(quotes, symbols) {
-  return symbols.map(s => quotes[s]).filter(Boolean);
+  return symbols.map(s => quotes[s]).filter(row => row && !row.error && Number.isFinite(row.price));
 }

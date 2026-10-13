@@ -67,10 +67,10 @@
     "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei",
     "Noto Sans CJK SC", sans-serif;
   --vibe-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --vibe-font-xs: 11px;
-  --vibe-font-sm: 12px;
-  --vibe-font-md: 13px;
-  --vibe-font-lg: 15px;
+  --vibe-font-xs: 12px;
+  --vibe-font-sm: 13px;
+  --vibe-font-md: 14px;
+  --vibe-font-lg: 16px;
   --vibe-font-xl: 24px;
   --vibe-control-height: 36px;
   --vibe-project-rail-width: 60px;

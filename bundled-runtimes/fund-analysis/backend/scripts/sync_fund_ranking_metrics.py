@@ -36,6 +36,7 @@ except Exception:
     pass
 
 from database import get_engine, init_database
+from repositories.metric_snapshot_repo import archive_invalid_nav_metrics
 from lib.fund_status import active_fund_sql
 from repositories import (
     get_fund_classification_repo,
@@ -75,6 +76,7 @@ BROWSER_CORE_PEER_GROUPS = (
 )
 BROWSER_CORE_TARGET_PER_GROUP = 10
 COMPANY_EVALUATION_TARGET_PER_GROUP = 3
+PEER_METRIC_MAX_AGE_DAYS = 7
 MANAGER_TENURE_EXCLUDED_FAMILIES = {
     "cash_management",
     "index_broad",
@@ -254,12 +256,12 @@ def save_latest_fund_facts(
 ) -> int:
     """把真实规模和费率写入权威指标快照，供类别专属评价使用。"""
     latest = ProfessionalScoringService().metric_facts_from_fund(fund).get("latest") or {}
-    saved = 0
+    panel = []
     for metric_name, metric_unit in (("expense_ratio", "ratio"), ("aum", "cny_100m")):
         metric_value = number_or_none(latest.get(metric_name))
         if metric_value is None:
             continue
-        metric_repo.upsert_metric(
+        panel.append(dict(
             target_type="fund",
             target_id=wind_code,
             as_of_date=as_of_date,
@@ -271,9 +273,8 @@ def save_latest_fund_facts(
                 "source": "funds.total_asset+funds.raw_data.tushare",
                 "calculation_engine": "ProfessionalScoringService.metric_facts_from_fund",
             },
-        )
-        saved += 1
-    return saved
+        ))
+    return len(metric_repo.upsert_metrics(panel))
 
 
 def save_enrichment_metric_facts(
@@ -290,12 +291,12 @@ def save_enrichment_metric_facts(
         "benchmark_annualized_rate": "ratio",
         "benchmark_yield_spread": "ratio",
     }
-    saved = 0
+    panel = []
     for metric_name, metric_unit in metric_units.items():
         metric_value = number_or_none(facts.get(metric_name))
         if metric_value is None:
             continue
-        metric_repo.upsert_metric(
+        panel.append(dict(
             target_type="fund",
             target_id=wind_code,
             as_of_date=as_of_date,
@@ -309,23 +310,24 @@ def save_enrichment_metric_facts(
                 or "fund_nav_evidence_service",
                 "calculation_engine": "FundNavDataEnrichmentService",
             },
-        )
-        saved += 1
-    return saved
+        ))
+    return len(metric_repo.upsert_metrics(panel))
 
 
-def invalidate_nav_derived_evaluation_facts(wind_code: str, validation: Dict[str, Any]) -> None:
-    """移除已被净值质量门禁否定的派生指标，避免旧快照继续参与评分。"""
+def invalidate_nav_derived_evaluation_facts(wind_code: str, validation: Dict[str, Any]) -> Dict[str, Any]:
+    """归档失效指标后移出活跃面板；与基金派生字段清理同一事务。"""
     performance_keys = [
         "annualized_return_1y", "return_1y", "total_return", "annualized_return_3y",
         "return_3y", "return_6m", "sharpe_ratio", "positive_return_ratio",
         "benchmark_return_1y", "excess_return", "tracking_difference", "observations_1y",
         "seven_day_annualized_yield", "income_per_10000", "benchmark_yield_spread",
+        "annualized_return_5y", "return_5y",
     ]
     risk_keys = [
         "max_drawdown_1y", "max_drawdown", "annualized_volatility_1y", "volatility_1y",
         "sortino_ratio_1y", "calmar_ratio_1y", "tracking_error", "information_ratio",
         "max_drawdown_3y", "annualized_volatility_3y",
+        "max_drawdown_5y", "annualized_volatility_5y",
     ]
     marker = {
         "ranking_metrics": {
@@ -335,12 +337,12 @@ def invalidate_nav_derived_evaluation_facts(wind_code: str, validation: Dict[str
         }
     }
     with get_engine().begin() as conn:
-        conn.execute(text("""
-            DELETE FROM metric_snapshots
-            WHERE target_type = 'fund'
-              AND target_id = :wind_code
-              AND metric_window IN ('3m', '6m', '1y', '3y')
-        """), {"wind_code": wind_code})
+        archive = archive_invalid_nav_metrics(conn, wind_code, validation)
+        if archive['archive_id'] is None:
+            archive['archive_id'] = conn.execute(text("""
+                SELECT raw_data#>>'{ranking_metrics,archive_id}' FROM funds WHERE wind_code=:wind_code
+            """), {'wind_code': wind_code}).scalar()
+        marker['ranking_metrics'].update(archive)
         conn.execute(text("""
             UPDATE funds
             SET performance_data = COALESCE(performance_data, '{}'::jsonb) - CAST(:performance_keys AS text[]),
@@ -354,6 +356,9 @@ def invalidate_nav_derived_evaluation_facts(wind_code: str, validation: Dict[str
             "risk_keys": risk_keys,
             "marker": json.dumps(marker, ensure_ascii=False),
         })
+    from services.cache_service import invalidate_fund_cache
+    invalidate_fund_cache(wind_code)
+    return archive
 
 
 def mark_ranking_sync_unavailable(wind_code: str, reason: str) -> None:
@@ -587,7 +592,7 @@ def select_tenure_peer_missing_nav_codes(
         LEFT JOIN fund_nav nav
           ON nav.wind_code = representative.wind_code
          AND nav.trade_date BETWEEN :period_start AND :period_end
-         AND COALESCE(nav.accum_nav, nav.unit_nav, nav.nav) > 0
+         AND nav.adj_nav > 0 AND nav.adj_nav < 'Infinity'::numeric
         GROUP BY representative.entity_id, representative.wind_code, representative.total_asset
         ORDER BY representative.total_asset DESC NULLS LAST, representative.wind_code
     """)
@@ -721,7 +726,8 @@ def select_peer_evaluation_coverage_codes(
     min_age_days: int = 430,
     include_exchange_funds: bool = False,
 ) -> List[str]:
-    """按同类组轮询选择缺指标基金，0 表示在总 limit 内持续扩大覆盖。"""
+    """按同类组轮询补缺并刷新过期指标，0 表示在总 limit 内持续扩大覆盖。"""
+    min_as_of_date = date.today() - timedelta(days=PEER_METRIC_MAX_AGE_DAYS)
     normalized_keys = list(dict.fromkeys(
         str(key).strip() for key in peer_group_keys if str(key or "").strip()
     ))
@@ -794,42 +800,46 @@ def select_peer_evaluation_coverage_codes(
             int(result.get("minimum_valid_peer_count") or 0),
             min(configured_target, classified_count) if configured_target > 0 else classified_count,
         )
-        if valid_count >= desired_count:
-            log(
-                f"[peer-coverage] {group.get('peer_group_key')} 已满足："
-                f"有效样本 {valid_count} / 目标 {desired_count}"
-            )
-            continue
-
         needed_count = max(0, desired_count - valid_count)
-        candidates = select_peer_group_missing_metric_codes(
+        candidates = select_peer_group_metric_candidates(
             str(group.get("peer_group_key") or ""),
-            limit=min(max(needed_count, 1), max(1, limit)),
+            limit=max(1, limit),
             min_age_days=min_age_days,
             include_exchange_funds=include_exchange_funds,
+            min_as_of_date=min_as_of_date,
+            missing_limit=needed_count,
         )
-        normalized_candidates: List[str] = []
-        for code in candidates:
-            normalized_code = str(code).strip().upper()
-            if normalized_code and normalized_code not in normalized_candidates:
-                normalized_candidates.append(normalized_code)
+        for kind, codes in candidates.items():
+            candidates[kind] = list(dict.fromkeys(
+                str(code).strip().upper() for code in codes if str(code or "").strip()
+            ))
         group_states.append({
             "peer_group_key": group.get("peer_group_key"),
             "valid_count": valid_count,
             "desired_count": desired_count,
             "classified_count": classified_count,
-            "candidates": normalized_candidates[:needed_count],
-            "selected_count": 0,
+            "missing": candidates["missing"],
+            "stale": candidates["stale"],
         })
 
-    selected = round_robin_peer_candidates(group_states, limit)
+    missing_codes = round_robin_peer_candidates([
+        {"candidates": list(state["missing"])} for state in group_states
+    ], limit)
+    stale_codes = round_robin_peer_candidates([
+        {"candidates": list(state["stale"])} for state in group_states
+    ], limit)
+    selected = round_robin_peer_candidates([
+        {"candidates": missing_codes}, {"candidates": stale_codes},
+    ], limit)
+    selected_set = set(selected)
 
     for state in group_states:
+        selected_count = len(selected_set.intersection(state["missing"] + state["stale"]))
         log(
             f"[peer-coverage] {state.get('peer_group_key')}："
             f"已分类 {state.get('classified_count')}，"
-            f"有效样本 {state.get('valid_count')} / 目标 {state.get('desired_count')}，"
-            f"本次待补 {state.get('selected_count')}"
+            f"指标覆盖 {state.get('valid_count')} / 目标 {state.get('desired_count')}，"
+            f"刷新截止 {min_as_of_date.isoformat()}，本次补缺/刷新 {selected_count}"
         )
     return selected
 
@@ -1180,46 +1190,60 @@ def select_company_evaluation_coverage(
 def _panel_has_required_category_metrics(
     panel: List[Dict[str, Any]],
     metric_configs: List[Dict[str, Any]],
+    min_as_of_date: Optional[date] = None,
 ) -> bool:
-    metrics: Dict[str, Dict[str, float]] = {}
+    metrics: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for row in panel:
         metric_name = str(row.get("metric_name") or "")
         metric_value = number_or_none(row.get("metric_value"))
         if metric_name and metric_value is not None:
-            metrics.setdefault(str(row.get("metric_window") or "latest"), {})[metric_name] = metric_value
+            metrics.setdefault(str(row.get("metric_window") or "latest"), {})[metric_name] = row
 
     for config in metric_configs:
         if not config.get("required_for_sample", True):
             continue
-        value = None
+        metric = None
         for window, metric_name in config.get("paths") or []:
             effective_window = "1y" if window == "selected" else str(window)
-            value = metrics.get(effective_window, {}).get(str(metric_name))
-            if value is not None:
+            metric = metrics.get(effective_window, {}).get(str(metric_name))
+            if metric is not None:
                 break
+        value = number_or_none(metric.get("metric_value")) if metric is not None else None
         if value is not None and config.get("transform") == "absolute":
             value = abs(value)
         valid_range = config.get("valid_range")
         if value is None or (valid_range and not (valid_range[0] <= value <= valid_range[1])):
             return False
+        # 规模和费率不是日频披露，不套用净值刷新期限。
+        if min_as_of_date is not None and metric.get("metric_name") not in {"aum", "expense_ratio"}:
+            metric_date = _date_or_none(metric.get("as_of_date"))
+            window_end = (metric.get("details") or {}).get("window_end_date")
+            if metric_date is None or metric_date < min_as_of_date:
+                return False
+            if window_end is not None and (_date_or_none(window_end) or date.min) < min_as_of_date:
+                return False
     return True
 
 
-def select_peer_group_missing_metric_codes(
+def select_peer_group_metric_candidates(
     peer_group_key: str,
     limit: int,
     min_age_days: int = 430,
     include_exchange_funds: bool = False,
-) -> List[str]:
-    """按该类别专属评价方法选择仍缺核心指标的主要份额。"""
+    min_as_of_date: Optional[date] = None,
+    missing_limit: Optional[int] = None,
+) -> Dict[str, List[str]]:
+    """按类别专属评价方法分别选择缺失和过期核心数据的主要份额。"""
     if not peer_group_key or limit <= 0:
-        return []
+        return {"missing": [], "stale": []}
     sql = text(f"""
         WITH representative_shares AS (
           SELECT DISTINCT ON (fe.id)
             fsc.wind_code,
             sf.key AS strategy_family_key,
-            fund.total_asset
+            fund.total_asset,
+            fund.nav_date,
+            fund.raw_data #>> '{{ranking_metrics,synced_at}}' AS last_synced_at
           FROM peer_groups pg
           JOIN peer_group_members pgm
             ON pgm.peer_group_id = pg.id
@@ -1247,7 +1271,7 @@ def select_peer_group_missing_metric_codes(
             fund.total_asset DESC NULLS LAST,
             fsc.wind_code
         )
-        SELECT wind_code, strategy_family_key
+        SELECT wind_code, strategy_family_key, nav_date, last_synced_at
         FROM representative_shares
         ORDER BY total_asset DESC NULLS LAST, wind_code
     """)
@@ -1264,7 +1288,9 @@ def select_peer_group_missing_metric_codes(
     codes = [str(row.get("wind_code") or "") for row in rows if row.get("wind_code")]
     panels = get_metric_snapshot_repo().get_latest_panels("fund", codes)
     methodology = ProfessionalScoringService().methodology
-    selected: List[str] = []
+    missing: List[str] = []
+    stale: List[Dict[str, Any]] = []
+    missing_limit = limit if missing_limit is None else min(limit, max(0, missing_limit))
     for row in rows:
         family_key = str(row.get("strategy_family_key") or "")
         profile_key = str(
@@ -1272,11 +1298,21 @@ def select_peer_group_missing_metric_codes(
         )
         metric_configs = methodology.peer_metric_configs(profile_key)
         code = str(row.get("wind_code") or "")
-        if metric_configs and not _panel_has_required_category_metrics(panels.get(code) or [], metric_configs):
-            selected.append(code)
-            if len(selected) >= limit:
-                break
-    return selected
+        panel = panels.get(code) or []
+        if not metric_configs:
+            continue
+        if not _panel_has_required_category_metrics(panel, metric_configs):
+            if len(missing) < missing_limit:
+                missing.append(code)
+        elif min_as_of_date is not None:
+            nav_date = _date_or_none(row.get("nav_date"))
+            if nav_date is None or nav_date < min_as_of_date or not _panel_has_required_category_metrics(
+                panel, metric_configs, min_as_of_date=min_as_of_date,
+            ):
+                stale.append(row)
+
+    stale.sort(key=lambda row: str(row.get("last_synced_at") or ""))
+    return {"missing": missing, "stale": [str(row["wind_code"]) for row in stale[:limit]]}
 
 
 def sync_one_fund(
@@ -1322,8 +1358,9 @@ def sync_one_fund(
     )
     nav_series = enrichment["nav_series"]
     if enrichment.get("nav_data_status") != "valid":
-        nav_repo.upsert_nav_series(wind_code, nav_series, replace_range=True)
-        invalidate_nav_derived_evaluation_facts(
+        if not nav_repo.upsert_nav_series(wind_code, nav_series, replace_range=True):
+            return {"wind_code": wind_code, "status": "failed", "reason": "净值写入失败，未更新评价指标"}
+        invalidation = invalidate_nav_derived_evaluation_facts(
             wind_code,
             enrichment.get("nav_validation") or {"status": "invalid"},
         )
@@ -1331,8 +1368,10 @@ def sync_one_fund(
             "wind_code": wind_code,
             "status": "skipped",
             "reason": f"净值质量门禁：{enrichment.get('nav_validation')}",
+            "metric_invalidation": invalidation,
         }
-    nav_repo.upsert_nav_series(wind_code, nav_series, replace_range=True)
+    if not nav_repo.upsert_nav_series(wind_code, nav_series, replace_range=True):
+        return {"wind_code": wind_code, "status": "failed", "reason": "净值写入失败，未更新评价指标"}
     rolling_result = rolling_service.calculate_and_save_for_fund(
         wind_code,
         benchmark_code=enrichment.get("benchmark_code"),

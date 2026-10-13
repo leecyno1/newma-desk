@@ -17,7 +17,7 @@ Research 与 Trading 已经是第一方 Mod Suite。它们需要保留领域能�
    - API 使用单一 Python 运行环境承载 Desk、Research 与 Trading 的 Integrated Domain Runtime。
    - Node、Git、编译器和前端依赖只存在于构建阶段。
 3. Research / Trading 的领域能力通过小型 Interface 挂载到 Desk。生产运行时不得加载嵌套 `.venv`；本地兼容模式必须显式开启。
-4. 上游自带 Agent、模型配置、频道、上传、调度和重复后台任务不进入集成模式。所有模型和会话选择均由 Desk Agent Interface 提供。
+4. 上游领域项目自带的 Agent、模型配置、频道、上传、调度和重复后台任务不进入集成模式。所有模型和会话选择均通过 ADR-0006 的 Agent Runtime Seam 提供：挂载模式使用 Newma Host Adapter，独立模式使用 Desk Gateway Adapter。
 5. Deepsee、Seven Cycle、InStock 与 Orchestra 等重型或异构 Mod 作为独立 Adapter，通过 Compose profile 按需启动；它们失败时不得拖垮核心运行时。
 6. 体积、最大前端文件、Docker build context 和集成依赖黑名单由 `config/production-footprint.json` 持续校验。
 

@@ -2,41 +2,56 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadLocalEnvironment } from "./lib/local-env.mjs";
 
+import {
+  createRuntimeProfilePlan,
+  resolveRuntimeProfile,
+} from "./lib/dev-stack-profile.mjs";
 import { registerDefaultMods } from "./lib/mod-store.mjs";
 import {
   loadExternalModRuntimes,
   runtimeEnvironment,
 } from "./lib/external-mod-runtimes.mjs";
+import { createRuntimeServiceGroups } from "./lib/runtime-descriptor-services.mjs";
 import {
   createCompositeProbe,
   createHttpProbe,
-  probeService,
   RuntimeSupervisor,
   SERVICE_CRITICALITY,
   SERVICE_STATE,
 } from "./lib/runtime-supervisor.mjs";
 import {
+  collectRuntimeStatus,
+  createRuntimeStatusReport,
+  formatRuntimeStatusLine,
+} from "./lib/runtime-status.mjs";
+import {
   claimProcessLock,
   ProcessLockError,
   releaseProcessLock,
 } from "./lib/process-lock.mjs";
+import {
+  runRuntimeBuildTasks,
+  runtimeBuildDecision,
+} from "./lib/runtime-build.mjs";
+import {
+  createRuntimeProcessLedger,
+  recoverRuntimeProcesses,
+} from "./lib/runtime-process-ledger.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
-const args = new Set(process.argv.slice(2));
+loadLocalEnvironment(repoRoot);
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
 const checkOnly = args.has("--check");
 const strictStatus = args.has("--strict");
-
-function preferredCodexExecutable() {
-  const configured = configuredEnv("AGENT_CODEX_BIN");
-  if (configured) return configured;
-  return [
-    "/Applications/ChatGPT.app/Contents/Resources/codex",
-    path.join(process.env.HOME || "", ".npm-global", "bin", "codex"),
-  ].find((candidate) => candidate && existsSync(candidate));
-}
+const jsonStatus = checkOnly && args.has("--json");
+const forceRebuild = args.has("--rebuild");
+const runtimeProfile = resolveRuntimeProfile(rawArgs, process.env);
 
 function configuredEnv(name) {
   const suffix = name.startsWith("NEWMA_DESK_")
@@ -71,16 +86,19 @@ const runtimeRestartGraceMs = Number(
 const runtimePortReleaseTimeoutMs = Number(
   configuredEnv("RUNTIME_PORT_RELEASE_TIMEOUT_MS") || 5_000,
 );
-const sevenCycleHealthTimeoutMs = Number(
-  configuredEnv("SEVEN_CYCLE_HEALTH_TIMEOUT_MS") || 5_000,
-);
 const repairSevenCycleCatalogOnStart = configuredBoolean(
   "SEVEN_CYCLE_REPAIR_CATALOG_ON_START",
   false,
 );
+const runtimeBuildConcurrency = Number(
+  configuredEnv("RUNTIME_BUILD_CONCURRENCY") || 2,
+);
 const pidFile = configuredEnv("STACK_PID_FILE")
   || path.join(repoRoot, "runtime", "newma-desk-stack.pid");
+const processLedgerFile = configuredEnv("STACK_PROCESS_LEDGER_FILE")
+  || path.join(repoRoot, "runtime", "newma-desk-managed-processes.json");
 let shuttingDown = false;
+let processLedger = null;
 
 function withLocalProxyBypass(...values) {
   const entries = values
@@ -163,7 +181,6 @@ function createApiReadinessProbe() {
 
 function coreServices(externalRuntimeEnv = {}) {
   const apiPython = pythonAt(path.join(repoRoot, "services", "api"));
-  const codexExecutable = preferredCodexExecutable();
   return [
     {
       id: "newma-desk-api",
@@ -176,9 +193,6 @@ function coreServices(externalRuntimeEnv = {}) {
       ],
       env: {
         ...externalRuntimeEnv,
-        ...(codexExecutable
-          ? { NEWMA_DESK_AGENT_CODEX_BIN: codexExecutable }
-          : {}),
         NEWMA_DESK_POLICY_RSSHUB_BASE_URL: "http://127.0.0.1:1200",
         NEWMA_DESK_ENABLE_DOMAIN_SUITES: "true",
         NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME: "1",
@@ -213,39 +227,34 @@ function coreServices(externalRuntimeEnv = {}) {
   ];
 }
 
-function policyCollectorServices() {
-  const workspace = path.join(repoRoot, "bundled-runtimes", "rsshub-policy");
-  const executable = path.join(workspace, "node_modules", ".bin", "tsx");
-  const routesIndex = path.join(workspace, "assets", "build", "routes.js");
-  if (!existsSync(executable) || !existsSync(routesIndex)) return [];
-  return [{
-    id: "policy-rsshub",
-    label: "Policy RSSHub Collector",
-    cwd: workspace,
-    command: executable,
-    commandArgs: ["lib/index.ts"],
-    // The optional collector must not inherit the Desk terminal.
-    // A closed terminal can emit EIO into its logger.
-    stdio: "ignore",
-    env: {
-      NODE_ENV: "production",
-      PORT: "1200",
-      LOGGER_LEVEL: "warn",
-      NO_LOGFILES: "true",
-    },
-    criticality: SERVICE_CRITICALITY.OPTIONAL,
-    url: "http://127.0.0.1:1200/healthz",
-    probe: createHttpProbe("http://127.0.0.1:1200/healthz", {
-      expectHtml: false,
-      expectedText: "ok",
-    }),
-  }];
-}
-
 async function buildIntegratedFrontend(label, workspace, basePath, apiBase) {
   const frontend = path.join(workspace, "frontend");
   if (!existsSync(path.join(frontend, "package.json"))) {
     throw new Error(`${label} 前端源码不存在：${frontend}`);
+  }
+  const signature = JSON.stringify({
+    integrated: true,
+    basePath,
+    apiBase,
+  });
+  const signatureFile = path.join(frontend, "dist", ".newma-build-signature");
+  const decision = await runtimeBuildDecision({
+    output: path.join(frontend, "dist", "index.html"),
+    inputs: [
+      path.join(frontend, "src"),
+      path.join(frontend, "index.html"),
+      path.join(frontend, "package.json"),
+      path.join(frontend, "package-lock.json"),
+      path.join(frontend, "tsconfig.json"),
+      path.join(frontend, "vite.config.ts"),
+    ],
+    force: forceRebuild,
+    signature,
+    signatureFile,
+  });
+  if (!decision.build) {
+    console.log(`跳过内置 ${label} Mod 构建（产物已是最新）`);
+    return;
   }
   console.log(`构建内置 ${label} Mod 运行时 -> ${basePath}`);
   const child = spawn("npm", ["run", "build"], {
@@ -267,9 +276,29 @@ async function buildIntegratedFrontend(label, workspace, basePath, apiBase) {
       else reject(new Error(`${label} 前端构建失败：code=${code ?? "-"} signal=${signal ?? "-"}`));
     });
   });
+  await writeFile(signatureFile, `${signature}\n`, "utf8");
 }
 
-async function buildFirstPartyModule(label, workspaceName) {
+async function buildFirstPartyModule(label, workspaceName, workspacePath) {
+  const workspace = path.join(repoRoot, workspacePath);
+  const decision = await runtimeBuildDecision({
+    output: path.join(workspace, "dist", "index.html"),
+    inputs: [
+      path.join(workspace, "src"),
+      path.join(workspace, "index.html"),
+      path.join(workspace, "package.json"),
+      path.join(workspace, "tsconfig.json"),
+      path.join(workspace, "vite.config.ts"),
+      path.join(repoRoot, "packages", "contracts", "src"),
+      path.join(repoRoot, "packages", "module-sdk", "src"),
+      path.join(repoRoot, "package-lock.json"),
+    ],
+    force: forceRebuild,
+  });
+  if (!decision.build) {
+    console.log(`跳过内置 ${label} Mod 构建（产物已是最新）`);
+    return;
+  }
   console.log(`构建内置 ${label} Mod`);
   const child = spawn("npm", ["run", "build", "-w", workspaceName], {
     cwd: repoRoot,
@@ -339,359 +368,87 @@ async function ensureWorldIntelRuntime(runtime) {
   );
 }
 
-function worldIntelServices(runtime) {
-  if (!runtime) return [];
-  const workspace = runtime.workspaces.source.path;
-  const endpoint = runtime.endpoints.api;
-  return [{
-    id: "world-intel-mcp",
-    label: "World Intelligence MCP",
-    cwd: workspace,
-    ...(workspace && endpoint.local
-      ? {
-          command: pythonAt(workspace),
-          commandArgs: [
-            "-m", "world_intel_mcp.dashboard.app",
-            "--host", "127.0.0.1",
-            "--port", String(endpoint.port),
-          ],
-        }
-      : {}),
-    env: {
-      PYTHONUNBUFFERED: "1",
-      WORLD_INTEL_DASHBOARD_HOST: "127.0.0.1",
-      WORLD_INTEL_DASHBOARD_PORT: String(endpoint.port),
-    },
-    // Intelligence is a default first-party Mod, but its live data plane is
-    // not the Desk shell. A stalled collector must degrade this Mod only;
-    // Chat, Market, session/workspace state, and the Agent pane stay online.
-    criticality: endpoint.local
-      ? SERVICE_CRITICALITY.OPTIONAL
-      : SERVICE_CRITICALITY.EXTERNAL,
-    url: endpoint.healthUrl,
-    probe: createHttpProbe(endpoint.healthUrl, {
-      expectedService: "world-intel-mcp",
-    }),
-  }];
+async function ensureSevenCycleRuntime(runtime) {
+  const workspace = runtime?.workspaces.source.path;
+  if (!workspace) {
+    throw new Error("未找到 Seven Cycle 源码目录。");
+  }
+  const venvPython = path.join(workspace, ".venv", "bin", "python");
+  const usesLocalPython = existsSync(venvPython)
+    && existsSync(path.join(workspace, ".venv", "bin", "seven-cycle"));
+  await runSetupCommand(
+    "校验 Seven Cycle 本地数据索引",
+    usesLocalPython ? venvPython : "uv",
+    usesLocalPython
+      ? ["scripts/build_seed_catalog.py"]
+      : ["run", "python", "scripts/build_seed_catalog.py"],
+    workspace,
+  );
 }
 
-function crucixServices(runtime) {
-  if (!runtime) return [];
-  const workspace = runtime.workspaces.source.path;
-  const endpoint = runtime.endpoints.api;
-  const managedLocally = Boolean(workspace && endpoint.local);
-  return [{
-    id: "crucix",
-    label: "Crucix 全球情报引擎",
-    cwd: workspace,
-    ...(managedLocally
-      ? {
-          command: "node",
-          commandArgs: ["server.mjs"],
-        }
-      : {}),
-    env: {
-      HOST: "127.0.0.1",
-      PORT: String(endpoint.port),
-      PUBLIC_URL: endpoint.origin,
-      AUTO_OPEN_DASHBOARD: "false",
-    },
-    criticality: managedLocally
-      ? SERVICE_CRITICALITY.OPTIONAL
-      : SERVICE_CRITICALITY.EXTERNAL,
-    url: endpoint.healthUrl,
-    probe: createHttpProbe(endpoint.healthUrl, {
-      expectHtml: false,
-      timeoutMs: 5_000,
-    }),
-  }];
-}
-
-function openChatCutServices(runtime) {
-  if (!runtime) return [];
-  const workspace = runtime.workspaces.source.path;
-  const endpoint = runtime.endpoints.web;
+function openChatCutLaunch({ endpoint }) {
   const configuredNode = configuredEnv("OPENCHATCUT_NODE_BIN");
   const configuredNpmCli = configuredEnv("OPENCHATCUT_NPM_CLI");
   const node24 = configuredNode || "/opt/homebrew/opt/node@24/bin/node";
   const npmCli = configuredNpmCli
     || "/opt/homebrew/opt/node@24/lib/node_modules/npm/bin/npm-cli.js";
   const pinnedNodeRuntime = existsSync(node24) && existsSync(npmCli);
-  return [{
-    id: "openchatcut-editor",
-    label: "OpenChatCut Collaborative Editor",
-    cwd: workspace,
-    ...(workspace && endpoint.local
-      ? {
-          command: pinnedNodeRuntime ? node24 : "npm",
-          commandArgs: [
-            ...(pinnedNodeRuntime ? [npmCli] : []),
-            "run", "dev:shared", "--",
-            "--host", "127.0.0.1",
-            "--port", String(endpoint.port),
-            "--strictPort",
-          ],
-        }
-      : {}),
-    criticality: endpoint.local
-      ? SERVICE_CRITICALITY.OPTIONAL
-      : SERVICE_CRITICALITY.EXTERNAL,
-    url: endpoint.healthUrl,
-    probe: createHttpProbe(endpoint.healthUrl, { timeoutMs: 15_000 }),
-  }];
+  return {
+    command: pinnedNodeRuntime ? node24 : "npm",
+    commandArgs: [
+      ...(pinnedNodeRuntime ? [npmCli] : []),
+      "run", "dev:shared", "--",
+      "--host", "127.0.0.1",
+      "--port", String(endpoint.port),
+      "--strictPort",
+    ],
+  };
 }
 
-function sevenCycleServices(runtime) {
-  if (!runtime) return [];
-  const workspace = runtime.workspaces.source.path;
-  const endpoint = runtime.endpoints.web;
+function sevenCycleLaunch({ workspace, endpoint }) {
   const localCommand = workspace
     ? path.join(workspace, ".venv", "bin", "seven-cycle")
     : undefined;
   const usesLocalCommand = localCommand ? existsSync(localCommand) : false;
-  return [
-    {
-      id: "seven-cycle-research",
-      label: "Seven Cycle Research",
-      cwd: workspace,
-      ...(workspace && endpoint.local
-        ? {
-            command: usesLocalCommand ? localCommand : "uv",
-            commandArgs: [
-              ...(usesLocalCommand ? [] : ["run", "seven-cycle"]),
-              "serve", "--host", "127.0.0.1", "--port", String(endpoint.port),
-              ...(repairSevenCycleCatalogOnStart
-                ? ["--repair-catalog-on-start"]
-                : []),
-            ],
-          }
-        : {}),
-      criticality: endpoint.local
-        ? SERVICE_CRITICALITY.OPTIONAL
-        : SERVICE_CRITICALITY.EXTERNAL,
-      url: endpoint.healthUrl,
-      probe: createHttpProbe(endpoint.healthUrl, {
-        expectedService: "seven-cycle-platform",
-        degradedStatuses: [409],
-        timeoutMs: sevenCycleHealthTimeoutMs,
-      }),
-    },
-  ];
+  return {
+    command: usesLocalCommand ? localCommand : "uv",
+    commandArgs: [
+      ...(usesLocalCommand ? [] : ["run", "seven-cycle"]),
+      "serve", "--host", "127.0.0.1", "--port", String(endpoint.port),
+      ...(repairSevenCycleCatalogOnStart
+        ? ["--repair-catalog-on-start"]
+        : []),
+    ],
+  };
 }
 
-function instockServices(runtime) {
-  if (!runtime) return [];
-  const workspace = runtime.workspaces.source.path;
-  const endpoint = runtime.endpoints.web;
-  return [
-    {
-      id: "instock-analysis",
-      label: "InStock Analysis",
-      cwd: workspace,
-      ...(workspace && endpoint.local
-        ? {
-            command: pythonAt(workspace),
-            commandArgs: ["instock/web/web_service.py"],
-          }
-        : {}),
-      env: {
-        PYTHONUNBUFFERED: "1",
-        INSTOCK_SKIP_DB: "1",
-        INSTOCK_MARKET_DATA_PROVIDER: "vibedesk",
-        NEWMA_DESK_DATA_URL: "http://127.0.0.1:8911/api/research",
-        NEWMA_DESK_PARENT_ORIGIN: "http://127.0.0.1:5888",
-        NEWMA_DOCK_DATA_URL: "http://127.0.0.1:8911/api/research",
-        NEWMA_DOCK_PARENT_ORIGIN: "http://127.0.0.1:5888",
-        VIBEDESK_DATA_URL: "http://127.0.0.1:8911/api/research",
-        VIBEDESK_PARENT_ORIGIN: "http://127.0.0.1:5888",
-        INSTOCK_EMBED_ORIGINS: "http://127.0.0.1:5888",
-        INSTOCK_CORS_ORIGINS: "http://127.0.0.1:5888",
-        INSTOCK_WEB_HOST: "127.0.0.1",
-        INSTOCK_WEB_PORT: String(endpoint.port),
-      },
-      criticality: endpoint.local
-        ? SERVICE_CRITICALITY.OPTIONAL
-        : SERVICE_CRITICALITY.EXTERNAL,
-      url: endpoint.healthUrl,
-      probe: createHttpProbe(endpoint.healthUrl, {
-        expectedService: "instock-analysis",
-        // InStock uses one Tornado loop; a live market request can briefly
-        // delay the otherwise lightweight health handler.
-        timeoutMs: 5_000,
-      }),
-    },
-  ];
-}
-
-function fundAnalysisServices(runtime) {
-  if (!runtime) return [];
-  const workspace = runtime.workspaces.source.path;
-  const webEndpoint = runtime.endpoints.web;
-  const apiEndpoint = runtime.endpoints.api;
-  return [
-    {
-      id: "fund-analysis-api",
-      label: "Fund Analysis API",
-      cwd: workspace,
-      ...(workspace && apiEndpoint.local
-        ? {
-            command: "bash",
-            commandArgs: ["backend/scripts/start_backend.sh"],
-          }
-        : {}),
-      env: {
-        PYTHONUNBUFFERED: "1",
-        HOST: "127.0.0.1",
-        PORT: String(apiEndpoint.port),
-      },
-      criticality: apiEndpoint.local
-        ? SERVICE_CRITICALITY.OPTIONAL
-        : SERVICE_CRITICALITY.EXTERNAL,
-      url: apiEndpoint.healthUrl,
-      probe: createHttpProbe(apiEndpoint.healthUrl, {
-        expectedService: "fund-analysis-api",
-      }),
-    },
-    {
-      id: "fund-analysis-web",
-      label: "Fund Analysis Web",
-      cwd: workspace,
-      ...(workspace && webEndpoint.local
-        ? {
-            command: path.join(workspace, "node_modules", ".bin", "next"),
-            commandArgs: [
-              "dev", "--hostname", "127.0.0.1",
-              "--port", String(webEndpoint.port),
-            ],
-          }
-        : {}),
-      env: {
-        BACKEND_API_URL: apiEndpoint.origin,
-        NEXT_PUBLIC_BACKEND_API_URL: apiEndpoint.origin,
-      },
-      criticality: webEndpoint.local
-        ? SERVICE_CRITICALITY.OPTIONAL
-        : SERVICE_CRITICALITY.EXTERNAL,
-      url: webEndpoint.healthUrl,
-      // Next dev may compile a route on first request; allow cold starts and
-      // concurrent release checks without classifying a healthy service as down.
-      probe: createHttpProbe(webEndpoint.healthUrl, { timeoutMs: 15_000 }),
-    },
-  ];
-}
-
-function orchestraServices(runtime) {
-  if (!runtime) return [];
-  const frontendWorkspace = runtime.workspaces.frontend.path;
-  const backendWorkspace = runtime.workspaces.backend.path;
-  const webEndpoint = runtime.endpoints.web;
-  const apiEndpoint = runtime.endpoints.api;
-  return [
-    {
-      id: "orchestra-api",
-      label: "Orchestra API",
-      cwd: backendWorkspace,
-      ...(backendWorkspace && apiEndpoint.local
-        ? {
-            command: pythonAt(backendWorkspace),
-            commandArgs: ["-m", "orchestra_app.main"],
-          }
-        : {}),
-      env: {
-        PYTHONUNBUFFERED: "1",
-        ORCHESTRA_API_HOST: "127.0.0.1",
-        ORCHESTRA_API_PORT: String(apiEndpoint.port),
-        ...(backendWorkspace
-          ? { ORCHESTRA_PROJECT_ROOT: backendWorkspace }
-          : {}),
-      },
-      criticality: apiEndpoint.local
-        ? SERVICE_CRITICALITY.OPTIONAL
-        : SERVICE_CRITICALITY.EXTERNAL,
-      url: apiEndpoint.healthUrl,
-      probe: createHttpProbe(apiEndpoint.healthUrl, {
-        expectedService: "orchestra",
-      }),
-    },
-    {
-      id: "orchestra-web",
-      label: "Orchestra Web",
-      cwd: frontendWorkspace,
-      ...(frontendWorkspace && webEndpoint.local
-        ? {
-            command: "npm",
-            commandArgs: [
-              "run", "dev", "--", "--host", "127.0.0.1",
-              "--port", String(webEndpoint.port), "--strictPort",
-            ],
-          }
-        : {}),
-      env: {
-        ORCHESTRA_API_TARGET: apiEndpoint.origin,
-        VITE_NEWMA_DESK_PARENT_ORIGIN: "http://127.0.0.1:5888",
-        VITE_NEWMA_DOCK_PARENT_ORIGIN: "http://127.0.0.1:5888",
-      },
-      criticality: webEndpoint.local
-        ? SERVICE_CRITICALITY.OPTIONAL
-        : SERVICE_CRITICALITY.EXTERNAL,
-      url: webEndpoint.healthUrl,
-      probe: createHttpProbe(webEndpoint.healthUrl),
-    },
-  ];
-}
-
-function deepseeServices(runtime) {
-  if (!runtime) return [];
-  const workspace = runtime.workspaces.source.path;
-  const endpoint = runtime.endpoints.web;
-  return [{
-    id: "deepsee",
-    label: "Deepsee",
-    cwd: workspace,
-    ...(workspace && endpoint.local
-      ? {
-          command: pythonAt(workspace),
-          commandArgs: [
-            "-m", "uvicorn", "app.main:app",
-            "--host", "127.0.0.1", "--port", String(endpoint.port),
-          ],
-        }
-      : {}),
-    env: {
-      PYTHONUNBUFFERED: "1",
-      HOST: "127.0.0.1",
-      PORT: String(endpoint.port),
-    },
-    criticality: endpoint.local
-      ? SERVICE_CRITICALITY.OPTIONAL
-      : SERVICE_CRITICALITY.EXTERNAL,
-    url: endpoint.healthUrl,
-    probe: createHttpProbe(endpoint.healthUrl, {
-      expectedService: "deepsee",
-    }),
-  }];
-}
-
-async function statusLine(service) {
-  const result = await probeService(service);
-  const prefix = {
-    [SERVICE_STATE.READY]: "OK  ",
-    [SERVICE_STATE.DEGRADED]: "WARN",
-    [SERVICE_STATE.UNAVAILABLE]: "MISS",
-  }[result.state];
-  const suffix = result.reason ? ` · ${result.reason}` : "";
-  console.log(`${prefix} ${service.label.padEnd(28)} ${service.url}${suffix}`);
-  return { service, ...result };
-}
-
-function claimPidFile() {
+async function claimPidFile() {
   claimProcessLock(pidFile, { label: "Newma-Desk 统一启动器" });
+  const recovery = await recoverRuntimeProcesses(processLedgerFile);
+  if (recovery.status === "active-owner") {
+    releaseProcessLock(pidFile);
+    throw new ProcessLockError(
+      `Newma-Desk 统一启动器已运行（PID ${recovery.ownerPid}）。`,
+    );
+  }
+  if (recovery.recoveredServiceIds.length > 0) {
+    console.log(
+      `已清理上次异常退出遗留的 Mod：${recovery.recoveredServiceIds.join(", ")}`,
+    );
+  }
+  if (recovery.skippedServiceIds.length > 0) {
+    console.warn(
+      `跳过身份不匹配的旧进程：${recovery.skippedServiceIds.join(", ")}`,
+    );
+  }
+  processLedger = createRuntimeProcessLedger(processLedgerFile);
 }
 
 async function shutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   await supervisor.stopAll();
+  processLedger?.clear();
   releaseProcessLock(pidFile);
   process.exit(exitCode);
 }
@@ -707,23 +464,21 @@ const tradingWorkspace = workspaceFrom(
 const externalRuntimes = await loadExternalModRuntimes({ repoRoot });
 const externalRuntimeEnv = runtimeEnvironment(externalRuntimes);
 const core = coreServices(externalRuntimeEnv);
-const policyCollector = policyCollectorServices();
-const worldIntelRuntime = externalRuntimes.byId["world-intel"];
-const crucixRuntime = externalRuntimes.byId.crucix;
-const openChatCutRuntime = externalRuntimes.byId.openchatcut;
-const sevenCycleRuntime = externalRuntimes.byId["seven-cycle"];
-const instockRuntime = externalRuntimes.byId.instock;
-const fundAnalysisRuntime = externalRuntimes.byId["fund-analysis"];
-const orchestraRuntime = externalRuntimes.byId.orchestra;
-const deepseeRuntime = externalRuntimes.byId.deepsee;
-const worldIntel = worldIntelServices(worldIntelRuntime);
-const crucix = crucixServices(crucixRuntime);
-const openChatCut = openChatCutServices(openChatCutRuntime);
-const sevenCycle = sevenCycleServices(sevenCycleRuntime);
-const instock = instockServices(instockRuntime);
-const fundAnalysis = fundAnalysisServices(fundAnalysisRuntime);
-const orchestra = orchestraServices(orchestraRuntime);
-const deepsee = deepseeServices(deepseeRuntime);
+const runtimeServiceGroups = createRuntimeServiceGroups(externalRuntimes, {
+  env: process.env,
+  launchAdapters: {
+    openchatcut: openChatCutLaunch,
+    "seven-cycle": sevenCycleLaunch,
+  },
+  prepareAdapters: {
+    "world-intel": ({ runtime }) => ensureWorldIntelRuntime(runtime),
+    "seven-cycle": ({ runtime }) => ensureSevenCycleRuntime(runtime),
+  },
+});
+const runtimePlan = createRuntimeProfilePlan(runtimeProfile, {
+  core,
+  ...runtimeServiceGroups,
+}, externalRuntimes.profiles);
 const supervisor = new RuntimeSupervisor({
   coreTimeoutMs: startupTimeoutMs,
   optionalTimeoutMs: optionalStartupTimeoutMs,
@@ -732,97 +487,115 @@ const supervisor = new RuntimeSupervisor({
   restartGraceMs: runtimeRestartGraceMs,
   portReleaseTimeoutMs: runtimePortReleaseTimeoutMs,
   onCoreFailure: () => void shutdown(1),
+  onProcessStarted: ({ service, child }) => {
+    if (!processLedger?.track(service, child)) {
+      throw new Error(`无法记录 ${service.label} 的运行时所有权。`);
+    }
+  },
+  onProcessStopped: ({ child }) => {
+    processLedger?.untrack(child);
+  },
 });
 
-if (!researchWorkspace) {
-  console.warn("未找到 Vibe Research；请设置 NEWMA_DESK_INVESTMENT_WORKSPACE。相关 Mods 将不可用。");
-}
-if (!tradingWorkspace) {
-  console.warn("未找到 Vibe Trading；请设置 NEWMA_DESK_TRADING_WORKSPACE。量化 Mods 将不可用。");
-}
-for (const runtime of externalRuntimes.runtimes) {
-  for (const [name, workspace] of Object.entries(runtime.workspaces)) {
-    if (!workspace.path) {
-      console.warn(
-        `未找到 ${runtime.label} ${name} 工作区；可设置 ${workspace.env}。运行入口将保持降级状态。`,
-      );
+if (!jsonStatus) {
+  if (!researchWorkspace) {
+    console.warn("未找到 Vibe Research；请设置 NEWMA_DESK_INVESTMENT_WORKSPACE。相关 Mods 将不可用。");
+  }
+  if (!tradingWorkspace) {
+    console.warn("未找到 Vibe Trading；请设置 NEWMA_DESK_TRADING_WORKSPACE。量化 Mods 将不可用。");
+  }
+  for (const runtime of externalRuntimes.runtimes.filter(({ id }) =>
+    runtimePlan.externalRuntimeIds.includes(id)
+  )) {
+    for (const [name, workspace] of Object.entries(runtime.workspaces)) {
+      if (!workspace.path) {
+        console.warn(
+          `未找到 ${runtime.label} ${name} 工作区；可设置 ${workspace.env}。运行入口将保持降级状态。`,
+        );
+      }
     }
   }
 }
 
 if (checkOnly) {
-  const results = [];
-  for (const service of [...worldIntel, ...crucix, ...policyCollector, ...core, ...openChatCut, ...instock, ...fundAnalysis, ...orchestra, ...sevenCycle, ...deepsee]) {
-    results.push(await statusLine(service));
+  const results = await collectRuntimeStatus(runtimePlan.allServices);
+  const report = createRuntimeStatusReport({
+    profile: runtimeProfile,
+    results,
+  });
+  process.exitCode = (
+    strictStatus ? report.summary.allReady : report.summary.coreReady
+  ) ? 0 : 1;
+
+  if (jsonStatus) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    console.log(`Runtime Profile: ${runtimeProfile}`);
+    for (const result of results) {
+      console.log(formatRuntimeStatusLine(result));
+    }
   }
-  const coreReady = results
-    .filter(({ service }) => service.criticality === SERVICE_CRITICALITY.CORE)
-    .every(({ state }) => state === SERVICE_STATE.READY);
-  const allReady = results.every(({ state }) => state === SERVICE_STATE.READY);
-  process.exitCode = (strictStatus ? allReady : coreReady) ? 0 : 1;
-  if (coreReady && !allReady) {
+  if (!jsonStatus && report.summary.coreReady && !report.summary.allReady) {
     console.log("\nNewma-Desk 核心可用；部分可选或外部 Mod 当前处于降级状态。");
     console.log("如需把所有可选 Mod 也作为失败条件，请运行 npm run dev:status -- --strict。");
   }
 } else {
+  process.once("exit", () => {
+    supervisor.stopAllSync();
+    releaseProcessLock(pidFile);
+  });
   process.once("SIGINT", () => void shutdown(0));
   process.once("SIGTERM", () => void shutdown(0));
   process.once("SIGHUP", () => void shutdown(0));
 
   try {
-    claimPidFile();
+    await claimPidFile();
     if (!researchWorkspace || !tradingWorkspace) {
       throw new Error("Newma-Desk 内置领域运行时缺少 Research 或 Trading 源码目录。");
     }
-    await buildIntegratedFrontend(
-      "Research",
-      researchWorkspace,
-      "/mod-runtime/research/",
-      "/api/research",
+    await runRuntimeBuildTasks([
+      () => buildIntegratedFrontend(
+        "Research",
+        researchWorkspace,
+        "/mod-runtime/research/",
+        "/api/research",
+      ),
+      () => buildIntegratedFrontend(
+        "Trading",
+        tradingWorkspace,
+        "/mod-runtime/trading/",
+        "/api/trading",
+      ),
+      () => buildFirstPartyModule(
+        "Portfolio Center",
+        "@newma-desk/portfolio-center",
+        "modules/portfolio-center",
+      ),
+      () => buildFirstPartyModule(
+        "Creator Studio",
+        "@newma-desk/creator-studio",
+        "modules/creator-studio",
+      ),
+      () => buildFirstPartyModule(
+        "Workflow Center",
+        "@newma-desk/workflow-center",
+        "modules/workflow-center",
+      ),
+      () => buildFirstPartyModule(
+        "Policy Analysis",
+        "@newma-desk/policy-analysis",
+        "modules/policy-analysis",
+      ),
+      () => buildFirstPartyModule(
+        "Capital Flow",
+        "@newma-desk/capital-flow",
+        "modules/capital-flow",
+      ),
+    ], { concurrency: runtimeBuildConcurrency });
+    await Promise.all(
+      runtimePlan.preCoreServices.map((service) => supervisor.start(service)),
     );
-    await buildIntegratedFrontend(
-      "Trading",
-      tradingWorkspace,
-      "/mod-runtime/trading/",
-      "/api/trading",
-    );
-    await buildFirstPartyModule(
-      "Portfolio Center",
-      "@newma-desk/portfolio-center",
-    );
-    await buildFirstPartyModule(
-      "Creator Studio",
-      "@newma-desk/creator-studio",
-    );
-    await buildFirstPartyModule(
-      "Workflow Center",
-      "@newma-desk/workflow-center",
-    );
-    await buildFirstPartyModule(
-      "Policy Analysis",
-      "@newma-desk/policy-analysis",
-    );
-    await buildFirstPartyModule(
-      "Capital Flow",
-      "@newma-desk/capital-flow",
-    );
-    try {
-      await ensureWorldIntelRuntime(worldIntelRuntime);
-    } catch (error) {
-      console.error(
-        `情报 Mod 运行环境未就绪，先以静态/降级状态继续启动 Desk：${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    for (const service of worldIntel) {
-      await supervisor.start(service);
-    }
-    for (const service of crucix) {
-      await supervisor.start(service);
-    }
-    for (const service of policyCollector) {
-      await supervisor.start(service);
-    }
-    await supervisor.start(core[0]);
+    await supervisor.start(runtimePlan.coreServices[0]);
     // A fresh Desk starts with the core Global, Policy, Capital and Market projects.
     // Existing published Mods are left untouched,
     // so upgrades preserve each user's installed projects and ordering.
@@ -836,21 +609,14 @@ if (checkOnly) {
         NEWMA_DESK_CONTROL_PLANE_URL: "http://127.0.0.1:8911",
       },
     });
-    for (const service of core.slice(1)) {
+    for (const service of runtimePlan.coreServices.slice(1)) {
       await supervisor.start(service);
     }
     console.log("\nNewma-Desk 核心已就绪：http://127.0.0.1:5888/?mod=global-situation");
-    console.log("Research / Trading、World Intelligence 与 Crucix 已由 Newma-Desk 统一加载。");
-    const optionalServices = [
-      ...openChatCut,
-      ...instock,
-      ...fundAnalysis,
-      ...orchestra,
-      ...sevenCycle,
-      ...deepsee,
-    ];
+    console.log(`Runtime Profile: ${runtimeProfile}`);
+    console.log("Research / Trading 与已选情报运行时已由 Newma-Desk 统一加载。");
     const optionalResults = await supervisor.startOptional(
-      optionalServices,
+      runtimePlan.optionalServices,
     );
     const degradedCount = optionalResults
       .filter(({ state }) => state !== SERVICE_STATE.READY)

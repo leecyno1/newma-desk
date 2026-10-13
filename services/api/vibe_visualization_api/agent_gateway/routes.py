@@ -22,17 +22,7 @@ TERMINAL_EVENT_TYPES = {"completed", "failed", "cancelled"}
 
 
 async def get_agent_task_service(request: Request) -> AgentTaskService:
-    service = request.app.state.agent_task_service
-    if service is not None:
-        return service
-    async with request.app.state.agent_task_service_lock:
-        service = request.app.state.agent_task_service
-        if service is None:
-            service = await run_in_threadpool(
-                request.app.state.agent_task_service_factory
-            )
-            request.app.state.agent_task_service = service
-    return service
+    return await run_in_threadpool(request.app.state.resolve_agent_task_service)
 
 
 @router.get("/api/capabilities")

@@ -3,7 +3,6 @@
 """
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
-from datetime import datetime
 import logging
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -12,8 +11,8 @@ router = APIRouter(prefix="/api/scoring", tags=["评分系统"])
 
 
 def _get_services():
-    from service_registry import get_data_service, get_scoring_engine, get_db
-    return get_data_service(), get_scoring_engine(), get_db()
+    from service_registry import get_data_service, get_scoring_engine
+    return get_data_service(), get_scoring_engine()
 
 
 def _score_to_grade(score: float) -> str:
@@ -70,12 +69,12 @@ def _ranked_fund_payload(row: dict, rank: int, dimension: Optional[str]) -> dict
 
 
 @router.get("/fund/{wind_code}")
-async def get_fund_scoring(
+def get_fund_scoring(
     wind_code: str,
     use_metric_snapshots: bool = Query(True, description="优先使用 MetricSnapshot 权威指标评分"),
 ):
     """获取基金评分详情"""
-    data_svc, scoring_engine, db = _get_services()
+    data_svc, scoring_engine = _get_services()
 
     try:
         scoring_source = "legacy_data_service"
@@ -95,19 +94,8 @@ async def get_fund_scoring(
             style = data_svc.get_fund_style(wind_code)
             scoring = scoring_engine.score_fund(perf, risk, style)
 
-        # 从数据库获取历史评分
-        history = []
-        if db is not None:
-            try:
-                cursor = db.scores.find({"target_type": "fund", "target_id": wind_code}).sort("scored_at", -1).limit(30)
-                for doc in cursor:
-                    history.append({
-                        "dimension": doc.get("dimension"),
-                        "score": doc.get("score"),
-                        "scored_at": doc.get("scored_at"),
-                    })
-            except Exception:
-                pass
+        # 评分历史明细已随统一研究快照提供（evaluation-history），此处不再读 MongoDB scores。
+        history: list = []
 
         return {
             "target_type": "fund",
@@ -149,11 +137,10 @@ async def get_fund_professional_scoring(wind_code: str):
 @router.post("/fund/{wind_code}/recalculate")
 async def recalculate_fund_scoring(
     wind_code: str,
-    save_to_db: bool = True,
     use_metric_snapshots: bool = Query(True, description="优先使用 MetricSnapshot 权威指标评分"),
 ):
-    """重新计算基金评分并保存"""
-    data_svc, scoring_engine, db = _get_services()
+    """重新计算基金评分（评分权威落库由评价快照管线负责，本端点只返回计算结果）"""
+    data_svc, scoring_engine = _get_services()
 
     try:
         scoring_source = "legacy_data_service"
@@ -173,20 +160,6 @@ async def recalculate_fund_scoring(
             style = data_svc.get_fund_style(wind_code)
             scoring = scoring_engine.score_fund(perf, risk, style)
 
-        if save_to_db and db is not None:
-            scored_at = datetime.utcnow()
-            try:
-                for dim_key, dim_data in scoring["dimension_scores"].items():
-                    db.scores.insert_one({
-                        "target_type": "fund",
-                        "target_id": wind_code,
-                        "dimension": dim_key,
-                        "score": dim_data.get("score", 50),
-                        "calculation_method": "quantitative",
-                        "scored_at": scored_at,
-                    })
-            except Exception as db_err:
-                logger.warning(f"Failed to save scoring to DB: {db_err}")
 
         return {
             "status": "success",
@@ -194,7 +167,6 @@ async def recalculate_fund_scoring(
             "target_id": wind_code,
             "scoring_source": scoring_source,
             "scoring": scoring,
-            "saved": save_to_db,
         }
     except Exception as e:
         logger.error(f"Recalculate scoring error: {e}")
@@ -204,7 +176,7 @@ async def recalculate_fund_scoring(
 @router.get("/manager/{manager_id}")
 async def get_manager_scoring(manager_id: str):
     """获取基金经理评分详情"""
-    data_svc, scoring_engine, db = _get_services()
+    data_svc, scoring_engine = _get_services()
 
     try:
         info = data_svc.get_manager_info(manager_id)
@@ -221,11 +193,8 @@ async def get_manager_scoring(manager_id: str):
             score = scoring_engine.score_fund(perf, risk, style)
             fund_scores.append({**fund, "scoring": score})
 
-        avg_perf = {
-            "overall_score": sum(f["scoring"]["overall_score"] for f in fund_scores) / len(fund_scores)
-            if fund_scores
-            else None
-        }
+        valid_scores = [f['scoring']['overall_score'] for f in fund_scores if f['scoring']['overall_score'] is not None]
+        avg_perf = {"overall_score": sum(valid_scores) / len(valid_scores) if valid_scores else None}
         manager_score = scoring_engine.score_manager(info, avg_perf, {}, [])
 
         return {
@@ -234,6 +203,7 @@ async def get_manager_scoring(manager_id: str):
             "manager": info,
             "scoring": manager_score,
             "fund_scores": fund_scores,
+            "score_coverage": {"available": len(valid_scores), "requested": len(fund_scores)},
         }
     except Exception as e:
         logger.error(f"Get manager scoring error: {e}")
@@ -243,10 +213,9 @@ async def get_manager_scoring(manager_id: str):
 @router.post("/batch")
 async def batch_score_funds(
     wind_codes: List[str],
-    save_to_db: bool = True,
 ):
-    """批量评分基金"""
-    data_svc, scoring_engine, db = _get_services()
+    """批量评分基金（只返回计算结果）"""
+    data_svc, scoring_engine = _get_services()
 
     results = []
     for code in wind_codes:

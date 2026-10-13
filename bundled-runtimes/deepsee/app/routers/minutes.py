@@ -282,7 +282,6 @@ def list_minutes(
         # 工具模型摘要（可选）
         conf = load_ai_config()
         has_key = bool(conf.get("api_key"))
-        desk_agent_enabled = bool((conf.get("desk_agent") or {}).get("enabled"))
         to_summarize: list[dict] = []
         out: list[dict] = []
         for it in base_items:
@@ -311,7 +310,7 @@ def list_minutes(
         # 调用小模型生成会议摘要（<=500字）
         if to_summarize:
             try:
-                if llm and (has_key or desk_agent_enabled):
+                if llm and has_key:
                     # 定义 minutes_summary 提示词；若未在 ai_config 中定义，则给出默认
                     if "minutes_summary" not in DEFAULT_TOOL_PROMPTS:
                         pass  # 由 llm_client 的 DEFAULT_TOOL_PROMPTS 提供
@@ -477,8 +476,8 @@ def refine_minutes(payload: dict) -> dict:
             return {"ok": False, "error": "no transcript"}
 
         conf = load_ai_config()
-        if not conf.get("api_key") and not bool((conf.get("desk_agent") or {}).get("enabled")):
-            return {"ok": False, "error": "AI 或 Desk Agent 未配置"}
+        if not conf.get("api_key"):
+            return {"ok": False, "error": "兼容 AI 未配置"}
 
         trimmed = _truncate_for_llm(text, max_chars=20000)
         model_ovr = conf.get("tool_model_messages") or conf.get("tool_model")

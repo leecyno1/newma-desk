@@ -32,6 +32,34 @@ const forecastDriverSchema = z.object({
   nwcPctDeltaRevenue: z.number().finite(),
 }).strict();
 
+const reviewStampSchema = z.object({
+  confirmedAt: z.string().datetime(),
+  inputSnapshot: z.string().min(1).max(16000),
+}).strict();
+const capitalEvidenceSchema = reviewStampSchema.extend({
+  sourceId: z.string().min(1).max(160),
+  locator: z.string().min(1).max(240),
+  excerpt: z.string().min(1).max(3000),
+  method: z.string().min(1).max(2000),
+  lineItems: z.array(z.object({
+    id: z.string().min(1).max(80), label: z.string().min(1).max(160),
+    amountM: z.number().finite().nonnegative(), treatment: z.enum(['add','deduct','exclude']),
+    locator: z.string().min(1).max(240), reason: z.string().min(1).max(500),
+  }).strict()).min(1).max(12).optional(),
+});
+
+const capitalEvidenceDraftSchema = z.object({
+  savedAt: z.string().datetime(), inputSnapshot: z.string().max(16000),
+  input: z.object({
+    title: z.string().max(240),url: z.string().max(2000),locator: z.string().max(240),
+    excerpt: z.string().max(3000),method: z.string().max(2000),
+    lineItems: z.array(z.object({
+      id: z.string().min(1).max(80),label: z.string().max(160),amountM: nullableNumber,
+      treatment: z.enum(['add','deduct','exclude']),locator: z.string().max(240),reason: z.string().max(500),
+    }).strict()).max(12).optional(),
+  }).strict(),
+}).strict();
+
 const valuationScenarioSchema = z.object({
   id: valuationScenarioIdSchema,
   label: z.string().min(1),
@@ -39,6 +67,7 @@ const valuationScenarioSchema = z.object({
   terminalGrowthPct: z.number().min(-20).max(20),
   rationale: z.string(),
   drivers: z.array(forecastDriverSchema).min(3).max(10),
+  review: reviewStampSchema.optional(),
 }).strict().superRefine((scenario, context) => {
   if (scenario.terminalGrowthPct >= scenario.waccPct) {
     context.addIssue({
@@ -51,9 +80,15 @@ const valuationScenarioSchema = z.object({
 
 const capitalInputsSchema = z.object({
   currentPrice: nullableNumber,
+  currentPriceAsOf: z.string().max(10).optional(),
   dilutedSharesM: nullableNumber,
   totalDebtM: nullableNumber,
   cashM: nullableNumber,
+  cashBasis: z.enum(['adjusted','gross']).optional(),
+  excludedCashM: nullableNumber.optional(),
+  nonOperatingAssetsM: nullableNumber.optional(),
+  minorityInterestM: nullableNumber.optional(),
+  otherClaimsM: nullableNumber.optional(),
   riskFreeRatePct: nullableNumber,
   beta: nullableNumber,
   equityRiskPremiumPct: nullableNumber,
@@ -63,6 +98,10 @@ const capitalInputsSchema = z.object({
 
 const projectionRowSchema = z.object({
   year: z.number().int(),
+  taxRatePct: forecastDriverSchema.shape.taxRatePct.optional(),
+  daPctRevenue: forecastDriverSchema.shape.daPctRevenue.optional(),
+  capexPctRevenue: forecastDriverSchema.shape.capexPctRevenue.optional(),
+  nwcPctDeltaRevenue: forecastDriverSchema.shape.nwcPctDeltaRevenue.optional(),
   revenue: nullableNumber,
   revenueGrowthPct: z.number().finite(),
   ebit: nullableNumber,
@@ -84,6 +123,8 @@ const valuationResultSchema = z.object({
   pvTerminalValueM: nullableNumber,
   enterpriseValueM: nullableNumber,
   netDebtM: nullableNumber,
+  eligibleCashM: nullableNumber.optional(),
+  equityAdjustmentsM: nullableNumber.optional(),
   equityValueM: nullableNumber,
   impliedPrice: nullableNumber,
   currentPrice: nullableNumber,
@@ -124,6 +165,21 @@ export const valuationModelSchema = z.object({
   selectedScenario: valuationScenarioIdSchema,
   historicals: z.array(historicalDriverSchema).min(1).max(5),
   capitalInputs: capitalInputsSchema,
+  capitalEvidence: z.object({
+    dilutedSharesM: capitalEvidenceSchema.optional(),
+    totalDebtM: capitalEvidenceSchema.optional(),
+    cashM: capitalEvidenceSchema.optional(),
+    excludedCashM: capitalEvidenceSchema.optional(),
+    nonOperatingAssetsM: capitalEvidenceSchema.optional(),
+    minorityInterestM: capitalEvidenceSchema.optional(),
+    otherClaimsM: capitalEvidenceSchema.optional(),
+  }).strict().default({}),
+  capitalEvidenceDrafts: z.object({
+    dilutedSharesM: capitalEvidenceDraftSchema.optional(), totalDebtM: capitalEvidenceDraftSchema.optional(),
+    cashM: capitalEvidenceDraftSchema.optional(), excludedCashM: capitalEvidenceDraftSchema.optional(),
+    nonOperatingAssetsM: capitalEvidenceDraftSchema.optional(), minorityInterestM: capitalEvidenceDraftSchema.optional(),
+    otherClaimsM: capitalEvidenceDraftSchema.optional(),
+  }).strict().optional(),
   scenarios: z.array(valuationScenarioSchema).length(3),
   projections: z.array(projectionRowSchema).max(10),
   result: valuationResultSchema,

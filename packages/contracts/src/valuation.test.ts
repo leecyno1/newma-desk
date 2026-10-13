@@ -98,6 +98,20 @@ describe("valuation workbench contract", () => {
     expect(parsed.models[0]?.scenarios).toHaveLength(3);
     expect(parsed.models[0]?.sensitivity.impliedPrices).toHaveLength(5);
     expect(parsed.models[0]?.result.scenarioId).toBe("base");
+    expect(parsed.models[0]?.capitalEvidence).toEqual({});
+  });
+
+  it('persists human review snapshots and capital evidence without treating legacy inputs as reviewed',()=>{
+    const data=workspace();
+    const stamp={confirmedAt:'2026-09-20T00:00:00.000Z',inputSnapshot:'{"cashM":6000}'};
+    const model={...data.models[0],capitalEvidence:{cashM:{...stamp,sourceId:'research:300308',locator:'第 10 页',excerpt:'验收摘录',method:'验收口径'}},
+      capitalInputs:{...data.models[0]!.capitalInputs,cashBasis:'gross',excludedCashM:20,nonOperatingAssetsM:40,minorityInterestM:15,otherClaimsM:5},
+      scenarios:data.models[0]!.scenarios.map(row=>({...row,review:stamp}))};
+    const parsed=valuationWorkspaceSchema.parse({...data,models:[model]});
+    expect(parsed.models[0]?.capitalEvidence.cashM?.inputSnapshot).toBe(stamp.inputSnapshot);
+    expect(parsed.models[0]?.scenarios[1]?.review?.confirmedAt).toBe(stamp.confirmedAt);
+    expect(parsed.models[0]?.capitalInputs).toMatchObject({cashBasis:'gross',excludedCashM:20,nonOperatingAssetsM:40,minorityInterestM:15,otherClaimsM:5});
+    expect(()=>valuationWorkspaceSchema.parse({...data,models:[{...model,capitalEvidence:{cashM:{...model.capitalEvidence.cashM,excerpt:''}}}]})).toThrow();
   });
 
   it("rejects invalid terminal growth and undeclared recommendation fields", () => {

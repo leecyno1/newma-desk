@@ -18,7 +18,6 @@ function assertIncludes(content, expected, label) {
   }
 }
 
-const detailClient = read('app/(dashboard)/funds/[id]/FundDetailClient.tsx')
 const researchReviewLib = read('lib/research-review-report.ts')
 const holdingsRoute = read('app/api/funds/[id]/holdings/route.ts')
 const researchReviewRoute = read('app/api/funds/[id]/research-review-report/route.ts')
@@ -26,18 +25,7 @@ const tushareService = read('backend/services/tushare_service.py')
 const backendReports = read('backend/routes/reports.py')
 const evidenceReport = read('backend/services/evidence_report.py')
 
-assertIncludes(detailClient, 'buildHoldingExposureDecision', 'fund detail holding exposure decision builder')
-assertIncludes(detailClient, 'fund-holding-exposure-decision-card', 'fund detail holding exposure card')
-assertIncludes(detailClient, '持仓暴露研究判断', 'fund detail holding exposure card title')
-assertIncludes(detailClient, '暴露分', 'fund detail holding exposure score')
-assertIncludes(detailClient, '前十大', 'fund detail top ten concentration')
-assertIncludes(detailClient, '第一行业', 'fund detail top industry exposure')
-assertIncludes(detailClient, '结论反转条件', 'fund detail holding exposure reverse triggers')
-assertIncludes(detailClient, 'holdingExposure: buildHoldingExposureDecision()', 'candidate pool holding exposure evidence')
-assertIncludes(detailClient, '持仓暴露：${holdingExposureDecision.label}', 'one-page memo holding exposure line')
-assertIncludes(detailClient, 'label: \'持仓暴露\'', 'purchase score holding exposure factor')
-assertIncludes(detailClient, 'purchaseDecisionComponentScores.holdingExposure * 0.12', 'purchase score holding exposure contribution')
-assertIncludes(detailClient, 'title: \'5. 持仓暴露\'', 'purchase workflow holding exposure step')
+assertIncludes(researchReviewLib, 'buildHoldingExposureDecision', 'research review holding exposure decision builder')
 
 assertIncludes(researchReviewLib, 'type HoldingExposureDecision', 'research review holding exposure type')
 assertIncludes(researchReviewLib, 'buildHoldingExposureDecision', 'research review holding exposure builder')

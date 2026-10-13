@@ -317,13 +317,18 @@ async def test_allocation_optimization_uses_weekly_history_and_currency_scope(
         {
             SecurityIdentity("US", "AAPL"): PortfolioPriceHistory(
                 tuple(stable), source="market-data", as_of="2026-08-01"
+                , timestamps=tuple(1_700_000_000_000 + i * 604_800_000 for i in range(90))
             ),
             SecurityIdentity("US", "MSFT"): PortfolioPriceHistory(
                 tuple(volatile), source="market-data", as_of="2026-08-01"
+                , timestamps=tuple(1_700_000_000_000 + i * 604_800_000 for i in range(90))
             ),
         }
     )
-    service = PortfolioCenterService(store, history_provider=provider)
+    service = PortfolioCenterService(store, history_provider=provider, quote_provider=FakeQuoteProvider({
+        SecurityIdentity('US', 'AAPL'): PortfolioQuote(price=200, currency='USD'),
+        SecurityIdentity('US', 'MSFT'): PortfolioQuote(price=400, currency='USD'),
+    }))
     store.ensure_default_account(user_id="alice", workspace_id="desk")
     service.add_activity(
         user_id="alice",
@@ -395,3 +400,24 @@ async def test_allocation_optimization_uses_weekly_history_and_currency_scope(
     assert performance.metrics.annualized_volatility_pct > 0
     assert len(performance.series) == performance.observations
     assert provider.calls[1][1] == 53
+    assert performance.report_id is not None
+    saved = store.get_risk_report(user_id='alice', workspace_id='desk', report_id=performance.report_id)
+    assert saved.analysis_input.lookback_weeks == 52
+    assert saved.performance.basis_positions[0].currency == 'USD'
+    assert saved.performance.metrics == performance.metrics
+
+
+@pytest.mark.asyncio
+async def test_quote_timestamp_does_not_fall_back_from_explicit_unknown():
+    def handler(request):
+        return httpx.Response(200, json={'data': {'asOf':'2026-09-11T08:00:00Z','items':[
+            {'market':'US','symbol':'AAPL','price':100,'priceAsOf':None,'asOf':'2026-09-11T08:00:00Z'},
+            {'market':'US','symbol':'MSFT','price':200,'priceAsOf':'2026-09-09T16:00:00-04:00'},
+            {'market':'CN','symbol':'600519','price':0,'priceAsOf':'2026-09-11T16:00:00+08:00'},
+        ]}})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = ResearchPortfolioQuoteProvider('http://test',client=client)
+        quotes = await provider.get_quotes([SecurityIdentity('US','AAPL'),SecurityIdentity('US','MSFT'),SecurityIdentity('CN','600519')])
+    assert quotes[SecurityIdentity('US','AAPL')].as_of is None
+    assert quotes[SecurityIdentity('US','MSFT')].as_of == '2026-09-09T16:00:00-04:00'
+    assert SecurityIdentity('CN','600519') not in quotes

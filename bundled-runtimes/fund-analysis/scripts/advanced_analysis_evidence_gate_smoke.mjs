@@ -60,8 +60,8 @@ assertIncludes(investmentService, 'insufficient_benchmark_evidence', 'advanced a
 assertIncludes(investmentService, '补齐可验证基准或同类收益序列后再运行主动归因。', 'advanced attribution missing benchmark recommendation')
 assertIncludes(investmentService, '净值收益序列少于 60 个观测，因子镜头不输出正式评分', 'factor lens short sample gate')
 
-assertIncludes(advancedPage, '正式因子缺失时，只展示公开持仓行业暴露', 'advanced page barra evidence warning')
-assertIncludes(advancedPage, '净值行为分析只作为补充，不冒充正式模型', 'advanced page model scope warning')
+assertIncludes(advancedPage, '正式 Barra 尚未接入；公开持仓模型补充市场风险与个股特异风险', 'advanced page barra evidence warning')
+assertIncludes(advancedPage, '用净值与基准序列解释 Beta、主动收益和残差', 'advanced page model scope warning')
 assertIncludes(advancedPage, '这不是 Brinson', 'advanced page supplementary attribution warning')
 
 console.log('OK advanced factor/attribution analysis refuses mock or synthetic evidence')

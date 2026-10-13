@@ -1,5 +1,5 @@
 import { BarChart3, ChevronDown, Compass, FlaskConical, Layers3, LineChart, Maximize2, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import MarketSurfacePlot, { type SurfaceCameraPreset, type SurfaceMode, type SurfaceView, type TimeRange } from '../components/MarketSurfacePlot'
 import IndicatorContributionHistory from '../components/IndicatorContributionHistory'
@@ -8,6 +8,7 @@ import StatusBadge from '../components/StatusBadge'
 import { useResearchData } from '../hooks/useResearchData'
 import { loadCycleResearch, loadMarketSurface } from '../lib/data'
 import { marketTrackRole, sortMarketTracks } from '../lib/marketTracks'
+import { publishVibeDeskContext, registerVibeDeskContextProvider, registerVibeDeskVisualCaptureProvider } from '../lib/vibedesk'
 import type { MarketTrack } from '../types'
 
 function formatValue(value: number | null | undefined, unit = '') {
@@ -29,6 +30,12 @@ function forecastBridgeGapMonths(track: MarketTrack) {
   return Math.max(0, monthIndex(track.forecast.bridge.date) - monthIndex(track.coverage.end))
 }
 
+function pngDataUrlBytes(dataUrl: string) {
+  const payload = dataUrl.slice('data:image/png;base64,'.length)
+  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0
+  return Math.floor(payload.length * 3 / 4) - padding
+}
+
 export default function MarketSurfacePage() {
   const marketState = useResearchData(loadMarketSurface)
   const cycleState = useResearchData(loadCycleResearch)
@@ -37,12 +44,13 @@ export default function MarketSurfacePage() {
   const [query, setQuery] = useState('')
   const [group, setGroup] = useState<'all' | 'market' | 'economic'>('all')
   const mode: SurfaceMode = 'governed'
-  const [view, setView] = useState<SurfaceView>('3d')
-  const [range, setRange] = useState<TimeRange>('20y')
+  const [view, setView] = useState<SurfaceView>('heatmap')
+  const [range, setRange] = useState<TimeRange>('5y')
   const [showForecast, setShowForecast] = useState(true)
   const [cameraRevision, setCameraRevision] = useState(0)
   const [cameraPreset, setCameraPreset] = useState<SurfaceCameraPreset>('overview')
   const [selectedPoint, setSelectedPoint] = useState<{ trackId: string; index: number; forecast?: boolean } | null>(null)
+  const [comparisonDate, setComparisonDate] = useState<string | null>(null)
 
   const market = marketState.data
   const cycleResearch = cycleState.data
@@ -60,12 +68,199 @@ export default function MarketSurfacePage() {
       return groupMatch && queryMatch
     })
   }, [group, market, query])
+  const comparisonDates = useMemo(() => [...new Set(selectedTracks.flatMap((track) => track.dates))].sort(), [selectedTracks])
+  const newestComparisonDate = comparisonDates.at(-1) ?? ''
+  const rangeMonths = range === '5y' ? 60 : range === '20y' ? 240 : range === '50y' ? 600 : Infinity
+  const visibleComparisonDates = comparisonDates.filter((date) => monthIndex(date) > monthIndex(newestComparisonDate) - rangeMonths)
+  const latestCompleteDate = [...visibleComparisonDates].reverse().find((date) =>
+    monthIndex(newestComparisonDate) - monthIndex(date) <= 12 && selectedTracks.every((track) => {
+      const index = track.dates.indexOf(date)
+      return index >= 0 && Number.isFinite(track.governedStack[index])
+    }),
+  )
+  const effectiveComparisonDate = comparisonDate && visibleComparisonDates.includes(comparisonDate)
+    ? comparisonDate : latestCompleteDate ?? newestComparisonDate
+  const comparisonRows = selectedTracks.flatMap((track) => {
+    const index = track.dates.indexOf(effectiveComparisonDate)
+    const value = index >= 0 ? track.governedStack[index] : null
+    return value != null && Number.isFinite(value) ? [{ id: track.id, label: track.label, value }] : []
+  })
+  const comparisonPositive = comparisonRows.filter((row) => row.value > 0).length
+  const comparisonNegative = comparisonRows.filter((row) => row.value < 0).length
+  const comparisonHigh = comparisonRows.reduce<(typeof comparisonRows)[number] | null>((best, row) => !best || row.value > best.value ? row : best, null)
+  const comparisonLow = comparisonRows.reduce<(typeof comparisonRows)[number] | null>((best, row) => !best || row.value < best.value ? row : best, null)
+  const today = new Date()
+  const selectedObservationEnds = selectedTracks.map((track) => track.coverage.end).sort()
+  const oldestObservation = selectedObservationEnds[0] ?? market?.meta.asOf ?? ''
+  const newestObservation = selectedObservationEnds.at(-1) ?? market?.meta.asOf ?? ''
+  const marketLagMonths = market ? Math.max(0, today.getFullYear() * 12 + today.getMonth() + 1 - monthIndex(oldestObservation)) : 0
+  const staleSelectedTracks = selectedTracks.filter((track) => Math.max(0, today.getFullYear() * 12 + today.getMonth() + 1 - monthIndex(track.coverage.end)) > 1).length
+  const forecastLagMonths = market ? Math.max(0, today.getFullYear() * 12 + today.getMonth() + 1 - monthIndex(market.meta.forecastVintage)) : 0
+  const marketFreshness = market && marketLagMonths <= 1 ? 'fresh' : 'stale'
+
+  useEffect(() => {
+    const unregister = registerVibeDeskContextProvider(() => {
+      if (!market || !cycleResearch) return null
+      const selectedTrackIds = selectedIds.length ? selectedIds : market.meta.defaultTrackIds
+      const tracks = sortMarketTracks(selectedTrackIds
+        .map((id) => market.tracks.find((track) => track.id === id))
+        .filter(Boolean) as MarketTrack[])
+      const focusedTrack = tracks.find((track) => track.id === (selectedPoint?.trackId ?? selectedTrackIds[0])) ?? tracks[0]
+      const focusedIndex = selectedPoint?.index ?? Math.max(0, (focusedTrack?.dates.length ?? 1) - 1)
+      const forecastPoint = view !== 'heatmap' && Boolean(selectedPoint?.forecast)
+      const focusedDate = forecastPoint
+        ? focusedTrack?.forecast.dates[focusedIndex]
+        : focusedTrack?.dates[focusedIndex]
+      const cycleComposite = forecastPoint
+        ? focusedTrack?.forecast.median[focusedIndex]
+        : focusedTrack?.governedStack[focusedIndex]
+      const limitedDirections = cycleResearch.governance.cycles.flatMap((cycle) => {
+        const publication = cycleResearch.diagnostics?.[cycle.id]?.directionPublication
+        return publication?.status === 'limited'
+          ? [{ id: cycle.id, name: cycle.name, label: publication.label, asOf: publication.asOf, current: publication.currentLabel }]
+          : []
+      })
+
+      return {
+        view: { id: 'market-surface', title: '全球周期—市场曲面' },
+        visibleBlocks: [
+          { id: 'surface-toolbar', type: 'controls', title: '曲面筛选与视角' },
+          { id: 'surface-stage', type: view === '3d' ? 'plotly-3d' : view === 'heatmap' ? 'plotly-heatmap' : 'plotly-2d', title: '周期识别市场曲面' },
+          ...(view === 'heatmap' ? [{ id: 'surface-cross-section', type: 'metrics', title: '同月截面' }] : [{ id: 'track-rail', type: 'selection-list', title: '周期传导轨道' }]),
+          { id: 'point-inspector', type: 'metrics', title: focusedTrack?.label ?? '轨道指标' },
+          { id: 'cycle-direction-panel', type: 'evidence', title: '通过样本外门槛的周期方向层' },
+        ],
+        selection: {
+          selectedTrackIds,
+          focusedTrackId: focusedTrack?.id,
+          focusedTrackLabel: focusedTrack?.label,
+          focusedDate,
+          pointLayer: forecastPoint ? 'forecast' : 'history',
+          comparisonDate: view === 'heatmap' ? effectiveComparisonDate : null,
+        },
+        filters: {
+          view,
+          timeRange: range,
+          forecastLayer: view !== 'heatmap' && showForecast ? 'history-and-forecast' : 'history-only',
+          cameraPreset,
+          trackGroup: group,
+          trackQuery: query,
+          trackDrawerExpanded: expanded,
+        },
+        data: {
+          asOf: oldestObservation,
+          source: 'Circle Seven Cycle Research',
+          freshness: marketFreshness,
+          summary: {
+            contextSource: 'structured-page-provider',
+            methodology: '图中颜色或高度为 C4 + C6 周期识别合成的标准化轨道变化率，不是资产收益或组合建议。热图仅显示历史观测，不显示预测。',
+            freshness: {
+              marketData: { status: marketFreshness, oldestObservation, newestObservation, staleSelectedTracks, lagMonths: marketLagMonths, researchBuildAsOf: market.meta.asOf },
+              forecast: {
+                status: forecastLagMonths <= 1 ? 'fresh' : 'stale',
+                vintage: market.meta.forecastVintage,
+                staleMonths: forecastLagMonths,
+              },
+            },
+            market: {
+              asOf: market.meta.asOf,
+              selectedObservationRange: { oldest: oldestObservation, newest: newestObservation },
+              staleSelectedTracks,
+              snapshotGenerated: market.meta.generated,
+              trackCount: market.meta.trackCount,
+              selectedTrackCount: tracks.length,
+              forecastVintage: market.meta.forecastVintage,
+              forecastStaleMonths: forecastLagMonths,
+              forecastTrackCounts: market.meta.forecastTrackCounts,
+              refreshPolicy: '这是 Circle 已发布研究快照；网页刷新只重新读取同一快照，必须重新生成研究数据才能更新观测期和预测 vintage。',
+            },
+            focusedTrack: focusedTrack ? {
+              id: focusedTrack.id,
+              label: focusedTrack.label,
+              category: focusedTrack.category,
+              source: focusedTrack.source,
+              sourceCode: focusedTrack.sourceCode,
+              frequency: focusedTrack.frequency,
+              transform: focusedTrack.transform,
+              proxyStatus: focusedTrack.proxyStatus,
+              coverage: focusedTrack.coverage,
+              date: focusedDate,
+              rawValue: forecastPoint ? null : focusedTrack.raw[focusedIndex],
+              change: forecastPoint ? null : focusedTrack.change[focusedIndex],
+              standardizedChange: forecastPoint ? null : focusedTrack.standardized[focusedIndex],
+              cycleComposite,
+              forecastStatus: focusedTrack.forecast.status,
+              forecastInterval: forecastPoint ? {
+                low: focusedTrack.forecast.low[focusedIndex],
+                median: focusedTrack.forecast.median[focusedIndex],
+                high: focusedTrack.forecast.high[focusedIndex],
+              } : null,
+              forecastJudgment: focusedTrack.forecast.judgment ?? null,
+              caveat: focusedTrack.caveat ?? null,
+            } : null,
+            selectedTracks: tracks.map((track) => ({
+              id: track.id,
+              label: track.label,
+              category: track.category,
+              coverageEnd: track.coverage.end,
+              proxyStatus: track.proxyStatus,
+              forecastStatus: track.forecast.status,
+            })),
+            crossSection: view === 'heatmap' ? {
+              date: effectiveComparisonDate,
+              observed: comparisonRows.length,
+              selected: selectedTracks.length,
+              rising: comparisonPositive,
+              falling: comparisonNegative,
+              highest: comparisonHigh,
+              lowest: comparisonLow,
+              spread: comparisonHigh && comparisonLow ? comparisonHigh.value - comparisonLow.value : null,
+              rule: '仅按相同观测月的历史 C4+C6 周期合成比较；缺失值不补齐，正负方向不等于投资收益或配置建议。',
+            } : null,
+            limitedCycleDirections: limitedDirections,
+          },
+        },
+        actions: [],
+        tasks: [],
+      }
+    })
+    void publishVibeDeskContext()
+    return unregister
+  }, [cameraPreset, comparisonHigh?.id, comparisonHigh?.value, comparisonLow?.id, comparisonLow?.value, comparisonNegative, comparisonPositive, comparisonRows.length, cycleResearch, effectiveComparisonDate, expanded, forecastLagMonths, group, market, marketFreshness, marketLagMonths, newestObservation, oldestObservation, query, range, selectedIds, selectedPoint, selectedTracks.length, showForecast, staleSelectedTracks, view])
+
+  useEffect(() => registerVibeDeskVisualCaptureProvider(async ({ maxBytes }) => {
+    const element = document.querySelector<HTMLElement>('.surface-stage .surface-plot') as any
+    if (!element?._fullLayout) return null
+    const rect = element.getBoundingClientRect()
+    const width = Math.max(640, Math.min(1600, Math.round(rect.width)))
+    const height = Math.max(420, Math.min(1000, Math.round(rect.height)))
+    const Plotly = (await import('plotly.js-dist-min')).default
+    let dataUrl = await Plotly.toImage(element, { format: 'png', width, height, scale: 1 })
+    let outputWidth = width
+    let outputHeight = height
+    if (pngDataUrlBytes(dataUrl) > maxBytes) {
+      outputWidth = Math.min(width, 1024)
+      outputHeight = Math.min(height, 640)
+      dataUrl = await Plotly.toImage(element, {
+        format: 'png',
+        width: outputWidth,
+        height: outputHeight,
+        scale: 1,
+      })
+    }
+    return {
+      dataUrl,
+      width: outputWidth,
+      height: outputHeight,
+      title: `全球周期—市场曲面 · ${view === 'heatmap' ? '同期热图' : view === '3d' ? '3D' : '2D'} · ${range}${view === '3d' ? ` · ${cameraPreset}` : ''}`,
+    }
+  }), [cameraPreset, range, view])
 
   if (!market || !cycleResearch) return <LoadingState error={marketState.error ?? cycleState.error} />
 
   const pointTrack = selectedTracks.find((track) => track.id === (selectedPoint?.trackId ?? activeIds[0])) ?? selectedTracks[0]
   const pointIndex = selectedPoint?.index ?? Math.max(0, (pointTrack?.dates.length ?? 1) - 1)
-  const isForecast = Boolean(selectedPoint?.forecast)
+  const isForecast = view !== 'heatmap' && Boolean(selectedPoint?.forecast)
   const pointDate = isForecast ? pointTrack?.forecast.dates[pointIndex] : pointTrack?.dates[pointIndex]
   const pointTrackLag = pointTrack ? trackLagMonths(market.meta.asOf, pointTrack) : 0
   const pointForecastGap = pointTrack ? forecastBridgeGapMonths(pointTrack) : 0
@@ -95,20 +290,23 @@ export default function MarketSurfacePage() {
     if (current.includes(trackId)) {
       const next = current.filter((id) => id !== trackId)
       setSelectedIds(next.length ? next : [market.meta.defaultTrackIds[0]])
+      setComparisonDate(null)
       return
     }
     if (current.length >= 24) return
     setSelectedIds([...current, trackId])
+    setComparisonDate(null)
   }
 
   const resetSurface = () => {
     setSelectedIds(market.meta.defaultTrackIds)
-    setView('3d')
-    setRange('20y')
+    setView('heatmap')
+    setRange('5y')
     setShowForecast(true)
     setCameraPreset('overview')
     setCameraRevision((value) => value + 1)
     setSelectedPoint(null)
+    setComparisonDate(null)
   }
 
   const changeCameraPreset = (preset: SurfaceCameraPreset) => {
@@ -124,29 +322,32 @@ export default function MarketSurfacePage() {
           <p>时间 × 周期分解合成变化率 × 市场与经济轨道。原值、变化、代理和预测资格可逐点复核。</p>
         </div>
         <div className="heading-meta">
-          <span>市场数据截至 {market.meta.asOf}</span>
-          <span>预测 vintage {market.meta.forecastVintage} · 滞后 {market.meta.forecastStaleMonths} 月</span>
+          <span>所选轨道观测 {oldestObservation}—{newestObservation} · {staleSelectedTracks} 条滞后超过 1 个月</span>
+          <span>预测 vintage {market.meta.forecastVintage} · 距今 {forecastLagMonths} 个月</span>
           <span>{market.meta.trackCount} 条真实/显式代理轨道</span>
         </div>
       </section>
 
+      {marketFreshness === 'stale' && <p className="snapshot-freshness-note">最慢轨道距今 {marketLagMonths} 个月。研究构建基线 {market.meta.asOf} 不是所有轨道的观测期；这是 {market.meta.generated} 生成的研究快照，刷新网页不会更新观测期。</p>}
+
       <section className="surface-toolbar">
         <span className="surface-track-mode">周期识别轨道 · 默认10条</span>
         <div className="segmented">
+          <button className={view === 'heatmap' ? 'active' : ''} onClick={() => { setView('heatmap'); setSelectedPoint(null) }}>同期热图</button>
           <button className={view === '3d' ? 'active' : ''} onClick={() => setView('3d')}>3D 曲面</button>
           <button className={view === '2d' ? 'active' : ''} onClick={() => setView('2d')}>2D 轨道</button>
         </div>
         <div className="segmented">
-          {(['20y', '50y', 'all'] as TimeRange[]).map((item) => (
+          {(['5y', '20y', '50y', 'all'] as TimeRange[]).map((item) => (
             <button key={item} className={range === item ? 'active' : ''} onClick={() => setRange(item)}>
-              {item === '20y' ? '20年' : item === '50y' ? '50年' : '全历史'}
+              {item === '5y' ? '5年' : item === '20y' ? '20年' : item === '50y' ? '50年' : '全历史'}
             </button>
           ))}
         </div>
-        <div className="segmented forecast-layer-toggle">
+        {view !== 'heatmap' && <div className="segmented forecast-layer-toggle">
           <button className={showForecast ? 'active' : ''} onClick={() => setShowForecast(true)}><LineChart size={13} />含预测</button>
           <button className={!showForecast ? 'active' : ''} onClick={() => setShowForecast(false)}>仅历史</button>
-        </div>
+        </div>}
         <button className="toolbar-button" onClick={() => setExpanded((value) => !value)}>
           <Layers3 size={15} />展开全部轨道 {market.meta.trackCount}<ChevronDown size={14} />
         </button>
@@ -159,7 +360,7 @@ export default function MarketSurfacePage() {
         <Link to="/assets"><BarChart3 size={15} /><span>资产风险收益</span><strong>C4 + C5 + C7 独立模型</strong><small>与曲面高度分开验证</small></Link>
       </section>
 
-      <section className={`surface-workspace ${expanded ? 'tracks-expanded' : ''}`}>
+      <section className={`surface-workspace ${view === 'heatmap' ? 'heatmap-view' : ''} ${expanded ? 'tracks-expanded' : ''}`}>
         <aside className="track-rail">
           <div className="rail-title">
             <span>周期传导轨道</span>
@@ -181,8 +382,9 @@ export default function MarketSurfacePage() {
           <div className="surface-legend">
             <span><i className="legend-line historical" />历史轨道 · {selectedTracks.length} 条</span>
             <span className="surface-color-key"><i className="negative" />回落<i className="neutral" />中性<i className="positive" />上行</span>
-            {showForecast && <span className="forecast-legend"><i className="legend-line forecast" />预测虚线与区间 · {market.meta.forecastVintage}</span>}
-            {showForecast && <span className="forecast-counts">可发布 {market.meta.forecastTrackCounts.limited} · 阻断 {market.meta.forecastTrackCounts.blocked}</span>}
+            {view === 'heatmap' && <span className="forecast-counts">仅历史观测 · 预测请切换曲线或曲面 · 空白=无数据</span>}
+            {view !== 'heatmap' && showForecast && <span className="forecast-legend"><i className="legend-line forecast" />预测虚线与区间 · {market.meta.forecastVintage}</span>}
+            {view !== 'heatmap' && showForecast && <span className="forecast-counts">可发布 {market.meta.forecastTrackCounts.limited} · 阻断 {market.meta.forecastTrackCounts.blocked}</span>}
             <span className="surface-note">曲面口径 C4 + C6 · 阻断周期不进入高度</span>
           </div>
           {view === '3d' && (
@@ -196,8 +398,11 @@ export default function MarketSurfacePage() {
               </div>
             </div>
           )}
-          <MarketSurfacePlot tracks={selectedTracks} mode={mode} view={view} range={range} showForecast={showForecast} focusTrackId={pointTrack?.id} cameraRevision={cameraRevision} cameraPreset={cameraPreset} onPoint={setSelectedPoint} />
-          <div className="axis-caption"><Maximize2 size={13} />拖动旋转 · 滚轮缩放 · 点击轨道读取原值</div>
+          <MarketSurfacePlot tracks={selectedTracks} mode={mode} view={view} range={range} showForecast={showForecast} focusTrackId={view === 'heatmap' ? undefined : pointTrack?.id} cameraRevision={cameraRevision} cameraPreset={cameraPreset} onPoint={(point) => {
+            setSelectedPoint(point)
+            if (view === 'heatmap') setComparisonDate(selectedTracks.find((track) => track.id === point.trackId)?.dates[point.index] ?? null)
+          }} />
+          <div className="axis-caption"><Maximize2 size={13} />{view === 'heatmap' ? '悬停看合成值 · 点击读取原值与来源' : view === '3d' ? '拖动旋转 · 滚轮缩放 · 点击读取原值与来源' : '悬停或点击轨道 · 读取原值与来源'}</div>
         </div>
 
         <aside className="point-inspector">
@@ -210,10 +415,10 @@ export default function MarketSurfacePage() {
           </div>
           <div className="inspector-date-row">
             <div className="inspector-date">{pointDate ?? '无可用时点'}</div>
-            {pointTrack && <small className={`track-freshness ${pointTrackLag >= 12 ? 'stale' : pointTrackLag >= 3 ? 'delayed' : ''}`}>真实数据截至 {pointTrack.coverage.end} · {pointTrackLag ? `滞后 ${pointTrackLag} 个月` : '最新'}</small>}
+            {pointTrack && <small className={`track-freshness ${pointTrackLag >= 12 ? 'stale' : pointTrackLag >= 3 ? 'delayed' : ''}`}>轨道数据截至 {pointTrack.coverage.end} · {pointTrackLag ? `比曲面基线早 ${pointTrackLag} 个月` : '与曲面基线一致'}</small>}
             {pointTrack?.forecast.status === 'limited' && pointTrack.forecast.bridge && pointForecastGap > 1 && <small className="forecast-gap-warning">历史末点与预测桥接相隔 {pointForecastGap} 个月，虚线不代表中间月份实测值</small>}
           </div>
-          {pointTrack?.forecast.status === 'limited' && (
+          {view !== 'heatmap' && pointTrack?.forecast.status === 'limited' && (
             <div className="forecast-inspector-actions">
               <button className={!isForecast ? 'active' : ''} onClick={() => setSelectedPoint({ trackId: pointTrack.id, index: Math.max(0, pointTrack.dates.length - 1) })}>最新历史</button>
               <button className={isForecast ? 'active' : ''} onClick={() => setSelectedPoint({ trackId: pointTrack.id, index: Math.max(0, pointTrack.forecast.dates.length - 1), forecast: true })}>预测终点</button>
@@ -283,6 +488,14 @@ export default function MarketSurfacePage() {
           </div>
         )}
       </section>
+
+      {view === 'heatmap' && <section className="surface-cross-section" aria-label="同月截面">
+        <div className="cross-section-date"><span>同月截面</span><input type="month" aria-label="对比月份" min={visibleComparisonDates[0]} max={newestComparisonDate} value={effectiveComparisonDate} onChange={(event) => setComparisonDate(event.target.value)} /></div>
+        <div><span>同期覆盖</span><strong>{comparisonRows.length} / {selectedTracks.length}</strong><small>缺失不补齐</small></div>
+        <div><span>轨道方向</span><strong>{comparisonPositive} 上行 · {comparisonNegative} 回落</strong><small>仅周期合成方向</small></div>
+        <div className="cross-section-spread"><span>最大分歧</span><strong>{comparisonHigh && comparisonLow ? `${formatValue(comparisonHigh.value - comparisonLow.value, 'σ')}` : '不可比'}</strong><small>{comparisonHigh && comparisonLow ? `${comparisonHigh.label} ↔ ${comparisonLow.label}` : '需至少两条同期轨道'}</small></div>
+        <p>同月历史观测 · C4 + C6 标准化变化；正负方向不等于资产收益或配置建议。</p>
+      </section>}
 
       {pointTrack && (
         <details className="surface-secondary-research">

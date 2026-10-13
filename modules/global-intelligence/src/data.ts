@@ -24,7 +24,15 @@ export type GlobalIntelCategory =
 export type GlobalIntelSeverity = "critical" | "high" | "medium" | "low" | "info";
 export type GlobalIntelRecordKind = "observation" | "event" | "news";
 
-export interface GlobalIntelPoint {
+export interface GlobalIntelTiming {
+  timestampBasis?: "published" | "updated" | "indexed" | "occurred" | "collected" | "unknown";
+  updatedAt?: string;
+  collectedAt?: string;
+  sourceExpiresAt?: string;
+  sourceFreshness?: "fresh" | "stale" | "unknown";
+}
+
+export interface GlobalIntelPoint extends GlobalIntelTiming {
   id: string;
   category: GlobalIntelCategory;
   latitude: number;
@@ -319,14 +327,14 @@ const CABLE_EXPOSURE: GlobalIntelRouteExposure = {
   marketSignals: ["网络时延", "跨境带宽", "云服务可用性"],
 };
 
-export interface GlobalIntelEvent {
+export interface GlobalIntelEvent extends GlobalIntelTiming {
   id: string;
   category: GlobalIntelCategory;
   title: string;
   detail: string;
   source: string;
   severity: GlobalIntelSeverity;
-  timestamp: string;
+  timestamp: string; // Empty when source time is unknown; never substitute collection time for publication.
   url?: string;
   country?: string;
   countryCode?: string;
@@ -343,6 +351,13 @@ export interface GlobalIntelEventHistoryEntry extends GlobalIntelEvent {
   lastChangedAt: string;
   observationCount: number;
   resolvedAt?: string;
+}
+
+export function globalIntelEventActivityTimestamp(
+  event: GlobalIntelEvent,
+  history?: GlobalIntelEventHistoryEntry,
+) {
+  return history?.lastChangedAt || event.timestamp || event.collectedAt || "";
 }
 
 export interface GlobalIntelEventCluster {
@@ -504,6 +519,7 @@ function globalIntelEventRevision(event: GlobalIntelEvent) {
     event.severity,
     event.country,
     event.content,
+    event.updatedAt,
   ].filter(Boolean).join(" | "));
 }
 
@@ -568,7 +584,7 @@ export function mergeGlobalIntelEventHistory(
 
   return [...entries.values()]
     .sort((left, right) => (
-      Date.parse(right.timestamp) - Date.parse(left.timestamp)
+      (Date.parse(right.timestamp) || 0) - (Date.parse(left.timestamp) || 0)
       || Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
     ))
     .slice(0, maxEntries);
@@ -661,8 +677,11 @@ function routeEntityAliases(route: GlobalIntelRoute) {
 }
 
 function eventFreshness(event: GlobalIntelEvent, now: number) {
-  const timestamp = Date.parse(event.timestamp);
-  const ageHours = Number.isFinite(timestamp) ? Math.max(0, (now - timestamp) / 3_600_000) : 0;
+  const timestamp = Date.parse(event.updatedAt || event.timestamp);
+  if (!Number.isFinite(timestamp) || timestamp > now || event.sourceFreshness === "stale" || event.timestampBasis === "indexed") {
+    return { ageHours: 0, multiplier: 0, label: "时间未知、未到或来源陈旧，不计入近期风险" };
+  }
+  const ageHours = (now - timestamp) / 3_600_000;
   if (ageHours > 72) return { ageHours, multiplier: 0, label: "超过 72 小时" };
   if (ageHours > 24) {
     return {
@@ -816,7 +835,9 @@ function eventTokens(title: string) {
 
 function eventSimilarity(left: GlobalIntelEvent, right: GlobalIntelEvent) {
   if (left.category !== right.category) return false;
-  if (Math.abs(Date.parse(left.timestamp) - Date.parse(right.timestamp)) > 18 * 60 * 60 * 1000) return false;
+  const timeGap = Math.abs(Date.parse(left.timestamp) - Date.parse(right.timestamp));
+  if (!Number.isFinite(timeGap) || timeGap > 18 * 60 * 60 * 1000) return false;
+  if (left.source === "NGA 航行警告" && right.source === left.source && left.id !== right.id) return false;
   const leftTokens = eventTokens(left.title);
   const rightTokens = eventTokens(right.title);
   const common = [...leftTokens].filter((token) => rightTokens.has(token)).length;
@@ -863,7 +884,7 @@ export function clusterGlobalIntelEvents(events: GlobalIntelEvent[]): GlobalInte
   return clusters.sort((left, right) => (
     EVENT_SEVERITY_RANK[right.primary.severity] - EVENT_SEVERITY_RANK[left.primary.severity]
     || right.confidence - left.confidence
-    || Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
+    || (Date.parse(right.updatedAt) || 0) - (Date.parse(left.updatedAt) || 0)
   ));
 }
 
@@ -1275,6 +1296,42 @@ function isoTimestamp(value: unknown, fallback = "") {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback;
 }
 
+function sourceCollectionTiming(source: Record<string, unknown>): GlobalIntelTiming {
+  const collectedAt = isoTimestamp(source.collected_at);
+  const sourceExpiresAt = isoTimestamp(source.cache_expires_at);
+  return {
+    ...(collectedAt ? { collectedAt } : {}),
+    ...(sourceExpiresAt ? { sourceExpiresAt } : {}),
+    sourceFreshness: source.freshness === "stale" || (sourceExpiresAt && Date.parse(sourceExpiresAt) < Date.now())
+      ? "stale" : source.freshness === "fresh" ? "fresh" : "unknown",
+  };
+}
+
+function newsRecordTiming(record: Record<string, unknown>) {
+  const published = isoTimestamp(record.published ?? record.publishedAt);
+  const updatedAt = isoTimestamp(record.updated);
+  const indexedAt = isoTimestamp(record.indexedAt);
+  return {
+    ...sourceCollectionTiming(record),
+    timestamp: published || updatedAt || indexedAt,
+    timestampBasis: published ? "published" as const : updatedAt ? "updated" as const : indexedAt ? "indexed" as const : "unknown" as const,
+    ...(updatedAt ? { updatedAt } : {}),
+  };
+}
+
+function navWarningIssueTimestamp(value: unknown) {
+  // Older snapshots contain NGA's raw UTC date-time group instead of ISO.
+  const match = typeof value === "string" && /^(\d{2})(\d{2})(\d{2})Z\s+([A-Z]{3})\s+(\d{4})$/i.exec(value.trim());
+  if (!match) return isoTimestamp(value);
+  const [, day = "", hour = "", minute = "", month = "", year = ""] = match;
+  const monthIndex = "JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC".split(" ").indexOf(month.toUpperCase());
+  if (monthIndex < 0) return "";
+  const date = new Date(Date.UTC(Number(year), monthIndex, Number(day), Number(hour), Number(minute)));
+  return date.getUTCMonth() === monthIndex && date.getUTCDate() === Number(day)
+    && date.getUTCHours() === Number(hour) && date.getUTCMinutes() === Number(minute)
+    ? date.toISOString() : "";
+}
+
 function firstValue(record: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     const candidate = record[key];
@@ -1310,6 +1367,7 @@ function pointFromRecord(
     detailKeys: string[];
     severity?: GlobalIntelSeverity;
     timestampKeys?: string[];
+    timestampBasis?: GlobalIntelTiming["timestampBasis"];
   },
 ): GlobalIntelPoint | undefined {
   const latitude = numberValue(record, "latitude", "lat");
@@ -1337,6 +1395,7 @@ function pointFromRecord(
     ...(country ? { country } : {}),
     ...(normalizedCountryCode ? { countryCode: normalizedCountryCode } : {}),
     ...(timestamp ? { timestamp } : {}),
+    ...(input.timestampBasis ? { timestampBasis: timestamp ? input.timestampBasis : "unknown" } : {}),
     ...(url ? { url } : {}),
   };
 }
@@ -1539,7 +1598,7 @@ export function normalizeGlobalIntelPoints(
     records: Array<Record<string, unknown>>,
     input: Parameters<typeof pointFromRecord>[1],
     severity?: (record: Record<string, unknown>) => GlobalIntelSeverity,
-    dossier?: (record: Record<string, unknown>) => Pick<GlobalIntelPoint, "facts" | "content">,
+    dossier?: (record: Record<string, unknown>) => Pick<GlobalIntelPoint, "facts" | "content" | keyof GlobalIntelTiming>,
   ) => {
     for (const record of records) {
       const point = pointFromRecord(record, {
@@ -1550,6 +1609,11 @@ export function normalizeGlobalIntelPoints(
         const details = dossier?.(record);
         if (details?.facts?.length) point.facts = details.facts;
         if (details?.content) point.content = details.content;
+        if (details?.timestampBasis) point.timestampBasis = details.timestampBasis;
+        if (details?.collectedAt) point.collectedAt = details.collectedAt;
+        if (details?.sourceFreshness) point.sourceFreshness = details.sourceFreshness;
+        if (details?.sourceExpiresAt) point.sourceExpiresAt = details.sourceExpiresAt;
+        if (details?.updatedAt) point.updatedAt = details.updatedAt;
         points.push(point);
       }
     }
@@ -1585,11 +1649,12 @@ export function normalizeGlobalIntelPoints(
   })), {
     category: "disaster", source: "USGS",
     titleKeys: ["place"], detailKeys: ["detail_summary"],
-    timestampKeys: ["time"],
+    timestampKeys: ["time"], timestampBasis: "occurred",
   }, (record) => {
     const magnitude = numberValue(record, "magnitude") ?? 0;
     return magnitude >= 6 ? "critical" : magnitude >= 5 ? "high" : "medium";
   }, (record) => ({
+    ...sourceCollectionTiming(objectValue(snapshot.earthquakes)),
     facts: eventFacts([
       ["震级", numberValue(record, "magnitude") === undefined ? "" : "M" + numberValue(record, "magnitude")!.toFixed(1)],
       ["深度", numberValue(record, "depth_km") === undefined ? "" : numberValue(record, "depth_km")!.toFixed(1) + " km"],
@@ -1666,14 +1731,16 @@ export function normalizeGlobalIntelPoints(
     return squawk === "7700" ? "critical" : squawk === "7500" || squawk === "7600" ? "high" : "info";
   });
 
-  const navWarningTimestamp = objectValue(snapshot.nav_warnings).timestamp;
+  const navDomain = objectValue(snapshot.nav_warnings);
+  const navTiming = sourceCollectionTiming(navDomain);
+  const navFreshness = navTiming.sourceFreshness;
   append(domainRecords(snapshot, "nav_warnings", "warnings").map((record) => ({
     ...record,
     title_summary: [
-      stringValue(record, "navarea") ? `NAVAREA ${stringValue(record, "navarea")}` : "航行警告",
+      stringValue(record, "broadcast_label") || (stringValue(record, "navarea") ? `NAVAREA ${stringValue(record, "navarea")}` : "航行警告"),
       stringValue(record, "id"),
     ].filter(Boolean).join(" · "),
-    timestamp: firstValue(record, ["issue_date"]) ?? navWarningTimestamp,
+    timestamp: navWarningIssueTimestamp(record.issue_date),
   })), {
     category: "maritime", source: "NGA 航行警告",
     titleKeys: ["title_summary", "id", "navarea"], detailKeys: ["text", "authority"],
@@ -1682,10 +1749,17 @@ export function normalizeGlobalIntelPoints(
     if (/missile|mine|firing|weapon|danger|sunk|closed|closure/.test(text)) return "high";
     return stringValue(record, "status") === "active" ? "medium" : "low";
   }, (record) => ({
+    timestampBasis: record.timestamp ? "published" : "unknown",
+    ...navTiming,
     facts: eventFacts([
-      ["NAVAREA", stringValue(record, "navarea")],
+      ["广播分区", stringValue(record, "broadcast_label", "navarea")],
+      ["原始 NAVAREA", stringValue(record, "origin_navarea")],
       ["分区", stringValue(record, "subregion")],
-      ["状态", stringValue(record, "status")],
+      ["状态", stringValue(record, "status") === "active"
+        ? navFreshness === "fresh" ? "源记录未取消" : "源记录未取消，当前有效性待核验"
+        : stringValue(record, "status")],
+      ["原始发布日期", stringValue(record, "issue_date_raw", "issue_date")],
+      ["数据状态", navFreshness === "stale" ? "旧缓存，当前状态待核验" : navFreshness === "fresh" ? "缓存有效" : "采集新鲜度未知"],
       ["发布机构", stringValue(record, "authority")],
       ["取消日期", stringValue(record, "cancel_date")],
     ]),
@@ -1876,7 +1950,7 @@ export function normalizeGlobalIntelPoints(
   return [...new Map(points.map((point) => [point.id, point])).values()];
 }
 
-function eventFromPoint(point: GlobalIntelPoint, fallbackTimestamp: string): GlobalIntelEvent {
+function eventFromPoint(point: GlobalIntelPoint): GlobalIntelEvent {
   return {
     id: point.id,
     category: point.category,
@@ -1884,7 +1958,11 @@ function eventFromPoint(point: GlobalIntelPoint, fallbackTimestamp: string): Glo
     detail: point.detail,
     source: point.source,
     severity: point.severity,
-    timestamp: point.timestamp ?? fallbackTimestamp,
+    timestamp: point.timestamp ?? "",
+    ...(point.timestampBasis ? { timestampBasis: point.timestampBasis } : !point.timestamp ? { timestampBasis: "unknown" as const } : {}),
+    ...(point.collectedAt ? { collectedAt: point.collectedAt } : {}),
+    ...(point.sourceFreshness ? { sourceFreshness: point.sourceFreshness } : {}),
+    ...(point.sourceExpiresAt ? { sourceExpiresAt: point.sourceExpiresAt } : {}),
     pointId: point.id,
     ...(point.country ? { country: point.country } : {}),
     ...(point.countryCode ? { countryCode: point.countryCode } : {}),
@@ -2083,7 +2161,7 @@ function normalizeMilitaryFlightEvents(
 
   for (const point of aircraft.filter((item) => item.severity === "critical" || item.severity === "high")) {
     anomalies.push({
-      ...eventFromPoint(point, fallbackTimestamp),
+      ...eventFromPoint(point),
       id: stableId("military-emergency", point.id, point.timestamp),
       title: `${point.title} ADS-B 紧急状态`,
       detail: "检测到紧急或特殊应答码，需要人工核验飞行状态。",
@@ -2167,7 +2245,7 @@ function normalizeMilitaryFlightEvents(
   }
 
   const observations = aircraft.map((point) => ({
-    ...eventFromPoint(point, fallbackTimestamp),
+    ...eventFromPoint(point),
     severity: point.severity === "critical" || point.severity === "high" ? point.severity : "info" as const,
     recordKind: "observation" as const,
   }));
@@ -2822,7 +2900,7 @@ export function normalizeGlobalIntelEvents(
       || (point.source === "TomTom 交通流" && point.severity === "high")
       || point.source === "World Intel 人口暴露分析"
     ))
-    .map((point) => eventFromPoint(point, fallbackTimestamp));
+    .map((point) => eventFromPoint(point));
   events.push(...normalizeMilitaryFlightEvents(points, snapshot, fallbackTimestamp, trackHistory));
   events.push(...normalizeMonitorSignalEvents(snapshot, fallbackTimestamp));
   events.push(...normalizeAnalysisLayerEvents(snapshot, fallbackTimestamp));
@@ -2831,7 +2909,7 @@ export function normalizeGlobalIntelEvents(
     const title = stringValue(item, "title");
     if (!title) continue;
     const source = stringValue(item, "feed_name", "source") || "全球新闻源";
-    const timestamp = isoTimestamp(item.published, fallbackTimestamp);
+    const timing = newsRecordTiming(item);
     const tier = stringValue(item, "source_tier");
     const url = stringValue(item, "link", "url");
     const content = plainText(stringValue(item, "content"));
@@ -2841,13 +2919,13 @@ export function normalizeGlobalIntelEvents(
       url,
     });
     events.push({
-      id: stableId("news", source, timestamp, title),
+      id: stableId("news", source, title, url),
       category: "news",
       title,
       detail: plainText(stringValue(item, "summary")) || stringValue(item, "category") || "全球公开新闻",
       source,
       severity: tier === "tier1" || tier === "wire" || tier === "major" ? "medium" : "info",
-      timestamp,
+      ...timing,
       ...(tier ? { sourceTier: tier } : {}),
       ...(url ? { url } : {}),
       ...(content ? { content } : {}),
@@ -2870,16 +2948,17 @@ export function normalizeGlobalIntelEvents(
     const title = stringValue(item, "title");
     if (!title) continue;
     const source = stringValue(item, "source") || "公开情报源";
-    const timestamp = isoTimestamp(item.publishedAt, crucixTimestamp);
+    const timing = newsRecordTiming(item);
     const url = stringValue(item, "url");
     events.push({
-      id: stableId("crucix-news", source, timestamp, title),
+      id: stableId("crucix-news", source, title, url),
       category: "news",
       title,
       detail: [stringValue(item, "region"), stringValue(item, "type")].filter(Boolean).join(" · ") || "Crucix 补充情报",
       source: `Crucix / ${source}`,
       severity: item.urgent === true ? "high" : "info",
-      timestamp,
+      ...timing,
+      ...(objectValue(crucixSnapshot.freshness).status === "stale" ? { sourceFreshness: "stale" as const } : {}),
       ...(url ? { url } : {}),
       recordKind: "news",
     });
@@ -2988,21 +3067,20 @@ export function normalizeGlobalIntelEvents(
     });
   }
 
-  const healthDomain = objectValue(snapshot.disease_outbreaks);
   for (const item of domainRecords(snapshot, "disease_outbreaks", "items")) {
     const title = stringValue(item, "title");
     if (!title) continue;
-    const timestamp = isoTimestamp(item.published, isoTimestamp(healthDomain.timestamp, fallbackTimestamp));
+    const timing = newsRecordTiming(item);
     const highConcern = item.is_high_concern === true;
     const url = stringValue(item, "link", "url");
     events.push({
-      id: stableId("health", stringValue(item, "organization"), timestamp, title),
+      id: stableId("health", stringValue(item, "organization"), title, url),
       category: "health",
       title,
       detail: plainText(stringValue(item, "summary")) || "全球公共卫生通报",
       source: stringValue(item, "organization") || "全球卫生监测",
       severity: highConcern ? "high" : "low",
-      timestamp,
+      ...timing,
       ...(url ? { url } : {}),
       recordKind: "news",
     });
@@ -3106,20 +3184,19 @@ export function normalizeGlobalIntelEvents(
     });
   }
 
-  const aiDomain = objectValue(snapshot.ai_watch);
   for (const item of domainRecords(snapshot, "ai_watch", "items").slice(0, 12)) {
     const title = plainText(stringValue(item, "title"));
     if (!title) continue;
-    const timestamp = isoTimestamp(item.published, isoTimestamp(aiDomain.timestamp, fallbackTimestamp));
+    const timing = newsRecordTiming(item);
     const url = stringValue(item, "link", "url");
     events.push({
-      id: stableId("ai-watch", stringValue(item, "feed_name"), timestamp, title),
+      id: stableId("ai-watch", stringValue(item, "feed_name"), title, url),
       category: "technology",
       title,
       detail: plainText(stringValue(item, "summary")) || "全球 AI 与技术动态",
       source: stringValue(item, "feed_name") || "World Intel AI Watch",
       severity: "info",
-      timestamp,
+      ...timing,
       facts: eventFacts([
         ["分类", stringValue(item, "category")],
         ["涉及机构", stringList(item.lab_mentions).join("、")],
@@ -3152,22 +3229,21 @@ export function normalizeGlobalIntelEvents(
     });
   }
 
-  const serviceDomain = objectValue(snapshot.service_status);
   for (const item of domainRecords(snapshot, "service_status", "incidents").slice(0, 20)) {
     const title = plainText(stringValue(item, "title"));
     if (!title) continue;
     const rawSeverity = stringValue(item, "severity");
     if (rawSeverity === "resolved") continue;
-    const timestamp = isoTimestamp(item.published, isoTimestamp(serviceDomain.timestamp, fallbackTimestamp));
+    const timing = newsRecordTiming(item);
     const url = stringValue(item, "link", "url");
     events.push({
-      id: stableId("service-status", stringValue(item, "provider"), timestamp, title),
+      id: stableId("service-status", stringValue(item, "provider"), title, url),
       category: "infrastructure",
       title: `${stringValue(item, "provider") || "云服务"} · ${title}`,
       detail: plainText(stringValue(item, "summary")) || "全球数字基础设施状态更新",
       source: "World Intel 服务状态",
       severity: severityValue(rawSeverity, rawSeverity === "degraded" ? "medium" : "info"),
-      timestamp,
+      ...timing,
       ...(url ? { url } : {}),
     });
   }
@@ -3258,7 +3334,7 @@ export function normalizeGlobalIntelEvents(
   }
 
   return [...new Map(events.map((event) => [event.id, event])).values()]
-    .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp));
+    .sort((left, right) => (Date.parse(right.timestamp) || 0) - (Date.parse(left.timestamp) || 0));
 }
 
 function commodityReactionStatus(changePct: number): GlobalIntelMarketReaction["status"] {

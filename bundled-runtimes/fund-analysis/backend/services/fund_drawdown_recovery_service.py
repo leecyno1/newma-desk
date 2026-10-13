@@ -150,18 +150,21 @@ class FundDrawdownRecoveryService:
     @staticmethod
     def _points(rows: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], str]:
         normalized = []
+        adj_count = sum(FundDrawdownRecoveryService._positive(row.get("adj_nav")) is not None for row in rows)
         accum_count = sum(FundDrawdownRecoveryService._positive(row.get("accum_nav")) is not None for row in rows)
         unit_count = sum(FundDrawdownRecoveryService._positive(row.get("nav") or row.get("unit_nav")) is not None for row in rows)
-        use_accum = accum_count >= 2 and accum_count >= unit_count
+        use_adj = adj_count >= 2 and adj_count >= max(accum_count, unit_count) * 0.6
+        use_accum = not use_adj and accum_count >= 2 and accum_count >= unit_count
         for row in rows:
             day = FundDrawdownRecoveryService._date(row.get("date") or row.get("trade_date"))
             nav = FundDrawdownRecoveryService._positive(
-                row.get("accum_nav") if use_accum else row.get("nav") or row.get("unit_nav")
+                row.get("adj_nav") if use_adj else (row.get("accum_nav") if use_accum else (row.get("nav") or row.get("unit_nav")))
             )
             if day and nav is not None:
                 normalized.append({"date": day, "nav": nav})
         deduplicated = {item["date"]: item for item in normalized}
-        return sorted(deduplicated.values(), key=lambda item: item["date"]), "accum_nav" if use_accum else "unit_nav"
+        basis = "adj_nav" if use_adj else ("accum_nav" if use_accum else "unit_nav")
+        return sorted(deduplicated.values(), key=lambda item: item["date"]), basis
 
     @staticmethod
     def _date(value: Any) -> Optional[date]:

@@ -19,7 +19,6 @@ function assertNotIncludes(content, unexpected, label) {
 
 const activePages = [
   'app/(dashboard)/analysis/comparison/page.tsx',
-  'app/(dashboard)/funds/[id]/FundDetailClient.tsx',
   'app/(dashboard)/evidence-coverage/EvidenceCoverageClient.tsx',
 ]
 

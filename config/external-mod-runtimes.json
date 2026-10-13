@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "roots": [
     {
       "id": "projects",
@@ -12,6 +12,27 @@
       "fallback": { "type": "home-relative", "path": "Desktop/Projects" }
     }
   ],
+  "profiles": {
+    "core": {
+      "preCore": ["world-intel"],
+      "optional": []
+    },
+    "local": {
+      "preCore": ["world-intel", "crucix", "policy-rsshub"],
+      "optional": ["instock", "fund-analysis", "orchestra"]
+    },
+    "all": {
+      "preCore": ["world-intel", "crucix", "policy-rsshub"],
+      "optional": [
+        "openchatcut",
+        "instock",
+        "fund-analysis",
+        "orchestra",
+        "seven-cycle",
+        "deepsee"
+      ]
+    }
+  },
   "runtimes": [
     {
       "id": "vibe-research",
@@ -68,6 +89,48 @@
       }
     },
     {
+      "id": "policy-rsshub",
+      "label": "Policy RSSHub Collector",
+      "adapter": "rsshub-policy",
+      "workspaces": {
+        "source": {
+          "env": "NEWMA_DESK_POLICY_RSSHUB_WORKSPACE",
+          "candidates": [
+            { "root": "repo", "path": "bundled-runtimes/rsshub-policy" }
+          ]
+        }
+      },
+      "endpoints": {
+        "web": {
+          "env": "NEWMA_DESK_POLICY_RSSHUB_URL",
+          "defaultOrigin": "http://127.0.0.1:1200",
+          "healthPath": "/healthz"
+        }
+      },
+      "services": [
+        {
+          "id": "policy-rsshub",
+          "label": "Policy RSSHub Collector",
+          "workspace": "source",
+          "endpoint": "web",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": {
+            "command": "{{workspace}}/node_modules/.bin/tsx",
+            "args": ["lib/index.ts"],
+            "requiredPaths": ["node_modules/.bin/tsx", "assets/build/routes.js"],
+            "stdio": "ignore",
+            "env": {
+              "NODE_ENV": "production",
+              "PORT": "{{endpoint.port}}",
+              "LOGGER_LEVEL": "warn",
+              "NO_LOGFILES": "true"
+            }
+          },
+          "readiness": { "mode": "text", "expectedText": "ok" }
+        }
+      ]
+    },
+    {
       "id": "openchatcut",
       "label": "OpenChatCut Collaborative Editor",
       "adapter": "external-editor",
@@ -94,7 +157,18 @@
           "interfacePath": "/api/external-mcp/mcp",
           "healthPath": "/"
         }
-      }
+      },
+      "services": [
+        {
+          "id": "openchatcut-editor",
+          "label": "OpenChatCut Collaborative Editor",
+          "workspace": "source",
+          "endpoint": "web",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": { "adapter": "openchatcut" },
+          "readiness": { "mode": "html", "timeoutMs": 15000 }
+        }
+      ]
     },
     {
       "id": "world-intel",
@@ -116,7 +190,34 @@
           "defaultOrigin": "http://127.0.0.1:8501",
           "healthPath": "/api/health"
         }
-      }
+      },
+      "services": [
+        {
+          "id": "world-intel-mcp",
+          "label": "World Intelligence MCP",
+          "workspace": "source",
+          "endpoint": "api",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": {
+            "command": "{{workspace}}/.venv/bin/python",
+            "args": [
+              "-m",
+              "world_intel_mcp.dashboard.app",
+              "--host",
+              "127.0.0.1",
+              "--port",
+              "{{endpoint.port}}"
+            ],
+            "prepare": "world-intel",
+            "env": {
+              "PYTHONUNBUFFERED": "1",
+              "WORLD_INTEL_DASHBOARD_HOST": "127.0.0.1",
+              "WORLD_INTEL_DASHBOARD_PORT": "{{endpoint.port}}"
+            }
+          },
+          "readiness": { "mode": "json", "expectedService": "world-intel-mcp" }
+        }
+      ]
     },
     {
       "id": "crucix",
@@ -139,7 +240,27 @@
           "defaultOrigin": "http://127.0.0.1:3117",
           "healthPath": "/api/health"
         }
-      }
+      },
+      "services": [
+        {
+          "id": "crucix",
+          "label": "Crucix 全球情报引擎",
+          "workspace": "source",
+          "endpoint": "api",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": {
+            "command": "node",
+            "args": ["server.mjs"],
+            "env": {
+              "HOST": "127.0.0.1",
+              "PORT": "{{endpoint.port}}",
+              "PUBLIC_URL": "{{endpoint.origin}}",
+              "AUTO_OPEN_DASHBOARD": "false"
+            }
+          },
+          "readiness": { "mode": "json", "timeoutMs": 5000 }
+        }
+      ]
     },
     {
       "id": "deepsee",
@@ -162,7 +283,34 @@
           "defaultOrigin": "http://127.0.0.1:8001",
           "healthPath": "/api/health"
         }
-      }
+      },
+      "services": [
+        {
+          "id": "deepsee",
+          "label": "Deepsee",
+          "workspace": "source",
+          "endpoint": "web",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": {
+            "command": "{{python}}",
+            "args": [
+              "-m",
+              "uvicorn",
+              "app.main:app",
+              "--host",
+              "127.0.0.1",
+              "--port",
+              "{{endpoint.port}}"
+            ],
+            "env": {
+              "PYTHONUNBUFFERED": "1",
+              "HOST": "127.0.0.1",
+              "PORT": "{{endpoint.port}}"
+            }
+          },
+          "readiness": { "mode": "json", "expectedService": "deepsee" }
+        }
+      ]
     },
     {
       "id": "seven-cycle",
@@ -185,7 +333,24 @@
           "defaultOrigin": "http://127.0.0.1:4174",
           "healthPath": "/healthz"
         }
-      }
+      },
+      "services": [
+        {
+          "id": "seven-cycle-research",
+          "label": "Seven Cycle Research",
+          "workspace": "source",
+          "endpoint": "web",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": { "adapter": "seven-cycle", "prepare": "seven-cycle" },
+          "readiness": {
+            "mode": "json",
+            "expectedService": "seven-cycle-platform",
+            "timeoutMs": 5000,
+            "timeoutEnv": "NEWMA_DESK_SEVEN_CYCLE_HEALTH_TIMEOUT_MS",
+            "degradedStatuses": [409]
+          }
+        }
+      ]
     },
     {
       "id": "instock",
@@ -208,7 +373,40 @@
           "defaultOrigin": "http://127.0.0.1:9988",
           "healthPath": "/api/v1/health"
         }
-      }
+      },
+      "services": [
+        {
+          "id": "instock-analysis",
+          "label": "InStock Analysis",
+          "workspace": "source",
+          "endpoint": "web",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": {
+            "command": "{{python}}",
+            "args": ["instock/web/web_service.py"],
+            "env": {
+              "PYTHONUNBUFFERED": "1",
+              "INSTOCK_SKIP_DB": "1",
+              "INSTOCK_MARKET_DATA_PROVIDER": "vibedesk",
+              "NEWMA_DESK_DATA_URL": "http://127.0.0.1:8911/api/research",
+              "NEWMA_DESK_PARENT_ORIGIN": "http://127.0.0.1:5888",
+              "NEWMA_DOCK_DATA_URL": "http://127.0.0.1:8911/api/research",
+              "NEWMA_DOCK_PARENT_ORIGIN": "http://127.0.0.1:5888",
+              "VIBEDESK_DATA_URL": "http://127.0.0.1:8911/api/research",
+              "VIBEDESK_PARENT_ORIGIN": "http://127.0.0.1:5888",
+              "INSTOCK_EMBED_ORIGINS": "http://127.0.0.1:5888",
+              "INSTOCK_CORS_ORIGINS": "http://127.0.0.1:5888",
+              "INSTOCK_WEB_HOST": "127.0.0.1",
+              "INSTOCK_WEB_PORT": "{{endpoint.port}}"
+            }
+          },
+          "readiness": {
+            "mode": "json",
+            "expectedService": "instock-analysis",
+            "timeoutMs": 5000
+          }
+        }
+      ]
     },
     {
       "id": "fund-analysis",
@@ -227,15 +425,61 @@
       "endpoints": {
         "web": {
           "env": "NEWMA_DESK_FUND_RESEARCH_WEB_URL",
-          "defaultOrigin": "http://127.0.0.1:3000",
-          "healthPath": "/"
+          "defaultOrigin": "http://127.0.0.1:3035",
+          "healthPath": "/api/newma-desk/health"
         },
         "api": {
           "env": "NEWMA_DESK_FUND_ANALYSIS_API_URL",
-          "defaultOrigin": "http://127.0.0.1:8005",
+          "defaultOrigin": "http://127.0.0.1:8035",
           "healthPath": "/api/health"
         }
-      }
+      },
+      "services": [
+        {
+          "id": "fund-analysis-api",
+          "label": "Fund Analysis API",
+          "workspace": "source",
+          "endpoint": "api",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": {
+            "command": "bash",
+            "args": ["backend/scripts/start_backend.sh"],
+            "env": {
+              "PYTHONUNBUFFERED": "1",
+              "FUND_DATABASE_INIT_MODE": "check",
+              "HOST": "127.0.0.1",
+              "PORT": "{{endpoint.port}}"
+            }
+          },
+          "readiness": { "mode": "json", "expectedService": "fund-analysis-api", "startupTimeoutMs": 120000 }
+        },
+        {
+          "id": "fund-analysis-web",
+          "label": "Fund Analysis Web",
+          "workspace": "source",
+          "endpoint": "web",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": {
+            "command": "{{workspace}}/node_modules/.bin/next",
+            "args": [
+              "dev",
+              "--hostname",
+              "127.0.0.1",
+              "--port",
+              "{{endpoint.port}}"
+            ],
+            "env": {
+              "BACKEND_API_URL": "{{endpoints.api.origin}}",
+              "NEXT_PUBLIC_BACKEND_API_URL": "{{endpoints.api.origin}}"
+            }
+          },
+          "readiness": {
+            "mode": "json",
+            "expectedService": "fund-analysis-data",
+            "timeoutMs": 5000
+          }
+        }
+      ]
     },
     {
       "id": "orchestra",
@@ -272,7 +516,53 @@
           "defaultOrigin": "http://127.0.0.1:8011",
           "healthPath": "/healthz"
         }
-      }
+      },
+      "services": [
+        {
+          "id": "orchestra-api",
+          "label": "Orchestra API",
+          "workspace": "backend",
+          "endpoint": "api",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": {
+            "command": "{{python}}",
+            "args": ["-m", "orchestra_app.main"],
+            "env": {
+              "PYTHONUNBUFFERED": "1",
+              "ORCHESTRA_API_HOST": "127.0.0.1",
+              "ORCHESTRA_API_PORT": "{{endpoint.port}}",
+              "ORCHESTRA_PROJECT_ROOT": "{{workspace}}"
+            }
+          },
+          "readiness": { "mode": "json", "expectedService": "orchestra" }
+        },
+        {
+          "id": "orchestra-web",
+          "label": "Orchestra Web",
+          "workspace": "frontend",
+          "endpoint": "web",
+          "criticality": { "local": "optional", "remote": "external" },
+          "launch": {
+            "command": "npm",
+            "args": [
+              "run",
+              "dev",
+              "--",
+              "--host",
+              "127.0.0.1",
+              "--port",
+              "{{endpoint.port}}",
+              "--strictPort"
+            ],
+            "env": {
+              "ORCHESTRA_API_TARGET": "{{endpoints.api.origin}}",
+              "VITE_NEWMA_DESK_PARENT_ORIGIN": "http://127.0.0.1:5888",
+              "VITE_NEWMA_DOCK_PARENT_ORIGIN": "http://127.0.0.1:5888"
+            }
+          },
+          "readiness": { "mode": "html" }
+        }
+      ]
     }
   ]
 }

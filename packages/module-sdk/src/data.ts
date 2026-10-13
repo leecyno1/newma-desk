@@ -2,7 +2,7 @@ import {
   normalizeGatewayBaseUrl,
   requestGatewayJson,
   type GatewayClientConfig,
-} from "./agent";
+} from "./gateway";
 
 export interface DataServiceClient {
   invoke<T = unknown>(

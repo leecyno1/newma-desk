@@ -40,9 +40,9 @@ InStock Analysis 不是 Desk 内的一段源码，也不是另一套 Agent 平�
 15. CZSC 批量结构雷达：复用同一单标的 Analysis Module，单批最多 20 个代码、每任务最多 4 并发，以有界进程内 Task Resource 提供创建、轮询和取消。
 16. 批量 Action 仍属于 `instock-czsc`：标准路径用 `analysis.czsc.scan` 创建任务，同源 POST 只作为附属运行时诊断回退；不新增第三个 Module，也不要求 Desk 增加任务系统。
 17. 轮动稳健性实验仍属于 `instock-rotation`：`analysis.rotation.experiment` 手动触发 9 组参数的训练/样本外检验，不新增 Module。
-18. 产业链研究拆为独立 `instock-industry-chain` Module：`analysis.industry-chain` 只消费 Newma-Desk Agent/Data 提供的点时拓扑与证据包，项目侧不联网、不新增数据 Adapter；旧轮动 Action 仅保留兼容 Adapter。
+18. 产业链研究拆为独立 `instock-industry-chain` Module：`analysis.industry-chain` 只消费 Newma Agent 与 Desk Data 提供的点时拓扑与证据包，项目侧不联网、不新增数据 Adapter；旧轮动 Action 仅保留兼容 Adapter。
 19. 实验采用收盘信号、下一交易日开盘执行、每次再平衡收取完整双边成本，并给出 10/25/50 bps 压力结果。
-20. 实验 Context 只发布 verdict、覆盖年限、样本外指标和限制摘要，不把权益曲线、逐期交易或参数全表复制给 Desk Agent。
+20. 实验 Context 只发布 verdict、覆盖年限、样本外指标和限制摘要，不把权益曲线、逐期交易或参数全表复制给 Newma Agent。
 21. 股票研究档案拆为独立 `instock-stock-research` Module：组合 Desk 基本面、公告、研报、新闻与项目 CZSC 结构，可引用产业链 Snapshot，但不输出投资评级或交易建议。
 22. 策略验证拆为独立 `instock-strategy-validation` Module：接收三个研究 Module 的点时信号包，集中下一交易日开盘、成本、时间切分、回撤和覆盖限制。
 23. 个股事件与资金拆为独立 `instock-event-flow` Module：接收宿主结构化事件包，集中来源去重、时效、异常强度、方向与证券映射，不恢复旧抓取表。
@@ -88,7 +88,7 @@ InStock Analysis 不是 Desk 内的一段源码，也不是另一套 Agent 平�
 
 - 保留 Desk Mod Copilot 作为唯一通用问答入口。
 - Agent 只读取结构化 Context、Analysis Snapshot 和 Evidence，不抓截图、不遍历任意 DOM。
-- 未来若加入“解释当前结构”或“生成复盘”，声明为 Desk Agent Action；模型、会话和记忆仍由 Desk 选择。
+- 未来若加入“解释当前结构”或“生成复盘”，声明为 Newma Runtime Action；模型、会话和记忆仍由 Newma Agent Runtime 选择。
 - 不引入项目自有模型 Provider、密钥设置、长期记忆或第二套右侧抽屉。
 
 ## 明确不做

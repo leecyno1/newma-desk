@@ -15,7 +15,7 @@ async function main() {
     assert(Number.isFinite(Number(profile.maxSalesRiskLevel)), `${key} maxSalesRiskLevel missing`)
     assert(Number.isFinite(Number(profile.matchedCount)), `${key} matchedCount missing`)
     assert(Number.isFinite(Number(profile.missingRiskCount)), `${key} missingRiskCount missing`)
-    assert(typeof profile.actionHref === 'string' && profile.actionHref.includes('/sales-rules?scope=market'), `${key} actionHref missing`)
+    assert(typeof profile.actionHref === 'string' && profile.actionHref.includes('/evidence-coverage?scope=market'), `${key} actionHref missing`)
     assert(profile.actionHref.includes('purchasePlan=sip'), `${key} actionHref must carry purchasePlan`)
     assert(profile.actionHref.includes('returnTo='), `${key} actionHref must preserve returnTo`)
   }
@@ -28,7 +28,7 @@ async function main() {
     'nextActions must use risk-level source-backed copy',
   )
   for (const action of payload.nextActions) {
-    if (String(action.href || '').includes('/sales-rules')) {
+    if (String(action.href || '').includes('/evidence-coverage')) {
       assert(String(action.href).includes('purchasePlan=sip'), `${action.label || 'next action'} must carry purchasePlan`)
     }
   }

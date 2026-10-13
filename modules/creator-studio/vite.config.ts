@@ -4,6 +4,13 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   base: "/mod-runtime/creator-studio/",
   plugins: [react()],
+  build: {
+    minify: "terser",
+    terserOptions: {
+      compress: { passes: 2 },
+      format: { comments: false },
+    },
+  },
   server: {
     proxy: {
       "/api": "http://127.0.0.1:8911",

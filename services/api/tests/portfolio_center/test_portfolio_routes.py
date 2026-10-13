@@ -27,7 +27,8 @@ class FakeQuoteProvider:
                 name="Apple",
                 currency="USD",
                 source="test",
-            )
+            ),
+            SecurityIdentity('US', 'MSFT'): PortfolioQuote(price=400, currency='USD', source='test'),
         }
         return {security: quotes[security] for security in securities if security in quotes}
 
@@ -228,6 +229,7 @@ def test_portfolio_allocation_route_uses_registered_market_history(tmp_path: Pat
         settings,
         data_services=[history_service()],
         data_service_client=history_client,
+        portfolio_quote_provider=FakeQuoteProvider(),
     )
     with TestClient(app) as client:
         assert client.get("/api/portfolio-center?includeQuotes=false").status_code == 200
@@ -384,7 +386,7 @@ def test_risk_policy_and_action_log_are_workspace_state(tmp_path: Path):
         action_id = action.json()["id"]
         acknowledged = client.patch(
             f"/api/portfolio-center/risk-actions/{action_id}",
-            json={"status": "acknowledged", "owner": "组合经理"},
+            json={"status": "acknowledged", "owner": "组合经理", "dueAt": "2026-09-20T00:00:00Z"},
         )
         assert acknowledged.status_code == 200
         assert acknowledged.json()["owner"] == "组合经理"
@@ -392,3 +394,30 @@ def test_risk_policy_and_action_log_are_workspace_state(tmp_path: Path):
         dashboard = client.get("/api/portfolio-center?includeQuotes=false").json()
         assert dashboard["riskPolicy"]["maxDrawdownLimitPct"] == 12
         assert dashboard["riskActions"][0]["status"] == "acknowledged"
+        no_reason = client.patch(f'/api/portfolio-center/risk-actions/{action_id}', json={'status':'waived'})
+        assert no_reason.status_code == 409
+        closed = client.patch(f'/api/portfolio-center/risk-actions/{action_id}', json={'status':'resolved','note':'已核对持仓并确认风险，复核完成'})
+        assert closed.status_code == 200
+        assert closed.json()['dueAt'] is not None
+        assert client.patch(f'/api/portfolio-center/risk-actions/{action_id}', json={'note':'改写'}).status_code == 409
+
+
+def test_risk_reports_are_immutable_scoped_snapshots(tmp_path: Path):
+    settings = Settings(runtime_dir=tmp_path, database_path=tmp_path/'desk.db', legacy_portfolio_path=tmp_path/'missing.json')
+    headers = {'X-User-Id':'alice','X-Workspace-Id':'risk'}
+    other = {'X-User-Id':'bob','X-Workspace-Id':'risk'}
+    with TestClient(create_app(settings)) as client:
+        report = client.post('/api/portfolio-center/risk-reports',headers=headers,json={'analysisInput':{'currency':'USD','lookbackWeeks':52}})
+        assert report.status_code == 201
+        original = report.json()
+        assert original['dashboard']['positions'] == []
+        assert original['analysisInput']['lookbackWeeks'] == 52
+        assert client.get(f"/api/portfolio-center/risk-reports/{original['id']}",headers=headers).json() == original
+        assert client.get(f"/api/portfolio-center/risk-reports/{original['id']}",headers=other).status_code == 404
+        assert client.get('/api/portfolio-center/risk-reports',headers=other).json() == []
+        denied = client.post('/api/portfolio-center/risk-reports',headers=other,json={'performanceReportId':original['id']})
+        assert denied.status_code == 404
+        client.put('/api/portfolio-center/risk-policy', headers=headers, json={'singlePositionLimitPct':80})
+        assert client.get('/api/portfolio-center/risk-reports',headers=headers).json()[0] == original
+    with TestClient(create_app(settings)) as reopened:
+        assert reopened.get('/api/portfolio-center/risk-reports',headers=headers).json()[0] == original

@@ -3,7 +3,7 @@ import {
   requestGatewayJson,
   type GatewayClientConfig,
   type GatewayFetch,
-} from "./agent";
+} from "./gateway";
 
 export interface ModelResponseCreateInput {
   modId?: string;

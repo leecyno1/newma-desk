@@ -8,7 +8,7 @@ A 股候选 Module 从 Newma-Desk `market.scan` 提供的最新成交活跃池�
 
 ## 产业链研究 Module
 
-产业链研究 Module 是独立的 Newma-Desk 附属研究 Module。它消费 Desk Agent/Data 形成的点时证据包，描述上游、中游、下游与基础设施节点及其关系，识别其中的供应链瓶颈层，再核验上市公司的真实暴露与证伪条件。
+产业链研究 Module 是独立的 Newma-Desk 附属研究 Module。它消费 Newma Agent 与 Desk Data 形成的点时证据包，描述上游、中游、下游与基础设施节点及其关系，识别其中的供应链瓶颈层，再核验上市公司的真实暴露与证伪条件。
 
 其 Interface 只接受结构化证据，不自行抓取网页、公告、行情或调用模型。输出是产业链结构、关键节点、瓶颈层、候选研究优先级、证据覆盖、限制和 Analysis Snapshot，不是收益预测或交易指令。
 

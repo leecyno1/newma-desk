@@ -227,6 +227,7 @@ class ModulePresentation(ApiModel):
     english_name: str = Field(min_length=1, max_length=80)
     description: str = Field(min_length=1, max_length=240)
     title_owner: Literal["host"]
+    chrome: Literal["standard", "canvas"] | None = None
 
 
 class ModuleCompatibility(ApiModel):
@@ -443,6 +444,9 @@ class ModContextUpdate(ApiModel):
 
 class ModContextResponse(ApiModel):
     module_id: str
+    instance_id: str
+    subject_key: str
+    context_revision: str
     revision: int
     user_id: str
     workspace_id: str

@@ -31,6 +31,13 @@ for (const [label, content] of [
 assertIncludes(searchService, 'return None', 'embedding service returns unavailable instead of mock')
 assertIncludes(searchService, 'Semantic search unavailable; falling back to keyword search only', 'search service keyword-only fallback')
 assertIncludes(searchService, 'Optional[List[float]]', 'search service nullable embedding contract')
+// 写路径与读路径同库（PostgreSQL）：上传的报告立即可在报告列表/搜索中查到，
+// 不再有 Mongo 写 / PG 读 的存储割裂。
+assertNotIncludes(researchReportsRoute, 'from service_registry import get_db', 'research report writes must not depend on MongoDB')
+assertNotIncludes(researchReportsRoute, 'db.research_reports.insert_one', 'research report writes must go to PostgreSQL')
+assertIncludes(researchReportsRoute, 'PostgresLocalResearchFolderRepo().create_report(', 'research report create persists to PostgreSQL')
+assertIncludes(researchReportsRoute, 'PostgresLocalResearchFolderRepo().update_report(', 'research report update persists to PostgreSQL')
+assertIncludes(researchReportsRoute, 'PostgresLocalResearchFolderRepo().delete_report(', 'research report delete persists to PostgreSQL')
 assertIncludes(researchReportsRoute, '"embedding_status": "available" if embedding else "unavailable"', 'research report stores embedding status')
 assertIncludes(researchReportsRoute, '"embedding_source": "openai_compatible" if embedding else "keyword_only_no_mock"', 'research report stores keyword-only source')
 assertIncludes(reportSearchRoute, "mode: 'local_full_text'", 'report search BFF discloses keyword search mode')

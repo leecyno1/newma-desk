@@ -362,7 +362,7 @@ def create_app(
 
         @app.get("/", include_in_schema=False)
         def web_index() -> FileResponse:
-            return FileResponse(normalized_web_root / "index.html")
+            return FileResponse(normalized_web_root / "index.html", headers={"Cache-Control": "no-cache, must-revalidate"})
 
         @app.get("/{requested_path:path}", include_in_schema=False)
         def web_asset(requested_path: str) -> FileResponse:
@@ -376,9 +376,9 @@ def create_app(
             try:
                 candidate_stat = candidate.lstat()
             except OSError:
-                return FileResponse(normalized_web_root / "index.html")
+                return FileResponse(normalized_web_root / "index.html", headers={"Cache-Control": "no-cache, must-revalidate"})
             if not stat.S_ISREG(candidate_stat.st_mode):
-                return FileResponse(normalized_web_root / "index.html")
+                return FileResponse(normalized_web_root / "index.html", headers={"Cache-Control": "no-cache, must-revalidate"})
             return FileResponse(candidate)
 
     return app

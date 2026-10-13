@@ -12,6 +12,7 @@
     "@newma-desk/contracts": "0.1.0",
     "@newma-desk/desk-ui": "0.1.0",
     "@newma-desk/mod-sdk": "0.1.0",
+    "@xyflow/react": "^12.11.5",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

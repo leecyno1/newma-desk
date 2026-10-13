@@ -20,7 +20,7 @@ def load_runtime_descriptor(
 ) -> dict[str, Any]:
     path = (descriptor_path or _default_descriptor_path()).resolve()
     value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict) or value.get("schemaVersion") != "1.0":
+    if not isinstance(value, dict) or value.get("schemaVersion") not in {"1.0", "2.0"}:
         raise ValueError("unsupported external Mod runtime descriptor")
     if not isinstance(value.get("roots"), list) or not isinstance(
         value.get("runtimes"), list

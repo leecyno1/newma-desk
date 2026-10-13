@@ -222,7 +222,8 @@ def _fetch_radar_unlocked() -> dict:
             "last_success_at": checked_at,
         })
     classification_stats = classify_industries(industries)
-    apply_chinese_titles(industries, translate_missing=True)
+    # 新闻时效优先：主刷新只应用已有翻译缓存，远程翻译不得阻塞数据落盘。
+    apply_chinese_titles(industries, translate_missing=False)
     full_monitor = build_news_monitor(industries, max_topics=10_000)
     topic_index = full_monitor.get("topics") or []
     monitor = {**full_monitor, "topics": topic_index[:80]}

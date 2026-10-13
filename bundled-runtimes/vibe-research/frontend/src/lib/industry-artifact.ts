@@ -118,7 +118,7 @@ export function industryAnswerToArtifact(
       kind: "flow" as const,
     })),
     sourceText: answer,
-    sources: ["VibeDesk Agent 本页回答"],
+    sources: ["Newma Agent 本页回答"],
     metadata: {
       sectorKey: options.sectorKey,
       question: options.question,

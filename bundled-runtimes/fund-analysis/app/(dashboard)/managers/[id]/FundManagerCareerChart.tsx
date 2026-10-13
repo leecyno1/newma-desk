@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useFundPageData } from '@/lib/newma-desk/page-data'
 import {
   CartesianGrid,
   Legend,
@@ -153,13 +154,16 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 }
 
 export default function FundManagerCareerChart({ managerId, initialFundCode = '' }: { managerId: string; initialFundCode?: string }) {
-  const [payload, setPayload] = useState<CareerPayload | null>(null)
+  const [loaded, setPayload] = useState<CareerPayload | null>(null)
+  const [loadedKey, setLoadedKey] = useState('')
   const [tenureSelection, setTenureSelection] = useState(initialFundCode)
   const [period, setPeriod] = useState('tenure')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const requestKey = JSON.stringify([managerId, tenureSelection, period, customStart, customEnd])
+  const payload = loadedKey === requestKey ? loaded : null
 
   useEffect(() => {
     const controller = new AbortController()
@@ -171,7 +175,8 @@ export default function FundManagerCareerChart({ managerId, initialFundCode = ''
       if (selectedTenure.fundCode) query.set('fund_code', selectedTenure.fundCode)
       if (selectedTenure.tenureStartDate) query.set('tenure_start_date', selectedTenure.tenureStartDate)
       if (period === 'custom') {
-        if (!customStart || !customEnd) {
+        if (!customStart || !customEnd || customStart > customEnd) {
+          setError(!customStart || !customEnd ? '请选择完整起止日期。' : '开始日期不能晚于结束日期。')
           setLoading(false)
           return
         }
@@ -184,12 +189,14 @@ export default function FundManagerCareerChart({ managerId, initialFundCode = ''
           signal: controller.signal,
         })
         const result = await response.json()
+        if (controller.signal.aborted) return
         if (!response.ok) throw new Error(result.detail || result.error || '获取生涯曲线失败')
         setPayload(result)
+        setLoadedKey(requestKey)
         const resolvedSelection = result.selected_product ? productTenureKey(result.selected_product) : ''
         if (!tenureSelection.includes('::') && resolvedSelection) setTenureSelection(resolvedSelection)
       } catch (caught) {
-        if (caught instanceof DOMException && caught.name === 'AbortError') return
+        if (controller.signal.aborted) return
         setError(caught instanceof Error ? caught.message : '获取生涯曲线失败')
       } finally {
         if (!controller.signal.aborted) setLoading(false)
@@ -199,7 +206,7 @@ export default function FundManagerCareerChart({ managerId, initialFundCode = ''
     return () => controller.abort()
   }, [customEnd, customStart, managerId, period, tenureSelection])
 
-  const products = payload?.products || []
+  const products = loaded?.products || []
   const metrics = payload?.metrics || {}
   const curve = useMemo(() => payload?.curve || [], [payload?.curve])
   const events = useMemo(() => payload?.events || [], [payload?.events])
@@ -233,6 +240,15 @@ export default function FundManagerCareerChart({ managerId, initialFundCode = ''
     ['年化波动', metrics.annualized_volatility, 'percent'],
     ['索提诺比率', metrics.sortino_ratio, 'ratio'],
   ] as const
+
+  useFundPageData(useMemo(() => ({ title: '经理单产品任期曲线', selection: null,
+    filters: { managerId, requested: { ...parseTenureSelection(tenureSelection), period, customStart, customEnd } },
+    visibleBlocks: [{ id: 'manager-career', type: 'chart', title: '单产品任期证据' }],
+    summary: { status: loading ? 'loading' : error ? 'error' : payload?.status ?? 'not-loaded', error: error || null,
+      result: !loading && !error && payload ? { ...payload, curve: payload.curve?.slice(-5),
+        observations: payload.curve?.length ?? 0, events: payload.events?.slice(0, 30) } : null,
+      boundary: '经理单只产品的实际净值区间，不是经理综合净值。基金基准与同类排名按返回证据保留，未知不作为零。' },
+  }), [managerId, tenureSelection, period, customStart, customEnd, loading, error, payload]), 'manager-career')
 
   return (
     <section className="border border-[#cfd8d1] bg-white" data-testid="manager-career-chart">
@@ -284,9 +300,9 @@ export default function FundManagerCareerChart({ managerId, initialFundCode = ''
 
         {period === 'custom' && (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-            <input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="border border-[#c9d2cc] px-3 py-2" />
+            <input aria-label="任期开始日期" type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="border border-[#c9d2cc] px-3 py-2" />
             <span>至</span>
-            <input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="border border-[#c9d2cc] px-3 py-2" />
+            <input aria-label="任期结束日期" type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="border border-[#c9d2cc] px-3 py-2" />
           </div>
         )}
 

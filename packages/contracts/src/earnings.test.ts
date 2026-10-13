@@ -80,6 +80,17 @@ function workspace() {
 }
 
 describe("earnings research contract", () => {
+  it('preserves explicit basis metadata and rejects unsupported bases', () => {
+    const data=workspace();
+    Object.assign(data.workbooks[0]!.fiscalPeriod,{basis:'quarter'});
+    Object.assign(data.workbooks[0]!.metrics[0]!,{reportedBasis:'quarter',consensusBasis:'quarter',periodEnd:'2026-06-30',consensusPeriodEnd:'2026-06-30'});
+    Object.assign(data.workbooks[0]!.sourceMaterials[0]!,{basis:'quarter'});
+    const parsed=earningsResearchWorkspaceSchema.parse(data).workbooks[0]!;
+    expect(parsed.metrics[0]!.consensusBasis).toBe('quarter');
+    expect(parsed.sourceMaterials[0]!.basis).toBe('quarter');
+    Object.assign(data.workbooks[0]!.fiscalPeriod,{basis:'monthly'});
+    expect(earningsResearchWorkspaceSchema.safeParse(data).success).toBe(false);
+  });
   it("accepts a source-linked preview and post-earnings comparison loop", () => {
     const parsed = earningsResearchWorkspaceSchema.parse(workspace());
 

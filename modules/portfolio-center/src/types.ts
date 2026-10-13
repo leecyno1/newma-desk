@@ -82,6 +82,8 @@ export interface PortfolioRiskPolicy {
 }
 
 export interface PortfolioRiskAction {
+  reviewSnapshotId?: string | null;
+  sourceSnapshotId?: string | null;
   id: string;
   ruleId: string;
   severity: "low" | "medium" | "high" | "critical";
@@ -93,6 +95,7 @@ export interface PortfolioRiskAction {
   createdAt: string;
   updatedAt: string;
   resolvedAt?: string | null;
+  dueAt?: string | null;
 }
 
 export interface PortfolioPosition {
@@ -216,6 +219,9 @@ export interface PortfolioPerformanceInput {
 }
 
 export interface PortfolioPerformanceResult {
+  basisPositions?: PortfolioPosition[];
+  riskFreeRatePct?: number;
+  reportId?: string | null;
   status: "ready" | "partial" | "insufficient-data";
   method: string;
   currency: string;
@@ -245,6 +251,14 @@ export interface PortfolioPerformanceResult {
   missingAssets: Array<{ market: Market; symbol: string; reason: string }>;
   warnings: string[];
   generatedAt: string;
+}
+
+export interface PortfolioRiskReport {
+  id: string;
+  savedAt: string;
+  dashboard: PortfolioDashboard;
+  performance?: PortfolioPerformanceResult | null;
+  analysisInput: PortfolioPerformanceInput;
 }
 
 export type PortfolioWorkspace =

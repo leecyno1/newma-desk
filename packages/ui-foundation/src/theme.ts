@@ -208,6 +208,10 @@ export function createNewmaDeskAppearance(
   const vibeVariables = {
     ...semanticCssVariables(definition.semantic),
     ...definition.extraCssVars,
+    "--vibe-font-xs": "12px",
+    "--vibe-font-sm": "13px",
+    "--vibe-font-md": "14px",
+    "--vibe-font-lg": "16px",
     "--vibe-chart-grid": definition.charts.gridColor,
     "--vibe-chart-text": definition.charts.textColor,
     "--vibe-chart-axis": definition.charts.axisColor,

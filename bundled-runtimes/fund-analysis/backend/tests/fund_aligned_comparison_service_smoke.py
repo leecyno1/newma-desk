@@ -22,6 +22,7 @@ class NavRepo:
                 "date": item_date.isoformat(),
                 "nav": value,
                 "accum_nav": value + 0.1,
+                "adj_nav": value,
             })
         return rows
 
@@ -32,7 +33,7 @@ def main():
         today=date(2025, 11, 30),
     ).build(["000001.OF", "000002.OF"])
     assert payload["status"] == "available"
-    assert payload["methodology"] == "same_period_shared_nav_dates_v1"
+    assert payload["methodology"] == "same_period_adjusted_calendar_v3"
     assert payload["windows"]["6m"]["status"] == "available"
     assert payload["windows"]["6m"]["ranking_eligible"] is True
     assert payload["windows"]["1y"]["status"] == "partial"
@@ -44,7 +45,7 @@ def main():
         assert 0 < result["calendar_coverage_ratio"] <= 1
         assert 0 < result["observation_coverage_ratio"] <= 1
         assert {item["observations"] for item in result["funds"]} == {result["observations"]}
-        assert {item["nav_basis"] for item in result["funds"]} == {"accum_nav"}
+        assert {item["nav_basis"] for item in result["funds"]} == {"adj_nav"}
         assert all(set(point["values"]) == {"000001.OF", "000002.OF"} for point in result["chart"])
         assert all(item["max_drawdown"] is not None for item in result["funds"])
         assert all(item["drawdown_status"] == "near_high" for item in result["funds"])

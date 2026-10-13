@@ -20,7 +20,7 @@ function assertIncludes(content, expected, label) {
 
 const route = read('app/api/analysis/generate/route.ts')
 const analysisRoute = read('app/api/analysis/route.ts')
-const analysisPage = read('app/(dashboard)/analysis/page.tsx')
+const reportsPage = read('app/(dashboard)/reports/page.tsx')
 const fundAnalysisPage = read('app/(dashboard)/analysis/fund/page.tsx')
 const fundAnalysisClient = read('app/(dashboard)/analysis/fund/FundAnalysisClient.tsx')
 
@@ -40,8 +40,8 @@ assertIncludes(fundAnalysisClient, 'plannedAmount: currentPlannedAmount()', 'fun
 assertIncludes(fundAnalysisClient, '研究口径：', 'fund analysis page discloses planned amount execution context')
 assertIncludes(analysisRoute, 'buildReportRiskLevelGatePolicy', 'analysis report list builds R1-R5 gate policy')
 assertIncludes(analysisRoute, 'riskLevelGatePolicy,', 'analysis report list returns R1-R5 gate policy')
-assertIncludes(analysisPage, 'analysis-report-risk-level-policy', 'analysis page shows R1-R5 gate policy badge')
-assertIncludes(analysisPage, 'analysis-report-risk-level-policy-card', 'analysis page warns old R1-R5 gate policy')
-assertIncludes(analysisPage, '不能证明已采用 30 天 R1-R5 来源背书', 'analysis page explains old R1-R5 policy boundary')
+assertIncludes(reportsPage, 'R1-R5：{report.riskLevelGatePolicy.label}', 'report list shows R1-R5 gate policy badge')
+assertIncludes(reportsPage, 'report-list-risk-level-policy-card', 'report list warns old R1-R5 gate policy')
+assertIncludes(reportsPage, '不能证明已采用 30 天来源背书', 'report list explains old R1-R5 policy boundary')
 
 console.log('OK analysis generation carries score boundary, purchase plan, and planned amount into report generation')

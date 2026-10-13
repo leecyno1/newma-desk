@@ -323,6 +323,12 @@ def test_bridge_uses_exact_origin_handshake_and_context_protocol():
     assert "vibedesk:ack" in bridge
     assert "vibedesk:context-request" in bridge
     assert "vibedesk:context" in bridge
+    assert "dom-html-fallback" in bridge
+    assert "instock-rendered-dom" in bridge
+    assert "renderedHtml" in bridge
+    assert "legacy-context-normalized" in bridge
+    assert "normalizePageContext(await contextProvider())" in bridge
+    assert "else queuedRequests.push" not in bridge
     assert "vibedesk:action-request" in bridge
     assert "vibedesk:action-result" in bridge
     assert "postMessage(message, parentOrigin)" in bridge

@@ -178,6 +178,7 @@ test("the current store keeps legacy Mods compatible and validates declared leve
   assert.equal(results.find((result) => result.id === "research-memo").level, 3);
   assert.equal(results.find((result) => result.id === "macro-monitor").level, 3);
   assert.equal(results.find((result) => result.id === "thesis-tracker").level, 3);
+  assert.equal(results.find((result) => result.id === "seven-cycle-research").level, 3);
   const portfolioIds = [
     "portfolio-brief",
     "portfolio-activities",
@@ -281,6 +282,10 @@ test("the current store keeps legacy Mods compatible and validates declared leve
   assert.ok(fundResearchIds.every((id) => results.find((result) => result.id === id)?.level === 3));
   const workflowCenterIds = [
     "workflow-overview",
+    "workflow-overview-lane-a",
+    "workflow-overview-lane-b",
+    "workflow-overview-lane-c",
+    "workflow-overview-lane-d",
     "workflow-designer",
     "workflow-runs",
     "workflow-delegations",
@@ -309,6 +314,7 @@ test("the current store keeps legacy Mods compatible and validates declared leve
         "macro-monitor",
         "thesis-tracker",
         "industry-map",
+        "seven-cycle-research",
         ...portfolioIds,
         ...chartWorkspaceIds,
         ...instockSuiteIds,

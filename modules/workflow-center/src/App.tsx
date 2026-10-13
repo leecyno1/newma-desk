@@ -1,37 +1,42 @@
 import {
-  Activity,
   Archive,
+  ArrowRight,
   Bot,
   Check,
   ChevronRight,
   CircleDot,
-  ClipboardCheck,
   GitBranch,
   Grid3X3,
-  GripVertical,
   History,
   KeyRound,
   Network,
-  PanelLeft,
+  Pause,
   Pin,
+  Play,
   Plus,
   RefreshCw,
   RotateCcw,
   Rows3,
   Save,
   ShieldCheck,
+  Square,
   Trash2,
   UserRoundCog,
   UsersRound,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ModPageContext } from "@newma-desk/contracts";
 import { connectModHost, type ModHostConnection } from "@newma-desk/mod-sdk";
 
 import { workflowClient } from "./api";
-import { axisLetter, matrixCoordinate, moveOrSwapNode, reorderAxisById, resolveWorkflowMatrix, summarizeTemplateVersionDiff } from "./matrix";
+import type {
+  OrganizationWorkflowCanvasProps,
+  WorkflowCanvasAdd,
+  WorkflowCanvasMove,
+} from "./canvas/WorkflowCanvas";
+import { axisLetter, matrixCoordinate, moveOrSwapNode, resolveWorkflowMatrix, summarizeTemplateVersionDiff } from "./matrix";
 import type {
   DelegationGrant,
   Identity,
@@ -44,6 +49,9 @@ import type {
   WorkflowOverview,
   WorkflowRun,
   WorkflowRunSnapshot,
+  WorkflowRuntimeExecution,
+  WorkflowRuntimeJob,
+  WorkflowRuntimeTrigger,
   WorkflowScope,
   WorkflowStageDefinition,
   WorkflowTemplate,
@@ -61,6 +69,17 @@ const MOD_IDS: Record<WorkflowWorkspace, string> = {
   settings: "workflow-settings",
 };
 
+const LazyOrganizationWorkflowCanvas = lazy(async () => {
+  const module = await import("./canvas/WorkflowCanvas");
+  return { default: module.OrganizationWorkflowCanvas };
+});
+
+function WorkflowCanvas(props: OrganizationWorkflowCanvasProps) {
+  return <Suspense fallback={<div className={`organization-flow-canvas is-loading ${props.editable ? "is-editable" : "is-readonly"}`} role="status"><span>正在加载流程画布…</span></div>}>
+    <LazyOrganizationWorkflowCanvas {...props} />
+  </Suspense>;
+}
+
 const WORKSPACE_META: Record<WorkflowWorkspace, { title: string; description: string }> = {
   overview: { title: "组织工作流", description: "在纵向业务域与横向阶段组成的画布中总览组织协作。" },
   designer: { title: "流程编排", description: "编排横竖矩阵、交叉节点、执行依赖、职能与审核 Gate。" },
@@ -73,9 +92,14 @@ const WORKSPACE_META: Record<WorkflowWorkspace, { title: string; description: st
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "等待前置",
+  queued: "排队中",
   ready: "可领取",
+  leased: "已调度",
   claimed: "已领取",
   running: "执行中",
+  waiting: "等待外部结果",
+  retry_wait: "等待重试",
+  paused: "已暂停",
   waiting_review: "待审核",
   completed: "已完成",
   blocked: "已阻塞",
@@ -98,9 +122,69 @@ const ACTION_LABELS: Record<string, string> = {
   admin: "管理",
 };
 
+const EDGE_KIND_LABELS: Record<NonNullable<WorkflowEdge["kind"]>, string> = {
+  handoff: "任务交接",
+  data: "数据传递",
+  condition: "条件路由",
+  approval: "审核流转",
+};
+
+function workflowEdgeKey(source: string, target: string) {
+  return `${source}->${target}`;
+}
+
+function normalizeWorkflowEdge(edge: WorkflowEdge): WorkflowEdge {
+  return {
+    source: edge.source,
+    target: edge.target,
+    name: edge.name || "",
+    description: edge.description || "",
+    kind: edge.kind || "handoff",
+    condition: edge.condition || "",
+    parameters: edge.parameters || {},
+  };
+}
+
+type WorkflowEdgeDetails = Omit<WorkflowEdge, "source" | "target">;
+
+function workflowEdgeDetailMap(edges: WorkflowEdge[]) {
+  return Object.fromEntries(edges.map((edge) => {
+    const normalized = normalizeWorkflowEdge(edge);
+    const { source, target, ...details } = normalized;
+    return [workflowEdgeKey(source, target), details];
+  })) as Record<string, WorkflowEdgeDetails>;
+}
+
+function edgeParametersText(parameters?: Record<string, unknown>) {
+  return Object.entries(parameters || {}).map(([key, value]) => `${key}=${typeof value === "string" ? value : JSON.stringify(value)}`).join("\n");
+}
+
+function parseEdgeParameters(value: string) {
+  return Object.fromEntries(value.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+    const divider = line.indexOf("=");
+    if (divider < 0) return [line, ""];
+    const key = line.slice(0, divider).trim();
+    const raw = line.slice(divider + 1).trim();
+    if (!raw) return [key, ""];
+    try { return [key, JSON.parse(raw)]; } catch { return [key, raw]; }
+  }).filter(([key]) => key));
+}
+
 function workspaceFromSearch(): WorkflowWorkspace {
   const value = new URLSearchParams(window.location.search).get("workspace");
   return value && Object.hasOwn(MOD_IDS, value) ? value as WorkflowWorkspace : "overview";
+}
+
+function overviewLaneIndexFromSearch() {
+  const value = new URLSearchParams(window.location.search).get("lane")?.trim().toLowerCase();
+  if (!value) return null;
+  const index = { a: 0, b: 1, c: 2, d: 3 }[value as "a" | "b" | "c" | "d"];
+  return typeof index === "number" ? index : null;
+}
+
+function modIdFromSearch(workspace: WorkflowWorkspace) {
+  const laneIndex = workspace === "overview" ? overviewLaneIndexFromSearch() : null;
+  return laneIndex === null ? MOD_IDS[workspace] : `workflow-overview-lane-${["a", "b", "c", "d"][laneIndex]}`;
 }
 
 function parentOrigin() {
@@ -138,16 +222,18 @@ function scopeLabel(scope: WorkflowScope, overview: WorkflowOverview) {
 }
 
 function buildContext(workspace: WorkflowWorkspace, overview?: WorkflowOverview, run?: WorkflowRun): ModPageContext {
+  const laneIndex = workspace === "overview" ? overviewLaneIndexFromSearch() : null;
   return {
-    view: { id: MOD_IDS[workspace], title: WORKSPACE_META[workspace].title },
-    visibleBlocks: [
-      { id: "workflow-header", type: "workflow-header", title: WORKSPACE_META[workspace].title },
-      { id: `workflow-${workspace}-main`, type: workspace, title: WORKSPACE_META[workspace].title },
-      { id: "workflow-responsibility", type: "responsibility", title: "责任与授权" },
-      { id: "workflow-artifacts", type: "artifacts", title: "节点交付物" },
-    ],
+    view: { id: modIdFromSearch(workspace), title: WORKSPACE_META[workspace].title },
+    visibleBlocks: workspace === "overview"
+      ? [{ id: "workflow-overview-canvas", type: "workflow-canvas", title: "组织工作流画布" }]
+      : [
+        { id: `workflow-${workspace}-main`, type: workspace, title: WORKSPACE_META[workspace].title },
+        { id: "workflow-responsibility", type: "responsibility", title: "责任与授权" },
+        { id: "workflow-artifacts", type: "artifacts", title: "节点交付物" },
+      ],
     selection: run ? { workflowRunId: run.id, workflowTemplateId: run.templateId } : {},
-    filters: { workspace },
+    filters: { workspace, ...(laneIndex === null ? {} : { lane: axisLetter(laneIndex) }) },
     data: {
       source: "newma-desk/workflow-control",
       freshness: "fresh",
@@ -175,141 +261,17 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="empty-state"><Network /> <p>{children}</p></div>;
 }
 
-function MetricCard({ icon, label, value, note }: { icon: React.ReactNode; label: string; value: number; note: string }) {
-  return <article className="metric-card"><div>{icon}</div><span>{label}</span><strong>{value}</strong><small>{note}</small></article>;
-}
-
 type MatrixNode = WorkflowNodeDefinition | WorkflowNodeRun;
-
-function workflowNodeStatus(node: MatrixNode) {
-  return "status" in node && typeof node.status === "string" ? node.status : "";
-}
-
-interface DependencyPath extends WorkflowEdge { d: string }
-
-function WorkflowDependencyLines({ tableRef, edges, layoutKey, selectedNodeId }: { tableRef: React.RefObject<HTMLDivElement | null>; edges: WorkflowEdge[]; layoutKey: string; selectedNodeId?: string }) {
-  const markerId = useId().replace(/:/g, "");
-  const [layer, setLayer] = useState<{ width: number; height: number; paths: DependencyPath[] }>({ width: 0, height: 0, paths: [] });
-
-  useEffect(() => {
-    const table = tableRef.current;
-    if (!table) return;
-    const measure = () => {
-      const tableRect = table.getBoundingClientRect();
-      const elements = new Map<string, HTMLElement>();
-      table.querySelectorAll<HTMLElement>("[data-node-id]").forEach((element) => {
-        if (element.dataset.nodeId) elements.set(element.dataset.nodeId, element);
-      });
-      const paths = edges.flatMap((edge) => {
-        const source = elements.get(edge.source)?.getBoundingClientRect();
-        const target = elements.get(edge.target)?.getBoundingClientRect();
-        if (!source || !target) return [];
-        const sourceCenter = { x: source.left - tableRect.left + source.width / 2, y: source.top - tableRect.top + source.height / 2 };
-        const targetCenter = { x: target.left - tableRect.left + target.width / 2, y: target.top - tableRect.top + target.height / 2 };
-        const dx = targetCenter.x - sourceCenter.x;
-        const dy = targetCenter.y - sourceCenter.y;
-        let start = sourceCenter;
-        let end = targetCenter;
-        let d = "";
-        if (Math.abs(dx) >= Math.abs(dy)) {
-          const direction = dx >= 0 ? 1 : -1;
-          start = { x: sourceCenter.x + direction * source.width / 2, y: sourceCenter.y };
-          end = { x: targetCenter.x - direction * target.width / 2, y: targetCenter.y };
-          const bend = Math.max(34, Math.abs(end.x - start.x) * .42);
-          d = `M ${start.x} ${start.y} C ${start.x + direction * bend} ${start.y}, ${end.x - direction * bend} ${end.y}, ${end.x} ${end.y}`;
-        } else {
-          const direction = dy >= 0 ? 1 : -1;
-          start = { x: sourceCenter.x, y: sourceCenter.y + direction * source.height / 2 };
-          end = { x: targetCenter.x, y: targetCenter.y - direction * target.height / 2 };
-          const bend = Math.max(34, Math.abs(end.y - start.y) * .42);
-          d = `M ${start.x} ${start.y} C ${start.x} ${start.y + direction * bend}, ${end.x} ${end.y - direction * bend}, ${end.x} ${end.y}`;
-        }
-        return [{ ...edge, d }];
-      });
-      setLayer({ width: Math.max(table.scrollWidth, Math.ceil(tableRect.width)), height: Math.max(table.scrollHeight, Math.ceil(tableRect.height)), paths });
-    };
-    const frame = requestAnimationFrame(measure);
-    const observer = new ResizeObserver(measure);
-    observer.observe(table);
-    table.querySelectorAll<HTMLElement>("[data-node-id]").forEach((element) => observer.observe(element));
-    window.addEventListener("resize", measure);
-    return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener("resize", measure); };
-  }, [edges, layoutKey, tableRef]);
-
-  if (!layer.paths.length) return null;
-  return <svg className="dependency-layer" width={layer.width} height={layer.height} viewBox={`0 0 ${layer.width} ${layer.height}`} aria-hidden="true">
-    <defs><marker id={markerId} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" /></marker></defs>
-    {layer.paths.map((path) => {
-      const related = Boolean(selectedNodeId && (path.source === selectedNodeId || path.target === selectedNodeId));
-      const dimmed = Boolean(selectedNodeId && !related);
-      return <path className={`dependency-line ${related ? "related" : ""} ${dimmed ? "dimmed" : ""}`} d={path.d} markerEnd={`url(#${markerId})`} key={`${path.source}-${path.target}`} />;
-    })}
-  </svg>;
-}
 
 function WorkflowMatrixBoard({ lanes: sourceLanes, stages: sourceStages, nodes: sourceNodes, edges, principals, selectedNodeId, activeStageId, onStageChange, onSelectNode }: { lanes: WorkflowLaneDefinition[]; stages: WorkflowStageDefinition[]; nodes: MatrixNode[]; edges: WorkflowEdge[]; principals?: Principal[]; selectedNodeId?: string; activeStageId: string; onStageChange(value: string): void; onSelectNode(id: string): void }) {
   const { lanes, stages, nodes } = resolveWorkflowMatrix(sourceNodes, sourceLanes, sourceStages);
-  const [activeLaneId, setActiveLaneId] = useState("");
-  useEffect(() => { if (activeLaneId && !lanes.some((lane) => lane.id === activeLaneId)) setActiveLaneId(""); }, [activeLaneId, lanes]);
-  const visibleLanes = activeLaneId ? lanes.filter((lane) => lane.id === activeLaneId) : lanes;
-  const visibleStages = activeStageId ? stages.filter((stage) => stage.id === activeStageId) : stages;
-  const columns = `200px repeat(${Math.max(visibleStages.length, 1)}, minmax(175px, 1fr))`;
-  const tableRef = useRef<HTMLDivElement>(null);
-  const layoutKey = `${activeLaneId}|${activeStageId}|${lanes.map((lane) => lane.id).join(",")}|${stages.map((stage) => stage.id).join(",")}|${nodes.map((node) => `${node.id}:${node.laneId}:${node.stageId}`).join(",")}`;
-  return <div className="matrix-board">
-    <div className="matrix-composer">
-      <aside className="lane-navigator" aria-label="纵向业务域导航">
-        <header><Rows3 /><span><strong>业务域</strong><small>纵向二级模块</small></span></header>
-        <button className={`lane-nav-all ${!activeLaneId ? "active" : ""}`} onClick={() => setActiveLaneId("")}><Grid3X3 /><span><strong>全部业务域</strong><small>{lanes.length} 个 Lane</small></span></button>
-        {lanes.map((lane, laneIndex) => {
-          const promoted = nodes.filter((node) => node.laneId === lane.id && node.promotedToMenu);
-          return <section className={`lane-nav-section ${activeLaneId === lane.id ? "active" : ""}`} key={lane.id}>
-            <button className="lane-nav-button" onClick={() => { setActiveLaneId(lane.id); onStageChange(""); }}><span className="axis-code">{axisLetter(laneIndex)}</span><span><strong>{lane.name}</strong><small>{lane.description || "纵向业务模块"}</small></span></button>
-            {promoted.length ? <div className="lane-promoted-menu">{promoted.map((node) => <button className={selectedNodeId === node.id ? "active" : ""} key={node.id} onClick={() => { setActiveLaneId(node.laneId); onStageChange(node.stageId); onSelectNode(node.id); }}><Pin /><span>{node.name}</span><small>{matrixCoordinate(node.laneId, node.stageId, lanes, stages)}</small></button>)}</div> : <small className="lane-empty-note">暂无成熟节点入口</small>}
-          </section>;
-        })}
-      </aside>
-      <div className="matrix-stage-canvas">
-        <nav className="stage-tabs" aria-label="横向流程阶段">
-          <button className={!activeStageId ? "active" : ""} onClick={() => onStageChange("")}><Grid3X3 />全景</button>
-          {stages.map((stage, index) => <button className={activeStageId === stage.id ? "active" : ""} key={stage.id} onClick={() => onStageChange(stage.id)}><span>{index + 1}</span>{stage.name}</button>)}
-        </nav>
-        <div className="matrix-scroll">
-          <div className="matrix-table" ref={tableRef}>
-            <WorkflowDependencyLines tableRef={tableRef} edges={edges} layoutKey={layoutKey} selectedNodeId={selectedNodeId} />
-            <div className="matrix-header-row" style={{ gridTemplateColumns: columns }}>
-              <div className="matrix-corner"><PanelLeft /><span><strong>纵向业务域</strong><small>二级模块与成熟入口</small></span></div>
-              {visibleStages.map((stage) => {
-                const stageIndex = stages.findIndex((item) => item.id === stage.id);
-                return <div className="matrix-stage-header" key={stage.id}><span>{stageIndex + 1}</span><div><strong>{stage.name}</strong><small>{stage.description || "横向流程阶段"}</small></div></div>;
-              })}
-            </div>
-            {visibleLanes.map((lane) => {
-              const laneIndex = lanes.findIndex((item) => item.id === lane.id);
-              const promoted = nodes.filter((node) => node.laneId === lane.id && node.promotedToMenu);
-              return <div className="matrix-data-row" style={{ gridTemplateColumns: columns }} key={lane.id}>
-                <div className="matrix-lane-header"><span className="axis-code">{axisLetter(laneIndex)}</span><div><strong>{lane.name}</strong><small>{lane.description || "纵向业务模块"}</small>{promoted.length ? <div className="promoted-links">{promoted.map((node) => <button key={node.id} onClick={() => { onStageChange(node.stageId); onSelectNode(node.id); }}><Pin />{node.name}</button>)}</div> : null}</div></div>
-                {visibleStages.map((stage) => {
-                  const node = nodes.find((item) => item.laneId === lane.id && item.stageId === stage.id);
-                  if (!node) return <div className="matrix-empty-cell" key={stage.id}><span>{matrixCoordinate(lane.id, stage.id, lanes, stages)}</span><small>暂无节点</small></div>;
-                  const status = workflowNodeStatus(node);
-                  const accountable = "accountablePrincipalId" in node ? principalName(principals || [], node.accountablePrincipalId) : node.roleKey;
-                  return <button data-node-id={node.id} className={`matrix-node-card kind-${node.kind} ${status ? `status-${status}` : ""} ${selectedNodeId === node.id ? "active" : ""}`} key={stage.id} onClick={() => onSelectNode(node.id)}>
-                    <header><span>{matrixCoordinate(node.laneId, node.stageId, lanes, stages)}</span>{node.promotedToMenu ? <Pin /> : null}</header>
-                    <strong>{node.name}</strong><small>{node.description || node.roleKey}</small>
-                    <footer><span>{accountable}</span><em>{status ? statusLabel(status) : node.kind}</em></footer>
-                  </button>;
-                })}
-              </div>;
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
+  return <div className="workflow-matrix-board">
+    <nav className="stage-tabs" aria-label="横向流程阶段"><button className={!activeStageId ? "active" : ""} onClick={() => onStageChange("")}><Grid3X3 />全流程</button>{stages.map((stage, index) => <button className={activeStageId === stage.id ? "active" : ""} key={stage.id} onClick={() => onStageChange(activeStageId === stage.id ? "" : stage.id)}><span>{index + 1}</span>{stage.name}</button>)}</nav>
+    <WorkflowCanvas lanes={lanes} stages={stages} nodes={nodes} edges={edges} principals={principals} selectedNodeId={selectedNodeId} activeStageId={activeStageId} showCoordinates={false} showHud={false} showAxes onSelectNode={onSelectNode} />
   </div>;
 }
 
-function OverviewView({ overview }: { overview: WorkflowOverview }) {
+function OverviewView({ overview, busy, actingPrincipalId, onActingPrincipalChange, onRefresh }: { overview: WorkflowOverview; busy: boolean; actingPrincipalId: string; onActingPrincipalChange(value: string): void; onRefresh(): void }) {
   const liveRuns = overview.runs.filter((run) => !["completed", "cancelled"].includes(run.status));
   const [sourceId, setSourceId] = useState(liveRuns[0] ? `run:${liveRuns[0].id}` : overview.templates[0] ? `template:${overview.templates[0].id}` : "");
   const [activeStageId, setActiveStageId] = useState("");
@@ -317,7 +279,10 @@ function OverviewView({ overview }: { overview: WorkflowOverview }) {
   const requestedTemplateId = sourceId.startsWith("template:") ? sourceId.slice(9) : run?.templateId;
   const template = overview.templates.find((item) => item.id === requestedTemplateId) || overview.templates[0];
   const matrixSource = run || template;
-  const [selectedNodeId, setSelectedNodeId] = useState(matrixSource?.nodes[0]?.id || "");
+  const matrix = useMemo(() => matrixSource ? resolveWorkflowMatrix(matrixSource.nodes, matrixSource.lanes, matrixSource.stages) : undefined, [matrixSource]);
+  const laneIndex = overviewLaneIndexFromSearch();
+  const activeLaneId = laneIndex === null ? "" : matrix?.lanes[laneIndex]?.id || "";
+  const [selectedNodeId, setSelectedNodeId] = useState("");
   useEffect(() => {
     const sourceExists = sourceId.startsWith("run:")
       ? overview.runs.some((item) => item.id === sourceId.slice(4))
@@ -325,44 +290,23 @@ function OverviewView({ overview }: { overview: WorkflowOverview }) {
     if (!sourceExists) setSourceId(liveRuns[0] ? `run:${liveRuns[0].id}` : overview.templates[0] ? `template:${overview.templates[0].id}` : "");
   }, [liveRuns, overview.runs, overview.templates, sourceId]);
   useEffect(() => {
-    if (matrixSource && !matrixSource.nodes.some((node) => node.id === selectedNodeId)) setSelectedNodeId(matrixSource.nodes[0]?.id || "");
-  }, [matrixSource, selectedNodeId]);
-  const selectedNode = matrixSource?.nodes.find((node) => node.id === selectedNodeId);
-  const selectedStatus = selectedNode ? workflowNodeStatus(selectedNode) : "";
-  const assignments = overview.runs.flatMap((run) => run.nodes.map((node) => ({ run, node }))).filter(({ node }) => !["completed", "cancelled", "skipped"].includes(node.status));
-  return <div className="view-stack">
-    <section className="metric-grid">
-      <MetricCard icon={<GitBranch />} label="流程模板" value={overview.metrics.templates} note="均保留版本" />
-      <MetricCard icon={<Activity />} label="进行中" value={overview.metrics.activeRuns} note={`${overview.metrics.readyNodes} 个活跃节点`} />
-      <MetricCard icon={<ClipboardCheck />} label="待审核" value={overview.metrics.waitingReview} note="责任人与审核人分离" />
-      <MetricCard icon={<KeyRound />} label="有效授权" value={overview.metrics.activeGrants} note="可覆盖多个工作流" />
-      <MetricCard icon={<Bot />} label="服务器 Agent" value={overview.metrics.serverAgents} note="可授权，也可被授权" />
-    </section>
-    <section className="panel organization-canvas">
-      <header className="panel-heading"><div><span>ORGANIZATION MATRIX</span><h2>组织工作流画布</h2></div>{overview.runs.length || overview.templates.length ? <select aria-label="画布来源" value={sourceId} onChange={(event) => { setSourceId(event.target.value); setActiveStageId(""); }}><optgroup label="运行实例">{overview.runs.map((item) => <option value={`run:${item.id}`} key={item.id}>{item.title} · {runStatusLabel(item.status)}</option>)}</optgroup><optgroup label="模板预览">{overview.templates.map((item) => <option value={`template:${item.id}`} key={item.id}>{item.name} · v{item.currentVersion}</option>)}</optgroup></select> : <small>暂无画布</small>}</header>
-      {matrixSource ? <WorkflowMatrixBoard lanes={matrixSource.lanes} stages={matrixSource.stages} nodes={matrixSource.nodes} edges={matrixSource.edges} principals={overview.principals} selectedNodeId={selectedNodeId} activeStageId={activeStageId} onStageChange={setActiveStageId} onSelectNode={setSelectedNodeId} /> : <EmptyState>请先建立一个工作流模板。</EmptyState>}
-      {selectedNode ? <div className="matrix-focus-bar"><span className="axis-code">{matrixCoordinate(selectedNode.laneId, selectedNode.stageId, matrixSource!.lanes, matrixSource!.stages)}</span><div><strong>{selectedNode.name}</strong><small>{selectedNode.description || "尚未填写节点说明"}</small></div><span>{selectedNode.roleKey}</span>{selectedStatus ? <em className={`status-pill status-${selectedStatus}`}>{statusLabel(selectedStatus)}</em> : null}</div> : null}
-    </section>
-    <section className="two-column overview-lower">
-      <article className="panel">
-        <header className="panel-heading"><div><span>RESPONSIBILITY</span><h2>组织待办</h2></div><small>{assignments.length} 项</small></header>
-        <div className="assignment-list">{assignments.slice(0, 12).map(({ run, node }) => <div key={`${run.id}-${node.id}`}>
-          <span className={`status-dot status-${node.status}`} /><div><strong>{node.name}</strong><small>{run.title} · {node.roleKey}</small></div>
-          <span>{principalName(overview.principals, node.accountablePrincipalId)}</span><em>{statusLabel(node.status)}</em>
-        </div>)}</div>
-      </article>
-      <article className="panel">
-        <header className="panel-heading"><div><span>ACTIVITY LEDGER</span><h2>最近组织活动</h2></div><small>执行与责任分开记录</small></header>
-        <div className="event-table compact">{overview.recentEvents.slice(0, 10).map((event) => <div key={event.sequence}>
-          <time>{displayTime(event.createdAt)}</time><strong>{event.type}</strong><span>{principalName(overview.principals, event.actorPrincipalId)}</span><span>{event.accountablePrincipalId ? `责任：${principalName(overview.principals, event.accountablePrincipalId)}` : "组织事件"}</span>
-        </div>)}</div>
-      </article>
-    </section>
+    if (matrix && selectedNodeId && !matrix.nodes.some((node) => node.id === selectedNodeId)) setSelectedNodeId("");
+  }, [matrix, selectedNodeId]);
+  return <div className="overview-canvas-shell">
+    <div className="overview-canvas-toolbar">
+      <label className="overview-toolbar-select overview-source-select"><Network /><select aria-label="画布来源" value={sourceId} disabled={!overview.runs.length && !overview.templates.length} onChange={(event) => { setSourceId(event.target.value); setActiveStageId(""); setSelectedNodeId(""); }}>
+        {!overview.runs.length && !overview.templates.length ? <option value="">暂无画布</option> : null}
+        {overview.runs.length ? <optgroup label="运行实例">{overview.runs.map((item) => <option value={`run:${item.id}`} key={item.id}>{item.title} · {runStatusLabel(item.status)}</option>)}</optgroup> : null}
+        {overview.templates.length ? <optgroup label="模板预览">{overview.templates.map((item) => <option value={`template:${item.id}`} key={item.id}>{item.name} · v{item.currentVersion}</option>)}</optgroup> : null}
+      </select></label>
+      {matrix ? <nav className="overview-stage-tabs" aria-label="横向流程阶段"><button className={!activeStageId ? "active" : ""} onClick={() => setActiveStageId("")}><Grid3X3 />全流程</button>{matrix.stages.map((stage, index) => <button className={activeStageId === stage.id ? "active" : ""} key={stage.id} onClick={() => setActiveStageId(activeStageId === stage.id ? "" : stage.id)}><span>{index + 1}</span>{stage.name}</button>)}</nav> : <span />}
+      <div className="overview-toolbar-actions"><label className="overview-toolbar-select overview-identity-select"><UserRoundCog /><select aria-label="当前执行身份" value={actingPrincipalId} onChange={(event) => onActingPrincipalChange(event.target.value)}>{overview.principals.map((principal) => <option value={principal.id} key={principal.id}>{principal.kind === "server_agent" ? "Agent · " : "成员 · "}{principal.name}</option>)}</select></label><button className="icon-button" disabled={busy} onClick={onRefresh} title="刷新"><RefreshCw className={busy ? "spin" : ""} /></button></div>
+    </div>
+    {matrixSource && matrix ? <WorkflowCanvas lanes={matrix.lanes} stages={matrix.stages} nodes={matrix.nodes} edges={matrixSource.edges} principals={overview.principals} selectedNodeId={selectedNodeId} activeLaneId={activeLaneId} activeStageId={activeStageId} showCoordinates={false} showHud={false} onSelectNode={setSelectedNodeId} /> : <EmptyState>请先建立一个工作流模板。</EmptyState>}
   </div>;
 }
 
 interface DraftNode extends WorkflowNodeDefinition { predecessors: string[] }
-type DesignerDrag = { kind: "lane" | "stage" | "node"; id: string } | null;
 
 interface MatrixDraft {
   lanes: WorkflowLaneDefinition[];
@@ -376,7 +320,7 @@ type TemplateInput = {
   lanes: WorkflowLaneDefinition[];
   stages: WorkflowStageDefinition[];
   nodes: WorkflowNodeDefinition[];
-  edges: Array<{ source: string; target: string }>;
+  edges: WorkflowEdge[];
 };
 
 function blankMatrix(): MatrixDraft {
@@ -401,6 +345,48 @@ function blankMatrix(): MatrixDraft {
   return { lanes, stages, nodes };
 }
 
+function ProcessInspector({ edge, nodes, parameterText, onPatch, onParameters, onClose, onRemove }: { edge: WorkflowEdge; nodes: DraftNode[]; parameterText: string; onPatch(patch: WorkflowEdgeDetails): void; onParameters(value: string): void; onClose(): void; onRemove(): void }) {
+  const source = nodes.find((node) => node.id === edge.source);
+  const target = nodes.find((node) => node.id === edge.target);
+  return <aside className="node-inspector process-inspector"><header><div><span><ArrowRight /></span><div><small>PROCESS</small><h3>{edge.name || EDGE_KIND_LABELS[edge.kind || "handoff"]}</h3></div></div><div className="node-inspector-actions"><button title="关闭过程编辑器" onClick={onClose}><X /></button><button title="删除过程" onClick={onRemove}><Trash2 /></button></div></header><div className="inspector-fields">
+    <div className="process-route"><span><small>FROM</small><strong>{source?.name || edge.source}</strong></span><ArrowRight /><span><small>TO</small><strong>{target?.name || edge.target}</strong></span></div>
+    <label>过程名称<input value={edge.name || ""} placeholder={EDGE_KIND_LABELS[edge.kind || "handoff"]} onChange={(event) => onPatch({ name: event.target.value })} /></label>
+    <label>过程类型<select value={edge.kind || "handoff"} onChange={(event) => onPatch({ kind: event.target.value as NonNullable<WorkflowEdge["kind"]> })}>{Object.entries(EDGE_KIND_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+    <label>过程说明<textarea value={edge.description || ""} placeholder="说明这一步如何把上游结果转成下游输入。" onChange={(event) => onPatch({ description: event.target.value })} /></label>
+    <label>触发条件<textarea value={edge.condition || ""} placeholder="例如：score >= 80 && approved == true" onChange={(event) => onPatch({ condition: event.target.value })} /></label>
+    <label>过程参数<textarea className="process-parameters" value={parameterText} placeholder={'input=artifact.current\nretry=2\nstrict=true'} onChange={(event) => onParameters(event.target.value)} /><small>每行一个 key=value，数值、布尔值和 JSON 会自动识别。</small></label>
+  </div></aside>;
+}
+
+function NodeInspector({ node, nodes, lanes, stages, onPatch, onRename, onTogglePredecessor, onClose, onRemove }: { node: DraftNode; nodes: DraftNode[]; lanes: WorkflowLaneDefinition[]; stages: WorkflowStageDefinition[]; onPatch(patch: Partial<DraftNode>): void; onRename(next: string): void; onTogglePredecessor(predecessorId: string): void; onClose(): void; onRemove(): void }) {
+  const serializedParameters = JSON.stringify(node.executorParameters || {}, null, 2);
+  const [parameterText, setParameterText] = useState(serializedParameters);
+  const [parameterError, setParameterError] = useState("");
+  useEffect(() => { setParameterText(serializedParameters); setParameterError(""); }, [node.id]);
+  const updateParameters = (value: string) => {
+    setParameterText(value);
+    try {
+      const parsed = value.trim() ? JSON.parse(value) : {};
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("执行参数必须是 JSON 对象");
+      setParameterError("");
+      onPatch({ executorParameters: parsed as Record<string, unknown> });
+    } catch (reason) {
+      setParameterError(reason instanceof Error ? reason.message : "JSON 格式错误");
+    }
+  };
+  return <aside className="node-inspector"><header><div><span>{matrixCoordinate(node.laneId, node.stageId, lanes, stages)}</span><h3>{node.name}</h3></div><div className="node-inspector-actions"><button title="关闭编辑器" onClick={onClose}><X /></button><button title="删除节点" onClick={onRemove}><Trash2 /></button></div></header><div className="inspector-fields">
+    <label>节点名称<input value={node.name} onChange={(event) => onPatch({ name: event.target.value })} /></label>
+    <div className="form-two"><label>节点 ID<input value={node.id} onChange={(event) => onRename(event.target.value)} /></label><label>类型<select value={node.kind} onChange={(event) => onPatch({ kind: event.target.value as DraftNode["kind"] })}><option value="task">执行节点</option><option value="review">审查节点</option><option value="gate">决策 Gate</option><option value="automation">自动化</option></select></label></div>
+    <label>职能角色<input value={node.roleKey} onChange={(event) => onPatch({ roleKey: event.target.value })} /></label>
+    <div className="form-two"><label>纵向业务域<select value={node.laneId} onChange={(event) => onPatch({ laneId: event.target.value })}>{lanes.map((lane) => <option disabled={nodes.some((item) => item.id !== node.id && item.laneId === lane.id && item.stageId === node.stageId)} value={lane.id} key={lane.id}>{lane.name}</option>)}</select></label><label>横向阶段<select value={node.stageId} onChange={(event) => onPatch({ stageId: event.target.value })}>{stages.map((stage) => <option disabled={nodes.some((item) => item.id !== node.id && item.laneId === node.laneId && item.stageId === stage.id)} value={stage.id} key={stage.id}>{stage.name}</option>)}</select></label></div>
+    <label>节点说明<textarea value={node.description} onChange={(event) => onPatch({ description: event.target.value })} /></label>
+    <label>交付物<input value={node.outputs.join(", ")} onChange={(event) => onPatch({ outputs: event.target.value.split(",").map((item) => item.trim()) })} /></label>
+    <fieldset className="executor-settings"><legend>自动执行</legend><label>执行器<select value={node.executorId || ""} onChange={(event) => { const executorId = event.target.value || null; const emptyParameters = !Object.keys(node.executorParameters || {}).length; const executorParameters = executorId === "agent_runtime" && emptyParameters ? { mode: "research" } : executorId === "server_agent" && emptyParameters ? { principalId: "", prompt: "执行当前节点", profile: "deep" } : executorId === "http_capability" && emptyParameters ? { capabilityId: "market.overview", input: {} } : node.executorParameters || {}; setParameterText(JSON.stringify(executorParameters, null, 2)); onPatch({ executorId, executorParameters }); }}><option value="">人工处理</option><option value="agent_runtime">Newma / 本地 Agent</option><option value="server_agent">远程 Server Agent</option><option value="http_capability">白名单 HTTP 能力</option><option value="data_transform">数据转换</option><option value="noop">自动通过</option><option value="agent_handoff">Agent 转交</option></select></label><label>执行参数 JSON<textarea className="executor-parameters" value={parameterText} onChange={(event) => updateParameters(event.target.value)} />{parameterError ? <small className="field-error">{parameterError}</small> : <small>{node.executorId === "server_agent" ? "填写 principalId、prompt、profile；远端仍通过该 Desk 的统一 Agent Gateway 执行。" : node.executorId === "http_capability" ? "只填写已登记的 capabilityId、可选 serviceId、input 与 mapping；不能填写 URL、方法或认证头。" : "Agent 可配置 prompt、mode、capability、adapter；不填写 adapter 时使用统一运行时偏好。"}</small>}</label><div className="form-two"><label>重试次数<input type="number" min="0" max="10" value={node.retryLimit ?? 0} onChange={(event) => onPatch({ retryLimit: Number(event.target.value) })} /></label><label>重试延迟（秒）<input type="number" min="0" max="3600" value={node.retryDelaySeconds ?? 0} onChange={(event) => onPatch({ retryDelaySeconds: Number(event.target.value) })} /></label></div><label>超时（秒）<input type="number" min="1" max="86400" value={node.timeoutSeconds ?? 300} onChange={(event) => onPatch({ timeoutSeconds: Number(event.target.value) })} /></label></fieldset>
+    <fieldset className="predecessor-picker"><legend>前置节点 / 过程</legend>{nodes.filter((item) => item.id !== node.id).map((item) => <label key={item.id}><input type="checkbox" checked={node.predecessors.includes(item.id)} onChange={() => onTogglePredecessor(item.id)} /><span>{matrixCoordinate(item.laneId, item.stageId, lanes, stages)}</span>{item.name}</label>)}</fieldset>
+    <label className="check-label"><input type="checkbox" checked={node.requiresReview} onChange={(event) => onPatch({ requiresReview: event.target.checked })} />完成后必须审核</label><label className="check-label promoted-toggle"><input type="checkbox" checked={node.promotedToMenu} onChange={(event) => onPatch({ promotedToMenu: event.target.checked })} /><Pin />成熟节点提升为二级入口</label>
+  </div></aside>;
+}
+
 function DesignerView({ overview, busy, onCreate, onVersion, onLoadVersions, onRestore }: { overview: WorkflowOverview; busy: boolean; onCreate(input: TemplateInput): Promise<void>; onVersion(templateId: string, input: TemplateInput & { expectedVersion: number; changeNote: string }): Promise<void>; onLoadVersions(templateId: string): Promise<WorkflowTemplateVersion[]>; onRestore(templateId: string, sourceVersion: number, expectedVersion: number, changeNote: string): Promise<void> }) {
   const [editingId, setEditingId] = useState("");
   const [name, setName] = useState("组织协作流程");
@@ -414,12 +400,15 @@ function DesignerView({ overview, busy, onCreate, onVersion, onLoadVersions, onR
   const [changeNote, setChangeNote] = useState("调整节点与职能");
   const [versions, setVersions] = useState<WorkflowTemplateVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
-  const [dragging, setDragging] = useState<DesignerDrag>(null);
-  const [dropTarget, setDropTarget] = useState("");
-  const tableRef = useRef<HTMLDivElement>(null);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [edgeDetails, setEdgeDetails] = useState<Record<string, WorkflowEdgeDetails>>({});
+  const [selectedEdgeKey, setSelectedEdgeKey] = useState("");
+  const [edgeParameterDrafts, setEdgeParameterDrafts] = useState<Record<string, string>>({});
   const editing = overview.templates.find((item) => item.id === editingId);
   const selectedNode = nodes.find((node) => node.id === selectedNodeId);
-  const draftEdges = useMemo(() => nodes.flatMap((node) => node.predecessors.map((source) => ({ source, target: node.id }))), [nodes]);
+  const draftEdges = useMemo(() => nodes.flatMap((node) => node.predecessors.map((source) => normalizeWorkflowEdge({ source, target: node.id, ...edgeDetails[workflowEdgeKey(source, node.id)] }))), [edgeDetails, nodes]);
+  const selectedEdge = draftEdges.find((edge) => workflowEdgeKey(edge.source, edge.target) === selectedEdgeKey);
 
   const refreshVersions = async (templateId: string) => {
     setVersionsLoading(true);
@@ -430,45 +419,98 @@ function DesignerView({ overview, busy, onCreate, onVersion, onLoadVersions, onR
   const load = (template?: WorkflowTemplate) => {
     if (!template) {
       const blank = blankMatrix();
-      setEditingId(""); setName("组织协作流程"); setDescription("把组织任务拆成可授权、可审核、可交付的节点。"); setLanes(blank.lanes); setStages(blank.stages); setNodes(blank.nodes); setSelectedNodeId(blank.nodes[0]?.id || ""); setActiveStageId(""); setVersions([]); return;
+      setEditingId(""); setName("组织协作流程"); setDescription("把组织任务拆成可授权、可审核、可交付的节点。"); setLanes(blank.lanes); setStages(blank.stages); setNodes(blank.nodes); setSelectedNodeId(blank.nodes[0]?.id || ""); setActiveStageId(""); setVersions([]); setVersionsOpen(false); setInspectorOpen(false); setEdgeDetails({}); setSelectedEdgeKey(""); setEdgeParameterDrafts({}); return;
     }
     const resolved = resolveWorkflowMatrix(template.nodes, template.lanes, template.stages);
     setEditingId(template.id); setName(template.name); setDescription(template.description);
     setLanes(resolved.lanes); setStages(resolved.stages);
     setNodes(resolved.nodes.map((node) => ({ ...node, predecessors: template.edges.filter((edge) => edge.target === node.id).map((edge) => edge.source) })));
-    setSelectedNodeId(resolved.nodes[0]?.id || ""); setActiveStageId("");
+    setEdgeDetails(workflowEdgeDetailMap(template.edges)); setSelectedEdgeKey(""); setEdgeParameterDrafts({});
+    setSelectedNodeId(resolved.nodes[0]?.id || ""); setActiveStageId(""); setVersionsOpen(false); setInspectorOpen(false);
     void refreshVersions(template.id);
   };
   const patchNode = (id: string, patch: Partial<DraftNode>) => setNodes((current) => current.map((node) => node.id === id ? { ...node, ...patch } : node));
+  const renameNodeId = (previous: string, next: string) => {
+    setNodes((current) => current.map((node) => node.id === previous ? { ...node, id: next } : { ...node, predecessors: node.predecessors.map((id) => id === previous ? next : id) }));
+    const remapKey = (key: string) => {
+      const [source = "", target = ""] = key.split("->");
+      return workflowEdgeKey(source === previous ? next : source, target === previous ? next : target);
+    };
+    setEdgeDetails((current) => Object.fromEntries(Object.entries(current).map(([key, value]) => [remapKey(key), value])));
+    setEdgeParameterDrafts((current) => Object.fromEntries(Object.entries(current).map(([key, value]) => [remapKey(key), value])));
+    setSelectedEdgeKey((current) => current ? remapKey(current) : "");
+    setSelectedNodeId(next);
+  };
   const nextId = (prefix: string, ids: string[]) => { let index = ids.length + 1; while (ids.includes(`${prefix}-${index}`)) index += 1; return `${prefix}-${index}`; };
   const addLane = () => setLanes((current) => [...current, { id: nextId("lane", current.map((item) => item.id)), name: `业务域 ${axisLetter(current.length)}`, description: "" }]);
   const addStage = () => setStages((current) => [...current, { id: nextId("stage", current.map((item) => item.id)), name: `阶段 ${current.length + 1}`, description: "" }]);
-  const removeLane = (laneId: string) => { if (lanes.length <= 1) return; const removed = new Set(nodes.filter((node) => node.laneId === laneId).map((node) => node.id)); setLanes((current) => current.filter((lane) => lane.id !== laneId)); setNodes((current) => current.filter((node) => !removed.has(node.id)).map((node) => ({ ...node, predecessors: node.predecessors.filter((id) => !removed.has(id)) }))); if (selectedNodeId && removed.has(selectedNodeId)) setSelectedNodeId(""); };
-  const removeStage = (stageId: string) => { if (stages.length <= 1) return; const removed = new Set(nodes.filter((node) => node.stageId === stageId).map((node) => node.id)); setStages((current) => current.filter((stage) => stage.id !== stageId)); setNodes((current) => current.filter((node) => !removed.has(node.id)).map((node) => ({ ...node, predecessors: node.predecessors.filter((id) => !removed.has(id)) }))); if (activeStageId === stageId) setActiveStageId(""); if (selectedNodeId && removed.has(selectedNodeId)) setSelectedNodeId(""); };
-  const addNodeAt = (laneId: string, stageId: string) => {
+  const removeNodesFromCanvas = (removed: Set<string>) => {
+    const keepEdge = (key: string) => { const [source, target] = key.split("->"); return !removed.has(source || "") && !removed.has(target || ""); };
+    setNodes((current) => current.filter((node) => !removed.has(node.id)).map((node) => ({ ...node, predecessors: node.predecessors.filter((id) => !removed.has(id)) })));
+    setEdgeDetails((current) => Object.fromEntries(Object.entries(current).filter(([key]) => keepEdge(key))));
+    setEdgeParameterDrafts((current) => Object.fromEntries(Object.entries(current).filter(([key]) => keepEdge(key))));
+    if (selectedNodeId && removed.has(selectedNodeId)) setSelectedNodeId("");
+    if (selectedEdgeKey && !keepEdge(selectedEdgeKey)) { setSelectedEdgeKey(""); setInspectorOpen(false); }
+  };
+  const removeLane = (laneId: string) => { if (lanes.length <= 1) return; const removed = new Set(nodes.filter((node) => node.laneId === laneId).map((node) => node.id)); setLanes((current) => current.filter((lane) => lane.id !== laneId)); removeNodesFromCanvas(removed); };
+  const removeStage = (stageId: string) => { if (stages.length <= 1) return; const removed = new Set(nodes.filter((node) => node.stageId === stageId).map((node) => node.id)); setStages((current) => current.filter((stage) => stage.id !== stageId)); removeNodesFromCanvas(removed); if (activeStageId === stageId) setActiveStageId(""); };
+  const addNodeAt = ({ laneId, stageId, canvasX, canvasY }: WorkflowCanvasAdd) => {
+    const occupied = nodes.find((node) => node.laneId === laneId && node.stageId === stageId);
+    if (occupied) { setSelectedNodeId(occupied.id); setSelectedEdgeKey(""); setInspectorOpen(true); return; }
     const id = nextId("node", nodes.map((node) => node.id));
-    const node: DraftNode = { id, name: "新工作节点", description: "", roleKey: "owner", kind: "task", requiresReview: false, outputs: [], laneId, stageId, promotedToMenu: false, predecessors: [] };
-    setNodes((current) => [...current, node]); setSelectedNodeId(id);
+    const node: DraftNode = { id, name: "新工作节点", description: "", roleKey: "owner", kind: "task", requiresReview: false, outputs: [], laneId, stageId, promotedToMenu: false, canvasX, canvasY, predecessors: [] };
+    setNodes((current) => [...current, node]); setSelectedNodeId(id); setSelectedEdgeKey(""); setInspectorOpen(true);
   };
-  const removeNode = (nodeId: string) => { setNodes((current) => current.filter((node) => node.id !== nodeId).map((node) => ({ ...node, predecessors: node.predecessors.filter((id) => id !== nodeId) }))); setSelectedNodeId(""); };
-  const togglePredecessor = (nodeId: string, predecessorId: string) => patchNode(nodeId, { predecessors: selectedNode?.predecessors.includes(predecessorId) ? selectedNode.predecessors.filter((id) => id !== predecessorId) : [...(selectedNode?.predecessors || []), predecessorId] });
-  const beginDrag = (event: React.DragEvent, value: Exclude<DesignerDrag, null>) => {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", `${value.kind}:${value.id}`);
-    setDragging(value);
+  const removeNode = (nodeId: string) => { setNodes((current) => current.filter((node) => node.id !== nodeId).map((node) => ({ ...node, predecessors: node.predecessors.filter((id) => id !== nodeId) }))); setEdgeDetails((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${nodeId}->`) && !key.endsWith(`->${nodeId}`)))); setSelectedNodeId(""); setSelectedEdgeKey(""); setInspectorOpen(false); };
+  const togglePredecessor = (nodeId: string, predecessorId: string) => {
+    const key = workflowEdgeKey(predecessorId, nodeId);
+    const exists = Boolean(selectedNode?.predecessors.includes(predecessorId));
+    patchNode(nodeId, { predecessors: exists ? selectedNode!.predecessors.filter((id) => id !== predecessorId) : [...(selectedNode?.predecessors || []), predecessorId] });
+    if (exists) {
+      setEdgeDetails((current) => Object.fromEntries(Object.entries(current).filter(([itemKey]) => itemKey !== key)));
+      if (selectedEdgeKey === key) { setSelectedEdgeKey(""); setInspectorOpen(false); }
+    } else {
+      setEdgeDetails((current) => ({ ...current, [key]: current[key] || { name: "任务交接", kind: "handoff", description: "", condition: "", parameters: {} } }));
+    }
   };
-  const endDrag = () => { setDragging(null); setDropTarget(""); };
-  const dropAxis = (kind: "lane" | "stage", targetId: string) => {
-    if (!dragging || dragging.kind !== kind) return;
-    if (kind === "lane") setLanes((current) => reorderAxisById(current, dragging.id, targetId));
-    else setStages((current) => reorderAxisById(current, dragging.id, targetId));
-    endDrag();
+  const patchEdge = (key: string, patch: WorkflowEdgeDetails) => setEdgeDetails((current) => ({ ...current, [key]: { ...current[key], ...patch } }));
+  const selectEdge = (edge: WorkflowEdge) => {
+    const key = workflowEdgeKey(edge.source, edge.target);
+    setSelectedEdgeKey(key); setSelectedNodeId(""); setInspectorOpen(true);
+    setEdgeParameterDrafts((current) => ({ ...current, [key]: current[key] ?? edgeParametersText(edge.parameters) }));
   };
-  const dropNode = (laneId: string, stageId: string) => {
-    if (!dragging || dragging.kind !== "node") return;
-    setNodes((current) => moveOrSwapNode(current, dragging.id, laneId, stageId));
-    setSelectedNodeId(dragging.id);
-    endDrag();
+  const removeEdge = (edge: WorkflowEdge) => {
+    setNodes((current) => current.map((node) => node.id === edge.target ? { ...node, predecessors: node.predecessors.filter((id) => id !== edge.source) } : node));
+    setEdgeDetails((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== workflowEdgeKey(edge.source, edge.target))));
+    setEdgeParameterDrafts((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== workflowEdgeKey(edge.source, edge.target))));
+    setSelectedEdgeKey(""); setInspectorOpen(false);
+  };
+  const moveCanvasNode = ({ nodeId, laneId, stageId, canvasX, canvasY }: WorkflowCanvasMove) => {
+    setNodes((current) => {
+      const moving = current.find((node) => node.id === nodeId);
+      const occupied = current.find((node) => node.id !== nodeId && node.laneId === laneId && node.stageId === stageId);
+      if (!moving) return current;
+      return moveOrSwapNode(current, nodeId, laneId, stageId).map((node) => {
+        if (node.id === nodeId) return { ...node, canvasX, canvasY };
+        if (occupied && node.id === occupied.id) return { ...node, canvasX: null, canvasY: null };
+        return node;
+      });
+    });
+    setSelectedNodeId(nodeId); setSelectedEdgeKey("");
+  };
+  const connectNodes = (source: string, target: string) => {
+    if (source === target) return;
+    const key = workflowEdgeKey(source, target);
+    setNodes((current) => current.map((node) => node.id === target
+      ? { ...node, predecessors: node.predecessors.includes(source) ? node.predecessors : [...node.predecessors, source] }
+      : node));
+    setEdgeDetails((current) => ({
+      ...current,
+      [key]: current[key] || { name: "任务交接", kind: "handoff", description: "", condition: "", parameters: {} },
+    }));
+    setSelectedEdgeKey(key);
+    setSelectedNodeId("");
+    setInspectorOpen(true);
   };
   const restoreVersion = async (version: WorkflowTemplateVersion) => {
     if (!editing || version.version === editing.currentVersion) return;
@@ -476,6 +518,7 @@ function DesignerView({ overview, busy, onCreate, onVersion, onLoadVersions, onR
     const resolved = resolveWorkflowMatrix(version.nodes, version.lanes, version.stages);
     setName(version.name); setDescription(version.description); setLanes(resolved.lanes); setStages(resolved.stages);
     setNodes(resolved.nodes.map((node) => ({ ...node, predecessors: version.edges.filter((edge) => edge.target === node.id).map((edge) => edge.source) })));
+    setEdgeDetails(workflowEdgeDetailMap(version.edges)); setSelectedEdgeKey(""); setEdgeParameterDrafts({}); setInspectorOpen(false);
     setSelectedNodeId(resolved.nodes[0]?.id || ""); setActiveStageId(""); setChangeNote(`基于恢复的 v${version.version} 继续调整`);
     await refreshVersions(editing.id);
   };
@@ -486,73 +529,42 @@ function DesignerView({ overview, busy, onCreate, onVersion, onLoadVersions, onR
       await refreshVersions(editing.id);
     } else await onCreate({ name, description, lanes, stages, nodes: cleaned, edges: draftEdges });
   };
-  const visibleStages = activeStageId ? stages.filter((stage) => stage.id === activeStageId) : stages;
-  const columns = `200px repeat(${Math.max(visibleStages.length, 1)}, minmax(175px, 1fr))`;
-  const layoutKey = `${activeStageId}|${lanes.map((lane) => lane.id).join(",")}|${stages.map((stage) => stage.id).join(",")}|${nodes.map((node) => `${node.id}:${node.laneId}:${node.stageId}`).join(",")}`;
   return <div className="designer-layout">
-    <aside className="template-sidebar panel"><header className="panel-heading"><div><span>TEMPLATES</span><h2>模板版本</h2></div><button className="icon-button" onClick={() => load()} title="新建模板"><Plus /></button></header>
-      <div className="template-list"><button className={!editingId ? "active" : ""} onClick={() => load()}><Plus /><span><strong>新建流程</strong><small>从空白编排</small></span></button>{overview.templates.map((template) => <button className={editingId === template.id ? "active" : ""} onClick={() => load(template)} key={template.id}><GitBranch /><span><strong>{template.name}</strong><small>v{template.currentVersion} · {template.nodes.length} 节点</small></span></button>)}</div>
-      {editing ? <section className="template-version-history"><header><span><History /><strong>版本历史</strong></span><button title="刷新版本" disabled={versionsLoading} onClick={() => void refreshVersions(editing.id)}><RefreshCw className={versionsLoading ? "spin" : ""} /></button></header><div>{versions.map((version) => {
-        const diff = summarizeTemplateVersionDiff(editing, version);
-        const isCurrent = version.version === editing.currentVersion;
-        return <article className={isCurrent ? "current" : ""} key={version.version}><header><strong>v{version.version}</strong><time>{displayTime(version.createdAt)}</time></header><p>{version.changeNote || "未填写版本说明"}</p><div className="version-diff-tags"><span>节点 +{diff.addedNodes} / -{diff.removedNodes} / ~{diff.changedNodes}</span><span>依赖 {diff.changedEdges}</span>{diff.metadataChanged ? <span>名称 / 说明</span> : null}{diff.laneOrderChanged || diff.stageOrderChanged ? <span>行列变化</span> : null}</div>{isCurrent ? <em>当前版本</em> : <button disabled={busy} onClick={() => void restoreVersion(version)}><RotateCcw />恢复为新版本</button>}</article>;
-      })}{!versionsLoading && !versions.length ? <small className="version-empty">暂无版本记录</small> : null}</div></section> : null}
-    </aside>
-    <section className="panel designer-canvas">
-      <header className="designer-header"><div><label>流程名称<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>流程说明<input value={description} onChange={(event) => setDescription(event.target.value)} /></label></div><button className="primary-button" onClick={() => void save()} disabled={busy}><Save />{editing ? `保存为 v${editing.currentVersion + 1}` : "创建模板"}</button></header>
-      {editing ? <label className="change-note">版本说明<input value={changeNote} onChange={(event) => setChangeNote(event.target.value)} /></label> : null}
-      <div className="matrix-authoring-bar"><div><Rows3 /><span><strong>{lanes.length} 个纵向业务域</strong><small>作为工作流内的二级模块</small></span><button onClick={addLane}><Plus />增加业务域</button></div><div><Grid3X3 /><span><strong>{stages.length} 个横向阶段</strong><small>通过上方标签切换</small></span><button onClick={addStage}><Plus />增加阶段</button></div></div>
-      <nav className="stage-tabs designer-stage-tabs"><button className={!activeStageId ? "active" : ""} onClick={() => setActiveStageId("")}><Grid3X3 />全景</button>{stages.map((stage, index) => <button className={activeStageId === stage.id ? "active" : ""} onClick={() => setActiveStageId(stage.id)} key={stage.id}><span>{index + 1}</span>{stage.name}</button>)}</nav>
+    <section className="designer-shell">
+      <header className="template-toolbar">
+        <div className="template-picker"><GitBranch /><label><span>流程模板</span><select value={editingId} onChange={(event) => load(overview.templates.find((template) => template.id === event.target.value))}><option value="">新建流程 · 从空白编排</option>{overview.templates.map((template) => <option value={template.id} key={template.id}>{template.name} · v{template.currentVersion} · {template.nodes.length} 节点</option>)}</select></label><button className="icon-button" onClick={() => load()} title="新建模板"><Plus /></button></div>
+        {editing ? <div className="version-menu"><button className={`version-toggle ${versionsOpen ? "active" : ""}`} onClick={() => setVersionsOpen((open) => !open)}><History /><span><strong>v{editing.currentVersion}</strong><small>{versions.length} 个版本</small></span><ChevronRight /></button>{versionsOpen ? <section className="template-version-history"><header><span><History /><strong>版本历史</strong></span><button title="刷新版本" disabled={versionsLoading} onClick={() => void refreshVersions(editing.id)}><RefreshCw className={versionsLoading ? "spin" : ""} /></button></header><div>{versions.map((version) => {
+          const diff = summarizeTemplateVersionDiff(editing, version);
+          const isCurrent = version.version === editing.currentVersion;
+          return <article className={isCurrent ? "current" : ""} key={version.version}><div><strong>v{version.version}</strong><time>{displayTime(version.createdAt)}</time><p>{version.changeNote || "未填写版本说明"}</p><small>节点 +{diff.addedNodes}/-{diff.removedNodes}/~{diff.changedNodes} · 依赖 {diff.changedEdges}{diff.metadataChanged ? " · 信息" : ""}{diff.laneOrderChanged || diff.stageOrderChanged ? " · 行列" : ""}</small></div>{isCurrent ? <em>当前</em> : <button title={`恢复 v${version.version}`} disabled={busy} onClick={() => void restoreVersion(version)}><RotateCcw /></button>}</article>;
+        })}{!versionsLoading && !versions.length ? <small className="version-empty">暂无版本记录</small> : null}</div></section> : null}</div> : <small className="template-draft-state">尚未保存</small>}
+      </header>
+      <section className="designer-canvas">
+      <header className="designer-header"><div className="designer-meta-fields"><label><span>流程名称</span><input value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>流程说明</span><input value={description} onChange={(event) => setDescription(event.target.value)} /></label>{editing ? <label><span>版本说明</span><input value={changeNote} onChange={(event) => setChangeNote(event.target.value)} /></label> : null}</div><div className="designer-save"><small>{lanes.length} × {stages.length} · {nodes.length} 节点</small><button className="primary-button" onClick={() => void save()} disabled={busy}><Save />{editing ? `保存 v${editing.currentVersion + 1}` : "创建模板"}</button></div></header>
+      <details className="canvas-axis-manager"><summary><span><Grid3X3 /><strong>业务域与阶段</strong><small>{lanes.length} × {stages.length}，展开编辑画布坐标轴</small></span><span><button onClick={(event) => { event.preventDefault(); addLane(); }}><Plus />业务域</button><button onClick={(event) => { event.preventDefault(); addStage(); }}><Plus />阶段</button></span></summary><div className="canvas-axis-manager-body">
+        <section><header><Rows3 /><strong>纵向业务域</strong></header><div>{lanes.map((lane, laneIndex) => <article key={lane.id}><span className="axis-code">{axisLetter(laneIndex)}</span><label><input value={lane.name} onChange={(event) => setLanes((current) => current.map((item) => item.id === lane.id ? { ...item, name: event.target.value } : item))} /><input value={lane.description} placeholder="业务域说明" onChange={(event) => setLanes((current) => current.map((item) => item.id === lane.id ? { ...item, description: event.target.value } : item))} /></label><button title="删除业务域" disabled={lanes.length <= 1} onClick={() => removeLane(lane.id)}><Trash2 /></button></article>)}</div></section>
+        <section><header><Grid3X3 /><strong>横向阶段</strong></header><div>{stages.map((stage, index) => <article key={stage.id}><span className="axis-code">{index + 1}</span><label><input value={stage.name} onChange={(event) => setStages((current) => current.map((item) => item.id === stage.id ? { ...item, name: event.target.value } : item))} /><input value={stage.description} placeholder="阶段说明" onChange={(event) => setStages((current) => current.map((item) => item.id === stage.id ? { ...item, description: event.target.value } : item))} /></label><button title="删除阶段" disabled={stages.length <= 1} onClick={() => removeStage(stage.id)}><Trash2 /></button></article>)}</div></section>
+      </div></details>
+      <nav className="stage-tabs designer-stage-tabs"><button className={!activeStageId ? "active" : ""} onClick={() => setActiveStageId("")}><Grid3X3 />全景</button>{stages.map((stage, index) => <button className={activeStageId === stage.id ? "active" : ""} onClick={() => setActiveStageId(activeStageId === stage.id ? "" : stage.id)} key={stage.id}><span>{index + 1}</span>{stage.name}</button>)}</nav>
       <div className="designer-matrix-workspace">
-        <div className="matrix-scroll designer-matrix-scroll"><div className="matrix-table" ref={tableRef}>
-          <WorkflowDependencyLines tableRef={tableRef} edges={draftEdges} layoutKey={layoutKey} selectedNodeId={selectedNodeId} />
-          <div className="matrix-header-row designer-grid-row" style={{ gridTemplateColumns: columns }}>
-            <div className="matrix-corner"><PanelLeft /><span><strong>横 × 竖组织画布</strong><small>拖动行列排序，拖动节点移动或交换</small></span></div>
-            {visibleStages.map((stage) => <div
-              className={`axis-editor stage-axis-editor ${dropTarget === `stage:${stage.id}` ? "drop-target" : ""}`}
-              key={stage.id}
-              onDragOver={(event) => { if (dragging?.kind === "stage") { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropTarget(`stage:${stage.id}`); } }}
-              onDrop={(event) => { event.preventDefault(); dropAxis("stage", stage.id); }}
-            >
-              <span className="axis-drag-handle" draggable onDragStart={(event) => beginDrag(event, { kind: "stage", id: stage.id })} onDragEnd={endDrag} title="拖动阶段排序"><GripVertical /></span>
-              <span className="axis-code">{stages.findIndex((item) => item.id === stage.id) + 1}</span>
-              <div><input value={stage.name} onChange={(event) => setStages((current) => current.map((item) => item.id === stage.id ? { ...item, name: event.target.value } : item))} /><input value={stage.description} placeholder="阶段说明" onChange={(event) => setStages((current) => current.map((item) => item.id === stage.id ? { ...item, description: event.target.value } : item))} /></div>
-              <button title="删除阶段" disabled={stages.length <= 1} onClick={() => removeStage(stage.id)}><Trash2 /></button>
-            </div>)}
-          </div>
-          {lanes.map((lane, laneIndex) => <div className={`matrix-data-row designer-grid-row ${dropTarget === `lane:${lane.id}` ? "axis-drop-row" : ""}`} style={{ gridTemplateColumns: columns }} key={lane.id}>
-            <div
-              className="axis-editor lane-axis-editor"
-              onDragOver={(event) => { if (dragging?.kind === "lane") { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropTarget(`lane:${lane.id}`); } }}
-              onDrop={(event) => { event.preventDefault(); dropAxis("lane", lane.id); }}
-            >
-              <span className="axis-drag-handle" draggable onDragStart={(event) => beginDrag(event, { kind: "lane", id: lane.id })} onDragEnd={endDrag} title="拖动业务域排序"><GripVertical /></span>
-              <span className="axis-code">{axisLetter(laneIndex)}</span>
-              <div><input value={lane.name} onChange={(event) => setLanes((current) => current.map((item) => item.id === lane.id ? { ...item, name: event.target.value } : item))} /><input value={lane.description} placeholder="业务域说明" onChange={(event) => setLanes((current) => current.map((item) => item.id === lane.id ? { ...item, description: event.target.value } : item))} /></div>
-              <button title="删除业务域" disabled={lanes.length <= 1} onClick={() => removeLane(lane.id)}><Trash2 /></button>
-            </div>
-            {visibleStages.map((stage) => {
-              const node = nodes.find((item) => item.laneId === lane.id && item.stageId === stage.id);
-              const targetKey = `node:${lane.id}:${stage.id}`;
-              const dropEvents = {
-                onDragOver: (event: React.DragEvent) => { if (dragging?.kind === "node") { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropTarget(targetKey); } },
-                onDrop: (event: React.DragEvent) => { event.preventDefault(); dropNode(lane.id, stage.id); },
-              };
-              return node ? <button
-                data-node-id={node.id}
-                draggable
-                className={`matrix-node-card authoring-node kind-${node.kind} ${selectedNodeId === node.id ? "active" : ""} ${dragging?.kind === "node" && dragging.id === node.id ? "dragging" : ""} ${dropTarget === targetKey ? "drop-target" : ""}`}
-                onClick={() => setSelectedNodeId(node.id)}
-                onDragStart={(event) => beginDrag(event, { kind: "node", id: node.id })}
-                onDragEnd={endDrag}
-                key={stage.id}
-                {...dropEvents}
-              ><header><span>{matrixCoordinate(lane.id, stage.id, lanes, stages)}</span>{node.promotedToMenu ? <Pin /> : null}</header><strong>{node.name}</strong><small>{node.roleKey}</small><footer><span>{node.predecessors.length} 个前置</span><em>{node.kind}</em></footer></button> : <button className={`matrix-add-cell ${dropTarget === targetKey ? "drop-target" : ""}`} onClick={() => addNodeAt(lane.id, stage.id)} key={stage.id} {...dropEvents}><Plus /><strong>{matrixCoordinate(lane.id, stage.id, lanes, stages)}</strong><small>建立工作节点</small></button>;
-            })}
-          </div>)}
-        </div></div>
-        {selectedNode ? <aside className="node-inspector"><header><div><span>{matrixCoordinate(selectedNode.laneId, selectedNode.stageId, lanes, stages)}</span><h3>{selectedNode.name}</h3></div><button title="删除节点" onClick={() => removeNode(selectedNode.id)}><Trash2 /></button></header><div className="inspector-fields"><label>节点名称<input value={selectedNode.name} onChange={(event) => patchNode(selectedNode.id, { name: event.target.value })} /></label><div className="form-two"><label>节点 ID<input value={selectedNode.id} onChange={(event) => { const previous = selectedNode.id; const next = event.target.value; setNodes((current) => current.map((node) => node.id === previous ? { ...node, id: next } : { ...node, predecessors: node.predecessors.map((id) => id === previous ? next : id) })); setSelectedNodeId(next); }} /></label><label>类型<select value={selectedNode.kind} onChange={(event) => patchNode(selectedNode.id, { kind: event.target.value as DraftNode["kind"] })}><option value="task">执行节点</option><option value="review">审查节点</option><option value="gate">决策 Gate</option><option value="automation">自动化</option></select></label></div><label>职能角色<input value={selectedNode.roleKey} onChange={(event) => patchNode(selectedNode.id, { roleKey: event.target.value })} /></label><div className="form-two"><label>纵向业务域<select value={selectedNode.laneId} onChange={(event) => patchNode(selectedNode.id, { laneId: event.target.value })}>{lanes.map((lane) => <option disabled={nodes.some((node) => node.id !== selectedNode.id && node.laneId === lane.id && node.stageId === selectedNode.stageId)} value={lane.id} key={lane.id}>{lane.name}</option>)}</select></label><label>横向阶段<select value={selectedNode.stageId} onChange={(event) => patchNode(selectedNode.id, { stageId: event.target.value })}>{stages.map((stage) => <option disabled={nodes.some((node) => node.id !== selectedNode.id && node.laneId === selectedNode.laneId && node.stageId === stage.id)} value={stage.id} key={stage.id}>{stage.name}</option>)}</select></label></div><label>节点说明<textarea value={selectedNode.description} onChange={(event) => patchNode(selectedNode.id, { description: event.target.value })} /></label><label>交付物<input value={selectedNode.outputs.join(", ")} onChange={(event) => patchNode(selectedNode.id, { outputs: event.target.value.split(",").map((item) => item.trim()) })} /></label><fieldset className="predecessor-picker"><legend>前置节点</legend>{nodes.filter((node) => node.id !== selectedNode.id).map((node) => <label key={node.id}><input type="checkbox" checked={selectedNode.predecessors.includes(node.id)} onChange={() => togglePredecessor(selectedNode.id, node.id)} /><span>{matrixCoordinate(node.laneId, node.stageId, lanes, stages)}</span>{node.name}</label>)}</fieldset><label className="check-label"><input type="checkbox" checked={selectedNode.requiresReview} onChange={(event) => patchNode(selectedNode.id, { requiresReview: event.target.checked })} />完成后必须审核</label><label className="check-label promoted-toggle"><input type="checkbox" checked={selectedNode.promotedToMenu} onChange={(event) => patchNode(selectedNode.id, { promotedToMenu: event.target.checked })} /><Pin />成熟节点提升为二级入口</label></div></aside> : <aside className="node-inspector empty-inspector"><Grid3X3 /><strong>选择一个网格节点</strong><small>可编辑职能、依赖、交付物和菜单入口。</small></aside>}
+        <WorkflowCanvas
+          lanes={lanes}
+          stages={stages}
+          nodes={nodes}
+          edges={draftEdges}
+          editable
+          selectedNodeId={selectedNodeId}
+          selectedEdgeKey={selectedEdgeKey}
+          activeStageId={activeStageId}
+          onSelectNode={(id) => { setSelectedNodeId(id); setSelectedEdgeKey(""); setInspectorOpen(true); }}
+          onSelectEdge={selectEdge}
+          onMoveNode={moveCanvasNode}
+          onConnectNodes={connectNodes}
+          onAddNode={addNodeAt}
+        />
+        {selectedEdge && inspectorOpen ? <ProcessInspector edge={selectedEdge} nodes={nodes} parameterText={edgeParameterDrafts[selectedEdgeKey] ?? edgeParametersText(selectedEdge.parameters)} onPatch={(patch) => patchEdge(selectedEdgeKey, patch)} onParameters={(value) => { setEdgeParameterDrafts((current) => ({ ...current, [selectedEdgeKey]: value })); patchEdge(selectedEdgeKey, { parameters: parseEdgeParameters(value) }); }} onClose={() => { setSelectedEdgeKey(""); setInspectorOpen(false); }} onRemove={() => removeEdge(selectedEdge)} /> : selectedNode && inspectorOpen ? <NodeInspector key={`${editingId}:${selectedNode.id}`} node={selectedNode} nodes={nodes} lanes={lanes} stages={stages} onPatch={(patch) => patchNode(selectedNode.id, patch)} onRename={(next) => renameNodeId(selectedNode.id, next)} onTogglePredecessor={(predecessorId) => togglePredecessor(selectedNode.id, predecessorId)} onClose={() => setInspectorOpen(false)} onRemove={() => removeNode(selectedNode.id)} /> : null}
       </div>
+      </section>
     </section>
   </div>;
 }
@@ -571,7 +583,7 @@ function RunCreation({ overview, busy, onCreate }: { overview: WorkflowOverview;
   </section>;
 }
 
-function NodeDetail({ overview, snapshot, node, busy, onClaim, onRelease, onSubmit, onReview, onData, onArtifact, onAssign }: { overview: WorkflowOverview; snapshot: WorkflowRunSnapshot; node: WorkflowNodeRun; busy: boolean; onClaim(): Promise<void>; onRelease(): Promise<void>; onSubmit(): Promise<void>; onReview(decision: "approve" | "request_changes"): Promise<void>; onData(slot: string, data: unknown): Promise<void>; onArtifact(input: { artifactKey: string; label: string; kind: string; content?: unknown; inputArtifactIds?: string[] }): Promise<void>; onAssign(accountable: string, reviewer?: string | null): Promise<void> }) {
+function NodeDetail({ overview, snapshot, node, runtimeJob, busy, onClaim, onRelease, onSubmit, onReview, onData, onArtifact, onAssign, onRetryRuntime }: { overview: WorkflowOverview; snapshot: WorkflowRunSnapshot; node: WorkflowNodeRun; runtimeJob?: WorkflowRuntimeJob; busy: boolean; onClaim(): Promise<void>; onRelease(): Promise<void>; onSubmit(): Promise<void>; onReview(decision: "approve" | "request_changes"): Promise<void>; onData(slot: string, data: unknown): Promise<void>; onArtifact(input: { artifactKey: string; label: string; kind: string; content?: unknown; inputArtifactIds?: string[] }): Promise<void>; onAssign(accountable: string, reviewer?: string | null): Promise<void>; onRetryRuntime(): Promise<void> }) {
   const [slot, setSlot] = useState("worklog");
   const [dataText, setDataText] = useState("{\n  \"summary\": \"\"\n}");
   const [artifactKey, setArtifactKey] = useState("deliverable");
@@ -585,6 +597,7 @@ function NodeDetail({ overview, snapshot, node, busy, onClaim, onRelease, onSubm
   return <aside className="node-detail panel">
     <header><div><span>{node.roleKey}</span><h2>{node.name}</h2><p>{node.description || "该节点尚未填写说明。"}</p></div><span className={`status-pill status-${node.status}`}>{statusLabel(node.status)}</span></header>
     <section className="responsibility-card"><div><small>责任人</small><strong>{principalName(overview.principals, node.accountablePrincipalId)}</strong></div><div><small>当前领取</small><strong>{node.claim ? principalName(overview.principals, node.claim.principalId) : "未领取"}</strong></div><div><small>审核人</small><strong>{principalName(overview.principals, node.reviewerPrincipalId)}</strong></div></section>
+    {runtimeJob ? <section className="runtime-job-card"><header><div><Bot /><span><small>执行器</small><strong>{runtimeJob.executorId}</strong></span></div><span className={`status-pill status-${runtimeJob.status}`}>{statusLabel(runtimeJob.status)}</span></header><dl><div><dt>尝试</dt><dd>{runtimeJob.attempt} / {runtimeJob.maxAttempts}</dd></div><div><dt>超时</dt><dd>{runtimeJob.timeoutSeconds}s</dd></div><div><dt>更新时间</dt><dd>{displayTime(runtimeJob.updatedAt)}</dd></div></dl>{runtimeJob.result ? <pre>{JSON.stringify(runtimeJob.result, null, 2)}</pre> : null}{runtimeJob.error ? <pre className="runtime-error">{JSON.stringify(runtimeJob.error, null, 2)}</pre> : null}{["failed", "blocked"].includes(runtimeJob.status) ? <button disabled={busy} onClick={() => void onRetryRuntime()}><RotateCcw />重试执行</button> : null}</section> : null}
     <div className="node-actions">{["ready", "stale"].includes(node.status) ? <button className="primary-button" disabled={busy} onClick={() => void onClaim()}><CircleDot />领取节点</button> : null}{["claimed", "running"].includes(node.status) ? <><button className="primary-button" disabled={busy} onClick={() => void onSubmit()}><Check />提交节点</button><button disabled={busy} onClick={() => void onRelease()}>释放租约</button></> : null}{node.status === "waiting_review" ? <><button className="primary-button" disabled={busy} onClick={() => void onReview("approve")}><ShieldCheck />审核通过</button><button disabled={busy} onClick={() => void onReview("request_changes")}>退回修改</button></> : null}</div>
     <details open><summary>节点数据 <span>版本 {node.dataRevision}</span></summary><div className="detail-form"><label>数据槽<input value={slot} onChange={(event) => setSlot(event.target.value)} /></label><label>JSON / 文本<textarea value={dataText} onChange={(event) => setDataText(event.target.value)} /></label><button disabled={busy} onClick={() => { let value: unknown = dataText; try { value = JSON.parse(dataText); } catch { /* save as text */ } void onData(slot, value); }}><Save />保存数据版本</button></div></details>
     <details open><summary>节点交付物 <span>{node.artifactCount} 个版本</span></summary><div className="detail-form"><div className="form-two"><label>交付物键<input value={artifactKey} onChange={(event) => setArtifactKey(event.target.value)} /></label><label>类型<select value="document" disabled><option>document</option></select></label></div><label>名称<input value={artifactLabel} onChange={(event) => setArtifactLabel(event.target.value)} /></label><label>内容<textarea value={artifactContent} onChange={(event) => setArtifactContent(event.target.value)} /></label><label>输入交付物 ID<input value={parents} onChange={(event) => setParents(event.target.value)} placeholder={currentArtifacts.slice(0, 2).map((item) => item.id).join(", ")} /></label><button disabled={busy} onClick={() => void onArtifact({ artifactKey, label: artifactLabel, kind: "document", content: artifactContent, inputArtifactIds: parents.split(",").map((value) => value.trim()).filter(Boolean) })}><Archive />保存交付版本</button></div></details>
@@ -592,17 +605,25 @@ function NodeDetail({ overview, snapshot, node, busy, onClaim, onRelease, onSubm
   </aside>;
 }
 
-function RunsView({ overview, snapshot, selectedRunId, selectedNodeId, busy, onSelectRun, onSelectNode, onCreateRun, actions }: { overview: WorkflowOverview; snapshot?: WorkflowRunSnapshot; selectedRunId: string; selectedNodeId: string; busy: boolean; onSelectRun(id: string): void; onSelectNode(id: string): void; onCreateRun(input: { templateId: string; title: string; assignments: Record<string, string>; reviewers: Record<string, string> }): Promise<void>; actions: { claim(node: WorkflowNodeRun): Promise<void>; release(node: WorkflowNodeRun): Promise<void>; submit(node: WorkflowNodeRun): Promise<void>; review(node: WorkflowNodeRun, decision: "approve" | "request_changes"): Promise<void>; data(node: WorkflowNodeRun, slot: string, value: unknown): Promise<void>; artifact(node: WorkflowNodeRun, input: { artifactKey: string; label: string; kind: string; content?: unknown; inputArtifactIds?: string[] }): Promise<void>; assign(node: WorkflowNodeRun, accountable: string, reviewer?: string | null): Promise<void> } }) {
+function RunsView({ overview, snapshot, runtimeExecution, runtimeTriggers, selectedRunId, selectedNodeId, busy, onSelectRun, onSelectNode, onCreateRun, actions, runtimeActions }: { overview: WorkflowOverview; snapshot?: WorkflowRunSnapshot; runtimeExecution?: WorkflowRuntimeExecution; runtimeTriggers: WorkflowRuntimeTrigger[]; selectedRunId: string; selectedNodeId: string; busy: boolean; onSelectRun(id: string): void; onSelectNode(id: string): void; onCreateRun(input: { templateId: string; title: string; assignments: Record<string, string>; reviewers: Record<string, string> }): Promise<void>; actions: { claim(node: WorkflowNodeRun): Promise<void>; release(node: WorkflowNodeRun): Promise<void>; submit(node: WorkflowNodeRun): Promise<void>; review(node: WorkflowNodeRun, decision: "approve" | "request_changes"): Promise<void>; data(node: WorkflowNodeRun, slot: string, value: unknown): Promise<void>; artifact(node: WorkflowNodeRun, input: { artifactKey: string; label: string; kind: string; content?: unknown; inputArtifactIds?: string[] }): Promise<void>; assign(node: WorkflowNodeRun, accountable: string, reviewer?: string | null): Promise<void> }; runtimeActions: { start(): Promise<void>; tick(): Promise<void>; pause(): Promise<void>; resume(): Promise<void>; cancel(): Promise<void>; retry(job: WorkflowRuntimeJob): Promise<void>; createTrigger(input: { triggerType: "event" | "schedule"; eventType?: string; intervalSeconds?: number; cronExpression?: string; timezone?: string }): Promise<void>; setTriggerEnabled(trigger: WorkflowRuntimeTrigger, enabled: boolean): Promise<void> } }) {
   const run = snapshot?.run;
   const selectedNode = run?.nodes.find((node) => node.id === selectedNodeId) || run?.nodes[0];
+  const runtimeJob = runtimeExecution?.jobs.find((job) => job.nodeId === selectedNode?.id);
+  const runtimeCounts = runtimeExecution?.jobs.reduce((counts, job) => ({ ...counts, [job.status]: (counts[job.status] || 0) + 1 }), {} as Record<string, number>) || {};
   const [activeStageId, setActiveStageId] = useState("");
+  const [triggerType, setTriggerType] = useState<"event" | "schedule">("event");
+  const [eventType, setEventType] = useState("research.ready");
+  const [intervalSeconds, setIntervalSeconds] = useState(3600);
+  const [scheduleMode, setScheduleMode] = useState<"interval" | "cron">("cron");
+  const [cronExpression, setCronExpression] = useState("0 9 * * 1-5");
+  const [scheduleTimezone, setScheduleTimezone] = useState("Asia/Shanghai");
   useEffect(() => { setActiveStageId(""); }, [selectedRunId]);
   return <div className="view-stack"><RunCreation overview={overview} busy={busy} onCreate={onCreateRun} />
     <section className="run-workbench">
       <article className="panel run-canvas"><header className="panel-heading"><div><span>RUN CONTROL</span><h2>横竖节点运行图</h2></div><select value={selectedRunId} onChange={(event) => onSelectRun(event.target.value)}><option value="">选择运行</option>{overview.runs.map((item) => <option key={item.id} value={item.id}>{item.title} · {runStatusLabel(item.status)}</option>)}</select></header>
-        {run ? <><div className="run-title"><div><strong>{run.title}</strong><span>{overview.templates.find((item) => item.id === run.templateId)?.name} · v{run.templateVersion}</span></div><em className={`status-pill status-${run.status}`}>{runStatusLabel(run.status)} · r{run.revision}</em></div><WorkflowMatrixBoard lanes={run.lanes} stages={run.stages} nodes={run.nodes} edges={run.edges} principals={overview.principals} selectedNodeId={selectedNode?.id} activeStageId={activeStageId} onStageChange={setActiveStageId} onSelectNode={onSelectNode} /></> : <EmptyState>选择一个运行，查看节点与责任。</EmptyState>}
+        {run ? <><div className="run-title"><div><strong>{run.title}</strong><span>{overview.templates.find((item) => item.id === run.templateId)?.name} · v{run.templateVersion}</span></div><em className={`status-pill status-${run.status}`}>{runStatusLabel(run.status)} · r{run.revision}</em></div><div className="runtime-control-strip"><div className="runtime-state"><Bot /><span><strong>{runtimeExecution ? statusLabel(runtimeExecution.status) : "尚未自动运行"}</strong><small>{runtimeExecution ? `完成 ${runtimeCounts.completed || 0} · 等待 ${(runtimeCounts.waiting || 0) + (runtimeCounts.pending || 0) + (runtimeCounts.retry_wait || 0)} · 失败 ${(runtimeCounts.failed || 0) + (runtimeCounts.blocked || 0)}` : "人工节点仍可单独领取与提交"}</small></span></div><div className="runtime-buttons">{!runtimeExecution || ["completed", "failed", "cancelled"].includes(runtimeExecution.status) ? <button className="primary-button" disabled={busy} onClick={() => void runtimeActions.start()}><Play />自动运行</button> : null}{runtimeExecution?.status === "running" ? <><button disabled={busy} onClick={() => void runtimeActions.tick()}><RefreshCw />推进</button><button disabled={busy} onClick={() => void runtimeActions.pause()}><Pause />暂停</button></> : null}{runtimeExecution?.status === "paused" ? <button className="primary-button" disabled={busy} onClick={() => void runtimeActions.resume()}><Play />恢复</button> : null}{runtimeExecution && ["queued", "running", "paused"].includes(runtimeExecution.status) ? <button disabled={busy} onClick={() => void runtimeActions.cancel()}><Square />取消</button> : null}</div></div><details className="runtime-trigger-panel"><summary><span><RefreshCw />触发规则</span><small>{runtimeTriggers.length} 条</small></summary><div className="runtime-trigger-list">{runtimeTriggers.map((trigger) => <article key={trigger.id}><span><strong>{trigger.triggerType === "event" ? trigger.eventType : trigger.cronExpression ? `${trigger.cronExpression} · ${trigger.timezone}` : `每 ${trigger.intervalSeconds} 秒`}</strong><small>{trigger.triggerType === "schedule" && trigger.nextFireAt ? `下次 ${displayTime(trigger.nextFireAt)}` : trigger.triggerType === "event" ? "收到同名事件时创建新运行" : "已暂停"}</small></span><button disabled={busy} onClick={() => void runtimeActions.setTriggerEnabled(trigger, !trigger.enabled)}>{trigger.enabled ? "停用" : "启用"}</button></article>)}</div><div className="runtime-trigger-form"><select value={triggerType} onChange={(event) => setTriggerType(event.target.value as "event" | "schedule")}><option value="event">事件触发</option><option value="schedule">定时触发</option></select>{triggerType === "event" ? <input value={eventType} onChange={(event) => setEventType(event.target.value)} placeholder="事件名，如 research.ready" /> : <><select value={scheduleMode} onChange={(event) => setScheduleMode(event.target.value as "interval" | "cron")}><option value="cron">Cron</option><option value="interval">固定间隔</option></select>{scheduleMode === "cron" ? <><input value={cronExpression} onChange={(event) => setCronExpression(event.target.value)} placeholder="0 9 * * 1-5" /><input value={scheduleTimezone} onChange={(event) => setScheduleTimezone(event.target.value)} placeholder="Asia/Shanghai" /></> : <label><span>间隔秒数</span><input type="number" min={1} value={intervalSeconds} onChange={(event) => setIntervalSeconds(Number(event.target.value))} /></label>}</>}<button className="primary-button" disabled={busy || (triggerType === "event" ? !eventType.trim() : scheduleMode === "cron" ? !cronExpression.trim() || !scheduleTimezone.trim() : intervalSeconds < 1)} onClick={() => void runtimeActions.createTrigger(triggerType === "event" ? { triggerType, eventType: eventType.trim() } : scheduleMode === "cron" ? { triggerType, cronExpression: cronExpression.trim(), timezone: scheduleTimezone.trim() } : { triggerType, intervalSeconds })}><Plus />添加规则</button></div></details><WorkflowMatrixBoard lanes={run.lanes} stages={run.stages} nodes={run.nodes} edges={run.edges} principals={overview.principals} selectedNodeId={selectedNode?.id} activeStageId={activeStageId} onStageChange={setActiveStageId} onSelectNode={onSelectNode} /></> : <EmptyState>选择一个运行，查看节点与责任。</EmptyState>}
       </article>
-      {run && selectedNode ? <NodeDetail overview={overview} snapshot={snapshot} node={selectedNode} busy={busy} onClaim={() => actions.claim(selectedNode)} onRelease={() => actions.release(selectedNode)} onSubmit={() => actions.submit(selectedNode)} onReview={(decision) => actions.review(selectedNode, decision)} onData={(slot, value) => actions.data(selectedNode, slot, value)} onArtifact={(input) => actions.artifact(selectedNode, input)} onAssign={(accountable, reviewer) => actions.assign(selectedNode, accountable, reviewer)} /> : null}
+      {run && selectedNode ? <NodeDetail overview={overview} snapshot={snapshot} node={selectedNode} runtimeJob={runtimeJob} busy={busy} onClaim={() => actions.claim(selectedNode)} onRelease={() => actions.release(selectedNode)} onSubmit={() => actions.submit(selectedNode)} onReview={(decision) => actions.review(selectedNode, decision)} onData={(slot, value) => actions.data(selectedNode, slot, value)} onArtifact={(input) => actions.artifact(selectedNode, input)} onAssign={(accountable, reviewer) => actions.assign(selectedNode, accountable, reviewer)} onRetryRuntime={() => runtimeJob ? runtimeActions.retry(runtimeJob) : Promise.resolve()} /> : null}
     </section>
   </div>;
 }
@@ -646,7 +667,7 @@ function DelegationsView({ overview, busy, onCreate, onRevoke }: { overview: Wor
 }
 
 function ArtifactsView({ overview, artifacts }: { overview: WorkflowOverview; artifacts: WorkflowArtifact[] }) {
-  return <section className="panel"><header className="panel-heading"><div><span>ARTIFACT LINEAGE</span><h2>组织交付物</h2></div><small>{artifacts.length} 个当前版本</small></header>
+  return <section className="panel"><header className="collection-toolbar"><span><Archive />当前有效版本</span><small>{artifacts.length} 个</small></header>
     <div className="artifact-grid">{artifacts.length ? artifacts.map((artifact) => {
       const run = overview.runs.find((item) => item.id === artifact.runId);
       const node = run?.nodes.find((item) => item.id === artifact.nodeId);
@@ -656,7 +677,7 @@ function ArtifactsView({ overview, artifacts }: { overview: WorkflowOverview; ar
 }
 
 function AuditView({ overview }: { overview: WorkflowOverview }) {
-  return <section className="panel"><header className="panel-heading"><div><span>EVENT LEDGER</span><h2>完整审计</h2></div><small>{overview.recentEvents.length} 条最近记录</small></header>
+  return <section className="panel"><header className="collection-toolbar"><span><History />最近事件</span><small>{overview.recentEvents.length} 条</small></header>
     <div className="audit-table"><div className="audit-row head"><span>时间</span><span>事件</span><span>实际执行者</span><span>责任人</span><span>授权来源</span><span>详情</span></div>{overview.recentEvents.map((event) => <div className="audit-row" key={event.sequence}><span>{displayTime(event.createdAt)}</span><strong>{event.type}</strong><span>{principalName(overview.principals, event.actorPrincipalId)}</span><span>{principalName(overview.principals, event.accountablePrincipalId)}</span><span>{event.delegationGrantId || "直接权限"}</span><code>{JSON.stringify(event.payload)}</code></div>)}</div>
   </section>;
 }
@@ -665,8 +686,8 @@ function SettingsView({ overview, busy, onCreate }: { overview: WorkflowOverview
   const [kind, setKind] = useState<"human" | "server_agent">("server_agent");
   const [name, setName] = useState("研究执行 Agent");
   const [endpoint, setEndpoint] = useState("");
-  const [capabilities, setCapabilities] = useState("research, writing");
-  return <div className="settings-layout"><section className="panel principal-form"><header className="panel-heading"><div><span>PRINCIPAL REGISTRY</span><h2>登记成员或 Agent</h2></div><UsersRound /></header><label>主体类型<select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="server_agent">服务器 Agent</option><option value="human">组织成员</option></select></label><label>显示名称<input value={name} onChange={(event) => setName(event.target.value)} /></label>{kind === "server_agent" ? <label>服务器端点<input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="http://127.0.0.1:8788" /></label> : null}<label>能力标签<input value={capabilities} onChange={(event) => setCapabilities(event.target.value)} /></label><button className="primary-button" disabled={busy || !name.trim()} onClick={() => void onCreate({ kind, name, role: "member", endpoint: endpoint || undefined, capabilities: capabilities.split(",").map((item) => item.trim()).filter(Boolean) })}><Plus />登记主体</button></section>
+  const [capabilities, setCapabilities] = useState("research, writing, workflow.execute");
+  return <div className="settings-layout"><section className="panel principal-form"><header className="panel-heading"><div><span>PRINCIPAL REGISTRY</span><h2>登记成员或 Agent</h2></div><UsersRound /></header><label>主体类型<select value={kind} onChange={(event) => { const nextKind = event.target.value as typeof kind; setKind(nextKind); if (nextKind === "server_agent" && !capabilities.includes("workflow.execute")) setCapabilities([capabilities, "workflow.execute"].filter(Boolean).join(", ")); }}><option value="server_agent">服务器 Agent</option><option value="human">组织成员</option></select></label><label>显示名称<input value={name} onChange={(event) => setName(event.target.value)} /></label>{kind === "server_agent" ? <label>远端 Desk API<input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="http://127.0.0.1:8911" /><small>不是模型或 Hermes 地址；远端 Desk 会继续按统一 Agent 设置路由。</small></label> : null}<label>能力标签<input value={capabilities} onChange={(event) => setCapabilities(event.target.value)} /></label><button className="primary-button" disabled={busy || !name.trim()} onClick={() => void onCreate({ kind, name, role: "member", endpoint: endpoint || undefined, capabilities: capabilities.split(",").map((item) => item.trim()).filter(Boolean) })}><Plus />登记主体</button></section>
     <section className="panel"><header className="panel-heading"><div><span>ORGANIZATION</span><h2>{overview.organization.name}</h2></div><small>{overview.principals.length} 个主体</small></header><div className="principal-list">{overview.principals.map((principal) => <article key={principal.id}><div className={principal.kind === "server_agent" ? "agent-avatar" : "human-avatar"}>{principal.kind === "server_agent" ? <Bot /> : <UsersRound />}</div><div><strong>{principal.name}</strong><span>{principal.id}</span></div><em>{principal.role}</em><div className="capability-tags">{principal.capabilities.map((item) => <span key={item}>{item}</span>)}</div><small>{principal.endpoint || principal.externalRef || "本地身份"}</small></article>)}</div></section></div>;
 }
 
@@ -674,13 +695,16 @@ type EmbeddedHost = Extract<ModHostConnection, { embedded: true }>;
 
 export function WorkflowCenterApp() {
   const workspace = workspaceFromSearch();
-  const modId = MOD_IDS[workspace];
+  const modId = modIdFromSearch(workspace);
+  const embeddedInDesk = window.self !== window.top;
   const [identity, setIdentity] = useState<Identity | undefined>(() => window.self === window.top ? { userId: "local-user", workspaceId: "local-workspace" } : undefined);
   const [actingPrincipalId, setActingPrincipalId] = useState("");
   const [overview, setOverview] = useState<WorkflowOverview>();
   const [selectedRunId, setSelectedRunId] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [snapshot, setSnapshot] = useState<WorkflowRunSnapshot>();
+  const [runtimeExecution, setRuntimeExecution] = useState<WorkflowRuntimeExecution>();
+  const [runtimeTriggers, setRuntimeTriggers] = useState<WorkflowRuntimeTrigger[]>([]);
   const [artifacts, setArtifacts] = useState<WorkflowArtifact[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -691,9 +715,13 @@ export function WorkflowCenterApp() {
   const actionRef = useRef<(actionId: string, input: Record<string, unknown>) => Promise<unknown>>(async () => ({}));
 
   const loadRun = useCallback(async (runId = selectedRunId) => {
-    if (!client || !runId) { setSnapshot(undefined); return undefined; }
-    const next = await client.run(runId);
+    if (!client || !runId) { setSnapshot(undefined); setRuntimeExecution(undefined); setRuntimeTriggers([]); return undefined; }
+    const [next, runtimeList, triggerList] = await Promise.all([client.run(runId), client.runtimeExecutions(runId), client.runtimeTriggers(runId)]);
+    const latestRuntime = runtimeList.executions[0];
+    const nextRuntime = latestRuntime ? await client.runtimeExecution(latestRuntime.id) : undefined;
     setSnapshot(next);
+    setRuntimeExecution(nextRuntime);
+    setRuntimeTriggers(triggerList.triggers);
     setSelectedNodeId((current) => next.run.nodes.some((node) => node.id === current) ? current : next.run.nodes.find((node) => !["completed", "pending"].includes(node.status))?.id || next.run.nodes[0]?.id || "");
     return next;
   }, [client, selectedRunId]);
@@ -733,6 +761,14 @@ export function WorkflowCenterApp() {
     finally { setBusy(false); }
   }, [loadRun, refresh, selectedRunId]);
 
+  useEffect(() => {
+    if (!client || workspace !== "runs" || !runtimeExecution || !["queued", "running"].includes(runtimeExecution.status) || !selectedRunId) return;
+    const timer = window.setTimeout(() => {
+      void loadRun(selectedRunId).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "运行状态刷新失败"));
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [client, loadRun, runtimeExecution, selectedRunId, workspace]);
+
   const selectedNode = snapshot?.run.nodes.find((node) => node.id === selectedNodeId);
   const operations = {
     claim: async (node: WorkflowNodeRun) => { if (client && snapshot) await runMutation(() => client.claimNode(snapshot.run.id, node.id, snapshot.run.revision)); },
@@ -742,6 +778,16 @@ export function WorkflowCenterApp() {
     data: async (node: WorkflowNodeRun, slot: string, value: unknown) => { if (client && snapshot) await runMutation(() => client.saveNodeData(snapshot.run.id, node.id, snapshot.run.revision, slot, value)); },
     artifact: async (node: WorkflowNodeRun, input: { artifactKey: string; label: string; kind: string; content?: unknown; inputArtifactIds?: string[] }) => { if (client && snapshot) await runMutation(() => client.saveArtifact(snapshot.run.id, node.id, { ...input, expectedRevision: snapshot.run.revision })); },
     assign: async (node: WorkflowNodeRun, accountable: string, reviewer?: string | null) => { if (client && snapshot) await runMutation(() => client.assignNode(snapshot.run.id, node.id, { expectedRevision: snapshot.run.revision, accountablePrincipalId: accountable, reviewerPrincipalId: reviewer })); },
+  };
+  const runtimeOperations = {
+    start: async () => { if (client && selectedRunId) await runMutation(() => client.startRuntime(selectedRunId), selectedRunId); },
+    tick: async () => { if (client && runtimeExecution) await runMutation(() => client.tickRuntime(runtimeExecution.id), selectedRunId); },
+    pause: async () => { if (client && runtimeExecution) await runMutation(() => client.pauseRuntime(runtimeExecution.id, "manual_pause"), selectedRunId); },
+    resume: async () => { if (client && runtimeExecution) await runMutation(() => client.resumeRuntime(runtimeExecution.id, "manual_resume"), selectedRunId); },
+    cancel: async () => { if (client && runtimeExecution) await runMutation(() => client.cancelRuntime(runtimeExecution.id, "manual_cancel"), selectedRunId); },
+    retry: async (job: WorkflowRuntimeJob) => { if (client && runtimeExecution) await runMutation(() => client.retryRuntimeJob(runtimeExecution.id, job.id), selectedRunId); },
+    createTrigger: async (input: { triggerType: "event" | "schedule"; eventType?: string; intervalSeconds?: number; cronExpression?: string; timezone?: string }) => { if (client && selectedRunId) await runMutation(() => client.createRuntimeTrigger(selectedRunId, input), selectedRunId); },
+    setTriggerEnabled: async (trigger: WorkflowRuntimeTrigger, enabled: boolean) => { if (client) await runMutation(() => client.setRuntimeTriggerEnabled(trigger.id, enabled), selectedRunId); },
   };
 
   const dispatch = useCallback(async (actionId: string, input: Record<string, unknown>) => {
@@ -765,12 +811,13 @@ export function WorkflowCenterApp() {
 
   const meta = WORKSPACE_META[workspace];
   if (!identity || loading || !overview) return <main className="workflow-root loading-screen"><RefreshCw className="spin" /><strong>正在载入组织工作流…</strong>{error ? <p>{error}</p> : null}</main>;
-  return <main className="workflow-root">
-    <header className="workflow-header"><div><span>WORKFLOW CONTROL</span><h1>{meta.title}</h1><p>{meta.description}</p></div><div className="header-controls"><label>当前执行身份<select value={actingPrincipalId || overview.currentPrincipal.id} onChange={(event) => setActingPrincipalId(event.target.value)}>{overview.principals.map((principal) => <option value={principal.id} key={principal.id}>{principal.kind === "server_agent" ? "Agent · " : "成员 · "}{principal.name}</option>)}</select></label><button className="icon-button" disabled={busy} onClick={() => void refresh()} title="刷新"><RefreshCw className={busy ? "spin" : ""} /></button></div></header>
+  const headerControls = <div className="header-controls"><label>当前执行身份<select value={actingPrincipalId || overview.currentPrincipal.id} onChange={(event) => setActingPrincipalId(event.target.value)}>{overview.principals.map((principal) => <option value={principal.id} key={principal.id}>{principal.kind === "server_agent" ? "Agent · " : "成员 · "}{principal.name}</option>)}</select></label><button className="icon-button" disabled={busy} onClick={() => void refresh()} title="刷新"><RefreshCw className={busy ? "spin" : ""} /></button></div>;
+  return <main className={`workflow-root workspace-${workspace} ${embeddedInDesk ? "is-embedded" : "is-standalone"}`}>
+    {workspace !== "overview" ? embeddedInDesk ? <div className="workflow-command-bar">{headerControls}</div> : <header className="workflow-header"><div><span>WORKFLOW CONTROL</span><h1>{meta.title}</h1><p>{meta.description}</p></div>{headerControls}</header> : null}
     {error ? <div className="error-banner">{error}<button onClick={() => setError("")}><X /></button></div> : null}
-    {workspace === "overview" ? <OverviewView overview={overview} /> : null}
+    {workspace === "overview" ? <OverviewView overview={overview} busy={busy} actingPrincipalId={actingPrincipalId || overview.currentPrincipal.id} onActingPrincipalChange={setActingPrincipalId} onRefresh={() => void refresh()} /> : null}
     {workspace === "designer" ? <DesignerView overview={overview} busy={busy} onCreate={(input) => runMutation(() => client!.createTemplate(input)).then(() => undefined)} onVersion={(id, input) => runMutation(() => client!.createTemplateVersion(id, input)).then(() => undefined)} onLoadVersions={async (id) => (await client!.templateVersions(id)).versions} onRestore={(id, sourceVersion, expectedVersion, note) => runMutation(() => client!.restoreTemplateVersion(id, sourceVersion, expectedVersion, note)).then(() => undefined)} /> : null}
-    {workspace === "runs" ? <RunsView overview={overview} snapshot={snapshot} selectedRunId={selectedRunId} selectedNodeId={selectedNodeId} busy={busy} onSelectRun={(id) => { setSelectedRunId(id); void loadRun(id); }} onSelectNode={setSelectedNodeId} onCreateRun={async (input) => { const created = await runMutation(() => client!.createRun(input), ""); setSelectedRunId(created.id); await loadRun(created.id); }} actions={operations} /> : null}
+    {workspace === "runs" ? <RunsView overview={overview} snapshot={snapshot} runtimeExecution={runtimeExecution} runtimeTriggers={runtimeTriggers} selectedRunId={selectedRunId} selectedNodeId={selectedNodeId} busy={busy} onSelectRun={(id) => { setSelectedRunId(id); void loadRun(id); }} onSelectNode={setSelectedNodeId} onCreateRun={async (input) => { const created = await runMutation(() => client!.createRun(input), ""); setSelectedRunId(created.id); await loadRun(created.id); }} actions={operations} runtimeActions={runtimeOperations} /> : null}
     {workspace === "delegations" ? <DelegationsView overview={overview} busy={busy} onCreate={(input) => runMutation(() => client!.createGrant(input)).then(() => undefined)} onRevoke={(id) => runMutation(() => client!.revokeGrant(id)).then(() => undefined)} /> : null}
     {workspace === "artifacts" ? <ArtifactsView overview={overview} artifacts={artifacts} /> : null}
     {workspace === "audit" ? <AuditView overview={overview} /> : null}

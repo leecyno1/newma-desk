@@ -632,7 +632,7 @@ class IntegrationCapabilitiesHandler(AnalysisApiHandler):
                     "known_bias": "fixed current ETF universe has survivorship bias",
                 },
                 "supply_chain_research": {
-                    "input": "point-in-time evidence packet from Newma-Desk Agent/Data",
+                    "input": "point-in-time evidence packet from Newma Agent Runtime and Desk Data",
                     "project_side_fetching": False,
                     "maximum_layers": 20,
                     "maximum_candidates": 100,
@@ -640,7 +640,7 @@ class IntegrationCapabilitiesHandler(AnalysisApiHandler):
                     "score_semantics": "research_priority_not_trade_signal",
                 },
                 "industry_chain_research": {
-                    "input": "point-in-time topology and evidence packet from Newma-Desk Agent/Data",
+                    "input": "point-in-time topology and evidence packet from Newma Agent Runtime and Desk Data",
                     "project_side_fetching": False,
                     "maximum_nodes": 60,
                     "maximum_links": 120,

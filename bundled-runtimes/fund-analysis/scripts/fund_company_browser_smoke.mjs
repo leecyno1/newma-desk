@@ -14,7 +14,7 @@ const detailPage = readFileSync('app/(dashboard)/companies/[company]/page.tsx', 
 for (const required of ['规模样本', '业绩样本', '专业分类', '可评价同类组', '公司不按跨类别收益排名']) {
   if (!browserPage.includes(required)) throw new Error(`fund company browser missing disclosure: ${required}`)
 }
-for (const required of ['公司本身不输出综合评分', '按份额代码计数', '专业类别覆盖', '同类组多周期业绩证据', '区间回报', '小样本，仅作证据线索', '各类别代表基金', '代表经理及其产品', '浏览同类基金']) {
+for (const required of ['公司详情不做总评分', '按份额代码计数', '专业类别覆盖', '同类组多周期业绩证据', '区间回报', '小样本，仅作证据线索', '各类别代表基金', '代表经理及其产品', '浏览同类基金']) {
   if (!detailPage.includes(required)) throw new Error(`fund company detail missing research boundary: ${required}`)
 }
 if (detailPage.includes('公司样本表现') || detailPage.includes('比较前')) {

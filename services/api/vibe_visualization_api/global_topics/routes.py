@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from vibe_visualization_api.config import Settings, get_settings
@@ -21,9 +21,10 @@ def _require_topic(topic_id: str) -> None:
 
 
 @router.get("/{topic_id}")
-def get_topic(topic_id: str, settings: Settings = Depends(get_settings)) -> dict:
+async def get_topic(topic_id: str, request: Request) -> dict:
     _require_topic(topic_id)
-    return topic_snapshot(topic_id, settings.database_path)
+    evidence = await request.app.state.global_topic_sources.snapshot(topic_id)
+    return topic_snapshot(topic_id, evidence)
 
 
 @router.post("/{topic_id}/forecast")

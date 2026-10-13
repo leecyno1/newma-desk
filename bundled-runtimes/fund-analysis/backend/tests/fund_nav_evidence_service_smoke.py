@@ -72,6 +72,19 @@ def _money_nav_series():
 
 def main() -> int:
     evidence_service = FundNavEvidenceService()
+    aligned, count = evidence_service.attach_benchmark_nav([
+        {'date': '2026-07-01', 'nav': 1, 'benchmark_nav': 999, 'benchmark_source': 'old', 'benchmark_code': 'OLD'},
+        {'date': '2026-07-02', 'nav': 1, 'benchmark_nav': 999, 'benchmark_source': 'old', 'benchmark_code': 'OLD'},
+        {'date': '2026-07-03', 'nav': 1, 'benchmark_nav': 999, 'benchmark_source': 'old', 'benchmark_code': 'OLD'},
+    ], [
+        {'date': '2026-07-01', 'nav': 100, 'source': 'tushare.index_daily', 'benchmark_code': '000300.SH'},
+        {'date': '2026-07-02', 'nav': 200, 'source': 'tushare.index_daily', 'benchmark_code': '000905.SH'},
+    ], benchmark_code='000300.SH')
+    assert count == 1
+    assert aligned[0]['benchmark_nav'] == 100
+    assert aligned[0]['benchmark_source'] == 'tushare.index_daily'
+    assert aligned[0]['benchmark_code'] == '000300.SH'
+    assert all(row[key] is None for row in aligned[1:] for key in ('benchmark_nav', 'benchmark_code', 'benchmark_source'))
     money_facts = evidence_service.derive_money_market_facts(_money_nav_series(), fund_type="货币型")
     if money_facts.get("seven_day_annualized_yield") is None:
         raise AssertionError(f"Money-market NAV must derive a seven-day annualized yield: {money_facts}")

@@ -123,6 +123,8 @@ def _us_quote_sina(ticker: str) -> dict:
     if len(fields) < 30:
         return {}
     return {
+        "quote_time": fields[3],
+        "quote_timezone": "Asia/Shanghai",
         "name": fields[0],
         "price": _number(fields[1]),
         "change_pct": _number(fields[2]),
@@ -146,6 +148,8 @@ def _us_quote_tencent(ticker: str) -> dict:
         return {}
     market_cap_yi = _number(fields[44])
     return {
+        "quote_time": fields[30],
+        "quote_timezone": "America/New_York",
         "name": fields[1],
         "price": _number(fields[3]),
         "change_pct": _number(fields[32]),
@@ -169,6 +173,8 @@ def _hk_quote_tencent(code: str) -> dict:
         return {}
     market_cap_yi = _number(fields[44])
     return {
+        "quote_time": fields[30],
+        "quote_timezone": "Asia/Hong_Kong",
         "name": fields[1],
         "price": _number(fields[3]),
         "change_pct": _number(fields[32]),
@@ -197,6 +203,8 @@ def _hk_quote_sina(code: str) -> dict:
     if len(fields) < 15:
         return {}
     return {
+        "quote_time": f"{fields[17]} {fields[18]}" if len(fields) > 18 else None,
+        "quote_timezone": "Asia/Hong_Kong",
         "name": fields[1],
         "price": _number(fields[6]),
         "change_pct": _number(fields[8]),

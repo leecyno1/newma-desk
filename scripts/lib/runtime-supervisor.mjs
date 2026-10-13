@@ -236,6 +236,8 @@ export class RuntimeSupervisor {
     cancelSchedule = (timer) => clearTimeout(timer),
     endpointOccupied = defaultEndpointOccupied,
     now = () => Date.now(),
+    onProcessStarted = () => {},
+    onProcessStopped = () => {},
   } = {}) {
     this.coreTimeoutMs = coreTimeoutMs;
     this.optionalTimeoutMs = optionalTimeoutMs;
@@ -255,6 +257,8 @@ export class RuntimeSupervisor {
     this.cancelSchedule = cancelSchedule;
     this.endpointOccupied = endpointOccupied;
     this.now = now;
+    this.onProcessStarted = onProcessStarted;
+    this.onProcessStopped = onProcessStopped;
     this.records = new Map();
     this.ownedChildren = new Set();
     this.shuttingDown = false;
@@ -303,7 +307,12 @@ export class RuntimeSupervisor {
     record.startError = null;
     this.ownedChildren.add(child);
     this.watchChild(record, child);
+    this.onProcessStarted({ service, child });
     return child;
+  }
+
+  async prepareService(service) {
+    if (typeof service.prepare === "function") await service.prepare();
   }
 
   watchChild(record, child) {
@@ -318,6 +327,11 @@ export class RuntimeSupervisor {
     });
     child.once("exit", (code, signal) => {
       this.ownedChildren.delete(child);
+      try {
+        this.onProcessStopped({ service: record.service, child });
+      } catch (error) {
+        this.logger.error(`运行时所有权账本更新失败：${asError(error).message}`);
+      }
       if (record.child !== child) return;
       record.child = null;
       record.ownedChild = false;
@@ -372,21 +386,29 @@ export class RuntimeSupervisor {
     }
 
     if (await this.endpointOccupied(service)) {
-      return this.handleStartupFailure(
-        service,
-        new Error(
-          `${service.label} 当前不可用，但 ${service.url} 对应端口仍被占用；已拒绝启动重复实例。`,
-        ),
+      const failure = new Error(
+        `${service.label} 当前不可用，但 ${service.url} 对应端口仍被占用；已拒绝启动重复实例。`,
       );
+      if (service.criticality !== SERVICE_CRITICALITY.CORE) {
+        const record = this.createRecord(service, {
+          launch: "failed",
+          state: SERVICE_STATE.UNAVAILABLE,
+        });
+        record.phase = "failed";
+        record.nextRestartAt = this.now() + this.optionalRestartCooldownMs;
+        this.scheduleMonitor(record);
+      }
+      return this.handleStartupFailure(service, failure);
     }
 
-    this.logger.log(`启动 ${service.label} -> ${service.url}`);
     const record = this.createRecord(service, {
       launch: "started",
       state: SERVICE_STATE.UNAVAILABLE,
     });
     let child;
     try {
+      await this.prepareService(service);
+      this.logger.log(`启动 ${service.label} -> ${service.url}`);
       child = this.spawnForRecord(record);
       const result = await this.waitUntilSettled(service, record, child);
       record.phase = "running";
@@ -567,6 +589,7 @@ export class RuntimeSupervisor {
       }
 
       if (this.shuttingDown) return lastProbeResult;
+      await this.prepareService(record.service);
       this.logger.log(`重启 ${record.service.label} -> ${record.service.url}`);
       const child = this.spawnForRecord(record);
       const result = await this.waitUntilSettled(record.service, record, child);
@@ -606,7 +629,7 @@ export class RuntimeSupervisor {
     }
   }
 
-  async stopAll({ graceMs = 400 } = {}) {
+  prepareShutdown() {
     this.shuttingDown = true;
     for (const record of this.records.values()) {
       record.phase = "stopping";
@@ -615,6 +638,15 @@ export class RuntimeSupervisor {
         record.monitorTimer = null;
       }
     }
+  }
+
+  stopAllSync() {
+    this.prepareShutdown();
+    for (const child of this.ownedChildren) terminateChild(child, this.platform);
+  }
+
+  async stopAll({ graceMs = 400 } = {}) {
+    this.prepareShutdown();
     for (const child of this.ownedChildren) terminateChild(child, this.platform);
     if (graceMs > 0 && this.ownedChildren.size > 0) await this.sleep(graceMs);
     for (const child of this.ownedChildren) {

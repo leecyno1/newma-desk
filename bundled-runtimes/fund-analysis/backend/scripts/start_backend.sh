@@ -14,7 +14,6 @@ required = [
     "uvicorn",
     "sqlalchemy",
     "psycopg2",
-    "pymongo",
     "tushare",
 ]
 for module in required:
@@ -52,7 +51,7 @@ done
 if [[ -z "$selected_python" ]]; then
   cat >&2 <<'EOF'
 No Python interpreter with the required backend imports was found.
-Required imports: fastapi, uvicorn, sqlalchemy, psycopg2, pymongo, tushare
+Required imports: fastapi, uvicorn, sqlalchemy, psycopg2, tushare
 
 Set BACKEND_PYTHON=/path/to/python or install backend/requirements.txt into your active Python.
 EOF

@@ -35,7 +35,7 @@ export async function chatStream(
   const config = await waitForVibeDeskConfig();
   if (!config) {
     throw new ApiError(
-      "Desk Agent 尚未就绪，请从 Newma-Desk 打开本模块并检查统一 Agent 设置",
+      "Agent Runtime 尚未就绪，请从 Newma 或独立 Desk 打开本模块",
       503,
     );
   }

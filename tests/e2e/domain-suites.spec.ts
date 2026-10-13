@@ -1,4 +1,9 @@
-import { expect, test, type Locator } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+} from "@playwright/test";
 
 const shellOrigin = process.env.VIBE_E2E_DOMAIN_SUITES_ORIGIN;
 const apiOrigin = process.env.VIBE_E2E_DOMAIN_SUITES_API_ORIGIN;
@@ -17,6 +22,26 @@ async function expectFrameRoute(frameElement: Locator, route: string) {
   for (const [name, value] of expected.searchParams) {
     expect(actual.searchParams.get(name)).toBe(value);
   }
+}
+
+async function readSavedModContext(
+  request: APIRequestContext,
+  input: { modId: string; userId: string; workspaceId: string },
+): Promise<Record<string, unknown> | null> {
+  if (!apiOrigin) throw new Error("Domain suite API origin is required");
+  const response = await request.get(
+    `${apiOrigin}/api/mods/${encodeURIComponent(input.modId)}/context`,
+    {
+      headers: {
+        "X-User-Id": input.userId,
+        "X-Workspace-Id": input.workspaceId,
+      },
+    },
+  );
+  if (response.status() === 404) return null;
+  expect(response.status()).toBe(200);
+  const payload = await response.json() as { context: Record<string, unknown> };
+  return payload.context;
 }
 
 const embeddedMods = [
@@ -78,7 +103,7 @@ const embeddedMods = [
     id: "quant-overview",
     name: "量化总览",
     route: "/mod-runtime/trading/",
-    content: /AI 驱动的量化策略研究|AI-Powered Quant Strategy Research/i,
+    content: /开始研究|Start Research/i,
   },
   {
     id: "alpha-lab",
@@ -186,15 +211,52 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     const feed = await feedResponse.json() as {
       data: {
         schemaVersion: string;
-        items: Array<{ type: string; title: string }>;
-        sources: Array<{ id: string; label: string; status: string; count: number }>;
+        items: Array<{
+          type: string;
+          title: string;
+          source: { id: string; label: string };
+          freshness: { status: string };
+        }>;
+        sources: Array<{
+          id: string;
+          label: string;
+          status: string;
+          count: number;
+          asOf: string;
+        }>;
         gaps: Array<{ capability: string; reason: string }>;
       };
     };
     expect(feed.data.schemaVersion).toBe("newma-desk.catalyst-calendar.v1");
-    expect(feed.data.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "earnings" }),
-    ]));
+    expect(feed.data.items.length).toBeGreaterThan(0);
+    for (const item of feed.data.items) {
+      expect([
+        "earnings",
+        "corporate",
+        "industry",
+        "macro",
+        "regulatory",
+        "lockup",
+        "announcement",
+        "news",
+        "research",
+        "custom",
+      ]).toContain(item.type);
+      expect(item.title.trim()).not.toBe("");
+      expect(item.source.id.trim()).not.toBe("");
+      expect(item.source.label.trim()).not.toBe("");
+      expect(["live", "fresh", "stale", "unknown"]).toContain(
+        item.freshness.status,
+      );
+    }
+    expect(feed.data.sources.length).toBeGreaterThan(0);
+    for (const source of feed.data.sources) {
+      expect(["ok", "partial", "empty", "unavailable", "unsupported"]).toContain(
+        source.status,
+      );
+      expect(source.count).toBeGreaterThanOrEqual(0);
+      expect(source.asOf.trim()).not.toBe("");
+    }
     const macroEvent = feed.data.items.find((item) => item.type === "macro");
     const cycleSource = feed.data.sources.find((source) => source.id === "seven-cycle");
     expect(cycleSource).toBeDefined();
@@ -237,9 +299,8 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     await expectFrameRoute(frameElement, "/mod-runtime/research/catalyst-calendar");
     const frame = page.frameLocator('iframe[title="催化剂日历"]');
     await expect(frame.getByRole("combobox", { name: /研究分组/ })).toBeVisible();
-    await expect(frame.getByText(/半年报披露/).first()).toBeVisible({ timeout: 30_000 });
     if (macroEvent) {
-      await expect(frame.getByText(macroEvent.title).first()).toBeVisible();
+      await expect(frame.getByText(macroEvent.title).first()).toBeVisible({ timeout: 30_000 });
     } else {
       await expect(frame.getByText(
         `${cycleSource.label} · ${cycleSource.status} · ${cycleSource.count}`,
@@ -374,10 +435,9 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     await expect(frame.getByText(/尚未回链研究机会池/)).toBeVisible();
   });
 
-  test("migrates research records to Desk storage and exposes the active record to Agent", async ({ page, request }) => {
+  test("migrates research records to Desk storage and publishes the active record Context", async ({ page, request }) => {
     const workspaceId = `e2e-research-records-${Date.now()}`;
     const storageWrites: Array<{ status: number; records: Array<{ id: string }> }> = [];
-    let agentPayload: Record<string, unknown> | undefined;
 
     page.on("response", async (response) => {
       if (
@@ -392,34 +452,6 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
           records: body.value?.records ?? [],
         });
       }
-    });
-    await page.route("**/api/agent/tasks**", async (route) => {
-      const requestUrl = new URL(route.request().url());
-      if (route.request().method() === "POST" && requestUrl.pathname === "/api/agent/tasks") {
-        agentPayload = route.request().postDataJSON() as Record<string, unknown>;
-        await route.fulfill({
-          status: 202,
-          contentType: "application/json",
-          body: JSON.stringify({ id: "research-records-e2e-task", status: "queued" }),
-        });
-        return;
-      }
-      if (
-        route.request().method() === "GET" &&
-        requestUrl.pathname === "/api/agent/tasks/research-records-e2e-task"
-      ) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            id: "research-records-e2e-task",
-            status: "completed",
-            result: { answer: "RESEARCH_RECORD_CONTEXT_OK" },
-          }),
-        });
-        return;
-      }
-      await route.continue();
     });
     await page.addInitScript(({ workspace }) => {
       localStorage.setItem("vibedesk.userId.v1", "e2e-research-records-user");
@@ -501,37 +533,26 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     await expect(frame.getByRole("link", { name: "公开来源" })).toHaveAttribute("href", "https://example.com/source");
     await expect(frame.getByText("evidence-id: 1")).toBeVisible();
 
-    await page.getByRole("button", { name: "问当前 Mod" }).click();
-    const drawer = page.getByRole("complementary", { name: "研究记录 Agent" });
-    await drawer.getByPlaceholder("就当前页面提问…").fill("总结当前展开的研究记录");
-    await drawer.getByRole("button", { name: "发送" }).click();
-    await expect(drawer).toContainText("RESEARCH_RECORD_CONTEXT_OK");
-    expect(agentPayload).toMatchObject({
-      moduleId: "research-notes",
-      context: {
-        vibedesk: {
-          source: "mod-bridge",
-          page: {
-            selection: {
-              recordId: "note:e2e-research-text",
-              title: "E2E 轻量渲染",
-            },
-            data: {
-              source: "newma-desk.research-records.v1",
-              summary: {
-                recordCount: 2,
-                activeRecord: {
-                  id: "note:e2e-research-text",
-                  content: expect.stringContaining("ResearchText 标题"),
-                },
-              },
-            },
+    await expect.poll(() => readSavedModContext(request, {
+      modId: "research-notes",
+      userId: "e2e-research-records-user",
+      workspaceId,
+    })).toMatchObject({
+      selection: {
+        recordId: "note:e2e-research-text",
+        title: "E2E 轻量渲染",
+      },
+      data: {
+        source: "newma-desk.research-records.v1",
+        summary: {
+          recordCount: 2,
+          activeRecord: {
+            id: "note:e2e-research-text",
+            content: expect.stringContaining("ResearchText 标题"),
           },
         },
       },
     });
-
-    await drawer.getByRole("button", { name: "关闭 Agent 侧栏" }).click();
     await frame.getByRole("button", { name: "删除" }).first().click();
     await expect(frame.getByRole("button", { name: /E2E 轻量渲染/ })).toHaveCount(0);
     await expect.poll(() => storageWrites.some((write) =>
@@ -566,7 +587,6 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
   test("builds a reference-only research archive across Mod storage documents", async ({ page, request }) => {
     const userId = "e2e-research-archive-user";
     const workspaceId = `e2e-research-archive-${Date.now()}`;
-    let agentPayload: Record<string, unknown> | undefined;
 
     const putStorage = async (
       moduleId: string,
@@ -630,34 +650,6 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     expect(archiveText).not.toContain("这段正文不应出现在统一索引响应");
     expect(archiveText).not.toContain("这段逻辑正文不应出现在统一索引响应");
 
-    await page.route("**/api/agent/tasks**", async (route) => {
-      const requestUrl = new URL(route.request().url());
-      if (route.request().method() === "POST" && requestUrl.pathname === "/api/agent/tasks") {
-        agentPayload = route.request().postDataJSON() as Record<string, unknown>;
-        await route.fulfill({
-          status: 202,
-          contentType: "application/json",
-          body: JSON.stringify({ id: "research-archive-e2e-task", status: "queued" }),
-        });
-        return;
-      }
-      if (
-        route.request().method() === "GET" &&
-        requestUrl.pathname === "/api/agent/tasks/research-archive-e2e-task"
-      ) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            id: "research-archive-e2e-task",
-            status: "completed",
-            result: { answer: "RESEARCH_ARCHIVE_CONTEXT_OK" },
-          }),
-        });
-        return;
-      }
-      await route.continue();
-    });
     await page.addInitScript(({ user, workspace }) => {
       localStorage.setItem("vibedesk.userId.v1", user);
       localStorage.setItem("vibedesk.workspaceId.v1", workspace);
@@ -677,70 +669,32 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     );
 
     await frame.getByText("E2E 光模块产品迭代逻辑").click();
-    await page.getByRole("button", { name: "问当前 Mod" }).click();
-    const drawer = page.getByRole("complementary", { name: "研究档案 Agent" });
-    await drawer.getByPlaceholder("就当前页面提问…").fill("检查当前研究档案覆盖与缺口");
-    await drawer.getByRole("button", { name: "发送" }).click();
-    await expect(drawer).toContainText("RESEARCH_ARCHIVE_CONTEXT_OK");
-    expect(agentPayload).toMatchObject({
-      moduleId: "research-library",
-      context: {
-        vibedesk: {
-          source: "mod-bridge",
-          page: {
-            selection: {
-              kind: "thesis",
-              sourceModId: "thesis-tracker",
-              artifactId: "thesis:e2e-archive",
-              title: "E2E 光模块产品迭代逻辑",
-            },
-            data: {
-              source: "newma-desk.research-archive.v1",
-              summary: {
-                selectedReference: {
-                  id: "archive:thesis-tracker:thesis:e2e-archive",
-                  sourceRevision: 1,
-                },
-              },
-            },
+    await expect.poll(() => readSavedModContext(request, {
+      modId: "research-library",
+      userId,
+      workspaceId,
+    })).toMatchObject({
+      selection: {
+        kind: "thesis",
+        sourceModId: "thesis-tracker",
+        artifactId: "thesis:e2e-archive",
+        title: "E2E 光模块产品迭代逻辑",
+      },
+      data: {
+        source: "newma-desk.research-archive.v1",
+        summary: {
+          selectedReference: {
+            id: "archive:thesis-tracker:thesis:e2e-archive",
+            sourceRevision: 1,
           },
         },
       },
     });
   });
 
-  test("generates strategic allocation from cycle data and exposes it to Desk Agent", async ({ page }) => {
+  test("generates strategic allocation from cycle data and publishes its Context", async ({ page, request }) => {
     const userId = "e2e-allocation-user";
     const workspaceId = `e2e-allocation-${Date.now()}`;
-    let agentPayload: Record<string, unknown> | undefined;
-    await page.route("**/api/agent/tasks**", async (route) => {
-      const requestUrl = new URL(route.request().url());
-      if (route.request().method() === "POST" && requestUrl.pathname === "/api/agent/tasks") {
-        agentPayload = route.request().postDataJSON() as Record<string, unknown>;
-        await route.fulfill({
-          status: 202,
-          contentType: "application/json",
-          body: JSON.stringify({ id: "allocation-e2e-task", status: "queued" }),
-        });
-        return;
-      }
-      if (
-        route.request().method() === "GET" &&
-        requestUrl.pathname === "/api/agent/tasks/allocation-e2e-task"
-      ) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            id: "allocation-e2e-task",
-            status: "completed",
-            result: { answer: "ALLOCATION_CONTEXT_OK" },
-          }),
-        });
-        return;
-      }
-      await route.continue();
-    });
     await page.addInitScript(({ user, workspace }) => {
       localStorage.setItem("vibedesk.userId.v1", user);
       localStorage.setItem("vibedesk.workspaceId.v1", workspace);
@@ -758,33 +712,22 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     await expect(frame.getByText("周期数据").first()).toBeVisible();
     await expect(frame.getByText("Black-Litterman").first()).toBeVisible();
 
-    await page.getByRole("button", { name: "问当前 Mod" }).click();
-    const drawer = page.getByRole("complementary", { name: /配置总览 Agent/ });
-    await expect(drawer).toBeVisible();
-    await drawer.getByPlaceholder("就当前页面提问…").fill("解释当前目标资产配置");
-    await drawer.getByRole("button", { name: "发送" }).click();
-    await expect(drawer).toContainText("ALLOCATION_CONTEXT_OK");
-    expect(agentPayload).toMatchObject({
-      moduleId: "portfolio-brief",
-      capability: "module.explain",
-      context: {
-        vibedesk: {
-          source: "mod-bridge",
-          page: {
-            data: {
-              source: "newma-seven-cycle + strategic-allocation",
-              summary: {
-                model: "black-litterman",
-                assets: expect.arrayContaining([
-                  expect.objectContaining({
-                    targetWeightPct: expect.any(Number),
-                    expectedReturnPct: expect.any(Number),
-                    volatilityPct: expect.any(Number),
-                  }),
-                ]),
-              },
-            },
-          },
+    await expect.poll(() => readSavedModContext(request, {
+      modId: "portfolio-brief",
+      userId,
+      workspaceId,
+    })).toMatchObject({
+      data: {
+        source: "newma-seven-cycle + strategic-allocation",
+        summary: {
+          model: "black-litterman",
+          assets: expect.arrayContaining([
+            expect.objectContaining({
+              targetWeightPct: expect.any(Number),
+              expectedReturnPct: expect.any(Number),
+              volatilityPct: expect.any(Number),
+            }),
+          ]),
         },
       },
     });
@@ -881,7 +824,7 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     await frame.getByLabel("稀释股数（百万股）").fill("1120");
     await frame.getByLabel("总债务").fill("3000");
     await frame.getByLabel("现金及等价物").fill("6000");
-    await frame.getByRole("button", { name: "保存" }).click();
+    await frame.getByRole("button", { name: "保存", exact: true }).click();
     await expect(frame.getByText("已保存到 Desk 工作区")).toBeVisible();
     await expect(frame.getByText("E2E 光模块五年驱动式 DCF")).toBeVisible();
     await expect.poll(() => storageWrites.includes(200)).toBe(true);
@@ -921,7 +864,7 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     await expect.poll(() => storageWrites.includes(200)).toBe(true);
   });
 
-  test("shares watchlist groups, securities, events, and Agent context across the workspace", async ({
+  test("shares watchlist groups, securities, events, and Context across the workspace", async ({
     page,
     request,
   }) => {
@@ -929,7 +872,6 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     const userId = "e2e-watchlist-user";
     const workspaceId = `e2e-watchlist-workspace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const groupName = `E2E 半导体组合 ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    let agentPayload: Record<string, unknown> | undefined;
 
     const quoteNames: Record<string, string> = {
       "600519": "贵州茅台",
@@ -970,37 +912,6 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
       localStorage.setItem("vibedesk.userId.v1", user);
       localStorage.setItem("vibedesk.workspaceId.v1", workspace);
     }, { user: userId, workspace: workspaceId });
-    await page.route("**/api/agent/tasks**", async (route) => {
-      const requestUrl = new URL(route.request().url());
-      if (
-        route.request().method() === "POST" &&
-        requestUrl.pathname === "/api/agent/tasks"
-      ) {
-        agentPayload = route.request().postDataJSON() as Record<string, unknown>;
-        await route.fulfill({
-          status: 202,
-          contentType: "application/json",
-          body: JSON.stringify({ id: "watchlist-e2e-task", status: "queued" }),
-        });
-        return;
-      }
-      if (
-        route.request().method() === "GET" &&
-        requestUrl.pathname === "/api/agent/tasks/watchlist-e2e-task"
-      ) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            id: "watchlist-e2e-task",
-            status: "completed",
-            result: { answer: "WATCHLIST_CONTEXT_OK" },
-          }),
-        });
-        return;
-      }
-      await route.continue();
-    });
 
     await page.goto(`${shellOrigin}/?mod=watchlist`, {
       waitUntil: "domcontentloaded",
@@ -1050,28 +961,19 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
       "security.selected · 600519",
     );
 
-    await page.getByRole("button", { name: "问当前 Mod" }).click();
-    const drawer = page.getByRole("complementary", { name: "自选股 Agent" });
-    await drawer.getByPlaceholder("就当前页面提问…").fill("概括当前自选组合");
-    await drawer.getByRole("button", { name: "发送" }).click();
-    await expect(drawer).toContainText("WATCHLIST_CONTEXT_OK");
-    expect(agentPayload).toMatchObject({
-      moduleId: "watchlist",
-      context: {
-        vibedesk: {
-          source: "mod-bridge",
-          page: {
-            selection: {
-              symbol: "600519",
-              groupName,
-            },
-            data: {
-              source: "vibedesk-watchlist-service",
-              summary: {
-                activeGroupSecurityCount: 2,
-              },
-            },
-          },
+    await expect.poll(() => readSavedModContext(request, {
+      modId: "watchlist",
+      userId,
+      workspaceId,
+    })).toMatchObject({
+      selection: {
+        symbol: "600519",
+        groupName,
+      },
+      data: {
+        source: "vibedesk-watchlist-service",
+        summary: {
+          activeGroupSecurityCount: 2,
         },
       },
     });
@@ -1095,7 +997,7 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
     await expect(portfolioFrame.getByRole("heading", { name: "目标资产配置" })).toBeVisible();
   });
 
-  test("uses the shared Desk Agent drawer with live Research and Trading page context", async ({
+  test("publishes live Research and Trading Context through the Newma host protocol", async ({
     page,
   }) => {
     const consoleErrors: string[] = [];
@@ -1113,57 +1015,102 @@ test.describe("Newma-Desk integrated Research and Trading runtimes", () => {
       {
         id: "industry-map",
         name: "产业图谱",
-        marker: "RESEARCH_SIDE_PANEL_OK",
-        contextSource: "vibe-research-rendered-page",
+        contextSource: "vibe-research-industry-map",
       },
       {
         id: "alpha-lab",
         name: "因子实验室",
-        marker: "TRADING_SIDE_PANEL_OK",
         contextSource: "vibe-trading-rendered-page",
       },
     ] as const;
 
     for (const scenario of scenarios) {
-      await page.goto(`${shellOrigin}/?mod=${scenario.id}`, {
-        waitUntil: "domcontentloaded",
-      });
-      await expect(page).toHaveTitle(/Newma-Desk/);
-      await expect(page.locator(`iframe[title="${scenario.name}"]`)).toBeVisible();
-      await page.getByRole("button", { name: "问当前 Mod" }).click();
-      const drawer = page.getByRole("complementary", {
-        name: `${scenario.name} Agent`,
-      });
-      await expect(drawer).toBeVisible();
-      await expect(drawer).toContainText("Codex CLI");
+      const requestId = `context-${scenario.id}`;
+      const embeddedUrl = new URL(shellOrigin!);
+      embeddedUrl.searchParams.set("mod", scenario.id);
+      embeddedUrl.searchParams.set("host", "newma");
+      embeddedUrl.searchParams.set("project", "e2e-project");
+      embeddedUrl.searchParams.set("workspace", "e2e-workspace");
+      embeddedUrl.searchParams.set("parentOrigin", "file://");
+      await page.setContent(`
+        <script>
+          window.__newmaMessages = [];
+          window.addEventListener("message", (event) => {
+            window.__newmaMessages.push(event.data);
+          });
+        </script>
+        <iframe id="newma-host-frame" src="${embeddedUrl.toString()}" style="width:1200px;height:800px"></iframe>
+      `);
+      const embeddedShell = page.frameLocator("#newma-host-frame");
+      await expect(
+        embeddedShell.locator(`iframe[title="${scenario.name}"]`),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect.poll(() => page.evaluate(({ modId, source }) => {
+        const messages = (window as typeof window & {
+          __newmaMessages?: Array<Record<string, unknown>>;
+        }).__newmaMessages ?? [];
+        return messages.some((message) => message.modId === modId
+          && (message.context as { data?: { source?: string } } | undefined)?.data?.source === source);
+      }, { modId: scenario.id, source: scenario.contextSource })).toBe(true);
 
-      const prompt = `只回复 ${scenario.marker}`;
-      await drawer.getByPlaceholder("就当前页面提问…").fill(prompt);
-      const createResponsePromise = page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          new URL(response.url()).pathname === "/api/agent/tasks",
-        { timeout: 20_000 },
-      );
-      await drawer.getByRole("button", { name: "发送" }).click();
-      const createResponse = await createResponsePromise;
-      expect(createResponse.status()).toBe(202);
-      const body = createResponse.request().postDataJSON();
-      expect(body).toMatchObject({
-        moduleId: scenario.id,
-        capability: "module.explain",
+      await page.evaluate(({ id, modId }) => {
+        const frame = document.querySelector<HTMLIFrameElement>("#newma-host-frame");
+        frame?.contentWindow?.postMessage({
+          type: "newma:mod-context-request",
+          protocol: "newma:mod-host:v1",
+          requestId: id,
+          projectId: "e2e-project",
+          modId,
+          workspaceId: "e2e-workspace",
+          reason: "agent",
+        }, "*");
+      }, { id: requestId, modId: scenario.id });
+
+      await expect.poll(() => page.evaluate(({ id }) => {
+        const messages = (window as typeof window & {
+          __newmaMessages?: Array<Record<string, unknown>>;
+        }).__newmaMessages ?? [];
+        return messages.find((message) => message.requestId === id) ?? null;
+      }, { id: requestId }), {
+        timeout: 30_000,
+      }).toMatchObject({
+        type: "newma:mod-context",
+        protocol: "newma:mod-host:v1",
+        requestId,
+        projectId: "e2e-project",
+        modId: scenario.id,
+        workspaceId: "e2e-workspace",
         context: {
-          vibedesk: {
-            mode: "ask",
-            source: "mod-bridge",
-            page: { data: { source: scenario.contextSource } },
-          },
+          data: { source: scenario.contextSource },
         },
       });
-      await expect(drawer).toContainText(scenario.marker, { timeout: 90_000 });
     }
 
     expect(consoleErrors).toEqual([]);
+  });
+
+  test("answers an early Newma context request after the Mod becomes available", async ({ page }) => {
+    await page.setContent(`
+      <script>
+        window.__newmaMessages = [];
+        window.addEventListener("message", (event) => window.__newmaMessages.push(event.data));
+      </script>
+      <iframe id="newma-host-frame" src="${shellOrigin}/?mod=industry-map&host=newma&project=e2e-project&workspace=e2e-workspace&parentOrigin=file%3A%2F%2F" style="width:1200px;height:800px"></iframe>
+    `);
+    await expect(page.frameLocator("#newma-host-frame").locator('iframe[title="产业图谱"]')).toBeVisible();
+    await page.evaluate(() => document.querySelector<HTMLIFrameElement>("#newma-host-frame")?.contentWindow?.postMessage({
+      type: "newma:mod-context-request", protocol: "newma:mod-host:v1", requestId: "early-industry-map",
+      projectId: "e2e-project", modId: "industry-map", workspaceId: "e2e-workspace", reason: "agent",
+    }, "*"));
+    await expect.poll(() => page.evaluate(() => {
+      const messages = (window as typeof window & {
+        __newmaMessages?: Array<Record<string, unknown>>;
+      }).__newmaMessages ?? [];
+      return messages.find((message) => message.requestId === "early-industry-map") ?? null;
+    })).toMatchObject({
+      type: "newma:mod-context", protocol: "newma:mod-host:v1", requestId: "early-industry-map",
+      modId: "industry-map", context: { data: { source: expect.any(String) } },
+    });
   });
 
   test("opens company archive and company events with current terminology", async ({ page }) => {

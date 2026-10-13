@@ -81,6 +81,35 @@ def fund_research_snapshot(payload: FundSymbolRequest):
     ))
 
 
+@router.post("/fund-risk-evidence")
+def fund_risk_evidence(payload: FundSymbolRequest):
+    """只投影本地已有证据，不触发同步、回归计算或 AI。"""
+    from repositories import get_fund_repo
+    from services.fund_bond_duration_service import FundBondDurationService
+
+    repo = get_fund_repo()
+    symbol = payload.symbol.strip().upper()
+    candidates = [symbol] + ([f"{symbol}.{suffix}" for suffix in ("OF", "SH", "SZ")] if len(symbol) == 6 and symbol.isdigit() else [])
+    matches = {str(f["wind_code"]): f for code in candidates if (f := repo.get_fund_by_identifier(code))}
+    if not matches:
+        return {"status": "not_found", "symbol": payload.symbol}
+    if len(matches) > 1:
+        return {"status": "ambiguous", "symbol": payload.symbol}
+    fund = next(iter(matches.values()))
+    code = str(fund["wind_code"])
+    duration = FundBondDurationService().get(code)
+    return _clean_nan({
+        "status": "available", "symbol": code,
+        "name": fund.get("fund_name") or fund.get("name"),
+        "source": "fund-analysis.local",
+        "duration": {key: duration.get(key) for key in (
+            "status", "as_of_date", "estimated_duration", "r_squared",
+            "observations", "methodology_version", "source", "source_url",
+            "limitations", "missing_items",
+        )},
+    })
+
+
 @router.post("/fund-compare")
 def fund_compare(payload: FundCompareRequest):
     from services.peer_comparison_service import PeerComparisonService

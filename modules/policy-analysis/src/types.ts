@@ -14,8 +14,7 @@ export interface PolicyComparison {
 }
 
 export interface PolicyInterpretation {
-  policyId: string; title: string; sourceUrl: string; mode: "ai" | "rule-fallback";
-  model?: string; adapter?: string;
+  policyId: string; title: string; sourceUrl: string; mode: "rule";
   impactAnalysis: { facts: string[]; inferences: string[]; uncertainties: string[] };
   historicalComparison: {
     matchedPolicies: Array<{ id: string; title: string; date: string }>;

@@ -34,8 +34,8 @@ def main() -> int:
         print(f"Expected unique nav dates, got duplicates in: {dates}")
         return 1
 
-    if dates != sorted(dates, reverse=True):
-        print(f"Expected nav dates to stay in descending order, got: {dates[:5]} ... {dates[-5:]}")
+    if dates != sorted(dates):
+        print(f"Expected nav dates to stay in ascending order, got: {dates[:5]} ... {dates[-5:]}")
         return 1
 
     print(f"OK {status} {URL} points={len(dates)} unique_dates={len(set(dates))}")

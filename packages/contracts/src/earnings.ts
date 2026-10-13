@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const earningsResearchModeSchema = z.enum(["preview", "reported"]);
+export const earningsBasisSchema = z.enum(['ytd', 'quarter', 'annual', 'ttm']);
 export const earningsVerificationStatusSchema = z.enum([
   "verified",
   "partial",
@@ -18,8 +19,56 @@ const sourceReferenceSchema = z.object({
   label: z.string().min(1),
   kind: z.enum(["filing", "company", "consensus", "research", "news", "derived", "user"]),
   url: z.string().url().optional(),
-  asOf: z.string().min(1),
+  asOf: z.string().min(1).optional(),
+  periodEnd: z.string().date().optional(),
+  retrievedAt: z.string().datetime().optional(),
+  basis: earningsBasisSchema.optional(),
   status: z.enum(["verified", "available", "stale", "unavailable"]),
+  capitalNote: z.object({
+    reportId: z.string().min(1), title: z.string().min(1).max(240), text: z.string().min(1).max(6000),
+    topics: z.array(z.string().min(1)).max(5),
+    pdfPage: z.number().int().positive(), pdfPageCount: z.number().int().positive(),
+    readPages: z.array(z.number().int().positive()).max(200),
+    truncated: z.boolean(), confirmedAt: z.string().datetime(), contentOrigin: z.literal('pdf-text'),
+  }).strict().refine(value => value.pdfPage <= value.pdfPageCount && value.readPages.includes(value.pdfPage),
+    '资本附注须保留已读取的 PDF 物理页').optional(),
+  discussion: z.object({
+    reportId: z.string().min(1), text: z.string().min(1).max(6000),
+    topics: z.array(z.string().min(1)).max(5),
+    pdfPage: z.number().int().positive(), pdfPageCount: z.number().int().positive(),
+    readPages: z.array(z.number().int().positive()).max(30),
+    truncated: z.boolean(), confirmedAt: z.string().datetime(), contentOrigin: z.literal('pdf-text'),
+  }).strict().refine(value => value.pdfPage <= value.pdfPageCount && value.readPages.includes(value.pdfPage),
+    '经营讨论须保留已读取的 PDF 物理页').optional(),
+  importedReport: z.object({
+    reportId: z.string().min(1), rawValue: z.string().min(1), rawUnit: z.string().min(1),
+    columnHeader: z.string().min(1), confirmedAt: z.string().datetime(),
+  }).strict().optional(),
+  correction: z.object({
+    before: z.number().nullable(), after: z.number(), reason: z.string().min(1).max(2000),
+    adoptedAt: z.string().datetime(), evidenceSourceId: z.string().min(1),
+    previousSourceIds: z.array(z.string()).max(20),
+    amountInput: z.object({
+      value: z.string().min(1).max(100),
+      unit: z.enum(['元', '万元', '亿元']),
+      currency: z.literal('CNY'),
+    }).strict().optional(),
+  }).strict().optional(),
+  excerpt: z.object({
+    text: z.string().min(1).max(2000),
+    segment: z.number().int().min(1).max(1000).optional(),
+    pdfPage: z.number().int().min(1).max(1000).optional(),
+    pdfPageCount: z.number().int().min(1).optional(),
+    pdfUrl: z.string().url().optional(),
+    metricId: z.string().min(1),
+    reportedValue: z.number().nullable(),
+    unit: z.string().min(1),
+    contentOrigin: z.enum(['provider-transcription', 'pdf-text']),
+    association: z.literal('user-linked'),
+  }).strict().refine(value => value.contentOrigin === 'provider-transcription'
+    ? value.segment !== undefined && value.pdfPage === undefined
+    : value.pdfPage !== undefined && value.pdfPageCount !== undefined && value.pdfPage <= value.pdfPageCount && value.pdfUrl !== undefined && value.segment === undefined,
+  '摘录须保留转录分段或 PDF 物理页定位').optional(),
 }).strict();
 
 const comparisonMetricSchema = z.object({
@@ -37,6 +86,12 @@ const comparisonMetricSchema = z.object({
   }).strict(),
   sourceIds: z.array(z.string()).max(20),
   asOf: z.string().min(1).optional(),
+  periodEnd: z.string().date().optional(),
+  reportedCurrency: z.string().min(1).optional(),
+  reportedOrigin: z.enum(['provider', 'manual']).optional(),
+  reportedBasis: earningsBasisSchema.optional(),
+  consensusBasis: earningsBasisSchema.optional(),
+  consensusPeriodEnd: z.string().date().optional(),
   note: z.string().optional(),
 }).strict();
 
@@ -94,6 +149,7 @@ export const earningsResearchWorkbookSchema = z.object({
   mode: earningsResearchModeSchema,
   fiscalPeriod: z.object({
     label: z.string().min(1),
+    basis: earningsBasisSchema.optional(),
     periodEnd: z.string().date().optional(),
     reportingDate: z.string().date().optional(),
     reportingTime: z.enum(["before-open", "after-close", "during-session", "unknown"]),

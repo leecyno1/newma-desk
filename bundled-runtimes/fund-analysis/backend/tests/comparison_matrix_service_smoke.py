@@ -3,14 +3,29 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from database import init_database
+from database import get_engine, init_database
 from services.peer_comparison_service import PeerComparisonService
+
+
+def pick_metric_rich_funds(count: int = 2) -> list:
+    # 冒烟依赖真实指标数据：动态选取 1y 指标快照最多的基金，避免硬编码基金随数据集变化失效。
+    from sqlalchemy import text
+
+    with get_engine().connect() as conn:
+        rows = conn.execute(text(
+            "SELECT target_id FROM metric_snapshots WHERE metric_window = '1y'"
+            " GROUP BY target_id ORDER BY COUNT(*) DESC LIMIT :count"
+        ), {"count": count}).fetchall()
+    if len(rows) < count:
+        raise AssertionError(f"metric_snapshots lacks {count} funds with 1y metrics")
+    return [str(row[0]) for row in rows]
 
 
 def main() -> int:
     init_database()
 
-    matrix = PeerComparisonService().build_comparison_matrix(["000002.OF", "000007.OF"], window="1y")
+    codes = pick_metric_rich_funds()
+    matrix = PeerComparisonService().build_comparison_matrix(codes, window="1y")
     rows = {row.get("metric_name"): row for row in matrix.get("matrix_rows", [])}
 
     if len(matrix.get("funds", [])) != 2:

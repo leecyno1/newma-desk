@@ -11,15 +11,6 @@ import type {
   MarketplacePreset,
 } from "./types";
 
-export interface DeskAgentPreferences {
-  userId: string;
-  defaultAdapter: string;
-  moduleOverrides: Record<string, string>;
-  profileTargets: Record<string, string>;
-  moduleProfileOverrides: Record<string, Record<string, string>>;
-  updatedAt: string | null;
-}
-
 function headers(identity?: Identity, json = false) {
   return {
     ...(json ? { "Content-Type": "application/json" } : {}),
@@ -45,18 +36,6 @@ export function creatorClient(identity: Identity) {
   return {
     registry: async () => payload<CreatorRegistry>(await fetch("/api/creator-studio/registry")),
     system: async () => payload<Record<string, unknown>>(await fetch("/api/creator-studio/system")),
-    agentPreferences: async () => payload<DeskAgentPreferences>(await fetch(
-      "/api/agent/preferences",
-      { headers: headers(identity) },
-    )),
-    saveAgentPreferences: async (preferences: Omit<DeskAgentPreferences, "userId" | "updatedAt">) => payload<DeskAgentPreferences>(await fetch(
-      "/api/agent/preferences",
-      {
-        method: "PUT",
-        headers: headers(identity, true),
-        body: JSON.stringify(preferences),
-      },
-    )),
     runs: async () => payload<{ runs: CreatorRunSummary[] }>(await fetch(
       "/api/creator-studio/runs",
       { headers: headers(identity) },
@@ -81,31 +60,14 @@ export function creatorClient(identity: Identity) {
       nodeId?: string;
       input?: Record<string, unknown>;
       expectedRevision?: number;
-    }) => {
-      // Auto-inject user's selected agent from localStorage into command input
-      const selectedAgent = typeof window !== "undefined"
-        ? (localStorage.getItem("newma.creator-studio.selected-agent") || "").trim()
-        : "";
-      const agentBin = typeof window !== "undefined"
-        ? (localStorage.getItem("newma.creator-studio.agent-bin-override") || "").trim()
-        : "";
-      const enrichedInput = {
-        ...input,
-        input: {
-          ...(input.input || {}),
-          ...(selectedAgent ? { agent_cli: selectedAgent } : {}),
-          ...(agentBin ? { agent_cli_bin: agentBin } : {}),
-        },
-      };
-      return payload<CreatorSnapshot>(await fetch(
+    }) => payload<CreatorSnapshot>(await fetch(
         `/api/creator-studio/runs/${encodeURIComponent(runId)}/commands`,
         {
           method: "POST",
           headers: headers(identity, true),
-          body: JSON.stringify(enrichedInput),
+          body: JSON.stringify(input),
         },
-      ));
-    },
+      )),
     events: async (runId: string, after: number) => payload<{
       events: Array<Record<string, unknown>>;
       lastSequence: number;
@@ -165,18 +127,6 @@ export function creatorClient(identity: Identity) {
       "/api/creator-studio/capabilities/detect",
       { method: "POST" },
     )),
-    testAgent: async (agentId: string, binOverride?: string) => payload<{
-      status: string;
-      agent_id: string;
-      stdout?: string;
-      stderr?: string;
-      exit_code?: number;
-      duration_ms?: number;
-    }>(await fetch("/api/creator-studio/capabilities/test", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId, binOverride: binOverride || "" }),
-    })),
     previewArtifact: async (path: string) => payload<{
       path: string;
       exists: boolean;

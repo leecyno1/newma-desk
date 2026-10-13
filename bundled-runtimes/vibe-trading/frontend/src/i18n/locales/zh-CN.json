@@ -137,7 +137,7 @@
     "fullReport": "完整报告",
     "compare": "对比",
     "ledgerTitle": "策略实验账本",
-    "ledgerSubtitle": "每次原生纸面回测都会整理为轻量、可版本追踪的实验记录，统一保留数据区间、收益、风险、成本假设与证据质量，便于横向比较和 Desk Agent 分析。",
+    "ledgerSubtitle": "每次原生纸面回测都会整理为轻量、可版本追踪的实验记录，统一保留数据区间、收益、风险、成本假设与证据质量，便于横向比较和 Newma Agent 分析。",
     "ledgerExperiments": "实验数",
     "ledgerCompleted": "已完成",
     "ledgerComparable": "可比较",

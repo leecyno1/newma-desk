@@ -147,7 +147,7 @@ if (window.location.protocol === 'file:') {
         <summary>高级模式：分析宿主提供的结构化事件包</summary>
         <div class="event-advanced-body">
             <textarea id="event-packet" class="event-packet" aria-label="结构化事件包"></textarea>
-            <div class="event-advanced-copy">保留原有 <code>instock-event-flow-packet-v1</code> 合同，便于 Desk Agent 直接提交已核验的点时证据。<button id="event-packet-run" class="event-run" type="button">分析事件包</button></div>
+            <div class="event-advanced-copy">保留原有 <code>instock-event-flow-packet-v1</code> 合同，便于 Newma Agent 提交已核验的点时证据。<button id="event-packet-run" class="event-run" type="button">分析事件包</button></div>
         </div>
     </details>
     <p class="event-footnote">生产数据只通过 Newma-Desk 托管的 Research HTTP Interface 与 <code>market.announcements</code>、<code>market.reports</code>、<code>market.news</code> capability 读取；本项目不连接旧 MySQL，不恢复原抓取任务。</p>
@@ -174,7 +174,7 @@ if (window.location.protocol === 'file:') {
     const params = new URLSearchParams(window.location.search);
     symbolInput.value = (params.get('symbol') || params.get('code') || '300502').toUpperCase();
     dateInput.value = params.get('asOf') || '';
-    packetInput.value = JSON.stringify({schema_version: 'instock-event-flow-packet-v1', as_of: new Date().toISOString().slice(0, 10), market: 'CN', events: [{id: 'desk-event-1', type: 'announcement', symbol: symbolInput.value.split('.')[0], occurred_at: new Date().toISOString().slice(0, 10), title: '由 Desk Agent 替换为已核验事件', direction: 'neutral', magnitude_score: 50, evidence_strength: 'medium', source_ref: 'desk://agent/event-1'}]}, null, 2);
+    packetInput.value = JSON.stringify({schema_version: 'instock-event-flow-packet-v1', as_of: new Date().toISOString().slice(0, 10), market: 'CN', events: [{id: 'newma-event-1', type: 'announcement', symbol: symbolInput.value.split('.')[0], occurred_at: new Date().toISOString().slice(0, 10), title: '由 Newma Agent 替换为已核验事件', direction: 'neutral', magnitude_score: 50, evidence_strength: 'medium', source_ref: 'newma://agent/event-1'}]}, null, 2);
 
     function setText(id, value) { document.getElementById(id).textContent = value == null || value === '' ? '--' : String(value); }
     function unwrap(payload) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-event-flow') throw new Error('事件资金返回格式不受支持'); return data; }

@@ -1,7 +1,7 @@
 """
 预警中心 API
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -23,7 +23,7 @@ class CreateAlertRuleRequest(BaseModel):
 
 
 class UpdateAlertEventRequest(BaseModel):
-    status: str
+    status: Literal["open", "acknowledged", "resolved"]
 
 
 class UpdateAlertRuleRequest(BaseModel):

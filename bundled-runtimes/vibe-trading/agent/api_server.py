@@ -200,7 +200,7 @@ from src.api.runs_routes import (  # noqa: F401, E402
 )
 
 if not _INTEGRATED_DESK_RUNTIME:
-    # Desk Agent owns conversations, goals and long-running tasks.
+    # Newma Agent Runtime owns conversations, goals and long-running tasks.
     from src.api.sessions_routes import register_sessions_routes  # noqa: E402
 
     register_sessions_routes(app)

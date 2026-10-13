@@ -8,8 +8,10 @@ configuration.  Optional keyed sources degrade to public read-only fallbacks.
 from __future__ import annotations
 
 import calendar
+import csv
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
+from io import StringIO
 import json
 import math
 import os
@@ -18,6 +20,7 @@ import threading
 import time
 from typing import Any, Callable
 from urllib.parse import urlencode
+import urllib.request as http_request
 from urllib.request import Request, urlopen
 
 import astock
@@ -112,7 +115,7 @@ _INDICATORS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "cn-gdp-yoy",
-        "name": "中国 GDP 同比",
+        "name": "中国 GDP 单季同比",
         "region": "CN",
         "category": "growth",
         "unit": "%",
@@ -216,9 +219,9 @@ _INDICATORS: tuple[dict[str, Any], ...] = (
         "unit": "%",
         "function": "macro_usa_unemployment_rate",
         "maxAgeDays": 50,
-        "source": "eastmoney-us-macro",
-        "sourceLabel": "东方财富美国宏观数据",
-        "sourceUrl": "https://data.eastmoney.com/cjsj/foreign_0_12.html",
+        "source": "jin10-macro",
+        "sourceLabel": "金十美国失业率数据聚合",
+        "sourceUrl": "https://datacenter.jin10.com/reportType/dc_usa_unemployment_rate",
     },
 )
 
@@ -259,6 +262,18 @@ _TUSHARE_CALENDAR_SERIES: tuple[dict[str, Any], ...] = (
 
 _TUSHARE_SOURCE_URL = "https://tushare.pro/document/2"
 
+# These monthly fields match the existing metrics (not YTD or forecast values).
+# GDP is deliberately absent: RPT_ECONOMY_GDP.SUM_SAME is cumulative growth,
+# whereas the legacy Jin10 series is single-quarter growth.
+_EASTMONEY_SERIES = {
+    "cn-pmi": ("RPT_ECONOMY_PMI", "MAKE_INDEX", "pmi"),
+    "cn-cpi-yoy": ("RPT_ECONOMY_CPI", "NATIONAL_SAME", "cpi"),
+    "cn-ppi-yoy": ("RPT_ECONOMY_PPI", "BASE_SAME", "ppi"),
+    "cn-m2-yoy": ("RPT_ECONOMY_CURRENCY_SUPPLY", "BASIC_CURRENCY_SAME", "hbgyl"),
+    "cn-industrial-production-yoy": ("RPT_ECONOMY_INDUS_GROW", "BASE_SAME", "gyzjz"),
+    "cn-exports-yoy": ("RPT_ECONOMY_CUSTOMS", "EXIT_BASE_SAME", "hgjck"),
+}
+
 
 def _records(frame: Any) -> list[dict[str, Any]]:
     if frame is None or getattr(frame, "empty", True):
@@ -295,27 +310,31 @@ def _tushare_period(value: Any, frequency: str) -> tuple[str, date] | None:
     return f"{year:04d}-{month:02d}", date(year, month, calendar.monthrange(year, month)[1])
 
 
-def _normalize_tushare_series(
+def _normalize_period_series(
     indicator_config: dict[str, Any],
     series_config: dict[str, str],
     rows: list[dict[str, Any]],
     today: date,
+    *,
+    source: dict[str, Any],
 ) -> dict[str, Any] | None:
     normalized: list[dict[str, Any]] = []
     for row in rows:
-        period = _tushare_period(row.get(series_config["periodKey"]), series_config["frequency"])
-        value = _number(row.get(series_config["valueKey"]))
-        if period is None or value is None:
+        fields = {key.lower(): value for key, value in row.items()}
+        period = _tushare_period(fields.get(series_config["periodKey"].lower()), series_config["frequency"])
+        value = _number(fields.get(series_config["valueKey"].lower()))
+        if period is None or value is None or period[1] > today:
             continue
-        update_date = _date(row.get(series_config.get("updateKey", ""))) if series_config.get("updateKey") else None
-        normalized.append({"period": period[0], "periodDate": period[1], "referenceDate": update_date or period[1], "releaseDate": update_date, "value": value})
+        update_date = _date(fields.get(series_config["updateKey"].lower())) if series_config.get("updateKey") else None
+        normalized.append({"period": period[0], "periodDate": period[1], "releaseDate": update_date, "value": value})
     if not normalized:
         return None
     normalized.sort(key=lambda item: item["periodDate"])
     latest = normalized[-1]
     previous = normalized[-2]["value"] if len(normalized) > 1 else None
     change = latest["value"] - previous if previous is not None else None
-    freshness = _freshness(latest["referenceDate"], today, int(indicator_config["maxAgeDays"]))
+    # A recent database update must not make an old statistical period fresh.
+    freshness = _freshness(latest["periodDate"], today, int(indicator_config["maxAgeDays"]))
     return {
         "id": indicator_config["id"],
         "name": indicator_config["name"],
@@ -330,19 +349,205 @@ def _normalize_tushare_series(
         "previous": previous,
         "change": change,
         "direction": "higher" if change is not None and change > 0 else ("lower" if change is not None and change < 0 else "flat"),
-        "source": {"id": f"tushare-{series_config['api']}", "label": "Tushare Pro 宏观序列", "url": _TUSHARE_SOURCE_URL},
-        "evidenceId": f"macro:{indicator_config['id']}:tushare:{latest['period']}",
+        "source": source,
+        "evidenceId": f"macro:{indicator_config['id']}:{source['id'].split('-')[0]}:{latest['period']}",
         "asOf": latest["releaseDate"].isoformat() if latest["releaseDate"] else latest["period"],
         "freshness": freshness,
-        "confidence": _confidence(freshness),
+        "confidence": {
+            **_confidence(freshness),
+            "rationale": "新鲜度按统计期判断；数据库更新不等于统计发布日期，关键结论仍需官方发布复核。",
+        },
         "history": [{"period": item["period"], "value": item["value"]} for item in normalized[-12:]],
     }
+
+
+def _normalize_tushare_series(indicator_config, series_config, rows, today):
+    # cn_gdp.gdp_yoy is cumulative growth, unlike Jin10's single-quarter rate.
+    # Keep the distinction visible and derive changes within the same series.
+    if indicator_config["id"] == "cn-gdp-yoy":
+        indicator_config = {**indicator_config, "name": "中国 GDP 累计同比"}
+    return _normalize_period_series(indicator_config, series_config, rows, today, source={
+        "id": f"tushare-{series_config['api']}", "label": "Tushare Pro 宏观序列", "url": _TUSHARE_SOURCE_URL,
+    })
+
+
+def _eastmoney_indicator(config: dict[str, Any], today: date) -> dict[str, Any] | None:
+    report, field, page = _EASTMONEY_SERIES[config["id"]]
+
+    def fetch():
+        response = astock.em_get("https://datacenter-web.eastmoney.com/api/data/v1/get", params={
+            "reportName": report, "columns": f"REPORT_DATE,TIME,{field}",
+            "sortColumns": "REPORT_DATE", "sortTypes": "-1", "pageSize": "18", "pageNumber": "1",
+        }, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        if not payload.get("success"):
+            raise ValueError("东方财富宏观序列暂不可用")
+        return (payload.get("result") or {}).get("data") or []
+
+    rows = _cached(f"macro-eastmoney:{report}", 3600, fetch)
+    return _normalize_period_series(config, {
+        "periodKey": "REPORT_DATE", "valueKey": field, "frequency": "month",
+    }, rows, today, source={
+        "id": f"eastmoney-{report.lower()}", "label": "东方财富宏观统计聚合",
+        "url": f"https://data.eastmoney.com/cjsj/{page}.html", "dataset": report, "field": field,
+    })
 
 
 def _metric_number(value: Any) -> float | None:
     if isinstance(value, str):
         value = value.strip().replace(",", "").removesuffix("%")
     return _number(value)
+
+
+def _open_public_request(request: Request, *, timeout: int):
+    proxies = http_request.getproxies()
+    system_proxies = getattr(http_request, "getproxies_macosx_sysconf", None)
+    # On macOS, NO_PROXY alone makes urllib skip the system proxy entirely.
+    # Restore that default only when no explicit proxy is configured; retain
+    # Desk's localhost bypass and never change the global opener or environment.
+    if system_proxies and proxies and set(proxies) == {"no"}:
+        proxies = {**system_proxies(), **proxies}
+        return http_request.build_opener(http_request.ProxyHandler(proxies)).open(request, timeout=timeout)
+    return urlopen(request, timeout=timeout)
+
+
+def _normalize_unemployment(config, rows, today, source):
+    indicator = _normalize_period_series(
+        {**config, "name": "美国失业率（U-3，季调）"},
+        {"periodKey": "month", "valueKey": "value", "frequency": "month"},
+        rows, today,
+        source={**source, "seasonalAdjustment": "seasonally-adjusted", "population": "16岁及以上平民劳动力"},
+    )
+    if indicator:
+        indicator["revisionStatus"] = "not-tracked"
+        fresh = indicator["freshness"]["status"] == "fresh"
+        indicator["confidence"] = {
+            "level": "high" if fresh else "low", "score": 0.9 if fresh else 0.5,
+            "rationale": "BLS 官方 U-3 月度统计，可能由 FRED 转发；新鲜度按统计月份判断。未提供发布日期，不推算发布日期；历史值可能修订。",
+        }
+    return indicator
+
+
+def _bls_unemployment_indicator(config: dict[str, Any], today: date) -> dict[str, Any] | None:
+    """BLS household survey: U-3, age 16+, monthly, seasonally adjusted."""
+    series_id = "LNS14000000"
+
+    def fetch():
+        request = Request(
+            "https://api.bls.gov/publicAPI/v2/timeseries/data/",
+            data=json.dumps({
+                "seriesid": [series_id], "startyear": str(today.year - 1), "endyear": str(today.year),
+            }).encode(),
+            headers={"Content-Type": "application/json", "User-Agent": "Newma-Desk/1.0"},
+        )
+        with _open_public_request(request, timeout=10) as response:
+            payload = json.load(response)
+        if payload.get("status") != "REQUEST_SUCCEEDED":
+            raise ValueError("BLS 官方失业率接口暂不可用或已达查询限额")
+        return next((series.get("data", []) for series in payload.get("Results", {}).get("series", [])
+                     if series.get("seriesID") == series_id), [])
+
+    # Unregistered BLS access has a daily request limit; one shared 6-hour cache
+    # serves all calendar ranges and limits each request to two calendar years.
+    rows = _cached(f"macro-bls:{series_id}:{today.year}", 6 * 3600, fetch)
+    monthly_rows = [
+        {"month": f"{row.get('year')}{row['period'][1:]}", "value": row.get("value")}
+        for row in rows if re.fullmatch(r"M(0[1-9]|1[0-2])", str(row.get("period", "")))
+    ]
+    return _normalize_unemployment(config, monthly_rows, today, {
+        "id": "bls-unemployment", "label": "美国劳工统计局 BLS",
+        "url": f"https://data.bls.gov/timeseries/{series_id}", "seriesId": series_id,
+        "fallbackReason": "Tushare 未返回有效期内的实际值，使用 BLS 官方 U-3 季调月度序列。",
+    })
+
+
+def _fred_unemployment_indicator(config: dict[str, Any], today: date) -> dict[str, Any] | None:
+    """FRED UNRATE republishes BLS LNS14000000 (not the non-seasonal UNRATENSA)."""
+    start = date(today.year - 1, 1, 1)
+
+    def fetch():
+        query = urlencode({"id": "UNRATE", "cosd": start.isoformat(), "coed": today.isoformat()})
+        request = Request(f"https://fred.stlouisfed.org/graph/fredgraph.csv?{query}",
+                          headers={"Accept": "text/csv", "User-Agent": "Newma-Desk/1.0"})
+        with _open_public_request(request, timeout=10) as response:
+            reader = csv.DictReader(StringIO(response.read().decode("utf-8-sig")))
+        if not reader.fieldnames or not {"observation_date", "UNRATE"}.issubset(reader.fieldnames):
+            raise ValueError("FRED 未返回 UNRATE 月度数据，不能将错误页当成观测值")
+        rows = []
+        for row in reader:
+            period = _date(row["observation_date"])
+            value = _number(row["UNRATE"])
+            if period and start <= period <= today and value is not None:
+                rows.append({"month": period.strftime("%Y%m"), "value": value})
+        if not rows:
+            raise ValueError("FRED UNRATE 未返回有效月度观测")
+        return rows
+
+    rows = _cached(f"macro-fred:UNRATE:{today.year}", 6 * 3600, fetch)
+    return _normalize_unemployment(config, rows, today, {
+        "id": "fred-unemployment", "label": "FRED · BLS 失业率",
+        "url": "https://fred.stlouisfed.org/series/UNRATE", "seriesId": "UNRATE",
+        "originalSource": "美国劳工统计局 BLS", "originalSeriesId": "LNS14000000",
+        "fallbackReason": "Tushare 与 BLS 直连均未取得有效期内的数据，使用 FRED 转发的同口径 U-3 季调月度序列；不是独立调查。",
+    })
+
+
+def _fred_cpi_indicator(config: dict[str, Any], today: date) -> dict[str, Any] | None:
+    """BLS all-items CPI-U, not seasonally adjusted; derive 12-month change."""
+    series_id = "CPIAUCNS"
+    start = date(today.year - 2, 1, 1)
+
+    def fetch():
+        query = urlencode({"id": series_id, "cosd": start.isoformat(), "coed": today.isoformat()})
+        request = Request(f"https://fred.stlouisfed.org/graph/fredgraph.csv?{query}",
+                          headers={"Accept": "text/csv", "User-Agent": "Newma-Desk/1.0"})
+        with _open_public_request(request, timeout=10) as response:
+            reader = csv.DictReader(StringIO(response.read().decode("utf-8-sig")))
+        if not reader.fieldnames or not {"observation_date", series_id}.issubset(reader.fieldnames):
+            raise ValueError("FRED 未返回 CPIAUCNS 月度指数，不能将错误页当成观测值")
+        levels = {}
+        for row in reader:
+            period = _date(row["observation_date"])
+            value = _number(row[series_id])
+            if period and start <= period <= today and value is not None and value > 0:
+                levels[(period.year, period.month)] = value
+        if not levels:
+            raise ValueError("FRED CPIAUCNS 未返回有效月度观测")
+        return levels
+
+    levels = _cached(f"macro-fred:{series_id}:{today.year}", 6 * 3600, fetch)
+    rates = []
+    for (year, month), current in sorted(levels.items()):
+        prior = levels.get((year - 1, month))
+        if prior is None or prior <= 0:
+            continue
+        rates.append({"month": f"{year:04d}{month:02d}", "value": round((current / prior - 1) * 100, 1)})
+    indicator = _normalize_period_series(
+        {**config, "name": "美国 CPI 同比（CPI-U，未经季调）"},
+        {"periodKey": "month", "valueKey": "value", "frequency": "month"},
+        rates, today,
+        source={
+            "id": "fred-cpi", "label": "FRED · BLS CPI-U", "url": "https://fred.stlouisfed.org/series/CPIAUCNS",
+            "seriesId": series_id, "originalSource": "美国劳工统计局 BLS", "originalSeriesId": "CUUR0000SA0",
+            "seasonalAdjustment": "not-seasonally-adjusted",
+            "calculation": "同月指数比上年同月指数减 1，四舍五入至 0.1 个百分点",
+            "fallbackReason": "使用 FRED 转发的 BLS CPI-U 全项目未经季调指数计算同比；不是独立调查。",
+        },
+    )
+    if indicator:
+        history = indicator["history"]
+        if len(history) > 1:
+            latest_month = date.fromisoformat(history[-1]["period"] + "-01")
+            previous_month = date.fromisoformat(history[-2]["period"] + "-01")
+            if (latest_month.year * 12 + latest_month.month) - (previous_month.year * 12 + previous_month.month) != 1:
+                indicator.update(previous=None, change=None, direction="flat")
+        indicator["revisionStatus"] = "not-tracked"
+        indicator["confidence"] = {
+            **_confidence(indicator["freshness"]),
+            "rationale": "FRED 转发 BLS 官方指数；同比由同月指数计算。发布日期和历史修订版本未由此公开 CSV 提供，不得推算。",
+        }
+    return indicator
 
 
 def _normalize_tushare_calendar_series(
@@ -362,14 +567,13 @@ def _normalize_tushare_calendar_series(
         if release is None or release > today:
             continue
         explicit = _metric_number(row.get("value"))
-        localized = explicit is None and str(row.get("country") or "") == series_config["country"]
-        actual = explicit if explicit is not None else (_metric_number(row.get("pre_value")) if localized else None)
-        if actual is None:
+        # pre_value is the previous observation, never the current actual.
+        if explicit is None:
             continue
         candidate = {
             "releaseDate": release,
-            "value": actual,
-            "previous": _metric_number(row.get("pre_value")) if explicit is not None else None,
+            "value": explicit,
+            "previous": _metric_number(row.get("pre_value")),
             "forecast": _metric_number(row.get("fore_value")),
             "explicit": explicit is not None,
         }
@@ -424,7 +628,8 @@ def _first_two_fridays(month_start: date) -> list[date]:
 def _load_tushare_indicators(today: date) -> tuple[dict[str, dict[str, Any]], list[str], str]:
     client = _tushare_client()
     if client is None:
-        return {}, [], "unsupported"
+        reason = "未配置 TUSHARE_TOKEN" if not os.environ.get("TUSHARE_TOKEN", "").strip() else "未安装 Tushare SDK"
+        return {}, [reason], "unsupported"
     configs = {item["id"]: item for item in _INDICATORS}
     indicators: dict[str, dict[str, Any]] = {}
     errors: list[str] = []
@@ -490,7 +695,7 @@ def _normalize_standard_indicator(config: dict[str, Any], rows: list[dict[str, A
     for row in rows:
         release = _date(row.get("日期") or row.get("发布日期") or row.get("时间"))
         actual = _number(row.get("今值") if "今值" in row else row.get("现值"))
-        if actual is None:
+        if release is None or release > today or actual is None:
             if release and release >= today and (next_release is None or release < next_release):
                 next_release = release
             continue
@@ -503,6 +708,7 @@ def _normalize_standard_indicator(config: dict[str, Any], rows: list[dict[str, A
         })
     if not normalized:
         return None
+    normalized.sort(key=lambda item: item["releaseDate"])
     latest = normalized[-1]
     release_date = latest["releaseDate"]
     freshness = _freshness(release_date, today, int(config["maxAgeDays"]))
@@ -547,10 +753,12 @@ def _normalize_lpr_indicator(config: dict[str, Any], rows: list[dict[str, Any]],
         }
         for row in rows
         if (release := _date(row.get("TRADE_DATE")))
+        and release <= today
         and (value := _number(row.get("LPR1Y"))) is not None
     ]
     if not normalized:
         return None
+    normalized.sort(key=lambda item: item["releaseDate"])
     latest = normalized[-1]
     previous_value = normalized[-2]["value"] if len(normalized) > 1 else None
     freshness = _freshness(latest["releaseDate"], today, int(config["maxAgeDays"]))
@@ -599,34 +807,60 @@ def _normalize_usa_indicator(config: dict[str, Any], rows: list[dict[str, Any]],
 
 def _load_indicators(today: date) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, str]]]:
     candidates: dict[str, list[dict[str, Any]]] = {config["id"]: [] for config in _INDICATORS}
-    errors: list[str] = []
     gaps: list[dict[str, str]] = []
+    tushare_indicators, tushare_errors, tushare_status = _load_tushare_indicators(today)
+    errors = [f"tushare {error}" for error in tushare_errors]
+    for indicator_id, indicator in tushare_indicators.items():
+        candidates[indicator_id].append(indicator)
 
-    def fetch(config: dict[str, Any]) -> tuple[dict[str, Any], Any | None, Exception | None]:
+    def fetch(config: dict[str, Any]):
+        choices = candidates[config["id"]]
+        source_errors = []
+        if config["id"] == "us-cpi-yoy":
+            try:
+                indicator = _fred_cpi_indicator(config, today)
+                if indicator:
+                    choices.append(indicator)
+                    if indicator["freshness"]["status"] == "fresh":
+                        return source_errors
+            except Exception as exc:  # noqa: BLE001 - retain the available aggregator when FRED fails
+                source_errors.append(f"fred {config['id']}: {exc}")
+        if config["id"] == "us-unemployment-rate" and any(item["freshness"]["status"] == "fresh" for item in choices):
+            try:
+                indicator = _fred_unemployment_indicator(config, today)
+                if indicator:
+                    choices.append(indicator)
+                    if indicator["freshness"]["status"] == "fresh":
+                        return source_errors
+            except Exception as exc:  # noqa: BLE001 - retain the available aggregator when FRED fails
+                source_errors.append(f"fred {config['id']}: {exc}")
+        if any(item["freshness"]["status"] == "fresh" for item in choices):
+            return source_errors
+        if config["id"] == "us-unemployment-rate":
+            for provider, adapter in (("bls", _bls_unemployment_indicator), ("fred", _fred_unemployment_indicator)):
+                try:
+                    indicator = adapter(config, today)
+                    if indicator:
+                        choices.append(indicator)
+                        if indicator["freshness"]["status"] == "fresh":
+                            return source_errors
+                except Exception as exc:  # noqa: BLE001 - retain the legacy fallback
+                    source_errors.append(f"{provider} {config['id']}: {exc}")
+        if config["id"] in _EASTMONEY_SERIES:
+            try:
+                indicator = _eastmoney_indicator(config, today)
+                if indicator:
+                    choices.append(indicator)
+                    if indicator["freshness"]["status"] == "fresh":
+                        return source_errors
+            except Exception as exc:  # noqa: BLE001 - retain the legacy fallback
+                source_errors.append(f"eastmoney {config['id']}: {exc}")
         try:
             frame = _cached(
                 f"macro-indicator:{config['function']}",
                 6 * 3600,
                 lambda function=config["function"]: astock.akshare_parallel_call(function),
             )
-            return config, frame, None
-        except Exception as exc:  # noqa: BLE001
-            return config, None, exc
-
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        tushare_future = pool.submit(_load_tushare_indicators, today)
-        results = list(pool.map(fetch, _INDICATORS))
-        tushare_indicators, tushare_errors, tushare_status = tushare_future.result()
-
-    for indicator_id, indicator in tushare_indicators.items():
-        candidates[indicator_id].append(indicator)
-    errors.extend(f"tushare {error}" for error in tushare_errors)
-
-    for config, frame, error in results:
-        if error:
-            errors.append(f"akshare {config['id']}: {error}")
-            continue
-        try:
             rows = _records(frame)
             if config.get("kind") == "lpr":
                 indicator = _normalize_lpr_indicator(config, rows, today)
@@ -635,9 +869,14 @@ def _load_indicators(today: date) -> tuple[list[dict[str, Any]], dict[str, Any],
             else:
                 indicator = _normalize_standard_indicator(config, rows, today)
             if indicator:
-                candidates[config["id"]].append(indicator)
+                choices.append(indicator)
         except Exception as exc:  # noqa: BLE001 - normalization status is part of the contract
-            errors.append(f"akshare {config['id']}: {exc}")
+            source_errors.append(f"akshare {config['id']}: {exc}")
+        return source_errors
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        for source_errors in pool.map(fetch, _INDICATORS):
+            errors.extend(source_errors)
 
     freshness_rank = {"fresh": 2, "unknown": 1, "stale": 0}
     indicators: list[dict[str, Any]] = []
@@ -650,24 +889,35 @@ def _load_indicators(today: date) -> tuple[list[dict[str, Any]], dict[str, Any],
             choices,
             key=lambda item: (
                 freshness_rank.get(item.get("freshness", {}).get("status"), -1),
+                2 if str(item.get("source", {}).get("id", "")).startswith("bls-") else
+                1 if str(item.get("source", {}).get("id", "")).startswith("fred-") else 0,
+                -item.get("freshness", {}).get("ageDays", 10_000),
                 1 if str(item.get("source", {}).get("id", "")).startswith("tushare-") else 0,
             ),
         )
+        if not selected["source"]["id"].startswith("tushare-"):
+            selected["source"].setdefault("fallbackReason", "Tushare 未返回有效期内的同口径数据，使用公开来源并保留原始数据期。")
         indicators.append(selected)
+        if selected["freshness"]["status"] != "fresh":
+            gaps.append({"capability": config["id"], "reason": f"{config['name']}最新可用记录为 {selected['period']}，仅供历史参考"})
 
     generated_at = datetime.now(timezone.utc).isoformat()
-    status = "ok" if len(indicators) == len(_INDICATORS) else ("partial" if indicators else "unavailable")
     fresh_count = sum(item["freshness"].get("status") == "fresh" for item in indicators)
+    status = "ok" if fresh_count == len(_INDICATORS) else ("partial" if indicators else "unavailable")
     source = {
         "id": "public-macro-aggregators",
-        "label": "Tushare Pro 优先 · AkShare 降级",
+        "label": "美国 BLS/FRED 统计 · 中国 Tushare/公开源聚合",
         "status": status,
         "count": len(indicators),
         "asOf": generated_at,
         "coverage": {
             "regions": sorted({item["region"] for item in indicators}),
             "fresh": fresh_count,
-            "stale": len(indicators) - fresh_count,
+            "stale": sum(item["freshness"].get("status") == "stale" for item in indicators),
+            "unknown": sum(item["freshness"].get("status") == "unknown" for item in indicators),
+            "officialDirect": sum(item["source"]["id"].startswith("bls-") for item in indicators),
+            "officialRedistributed": sum(item["source"]["id"].startswith("fred-") for item in indicators),
+            "aggregated": sum(not item["source"]["id"].startswith(("bls-", "fred-")) for item in indicators),
             "tushare": tushare_status,
         },
         **({"error": "; ".join(errors)[:600]} if errors else {}),
@@ -709,10 +959,13 @@ def _liquidity_item(
     max_age_days: int,
     effect: str,
 ) -> dict[str, Any] | None:
-    if not rows:
+    # Source frames may include future calendar rows or duplicate periods. Neither
+    # is an observed value that can enter today's assessment.
+    observed = sorted({row["period"]: row for row in rows if row["period"] <= today}.values(), key=lambda row: row["period"])
+    if not observed:
         return None
-    latest = rows[-1]
-    previous = rows[-2]["value"] if len(rows) > 1 else None
+    latest = observed[-1]
+    previous = observed[-2]["value"] if len(observed) > 1 else None
     change = latest["value"] - previous if previous is not None else None
     freshness = _freshness(latest["period"], today, max_age_days)
     return {
@@ -728,42 +981,37 @@ def _liquidity_item(
         "asOf": latest["period"].isoformat(),
         "source": {"id": source_id, "label": source_label, "url": source_url},
         "freshness": freshness,
-        "history": [{"period": row["period"].isoformat(), "value": round(row["value"], 4)} for row in rows[-30:]],
+        "history": [{"period": row["period"].isoformat(), "value": round(row["value"], 4)} for row in observed[-30:]],
     }
 
 
-def _liquidity_forecast(indicators: list[dict[str, Any]], horizon_days: int = 5) -> dict[str, Any]:
-    """Small, explainable baseline: recent linear trend, not a trading model."""
-    forecasts: list[dict[str, Any]] = []
+def _liquidity_assessment(indicators: list[dict[str, Any]]) -> dict[str, Any]:
+    """Observed marginal evidence only; no mixed-frequency level forecast."""
+    comparable = {"cn-m2-yoy", "cn-m1-yoy", "cn-shibor-on", "cn-shibor-1w", "cn-shibor-3m"}
+    items = []
+    supportive = restrictive = 0
     for item in indicators:
-        values = [float(row["value"]) for row in item.get("history", []) if _number(row.get("value")) is not None]
-        if len(values) < 3:
+        if item["id"] not in comparable or item["freshness"]["status"] != "fresh" or item.get("change") is None:
             continue
-        sample = values[-6:]
-        slope = (sample[-1] - sample[0]) / max(len(sample) - 1, 1)
-        forecast = sample[-1] + slope * horizon_days
-        if abs(slope) < max(abs(sample[-1]) * 0.001, 0.0001):
-            direction = "flat"
-        else:
-            direction = "higher" if slope > 0 else "lower"
-        forecasts.append({
-            "id": item["id"],
-            "name": item["name"],
-            "direction": direction,
-            "latest": round(sample[-1], 4),
-            "forecast": round(forecast, 4),
-            "slope": round(slope, 6),
-        })
-    supportive = sum(1 for item in indicators if item.get("change") is not None and ((item.get("effect") == "supportive" and item["change"] > 0) or (item.get("effect") == "supportive_inverse" and item["change"] < 0)))
-    restrictive = sum(1 for item in indicators if item.get("change") is not None and ((item.get("effect") == "restrictive" and item["change"] > 0) or (item.get("effect") == "restrictive_inverse" and item["change"] < 0)))
-    signal = "supportive" if supportive > restrictive else ("restrictive" if restrictive > supportive else "mixed")
+        change = item["change"]
+        effect = item["effect"]
+        vote = "flat" if change == 0 else (
+            "supportive" if (effect == "supportive" and change > 0) or (effect == "restrictive" and change < 0)
+            else "restrictive"
+        )
+        supportive += vote == "supportive"
+        restrictive += vote == "restrictive"
+        items.append({"id": item["id"], "name": item["name"], "period": item["period"], "change": change, "unit": item["unit"], "vote": vote})
+    has_quantity = any(item["id"] in {"cn-m1-yoy", "cn-m2-yoy"} for item in items)
+    has_price = any(item["id"].startswith("cn-shibor-") for item in items)
     return {
-        "horizonDays": horizon_days,
-        "signal": signal,
-        "direction": "higher" if supportive > restrictive else ("lower" if restrictive > supportive else "mixed"),
-        "confidence": round(min(0.85, 0.35 + len(forecasts) * 0.06), 2),
-        "method": "近 6 个观测的线性趋势外推，仅作监测基线",
-        "items": forecasts,
+        "signal": ("supportive" if supportive > restrictive else ("restrictive" if restrictive > supportive else "mixed")) if has_quantity and has_price else "mixed",
+        "complete": has_quantity and has_price,
+        "supportiveCount": supportive,
+        "restrictiveCount": restrictive,
+        "observedCount": len(items),
+        "method": "仅比较有效期内的 M1/M2 同比与 SHIBOR 各自前一观测；货币数量和资金价格任一维度缺失时只报分化/证据不足。月频和日频不外推、不合成预测值。新增社融、融资额受季节性影响，两融与 M2-M1 差仅作旁证。",
+        "items": items,
     }
 
 
@@ -817,9 +1065,10 @@ def _load_liquidity(today: date) -> dict[str, Any]:
     if item: quantity.append(item)
 
     margin_frames = [_series_rows(frames.get(name), "日期", "融资融券余额") for name in ("macro_china_market_margin_sh", "macro_china_market_margin_sz")]
-    margin_by_date: dict[date, float] = {}
-    for rows in margin_frames:
-        for row in rows: margin_by_date[row["period"]] = margin_by_date.get(row["period"], 0) + row["value"] / 100_000_000
+    margin_maps = [{row["period"]: row["value"] for row in rows} for rows in margin_frames]
+    # A one-exchange observation is not a whole-market balance.
+    common_dates = set(margin_maps[0]) & set(margin_maps[1])
+    margin_by_date = {period: (margin_maps[0][period] + margin_maps[1][period]) / 100_000_000 for period in common_dates}
     item = _liquidity_item(item_id="cn-margin-balance", name="全市场两融余额", unit="亿元", rows=[{"period": period, "value": value} for period, value in sorted(margin_by_date.items())], today=today, source_id="margin-exchanges", source_label="沪深交易所两融", source_url="https://www.sse.com.cn/market/othersdata/margin/", max_age_days=5, effect="supportive")
     if item: transmission.append(item)
 
@@ -836,50 +1085,189 @@ def _load_liquidity(today: date) -> dict[str, Any]:
     return {
         "groups": groups,
         "indicators": all_indicators,
-        "forecast": _liquidity_forecast(all_indicators),
+        "assessment": _liquidity_assessment(all_indicators),
         "coverage": {"available": len(all_indicators), "total": 9, "asOf": max((item["asOf"] for item in all_indicators), default=None)},
         "source": "AkShare · 人民银行 / SHIBOR / 沪深交易所",
-        "note": "数量、价格和市场传导分开统计；预测为近 6 个观测的趋势基线，不替代正式预测模型。",
+        "note": "数量、价格和市场传导分开统计；仅展示已观测边际变化，不提供未经回测的短期预测。",
     }
 
 
 def _importance(value: Any) -> str:
     text = str(value or "").strip().lower()
-    if text in {"high", "3"}:
+    if text in {"high", "3", "3.0"}:
         return "high"
-    if text in {"medium", "2"}:
+    if text in {"medium", "2", "2.0"}:
         return "medium"
-    return "low"
+    return "low" if text in {"low", "1", "1.0"} else "unknown"
+
+
+_CALENDAR_COUNTRIES = {
+    "CN": "中国", "US": "美国", "EU": "欧元区", "DE": "德国", "FR": "法国",
+    "IT": "意大利", "ES": "西班牙", "GB": "英国", "JP": "日本", "CA": "加拿大",
+    "AU": "澳大利亚", "NZ": "新西兰", "CH": "瑞士", "KR": "韩国", "ZA": "南非",
+    "HK": "中国香港", "MO": "中国澳门", "TW": "中国台湾", "BR": "巴西", "ID": "印度尼西亚",
+    "IN": "印度", "IL": "以色列", "MX": "墨西哥", "SG": "新加坡", "NO": "挪威",
+    "SE": "瑞典", "DK": "丹麦", "FI": "芬兰", "NL": "荷兰", "BE": "比利时", "AT": "奥地利",
+    "IE": "爱尔兰", "PT": "葡萄牙", "PL": "波兰", "RU": "俄罗斯", "TR": "土耳其",
+    "TH": "泰国", "MY": "马来西亚", "PH": "菲律宾",
+}
+_CALENDAR_REGION_ALIASES = {
+    **{name: code for code, name in _CALENDAR_COUNTRIES.items()},
+    "中国内地": "CN", "中国大陆": "CN", "香港": "HK", "澳门": "MO", "台湾": "TW",
+    "印尼": "ID", "新西蘭": "NZ", "美联储": "US", "欧洲央行": "EU", "欧洲中央银行": "EU",
+    "澳洲联储": "AU", "外国投资者对日本": "JP",
+}
+_CALENDAR_ENGLISH_REGIONS = {
+    "united states": "US", "united kingdom": "GB", "china": "CN", "hong kong": "HK",
+    "taiwan": "TW", "euro zone": "EU", "euro area": "EU", "eurozone": "EU", "japan": "JP",
+    "canada": "CA", "australia": "AU", "new zealand": "NZ", "germany": "DE", "france": "FR",
+}
+_CALENDAR_EUROPE = {"EU", "DE", "FR", "IT", "ES", "GB", "CH", "NO", "SE", "DK", "FI", "NL", "BE", "AT", "IE", "PT", "PL", "RU", "TR"}
+
+
+def _calendar_text(value):
+    text = str(value).strip() if value is not None else ""
+    return "" if text.lower() in {"none", "nan", "nat", "null", "-", "--", "—"} else text
+
+
+def _calendar_region_code(value):
+    if value.upper() in _CALENDAR_COUNTRIES:
+        return value.upper()
+    return _CALENDAR_REGION_ALIASES.get(value) or _CALENDAR_ENGLISH_REGIONS.get(value.lower())
+
+
+def _calendar_region(row: dict[str, Any], title: str) -> dict[str, Any]:
+    reported = next((_calendar_text(row.get(key)) for key in ("国家", "country", "地区") if _calendar_text(row.get(key))), "")
+    source_code = _calendar_region_code(reported)
+    title_code = next((code for name, code in sorted(_CALENDAR_REGION_ALIASES.items(), key=lambda item: len(item[0]), reverse=True)
+                       if title.startswith(name)), None)
+    basis = {"kind": "unknown", "reportedRegion": _CALENDAR_COUNTRIES.get(source_code),
+             "titleRegion": _CALENDAR_COUNTRIES.get(title_code), "reason": "缺少明确地区；币种不能单独确认经济统计地区"}
+    code = title_code or source_code
+    if title.startswith(("石油输出国组织", "国际能源署", "国际货币基金组织", "世界银行")):
+        code = "GLOBAL"
+        basis.update(kind="title", reason="国际组织的跨国报告，不按来源币种归入单一国家")
+    elif title_code and source_code and title_code != source_code:
+        # The title can be corrupted too (e.g. the same Israel headline is
+        # attached to several countries). Do not silently pick either claim.
+        code = None
+        basis.update(kind="conflict", reason="标题与来源地区不一致，保留双方口径，等待核验")
+    elif source_code:
+        basis.update(kind="source", reason="采用来源地区" if not title_code else "标题与来源地区一致")
+    elif title_code:
+        basis.update(kind="title", reason="来源地区未能识别，按标题明确地区归类")
+    region = _CALENDAR_COUNTRIES.get(code, "跨国/国际组织" if code == "GLOBAL" else "地区待核验" if basis["kind"] == "conflict" else "地区未注明")
+    group = "UNKNOWN" if not code else "EU" if code in _CALENDAR_EUROPE else code if code in {"CN", "HK", "MO", "TW", "US"} else "OTHER"
+    return {"region": region, "regionCode": code, "regionGroup": group, "regionBasis": basis,
+            "reportedCountry": reported[:80]}
+
+
+def _calendar_time(raw_date, raw_time, release_date):
+    clock = raw_time or (raw_date[11:] if len(raw_date) > 10 else "")
+    basis = {"kind": "date-only", "timeZone": None, "timestamp": None,
+             "note": "来源未提供可解析时刻，不代表午夜"}
+    if re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?", clock):
+        try:
+            hour, rest = clock.split(":", 1)
+            parsed = datetime.fromisoformat(f"{release_date.isoformat()}T{int(hour):02d}:{rest}")
+            if raw_time and len(raw_date) > 10:
+                dated_time = datetime.fromisoformat(raw_date)
+                if parsed.tzinfo is None and dated_time.tzinfo and parsed.time() == dated_time.time():
+                    parsed = parsed.replace(tzinfo=dated_time.tzinfo)
+        except ValueError:
+            return None, basis
+        display = parsed.strftime("%H:%M:%S" if parsed.second else "%H:%M")
+        if parsed.tzinfo is not None:
+            offset = parsed.strftime("%z")
+            zone = f"UTC{offset[:3]}:{offset[3:]}"
+            basis.update(kind="explicit-offset", timeZone=zone, timestamp=parsed.isoformat(timespec="seconds"),
+                         note=f"采用来源显式偏移 {zone}，未转换为浏览器本地时间")
+        else:
+            basis.update(kind="unconfirmed", note="来源时刻，时区未注明；不能据此跨时区比较或判断事件已到期")
+        return display, basis
+    return None, basis
+
+
+def _calendar_value(value: Any) -> tuple[float | None, str | None]:
+    text = str(value).strip() if value is not None else ""
+    if text.lower() in {"", "none", "nan", "null", "-", "--", "—"}:
+        return None, None
+    return _metric_number(value), text[:80]
+
+
+_CALENDAR_IMPORTANCE_RULES = (
+    ("policy-rate", "high", r"(?:美联储|欧洲央行|英国央行|日本央行|加拿大央行|澳洲联储|瑞士央行)?(?:利率决议|货币政策声明)|(?:中国央行)?贷款市场报价利率(?:\(LPR\))?", "央行政策利率或政策声明，建议优先关注"),
+    ("inflation", "high", r"(?:核心|季调后|未季调|全国|调和)*(?:CPI|PCE|居民消费价格指数\(CPI\)|消费者物价指数\(CPI\)|个人消费支出物价指数\(PCE\))(?:年率|月率|指数)?", "全国性消费通胀指标，建议优先关注"),
+    ("gdp", "high", r"(?:GDP|国内生产总值\(GDP\))(?:年率|季率|年化季率|季率年化|同比|增长率)(?:初值|修正值|终值)?", "全国性经济增长发布，建议优先关注"),
+    ("employment", "high", r"(?:季调后)?(?:非农就业人口(?:变动)?|非农就业人数(?:变动)?|失业率)", "就业与失业率发布，建议优先关注"),
+    ("pmi", "medium", r"(?:官方|财新|Markit|S&PGlobal|日经/Markit)?(?:制造业|服务业|综合)(?:PMI|采购经理人指数\(PMI\))(?:初值|终值)?", "景气调查，建议结合实际经济数据跟踪"),
+    ("activity", "medium", r"(?:核心|季调后)?(?:零售销售|工业产出|规模以上工业增加值)(?:年率|月率|同比)|(?:核心)?PPI(?:年率|月率)|初请失业金人数", "生产、消费或周度就业指标，建议常规跟踪"),
+)
+
+
+def _calendar_importance(title, region, source_value):
+    importance = _importance(source_value)
+    if importance != "unknown":
+        return importance, {"kind": "source", "reason": "沿用日历来源评级", "sourceValue": str(source_value)}
+    # This is a Desk attention heuristic, not a rating from the data provider.
+    # Only a small set of national releases is covered; all others stay unknown.
+    if region in {"中国", "美国", "欧元区", "英国", "日本", "加拿大", "澳大利亚", "瑞士"}:
+        name = re.sub(r"\s+", "", title).replace("（", "(").replace("）", ")").replace("％", "%")
+        if name.startswith(region) and not name.startswith(f"{region}央行"):
+            name = name[len(region):]
+        name = re.sub(r"\((?:%|年度|月度|季度|同比|月度环比|[一二三四五六七八九十\d]+月|第[一二三四]季度)\)", "", name)
+        for rule_id, level, pattern, reason in _CALENDAR_IMPORTANCE_RULES:
+            if re.fullmatch(pattern, name, re.IGNORECASE):
+                return level, {"kind": "rule", "ruleId": rule_id, "version": "1", "reason": reason}
+    return "unknown", {"kind": "unknown", "reason": "来源未提供评级，且未命中 Desk 关注规则"}
 
 
 def _calendar_event(row: dict[str, Any], source_id: str, source_label: str, source_url: str, today: date) -> dict[str, Any] | None:
-    release_date = _date(row.get("日期") or str(row.get("date") or "")[:10])
+    raw_date = _calendar_text(row.get("日期")) or _calendar_text(row.get("date"))
+    release_date = _date(raw_date[:10])
     if not release_date:
         return None
-    raw_time = str(row.get("时间") or str(row.get("date") or "")[11:19] or "").strip()
-    region = str(row.get("地区") or row.get("country") or "Unknown").strip()[:40]
+    raw_time = _calendar_text(row.get("时间")) or _calendar_text(row.get("time"))
+    clock, time_basis = _calendar_time(raw_date, raw_time, release_date)
     title = str(row.get("事件") or row.get("event") or "").strip()[:240]
     if not title:
         return None
-    actual = _number(row.get("公布") if "公布" in row else row.get("actual"))
-    forecast = _number(row.get("预期") if "预期" in row else row.get("estimate"))
-    previous = _number(row.get("前值") if "前值" in row else row.get("previous"))
-    importance = _importance(row.get("重要性") if "重要性" in row else row.get("impact"))
-    event_id = f"{source_id}:{release_date.isoformat()}:{raw_time}:{region}:{title}"
+    location = _calendar_region(row, title)
+    region = location["region"]
+    actual, actual_text = _calendar_value(row.get("公布") if "公布" in row else row.get("actual", row.get("value")))
+    forecast, forecast_text = _calendar_value(row.get("预期") if "预期" in row else row.get("estimate", row.get("fore_value")))
+    previous, previous_text = _calendar_value(row.get("前值") if "前值" in row else row.get("previous", row.get("pre_value")))
+    if release_date > today:
+        actual, actual_text = None, None
+    importance, importance_basis = _calendar_importance(
+        title, region, row.get("重要性") if "重要性" in row else row.get("impact"))
+    currency = str(row.get("currency") or "").strip()[:12] or None
+    region_identity = f"{region}:{location['reportedCountry']}" if location["regionGroup"] == "UNKNOWN" else region
+    event_id = f"{source_id}:{release_date.isoformat()}:{clock or raw_time}:{time_basis['timeZone'] or ''}:{region_identity}:{currency or ''}:{title}"
     return {
         "id": event_id[:500],
         "date": release_date.isoformat(),
-        "time": raw_time[:12] or None,
+        "time": clock,
+        "timeBasis": time_basis,
         "region": region,
-        "currency": str(row.get("currency") or "").strip()[:12] or None,
+        "regionCode": location["regionCode"],
+        "regionGroup": location["regionGroup"],
+        "regionBasis": location["regionBasis"],
+        "currency": currency,
         "title": title,
         "importance": importance,
-        "status": "released" if actual is not None and release_date <= today else "scheduled",
+        "importanceBasis": importance_basis,
+        "status": "released" if actual_text is not None else "scheduled",
         "actual": actual,
         "forecast": forecast,
         "previous": previous,
-        "source": {"id": source_id, "label": source_label, "url": source_url},
-        "evidenceId": f"macro-calendar:{source_id}:{release_date.isoformat()}:{title}"[:500],
+        "actualText": actual_text,
+        "forecastText": forecast_text,
+        "previousText": previous_text,
+        "source": {"id": source_id, "label": source_label, "url": source_url,
+                   "reportedCountry": location["reportedCountry"], "reportedRegion": _calendar_text(row.get("地区"))[:80],
+                   "reportedDate": raw_date[:80], "reportedTime": raw_time[:80]},
+        "evidenceId": f"macro-calendar:{event_id}"[:500],
         "asOf": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -891,11 +1279,104 @@ def _fmp_events(today: date, days: int, api_key: str) -> list[dict[str, Any]]:
         f"https://financialmodelingprep.com/api/v3/economic_calendar?{query}",
         headers={"Accept": "application/json", "User-Agent": "Newma-Desk/0.1"},
     )
-    with urlopen(request, timeout=8) as response:  # noqa: S310 - fixed HTTPS origin
+    with _open_public_request(request, timeout=8) as response:  # noqa: S310 - fixed HTTPS origin
         payload = json.load(response)
     if not isinstance(payload, list):
         raise ValueError("FMP economic calendar returned an invalid payload")
     return payload
+
+
+def _tushare_events(client: Any, today: date, days: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    previous_page = None
+    # eco_cal enforces a 100-row page even when a larger limit is requested.
+    for offset in range(0, 5000, 100):
+        page = _records(client.query(
+            "eco_cal", start_date=today.strftime("%Y%m%d"),
+            end_date=(today + timedelta(days=days)).strftime("%Y%m%d"),
+            limit=100, offset=offset,
+        ))
+        if page and page == previous_page:
+            raise ValueError("Tushare 经济日历分页未推进，不能确认完整查询结果")
+        rows.extend(page)
+        if len(page) < 100:
+            return rows
+        previous_page = page
+    raise ValueError("Tushare 经济日历超过本次查询上限，不能确认完整查询结果")
+
+
+def _calendar_title_key(title):
+    name = re.sub(r"\s+", "", title).replace("（", "(").replace("）", ")").replace("％", "%")
+    # Only an explicit rate permits an omitted percent marker. Never strip
+    # periods, money/quantity units, core/headline or revision qualifiers.
+    if re.search(r"利率|年率|月率|失业率|比重|同比|环比", name):
+        name = name.replace("(%)", "")
+    return name.casefold()
+
+
+def _calendar_value_key(text, title):
+    value = text.replace(",", "").replace("％", "%").strip()
+    if re.fullmatch(r"[+-]?\d+(?:\.\d+)?%?", value):
+        unit = "%" if value.endswith("%") or re.search(r"利率|年率|月率|失业率|比重|同比|环比|\(%\)|（%）", title) else ""
+        return (_metric_number(value), unit)
+    return value
+
+
+def _merge_calendar_records(records):
+    # Pick one whole record: do not silently splice forecasts/actuals from
+    # different variants into a synthetic release.
+    selected = max(records, key=lambda item: (
+        item["actualText"] is not None,
+        sum(item[f"{field}Text"] is not None for field in ("actual", "forecast", "previous")),
+        "%" in item["title"] or "％" in item["title"],
+        item["title"],
+    ))
+    result = {**selected, "recordCount": len(records), "conflictFields": []}
+    if len(records) == 1:
+        return result
+    result["records"] = records
+    for field in ("actual", "forecast", "previous"):
+        values = {_calendar_value_key(item[f"{field}Text"], item["title"]) for item in records if item[f"{field}Text"] is not None}
+        if len(values) > 1:
+            result["conflictFields"].append(field)
+    source_ratings = {item["importance"] for item in records if item["importanceBasis"]["kind"] == "source"}
+    if len(source_ratings) > 1:
+        result["conflictFields"].append("importance")
+        result["importance"] = "unknown"
+        result["importanceBasis"] = {"kind": "unknown", "reason": "原始记录的来源评级冲突，请核验"}
+    elif source_ratings:
+        rated = next(item for item in records if item["importanceBasis"]["kind"] == "source")
+        result["importance"], result["importanceBasis"] = rated["importance"], rated["importanceBasis"]
+    return result
+
+
+def _calendar_rows(rows, source_id, source_label, source_url, today, days):
+    end = today + timedelta(days=days)
+    groups = {}
+    for row in rows:
+        event = _calendar_event(row, source_id, source_label, source_url, today)
+        if event and today.isoformat() <= event["date"] <= end.isoformat():
+            title_key = _calendar_title_key(event["title"]) if event["time"] else event["title"]
+            key = (event["date"], event["time"] or event["source"]["reportedTime"], event["timeBasis"]["timeZone"],
+                   event["region"], event["source"]["reportedCountry"] if event["regionGroup"] == "UNKNOWN" else None,
+                   event["currency"], title_key)
+            groups.setdefault(key, []).append(event)
+    return sorted((_merge_calendar_records(records) for records in groups.values()),
+                  key=lambda item: (item["date"], item.get("time") or "", item["title"]))
+
+
+def _calendar_coverage(today, days, queried_dates, events, source_id):
+    requested = {(today + timedelta(days=offset)).isoformat() for offset in range(days + 1)}
+    queried = set(queried_dates) & requested
+    event_dates = {event["date"] for event in events}
+    missing = sorted(requested - queried)
+    return {
+        "sourceId": source_id, "start": today.isoformat(), "end": (today + timedelta(days=days)).isoformat(),
+        "requestedDays": len(requested), "queriedDays": len(queried), "eventDays": len(event_dates),
+        "status": "queried" if not missing else "partial" if queried else "unavailable",
+        "missingDates": missing, "emptyDates": sorted(queried - event_dates),
+        "note": "覆盖表示已查询来源日程，不保证收录全部事件；空日期不等于没有事件。日期和时刻沿用来源；未注明时区的记录不可直接跨时区比较。",
+    }
 
 
 def _load_calendar(today: date, days: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, str]]]:
@@ -904,6 +1385,25 @@ def _load_calendar(today: date, days: int) -> tuple[list[dict[str, Any]], list[d
     gaps: list[dict[str, str]] = []
     api_key = os.environ.get("FMP_API_KEY", "").strip()
     generated_at = datetime.now(timezone.utc).isoformat()
+    all_dates = [(today + timedelta(days=offset)).isoformat() for offset in range(days + 1)]
+    client = _tushare_client()
+    if client is not None:
+        try:
+            rows = _cached(f"tushare-economic-calendar:{today}:{days}", 3600, lambda: _tushare_events(client, today, days))
+            events = _calendar_rows(rows, "tushare-economic-calendar", "Tushare Pro 经济日历", "https://tushare.pro/document/2?doc_id=233", today, days)
+            sources.append({
+                "id": "tushare-economic-calendar", "label": "Tushare Pro 经济日历",
+                "status": "ok" if events else "empty", "count": len(events), "asOf": generated_at,
+                "coverage": _calendar_coverage(today, days, all_dates, events, "tushare-economic-calendar"),
+            })
+            return events, sources, gaps
+        except Exception as exc:  # noqa: BLE001 - use the optional or public source
+            sources.append({"id": "tushare-economic-calendar", "label": "Tushare Pro 经济日历",
+                            "status": "unavailable", "count": 0, "asOf": generated_at, "error": str(exc)[:600]})
+    else:
+        sources.append({"id": "tushare-economic-calendar", "label": "Tushare Pro 经济日历",
+                        "status": "unsupported", "count": 0, "asOf": generated_at,
+                        "error": "Tushare 经济日历未配置或 SDK 不可用，尝试备用源"})
 
     if api_key:
         try:
@@ -912,24 +1412,15 @@ def _load_calendar(today: date, days: int) -> tuple[list[dict[str, Any]], list[d
                 3600,
                 lambda: _fmp_events(today, days, api_key),
             )
-            events = [
-                event
-                for row in rows
-                if (event := _calendar_event(
-                    row,
-                    "fmp-economic-calendar",
-                    "Financial Modeling Prep Economic Calendar",
-                    "https://financialmodelingprep.com/developer/docs/economic-calendar-api",
-                    today,
-                ))
-            ]
+            events = _calendar_rows(rows, "fmp-economic-calendar", "Financial Modeling Prep Economic Calendar",
+                                   "https://financialmodelingprep.com/developer/docs/economic-calendar-api", today, days)
             sources.append({
                 "id": "fmp-economic-calendar",
                 "label": "FMP 经济日历",
                 "status": "ok" if events else "empty",
                 "count": len(events),
                 "asOf": generated_at,
-                "coverage": {"start": today.isoformat(), "end": (today + timedelta(days=days)).isoformat()},
+                "coverage": _calendar_coverage(today, days, all_dates, events, "fmp-economic-calendar"),
             })
             return events, sources, gaps
         except Exception as exc:  # noqa: BLE001
@@ -939,7 +1430,7 @@ def _load_calendar(today: date, days: int) -> tuple[list[dict[str, Any]], list[d
                 "status": "unavailable",
                 "count": 0,
                 "asOf": generated_at,
-                "error": str(exc)[:600],
+                "error": str(exc).replace(api_key, "[redacted]")[:600],
             })
             gaps.append({"capability": "fmp-economic-calendar", "reason": "source_unavailable"})
     else:
@@ -954,6 +1445,7 @@ def _load_calendar(today: date, days: int) -> tuple[list[dict[str, Any]], list[d
 
     fallback_days = min(days, 14)
     errors: list[str] = []
+    queried_dates: list[str] = []
     targets = [today + timedelta(days=offset) for offset in range(fallback_days + 1)]
     for target in targets:
         try:
@@ -969,16 +1461,11 @@ def _load_calendar(today: date, days: int) -> tuple[list[dict[str, Any]], list[d
             errors.append(f"{target.isoformat()}: {exc}")
             continue
         try:
-            for row in _records(frame):
-                event = _calendar_event(
-                    row,
-                    "baidu-economic-calendar",
-                    "百度股市通经济日历",
-                    "https://finance.baidu.com/calendar",
-                    today,
-                )
-                if event and event["importance"] != "low":
-                    events.append(event)
+            # Do not remove low-importance events before the user's filter runs.
+            day_events = _calendar_rows(_records(frame), "baidu-economic-calendar", "百度股市通经济日历",
+                                        "https://finance.baidu.com/calendar", today, days)
+            events.extend(event for event in day_events if event["date"] == target.isoformat())
+            queried_dates.append(target.isoformat())
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{target.isoformat()}: {exc}")
 
@@ -991,10 +1478,7 @@ def _load_calendar(today: date, days: int) -> tuple[list[dict[str, Any]], list[d
         "status": status,
         "count": len(events),
         "asOf": generated_at,
-        "coverage": {
-            "start": today.isoformat(),
-            "end": (today + timedelta(days=fallback_days)).isoformat(),
-        },
+        "coverage": _calendar_coverage(today, days, queried_dates, events, "baidu-economic-calendar"),
         **({"error": "; ".join(errors)[:600]} if errors else {}),
     })
     if days > fallback_days:
@@ -1022,41 +1506,43 @@ def _signal(label: str, signal: str, summary: str, evidence_ids: list[str]) -> d
 
 
 def _build_regime(indicators: list[dict[str, Any]]) -> dict[str, Any]:
-    by_id = {item["id"]: item for item in indicators}
+    by_id = {item["id"]: item for item in indicators if item["freshness"]["status"] == "fresh"}
     pmi = by_id.get("cn-pmi")
     gdp = by_id.get("cn-gdp-yoy")
     growth_votes: list[int] = []
     growth_evidence: list[str] = []
     if pmi:
-        growth_votes.append(1 if pmi["value"] >= 50 else -1)
         growth_evidence.append(pmi["evidenceId"])
-    if gdp and gdp.get("previous") is not None:
-        growth_votes.append(1 if gdp["value"] > gdp["previous"] else (-1 if gdp["value"] < gdp["previous"] else 0))
+    if gdp:
         growth_evidence.append(gdp["evidenceId"])
+    if pmi and gdp and gdp.get("previous") is not None:
+        growth_votes.append(1 if pmi["value"] >= 50 else -1)
+        growth_votes.append(1 if gdp["value"] > gdp["previous"] else (-1 if gdp["value"] < gdp["previous"] else 0))
     growth_score = sum(growth_votes)
     growth_signal = "positive" if growth_score > 0 else ("negative" if growth_score < 0 else ("mixed" if growth_votes else "unknown"))
     growth_summary = (
-        f"PMI {pmi['value']:.1f}" if pmi else "PMI 缺失"
-    ) + (f"；GDP 同比 {gdp['value']:.1f}%" if gdp else "；GDP 缺失")
+        f"PMI {pmi['value']:.1f}" if pmi else "PMI 缺失或已陈旧"
+    ) + (f"；{gdp['name']} {gdp['value']:.1f}%" if gdp else "；GDP 缺失或已陈旧")
 
     price_rows = [by_id[item] for item in ("cn-cpi-yoy", "cn-ppi-yoy") if item in by_id]
     price_deltas = [item["change"] for item in price_rows if item.get("change") is not None]
-    price_average = sum(price_deltas) / len(price_deltas) if price_deltas else None
+    price_average = sum(price_deltas) / 2 if len(price_deltas) == 2 else None
     price_signal = "positive" if price_average is not None and price_average > 0.2 else (
         "negative" if price_average is not None and price_average < -0.2 else ("neutral" if price_average is not None else "unknown")
     )
-    price_summary = "；".join(f"{item['name']} {item['value']:.1f}%" for item in price_rows) or "通胀数据缺失"
+    price_summary = "；".join(f"{item['name']} {item['value']:.1f}%" for item in price_rows) or "通胀数据缺失或已陈旧"
 
     liquidity_votes: list[int] = []
     liquidity_evidence: list[str] = []
     m2 = by_id.get("cn-m2-yoy")
     lpr = by_id.get("cn-lpr-1y")
-    if m2 and m2.get("change") is not None:
-        liquidity_votes.append(1 if m2["change"] > 0 else (-1 if m2["change"] < 0 else 0))
+    if m2:
         liquidity_evidence.append(m2["evidenceId"])
-    if lpr and lpr.get("change") is not None:
-        liquidity_votes.append(1 if lpr["change"] < 0 else (-1 if lpr["change"] > 0 else 0))
+    if lpr:
         liquidity_evidence.append(lpr["evidenceId"])
+    if m2 and lpr and m2.get("change") is not None and lpr.get("change") is not None:
+        liquidity_votes.append(1 if m2["change"] > 0 else (-1 if m2["change"] < 0 else 0))
+        liquidity_votes.append(1 if lpr["change"] < 0 else (-1 if lpr["change"] > 0 else 0))
     liquidity_score = sum(liquidity_votes)
     liquidity_signal = "positive" if liquidity_score > 0 else (
         "negative" if liquidity_score < 0 else ("neutral" if liquidity_votes else "unknown")
@@ -1083,7 +1569,15 @@ def _build_regime(indicators: list[dict[str, Any]]) -> dict[str, Any]:
     else:
         regime_label = "过渡混合"
         regime_summary = "增长、价格和流动性信号尚未形成一致方向，适合提高观察频率。"
-    evidence_ids = [item["evidenceId"] for item in indicators]
+    if not by_id:
+        regime_label = "数据不足，暂不判定"
+        regime_summary = "核心指标均已陈旧或缺失，历史记录不参与当前宏观状态判断。"
+    elif "unknown" in signals:
+        regime_label = "关键证据不足，暂不判定"
+        missing_dimensions = [label for label, signal in zip(("增长", "价格", "流动性"), signals) if signal == "unknown"]
+        regime_summary = f"{', '.join(missing_dimensions)}缺少成对且可比的有效观测；已有单项数据仅作线索，不形成完整宏观状态。"
+    core_ids = {"cn-pmi", "cn-gdp-yoy", "cn-cpi-yoy", "cn-ppi-yoy", "cn-m2-yoy", "cn-lpr-1y"}
+    evidence_ids = [item["evidenceId"] for item in by_id.values() if item["id"] in core_ids]
     transmission = [
         {
             "id": "growth-profit",
@@ -1154,10 +1648,50 @@ def _build_regime(indicators: list[dict[str, Any]]) -> dict[str, Any]:
         "confidence": {
             "level": "high" if confidence_score >= 0.75 else ("medium" if confidence_score >= 0.45 else "low"),
             "score": round(confidence_score, 4),
-            "rationale": f"{fresh_count}/{len(_INDICATORS)} 项核心指标处于合理更新窗口；聚合数据仍需回到原发布机构复核",
+            "rationale": f"{fresh_count}/{len(_INDICATORS)} 项核心指标处于合理更新窗口；这是数据时效覆盖率，不是判断正确的概率。聚合数据仍需回到原发布机构复核",
         },
         "transmission": transmission,
         "scenarios": scenarios,
+    }
+
+
+def _decision_review(regime: dict[str, Any], events: list[dict[str, Any]], gaps: list[dict[str, Any]]) -> dict[str, Any]:
+    """Traceable research adoption, not a position or return recommendation."""
+    dimensions = [(key, regime[key]) for key in ("growth", "inflation", "liquidity")]
+    supported = [dim for _key, dim in dimensions if dim["signal"] != "unknown" and dim["evidenceIds"]]
+    missing = [dim["label"] for _key, dim in dimensions if dim["signal"] == "unknown" or not dim["evidenceIds"]]
+    coverage = regime["confidence"]["score"]
+    can_review = len(supported) == 3 and coverage >= 0.75
+    evidence = [{"dimension": dim["label"], "signal": dim["signal"], "summary": dim["summary"], "evidenceIds": dim["evidenceIds"]} for dim in supported]
+    counter = []
+    if regime["growth"]["signal"] == "positive" and regime["liquidity"]["signal"] == "negative":
+        counter.append("增长信号偏强，但流动性边际偏弱；需确认增长能否持续。")
+    if regime["growth"]["signal"] == "negative" and regime["liquidity"]["signal"] == "positive":
+        counter.append("流动性改善尚未传导至增长，不能仅凭宽松信号判断复苏。")
+    if regime["inflation"]["signal"] == "positive" and regime["growth"]["signal"] == "negative":
+        counter.append("价格上行与增长偏弱并存，需区分供给冲击和需求改善。")
+    signals = [dim["signal"] for dim in supported]
+    if len(set(signals)) > 1 or "mixed" in signals:
+        counter.append("核心维度方向不一致，不能把单一改善信号直接推成资产上涨结论。")
+    relevant_events = [event for event in events if event["status"] == "scheduled" and event.get("regionGroup") in {"CN", "US"} and not event.get("conflictFields")]
+    review_events = [event for event in relevant_events if event["importance"] == "high"][:3]
+    if not review_events:
+        review_events = [event for event in relevant_events if event["importance"] == "medium"][:3]
+    if not review_events:
+        review_events = relevant_events[:3]
+    checks = [f"补齐{', '.join(missing)}的有效观测" ] if missing else []
+    if any(gap["capability"] == "official-primary-source-verification" for gap in gaps):
+        checks.append("关键序列需回到统计机构或央行原文复核；当前聚合源不能视为官方确认")
+    if any(gap["capability"].startswith("economic-calendar") or gap["capability"] == "primary-global-economic-calendar" for gap in gaps):
+        checks.append("经济日历存在来源或日期覆盖缺口，事件时间与评级不能视为完整")
+    return {
+        "adoption": "可采纳为待核验研究假设" if can_review else "暂缓采纳，先补证",
+        "thesis": regime["overall"]["label"] + "：" + regime["overall"]["summary"],
+        "scope": "当前状态仅由中国 PMI、GDP、CPI、PPI、M2 与 LPR 形成；美国指标是跨市场旁证。用于安排复核与跨模块研究，不直接推出仓位、资产涨跌或交易指令。",
+        "supportingEvidence": evidence,
+        "counterEvidence": counter,
+        "checks": checks,
+        "nextReviewEvents": [{"id": event["id"], "date": event["date"], "title": event["title"], "importance": event["importance"], "ratingBasis": (event.get("importanceBasis") or {}).get("kind", "unknown"), "evidenceId": event["evidenceId"]} for event in review_events],
     }
 
 
@@ -1171,6 +1705,11 @@ def build_macro_monitor(days: int = 7, today: date | None = None) -> dict[str, A
         indicators, indicator_source, indicator_gaps = indicator_future.result()
         events, calendar_sources, calendar_gaps = calendar_future.result()
         liquidity = liquidity_future.result()
+    regime = _build_regime(indicators)
+    gaps = [*indicator_gaps, *calendar_gaps, {
+        "capability": "official-primary-source-verification",
+        "reason": "aggregated_series_require_primary_source_confirmation",
+    }]
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
@@ -1179,14 +1718,13 @@ def build_macro_monitor(days: int = 7, today: date | None = None) -> dict[str, A
             "end": (current + timedelta(days=horizon_days)).isoformat(),
             "days": horizon_days,
         },
-        "regime": _build_regime(indicators),
+        "regime": regime,
+        "decisionReview": _decision_review(regime, events, gaps),
         "liquidity": liquidity,
         "indicators": indicators,
         "events": events,
+        "calendarCoverage": calendar_sources[-1].get("coverage") if calendar_sources else None,
         "sources": [indicator_source, *calendar_sources],
-        "gaps": [*indicator_gaps, *calendar_gaps, {
-            "capability": "official-primary-source-verification",
-            "reason": "aggregated_series_require_primary_source_confirmation",
-        }],
+        "gaps": gaps,
         "disclaimer": "宏观数据和事件日期可能修订；本页面只提供研究证据与监测线索，不构成资产配置或买卖建议。",
     }

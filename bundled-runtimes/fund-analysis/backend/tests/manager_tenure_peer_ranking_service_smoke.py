@@ -51,7 +51,19 @@ def main():
     assert result["metrics"]["record_breaking_days_ratio"]["rank"] == 3
     assert result["metrics"]["max_drawdown"]["rank"] == 3
     assert result["metrics"]["sharpe_ratio"]["rank"] == 3
-    assert result["methodology_version"] == "manager_tenure_same_period_peer_rank_v3"
+    assert result["methodology_version"] == "manager_tenure_exchange_calendar_peer_rank_v5"
+    assert result["metrics"]["sharpe_ratio"]["value"] == 0.9  # 本次净值统计，不是旧快照的0.8。
+
+    missing = ClassificationRepo()
+    summaries = missing.list_peer_period_nav_summaries('peer-active', '2025-01-01', '2025-12-31')
+    summaries[0]['sharpe_ratio'] = None
+    missing.list_peer_period_nav_summaries = lambda *args: summaries
+    old_risk = ManagerTenurePeerRankingService(missing).rank({
+        'fund_code': 'TARGET.OF', 'start_date': '2025-01-01', 'end_date': '2025-12-31',
+        'tenure_return': 0.30, 'sharpe_ratio': 100,
+    })
+    assert old_risk['metrics']['sharpe_ratio']['rank'] is None
+    assert old_risk['metrics']['sharpe_ratio']['value'] is None
 
     partial = ManagerTenurePeerRankingService(ClassificationRepo()).rank({
         "fund_code": "TARGET.OF",

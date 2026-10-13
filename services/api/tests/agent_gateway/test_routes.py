@@ -132,6 +132,34 @@ def _sse_records(body: str) -> list[dict[str, object]]:
     return records
 
 
+@pytest.mark.parametrize(
+    ("module_id", "capability", "requested_scope", "effective_scope"),
+    [
+        ("earnings-workbench", "module.explain", None, "task"),
+        ("earnings-workbench", "module.analyze", "user-agent-mod", "task"),
+        ("earnings-workbench", None, "user-agent-mod", "task"),
+        ("earnings-workbench", "module.edit", "user-agent-mod", "user-agent-mod"),
+        ("industry-map", "module.explain", "user-agent-mod", "user-agent-mod"),
+    ],
+)
+def test_earnings_analysis_uses_task_memory_at_the_gateway(
+    client: TestClient,
+    fake_adapter: FakeAgentAdapter,
+    module_id: str,
+    capability: str | None,
+    requested_scope: str | None,
+    effective_scope: str,
+) -> None:
+    payload = {"moduleId": module_id, "capability": capability, "prompt": "分析当前底稿"}
+    if requested_scope is not None:
+        payload["memoryScope"] = requested_scope
+    response = client.post("/api/agent/tasks", json=payload)
+    assert response.status_code == 202
+    task = _wait_for_status(client, response.json()["id"], "completed")
+    assert task["request"]["memoryScope"] == effective_scope
+    assert fake_adapter.requests[-1].memory_scope == effective_scope
+
+
 def test_capability_discovery_lists_adapters_and_module_actions(
     client: TestClient,
 ) -> None:
@@ -167,6 +195,56 @@ def test_create_task_returns_202_and_persists_completion(
     completed = _wait_for_status(client, task_id, "completed")
     assert completed["result"] == {"answer": "fake: hello"}
     assert fake_adapter.requests[0].prompt == "hello"
+
+
+def test_current_request_evidence_wins_over_stored_mod_context(
+    client: TestClient,
+    fake_adapter: FakeAgentAdapter,
+) -> None:
+    client.app.state.mod_context_store.put(
+        user_id="alice",
+        workspace_id="desk-1",
+        module_id="market-daily",
+        instance_id="old-instance",
+        revision=7,
+        context={"view": {"id": "old", "title": "旧页面"}},
+    )
+    created = client.post(
+        "/api/agent/tasks",
+        headers={"X-User-Id": "alice", "X-Workspace-Id": "desk-1"},
+        json={
+            "moduleId": "market-daily",
+            "prompt": "解释当前页面",
+            "context": {
+                "vibedesk": {
+                    "mod": {
+                        "id": "market-daily",
+                        "name": "市场行情",
+                        "version": "1.2.3",
+                    },
+                    "page": {"view": {"id": "current", "title": "当前页面"}},
+                    "visual": {
+                        "image": {
+                            "artifactId": "0123456789abcdef0123456789abcdef"
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    assert created.status_code == 202
+    _wait_for_status(client, created.json()["id"], "completed")
+    vibedesk = fake_adapter.requests[0].context["vibedesk"]
+    assert vibedesk["page"]["view"]["id"] == "current"
+    assert vibedesk["mod"] == {
+        "id": "market-daily",
+        "name": "市场行情",
+        "version": "1.2.3",
+        "revision": 7,
+    }
+    assert vibedesk["visual"]["image"]["artifactId"].startswith("012345")
+    assert "storedContextUpdatedAt" in vibedesk
 
 
 def test_agent_preferences_can_select_default_and_module_override(

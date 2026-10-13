@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, UTC
 from typing import Optional, Any
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from services.tushare_service import TushareDataService
 from services.cache_service import (
@@ -51,6 +51,10 @@ class SyncManagerRequest(BaseModel):
     manager_id: str
     include_profile: bool = True
     include_funds: bool = True
+
+
+class RefreshNavRequest(BaseModel):
+    lookback_days: int = Field(default=30, ge=7, le=90)
 
 
 class SyncBatchRequest(BaseModel):
@@ -216,6 +220,7 @@ def _sync_fund(
     holdings_sync = []
     asset_allocation_sync = None
     holder_structure_sync = None
+    nav_saved = False
     nav_enrichment = {
         "benchmark_data_status": "not_checked",
         "benchmark_observations": 0,
@@ -290,7 +295,11 @@ def _sync_fund(
                 performance_data = fund_payload.get("performance_data") or {}
                 performance_data.update(nav_enrichment.get("performance_facts") or {})
                 fund_payload["performance_data"] = performance_data
-                nav_repo.upsert_nav_series(wind_code, nav_data, replace_range=True)
+                nav_saved = nav_repo.upsert_nav_series(wind_code, nav_data, replace_range=True)
+                if not nav_saved:
+                    raise ValueError("净值写入失败，已回滚本次净值事务")
+            else:
+                raise ValueError("数据源未返回净值")
         except Exception as e:
             errors.append(f"[{wind_code}] 净值数据错误: {e}")
 
@@ -368,7 +377,7 @@ def _sync_fund(
             _upsert_research_profile_from_sync(wind_code, fund_payload, manager_tenure_start)
         except Exception as e:
             warnings.append(f"[{wind_code}] 研究画像/经理任期起点维护失败: {e}")
-        if include_nav:
+        if include_nav and nav_saved:
             try:
                 rolling_metrics = RollingMetricService().calculate_and_save_for_fund(
                     wind_code,
@@ -496,6 +505,49 @@ def _run_batch_sync(task_id: str, params: dict):
 # ─────────────────────────────────────────────
 # API 端点
 # ─────────────────────────────────────────────
+
+
+@router.post("/funds/{wind_code}/nav-refresh")
+def refresh_fund_nav(wind_code: str, request: RefreshNavRequest):
+    """定向刷新近期净值；复用既有库存，不触发全基金或评分同步。"""
+    if not get_fund_repo().get_fund(wind_code):
+        raise HTTPException(404, "基金不存在")
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=request.lookback_days)
+    repo = get_nav_repo()
+    storage_evidence = repo.get_storage_evidence()
+    previous = repo.get_nav_series(wind_code, start_date.isoformat(), end_date.isoformat())
+    previous_latest = max((str(row["date"])[:10] for row in previous), default=None)
+    try:
+        rows = get_strict_tushare_service().get_fund_nav(wind_code, start_date.isoformat(), end_date.isoformat())
+    except Exception:
+        logger.exception("NAV refresh source failed for %s", wind_code)
+        raise HTTPException(502, "官方净值读取失败，请稍后重试")
+    if not rows:
+        raise HTTPException(422, "该区间没有可用净值，原库存已保留")
+    if not repo.upsert_nav_series(wind_code, rows, update_latest=True):
+        raise HTTPException(500, "净值保存失败，本次写入已回滚")
+    invalidate_fund_cache(wind_code)
+    latest = max(str(row["date"])[:10] for row in rows)
+    return {
+        "status": "synced",
+        "wind_code": wind_code,
+        "source": "tushare.fund_nav",
+        "requested_start_date": start_date.isoformat(),
+        "requested_end_date": end_date.isoformat(),
+        "previous_latest_date": previous_latest,
+        "latest_nav_date": latest,
+        "observations": len(rows),
+        "adjusted_observations": sum(row.get("adj_nav") is not None for row in rows),
+        "metrics_recalculated": False,
+        "storage_evidence": storage_evidence,
+    }
+
+
+@router.get('/nav-storage')
+def get_nav_storage_evidence():
+    """只读查看净值来源字段承载能力，不触发迁移或抓取。"""
+    return get_nav_repo().get_storage_evidence()
 
 
 @router.get("/funds/{wind_code}")

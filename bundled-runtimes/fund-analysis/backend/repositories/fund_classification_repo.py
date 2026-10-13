@@ -1,7 +1,7 @@
 """标准化基金分类数据库 Adapter。"""
 import hashlib
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -373,13 +373,20 @@ class FundClassificationRepo:
             return []
 
         from sqlalchemy import text
+        from services.fund_trading_calendar import get_trading_calendar, DOMESTIC_FUND_TYPES, CROSS_MARKET_PATTERN
+        from datetime import date
+
+        calendar = get_trading_calendar()
+        calendar_days = calendar.open_days(date.fromisoformat(str(start_date)[:10]), date.fromisoformat(str(end_date)[:10])) if calendar else None
 
         sql = f"""
             WITH eligible_shares AS (
                 SELECT
                     fe.id AS entity_id,
                     fsc.wind_code,
-                    fsc.is_primary
+                    fsc.is_primary,
+                    (fund_status.type = ANY(:domestic_fund_types)
+                     AND CONCAT_WS(' ', fund_status.type, fund_status.name) !~* :cross_market_pattern) AS calendar_applicable
                 FROM peer_group_members pgm
                 JOIN fund_entities fe ON fe.id = pgm.entity_id
                 JOIN fund_share_classes fsc
@@ -396,16 +403,20 @@ class FundClassificationRepo:
                     share.entity_id,
                     share.wind_code,
                     share.is_primary,
+                    share.calendar_applicable,
                     nav.trade_date,
-                    COALESCE(nav.accum_nav, nav.unit_nav, nav.nav) AS nav_value
+                    CASE WHEN nav.adj_nav > 0 AND nav.adj_nav < 'Infinity'::numeric
+                         THEN nav.adj_nav END AS nav_value
                 FROM eligible_shares share
                 JOIN fund_nav nav ON nav.wind_code = share.wind_code
                 WHERE nav.trade_date BETWEEN :start_date AND :end_date
-                  AND COALESCE(nav.accum_nav, nav.unit_nav, nav.nav) > 0
             ),
             share_path AS (
                 SELECT
                     share_nav.*,
+                    trade_date - LAG(trade_date) OVER (
+                        PARTITION BY entity_id, wind_code ORDER BY trade_date
+                    ) AS gap_days,
                     LAG(nav_value) OVER (
                         PARTITION BY entity_id, wind_code
                         ORDER BY trade_date
@@ -422,35 +433,66 @@ class FundClassificationRepo:
                     ) AS previous_peak
                 FROM share_nav
             ),
-            share_period AS (
+            risk_path AS (
+                SELECT entity_id, wind_code, nav_value,
+                       LAG(nav_value) OVER (PARTITION BY entity_id, wind_code ORDER BY trade_date) AS previous_nav
+                FROM share_nav
+                WHERE NOT calendar_applicable
+                   OR trade_date = ANY(CAST(:calendar_open_days AS date[]))
+            ),
+            risk_statistics AS (
+                SELECT entity_id, wind_code,
+                    STDDEV_SAMP(CASE WHEN previous_nav > 0 THEN nav_value / previous_nav - 1 END) * SQRT(252.0)
+                        AS raw_annualized_volatility,
+                    (AVG(CASE WHEN previous_nav > 0 THEN nav_value / previous_nav - 1 END) * 252.0 - 0.02)
+                        / NULLIF(STDDEV_SAMP(CASE WHEN previous_nav > 0 THEN nav_value / previous_nav - 1 END) * SQRT(252.0), 0)
+                        AS raw_sharpe_ratio
+                FROM risk_path
+                GROUP BY entity_id, wind_code
+            ),
+            share_statistics AS (
                 SELECT
                     entity_id,
                     wind_code,
                     is_primary,
-                    MIN(trade_date) AS first_date,
-                    MAX(trade_date) AS last_date,
-                    COUNT(*)::int AS observations,
-                    (ARRAY_AGG(nav_value ORDER BY trade_date ASC))[1] AS first_nav,
-                    (ARRAY_AGG(nav_value ORDER BY trade_date DESC))[1] AS last_nav,
+                    calendar_applicable,
+                    MIN(trade_date) FILTER (WHERE nav_value IS NOT NULL) AS first_date,
+                    MAX(trade_date) FILTER (WHERE nav_value IS NOT NULL) AS last_date,
+                    COUNT(nav_value)::int AS observations,
+                    COUNT(*)::int AS recorded_observations,
+                    COUNT(nav_value) FILTER (WHERE trade_date = ANY(CAST(:calendar_open_days AS date[])))::int AS calendar_observations,
+                    COUNT(*) = COUNT(nav_value) AND MAX(gap_days) <= 7
+                        AND (COUNT(nav_value) - 1)::numeric / GREATEST(MAX(trade_date) - MIN(trade_date), 1) >= 0.5
+                        AS conservative_daily_risk_eligible,
+                    (ARRAY_AGG(nav_value ORDER BY trade_date ASC) FILTER (WHERE nav_value IS NOT NULL))[1] AS first_nav,
+                    (ARRAY_AGG(nav_value ORDER BY trade_date DESC) FILTER (WHERE nav_value IS NOT NULL))[1] AS last_nav,
                     AVG(
-                        CASE WHEN previous_peak IS NULL OR nav_value > previous_peak THEN 1.0 ELSE 0.0 END
+                        CASE WHEN nav_value IS NULL THEN NULL
+                             WHEN previous_peak IS NULL OR nav_value > previous_peak THEN 1.0 ELSE 0.0 END
                     ) AS record_breaking_days_ratio,
-                    MIN(nav_value / NULLIF(running_peak, 0) - 1) AS max_drawdown,
-                    STDDEV_SAMP(
-                        CASE WHEN previous_nav > 0 THEN nav_value / previous_nav - 1 END
-                    ) * SQRT(252.0) AS annualized_volatility,
-                    CASE
-                        WHEN STDDEV_SAMP(
-                            CASE WHEN previous_nav > 0 THEN nav_value / previous_nav - 1 END
-                        ) > 0
-                        THEN (
-                            AVG(CASE WHEN previous_nav > 0 THEN nav_value / previous_nav - 1 END) * 252.0 - 0.02
-                        ) / (
-                            STDDEV_SAMP(CASE WHEN previous_nav > 0 THEN nav_value / previous_nav - 1 END) * SQRT(252.0)
-                        )
-                    END AS sharpe_ratio
+                    MIN(nav_value / NULLIF(running_peak, 0) - 1) AS max_drawdown
                 FROM share_path
-                GROUP BY entity_id, wind_code, is_primary
+                GROUP BY entity_id, wind_code, is_primary, calendar_applicable
+                HAVING COUNT(nav_value) >= 2
+            ),
+            share_calendar AS (
+                SELECT share_statistics.*,
+                    CASE WHEN calendar_applicable THEN
+                        :calendar_covered AND observations = recorded_observations
+                        AND calendar_observations >= 2
+                        AND calendar_observations = (
+                            SELECT COUNT(*) FROM UNNEST(CAST(:calendar_open_days AS date[])) AS expected(day)
+                            WHERE expected.day BETWEEN first_date AND last_date
+                        )
+                    ELSE conservative_daily_risk_eligible END AS daily_risk_eligible
+                FROM share_statistics
+            ),
+            share_period AS (
+                SELECT share_calendar.*,
+                       CASE WHEN daily_risk_eligible THEN raw_annualized_volatility END AS annualized_volatility,
+                       CASE WHEN daily_risk_eligible THEN raw_sharpe_ratio END AS sharpe_ratio
+                FROM share_calendar
+                LEFT JOIN risk_statistics USING (entity_id, wind_code)
             ),
             ranked_share AS (
                 SELECT
@@ -476,7 +518,16 @@ class FundClassificationRepo:
                 record_breaking_days_ratio,
                 max_drawdown,
                 annualized_volatility,
-                sharpe_ratio
+                sharpe_ratio,
+                'adj_nav' AS nav_basis,
+                CASE WHEN calendar_applicable AND :calendar_covered
+                     THEN observations - calendar_observations END AS off_calendar_observations,
+                CASE WHEN calendar_applicable AND :calendar_covered
+                     THEN calendar_observations ELSE observations END AS risk_observations,
+                CASE WHEN calendar_applicable THEN
+                    CASE WHEN NOT :calendar_covered THEN 'unavailable'
+                         WHEN daily_risk_eligible THEN 'verified' ELSE 'incomplete_nav' END
+                    ELSE 'not_configured' END AS calendar_status
             FROM ranked_share
             WHERE share_rank = 1
             ORDER BY wind_code ASC
@@ -486,6 +537,10 @@ class FundClassificationRepo:
                 "peer_group_id": normalized_group,
                 "start_date": start_date,
                 "end_date": end_date,
+                "domestic_fund_types": list(DOMESTIC_FUND_TYPES),
+                "cross_market_pattern": CROSS_MARKET_PATTERN,
+                "calendar_covered": calendar_days is not None,
+                "calendar_open_days": sorted(calendar_days or []),
             }).fetchall()
         return [_row_to_dict(row) for row in rows]
 
@@ -496,7 +551,7 @@ class FundClassificationRepo:
         end_date: Any,
         baseline_start_date: Any,
     ) -> List[Dict[str, Any]]:
-        """返回同类基金自然年度区间的期初、期末净值和覆盖证据。"""
+        """同类自然年复权端点及完整日期证据；不删除NULL后回退旧端点。"""
         normalized_group = str(peer_group_id or "").strip()
         if (
             not normalized_group
@@ -508,13 +563,20 @@ class FundClassificationRepo:
             return []
 
         from sqlalchemy import text
+        from services.fund_trading_calendar import get_trading_calendar, DOMESTIC_FUND_TYPES, CROSS_MARKET_PATTERN
+        calendar = get_trading_calendar()
+        opened = calendar.open_days(date.fromisoformat(str(start_date)[:10]), date.fromisoformat(str(end_date)[:10])) if calendar else None
+        prior = calendar.open_days(date.fromisoformat(str(start_date)[:10]) - timedelta(days=15), date.fromisoformat(str(start_date)[:10]) - timedelta(days=1)) if calendar else None
 
         sql = f"""
             WITH eligible_shares AS (
-                SELECT
+                SELECT DISTINCT
                     fe.id AS entity_id,
                     fsc.wind_code,
-                    fsc.is_primary
+                    fsc.is_primary,
+                    CASE WHEN fund_status.type = ANY(:domestic_fund_types)
+                              AND CONCAT_WS(' ', fund_status.type, fund_status.name) !~* :cross_market_pattern
+                         THEN 'SSE' END AS risk_calendar
                 FROM peer_group_members pgm
                 JOIN fund_entities fe ON fe.id = pgm.entity_id
                 JOIN fund_share_classes fsc
@@ -526,85 +588,43 @@ class FundClassificationRepo:
                   AND fe.lifecycle_stage = 'active'
                   AND ({active_fund_sql('fund_status')})
             ),
-            share_coverage AS (
+            nav_points AS (
                 SELECT
-                    share.entity_id,
-                    share.wind_code,
-                    share.is_primary,
-                    COUNT(*) FILTER (
-                        WHERE nav.trade_date BETWEEN :start_date AND :end_date
-                    )::int AS period_observations,
-                    COUNT(*)::int AS total_observations,
-                    COUNT(nav.accum_nav)::int AS accum_observations
+                    share.*, nav.trade_date,
+                    CASE WHEN nav.adj_nav > 0 AND nav.adj_nav < 'Infinity'::numeric THEN nav.adj_nav END AS nav_value
                 FROM eligible_shares share
                 JOIN fund_nav nav ON nav.wind_code = share.wind_code
                 WHERE nav.trade_date BETWEEN :baseline_start_date AND :end_date
-                  AND COALESCE(nav.accum_nav, nav.unit_nav, nav.nav) > 0
-                GROUP BY share.entity_id, share.wind_code, share.is_primary
-                HAVING COUNT(*) FILTER (
-                    WHERE nav.trade_date BETWEEN :start_date AND :end_date
-                ) >= 2
             ),
-            selected_shares AS (
+            share_statistics AS (
                 SELECT
-                    entity_id,
-                    wind_code,
-                    CASE
-                        WHEN accum_observations >= GREATEST(2, CEIL(total_observations * 0.9))
-                        THEN 'accum_nav'
-                        ELSE 'unit_nav'
-                    END AS nav_basis
-                FROM (
-                    SELECT
-                        share_coverage.*,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY entity_id
-                            ORDER BY
-                                period_observations DESC,
-                                total_observations DESC,
-                                is_primary DESC,
-                                wind_code ASC
-                        ) AS share_rank
-                    FROM share_coverage
-                ) ranked
-                WHERE share_rank = 1
+                    entity_id, wind_code, is_primary, risk_calendar,
+                    'adj_nav' AS nav_basis,
+                    (ARRAY_AGG(trade_date ORDER BY trade_date DESC) FILTER (WHERE trade_date < :start_date))[1] AS baseline_date,
+                    (ARRAY_AGG(nav_value ORDER BY trade_date DESC) FILTER (WHERE trade_date < :start_date))[1] AS baseline_nav,
+                    MIN(trade_date) FILTER (WHERE trade_date >= :start_date AND nav_value IS NOT NULL) AS first_date,
+                    (ARRAY_AGG(nav_value ORDER BY trade_date ASC) FILTER (WHERE trade_date >= :start_date AND nav_value IS NOT NULL))[1] AS first_nav,
+                    MAX(trade_date) FILTER (WHERE trade_date >= :start_date AND nav_value IS NOT NULL) AS last_date,
+                    (ARRAY_AGG(nav_value ORDER BY trade_date DESC) FILTER (WHERE trade_date >= :start_date AND nav_value IS NOT NULL))[1] AS last_nav,
+                    MAX(trade_date) FILTER (WHERE trade_date >= :start_date) AS last_record_date,
+                    (ARRAY_AGG(nav_value ORDER BY trade_date DESC) FILTER (WHERE trade_date >= :start_date))[1] AS last_record_nav,
+                    COUNT(nav_value) FILTER (WHERE trade_date >= :start_date)::int AS observations,
+                    COUNT(*) FILTER (WHERE trade_date >= :start_date AND nav_value IS NULL)::int AS missing_observations,
+                    ARRAY_AGG(trade_date ORDER BY trade_date) FILTER (WHERE trade_date >= :start_date AND nav_value IS NOT NULL) AS valid_dates,
+                    COUNT(nav_value) FILTER (WHERE trade_date = ANY(CAST(:open_days AS date[])))::int AS calendar_observations
+                FROM nav_points
+                GROUP BY entity_id, wind_code, is_primary, risk_calendar
             ),
-            nav_points AS (
-                SELECT
-                    selected.entity_id,
-                    selected.wind_code,
-                    selected.nav_basis,
-                    nav.trade_date,
-                    CASE
-                        WHEN selected.nav_basis = 'accum_nav' THEN nav.accum_nav
-                        ELSE COALESCE(nav.unit_nav, nav.nav)
-                    END AS nav_value
-                FROM selected_shares selected
-                JOIN fund_nav nav ON nav.wind_code = selected.wind_code
-                WHERE nav.trade_date BETWEEN :baseline_start_date AND :end_date
+            ranked AS (
+                SELECT share_statistics.*,
+                       ROW_NUMBER() OVER (PARTITION BY entity_id ORDER BY
+                           (:calendar_covered AND risk_calendar = 'SSE' AND calendar_observations = :open_count
+                            AND missing_observations = 0 AND baseline_nav IS NOT NULL AND last_record_nav IS NOT NULL
+                            AND baseline_date >= :required_prior_date AND last_date >= :required_end_date) DESC NULLS LAST,
+                           observations DESC, is_primary DESC, wind_code ASC) AS share_rank
+                FROM share_statistics
             )
-            SELECT
-                entity_id,
-                wind_code,
-                nav_basis,
-                (ARRAY_AGG(trade_date ORDER BY trade_date DESC)
-                    FILTER (WHERE trade_date < :start_date AND nav_value > 0))[1] AS baseline_date,
-                (ARRAY_AGG(nav_value ORDER BY trade_date DESC)
-                    FILTER (WHERE trade_date < :start_date AND nav_value > 0))[1] AS baseline_nav,
-                (ARRAY_AGG(trade_date ORDER BY trade_date ASC)
-                    FILTER (WHERE trade_date BETWEEN :start_date AND :end_date AND nav_value > 0))[1] AS first_date,
-                (ARRAY_AGG(nav_value ORDER BY trade_date ASC)
-                    FILTER (WHERE trade_date BETWEEN :start_date AND :end_date AND nav_value > 0))[1] AS first_nav,
-                (ARRAY_AGG(trade_date ORDER BY trade_date DESC)
-                    FILTER (WHERE trade_date BETWEEN :start_date AND :end_date AND nav_value > 0))[1] AS last_date,
-                (ARRAY_AGG(nav_value ORDER BY trade_date DESC)
-                    FILTER (WHERE trade_date BETWEEN :start_date AND :end_date AND nav_value > 0))[1] AS last_nav,
-                COUNT(*) FILTER (
-                    WHERE trade_date BETWEEN :start_date AND :end_date AND nav_value > 0
-                )::int AS observations
-            FROM nav_points
-            GROUP BY entity_id, wind_code, nav_basis
-            ORDER BY wind_code ASC
+            SELECT * FROM ranked WHERE share_rank = 1 ORDER BY wind_code ASC
         """
         with self.engine.connect() as conn:
             rows = conn.execute(text(sql), {
@@ -612,6 +632,9 @@ class FundClassificationRepo:
                 "start_date": start_date,
                 "end_date": end_date,
                 "baseline_start_date": baseline_start_date,
+                "domestic_fund_types": list(DOMESTIC_FUND_TYPES), "cross_market_pattern": CROSS_MARKET_PATTERN,
+                "open_days": sorted(opened or []), "open_count": len(opened or []), "calendar_covered": opened is not None,
+                "required_prior_date": max(prior) if prior else start_date, "required_end_date": max(opened) if opened else end_date,
             }).fetchall()
         return [_row_to_dict(row) for row in rows]
 
@@ -620,8 +643,9 @@ class FundClassificationRepo:
         peer_group_id: str,
         start_date: Any,
         end_date: Any,
+        exclude_code: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """返回同类组每个基金实体净值覆盖最完整的代表份额日序列。"""
+        """返回同类组每个实体复权净值覆盖最完整的代表份额，保留日期缺口。"""
         normalized_group = str(peer_group_id or "").strip()
         if not normalized_group or not start_date or not end_date or not self._schema_ready():
             return []
@@ -643,6 +667,10 @@ class FundClassificationRepo:
                 WHERE pgm.peer_group_id = :peer_group_id
                   AND pgm.role <> 'excluded'
                   AND fe.lifecycle_stage = 'active'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM fund_share_classes own_share
+                      WHERE own_share.entity_id = fe.id AND own_share.wind_code = :exclude_code
+                  )
                   AND ({active_fund_sql('fund_status')})
             ),
             share_coverage AS (
@@ -656,7 +684,7 @@ class FundClassificationRepo:
                 FROM eligible_shares share
                 JOIN fund_nav nav ON nav.wind_code = share.wind_code
                 WHERE nav.trade_date BETWEEN :start_date AND :end_date
-                  AND COALESCE(nav.accum_nav, nav.unit_nav, nav.nav) > 0
+                  AND nav.adj_nav > 0 AND nav.adj_nav < 'Infinity'::numeric
                 GROUP BY share.entity_id, share.wind_code, share.is_primary
             ),
             selected_shares AS (
@@ -678,11 +706,11 @@ class FundClassificationRepo:
                 nav.trade_date,
                 nav.unit_nav,
                 nav.nav,
-                nav.accum_nav
+                nav.accum_nav,
+                nav.adj_nav
             FROM selected_shares selected
             JOIN fund_nav nav ON nav.wind_code = selected.wind_code
             WHERE nav.trade_date BETWEEN :start_date AND :end_date
-              AND COALESCE(nav.accum_nav, nav.unit_nav, nav.nav) > 0
             ORDER BY selected.wind_code, nav.trade_date
         """
         with self.engine.connect() as conn:
@@ -690,6 +718,7 @@ class FundClassificationRepo:
                 "peer_group_id": normalized_group,
                 "start_date": start_date,
                 "end_date": end_date,
+                "exclude_code": exclude_code,
             }).fetchall()
         return [_row_to_dict(row) for row in rows]
 

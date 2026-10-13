@@ -246,7 +246,7 @@ assertIncludes(analysisWorkspace, 'fund_evaluation_analysis', 'analysis history 
 const reportsApi = read('app/api/reports/route.ts')
 const reportDetailApi = read('app/api/reports/[id]/route.ts')
 const reportsPage = read('app/(dashboard)/reports/page.tsx')
-const reportDetailPage = read('app/(dashboard)/reports/[id]/page.tsx')
+const reportDetailPage = read('app/(dashboard)/reports/[id]/ReportDetailClient.tsx')
 assertIncludes(reportsApi, 'comparisonDecisiveAuditFromSources', 'reports list API derives decisive audit for saved comparison reports')
 assertIncludes(reportsApi, 'buildComparisonDecisiveAudit(winLossLines)', 'reports list API backfills decisive audit from win/loss lines')
 assertIncludes(reportsApi, 'decisiveAudit,', 'reports list API exposes decisive audit')

@@ -56,7 +56,7 @@ function SettingsPageShell({
         </h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
           {showEmbeddedCopy
-            ? "配置量化数据源、运行通道和领域服务；Agent 由 VibeDesk 统一管理。"
+            ? "配置量化数据源、运行通道和领域服务；Agent 由 Newma Runtime 统一管理。"
             : "Configure model credentials and market data source tokens for this local project."}
         </p>
       </div>
@@ -66,9 +66,9 @@ function SettingsPageShell({
           <div className="flex items-start gap-3">
             <Server className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
             <div className="space-y-1">
-              <h2 className="text-base font-semibold">Agent 由 VibeDesk 统一提供</h2>
+              <h2 className="text-base font-semibold">Agent 由 Newma Runtime 统一提供</h2>
               <p className="text-sm text-muted-foreground">
-                模型、CLI 和长期上下文请在 VibeDesk 的“Agent 设置”中管理；本页仅保留量化系统自身的数据源与运行配置。
+                模型、会话、Skills、工具权限与长期上下文由 Newma 管理；本页仅保留量化系统自身的数据源与运行配置。
               </p>
             </div>
           </div>

@@ -13,7 +13,6 @@ from sqlalchemy.exc import OperationalError
 
 from ..models import Message
 from .llm_client import DEFAULT_TOOL_PROMPTS, load_ai_config, siliconflow_tool_chat
-from .desk_agent import DeskAgentClient
 
 # Optional JSON5 for lenient parsing; fall back to stdlib json when unavailable
 try:  # pragma: no cover - optional dependency
@@ -25,46 +24,6 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-CLI_BATCH_PROMPTS = {
-    "message_summary",
-    "email_message_summary",
-    "minutes_summary",
-    "minutes_refine",
-    "media_content_summary",
-    "mp_content_summary",
-}
-CLI_TASK_META = {
-    "message_summary": (
-        "deepsee-wechat",
-        "deepsee.wechat.batch-summarize",
-        "message-summary",
-    ),
-    "email_message_summary": (
-        "deepsee-email",
-        "deepsee.email.batch-summarize",
-        "email-summary",
-    ),
-    "minutes_summary": (
-        "deepsee-minutes",
-        "deepsee.minutes.batch-summarize",
-        "minutes-summary",
-    ),
-    "minutes_refine": (
-        "deepsee-minutes",
-        "deepsee.minutes.batch-refine",
-        "minutes-refine",
-    ),
-    "media_content_summary": (
-        "deepsee-media",
-        "deepsee.media.batch-summarize",
-        "media-summary",
-    ),
-    "mp_content_summary": (
-        "deepsee-official-accounts",
-        "deepsee.official-accounts.batch-summarize",
-        "mp-summary",
-    ),
-}
 CLI_BATCH_LIMITS = {
     "message_summary": 100,
     "email_message_summary": 50,
@@ -208,12 +167,6 @@ def extract_message_features(
 
     conf = load_ai_config()
     tool_prompt_conf = (conf.get("tool_prompts") or {}).get(prompt_key) or DEFAULT_TOOL_PROMPTS.get(prompt_key) or DEFAULT_TOOL_PROMPTS["message_summary"]
-    desk_agent = DeskAgentClient.from_config(conf) if prompt_key in CLI_BATCH_PROMPTS else None
-    # Keep the number of gateway tasks bounded when CLI batch routing is on.
-    # The gateway limits active CLI processes; this avoids creating a large
-    # backlog of HTTP tasks for a single summary run.
-    if desk_agent is not None:
-        concurrency = min(concurrency, 3)
 
     # 准备消息
     prepared: List[Dict[str, Any]] = []
@@ -426,23 +379,6 @@ def extract_message_features(
             "summary_origin": str(item.get("summary_origin") or "tool").strip(),
         }
 
-    def _local_fallback(item: Dict[str, Any]) -> Dict[str, Any]:
-        text = re.sub(r"\s+", " ", str(item.get("content") or "")).strip()
-        summary = text[:80].rstrip("，,；;。 ") if text else "信息有限"
-        return {
-            "summary": f"ai: {summary}",
-            "summary_origin": "fallback",
-            "meeting_number": "",
-            "tone": "neutral",
-            "confidence": 0.0,
-            "refined": "",
-            "key_points": [],
-            "comment": "",
-            "keywords": [],
-            "platform": "",
-            "category": "",
-        }
-
     def _process_batch(batch: List[Dict[str, Any]]) -> tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
         batch_ids = [str(x.get("id") or "").strip() for x in batch]
         batch_tag = ",".join(batch_ids[:3]) + ("..." if len(batch_ids) > 3 else "")
@@ -454,30 +390,12 @@ def extract_message_features(
                 tool_prompt_conf,
                 prompt_key=prompt_key,
             )
-            if desk_agent is not None:
-                module_id, capability, operation = CLI_TASK_META.get(
-                    prompt_key,
-                    (
-                        "deepsee-news",
-                        "deepsee.news.batch-analyze",
-                        prompt_key,
-                    ),
-                )
-                content = desk_agent.summarize(
-                    batch,
-                    prompt,
-                    module_id=module_id,
-                    capability=capability,
-                    operation=operation,
-                )
-                source = "desk-agent"
-            else:
-                content = siliconflow_tool_chat(
-                    prompt,
-                    temperature=temperature,
-                    model_override=model_override,
-                    route_key=route_key,
-                )
+            content = siliconflow_tool_chat(
+                prompt,
+                temperature=temperature,
+                model_override=model_override,
+                route_key=route_key,
+            )
             data = _parse_response_content(content, batch_tag or "batch")
 
             items: List[Any] = []
@@ -509,13 +427,6 @@ def extract_message_features(
             returned_count = len(items)
             matched_count = len(out)
             missing_ids = [bid for bid in batch_ids if bid and bid not in out]
-            if desk_agent is not None:
-                by_id = {str(item.get("id") or ""): item for item in batch}
-                for bid in missing_ids:
-                    out[bid] = _local_fallback(by_id.get(bid) or {})
-                if missing_ids:
-                    errors.append(f"{batch_tag}: CLI 返回缺少 {len(missing_ids)} 条，已本地兜底")
-
             dbg = [{
                 "id": bid,
                 "ok": (bid in out),
@@ -524,7 +435,7 @@ def extract_message_features(
                 "returned_count": returned_count,
                 "matched_count": matched_count,
                 "missing_count": len(missing_ids),
-                "local_fallback": bid in missing_ids and desk_agent is not None,
+                "local_fallback": False,
                 "raw": (content[:500] if isinstance(content, str) else str(type(content))),
             } for bid in batch_ids]
             return out, dbg
@@ -545,16 +456,10 @@ def extract_message_features(
                     raw_preview[:800] if raw_preview else "(无返回内容)",
                 )
             fallback_out: Dict[str, Dict[str, Any]] = {}
-            if desk_agent is not None:
-                fallback_out = {
-                    str(item.get("id") or ""): _local_fallback(item)
-                    for item in batch
-                    if str(item.get("id") or "")
-                }
             dbg = [{
                 "id": bid,
                 "ok": bid in fallback_out,
-                "source": "desk-agent" if desk_agent is not None else source,
+                "source": source,
                 "input_count": len(batch_ids),
                 "returned_count": 0,
                 "matched_count": 0,

@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone
 
 from ..fetcher import Fetcher
+from ..source_time import parse_rss_time as _parse_published, source_cache_timing
 
 try:
     import feedparser
@@ -48,31 +49,6 @@ _CACHE_TTL = 600  # 10 minutes
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _parse_published(entry: dict) -> str | None:
-    """Parse an RSS entry's published date to ISO 8601 UTC string."""
-    import time as _time
-
-    parsed_tuple = entry.get("published_parsed")
-    if parsed_tuple is not None:
-        try:
-            epoch = _time.mktime(parsed_tuple[:9])
-            dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
-            return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-        except (ValueError, TypeError, OverflowError):
-            pass
-
-    updated_tuple = entry.get("updated_parsed")
-    if updated_tuple is not None:
-        try:
-            epoch = _time.mktime(updated_tuple[:9])
-            dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
-            return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-        except (ValueError, TypeError, OverflowError):
-            pass
-
-    return entry.get("published") or entry.get("updated")
 
 
 def _extract_lab_mentions(text: str) -> list[str]:
@@ -127,6 +103,7 @@ async def fetch_ai_watch(
             return []
 
         parsed = feedparser.parse(xml_text)
+        timing = source_cache_timing(fetcher.cache, f"ai_watch:rss:{safe_name}")
         items: list[dict] = []
 
         for entry in parsed.get("entries", [])[:30]:
@@ -138,6 +115,8 @@ async def fetch_ai_watch(
                 "title": title,
                 "link": entry.get("link", ""),
                 "published": _parse_published(entry),
+                "updated": _parse_published(entry, "updated"),
+                **timing,
                 "summary": summary[:200] if len(summary) > 200 else summary,
                 "feed_name": name,
                 "category": category,
@@ -154,7 +133,7 @@ async def fetch_ai_watch(
 
     # Sort by published date descending
     all_items.sort(
-        key=lambda item: item.get("published") or "",
+        key=lambda item: item.get("published") or item.get("updated") or "",
         reverse=True,
     )
     all_items = all_items[:limit]

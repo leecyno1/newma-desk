@@ -20,6 +20,41 @@ _SessionLocal = None
 _initialized_database_url = None
 
 
+def load_shared_database_environment() -> None:
+    """Read only a literal DATABASE_URL from the explicitly selected local file."""
+    env_file = os.environ.get("NEWMA_DESK_FUND_DATABASE_ENV_FILE")
+    if os.environ.get("DATABASE_URL") or not env_file:
+        return
+    from dotenv import dotenv_values
+    database_url = dotenv_values(env_file, interpolate=False).get("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("基金数据库配置文件缺少 DATABASE_URL")
+    os.environ["DATABASE_URL"] = database_url
+
+
+def prepare_database(mode: str) -> None:
+    """Desk checks existing data; schema initialization must be an explicit mode."""
+    global _initialized_database_url
+    if mode == "initialize":
+        init_database()
+        return
+    if mode != "check":
+        raise ValueError("FUND_DATABASE_INIT_MODE must be check or initialize")
+    health = check_database_health(min_fund_count=1)
+    if health["status"] != "ok":
+        raise RuntimeError(f"基金数据库启动检查未通过：{health['status']}；未执行初始化")
+    from sqlalchemy import text
+    # The portfolio read path requires these existing tables/columns, not migrations.
+    with get_engine().connect() as conn:
+        conn.execute(text("SELECT adj_nav, benchmark_nav FROM fund_nav LIMIT 0"))
+        for table in ("portfolios", "portfolio_holdings", "portfolio_targets", "holding_style_snapshots"):
+            if not conn.execute(text("SELECT to_regclass(:table)"), {"table": f"public.{table}"}).scalar():
+                raise RuntimeError(f"基金数据库缺少 {table}；请另行确认迁移，启动未改库")
+    # Some repositories lazily call init_database before a write. A checked existing
+    # database must not silently run DDL later in this process either.
+    _initialized_database_url = get_database_url()
+
+
 def normalize_database_url(database_url: str) -> str:
     """兼容托管平台常见的 postgres:// 写法，SQLAlchemy 需要 postgresql://。"""
     if database_url.startswith("postgres://"):
@@ -343,6 +378,7 @@ def init_database():
             nav DECIMAL(10, 4),
             unit_nav DECIMAL(10, 4),
             accum_nav DECIMAL(10, 4),
+            adj_nav DECIMAL(12, 4),
             daily_return DECIMAL(12, 8),
             benchmark_nav DECIMAL(10, 4),
             discount_rate DECIMAL(12, 8),
@@ -429,6 +465,23 @@ def init_database():
             source_url TEXT,
             fetched_at TIMESTAMP NOT NULL DEFAULT NOW(),
             PRIMARY KEY (wind_code, report_date)
+        )""",
+        # 基金分红事件（tushare fund_div）：解释单位净值除息跳空、校验复权口径
+        """CREATE TABLE IF NOT EXISTS fund_dividends (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            wind_code VARCHAR(20) NOT NULL REFERENCES funds(wind_code) ON DELETE CASCADE,
+            ann_date DATE,
+            record_date DATE,
+            ex_date DATE,
+            pay_date DATE,
+            net_ex_date DATE,
+            div_proc VARCHAR(20),
+            div_cash DECIMAL(12, 6),
+            ear_amount DECIMAL(20, 4),
+            source VARCHAR(100) NOT NULL DEFAULT 'tushare.fund_div',
+            raw_data JSONB,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
         )""",
         # 基金半年报、年报披露的持有人结构历史
         """CREATE TABLE IF NOT EXISTS fund_holder_structures (
@@ -886,6 +939,7 @@ def init_database():
         "CREATE INDEX IF NOT EXISTS idx_nav_wind_code ON fund_nav(wind_code)",
         "CREATE INDEX IF NOT EXISTS idx_nav_date ON fund_nav(trade_date)",
         "CREATE INDEX IF NOT EXISTS idx_nav_wind_code_trade_date ON fund_nav(wind_code, trade_date)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ai_analysis_reports_target_key ON ai_analysis_reports(target_type, target_id, report_type)",
         "CREATE INDEX IF NOT EXISTS idx_scores_target ON scores(target_type, target_id)",
         "CREATE INDEX IF NOT EXISTS idx_scores_dimension ON scores(dimension)",
         "CREATE INDEX IF NOT EXISTS idx_fund_evaluation_history ON fund_evaluation_snapshots(wind_code, evaluation_window, created_at DESC)",
@@ -894,6 +948,7 @@ def init_database():
         "CREATE INDEX IF NOT EXISTS idx_holdings_quarter ON holdings(quarter)",
         "CREATE INDEX IF NOT EXISTS idx_holdings_industry ON holdings(industry)",
         "CREATE INDEX IF NOT EXISTS idx_fund_asset_allocations_report_date ON fund_asset_allocations(report_date)",
+        "CREATE INDEX IF NOT EXISTS idx_fund_dividends_wind_code_ex_date ON fund_dividends(wind_code, ex_date)",
         "CREATE INDEX IF NOT EXISTS idx_fund_holder_structures_report_date ON fund_holder_structures(report_date)",
         "CREATE INDEX IF NOT EXISTS idx_fund_bond_holdings_report_date ON fund_bond_holdings(report_date)",
         "CREATE INDEX IF NOT EXISTS idx_fund_bond_holdings_code ON fund_bond_holdings(bond_code)",
@@ -956,6 +1011,7 @@ def init_database():
 
     migrations = [
         "ALTER TABLE fund_nav ADD COLUMN IF NOT EXISTS unit_nav DECIMAL(10, 4)",
+        "ALTER TABLE fund_nav ADD COLUMN IF NOT EXISTS adj_nav DECIMAL(12, 4)",
         "ALTER TABLE fund_nav ADD COLUMN IF NOT EXISTS daily_return DECIMAL(12, 8)",
         "ALTER TABLE fund_nav ADD COLUMN IF NOT EXISTS benchmark_nav DECIMAL(10, 4)",
         "ALTER TABLE fund_nav ADD COLUMN IF NOT EXISTS discount_rate DECIMAL(12, 8)",
@@ -1027,6 +1083,8 @@ def init_database():
         "ALTER TABLE fund_bond_holdings ADD COLUMN IF NOT EXISTS metadata_source TEXT",
         "ALTER TABLE fund_bond_holdings ADD COLUMN IF NOT EXISTS metadata_url TEXT",
         "ALTER TABLE fund_bond_holdings ADD COLUMN IF NOT EXISTS metadata_status VARCHAR(30) NOT NULL DEFAULT 'unavailable'",
+        "ALTER TABLE research_reports ADD COLUMN IF NOT EXISTS embedding_status VARCHAR(30) NOT NULL DEFAULT 'unavailable'",
+        "ALTER TABLE research_reports ADD COLUMN IF NOT EXISTS embedding_source VARCHAR(60) NOT NULL DEFAULT 'keyword_only_no_mock'",
         """INSERT INTO research_report_managers (
                 report_id, manager_id, manager_name, source, confirmed_at
             )
@@ -1044,6 +1102,9 @@ def init_database():
 
     try:
         with engine.connect() as conn:
+            # 启动 DDL 若被长读事务阻塞（ALTER 需 ACCESS EXCLUSIVE），5 秒后放弃
+            # 而不是无限等待；语句全部幂等，读事务结束后下次调用自然补齐
+            conn.execute(text("SET LOCAL lock_timeout = '5s'"))
             for sql in tables:
                 conn.execute(text(sql))
             for sql in migrations:

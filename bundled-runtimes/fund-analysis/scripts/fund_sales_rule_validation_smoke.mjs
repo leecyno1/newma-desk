@@ -73,7 +73,7 @@ assert(
 )
 
 assert(response.status === 422, `thin single-fund sales rule PATCH should return 422, got ${response.status}`)
-assert(payload.error === 'SALES_RULE_VALIDATION_FAILED', `expected SALES_RULE_VALIDATION_FAILED, got ${payload.error || 'unknown'}`)
+assert(payload.error === 'MATERIAL_EVIDENCE_VALIDATION_FAILED', `expected MATERIAL_EVIDENCE_VALIDATION_FAILED, got ${payload.error || 'unknown'}`)
 assert(
   (payload.validationErrors || []).some((item) => String(item).includes('至少填写一项真实')),
   'validation response should explain that at least one real sales evidence item is required',
@@ -94,7 +94,7 @@ const dirtyRisk = await fetchJson(`/api/funds/${encodeURIComponent(code)}/sales-
 })
 
 assert(dirtyRisk.response.status === 422, `Tushare risk-level PATCH should return 422, got ${dirtyRisk.response.status}`)
-assert(dirtyRisk.payload.error === 'SALES_RULE_VALIDATION_FAILED', `expected SALES_RULE_VALIDATION_FAILED for Tushare risk-level, got ${dirtyRisk.payload.error || 'unknown'}`)
+assert(dirtyRisk.payload.error === 'MATERIAL_EVIDENCE_VALIDATION_FAILED', `expected MATERIAL_EVIDENCE_VALIDATION_FAILED for Tushare risk-level, got ${dirtyRisk.payload.error || 'unknown'}`)
 assert(
   (dirtyRisk.payload.validationErrors || []).some((item) => String(item).includes('不能用 Tushare fund_basic')),
   'validation response should reject Tushare fund_basic as risk-level source',
@@ -116,7 +116,7 @@ const placeholderSource = await fetchJson(`/api/funds/${encodeURIComponent(code)
 })
 
 assert(placeholderSource.response.status === 422, `placeholder source PATCH should return 422, got ${placeholderSource.response.status}`)
-assert(placeholderSource.payload.error === 'SALES_RULE_VALIDATION_FAILED', `expected SALES_RULE_VALIDATION_FAILED for placeholder source, got ${placeholderSource.payload.error || 'unknown'}`)
+assert(placeholderSource.payload.error === 'MATERIAL_EVIDENCE_VALIDATION_FAILED', `expected MATERIAL_EVIDENCE_VALIDATION_FAILED for placeholder source, got ${placeholderSource.payload.error || 'unknown'}`)
 assert(
   (placeholderSource.payload.validationErrors || []).some((item) => String(item).includes('占位')),
   'validation response should reject placeholder sourceUrl/notes instead of treating them as source evidence',
@@ -135,7 +135,7 @@ const unsourcedTransactionField = await fetchJson(`/api/funds/${encodeURICompone
 })
 
 assert(unsourcedTransactionField.response.status === 422, `unsourced transaction-field PATCH should return 422, got ${unsourcedTransactionField.response.status}`)
-assert(unsourcedTransactionField.payload.error === 'SALES_RULE_VALIDATION_FAILED', `expected SALES_RULE_VALIDATION_FAILED for unsourced transaction field, got ${unsourcedTransactionField.payload.error || 'unknown'}`)
+assert(unsourcedTransactionField.payload.error === 'MATERIAL_EVIDENCE_VALIDATION_FAILED', `expected MATERIAL_EVIDENCE_VALIDATION_FAILED for unsourced transaction field, got ${unsourcedTransactionField.payload.error || 'unknown'}`)
 assert(
   (unsourcedTransactionField.payload.validationErrors || []).some((item) => String(item).includes('来源背书必须指向真实')),
   'validation response should require real source identity for transaction fields, not just a source date',

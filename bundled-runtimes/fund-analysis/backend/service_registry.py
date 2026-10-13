@@ -18,24 +18,18 @@ logger = logging.getLogger(__name__)
 DATA_SOURCE = os.environ.get("DATA_SOURCE", "tushare").lower()
 
 
-def init_services(scoring_eng=None, mongo_db=None, tushare_svc=None, pg_engine=None):
-    global _scoring_engine, _db, _tushare_service, _pg_engine
+def init_services(scoring_eng=None, tushare_svc=None, pg_engine=None):
+    global _scoring_engine, _tushare_service, _pg_engine
     if tushare_svc is not None:
         _tushare_service = tushare_svc
     if scoring_eng is not None:
         _scoring_engine = scoring_eng
-    if mongo_db is not None:
-        _db = mongo_db
     if pg_engine is not None:
         _pg_engine = pg_engine
 
 
 _tushare_service: Optional["TushareDataService"] = None
 _scoring_engine: Optional["FundScoringEngine"] = None
-_db = None
-_db_checked = False
-_db_last_checked_at = 0.0
-_db_retry_interval_seconds = float(os.environ.get("MONGO_RETRY_SECONDS", "30"))
 _pg_engine = None
 
 
@@ -70,32 +64,6 @@ def get_scoring_engine() -> "FundScoringEngine":
         from services.scoring_engine import FundScoringEngine
         _scoring_engine = FundScoringEngine()
     return _scoring_engine
-
-
-def get_db():
-    """获取 MongoDB 实例（调研报告存储）"""
-    global _db, _db_checked, _db_last_checked_at
-    now = time.monotonic()
-    should_retry = (now - _db_last_checked_at) >= _db_retry_interval_seconds
-    if _db is None and (not _db_checked or should_retry):
-        _db_checked = True
-        _db_last_checked_at = now
-        try:
-            import pymongo
-            mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
-            mongo_db = os.environ.get("MONGO_DB", "fund_analysis")
-            client = pymongo.MongoClient(
-                mongo_uri,
-                serverSelectionTimeoutMS=2000,
-                connectTimeoutMS=2000,
-            )
-            client.admin.command("ping")
-            _db = client.get_database(mongo_db)
-            logger.info("MongoDB connected")
-        except Exception as e:
-            logger.warning(f"MongoDB not available: {e}. Research report features will degrade.")
-            _db = None
-    return _db
 
 
 def get_pg_engine():

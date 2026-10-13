@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { FundServerPageData } from '@/lib/newma-desk/page-data'
 import {
   ArrowRight,
   BarChart3,
@@ -189,19 +190,25 @@ export default async function ManagersPage({ searchParams }: { searchParams: Sea
 
   return (
     <div className="space-y-8">
+      <FundServerPageData data={{ title: '基金经理研究', selection: null, filters: { search: keyword, category, evidence, page },
+        visibleBlocks: [{ id: 'manager-browser', type: 'table', title: '基金经理研究' }],
+        summary: { view: 'manager-browser', status: error ? 'error' : 'ready', error: error || null,
+          total: error ? null : data.total, rows: managers, methodology: data.methodology ?? null,
+          evidenceBoundary: '经理层纪要与产品层量化分别展示；代表基金业绩不等同于经理完整任职业绩。' } }} />
+      <Link href="/research" className="text-sm font-bold text-[#28745c]">返回调研库</Link>
       <section className="relative overflow-hidden border border-[#cfd8d1] bg-[#173f35] px-6 py-8 text-white sm:px-8 sm:py-10">
         <div className="absolute -right-20 -top-24 h-72 w-72 rounded-full border border-white/10" />
         <div className="absolute -right-2 top-14 h-44 w-44 rounded-full border border-white/10" />
         <div className="relative flex justify-end">
           <div className="grid grid-cols-2 gap-px overflow-hidden border border-white/20 bg-white/20 text-[#18231e]">
-            <div className="bg-[#f7f5ed] px-5 py-4"><strong className="block text-2xl">{data.total}</strong><span className="text-[11px] text-[#68756e]">当前结果</span></div>
+            <div className="bg-[#f7f5ed] px-5 py-4"><strong className="block text-2xl">{error ? '—' : data.total}</strong><span className="text-[11px] text-[#68756e]">当前结果</span></div>
             <div className="bg-[#f7f5ed] px-5 py-4"><strong className="block text-2xl">{currentLabel}</strong><span className="text-[11px] text-[#68756e]">所选类别</span></div>
           </div>
         </div>
       </section>
 
       <section className="border border-[#d9e0db] bg-white p-5 sm:p-6">
-        <form action="/managers" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <form action="/managers" data-desk-navigation className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
           <input type="hidden" name="category" value={category} />
           <input type="hidden" name="evidence" value={evidence} />
           <label className="relative block">

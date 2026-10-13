@@ -12,13 +12,8 @@ python-dotenv>=1.0.0
 tushare>=1.4.0
 
 # Database
-pymongo>=4.6.0
 psycopg2-binary>=2.9.9
 sqlalchemy>=2.0.0
-
-# Vector Database
-qdrant-client>=1.7.0
-sentence-transformers>=2.3.0
 
 # AI
 anthropic>=0.20.0

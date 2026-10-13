@@ -353,6 +353,17 @@ def test_suite_expansion_preserves_project_identity_on_every_page() -> None:
         }
 
 
+def test_suite_page_can_request_canvas_chrome() -> None:
+    descriptor = json.loads(json.dumps(SUITE_DESCRIPTOR))
+    descriptor["pages"][0]["manifest"]["presentation"] = {"chrome": "canvas"}
+    suite = StoreModSuiteDescriptor.model_validate(descriptor)
+
+    expanded = {page.id: page for page, _ in expand_mod_suite(suite)}
+
+    assert expanded["example-overview"].manifest.presentation.chrome == "canvas"
+    assert expanded["example-settings"].manifest.presentation is None
+
+
 def test_suite_expansion_promotes_legacy_suite_to_custom_project() -> None:
     legacy_descriptor = json.loads(json.dumps(SUITE_DESCRIPTOR))
     del legacy_descriptor["manifest"]["navigation"]["project"]
@@ -1156,10 +1167,14 @@ def test_store_discovers_suite_from_http_well_known_endpoint(
     tmp_path: Path,
 ) -> None:
     fetched_sources: list[tuple[str | None, str]] = []
+    suite_descriptor = json.loads(json.dumps(SUITE_DESCRIPTOR))
+    suite_descriptor["pages"][0]["manifest"]["presentation"] = {
+        "chrome": "canvas"
+    }
 
     async def fetch_descriptor(catalog, entry):
         fetched_sources.append((entry.path, entry.discovery.path))
-        return SUITE_DESCRIPTOR
+        return suite_descriptor
 
     settings = Settings(
         runtime_dir=tmp_path,
@@ -1183,6 +1198,12 @@ def test_store_discovers_suite_from_http_well_known_endpoint(
     assert installed.json()["mod"]["manifest"]["entry"]["url"] == (
         "https://research.example/overview"
     )
+    assert installed.json()["mod"]["manifest"]["presentation"] == {
+        "englishName": "Example Overview",
+        "description": "示例项目的总览页面。",
+        "titleOwner": "host",
+        "chrome": "canvas",
+    }
     assert fetched_sources == [
         (None, "/.well-known/newma-desk-suite.json"),
         (None, "/.well-known/newma-desk-suite.json"),

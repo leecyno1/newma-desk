@@ -18,7 +18,7 @@ function assertIncludes(content, expected, label) {
   }
 }
 
-const buyEvidence = read('lib/buy-evidence.ts')
+const buyEvidence = read('lib/research-evidence.ts')
 const salesRuleGaps = read('lib/sales-rule-gaps.ts')
 const salesRuleGate = read('lib/research-platform/tools/sales-rule-gate.ts')
 const evidenceReport = read('backend/services/evidence_report.py')

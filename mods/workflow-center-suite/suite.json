@@ -156,9 +156,42 @@
     {
       "id": "workflow-overview",
       "name": "组织工作流",
-      "description": "以横竖组织矩阵总览流程、成熟节点入口、责任分布、Agent 与授权覆盖。",
+      "description": "在纯画布中总览节点、过程、责任人与运行状态。",
       "route": "/mod-runtime/workflow-center/?workspace=overview",
-      "navigation": {"itemOrder": 10, "label": "工作台"}
+      "navigation": {"itemOrder": 10, "label": "全景画布"},
+      "manifest": {"presentation": {"chrome": "canvas"}}
+    },
+    {
+      "id": "workflow-overview-lane-a",
+      "name": "任务与立项工作流",
+      "description": "快速聚焦组织工作流的任务与立项业务域。",
+      "route": "/mod-runtime/workflow-center/?workspace=overview&lane=a",
+      "navigation": {"itemOrder": 11, "label": "A · 任务与立项"},
+      "manifest": {"presentation": {"chrome": "canvas"}}
+    },
+    {
+      "id": "workflow-overview-lane-b",
+      "name": "研究与生产工作流",
+      "description": "快速聚焦组织工作流的研究与生产业务域。",
+      "route": "/mod-runtime/workflow-center/?workspace=overview&lane=b",
+      "navigation": {"itemOrder": 12, "label": "B · 研究与生产"},
+      "manifest": {"presentation": {"chrome": "canvas"}}
+    },
+    {
+      "id": "workflow-overview-lane-c",
+      "name": "复核与决策工作流",
+      "description": "快速聚焦组织工作流的复核与决策业务域。",
+      "route": "/mod-runtime/workflow-center/?workspace=overview&lane=c",
+      "navigation": {"itemOrder": 13, "label": "C · 复核与决策"},
+      "manifest": {"presentation": {"chrome": "canvas"}}
+    },
+    {
+      "id": "workflow-overview-lane-d",
+      "name": "交付与运营工作流",
+      "description": "快速聚焦组织工作流的交付与运营业务域。",
+      "route": "/mod-runtime/workflow-center/?workspace=overview&lane=d",
+      "navigation": {"itemOrder": 14, "label": "D · 交付与运营"},
+      "manifest": {"presentation": {"chrome": "canvas"}}
     },
     {
       "id": "workflow-designer",

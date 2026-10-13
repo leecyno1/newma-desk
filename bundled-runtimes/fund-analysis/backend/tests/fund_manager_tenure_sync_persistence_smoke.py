@@ -75,6 +75,7 @@ class DataService:
                 "date": (date(2026, 1, 2) + timedelta(days=index)).isoformat(),
                 "nav": 1.0 + index * 0.01,
                 "accum_nav": 1.0 + index * 0.01,
+                "adj_nav": 1.0 + index * 0.01,
             }
             for index in range(20)
         ]
