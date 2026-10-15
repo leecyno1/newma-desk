@@ -948,7 +948,7 @@ def market_turnover_rank(n: int = 20) -> list[dict]:
 
 
 def eastmoney_datacenter(report_name: str, columns: str = "ALL", filter_str: str = "",
-                         page_size: int = 50, sort_columns: str = "", sort_types: str = "-1") -> list[dict]:
+                         page_size: int = 50, sort_columns: str = "", sort_types: str = "-1", *, strict: bool = False) -> list[dict]:
     """东财数据中心统一查询 —— 龙虎榜/解禁/融资融券/大宗交易/股东户数/分红 共用（已内置限流）。"""
     params = {
         "reportName": report_name, "columns": columns, "filter": filter_str,
@@ -958,7 +958,11 @@ def eastmoney_datacenter(report_name: str, columns: str = "ALL", filter_str: str
     try:
         d = em_get(_DATACENTER_URL, params=params, timeout=15).json()
     except Exception:
+        if strict:
+            raise
         return []
+    if strict and d.get("success") is False:
+        raise ValueError("东财数据中心查询失败")
     if d.get("result") and d["result"].get("data"):
         return d["result"]["data"]
     return []
@@ -968,12 +972,12 @@ def margin_trading(code: str, page_size: int = 30) -> list[dict]:
     """融资融券明细（日级）：融资余额 / 融资买入 / 融券余额 / 两融合计。"""
     data = eastmoney_datacenter(
         "RPTA_WEB_RZRQ_GGMX", filter_str=f'(SCODE="{code}")',
-        page_size=page_size, sort_columns="DATE", sort_types="-1")
+        page_size=page_size, sort_columns="DATE", sort_types="-1", strict=True)
     return [{
         "date": str(r.get("DATE", ""))[:10],
-        "rzye": r.get("RZYE", 0), "rzmre": r.get("RZMRE", 0), "rzche": r.get("RZCHE", 0),
-        "rqye": r.get("RQYE", 0), "rqmcl": r.get("RQMCL", 0),
-        "rzrqye": r.get("RZRQYE", 0),
+        "rzye": r.get("RZYE"), "rzmre": r.get("RZMRE"), "rzche": r.get("RZCHE"),
+        "rqye": r.get("RQYE"), "rqmcl": r.get("RQMCL"),
+        "rzrqye": r.get("RZRQYE"),
     } for r in data]
 
 
@@ -1044,19 +1048,21 @@ def stock_fund_flow_120d(code: str) -> list[dict]:
         if len(p) >= 6:
             def _f(x):
                 try:
-                    return float(x) if x not in ("-", "") else 0.0
+                    return float(x) if x not in ("-", "") else None
                 except ValueError:
-                    return 0.0
+                    return None
             rows.append({
                 "date": p[0], "main_net": _f(p[1]), "small_net": _f(p[2]),
                 "mid_net": _f(p[3]), "large_net": _f(p[4]), "super_net": _f(p[5]),
+                "close": _f(p[11]) if len(p) > 11 else None,
+                "change_pct": _f(p[12]) if len(p) > 12 else None,
                 "source": "eastmoney-push2his",
             })
     if rows:
         return rows
 
     # 新浪与东财是独立风控面。该接口返回日度总净额及超大/大单口径，
-    # 用 r0_net 作为“主力净流”展示，保留 net_amount 供前端核对。
+    # r0_net 与 netamount 不是同一口径，零值或缺失不能用总净额替代。
     prefix = f"{get_prefix(code)}{code}"
     url = (
         "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
@@ -1074,19 +1080,20 @@ def stock_fund_flow_120d(code: str) -> list[dict]:
     except (OSError, ValueError, json.JSONDecodeError):
         return []
 
-    def number(value: object) -> float:
+    def number(value: object) -> float | None:
         try:
-            return float(value or 0)
+            return float(value) if value not in (None, "", "-") else None
         except (TypeError, ValueError):
-            return 0.0
+            return None
 
     fallback = []
     for item in payload if isinstance(payload, list) else []:
-        main_net = number(item.get("r0_net")) or number(item.get("netamount"))
+        main_net = number(item.get("r0_net"))
+        change = number(item.get("changeratio"))
         fallback.append({
             "date": item.get("opendate", ""),
             "close": number(item.get("trade")),
-            "change_pct": number(item.get("changeratio")) * 100,
+            "change_pct": change * 100 if change is not None else None,
             "main_net": main_net,
             "net_amount": number(item.get("netamount")),
             "source": "sina-money-flow",
@@ -1102,7 +1109,7 @@ def dragon_tiger_board(code: str, trade_date: str | None = None, look_back: int 
     data = eastmoney_datacenter(
         "RPT_DAILYBILLBOARD_DETAILSNEW",
         filter_str=f'(TRADE_DATE>=\'{start}\')(TRADE_DATE<=\'{trade_date}\')(SECURITY_CODE="{code}")',
-        page_size=50, sort_columns="TRADE_DATE", sort_types="-1")
+        page_size=50, sort_columns="TRADE_DATE", sort_types="-1", strict=True)
     for r in data:
         records.append({
             "date": str(r.get("TRADE_DATE", ""))[:10],

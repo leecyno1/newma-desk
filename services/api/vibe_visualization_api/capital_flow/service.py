@@ -3,11 +3,27 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 import json
+import math
 import os
 from urllib.parse import urlencode
 from typing import Any
 
 import httpx
+
+
+def finite_number(value: Any) -> float | None:
+    if value in (None, "", "-") or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def complete_sum(rows: list[dict], field: str) -> float | None:
+    values = [finite_number(row.get(field)) for row in rows]
+    return sum(values) if values and all(value is not None for value in values) else None
 
 
 class CapitalFlowService:
@@ -92,7 +108,7 @@ class CapitalFlowService:
             cleaned.append(row)
         return cleaned
 
-    async def _fetch_hkex_connect(self, client: httpx.AsyncClient, market_date: str | None) -> dict:
+    async def _fetch_hkex_connect(self, client: httpx.AsyncClient, market_date: str | None, *, exact: bool = False) -> dict:
         """Read HKEX's public daily stock-connect snapshot.
 
         HKEX publishes this as a JavaScript assignment rather than JSON.  The
@@ -104,7 +120,7 @@ class CapitalFlowService:
         requested = datetime.fromisoformat(market_date[:10]).date()
         response = None
         snapshot_date = None
-        for offset in range(7):
+        for offset in range(1 if exact else 7):
             candidate = requested - timedelta(days=offset)
             if candidate.weekday() >= 5:
                 continue
@@ -130,9 +146,15 @@ class CapitalFlowService:
         except json.JSONDecodeError:
             return {}
 
+        if exact and (not isinstance(payload, list) or not payload or any(item.get("date") != snapshot_date.isoformat() for item in payload)):
+            return {}
+
         result: dict[str, Any] = {"date": snapshot_date.isoformat(), "source": "HKEX 官方每日统计"}
         for item in payload if isinstance(payload, list) else []:
             market = str(item.get("market", ""))
+            key = market.lower().replace(" ", "-")
+            metadata = {"market": market, "date": item.get("date"), "tradingDay": item.get("tradingDay")}
+            result[key] = {**metadata, "summary": {}, "rows": []}
             table = next((content.get("table") for content in item.get("content", [])
                           if isinstance(content, dict) and isinstance(content.get("table"), dict)), None)
             if not table:
@@ -159,8 +181,7 @@ class CapitalFlowService:
                     values.extend(cell[0] if isinstance(cell[0], list) else [cell[0]])
                 if values:
                     rows.append(dict(zip(columns, values, strict=False)))
-            key = market.lower().replace(" ", "-")
-            result[key] = {"market": market, "summary": rows[0] if rows else {}, "rows": rows}
+            result[key] = {**metadata, "summary": rows[0] if rows else {}, "rows": rows}
         return result
 
     async def _fetch_northbound_history(
@@ -180,7 +201,8 @@ class CapitalFlowService:
             ).date()
         except ValueError:
             end = datetime.now().date()
-        start = end - timedelta(days=60)
+        # Earlier moneyflow_hsgt fields describe net flow, not today's turnover.
+        start = max(end - timedelta(days=60), datetime(2024, 8, 19).date())
         response = await client.post(
             "https://api.tushare.pro",
             json={
@@ -214,7 +236,8 @@ class CapitalFlowService:
                 # their market currency. Northbound fields are RMB; the
                 # southbound aggregate is HKD. This history view only charts
                 # the northbound RMB fields.
-                return round(float(row[index]) / 100, 4)
+                value = finite_number(row[index])
+                return round(value / 100, 4) if value is not None and value >= 0 else None
             except (TypeError, ValueError):
                 return None
 
@@ -224,7 +247,7 @@ class CapitalFlowService:
             if date_index is None or date_index >= len(row):
                 continue
             raw_date = str(row[date_index])
-            if len(raw_date) != 8:
+            if len(raw_date) != 8 or raw_date < "20240819":
                 continue
             points.append({
                 "date": f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}",
@@ -239,7 +262,7 @@ class CapitalFlowService:
             "metric": "turnover",
             "currency": "CNY",
             "unit": "人民币亿元",
-            "source": "Tushare moneyflow_hsgt（待 HKEX 同日校验）",
+            "source": "Tushare moneyflow_hsgt（2024-08-19 后口径，待 HKEX 同日校验）",
         }
 
     @staticmethod
@@ -258,7 +281,8 @@ class CapitalFlowService:
                 # HKEX reports Northbound in RMB million and Southbound in HKD
                 # million. Divide by 100 to display hundred-millions while
                 # preserving the currency explicitly in the response.
-                return float(str(value).replace(",", "")) / 100
+                parsed = finite_number(str(value).replace(",", ""))
+                return parsed / 100 if parsed is not None else None
             except (TypeError, ValueError):
                 return None
         buy = amount("Buy Turnover")
@@ -288,12 +312,10 @@ class CapitalFlowService:
         official_date = str(snapshot.get("date") or "")
         sse_total = cls._connect_summary(snapshot, "sse-northbound").get("turnoverYi")
         szse_total = cls._connect_summary(snapshot, "szse-northbound").get("turnoverYi")
+        points.sort(key=lambda point: str(point.get("date") or ""))
         latest = points[-1]
         latest_date = str(latest.get("date") or "")
-        try:
-            history_total = float(latest.get("northTurnoverYi"))
-        except (TypeError, ValueError):
-            history_total = None
+        history_total = finite_number(latest.get("northTurnoverYi"))
 
         if not official_date or sse_total is None or szse_total is None:
             return {
@@ -330,10 +352,16 @@ class CapitalFlowService:
             }
 
         difference = abs(history_total - official_total)
+        components_match = True
+        for key, official in (("sseTurnoverYi", sse_total), ("szseTurnoverYi", szse_total)):
+            if key in latest:
+                component = finite_number(latest[key])
+                components_match = components_match and component is not None and abs(component - official) <= max(0.25, abs(official) * 0.005)
         threshold = max(0.5, abs(official_total) * 0.005)
         difference_pct = round(difference / abs(official_total) * 100, 4) if official_total else 0.0
         validation = {
-            "status": "verified" if difference <= threshold else "metric-mismatch",
+            "status": "verified" if difference <= threshold and components_match else "metric-mismatch",
+            "scope": "latest-date-only",
             "date": official_date,
             "officialTurnoverYi": official_total,
             "historyTurnoverYi": round(history_total, 4),
@@ -341,7 +369,7 @@ class CapitalFlowService:
             "differencePct": difference_pct,
             "thresholdPct": 0.5,
         }
-        if difference > threshold:
+        if difference > threshold or not components_match:
             return {
                 **result,
                 "points": [],
@@ -352,7 +380,7 @@ class CapitalFlowService:
         return {
             **result,
             "status": "ready",
-            "source": "Tushare moneyflow_hsgt（经 HKEX 同日总成交额校验）",
+            "source": "Tushare moneyflow_hsgt（仅最新日经 HKEX 对照，历史未逐日核验）",
             "validation": validation,
         }
 
@@ -360,19 +388,19 @@ class CapitalFlowService:
     def _risk_appetite(
         sectors: list[dict[str, Any]],
         *,
-        sector_net: float,
+        sector_net: float | None,
         north: dict[str, Any],
         south: dict[str, Any],
         liquidity_regime: dict[str, Any] | None,
-        top_turnover_yi: float,
+        top_turnover_yi: float | None,
         active: Any,
     ) -> dict[str, Any]:
         """Build explainable funding drivers without inventing a composite score."""
         drivers: list[dict[str, Any]] = []
         sector_rows = [item for item in sectors if isinstance(item, dict)]
-        positive_sectors = sum(1 for item in sector_rows if float(item.get("net", 0) or 0) > 0)
+        positive_sectors = sum(1 for item in sector_rows if (finite_number(item.get("net")) or 0) > 0)
         sector_count = len(sector_rows)
-        if sector_count:
+        if sector_count and sector_net is not None:
             sector_signal = (
                 "supportive" if sector_net > 0 and positive_sectors >= sector_count / 2
                 else "restrained" if sector_net < 0 and positive_sectors < sector_count / 2
@@ -384,8 +412,14 @@ class CapitalFlowService:
                 "signal": sector_signal,
                 "value": f"{sector_net:+.2f} 亿元",
                 "detail": f"{positive_sectors}/{sector_count} 个行业净流入",
-                "source": "A Stock Data / AKShare",
+                "source": sector_rows[0].get("source", "A Stock Data / 行业资金源"),
+                "asOf": min((str(row.get("asOf")) for row in sector_rows if row.get("asOf")), default=None),
             })
+        elif sector_count and any(row.get("aggregateSafe") is False for row in sector_rows):
+            drivers.append({"id": "sector-flow", "name": "行业资金", "signal": "observed",
+                            "value": f"{positive_sectors}/{sector_count} 个观察板块净流入",
+                            "detail": "包含行业与子行业，存在重叠；不能汇总为全市场净流入，也不据此判断整体强弱",
+                            "source": sector_rows[0].get("source", "东财行业资金")})
         else:
             drivers.append({
                 "id": "sector-flow", "name": "行业资金", "signal": "unavailable",
@@ -397,12 +431,7 @@ class CapitalFlowService:
             for item in (north.get("sse", {}), north.get("szse", {}))
             if item.get("turnoverYi") is not None
         ]
-        history_points = (north.get("history") or {}).get("points") or []
-        if not north_turnover and history_points:
-            latest_turnover = history_points[-1].get("northTurnoverYi")
-            if latest_turnover is not None:
-                north_turnover = [latest_turnover]
-        if north_turnover:
+        if len(north_turnover) == 2:
             north_unit = north.get("unit") or "人民币亿元"
             drivers.append({
                 "id": "northbound-turnover",
@@ -425,7 +454,7 @@ class CapitalFlowService:
             for item in (south.get("sse", {}), south.get("szse", {}))
             if item.get("netBuyYi") is not None
         ]
-        if south_net:
+        if len(south_net) == 2:
             total_net = sum(float(value) for value in south_net)
             south_unit = south.get("unit") or "港元亿元"
             drivers.append({
@@ -463,9 +492,9 @@ class CapitalFlowService:
         drivers.append({
             "id": "market-activity",
             "name": "成交活跃度",
-            "signal": "observed" if top_turnover_yi > 0 or active not in (None, "") else "unavailable",
-            "value": str(active) if active not in (None, "") else (f"{top_turnover_yi:.2f} 亿元" if top_turnover_yi > 0 else None),
-            "detail": f"成交额 TOP20 合计 {top_turnover_yi:.2f} 亿元；暂无历史基线，不判断强弱",
+            "signal": "observed" if top_turnover_yi is not None or active not in (None, "") else "unavailable",
+            "value": str(active) if active not in (None, "") else (f"{top_turnover_yi:.2f} 亿元" if top_turnover_yi is not None else None),
+            "detail": (f"成交额 TOP20 合计 {top_turnover_yi:.2f} 亿元" if top_turnover_yi is not None else "成交额汇总缺失") + "；不是全市场成交额，暂无历史基线，不判断强弱",
             "source": "交易行情聚合",
         })
         drivers.extend([
@@ -481,7 +510,7 @@ class CapitalFlowService:
         available = sum(1 for driver in drivers if driver["signal"] != "unavailable")
         return {"drivers": drivers, "available": available, "total": len(drivers)}
 
-    async def dashboard(self, code: str | None = None) -> dict:
+    async def dashboard(self, code: str | None = None, *, include_legacy_turnover: bool = True) -> dict:
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(
             timeout=self._timeout,
@@ -489,8 +518,8 @@ class CapitalFlowService:
             trust_env=False,
         )
         paths = [
-            "/api/market/overview",
-            "/api/market/turnover-top",
+            "/api/market/overview?include_sentiment=false",
+            "/api/market/turnover-top" if include_legacy_turnover else "",
             "/api/macro-monitor?days=30",
         ]
         if code:
@@ -499,8 +528,11 @@ class CapitalFlowService:
                 f"/api/margin?{urlencode({'code': code})}",
                 f"/api/dragon-tiger?{urlencode({'code': code})}",
             ])
+        connect_date = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
         results = await asyncio.gather(
-            *(self._fetch(client, path) for path in paths),
+            *(self._fetch(client, path) if path else asyncio.sleep(0, result={}) for path in paths),
+            self._fetch_hkex_connect(client, connect_date),
+            self._fetch_northbound_history(client, connect_date),
             return_exceptions=True,
         )
 
@@ -508,25 +540,24 @@ class CapitalFlowService:
         turnover = results[1] if not isinstance(results[1], Exception) else {}
         macro = results[2] if not isinstance(results[2], Exception) else {}
         sectors = overview.get("sectors", []) if isinstance(overview, dict) else []
-        sectors = sorted(sectors, key=lambda item: float(item.get("net", 0)), reverse=True)
-        inflow = sum(float(item.get("inflow", 0) or 0) for item in sectors)
-        outflow = sum(float(item.get("outflow", 0) or 0) for item in sectors)
-        net = sum(float(item.get("net", 0) or 0) for item in sectors)
+        sectors = sorted(sectors, key=lambda item: finite_number(item.get("net")) or 0, reverse=True)
+        inflow = complete_sum(sectors, "inflow")
+        outflow = complete_sum(sectors, "outflow")
+        net = complete_sum(sectors, "net")
+        if any(row.get("aggregateSafe") is False for row in sectors):
+            net = inflow = outflow = None
         leaders = turnover.get("stocks", []) if isinstance(turnover, dict) else []
-        top_turnover = sum(float(item.get("amount", 0) or 0) for item in leaders)
+        leaders = leaders[:20]
+        top_turnover = complete_sum(leaders, "amount")
 
         offset = 3
         raw_stock_flow = results[offset] if code and len(results) > offset and not isinstance(results[offset], Exception) else []
         stock_flow = self._clean_stock_flow(raw_stock_flow)
-        margin = results[offset + 1] if code and len(results) > offset + 1 and not isinstance(results[offset + 1], Exception) else []
-        dragon_tiger = results[offset + 2] if code and len(results) > offset + 2 and not isinstance(results[offset + 2], Exception) else {}
+        margin = results[offset + 1] if code and isinstance(results[offset + 1], list) else []
+        dragon_tiger = results[offset + 2] if code and isinstance(results[offset + 2], dict) else {}
         sentiment = overview.get("sentiment", {}) if isinstance(overview, dict) else {}
         market_date = (sentiment.get("date") or overview.get("updated")) if isinstance(sentiment, dict) and isinstance(overview, dict) else None
-        cross_result, north_history_result = await asyncio.gather(
-            self._fetch_hkex_connect(client, market_date),
-            self._fetch_northbound_history(client, market_date),
-            return_exceptions=True,
-        )
+        cross_result, north_history_result = results[len(paths):]
         cross_border = cross_result if isinstance(cross_result, dict) else {}
         north_history = north_history_result if isinstance(north_history_result, dict) else {}
         north_history = self._validate_northbound_history(north_history, cross_border)
@@ -537,7 +568,7 @@ class CapitalFlowService:
             "szse": self._connect_summary(cross_border, "szse-northbound"),
             "history": north_history,
             "source": cross_border.get("source", "HKEX 官方每日统计"),
-            "date": cross_border.get("date", market_date),
+            "date": cross_border.get("date"),
             "currency": "CNY",
             "unit": "人民币亿元",
         }
@@ -545,17 +576,16 @@ class CapitalFlowService:
             "sse": self._connect_summary(cross_border, "sse-southbound"),
             "szse": self._connect_summary(cross_border, "szse-southbound"),
             "source": cross_border.get("source", "HKEX 官方每日统计"),
-            "date": cross_border.get("date", market_date),
+            "date": cross_border.get("date"),
             "currency": "HKD",
             "unit": "港元亿元",
         }
-        north_ready = any(item.get("turnoverYi") is not None for item in (north["sse"], north["szse"])) or bool(north_history.get("points"))
-        south_ready = any(item.get("turnoverYi") is not None for item in (south["sse"], south["szse"]))
+        north_ready = all(item.get("turnoverYi") is not None for item in (north["sse"], north["szse"]))
         macro_liquidity = macro.get("liquidity", {}) if isinstance(macro, dict) and isinstance(macro.get("liquidity", {}), dict) else {}
         liquidity_rows = macro_liquidity.get("indicators", []) or (macro.get("indicators", []) if isinstance(macro, dict) else [])
         liquidity_regime = macro.get("regime", {}).get("liquidity") if isinstance(macro, dict) else None
         active = sentiment.get("active") if isinstance(sentiment, dict) else None
-        top_turnover_yi = top_turnover / 100_000_000
+        top_turnover_yi = top_turnover / 100_000_000 if top_turnover is not None else None
         risk_appetite = self._risk_appetite(
             sectors,
             sector_net=net,
@@ -565,21 +595,50 @@ class CapitalFlowService:
             top_turnover_yi=top_turnover_yi,
             active=active,
         )
-        upstream_ok = bool(sectors or leaders)
+        def security_status(index: int, rows: list, source: str) -> dict:
+            result = results[index]
+            state = "unavailable" if isinstance(result, Exception) or (not isinstance(result, (list, dict))) else "ready" if rows else "empty"
+            return {"status": state, "count": len(rows), "source": source,
+                    "asOf": max((str(row.get("date") or "") for row in rows), default=None),
+                    "note": "上游请求失败，不能判断是否有记录" if state == "unavailable" else "查询返回空，不作为资金为零或安全的证据" if state == "empty" else "按原始口径展示"}
+
+        security_coverage = {
+            "fundFlow": security_status(3, stock_flow, stock_flow[0].get("source", "个股资金源") if stock_flow else "东财 / 新浪"),
+            "margin": security_status(4, margin, "东财数据中心 / 交易所两融"),
+            "dragonTiger": security_status(5, dragon_tiger.get("records", []), "东财龙虎榜"),
+        } if code else None
+        dimensions = [
+            {"id": "market", "name": "市场成交", "status": "ready" if top_turnover is not None else "degraded", "frequency": "盘中/日频", "lag": "缓存约 5 分钟", "source": "交易行情聚合", "metric": "成交额 · 人民币亿元", "asOf": None, "note": "只汇总成交榜前 20 只，不是全市场成交额；上游未提供行情时间戳。"},
+            {"id": "sector", "name": "行业资金", "status": "ready" if net is not None else "degraded", "frequency": "盘中", "lag": "缓存约 5 分钟", "source": "A Stock Data / 行业资金源", "metric": "主动买卖分类净额 · 人民币亿元", "asOf": None, "note": "行业分类及大单口径由供应商定义，不代表真实机构账户；上游未提供数据日期。"},
+            {"id": "northbound", "name": "北向成交", "status": "ready" if north_ready else "degraded", "frequency": "日频", "lag": "收盘后", "source": north["source"], "metric": "成交额 · 人民币亿元", "asOf": north["date"], "note": "成交额不等于净流入；买卖拆分未披露时不可推算方向。"},
+            {"id": "southbound", "name": "南向净买入", "status": "ready" if all(item.get("netBuyYi") is not None for item in (south["sse"], south["szse"])) else "degraded", "frequency": "日频", "lag": "收盘后", "source": south["source"], "metric": "买入减卖出 · 港元亿元", "asOf": south["date"], "note": "人民币与港元不得混加，沪深两路缺一不做合计。"},
+            {"id": "etf", "name": "ETF 申赎", "status": "planned", "frequency": "日频", "lag": "T+1", "source": "基金份额与净值公告", "metric": "份额变化 / 净申赎", "asOf": None, "note": "尚未接入；跨境 ETF 成交额不是申赎资金。"},
+            {"id": "liquidity", "name": "宏观流动性", "status": "ready" if liquidity_rows else "degraded", "frequency": "日/周/月", "lag": "按指标发布", "source": "宏观监测", "metric": "货币数量 / 资金价格", "asOf": (macro_liquidity.get("coverage") or {}).get("asOf"), "note": "各指标日期分别核对，不将 M2、LPR 与成交额合成总资金。"},
+        ]
+        for key, id_, name in (("fundFlow", "main-flow", "个股主力"), ("margin", "margin", "个股两融"), ("dragonTiger", "lhb", "龙虎榜")):
+            coverage = (security_coverage or {}).get(key, {})
+            dimensions.append({"id": id_, "name": name, "status": "on-demand" if not code else "degraded" if coverage.get("status") == "unavailable" else "ready" if coverage.get("count") else "degraded", "frequency": "日频", "lag": "按标的查询", "source": coverage.get("source", "A Stock Data"), "asOf": coverage.get("asOf"), "note": coverage.get("note", "输入股票名称或代码查询，不代表全市场覆盖")})
+        sector_dimension = next(item for item in dimensions if item["id"] == "sector")
+        if sectors and all(row.get("metric") == "large-order-net" for row in sectors):
+            sector_dimension.update({"source": "东财行业大额订单", "metric": "大单 + 超大单净额 · 人民币亿元",
+                                     "asOf": min(str(row["asOf"]) for row in sectors) if all(row.get("asOf") for row in sectors) else None,
+                                     "status": "ready" if all(finite_number(row.get("net")) is not None for row in sectors) else "degraded",
+                                     "note": "含行业与子行业，存在重叠，不汇总全市场净额。净占比由供应商披露，不代表机构身份。"})
+        upstream_ok = all(item["status"] == "ready" for item in dimensions if item["id"] in {"market", "sector", "northbound", "southbound", "liquidity"})
         return {
             "schemaVersion": "newma-desk.capital-flow.v1",
             "generatedAt": datetime.now(timezone.utc).isoformat(),
             "marketDate": market_date,
             "summary": {
-                "sectorNetYi": round(net, 2),
-                "sectorInflowYi": round(inflow, 2),
-                "sectorOutflowYi": round(outflow, 2),
-                "top20TurnoverYi": round(top_turnover_yi, 2),
+                "sectorNetYi": round(net, 2) if net is not None else None,
+                "sectorInflowYi": round(inflow, 2) if inflow is not None else None,
+                "sectorOutflowYi": round(outflow, 2) if outflow is not None else None,
+                "top20TurnoverYi": round(top_turnover_yi, 2) if top_turnover_yi is not None else None,
                 "active": active,
             },
             "sectors": sectors,
             "turnoverLeaders": leaders[:20],
-            "security": {"code": code, "fundFlow": stock_flow, "margin": margin, "dragonTiger": dragon_tiger} if code else None,
+            "security": {"code": code, "fundFlow": stock_flow, "margin": margin, "dragonTiger": dragon_tiger, "coverage": security_coverage} if code else None,
             "crossBorder": {"northbound": north, "southbound": south},
             "liquidity": {
                 "indicators": liquidity_rows,
@@ -591,17 +650,7 @@ class CapitalFlowService:
                 "source": macro_liquidity.get("source", "Vibe Research / 宏观监测"),
             },
             "riskAppetite": risk_appetite,
-            "dimensions": [
-                {"id": "market", "name": "市场成交", "status": "ready" if leaders else "degraded", "frequency": "盘中/日频", "lag": "约 5 分钟", "source": "交易行情聚合"},
-                {"id": "sector", "name": "行业资金", "status": "ready" if sectors else "degraded", "frequency": "盘中", "lag": "约 5 分钟", "source": "A Stock Data / AKShare"},
-                {"id": "northbound", "name": "北向资金", "status": "ready" if north_ready else "degraded", "frequency": "日频", "lag": "收盘后", "source": "HKEX 官方 / Tushare", "note": "展示沪股通、深股通成交额历史，单位人民币亿元；成交额不等于净流入。"},
-                {"id": "southbound", "name": "南向资金", "status": "ready" if south_ready else "degraded", "frequency": "日频", "lag": "收盘后", "source": "HKEX 官方每日统计", "note": "净买入 = 买入成交额 - 卖出成交额，单位港元亿元。"},
-                {"id": "margin", "name": "杠杆资金", "status": "ready" if code and margin else "on-demand", "frequency": "日频", "lag": "T+1", "source": "沪深交易所 / A Stock Data"},
-                {"id": "main-flow", "name": "主力资金", "status": "ready" if code and stock_flow else "on-demand", "frequency": "日频", "lag": "约 15 分钟", "source": "A Stock Data / 东财 + 新浪回退", "note": "东财为空或被风控时自动切换新浪日度资金流。"},
-                {"id": "lhb", "name": "龙虎榜", "status": "ready" if code and dragon_tiger else "on-demand", "frequency": "日频", "lag": "收盘后", "source": "A Stock Data / 东财"},
-                {"id": "etf", "name": "ETF 申赎", "status": "planned", "frequency": "日频", "lag": "T+1", "source": "基金份额与净值公告", "note": "当前研究服务尚未提供份额序列，暂不展示估算值。"},
-                {"id": "liquidity", "name": "宏观流动性", "status": "ready" if liquidity_rows else "degraded", "frequency": "日/周/月", "lag": "按指标发布", "source": "Vibe Research / 金十与央行口径", "note": "M2、LPR及宏观流动性状态分开展示。"},
-            ],
+            "dimensions": dimensions,
             "sources": [
                 {"name": "HKEX 沪深港通", "url": "https://www.hkex.com.hk/Mutual-Market/Stock-Connect/Statistics/Historical-Daily"},
                 {"name": "Tushare 沪深港通日线", "url": "https://tushare.pro/document/search?q=%E6%B2%AA%E6%B7%B1%E6%B8%AF%E9%80%9A%E8%B5%84%E9%87%91%E6%B5%81%E5%90%91"},

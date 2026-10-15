@@ -348,10 +348,10 @@ def radar_refresh():
 
 
 @app.get("/api/market/overview")
-def market_overview():
+def market_overview(include_sentiment: bool = True):
     """市场情绪 + 板块资金流（板块/大盘级，全站共享缓存 5 分钟）。"""
     try:
-        return {"data": market.get_overview()}
+        return {"data": market.get_overview(include_sentiment=include_sentiment)}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"市场总览异常：{e}") from e
 

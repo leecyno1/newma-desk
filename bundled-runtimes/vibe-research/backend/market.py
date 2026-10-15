@@ -70,34 +70,54 @@ def _sentiment() -> dict:
 
 
 def _sectors() -> list[dict]:
-    """行业资金流（按净额降序）。不含领涨股等个股字段。"""
-    try:
-        f = astock.akshare_call("stock_fund_flow_industry", symbol="即时")
-        f = f.sort_values("净额", ascending=False)
-    except Exception:
-        return []
-    out = []
-    for _, row in f.iterrows():
-        out.append({
-            "name": str(row["行业"]),
-            "pct": round(float(row.get("行业-涨跌幅", 0) or 0), 2),
-            "net": round(float(row.get("净额", 0) or 0), 2),
-            "inflow": round(float(row.get("流入资金", 0) or 0), 2),
-            "outflow": round(float(row.get("流出资金", 0) or 0), 2),
-            "firms": _num(row.get("公司家数")),
-        })
-    return out
+    """东财行业大额订单净额；旧同花顺接口已失效，不混接两种口径。"""
+    params = {"pn": 1, "pz": 100, "po": 1, "np": 1, "fltt": 2, "invt": 2,
+              "fid": "f62", "fid0": "f62", "fs": "m:90 t:2", "stat": "1",
+              "ut": "b2884a393a59ad64002292a3e90d46a5",
+              "fields": "f12,f14,f3,f62,f184,f124"}
+    for host in ("push2.eastmoney.com", "push2delay.eastmoney.com"):
+        try:
+            rows = []
+            page = 1
+            while True:
+                response = astock.em_get(f"https://{host}/api/qt/clist/get", params={**params, "pn": page}, headers={"User-Agent": astock.UA, "Referer": "https://data.eastmoney.com/bkzj/hy.html"}, timeout=8)
+                data = response.json().get("data") or {}
+                diff = data.get("diff") or []
+                batch = list(diff.values()) if isinstance(diff, dict) else diff
+                if not batch:
+                    if rows:
+                        raise ValueError("行业分页不完整，不发布为完整板块样本")
+                    break
+                rows.extend(batch)
+                if len(rows) >= int(data.get("total") or len(rows)):
+                    break
+                page += 1
+            if not rows:
+                continue
+            out = []
+            for row in rows:
+                net = astock._numf(row.get("f62"))
+                timestamp = astock._numf(row.get("f124"))
+                out.append({"name": row.get("f14"), "code": row.get("f12"),
+                            "pct": astock._numf(row.get("f3")), "net": net / 1e8 if net is not None else None,
+                            "inflow": None, "outflow": None, "netSharePct": astock._numf(row.get("f184")),
+                            "asOf": datetime.fromtimestamp(timestamp, BEIJING).isoformat() if timestamp else None,
+                            "metric": "large-order-net", "aggregateSafe": False, "source": f"eastmoney-{host.split('.')[0]}"})
+            return sorted(out, key=lambda row: row["net"] if row["net"] is not None else float("-inf"), reverse=True)
+        except Exception:
+            continue
+    return []
 
 
-def get_overview() -> dict:
+def get_overview(include_sentiment: bool = True) -> dict:
     """市场情绪 + 板块资金（含缓存）。资金轮动由前端从 sectors 头尾取。"""
     def build():
         return {
-            "sentiment": _sentiment(),
+            "sentiment": _sentiment() if include_sentiment else {},
             "sectors": _sectors(),
             "updated": datetime.now(BEIJING).strftime("%Y-%m-%d %H:%M"),
         }
-    return _cached("overview", build, valid=lambda v: bool(v.get("sentiment") or v.get("sectors")))
+    return _cached("overview" if include_sentiment else "sector-overview", build, valid=lambda v: bool(v.get("sentiment") or v.get("sectors")))
 
 
 def _emotion() -> dict:

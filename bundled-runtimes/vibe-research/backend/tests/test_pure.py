@@ -1,9 +1,11 @@
 """纯逻辑单测（无网络、快、确定）：市场前缀、估值计算、行情解析。"""
 import json
 import math
+import pytest
 
 import astock
 import market_terminal
+import market
 
 
 def test_get_prefix():
@@ -131,6 +133,57 @@ def test_fund_flow_falls_back_to_sina_when_eastmoney_is_empty(monkeypatch):
     assert rows[0]["source"] == "sina-money-flow"
     assert rows[0]["main_net"] == 3_500_000_000
     assert rows[0]["change_pct"] == 4.2
+
+
+def test_sina_main_zero_or_missing_is_not_replaced_by_total(monkeypatch):
+    class Response:
+        def json(self):
+            return {"data": None}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps([{"opendate": "2026-10-13", "r0_net": "0", "netamount": "100"}, {"opendate": "2026-10-12", "netamount": "200"}]).encode()
+
+    monkeypatch.setattr(astock, "em_get", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(astock.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+    rows = astock.stock_fund_flow_120d("300308")
+    assert rows[0]["main_net"] == 0
+    assert rows[1]["main_net"] is None
+    assert rows[1]["net_amount"] == 200
+
+
+def test_dragon_tiger_source_error_is_not_an_empty_listing(monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("source unavailable")
+    monkeypatch.setattr(astock, "em_get", fail)
+    with pytest.raises(RuntimeError):
+        astock.dragon_tiger_board("300308")
+
+
+def test_sector_flow_keeps_provider_units_missing_fields_and_overlapping_domains(monkeypatch):
+    class Response:
+        def json(self):
+            return {"data": {"total": 2, "diff": [{"f12": "BK1", "f14": "行业", "f62": 2e8, "f3": 1, "f184": 4, "f124": 1791856800}, {"f12": "BK2", "f14": "子行业", "f62": "-", "f3": None}]}}
+    monkeypatch.setattr(astock, "em_get", lambda *_args, **_kwargs: Response())
+    rows = market._sectors()
+    assert rows[0]["net"] == 2
+    assert rows[0]["inflow"] is None
+    assert rows[0]["aggregateSafe"] is False
+    assert rows[0]["netSharePct"] == 4
+    assert rows[1]["net"] is None
+    assert rows[1]["asOf"] is None
+
+
+def test_sector_only_overview_does_not_wait_for_irrelevant_sentiment(monkeypatch):
+    market._CACHE.clear()
+    monkeypatch.setattr(market, "_sectors", lambda: [{"net": 1}])
+    monkeypatch.setattr(market, "_sentiment", lambda: pytest.fail("资金页不应请求乐咕情绪"))
+    assert market.get_overview(include_sentiment=False)["sectors"] == [{"net": 1}]
 
 
 def test_parse_tencent_compact_minute_rows():
