@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from statistics import median
 from datetime import datetime, timezone
 
 import httpx
@@ -13,6 +14,23 @@ from vibe_visualization_api.capital_flow.service import finite_number
 SOURCE = "Tushare daily · 未复权日线"
 NOTE = "统一取昨日及以前最近交易日。仅统计来源返回的沪深北 A 股行情样本，不含无行情标的；不是交易所全市场统计，成交额不等于资金净流入。"
 VENUES = {"SH": "上海", "SZ": "深圳", "BJ": "北京"}
+
+
+def sample_breadth(stocks: list[dict]) -> dict:
+    active = [row for row in stocks if row["amount"] > 0 and row["price"] is not None and row["price"] > 0]
+    values = [row["pct"] for row in active if row["pct"] is not None]
+    up, down = sum(x > 0 for x in values), sum(x < 0 for x in values)
+    buckets = [sum(x <= -5 for x in values), sum(-5 < x <= -3 for x in values),
+               sum(-3 < x < 0 for x in values), sum(x == 0 for x in values),
+               sum(0 < x < 3 for x in values), sum(3 <= x < 5 for x in values), sum(x >= 5 for x in values)]
+    return {"sampleCount": len(stocks), "activeCount": len(active), "validCount": len(values),
+            "inactiveCount": len(stocks) - len(active), "missingPctCount": len(active) - len(values),
+            "up": up, "down": down, "flat": len(values) - up - down,
+            "upRatioPct": up / len(values) * 100 if values else None,
+            "medianPct": median(values) if values else None,
+            "buckets": [{"label": label, "count": count} for label, count in zip(
+                ("≤−5%", "(−5%,−3%]", "(−3%,0)", "平盘", "(0,3%)", "[3%,5%)", "≥5%"), buckets)],
+            "note": "来源返回的有正成交额、有效收盘价及涨跌幅的A股样本；非全市场完整性认证。零成交或无效价格不算平盘，缺涨跌幅不补零。"}
 
 
 def turnover_snapshot(rows: list[dict], names: list[dict], day: str) -> dict:
@@ -49,7 +67,7 @@ def turnover_snapshot(rows: list[dict], names: list[dict], day: str) -> dict:
     valid = bool(stocks) and not (invalid or rejected)
     total = sum(row["amount"] for row in stocks) / 1e8 if valid else None
     top = sum(row["amount"] for row in stocks[:20]) / 1e8 if valid else None
-    return {"date": day, "leaders": stocks[:20],
+    return {"date": day, "leaders": stocks[:20], "breadth": sample_breadth(stocks),
             "summary": {"sampleTurnoverYi": total, "top20TurnoverYi": top,
                         "top20SharePct": top / total * 100 if total and top is not None else None},
             "coverage": {"received": len(rows), "sampleCount": len(stocks), "rejected": rejected,
@@ -100,7 +118,7 @@ class TurnoverResearchService(CapitalResearchService):
             expected = sessions[-1] if sessions else None
             saved, run = await asyncio.to_thread(self.store.read, "capital.turnover.v1", "CN", self.start, self.end)
             now = datetime.now(timezone.utc)
-            cached = bool(run and run["end_date"] == expected
+            cached = bool(run and saved and "breadth" in saved[-1] and run["end_date"] == expected
                           and (now - datetime.fromisoformat(run["received_at"])).total_seconds() < 300 and not refresh)
             status, reason = run.get("status", "unavailable"), run.get("reason", "")
             if not cached:
@@ -142,7 +160,7 @@ class TurnoverResearchService(CapitalResearchService):
                     "source": SOURCE, "unit": "人民币亿元", "rawUnit": "千元", "note": NOTE,
                     "calendarStatus": calendar["status"], "nameNote": snapshot.get("nameNote", ""),
                     "coverage": snapshot.get("coverage"), "exchanges": snapshot.get("exchanges", []),
-                    "leaders": snapshot.get("leaders", []),
+                    "leaders": snapshot.get("leaders", []), "breadth": snapshot.get("breadth"),
                     "summary": snapshot.get("summary", {"sampleTurnoverYi": None, "top20TurnoverYi": None, "top20SharePct": None})}
         finally:
             if owns:

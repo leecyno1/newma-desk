@@ -53,6 +53,39 @@ def baseline(points: list[dict], sessions: list[str], field: str) -> dict:
     }
 
 
+def etf_strength(points: list[dict], sessions: list[str], days: int) -> dict:
+    indexed = {row["date"]: row for row in points}
+    dates = sessions[-days:]
+    base_date = sessions[-days - 1] if len(sessions) > days else None
+    base = indexed.get(base_date, {})
+    def assets(row):
+        shares, nav = finite_number(row.get("sharesWan")), finite_number(row.get("nav"))
+        return shares * nav / 10000 if shares is not None and shares > 0 and nav is not None and nav > 0 else None
+    base_assets = assets(base)
+    flows, missing, splits = [], [], []
+    for day in dates:
+        row = indexed.get(day, {})
+        if row.get("suspectedSplit"):
+            splits.append(day)
+        change = finite_number(row.get("shareChangeWan"))
+        if assets(row) is None or change is None or row.get("suspectedSplit"):
+            missing.append(day)
+        else:
+            # Compute before display rounding, important for small ETF share classes.
+            flows.append(change * finite_number(row["nav"]) / 10000)
+    complete = len(dates) == days and not missing and base_assets is not None
+    reason = "交易日不足，无法取得完整窗口及期初规模" if len(sessions) <= days else (
+        "期初份额或净值缺失／非正数" if base_assets is None else
+        "窗口存在疑似份额折算，需公告核验" if splits else
+        "窗口份额或同日净值缺失／无效，不补零" if missing else "")
+    flow = sum(flows) if complete else None
+    return {"days": days, "start": dates[0] if dates else None, "end": dates[-1] if dates else None,
+            "baseDate": base_date, "baseAssetsYi": base_assets, "flowYi": round(flow, 8) if flow is not None else None,
+            "strengthPct": round(flow / base_assets * 100, 6) if complete else None,
+            "available": len(flows), "expected": days, "missingDates": missing, "splitDates": splits,
+            "current": complete, "reason": reason}
+
+
 def etf_analysis(code: str, name: str, category: str, rows: list[dict], sessions: list[str]) -> dict:
     indexed = {row["date"]: row for row in rows}
     previous = {day: sessions[index - 1] if index else None for index, day in enumerate(sessions)}
@@ -63,7 +96,7 @@ def etf_analysis(code: str, name: str, category: str, rows: list[dict], sessions
         old_shares = finite_number(prior.get("sharesWan"))
         nav = finite_number(row.get("nav"))
         old_nav = finite_number(prior.get("nav"))
-        share_change = shares - old_shares if shares is not None and old_shares is not None else None
+        share_change = shares - old_shares if shares is not None and shares >= 0 and old_shares is not None and old_shares > 0 else None
         nav_change = (nav / old_nav - 1) * 100 if nav is not None and old_nav and old_nav > 0 else None
         suspected_split = bool(shares and old_shares and nav and old_nav
             and abs(shares / old_shares - 1) > .3 and abs(nav / old_nav - 1) > .2
@@ -90,7 +123,8 @@ def etf_analysis(code: str, name: str, category: str, rows: list[dict], sessions
         "summary": {"flow1dYi": window_sum(points, sessions, "flowYi", 1),
                     "flow5dYi": window_sum(points, sessions, "flowYi", 5),
                     "flow20dYi": window_sum(points, sessions, "flowYi", 20),
-                    "baseline": baseline(points, sessions, "flowYi")},
+                    "baseline": baseline(points, sessions, "flowYi"),
+                    "strength": {str(days): etf_strength(points, sessions, days) for days in (1, 5, 20)}},
         "note": "疑似份额折算，相关申赎估算已停止，需公告核验" if latest.get("suspectedSplit")
                 else "数据日期落后于目标交易日" if expected and latest.get("date") != expected
                 else "缺少前一交易日份额或当日净值，无法估算完整申赎" if not complete
@@ -203,14 +237,15 @@ class CapitalResearchService:
         return {"rows": observations, "status": status, "reason": reason, "receivedAt": received,
                 "cached": False, "usingSaved": not fetched and bool(observations)}
 
-    async def research(self, *, refresh=False) -> dict:
+    async def research(self, *, refresh=False, samples=None) -> dict:
+        samples = ETF_SAMPLE if samples is None else samples
         owns = self.client is None
         client = self.client or httpx.AsyncClient(timeout=18, trust_env=False)
         try:
             calendar, margin, probe = await asyncio.gather(
                 self._dataset(client, "trade_cal", "SSE", {"exchange": "SSE", "is_open": "1"}, "cal_date,is_open", "cal_date", refresh=refresh),
                 self._dataset(client, "margin", "CN", {}, "trade_date,exchange_id,rzye,rzmre,rzche,rqye,rzrqye", refresh=refresh),
-                self._dataset(client, "etf_share_size", ETF_SAMPLE[0][0], {"ts_code": ETF_SAMPLE[0][0]},
+                self._dataset(client, "etf_share_size", samples[0][0], {"ts_code": samples[0][0]},
                               "trade_date,ts_code,total_share,nav,total_size", refresh=refresh),
             )
             sessions = sorted({row["date"] for row in calendar["rows"] if str(row.get("is_open")) == "1"})
@@ -218,7 +253,7 @@ class CapitalResearchService:
 
             async def etf(code, name, category):
                 if use_new:
-                    shares = probe if code == ETF_SAMPLE[0][0] else await self._dataset(
+                    shares = probe if code == samples[0][0] else await self._dataset(
                         client, "etf_share_size", code, {"ts_code": code}, "trade_date,ts_code,total_share,nav,total_size", refresh=refresh)
                     rows = [{"date": row["date"], "sharesWan": row.get("total_share"), "nav": row.get("nav")}
                             for row in shares["rows"]]
@@ -243,9 +278,13 @@ class CapitalResearchService:
                                "usingSaved": any(feed.get("usingSaved") for feed in feeds)})
                 if result["fetchStatus"] != "ready" and result["status"] == "ready":
                     result["status"] = "partial"
+                if result["fetchStatus"] != "ready" or result["usingSaved"] or calendar["status"] != "ready" or calendar.get("usingSaved"):
+                    for window in result["summary"]["strength"].values():
+                        window["current"] = False
+                        window["reason"] = "; ".join(filter(None, [window["reason"], "来源或交易日历更新未确认；数值仅作已存历史参考"]))
                 return result
 
-            etfs = await asyncio.gather(*(etf(*sample) for sample in ETF_SAMPLE))
+            etfs = await asyncio.gather(*(etf(*sample) for sample in samples))
             margin_rows = [venue for day in margin["rows"] for venue in day.get("venues", [])]
             leverage = margin_analysis(margin_rows, sessions)
             leverage.update({"fetchStatus": margin["status"], "sourceNote": margin["reason"],
@@ -253,7 +292,7 @@ class CapitalResearchService:
             if margin["status"] != "ready" and leverage["status"] == "ready":
                 leverage["status"] = "partial"
             groups = []
-            for category in dict.fromkeys(sample[2] for sample in ETF_SAMPLE):
+            for category in dict.fromkeys(sample[2] for sample in samples):
                 members = [item for item in etfs if item["category"] == category]
                 def group_total(field):
                     values = [item["summary"][field] for item in members]
@@ -268,7 +307,7 @@ class CapitalResearchService:
                     "etfs": etfs, "groups": groups, "leverage": leverage,
                     "coverage": {"etfAvailable": sum(item["status"] == "ready" for item in etfs), "etfTotal": len(etfs),
                                  "sampleOnly": True, "primaryStatus": probe["status"], "primaryReason": probe["reason"]},
-                    "notes": ["8只代表ETF观察池，不代表全市场或整个资产类别；分类合计仅限观察池",
+                    "notes": [f"{len(samples)}只ETF研究观察池，不代表全市场或整个资产类别；分类合计仅限观察池，研究分组不是官方分类",
                               "申赎是份额变化对应的金额估算，不是大单净额或外部现金流",
                               "交易日缺记录不补零，不跨缺失日拼出日流量；历史分位不是风险概率",
                               "原始来源按日保存；净值公告日、行情日和本地接收时间分别保留；不是历史可知时点回测"]}

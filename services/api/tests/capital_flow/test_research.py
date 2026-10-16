@@ -40,6 +40,47 @@ def test_etf_missing_session_and_split_are_not_flows():
     assert result["latest"]["suspectedSplit"] is True
     assert result["latest"]["flowYi"] is None
     assert "公告核验" in result["note"]
+    assert result["summary"]["strength"]["1"]["strengthPct"] is None
+    assert result["summary"]["strength"]["1"]["splitDates"] == [DATES[-1]]
+
+
+def test_etf_strength_uses_fixed_opening_assets_and_is_scale_invariant():
+    sessions = ["2026-10-09", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"]
+    rows = [{"date": day, "sharesWan": 10000 + i * 1000, "nav": 1 + i / 10} for i, day in enumerate(sessions)]
+    result = etf_analysis("ETF", "ETF", "宽基", rows, sessions)["summary"]["strength"]
+    window = result["5"]
+    assert window["baseDate"] == sessions[0] and window["start"] == sessions[1]
+    assert window["baseAssetsYi"] == 1
+    assert window["flowYi"] == pytest.approx(.65)
+    assert window["strengthPct"] == 65
+    assert window["available"] == window["expected"] == 5 and window["current"]
+    large = etf_analysis("ETF", "ETF", "宽基", [{**row, "sharesWan": row["sharesWan"] * 100} for row in rows], sessions)
+    assert large["summary"]["strength"]["5"]["strengthPct"] == window["strengthPct"]
+    assert large["summary"]["strength"]["5"]["flowYi"] == 65
+    assert result["20"]["strengthPct"] is None and not result["20"]["current"]
+    unchanged = etf_analysis("ETF", "ETF", "宽基", [{**row, "sharesWan": 10000} for row in rows], sessions)
+    assert unchanged["summary"]["strength"]["5"]["strengthPct"] == 0
+    assert unchanged["summary"]["strength"]["5"]["current"]
+
+
+@pytest.mark.parametrize("field,value", [("nav", None), ("nav", 0), ("sharesWan", 0), ("sharesWan", -1)])
+def test_etf_strength_invalid_opening_assets_are_not_zero(field, value):
+    rows = [{"date": DATES[1], "sharesWan": 10000, "nav": 1, field: value},
+            {"date": DATES[2], "sharesWan": 11000, "nav": 1}]
+    window = etf_analysis("ETF", "ETF", "宽基", rows, DATES)["summary"]["strength"]["1"]
+    assert window["strengthPct"] is None and window["baseAssetsYi"] is None
+    assert not window["current"] and "期初" in window["reason"]
+
+
+def test_etf_strength_missing_middle_day_and_small_amount_precision():
+    sessions = [f"2026-10-{day:02}" for day in range(9, 15)]
+    rows = [{"date": day, "sharesWan": 100 + i, "nav": .001} for i, day in enumerate(sessions)]
+    result = etf_analysis("ETF", "ETF", "宽基", rows, sessions)
+    assert result["summary"]["flow5dYi"] == 0  # Legacy display rounds to 4 decimals.
+    assert result["summary"]["strength"]["5"]["strengthPct"] == 5  # Not computed from rounded display.
+    missing = etf_analysis("ETF", "ETF", "宽基", rows[:2] + rows[3:], sessions)["summary"]["strength"]["5"]
+    assert missing["strengthPct"] is None and not missing["current"]
+    assert missing["missingDates"] == sessions[2:4]
 
 
 def test_market_margin_requires_three_exchanges():
@@ -119,6 +160,10 @@ async def test_permission_fallback_join_cache_and_failed_refresh(tmp_path, monke
         assert saved["leverage"]["usingSaved"] is True
         assert saved["leverage"]["latest"]["balanceYi"] == 30
         assert saved["calendar"]["status"] == "upstream-error"
+        assert first["etfs"][0]["summary"]["strength"]["1"]["current"]
+        window = saved["etfs"][0]["summary"]["strength"]["1"]
+        assert window["strengthPct"] is not None and not window["current"]
+        assert "更新未确认" in window["reason"]
 
 
 @pytest.mark.asyncio

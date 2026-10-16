@@ -1,0 +1,32 @@
+.market-workbench.is-review-archive > :not(#market-journal) { display: none; }
+body:has(.is-review-archive) .stock-suite-history-fab { display: none; }
+#market-journal [hidden] { display: none !important; }
+.journal-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; margin-bottom: 12px; }
+#market-journal label { display: grid; gap: 6px; font-size: 13px; }
+#market-journal textarea, #market-journal input, #market-journal select { box-sizing: border-box; max-width: 100%; border: 1px solid var(--instock-border); background: var(--instock-surface); color: var(--instock-text); border-radius: 4px; padding: 8px; font: inherit; }
+#market-journal textarea { width: 100%; resize: vertical; min-height: 80px; line-height: 1.6; }
+#market-journal :is(textarea, input, select, button):focus-visible { outline: 2px solid var(--terminal-accent); outline-offset: 2px; }
+#market-journal [data-journal-status]:not(:empty) { padding: 8px 0; color: var(--terminal-accent); }
+.journal-archive-head, .journal-navigation { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.journal-archive-head > strong { font-size: 18px; }
+.journal-archive-head > span { color: var(--instock-text-muted); font-size: 12px; }
+.journal-notes > div { border-top: 1px solid var(--instock-border); padding-top: 12px; min-width: 0; }
+.journal-notes dt { color: var(--instock-text-muted); font-size: 12px; }
+.journal-notes dd { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; font-size: 14px; }
+.journal-evidence { max-height: 400px; overflow: auto; font-size: 12px; padding: 10px; background: var(--instock-surface-raised); }
+.journal-checks { margin-top: 20px; border-top: 1px solid var(--instock-border); padding-top: 16px; }
+.journal-checks li { padding-block: 6px; }
+.journal-checks li p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.journal-checks form > button { margin-top: 10px; }
+.journal-list-head, .journal-list > button { display: grid; grid-template-columns: 105px minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+.journal-list-head { padding: 10px 0; border-bottom: 1px solid var(--instock-border); font-size: 12px; color: var(--instock-text-muted); }
+.journal-list > button { width: 100%; padding: 12px 0; text-align: left; border: 0; border-bottom: 1px solid var(--instock-border); color: var(--instock-text); background: transparent; cursor: pointer; font: inherit; font-size: 13px; line-height: 1.6; }
+.journal-list > button > span { display: grid; align-content: start; gap: 5px; min-width: 0; }
+.journal-followup-state { width: fit-content; border-left: 2px solid var(--instock-border); padding-left: 6px; }
+.journal-followup-state[data-pending="true"] { border-color: var(--instock-warning); color: var(--instock-warning); }
+[data-journal-counts] { font-variant-numeric: tabular-nums; font-size: 13px; }
+.journal-check-target { margin-top: 14px; padding: 10px 12px; border-left: 2px solid var(--terminal-accent); background: var(--instock-surface-raised); }
+.journal-check-target > div { max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; }
+.journal-list > button:hover { background: var(--instock-surface-raised); }
+.journal-list span { overflow-wrap: anywhere; }
+@media (max-width: 650px) { .journal-fields { grid-template-columns: minmax(0, 1fr); } .journal-list-head { display: none; } .journal-list > button { grid-template-columns: 85px minmax(0, 1fr); gap: 8px; } .journal-list > button > span:last-child { grid-column: 2; border-top: 1px dotted var(--instock-border); padding-top: 6px; } }

@@ -22,6 +22,7 @@ from instock.core.market_data_provider import (
     get_market_data_provider,
 )
 from instock.core.rotation import RotationEngine, RotationExperiment
+from instock.core.workbench.market_continuity import build_continuity
 from instock.core.rotation.rotation_shadow_state import get_rotation_shadow_state
 from instock.core.rotation.sector_fund_flow_history import get_sector_fund_flow_history
 from instock.web.api_contract import AnalysisApiHandler
@@ -138,6 +139,10 @@ class RotationSnapshotHandler(AnalysisApiHandler):
         benchmark = self.get_argument("benchmark", "510300").strip()
         refresh = self.get_argument("refresh", "0") == "1"
         as_of_text = self.get_argument("asOf", self.get_argument("as_of", "")).strip()
+        continuity = self.get_argument("view", "") == "continuity"
+        if continuity and not as_of_text:
+            self.write_error(400, "missing_review_date", "持续性复盘必须指定截止日")
+            return
 
         if window not in _WINDOWS:
             self.write_error(400, "invalid_window", "分析窗口仅支持 40、60、120 个交易日")
@@ -211,6 +216,9 @@ class RotationSnapshotHandler(AnalysisApiHandler):
                         "storage": "sqlite",
                     }
                 _SNAPSHOT_CACHE.set(cache_key, payload)
+            if continuity:
+                self.write_success(build_continuity(payload))
+                return
             snapshot = payload.get("snapshot")
             if snapshot:
                 get_analysis_snapshot_registry().register(snapshot)

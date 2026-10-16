@@ -48,6 +48,15 @@ CREATE TABLE IF NOT EXISTS policy_source_runs (
   last_error TEXT
 );
 
+CREATE TABLE IF NOT EXISTS policy_documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  policy_id TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  fetched_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_policy_documents_policy
+ON policy_documents(policy_id, id DESC);
+
 CREATE TABLE IF NOT EXISTS policy_assessment_reviews (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   policy_id TEXT NOT NULL,
@@ -140,22 +149,22 @@ class PolicyStore:
                       institution = excluded.institution,
                       category = excluded.category,
                       level = CASE
-                        WHEN policy_events.assessment_status = 'reviewed'
+                        WHEN EXISTS (SELECT 1 FROM policy_assessment_reviews WHERE policy_id = policy_events.id)
                         THEN policy_events.level ELSE excluded.level END,
                       status = excluded.status,
                       certainty = excluded.certainty,
                       summary = excluded.summary,
                       rationale_json = CASE
-                        WHEN policy_events.assessment_status = 'reviewed'
+                        WHEN EXISTS (SELECT 1 FROM policy_assessment_reviews WHERE policy_id = policy_events.id)
                         THEN policy_events.rationale_json ELSE excluded.rationale_json END,
                       market_scope_json = excluded.market_scope_json,
                       discovered_by = excluded.discovered_by,
                       assessment_confidence = CASE
-                        WHEN policy_events.assessment_status = 'reviewed'
+                        WHEN EXISTS (SELECT 1 FROM policy_assessment_reviews WHERE policy_id = policy_events.id)
                         THEN policy_events.assessment_confidence
                         ELSE excluded.assessment_confidence END,
                       assessment_status = CASE
-                        WHEN policy_events.assessment_status = 'reviewed'
+                        WHEN EXISTS (SELECT 1 FROM policy_assessment_reviews WHERE policy_id = policy_events.id)
                         THEN policy_events.assessment_status
                         ELSE excluded.assessment_status END,
                       document_type = excluded.document_type,
@@ -187,6 +196,46 @@ class PolicyStore:
                 "SELECT * FROM policy_events ORDER BY event_date DESC, last_seen_at DESC"
             ).fetchall()
         return [self._event(row) for row in rows]
+
+    def document_versions(self, policy_id: str, limit: int = 2) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, payload_json FROM policy_documents WHERE policy_id = ? ORDER BY id DESC LIMIT ?",
+                (policy_id, limit),
+            ).fetchall()
+        return [{**json.loads(row["payload_json"]), "revision": row["id"]} for row in rows]
+
+    def document_summaries(self) -> dict[str, dict]:
+        with self._connect() as connection:
+            rows = connection.execute("""
+                SELECT d.* FROM policy_documents d JOIN
+                (SELECT policy_id, MAX(id) AS latest FROM policy_documents GROUP BY policy_id) v
+                ON d.id = v.latest
+            """).fetchall()
+        return {
+            row["policy_id"]: {
+                **{key: value for key, value in json.loads(row["payload_json"]).items()
+                   if key not in {"text", "paragraphs", "attachments"}},
+                "revision": row["id"],
+            } for row in rows
+        }
+
+    def save_document(self, policy_id: str, document: dict) -> dict:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            previous = connection.execute(
+                "SELECT id, payload_json FROM policy_documents WHERE policy_id = ? ORDER BY id DESC LIMIT 1",
+                (policy_id,),
+            ).fetchone()
+            if previous:
+                payload = json.loads(previous["payload_json"])
+                if all(payload.get(key) == document.get(key) for key in ("text", "sourceUrl", "publishedAt", "issuedAt", "issuer", "effectiveAt")):
+                    return {**payload, "revision": previous["id"]}
+            cursor = connection.execute(
+                "INSERT INTO policy_documents (policy_id, payload_json, fetched_at) VALUES (?, ?, ?)",
+                (policy_id, self._json(document), document["fetchedAt"]),
+            )
+            return {**document, "revision": cursor.lastrowid}
 
     def review_assessment(self, event_id: str, level: int, note: str) -> dict[str, Any] | None:
         now = datetime.now(UTC).isoformat()

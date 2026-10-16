@@ -93,6 +93,12 @@ class MarketDataProvider(ABC):
 
         return {"sentiment": {}, "sectors": [], "updated": ""}
 
+    def get_market_structure(self, *, refresh=False) -> Dict[str, Any]:
+        raise MarketDataError("当前数据源尚未接入市场结构")
+
+    def get_market_evidence(self, code, as_of, industry, aliases, *, refresh=False) -> Dict[str, Any]:
+        raise MarketDataError("当前数据源尚未接入复盘交叉证据")
+
     def get_market_emotion(self) -> Dict[str, Any]:
         """Return the host's objective limit-up and board-ladder snapshot."""
 
@@ -483,6 +489,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         parameters: Dict[str, Any],
         *,
         timeout: Optional[float] = None,
+        desk_native: bool = False,
     ) -> Any:
         """Call an existing Research HTTP Interface that is not a Data Service capability."""
 
@@ -492,7 +499,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         request_timeout = self.timeout if timeout is None else max(float(timeout), 0.1)
         try:
             response = self._get(
-                f"{self.base_url}{direct_path}",
+                f"{self._desk_origin if desk_native else self.base_url}{direct_path}",
                 params=parameters,
                 headers=headers,
                 timeout=request_timeout,
@@ -835,6 +842,20 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             "sectors": sectors if isinstance(sectors, list) else [],
             "updated": str(data.get("updated") or ""),
         }
+
+    def get_market_structure(self, *, refresh=False) -> Dict[str, Any]:
+        data = self._invoke_research_http("/api/capital-flow/market-structure", {"refresh": str(refresh).lower()}, timeout=45, desk_native=True)
+        if not isinstance(data, dict) or data.get("schemaVersion") != "newma-desk.market-structure.v1":
+            raise MarketDataError("市场结构返回格式无效")
+        return data
+
+    def get_market_evidence(self, code, as_of, industry, aliases, *, refresh=False) -> Dict[str, Any]:
+        data = self._invoke_research_http("/api/capital-flow/market-evidence", {
+            "code": code, "as_of": as_of, "industry": industry, "aliases": list(aliases), "refresh": str(refresh).lower(),
+        }, timeout=60, desk_native=True)
+        if not isinstance(data, dict) or data.get("schemaVersion") != "newma-desk.market-evidence.v1":
+            raise MarketDataError("复盘交叉证据返回格式无效")
+        return data
 
     def get_market_emotion(self) -> Dict[str, Any]:
         """Consume Desk's objective limit-up and board-ladder snapshot."""

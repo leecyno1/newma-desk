@@ -2,6 +2,8 @@
 {% block main_content %}
 <link rel="stylesheet" href="{{ static_url('css/vibedesk-theme.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/research-workbench.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/market-structure.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/market-journal.css') }}">
 <style>:root { --terminal-accent: #0f766e; }</style>
 
 <main class="desk-workbench market-workbench">
@@ -19,13 +21,19 @@
     </section>
     <div id="market-alert" class="desk-alert" role="alert"></div>
 
+    <section id="market-structure" class="market-structure" aria-label="市场结构研究"></section>
+    <section id="market-continuity" class="market-structure" aria-label="主线持续性研究"></section>
+    <section id="market-evidence" class="market-structure" aria-label="主线交叉证据"></section>
+    <section id="market-journal" class="market-structure" aria-label="我的复盘记录"></section>
+    <details class="market-legacy-snapshot"><summary>其他来源快照 · 不参与上方市场结构结论</summary>
     <section class="desk-stat-grid market-summary-grid">
         <article class="desk-panel desk-stat"><span>市场宽度</span><strong id="market-breadth">--</strong><small id="market-ratio">上涨占比 --</small></article>
-        <article class="desk-panel desk-stat market-count-stat"><span>上涨 / 下跌 / 平盘</span><strong><b id="market-up" class="desk-positive">--</b><i>/</i><b id="market-down" class="desk-negative">--</b><i>/</i><b id="market-flat">--</b></strong><small>全市场家数</small></article>
+        <article class="desk-panel desk-stat market-count-stat"><span>上涨 / 下跌 / 平盘</span><strong><b id="market-up" class="desk-positive">--</b><i>/</i><b id="market-down" class="desk-negative">--</b><i>/</i><b id="market-flat">--</b></strong><small>其他来源返回家数 · 覆盖需核验</small></article>
         <article class="desk-panel desk-stat"><span>领先行业</span><strong id="market-sector">--</strong><small>Desk 行业截面</small></article>
         <article class="desk-panel desk-stat"><span>成交核心</span><strong id="market-active">--</strong><small id="market-active-code">--</small></article>
     </section>
 
+    </details>
     <section class="desk-panel market-review-panel">
         <header class="desk-section-head"><h2>当日复盘</h2><span id="market-review-asof">等待市场快照</span></header>
         <div class="market-review-grid market-review-conclusions">
@@ -84,12 +92,26 @@
 
 <script src="{{ static_url('js/echarts.min-6.1.0.js') }}"></script>
 <script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script src="{{ static_url('js/market-structure.js') }}"></script>
+<script src="{{ static_url('js/market-continuity.js') }}"></script>
+<script src="{{ static_url('js/market-evidence.js') }}"></script>
+<script src="{{ static_url('js/market-journal.js') }}"></script>
 <script>
 (function () {
     if (window.location.protocol === 'file:') { window.location.replace('http://127.0.0.1:9988/mods/market-workbench/'); return; }
     const deskBridge = window.InStockNewmaDesk || window.InStockVibeDesk;
     const actionId = 'analysis.market-workbench';
     const state = {data: null, board: 'gainers', selected: null, sectorChart: null};
+    let journal = null;
+    const structure = window.InStockMarketStructure(document.getElementById('market-structure'), publish);
+    const evidence = window.InStockMarketEvidence(document.getElementById('market-evidence'), publish);
+    const continuity = window.InStockMarketContinuity(document.getElementById('market-continuity'), publish, () => {
+        const evidence = structure.context();
+        return !evidence.loading && !evidence.error && !evidence.historical && evidence.data?.calendar?.status === 'ready' ? evidence.data.expectedDate : null;
+    }, (row, asOf) => evidence.select(row, asOf));
+    journal = window.InStockMarketJournal(document.getElementById('market-journal'), () => ({
+        marketStructure: structure.context(), marketContinuity: continuity.context(), marketEvidence: evidence.context(),
+    }), publish);
     const boardLabels = {gainers: '涨幅榜', losers: '跌幅榜', amount: '成交额榜', turnover: '换手率榜', volume_ratio: '量比榜'};
     const runButton = document.getElementById('market-run');
     const alertBox = document.getElementById('market-alert');
@@ -124,7 +146,35 @@
         points.push(`当前识别 ${anomalyCount} 条量价异动，${gapCount ? `另有 ${gapCount} 项数据口径待补。` : '主要数据口径完整。'}`);
         return {structure, upRatio, emotionLabel, breakRate, sealRate, leader, anomalyCount, gapCount, risk, points};
     }
-    function buildContext() { const data = state.data || {}; const selected = state.selected || {}; return {view: {id: 'market-workbench', title: '市场复盘'}, visibleBlocks: [{id: 'daily-review', type: 'research-summary', title: '当日复盘'}, {id: 'market-breadth', type: 'market-overview', title: '市场宽度'}, {id: 'market-emotion', type: 'market-overview', title: '短线市场情绪'}, {id: 'sector-temperature', type: 'chart', title: '行业涨跌排名'}, {id: 'market-anomalies', type: 'evidence-list', title: '市场异动'}, {id: 'market-tape', type: 'table', title: boardLabels[state.board]}], selectedSecurity: selected.symbol ? {market: 'CN', symbol: selected.symbol, name: selected.name} : null, data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, dailyReview: reviewSnapshot(data), summary: data.summary, marketEmotion: data.market_emotion || {}, sectorBasis: data.sector_basis || {}, marketAnomalies: data.market_anomalies || {}, selectedSecurity: selected, activeBoard: state.board, snapshot: data.snapshot, limitations: data.limitations || []} : {}, actions: [{id: actionId, label: '刷新市场复盘', available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId))}]}; }
+    function buildContext() {
+        const review = journal?.context();
+        if (review?.mode === 'archive') return {
+            view: {id: 'market-review-archive', title: '市场复盘 · 存档回看'},
+            visibleBlocks: [{id: 'market-journal', type: 'investment-evidence', title: '保存的判断、证据与后续复核'}],
+            filters: {reviewId: review.record.id, asOf: review.record.asOf}, selectedSecurity: null,
+            data: {marketJournal: review, scopeNote: '仅使用保存证据；没有实时行情。复核是人工观察，不改写原判断。'}, actions: [],
+        };
+        const data = state.data || {}, selected = state.selected || {};
+        return {view: {id: 'market-workbench', title: '市场复盘'},
+            visibleBlocks: [{id: 'market-structure', type: 'investment-evidence', title: '市场结构：样本广度、成交集中与指数风格'},
+                {id: 'market-continuity', type: 'investment-evidence', title: '主线与持续性：前五留存与排名轨迹'},
+                {id: 'market-evidence', type: 'investment-evidence', title: '所选行业ETF申赎与政策候选'},
+                {id: 'market-journal', type: 'research-notes', title: '我的复盘记录'},
+                {id: 'daily-review', type: 'research-summary', title: '其他来源当日复盘'},
+                {id: 'market-emotion', type: 'market-overview', title: '短线市场情绪'},
+                {id: 'sector-temperature', type: 'chart', title: '行业涨跌排名'},
+                {id: 'market-anomalies', type: 'evidence-list', title: '市场异动'},
+                {id: 'market-tape', type: 'table', title: boardLabels[state.board]}],
+            selectedSecurity: selected.symbol ? {market: 'CN', symbol: selected.symbol, name: selected.name} : null,
+            filters: {structureDays: structure.context().days, continuityShowAll: continuity.context().showAll},
+            data: {marketJournal: review, marketStructure: structure.context(), marketContinuity: continuity.context(), marketEvidence: evidence.context(),
+                ...(data.snapshot ? {asOf: data.as_of, dataState: data.data_state, dailyReview: reviewSnapshot(data),
+                    summary: data.summary, marketEmotion: data.market_emotion || {}, sectorBasis: data.sector_basis || {},
+                    marketAnomalies: data.market_anomalies || {}, selectedSecurity: selected, activeBoard: state.board,
+                    snapshot: data.snapshot, limitations: data.limitations || [],
+                    scopeNote: '结构、持续性及其他来源快照独立标日期；持续性不混入实时政策或资金结论'} : {})},
+            actions: [{id: actionId, label: '刷新市场复盘', available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(actionId))}]};
+    }
     function publish() { if (!deskBridge) return; deskBridge.setContextProvider && deskBridge.setContextProvider(buildContext); deskBridge.publishContext && deskBridge.publishContext(); }
     function emit(row) { if (deskBridge && deskBridge.emit) deskBridge.emit('security.selected', {market: 'CN', symbol: row.symbol, name: row.name, source: 'instock-market-workbench', snapshotId: state.data && state.data.snapshot && state.data.snapshot.snapshot_id}); }
     function renderSectors(rows, basis) {
@@ -204,9 +254,19 @@
     function renderAnomalies(data) { const root = document.getElementById('market-anomalies'); const gaps = document.getElementById('market-data-gaps'); root.replaceChildren(); gaps.replaceChildren(); const limitDistance = row => { const distance = Math.abs(Number(row.distance_pct || 0)).toFixed(2); if (row.threshold_state === 'above') return `超过理论阈值 ${distance}%`; if (row.threshold_state === 'at') return '达到理论阈值'; return `距阈值 ${distance}%`; }; const configs = [['量比放大', data.volume_spikes || [], row => `${Number(row.volume_ratio || 0).toFixed(2)}×`], ['高换手', data.turnover_heat || [], row => pct(row.turnover_pct)], ['量价上攻', data.price_volume_surges || [], row => `${pct(row.change_pct)} / ${Number(row.volume_ratio || 0).toFixed(2)}×`], ['接近涨停', data.limit_watch || [], limitDistance]]; configs.forEach(([title, rows, formatter]) => { const card = document.createElement('article'); card.className = 'desk-anomaly-card'; const head = document.createElement('h3'); const label = document.createElement('b'); label.textContent = title; const count = document.createElement('span'); count.textContent = `${rows.length} 只`; head.append(label, count); const list = document.createElement('div'); list.className = 'desk-anomaly-list'; if (!rows.length) { const emptyNode = document.createElement('div'); emptyNode.className = 'desk-anomaly-empty'; emptyNode.textContent = '当前扫描样本未发现符合条件的标的'; list.appendChild(emptyNode); } else rows.slice(0, 5).forEach(row => list.appendChild(anomalyRow(row, formatter(row)))); card.append(head, list); root.appendChild(card); }); const flows = (data.sector_fund_flows || []).slice(0, 6); if (flows.length) { const card = document.createElement('article'); card.className = 'desk-anomaly-card'; const head = document.createElement('h3'); head.innerHTML = '<b>行业资金方向</b><span></span>'; head.querySelector('span').textContent = `${flows.length} 项`; const list = document.createElement('div'); list.className = 'desk-anomaly-list'; flows.forEach(row => list.appendChild(anomalyRow({name: row.name, industry: 'Desk 行业截面', signal: row.direction === 'inflow' ? '净流入' : '净流出'}, `${row.net > 0 ? '+' : ''}${Number(row.net).toFixed(2)}`))); card.append(head, list); root.appendChild(card); } (data.unavailable_topics || []).forEach(topic => { const item = document.createElement('div'); item.className = 'desk-data-gap'; item.textContent = `${topic.label}：${topic.reason}`; gaps.appendChild(item); }); }
     function renderBoard() { const rows = state.data && state.data.leaderboards && state.data.leaderboards[state.board] || []; const coverage = state.data && state.data.coverage || {}; const scope = coverage.leaderboard_scopes && coverage.leaderboard_scopes[state.board]; setText('market-board-title', boardLabels[state.board]); setText('market-board-scope', scope === 'full_market_top20' ? '全市场成交额 Top20' : scope === 'full_market_ranked_top' ? 'Desk 全市场排序结果' : rows.length ? 'Desk 返回扫描池' : 'Desk 当前没有有效排序字段'); const body = document.getElementById('market-body'); body.replaceChildren(); if (!rows.length) { const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 8; td.className = 'desk-empty'; td.textContent = state.board === 'turnover' ? 'Desk 当前换手率字段为空，暂不生成换手榜' : state.board === 'volume_ratio' ? 'Desk 当前量比字段为空，暂不生成量比榜' : '当前榜单暂无有效数据'; tr.appendChild(td); body.appendChild(tr); return; } rows.forEach((row, index) => { const tr = document.createElement('tr'); if (state.selected && state.selected.symbol === row.symbol) tr.className = 'is-selected'; const cells = [index + 1, null, row.industry || '未分类', pct(row.change_pct), money(row.amount), Number(row.turnover_pct || 0) ? pct(row.turnover_pct) : '--', Number(row.volume_ratio || 0) ? Number(row.volume_ratio).toFixed(2) : '--', Number(row.pe || 0) || Number(row.pb || 0) ? `${Number(row.pe || 0).toFixed(1)} / ${Number(row.pb || 0).toFixed(1)}` : '--']; cells.forEach((value, cellIndex) => { const td = document.createElement('td'); if (cellIndex === 1) { td.className = 'desk-symbol'; const strong = document.createElement('strong'); strong.textContent = row.name; const span = document.createElement('span'); span.textContent = row.symbol; td.append(strong, span); } else td.textContent = value; tr.appendChild(td); }); tr.addEventListener('click', () => { renderDetail(row); renderBoard(); }); body.appendChild(tr); }); if (!state.selected && rows[0]) renderDetail(rows[0]); }
     function render(data, source) { state.data = data; const summary = data.summary || {}; const breadthAvailable = data.market_breadth && data.market_breadth.state === 'available'; setText('market-breadth', breadthAvailable ? summary.market_breadth : '--'); setText('market-ratio', breadthAvailable ? `上涨占比 ${Number(summary.up_ratio || 0).toFixed(2)}%` : 'Desk 暂无涨跌家数'); setText('market-up', breadthAvailable ? summary.up : null); setText('market-down', breadthAvailable ? summary.down : null); setText('market-flat', breadthAvailable ? summary.flat : null); setText('market-sector', summary.leading_sector); setText('market-active', summary.most_active_name); setText('market-active-code', summary.most_active_symbol); setText('market-meta', `${source === 'history' ? '历史版本 · ' : ''}${data.as_of} · ${data.data_source} · ${data.data_state}`); renderReview(data); renderEmotion(data.market_emotion || {}); renderSectors(data.sector_leaders || [], data.sector_basis || {}); renderAnomalies(data.market_anomalies || {}); renderBoard(); publish(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
-    async function run(refresh) { runButton.disabled = true; alertBox.style.display = 'none'; try { render(unwrap(await request({scanLimit: Number(document.getElementById('market-limit').value), ...(refresh ? {refresh: '1'} : {})}))); } catch (error) { alertBox.textContent = error.message || String(error); alertBox.style.display = 'block'; } finally { runButton.disabled = false; } }
+    async function run(refresh) {
+        journal.live();
+        runButton.disabled = true; alertBox.style.display = 'none';
+        continuity.pending();
+        const pendingEvidence = structure.refresh(refresh).then(() => {
+            if (!structure.context().historical) return continuity.refresh(refresh);
+        });
+        try { render(unwrap(await request({scanLimit: Number(document.getElementById('market-limit').value), ...(refresh ? {refresh: '1'} : {})}))); }
+        catch (error) { alertBox.textContent = error.message || String(error); alertBox.style.display = 'block'; }
+        finally { await pendingEvidence; runButton.disabled = false; }
+    }
     document.querySelectorAll('[data-board]').forEach(button => button.addEventListener('click', () => { state.board = button.dataset.board; document.querySelectorAll('[data-board]').forEach(item => item.classList.toggle('is-active', item === button)); state.selected = null; renderBoard(); publish(); }));
-    runButton.addEventListener('click', () => run(true)); window.addEventListener('resize', () => { state.sectorChart && state.sectorChart.resize(); }); document.addEventListener('instock:themechange', () => { if (!state.data) return; renderSectors(state.data.sector_leaders || [], state.data.sector_basis || {}); }); document.addEventListener('instock:history-selected', event => render(unwrap(event.detail.payload), event.detail.view_source || 'history')); run(false);
+    runButton.addEventListener('click', () => run(true)); window.addEventListener('resize', () => { state.sectorChart && state.sectorChart.resize(); }); document.addEventListener('instock:themechange', () => { if (!state.data) return; renderSectors(state.data.sector_leaders || [], state.data.sector_basis || {}); }); document.addEventListener('instock:history-selected', event => { journal.live(); structure.historical(); continuity.historical(); render(unwrap(event.detail.payload), event.detail.view_source || 'history'); }); run(false);
 })();
 </script>
 {% end %}

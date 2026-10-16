@@ -1699,6 +1699,8 @@ class RotationEngine:
                         "industry": row["industry"],
                         "score": row["total_score"],
                         "signal_mode": row["signal_mode"],
+                        "data_lag_sessions": row["data_lag_sessions"],
+                        "signal_lag_sessions": row["signal_lag_sessions"],
                     }
                     for row in rankings
                 ],

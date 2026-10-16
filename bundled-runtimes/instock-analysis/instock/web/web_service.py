@@ -44,7 +44,8 @@ from instock.web.strategy_validation_handler import StrategyValidationHandler
 from instock.web.event_flow_handler import EventFlowHandler
 from instock.web.research_book_handler import ResearchBookHandler
 from instock.web.market_map_handler import MarketMapSnapshotHandler
-from instock.web.market_workbench_handler import MarketWorkbenchSnapshotHandler
+from instock.web.market_workbench_handler import MarketWorkbenchSnapshotHandler, MarketStructureHandler, MarketEvidenceHandler
+from instock.web.market_journal_handler import MarketJournalHandler
 from instock.web.technical_signal_handler import TechnicalSignalSnapshotHandler
 
 __author__ = 'myh '
@@ -128,6 +129,10 @@ def application_handlers(attached_runtime):
         (r"/api/v1/event-flows", EventFlowHandler),
         (r"/api/v1/research-books", ResearchBookHandler),
         (r"/api/v1/market-workbench/snapshots", MarketWorkbenchSnapshotHandler),
+        (r"/api/v1/market-workbench/structure", MarketStructureHandler),
+        (r"/api/v1/market-workbench/evidence", MarketEvidenceHandler),
+        (r"/api/v1/market-workbench/reviews", MarketJournalHandler),
+        (r"/api/v1/market-workbench/reviews/([a-f0-9]{32})", MarketJournalHandler),
         (r"/api/v1/market-maps/snapshots", MarketMapSnapshotHandler),
         (r"/api/v1/technical-signals/snapshots", TechnicalSignalSnapshotHandler),
         (r"/api/v1/analysis-history", AnalysisHistoryCollectionHandler),

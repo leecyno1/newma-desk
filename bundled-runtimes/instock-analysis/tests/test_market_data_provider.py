@@ -13,6 +13,39 @@ from instock.core.market_data_provider import (
 import pytest
 
 
+def test_market_structure_uses_desk_origin_not_research_proxy(monkeypatch):
+    calls = []
+    class Response:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"schemaVersion": "newma-desk.market-structure.v1"}
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", fake_get)
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
+    assert provider.get_market_structure(refresh=True)["schemaVersion"] == "newma-desk.market-structure.v1"
+    assert calls[0][0] == "http://127.0.0.1:8911/api/capital-flow/market-structure"
+    assert calls[0][1]["params"] == {"refresh": "true"}
+
+
+def test_market_evidence_keeps_exact_code_date_and_aliases(monkeypatch):
+    calls = []
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {"schemaVersion": "newma-desk.market-evidence.v1"}
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", fake_get)
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
+    provider.get_market_evidence("512070.SH", "2026-10-15", "非银金融", ("非银金融", "证券", "保险"))
+    assert calls[0][0] == "http://127.0.0.1:8911/api/capital-flow/market-evidence"
+    assert calls[0][1]["params"] == {"code": "512070.SH", "as_of": "2026-10-15", "industry": "非银金融",
+                                      "aliases": ["非银金融", "证券", "保险"], "refresh": "false"}
+
+
 def _bars(size=30):
     return [
         {

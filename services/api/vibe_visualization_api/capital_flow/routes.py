@@ -1,9 +1,14 @@
 import asyncio
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from .etf_catalog import ETFCatalog
+from .etf_price import ETFPriceService
+from .market_structure import MarketStructureService
+from .market_evidence import MarketEvidenceService
 
 from vibe_visualization_api.capital_flow.service import CapitalFlowService
 from vibe_visualization_api.capital_flow.research import CapitalResearchService
@@ -22,6 +27,62 @@ from vibe_visualization_api.config import Settings, get_settings
 
 
 router = APIRouter(prefix="/api/capital-flow", tags=["capital-flow"])
+
+
+@router.get("/market-evidence")
+async def get_market_evidence(
+    code: str = Query(pattern=r"^\d{6}\.(SH|SZ)$"), as_of: date = Query(),
+    industry: str = Query(min_length=1, max_length=32), aliases: list[str] = Query(default=[]),
+    refresh: bool = False, settings: Settings = Depends(get_settings),
+) -> dict:
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    if not today - timedelta(days=150) <= as_of < today:
+        raise HTTPException(422, "复盘日期须为最近150天内已结束的日期")
+    if len(aliases) > 12 or any(not alias or len(alias) > 32 for alias in aliases):
+        raise HTTPException(422, "行业别名数量或长度不合法")
+    return await MarketEvidenceService(settings.tushare_token.get_secret_value(), settings.database_path).research(
+        code, as_of, industry, list(dict.fromkeys([industry, *aliases])), refresh=refresh)
+
+
+@router.get("/market-structure")
+async def get_market_structure(refresh: bool = False, settings: Settings = Depends(get_settings)) -> dict:
+    return await MarketStructureService(settings.tushare_token.get_secret_value(), CapitalHistoryStore(settings.database_path)).research(refresh=refresh)
+
+
+class ETFWatchItem(BaseModel):
+    code: str = Field(pattern=r"^\d{6}\.(SH|SZ)$")
+    category: Literal["宽基", "行业", "债券", "商品", "跨境", "货币", "未分类"] = "未分类"
+
+
+class ETFWatchRequest(BaseModel):
+    items: list[ETFWatchItem] = Field(min_length=1, max_length=12)
+
+
+@router.get("/etf-search")
+async def search_etfs(query: str = Query(min_length=1, max_length=48), settings: Settings = Depends(get_settings)) -> dict:
+    if not query.strip():
+        raise HTTPException(422, "请输入ETF名称或代码")
+    return await ETFCatalog(settings.tushare_token.get_secret_value(), CapitalHistoryStore(settings.database_path)).search(query)
+
+
+@router.get("/etf-price")
+async def get_etf_price(code: str = Query(pattern=r"^\d{6}\.(SH|SZ)$"), refresh: bool = False, settings: Settings = Depends(get_settings)) -> dict:
+    return await ETFPriceService(settings.tushare_token.get_secret_value(), CapitalHistoryStore(settings.database_path)).price(code, refresh=refresh)
+
+
+@router.post("/research")
+async def research_etf_watchlist(body: ETFWatchRequest, refresh: bool = False, settings: Settings = Depends(get_settings)) -> dict:
+    if len({item.code for item in body.items}) != len(body.items):
+        raise HTTPException(422, "观察池不能包含重复ETF")
+    store = CapitalHistoryStore(settings.database_path)
+    catalog = await ETFCatalog(settings.tushare_token.get_secret_value(), store).read()
+    if catalog["status"] != "ready":
+        raise HTTPException(503, "ETF目录未完成更新，不能确认自选标的；已保存观察池不受影响")
+    index = {item["code"]: item for item in catalog["items"]}
+    if any(item.code not in index for item in body.items):
+        raise HTTPException(422, "观察池包含不在当前上市ETF目录中的代码，请重新搜索核对")
+    return await CapitalResearchService(settings.tushare_token.get_secret_value(), store).research(
+        refresh=refresh, samples=[(item.code, index[item.code]["name"], item.category) for item in body.items])
 
 
 @router.get("/connect-research")
