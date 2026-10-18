@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date, datetime, timezone
 from pathlib import Path
 import re
 
 from vibe_visualization_api.policy_analysis.collector import collect_policy_feeds
-from vibe_visualization_api.policy_analysis.collector import classify_lifecycle, extract_policy_entities, is_policy_document
+from vibe_visualization_api.policy_analysis.collector import assess_policy, classify_lifecycle, extract_policy_entities, is_policy_document
 from vibe_visualization_api.policy_analysis.store import PolicyStore
+from vibe_visualization_api.policy_analysis.research import compare_documents, transmission_hypotheses
 
 
 OFFICIAL_SOURCES = [
@@ -57,8 +59,8 @@ def _event(
         "rationale": rationale,
         "sourceUrl": source_url,
         "marketScope": market_scope,
-        "assessmentConfidence": 1,
-        "assessmentStatus": "reviewed",
+        "assessmentConfidence": 0.65,
+        "assessmentStatus": "machine",
         "documentType": document_type,
         "lifecycleStage": lifecycle_stage, "policySeriesKey": series_key,
         "entities": extract_policy_entities(title, summary),
@@ -72,12 +74,19 @@ def policy_events(today: date | None = None) -> list[dict]:
         _event("hist-20240924", "国新办金融支持经济高质量发展发布会", date(2024, 9, 24), "中国人民银行等", "货币政策", 3, "published", "official", "涉及降准、政策利率、存量房贷和资本市场支持工具的一揽子政策。", ["多部门联合发布", "改变流动性与风险偏好", "覆盖股票、债券与地产链"], "https://www.gov.cn/zhengce/202409/content_6976207.htm", market_scope=["A股", "债券", "地产"]),
         _event("hist-20241209", "中央政治局会议分析研究经济工作", date(2024, 12, 9), "中共中央政治局", "宏观政策", 3, "published", "official", "会议提出实施更加积极的财政政策和适度宽松的货币政策。", ["最高层级政策定调", "财政与货币政策框架变化", "影响全市场定价"], "https://www.gov.cn/yaowen/liebiao/202412/content_6991714.htm", market_scope=["全市场"]),
         _event("hist-20250305", "政府工作报告与年度目标发布", date(2025, 3, 5), "国务院", "宏观政策", 3, "published", "official", "公布年度增长、赤字、就业和重点产业政策目标。", ["年度顶层政策总纲", "包含量化宏观目标", "跨行业影响"], "https://www.gov.cn/yaowen/liebiao/202503/content_7011474.htm", market_scope=["全市场"]),
-        _event(f"window-{year}-q3-mpr", "货币政策执行报告发布窗口", date(year, 8, 15), "中国人民银行", "货币政策", 2, "scheduled", "expected-window", "季度货币政策执行报告通常在季后发布，关注流动性、信贷和汇率表述变化。", ["央行季度核心报告", "影响利率与流动性预期", "日期为规律窗口，待官方确认"], "https://www.pbc.gov.cn/zhengcehuobisi/125207/125227/125957/index.html", market_scope=["A股", "债券", "人民币"]),
-        _event(f"window-{year}-aug-lpr", "8 月贷款市场报价利率（LPR）", date(year, 8, 20), "中国人民银行授权全国银行间同业拆借中心", "货币政策", 2, "scheduled", "calendar-rule", "每月 20 日公布 LPR，遇节假日顺延。", ["固定月度政策利率日程", "直接影响信贷与地产预期", "最终日期以官方公告为准"], "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125440/index.html", market_scope=["银行", "地产", "债券"]),
-        _event(f"window-{year}-sep-pmi", "9 月制造业采购经理指数发布", date(year, 9, 30), "国家统计局", "宏观数据", 1, "scheduled", "calendar-rule", "月末宏观数据窗口，用于观察政策效果与经济景气变化。", ["高频宏观验证数据", "通常不直接改变制度规则", "日期为统计发布惯例"], "https://www.stats.gov.cn/sj/zxfb/", market_scope=["A股", "商品"]),
         _event(f"window-{year}-q3-politburo", "三季度经济形势分析会议窗口", date(year, 10, 28), "中共中央政治局", "宏观政策", 3, "scheduled", "expected-window", "关注稳增长、财政、地产和资本市场政策定调。", ["最高层级政策定调", "可能影响多部门后续政策", "日期为历史规律窗口，非官方预约"], "https://www.gov.cn/yaowen/", market_scope=["全市场"]),
         _event(f"window-{year}-cewc", "中央经济工作会议窗口", date(year, 12, 12), "中共中央、国务院", "宏观政策", 3, "scheduled", "expected-window", "年度政策主线和次年经济工作部署的重要观察窗口。", ["年度最高层级经济工作部署", "跨财政、货币与产业政策", "具体日期待官方确认"], "https://www.gov.cn/yaowen/", market_scope=["全市场"]),
     ]
+    for offset in range(4):
+        month_index = current.month - 1 + offset
+        window_year, month = current.year + month_index // 12, month_index % 12 + 1
+        prefix = f"window-{window_year}-{month:02d}"
+        events.extend([
+            _event(f"{prefix}-lpr", f"{month} 月贷款市场报价利率（LPR）窗口", date(window_year, month, 20), "中国人民银行授权全国银行间同业拆借中心", "货币政策", 2, "scheduled", "calendar-rule", "以每月 20 日为观察锚点，遇节假日可能顺延；本日不是已确认的官方预约。", ["月度利率观察", "最终日期及报价以官方公告为准"], "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125440/index.html", market_scope=["银行", "地产", "债券"]),
+            _event(f"{prefix}-pmi", f"{month} 月采购经理指数观察窗口", date(window_year, month, monthrange(window_year, month)[1]), "国家统计局", "宏观数据", 1, "scheduled", "calendar-rule", "以月末为观察锚点，用于跟踪经济景气与政策执行效果；准确发布时间待官方核验。", ["宏观验证数据，不是新的政策条款", "日期为统计惯例窗口"], "https://www.stats.gov.cn/sj/zxfb/", market_scope=["A股", "商品"], document_type="macro-data"),
+        ])
+        if month in (2, 5, 8, 11):
+            events.append(_event(f"{prefix}-mpr", "货币政策执行报告观察窗口", date(window_year, month, 15), "中国人民银行", "货币政策", 2, "scheduled", "expected-window", "以季后第二个月中旬为观察锚点，并非确认发布日期；关注流动性、信贷与汇率表述。", ["央行季度报告", "具体日期待官方确认"], "https://www.pbc.gov.cn/zhengcehuobisi/125207/125227/125957/index.html", market_scope=["A股", "债券", "人民币"], document_type="implementation-update"))
     for event in events:
         event_date = date.fromisoformat(event["date"])
         if event["status"] == "scheduled" and event_date < current:
@@ -106,23 +115,31 @@ def compare_policy_events(current: dict, previous: dict) -> dict:
     }
 
 
-def build_policy_interpretation(event: dict, related: list[dict]) -> dict:
+def build_policy_interpretation(event: dict, related: list[dict], document: dict | None = None,
+                                previous_document: dict | None = None, relation: str = "same-series-reference") -> dict:
     """Build the auditable rule baseline exposed by the Policy Analysis Module."""
+    related = [item for item in related if item["date"] < event["date"] and item["documentType"] == "formal-policy"]
     ordered = sorted(related, key=lambda item: (item["date"], item["id"]))
     previous = ordered[-1] if ordered else None
     comparison = compare_policy_events(event, previous) if previous else None
+    transmission = transmission_hypotheses(document)
     return {
         "policyId": event["id"],
         "title": event["title"],
         "sourceUrl": event["sourceUrl"],
         "mode": "rule",
+        "methodology": "official-evidence-and-transmission-v1",
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "reviewStatus": "unreviewed",
+        "document": document,
+        "assessment": {"status": event.get("assessmentStatus"), "rationale": event.get("rationale", [])},
         "impactAnalysis": {
-            "facts": [event["summary"], *event.get("rationale", [])],
-            "inferences": [
-                f"重点观察：{scope}。" for scope in event.get("marketScope", [])
-            ],
+            "facts": [paragraph[:900] + ("…（节选）" if len(paragraph) > 900 else "")
+                      for paragraph in [part for part in document["paragraphs"] if len(part) >= 60][:3]] if document else [event["summary"]],
+            "basis": "official-text-excerpts" if document else "official-summary",
+            "inferences": [item["mechanism"] for item in transmission] or ["尚无正文支持的传导假设；需先核验原文。"],
             "uncertainties": [
-                "以上为基于公开摘要的研究框架，不等同于投资建议。",
+                "传导链是研究假设，未经人工复核，不等同于实际效果或投资建议。",
                 "执行细则与落地节奏仍需以官方后续文件为准。",
             ],
         },
@@ -136,11 +153,8 @@ def build_policy_interpretation(event: dict, related: list[dict]) -> dict:
             "shared": comparison["shared"] if comparison else [],
             "note": "历史对比基于政策标题与采集摘要，不代表全文语义推演。",
         },
-        "transcriptComparison": {
-            "status": "unavailable",
-            "basis": "summary",
-            "note": "当前仅保存官方链接与采集摘要，尚未取得两份可比对的官方正文。",
-        },
+        "transmission": transmission,
+        "transcriptComparison": compare_documents(document, previous_document, relation=relation),
     }
 
 
@@ -201,12 +215,25 @@ async def policy_dashboard(
             item["id"].split("-", 2)[1] if item["id"].startswith("feed-") else "",
         )
     ]
+    documents = store.document_summaries()
     for item in events:
         lifecycle_stage, series_key = classify_lifecycle(
             item["title"], item["documentType"], item["status"]
         )
         item["lifecycleStage"] = lifecycle_stage
         item["policySeriesKey"] = series_key
+        item["documentEvidence"] = documents.get(item["id"])
+        item["lifecycleBasis"] = "title-rule"
+        if lifecycle_stage == "effective":
+            item["lifecycleStage"] = "published"
+        effective = (item["documentEvidence"] or {}).get("effectiveAt")
+        if effective and effective <= current.isoformat() and lifecycle_stage in {"published", "effective"}:
+            item["lifecycleStage"] = "effective"
+            item["lifecycleBasis"] = "official-effective-date"
+        if item["assessmentStatus"] == "machine" and not item["id"].startswith(("window-", "hist-")):
+            item["level"], item["assessmentConfidence"], item["rationale"] = assess_policy(
+                item["title"], item["summary"], item["documentType"],
+            )
     series = {}
     for item in events:
         series.setdefault(item["policySeriesKey"], []).append(item)
@@ -217,9 +244,14 @@ async def policy_dashboard(
         ]
         ordered = sorted(related, key=lambda value: (value["date"], value["id"]))
         position = next((index for index, candidate in enumerate(ordered) if candidate["id"] == item["id"]), 0)
-        previous = ordered[position - 1] if position > 0 else (ordered[1] if len(ordered) > 1 else None)
+        previous = next((candidate for candidate in reversed(ordered[:position])
+                         if candidate["date"] < item["date"] and candidate["documentType"] == "formal-policy"), None)
         item["comparison"] = compare_policy_events(item, previous) if previous else None
-    future = [item for item in events if item["date"] >= current.isoformat() and item["status"] == "scheduled"]
+    future_dates = [item["date"] for item in events if item["date"] >= current.isoformat() and item["status"] == "scheduled"]
+    future_dates.extend(doc["effectiveAt"] for item in events
+                        if (doc := item.get("documentEvidence")) and doc.get("status") == "available"
+                        and doc.get("effectiveDateQuote") and doc.get("effectiveAt")
+                        and doc["effectiveAt"] >= current.isoformat())
     return {
         "schemaVersion": "newma-desk.policy-analysis.v1",
         "generatedAt": datetime.now(timezone.utc).isoformat(),
@@ -229,8 +261,8 @@ async def policy_dashboard(
         "summary": {
             "total": len(events),
             "level3": sum(1 for item in events if item["level"] == 3),
-            "upcoming": len(future),
-            "nextDate": min((item["date"] for item in future), default=None),
+            "upcoming": len(future_dates),
+            "nextDate": min(future_dates, default=None),
             "lifecycle": {stage: sum(1 for item in events if item["lifecycleStage"] == stage)
                 for stage in ("scheduled", "solicitation", "published", "effective", "amended", "adjusted", "repealed", "expired")},
         },

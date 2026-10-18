@@ -13,22 +13,26 @@ from ..models import Contact, Message
 logger = logging.getLogger(__name__)
 
 
-def _generate_reply_with_hermes(**kwargs) -> dict[str, Any]:
-    # Resolve the module at call time so existing Hermes module monkeypatches remain effective.
-    from . import hermes_bridge
+def _generate_reply_in_deepsee(**kwargs) -> dict[str, Any]:
+    """The console owns model selection, prompts and memory; no external reply bypass."""
+    from .reply_generation import generate_local_reply
 
-    return hermes_bridge.call_hermes_for_reply(**kwargs)
+    with SessionLocal() as db:
+        return generate_local_reply(db, {**kwargs, "central_control": True,
+                                         "wait_for_human_reply_suppression": False})
 
 
 def _evaluate_rules_default(*args, **kwargs) -> dict[str, Any]:
     from . import wechat_gateway
 
+    args[0].expire_all()
     return wechat_gateway.evaluate_auto_reply_rules(*args, **kwargs)
 
 
 def _load_config_default(*args, **kwargs) -> dict[str, Any]:
     from . import wechat_gateway
 
+    args[0].expire_all()
     return wechat_gateway.load_config(*args, **kwargs)
 
 
@@ -82,7 +86,7 @@ class AutoReplyTransactionResult:
 @dataclass(frozen=True)
 class AutoReplyAdapters:
     evaluate_rules: Callable[..., dict[str, Any]] = _evaluate_rules_default
-    generate_reply: Callable[..., dict[str, Any]] = _generate_reply_with_hermes
+    generate_reply: Callable[..., dict[str, Any]] = _generate_reply_in_deepsee
     load_config: Callable[[Session], dict[str, Any]] = _load_config_default
     evaluate_outbound: Callable[..., dict[str, Any]] = _evaluate_outbound_default
     apply_delay: Callable[[dict[str, Any]], float] = _apply_delay_default
@@ -260,7 +264,12 @@ def execute_wechat_auto_reply_transaction(
                 sender_remark = str(contact.alias or contact.name or "").strip()
 
         stage = "generate"
-        generated = resolved_adapters.generate_reply(
+        policy = final_gate.get("rules") or {}
+        generation_args = dict(
+            message_id=message_id,
+            message_time=message_time,
+            message_meta=message_meta,
+            trigger_match=final_gate.get("matched_by"),
             message_text=str(message.content_text or ""),
             subsession_id=subsession_id,
             chat_id=chat_id,
@@ -270,6 +279,13 @@ def execute_wechat_auto_reply_transaction(
             talker_name=str(message.talker_name or message.chat_id or ""),
             is_group=is_group,
         )
+        if policy.get("reply_system_prompt"):
+            generation_args["system_prompt"] = policy["reply_system_prompt"]
+        if policy.get("reply_mode") == "fixed":
+            generated = {"status": "ok", "reply": str(policy.get("fixed_reply_text") or ""),
+                         "execution": {"route_kind": "fixed_reply"}}
+        else:
+            generated = resolved_adapters.generate_reply(**generation_args)
         execution = _generation_execution(generated)
         if not isinstance(generated, dict) or generated.get("status") != "ok":
             generation_data = generated if isinstance(generated, dict) else {}
@@ -297,6 +313,7 @@ def execute_wechat_auto_reply_transaction(
             message_time=message_time,
             wait_for_human_reply_suppression=False,
             message_meta=message_meta,
+            trigger_match=final_gate.get("matched_by"),
         )
         if not recheck.get("allowed"):
             reason = str(recheck.get("reason") or "recheck_blocked")
@@ -311,6 +328,20 @@ def execute_wechat_auto_reply_transaction(
         stage = "load_config"
         config = resolved_adapters.load_config(db)
         reply_text = str(generated.get("reply") or "")
+        latest_policy = recheck.get("rules") or policy
+        if latest_policy != policy:
+            return _result(status="blocked", reason="policy_changed_before_send", message_id=message_id)
+        limit = int(latest_policy.get("max_reply_chars") or 0)
+        if not reply_text.strip() or (limit and len(reply_text) > limit):
+            return _result(status="blocked", reason="reply_too_long" if reply_text.strip() else "empty_reply",
+                           message_id=message_id, execution=execution)
+        if any(word.casefold() in reply_text.casefold() for word in latest_policy.get('blocked_reply_keywords', [])):
+            return _result(status="blocked", reason="output_keyword_blocked", message_id=message_id, execution=execution)
+        if latest_policy.get("delivery_mode") == "preview":
+            return _result(status="preview", reason="preview_only", message_id=message_id,
+                           execution={**(execution or {}), "reply_preview": reply_text})
+        if config.get("enabled") is False:
+            return _result(status="blocked", reason="gateway_disabled", message_id=message_id)
 
         stage = "outbound_rule"
         outbound_rule = resolved_adapters.evaluate_outbound(config, target=chat_id, text=reply_text)
@@ -363,6 +394,24 @@ def execute_wechat_auto_reply_transaction(
 
         stage = "delay"
         delay_seconds = resolved_adapters.apply_delay(config)
+
+        # A pause or change to preview while generation/delay was running must take effect.
+        stage = "final_check"
+        final_config = resolved_adapters.load_config(db)
+        final_rules = resolved_adapters.evaluate_rules(
+            db, chat_id=chat_id, sender_id=sender_id, text=str(message.content_text or ""),
+            is_group=is_group, message_time=message_time,
+            wait_for_human_reply_suppression=False, message_meta=message_meta,
+            trigger_match=final_gate.get("matched_by"),
+        )
+        final_policy = final_rules.get("rules") or latest_policy
+        final_outbound = resolved_adapters.evaluate_outbound(final_config, target=chat_id, text=reply_text)
+        if (not final_rules.get("allowed") or final_config.get("enabled") is False
+                or not final_outbound.get("allowed", True)
+                or final_policy.get("delivery_mode") == "preview"
+                or final_policy != latest_policy):
+            _update_attempt_quietly(resolved_adapters, db, message_id=trigger_message_id, state="cancelled")
+            return _result(status="blocked", reason="policy_changed_before_send", message_id=message_id)
 
         stage = "send"
         send_started = True

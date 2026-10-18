@@ -1,4 +1,20 @@
-import type { PolicyDashboard, PolicyEvent, PolicyInterpretation } from "./types";
+import type { PolicyDashboard, PolicyDocument, PolicyEvent, PolicyInterpretation } from "./types";
+
+export async function policyDocument(eventId: string, refresh = false, signal?: AbortSignal): Promise<PolicyDocument> {
+  const response = await fetch(`/api/policy-analysis/events/${encodeURIComponent(eventId)}/document`, {
+    method: refresh ? "POST" : "GET", signal, headers: { Accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(await errorMessage(response, "官方正文读取失败"));
+  return response.json() as Promise<PolicyDocument>;
+}
+
+export async function importOfficialPolicy(url: string): Promise<{ event: PolicyEvent; document: PolicyDocument }> {
+  const response = await fetch("/api/policy-analysis/import", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response, "官方政策导入失败"));
+  return response.json();
+}
 
 async function errorMessage(response: Response, fallback: string) {
   try {

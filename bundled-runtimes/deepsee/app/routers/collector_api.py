@@ -11,6 +11,29 @@ from ..config import settings
 
 router = APIRouter(prefix="/api/collector", tags=["collector"])
 
+from ..services.social_sources import SocialSourcesConfig, load_sources, save_sources, reach_status, collect_sources
+
+
+@router.get('/sources')
+def get_social_sources():
+    return load_sources().model_dump()
+
+
+@router.put('/sources')
+def put_social_sources(payload: SocialSourcesConfig):
+    save_sources(payload)
+    return payload.model_dump()
+
+
+@router.get('/sources/health')
+def get_social_sources_health():
+    return reach_status()
+
+
+@router.post('/sources/refresh')
+def refresh_social_sources():
+    return collect_sources()
+
 
 class KeywordsUpdate(BaseModel):
     keywords: list[str]

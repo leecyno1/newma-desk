@@ -17,6 +17,7 @@ from ..services.media_store import (
 )
 from ..services.media_collector_store import list_all_items as list_collector_items, get_collector_status
 from ..services.external_content_summaries import overlay_cached_summaries, summarize_external_items
+from ..services.content_quality import article_text, noise_reason, RESEARCH
 
 
 router = APIRouter(prefix="/api/media", tags=["media"])
@@ -57,12 +58,16 @@ def _media_item_text(item: dict) -> str:
 
 
 def _is_high_value_media_event(item: dict) -> bool:
-    text = _media_item_text(item)
+    text = article_text(item)
     return any(term in text for term in MEDIA_KEEP_EVENT_TERMS)
 
 
 def _is_low_value_media_noise(item: dict) -> bool:
-    text = _media_item_text(item)
+    if noise_reason(item):
+        return True
+    if RESEARCH.search(str(item.get('title') or '')):
+        return False
+    text = article_text(item)
     if not text:
         return False
     if any(term in text for term in MEDIA_HARD_NOISE_TERMS):
@@ -308,6 +313,9 @@ def api_list_media_items(
     conf = _get_media_config(db)
     project_dir = str(conf.get("project_dir") or "").strip() or None
     payload = list_media_items(limit=limit, q=q, project_dir=project_dir)
+    if filter_noise:
+        payload['items'], removed = _filter_low_value_media_items(payload.get('items') or [])
+        payload['source'] = {**(payload.get('source') or {}), 'noise_filtered': removed}
     if bootstrap:
         source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
         payload["source"] = {

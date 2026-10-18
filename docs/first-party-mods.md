@@ -151,7 +151,7 @@ Deepsee 在 `http://127.0.0.1:8001` 独立运行。Newma-Desk 只安装页面入
 | Deepsee 会议 | `/embed/minutes-agg` |
 | Deepsee 自媒体 | `/embed/folo-agg` |
 | Deepsee 公众号 | `/embed/mp-agg` |
-| Deepsee 消息群发 | `/embed/send-management` |
+| Deepsee 微信自动化 | `/embed/send-management` |
 | Deepsee 联系人评分 | `/embed/contact-management` |
 | Deepsee 设置 | `/embed/function-settings` |
 

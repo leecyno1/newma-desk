@@ -11,6 +11,7 @@
         'folo-agg',
         'mp-agg',
         'send-management',
+        'wechat-automation',
         'contact-management',
         'function-settings',
     ]);
@@ -24,6 +25,7 @@
         'folo-agg': 'deepsee-media',
         'mp-agg': 'deepsee-official-accounts',
         'send-management': 'deepsee-campaigns',
+        'wechat-automation': 'deepsee-automation',
         'contact-management': 'deepsee-contacts',
         'function-settings': 'deepsee-settings',
     });
@@ -85,21 +87,6 @@
         document.querySelectorAll('.module-panel[id]').forEach((panel) => {
             panel.classList.toggle('active', panel.id === moduleId);
         });
-    }
-
-    function hideRuntimeOwnedSettings() {
-        if (moduleId !== 'function-settings') return;
-        const panel = document.getElementById('function-settings');
-        if (!panel) return;
-        ['settings-ai-config', 'settings-prompts'].forEach((id) => {
-            const section = document.getElementById(id);
-            if (!section) return;
-            section.dataset.navHidden = '1';
-            section.hidden = true;
-        });
-        panel.querySelectorAll(
-            '[data-open-settings="settings-ai-config"],[data-open-settings="settings-prompts"]'
-        ).forEach((card) => card.remove());
     }
 
     function buildSettingsSecondaryNavigationFallback() {
@@ -187,7 +174,8 @@
     }
 
     function activateEmbeddedModule() {
-        hideRuntimeOwnedSettings();
+        // Deepsee background jobs and replies need their own backend settings,
+        // even when the surrounding Desk chat is owned by Newma Runtime.
         selectEmbeddedModule();
         let attempts = 0;
         let nativeActivated = false;
@@ -298,6 +286,26 @@
         return String(document.getElementById(id)?.textContent || '').trim();
     }
 
+    function pageEvidence(panel) {
+        const selector = moduleId === 'news-agg' ? '.news-row' : '#messageTable tbody tr[data-db-id]';
+        if (!['news-agg', 'message-list'].includes(moduleId)) return [];
+        return Array.from(panel?.querySelectorAll(selector) || [])
+            .filter(row => row.getClientRects().length && !row.closest('[hidden],.hidden'))
+            .slice(0, 30).map(row => {
+                const news = moduleId === 'news-agg';
+                const link = row.querySelector(news ? '.news-row-title' : '.content a[href]');
+                const rawTime = news ? Number(row.dataset.pubTs) : row.dataset.isoTime;
+                const date = rawTime ? new Date(rawTime) : null;
+                return {
+                    id: String(news ? row.dataset.evidenceId || '' : row.dataset.dbId || row.dataset.messageId || ''),
+                    source: String(row.querySelector(news ? '.news-source' : '.sender')?.textContent || '').trim().slice(0, 120),
+                    time: date && Number.isFinite(date.getTime()) ? date.toISOString() : '',
+                    text: String(news ? link?.textContent || '' : row.querySelector('.content')?.dataset.fullContent || row.querySelector('.content')?.textContent || '').trim().slice(0, 600),
+                    url: link && /^https?:/.test(link.href) ? link.href : '',
+                };
+            });
+    }
+
     function pageContext() {
         const panel = document.getElementById(moduleId);
         const visibleRoot = moduleId === 'function-settings'
@@ -331,7 +339,10 @@
                     keyword: String(document.getElementById('newsSearchInput')?.value || '').trim(),
                     source: String(document.getElementById('newsSourceSelect')?.value || '').trim(),
                 }
-                : {};
+                : moduleId === 'message-list'
+                    ? Object.fromEntries(['searchInput', 'messageTypeFilter', 'contentTypeFilter', 'spamFilter', 'senderFilter', 'importanceFilter', 'pageSizeSelect']
+                        .map(id => [id, String(document.getElementById(id)?.value || '')]))
+                    : {};
         const summary = moduleId === 'ai-summary'
             ? { status: textAt('analysisStatus') || '准备就绪' }
             : moduleId === 'news-agg'
@@ -349,6 +360,11 @@
             .slice(0, 40000);
         const clone = visibleRoot?.cloneNode(true);
         if (clone instanceof HTMLElement) {
+            const originals = Array.from(visibleRoot.querySelectorAll('[style]'));
+            Array.from(clone.querySelectorAll('[style]')).forEach((element, index) => {
+                const style = window.getComputedStyle(originals[index]);
+                if (style.display === 'none' || style.visibility === 'hidden') element.remove();
+            });
             clone.querySelectorAll(
                 'script,style,noscript,template,svg,canvas,input,textarea,select,button,[hidden],.hidden,[aria-hidden="true"]'
             ).forEach((element) => element.remove());
@@ -357,23 +373,28 @@
         const renderedHtml = clone instanceof HTMLElement
             ? clone.outerHTML.replace(/\s+/g, ' ').trim().slice(0, 24000)
             : '';
+        const evidence = pageEvidence(visibleRoot);
+        const sourceTimes = evidence.map(item => item.time).filter(Boolean).sort();
         return {
             view: { id: deskModId, title: heading || deskModId },
             visibleBlocks,
             selection: {
                 path: `${window.location.pathname}${window.location.search}`,
                 embedModule: moduleId,
+                text: String(window.getSelection?.()?.toString() || '').trim().slice(0, 2000),
             },
             filters,
             data: {
-                asOf: new Date().toISOString(),
+                ...(sourceTimes.length ? { asOf: sourceTimes[sourceTimes.length - 1] } : {}),
                 source: 'deepsee-rendered-page',
-                freshness: 'fresh',
+                freshness: 'unknown',
                 summary: {
                     ...summary,
                     contextSource: 'dom-html-fallback',
                     visibleText,
                     renderedHtml,
+                    capturedAt: new Date().toISOString(),
+                    evidence,
                 },
             },
             actions: state.grants.actions.map((id) => ({ id, available: true })),

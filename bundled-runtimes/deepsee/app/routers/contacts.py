@@ -9,6 +9,7 @@ import json
 from ..schemas import ContactOut, ContactsLookupRequest
 from ..services.wechat_contact_sync import sync_contacts_from_wechatapi
 from ..services.wechatapi_client import WechatApiClient
+from ..services.wechat_labels import resolve_label_names
 from ..services.contact_scoring import (
     build_contact_score_summaries,
     build_contact_scorecard,
@@ -99,23 +100,19 @@ def list_contact_ratings(db: Session = Depends(get_db)):
 
 
 @router.get("/labels")
-def list_contact_labels():
+def list_contact_labels(db: Session = Depends(get_db)):
     """List labels from the configured WeChatAPI account."""
     client = WechatApiClient()
     if not client.configured():
         raise HTTPException(503, "WeChatAPI 未配置")
-    try:
-        response = client.list_labels()
-    except Exception as exc:
-        raise HTTPException(502, f"WeChatAPI 标签拉取失败：{exc}") from exc
-    data = response.get("data") if isinstance(response, dict) else None
-    rows = data.get("labelList") if isinstance(data, dict) else []
-    items = [
-        {"id": row.get("labelId"), "name": str(row.get("labelName") or "").strip()}
-        for row in (rows or [])
-        if isinstance(row, dict) and str(row.get("labelName") or "").strip()
-    ]
-    return {"status": "ok", "items": items, "source": "wechatapi_gateway"}
+    state = resolve_label_names(db, client)
+    db.commit()
+    return {
+        "status": "ok" if state["upstream_available"] or state["names"] else "unavailable",
+        "items": [{"id": key, "name": value} for key, value in state["names"].items()],
+        "source": state["source"], "upstream_available": state["upstream_available"],
+        "warning": state.get("warning"),
+    }
 
 
 @router.post("/lookup", response_model=list[ContactOut])

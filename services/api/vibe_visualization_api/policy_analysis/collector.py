@@ -161,10 +161,12 @@ def assess_policy(
     text = f"{title} {summary}"
     score = 0
     rationale: list[str] = []
-    if any(term in text for term in STRATEGIC_AUTHORITY_TERMS):
+    strategic_authority = any(term in title for term in STRATEGIC_AUTHORITY_TERMS)
+    market_wide_tool = any(term in title for term in MARKET_WIDE_TOOL_TERMS)
+    if strategic_authority:
         score += 4
         rationale.append("发布或决策层级属于中央战略层")
-    if any(term in text for term in MARKET_WIDE_TOOL_TERMS):
+    if market_wide_tool:
         score += 4
         rationale.append("涉及利率、准备金或全市场定价工具")
     if any(term in text for term in SYSTEMIC_CHANGE_TERMS):
@@ -174,7 +176,7 @@ def assess_policy(
         score += 2
         rationale.append("涉及行业规则、执行方案或政策工具调整")
 
-    if score >= 4:
+    if strategic_authority or market_wide_tool:
         level = 3
     elif score >= 2:
         level = 2
@@ -301,6 +303,40 @@ def parse_policy_feed(xml: str, source: dict) -> list[dict]:
     return events
 
 
+async def collect_gov_policy_index(client: httpx.AsyncClient, source: dict) -> list[dict]:
+    response = await client.get("https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json")
+    response.raise_for_status()
+    rows = response.json()
+    events = []
+    for row in rows[:60]:
+        title, link = str(row.get("TITLE", "")).strip(), str(row.get("URL", "")).strip()
+        published = str(row.get("DOCRELPUBTIME", ""))[:10]
+        try:
+            date.fromisoformat(published)
+        except ValueError:
+            continue
+        if not title or not _is_official_link(link, source["url"]):
+            continue
+        document_type = classify_document_type(title)
+        lifecycle, series = classify_lifecycle(title, document_type)
+        level, confidence, rationale = assess_policy(title, document_type=document_type)
+        category, scope = classify_policy(title, "", source)
+        identity = hashlib.sha1(f"{source['id']}:{link}".encode()).hexdigest()[:16]
+        events.append({
+            "id": f"feed-gov-{identity}", "title": title, "date": published,
+            "institution": source["name"], "category": category, "level": level,
+            "status": "published", "certainty": "official",
+            "summary": "官方政策目录已发现此文件，正文尚未读取；目录标题不能代替条款证据。",
+            "rationale": rationale, "sourceUrl": link, "marketScope": scope,
+            "discoveredBy": "rsshub", "assessmentConfidence": confidence, "assessmentStatus": "machine",
+            "documentType": document_type, "lifecycleStage": lifecycle, "policySeriesKey": series,
+            "entities": extract_policy_entities(title, ""),
+        })
+    if not events:
+        raise ValueError("官方政策目录没有可解析的记录")
+    return events
+
+
 async def collect_policy_feeds(
     sources: list[dict], base_url: str, timeout_seconds: float,
     client: httpx.AsyncClient | None = None,
@@ -321,6 +357,13 @@ async def collect_policy_feeds(
             parsed = parse_policy_feed(response.text, source)
             return parsed, {"sourceId": source["id"], "status": "ok", "items": len(parsed)}
         except (httpx.HTTPError, ElementTree.ParseError, ValueError) as error:
+            if source["id"] == "gov":
+                try:
+                    events = await collect_gov_policy_index(http_client, source)
+                    return events, {"sourceId": "gov", "status": "ok", "items": len(events),
+                                    "reason": "RSSHub 获取失败，已改用中国政府网官方政策目录 JSON；正文需另行读取。"}
+                except (httpx.HTTPError, ValueError, TypeError):
+                    pass
             return [], {"sourceId": source["id"], "status": "failed", "items": 0, "reason": str(error)[:160]}
 
     try:

@@ -833,6 +833,9 @@ def test_liquidity_loader_returns_grouped_observations_without_forecast(monkeypa
         "cn-m2-yoy", "cn-m1-yoy", "cn-shibor-on", "cn-shibor-1w", "cn-shibor-3m",
     }
     assert "forecast" not in result
+    credit = next(item for item in result["indicators"] if item["id"] == "cn-new-rmb-loans")
+    assert credit["name"] == "新增人民币贷款"
+    assert not any(item["name"] == "新增社融" for item in result["indicators"])
     assert all("forecast" not in item for item in result["assessment"]["items"])
 
 

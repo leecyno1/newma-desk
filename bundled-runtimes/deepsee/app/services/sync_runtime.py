@@ -757,7 +757,7 @@ def get_wechatapi_track_state(db: Any) -> dict[str, Any]:
     configured = bool(
         str(cfg.get("base_url") or "").strip()
         and str(cfg.get("token") or "").strip()
-        and str(cfg.get("app_id") or "").strip()
+        and (str(cfg.get("header_name") or "").lower() == "key" or str(cfg.get("app_id") or "").strip())
     )
     state: dict[str, Any] = {
         "name": "wechatapi",

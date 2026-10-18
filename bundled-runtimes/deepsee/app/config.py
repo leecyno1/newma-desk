@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     AGENT_API_TOKENS: str | None = None
     AGENT_API_ALLOWLIST: str | None = None
     AGENT_API_BLOCKLIST: str | None = None
+    DATA_API_CLIENTS: str | None = None  # JSON: project -> token, scopes, requests_per_minute
+    DATA_API_TIMEZONE: str = "Asia/Shanghai"  # timezone of legacy naive source timestamps
 
     # DB
     DATABASE_URL: str = Field(default="sqlite:///./data/app.db")

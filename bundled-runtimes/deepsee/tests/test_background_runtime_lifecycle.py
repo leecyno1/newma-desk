@@ -889,12 +889,13 @@ def test_default_spec_provider_covers_all_runtime_names_and_enablement_rules(mon
     enabled = {spec.name: spec.enabled for spec in specs}
     names = [spec.name for spec in specs]
 
-    assert len(specs) == 10
-    assert len(set(names)) == 10
+    assert len(specs) == 11
+    assert len(set(names)) == 11
     assert names == background._BACKGROUND_RUNTIME_NAMES
     assert enabled == {
         "chatlog_sync": True,
         "wechat8061_sync": False,
+        "wechat_device_ws": True,
         "email_sync": False,
         "ext_adapter_sync": True,
         "news_refresh": True,
@@ -921,7 +922,9 @@ def test_default_spec_provider_disables_each_optional_loop(monkeypatch):
     specs = background._build_background_loop_specs()
 
     assert {spec.name: spec.enabled for spec in specs} == {
-        name: False for name in background._BACKGROUND_RUNTIME_NAMES
+        # The WS supervisor stays alive to notice settings changes; the socket
+        # itself remains disabled until the gateway and WS switches are on.
+        name: name == "wechat_device_ws" for name in background._BACKGROUND_RUNTIME_NAMES
     }
 
 

@@ -54,10 +54,13 @@ def _client(tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
-def test_send_settings_include_wechat_gateway_panel_and_option():
+def test_send_capabilities_belong_to_gateway_without_redundant_selector():
     source = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert 'option value="wechatapi_gateway"' in source
+    assert 'id="settings-send-service"' not in source
+    assert 'id="sendProvider"' not in source
+    gateway = source.split('id="wechat-gateway-settings"', 1)[1].split('id="settings-prompts"', 1)[0]
+    assert 'id="sendCapabilitySummary"' in gateway
     assert 'id="sendProviderWechatApi"' in source
     assert 'id="wechatGatewayEnabled"' in source
     assert 'id="wechatGatewayOutboundEnabled"' in source
@@ -85,7 +88,9 @@ def test_send_settings_include_wechat_gateway_panel_and_option():
     assert 'saveWechatGatewayConfig(' in source
     assert 'loadWechatGatewayConfig(' in source
     assert 'testWechatGatewayHealth(' in source
-    assert "'/api/wechat-gateway/bind-callback'" in source
+    assert 'id="wechatGatewayProtocol"' not in source
+    assert 'id="wechatGatewayAppId"' not in source
+    assert 'id="wechatGatewayCallbackPublicUrl"' not in source
     assert 'option value="langbot_gateway"' not in source
     assert 'id="sendProviderLangbot"' not in source
 
@@ -101,9 +106,10 @@ def test_send_provider_js_handles_wechat_gateway_visibility_and_config_load():
     assert "await loadWechatGatewayConfig();" in source
     assert "outbound_random_delay_min_seconds" in source
     assert "outbound_random_delay_max_seconds" in source
-    assert "normalizeWechatGatewayCallbackUrl" in source
-    assert "保存时自动补 /api/wechat-gateway/callback" in source
-    assert "msg.textContent = '回调已绑定：' + String(res?.callback_url || callbackUrl);" in source
+    health = source.split('async function testWechatGatewayHealth(){', 1)[1].split('function normalizeWechatTrackPolicy', 1)[0]
+    assert "'/api/wechat-gateway/device-health'" in health
+    assert '/api/send/out' not in health
+    assert 'saveWechatGatewayConfig' not in health
     assert "sessionized_reply_enabled" in source
     assert "fixed_subsession_enabled" in source
     assert "fixed_subsession_id" in source

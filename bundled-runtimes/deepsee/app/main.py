@@ -13,6 +13,8 @@ from .routers import health, messages, chats, contacts, ai, send, hooks, configs
 from .db import SessionLocal
 from .models import Message
 from .config import settings
+from .routers import data_api, developer
+from .services.data_api_access import ProjectRateLimiter
 import orjson
 import os
 
@@ -28,6 +30,7 @@ VIBEDESK_EMBED_MODULES = frozenset(
         "folo-agg",
         "mp-agg",
         "send-management",
+        "wechat-automation",
         "contact-management",
         "function-settings",
     }
@@ -60,6 +63,8 @@ def _is_api_auth_exempt_path(path: str) -> bool:
         return True
     if path.startswith("/api/agent"):
         return True
+    if path == "/api/v1" or path.startswith("/api/v1/"):
+        return True  # Versioned data routes require their own scoped project key.
     return False
 
 
@@ -96,6 +101,7 @@ async def app_lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     init_db()
     app = FastAPI(title="Deepsee Personal Information Flow API", lifespan=app_lifespan)
+    app.state.data_api_limiter = ProjectRateLimiter()
 
     cors = _cors_options()
     if cors:
@@ -146,6 +152,8 @@ def create_app() -> FastAPI:
     app.include_router(agent_api.router)
     app.include_router(collector_api.router)
     app.include_router(market.router)
+    app.include_router(data_api.router)
+    app.include_router(developer.router)
 
     static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
     static_dir = os.path.abspath(static_dir)

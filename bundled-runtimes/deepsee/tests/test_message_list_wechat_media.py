@@ -91,6 +91,29 @@ def test_message_list_api_normalizes_wechat_gateway_image_meta_and_names(tmp_pat
     assert item['meta']['contents']['cdnthumburl'] == 'https://mmbiz.qpic.cn/test-thumb.jpg'
 
 
+def test_message_names_follow_current_remarks_without_changing_targets(tmp_path):
+    client, Session = _client(tmp_path)
+    with Session() as db:
+        db.add_all([
+            Contact(id="wxid_a", name="新昵称", alias="客户备注"),
+            Chat(id="wxid_a", title="旧昵称"),
+            Chat(id="room@chatroom", title="最新群名", is_chatroom=True),
+            Message(chat_id="wxid_a", sender_id="wxid_a", sender_name="旧昵称", talker_name="旧昵称",
+                    content_text="私聊", meta={"source": "wechat_gateway"}),
+            Message(chat_id="room@chatroom", sender_id="wxid_a", sender_name="旧昵称", talker_name="旧群名",
+                    content_text="群聊", meta={"source": "wechat_gateway"}),
+        ])
+        db.commit()
+    rows = client.get('/api/messages', headers=API_HEADERS).json()['items']
+    assert all(row['sender_name'] == '客户备注' and row['sender_id'] == 'wxid_a' for row in rows)
+    assert {row['chat_id']: row['talker_name'] for row in rows} == {
+        'wxid_a': '客户备注', 'room@chatroom': '最新群名',
+    }
+    ids = ','.join(str(row['id']) for row in rows)
+    selected = client.get('/api/messages/by-ids', params={'ids': ids}, headers=API_HEADERS).json()['items']
+    assert all(row['sender_name'] == '客户备注' for row in selected)
+
+
 def test_message_list_api_normalizes_wechat_gateway_names_from_meta_when_top_level_is_missing(tmp_path):
     client, Session = _client(tmp_path)
     db = Session()
@@ -298,7 +321,7 @@ def test_main_message_list_frontend_recognizes_wechat_gateway_xml_image_as_image
     source = INDEX_HTML.read_text(encoding='utf-8')
     assert 'normalizeWechatGatewayMedia' in source
     assert 'const normalizedMedia = normalizeWechatGatewayMedia(m);' in source
-    assert "const messageType = normalizedMedia.type || mapMsgTypeCode(m.type);" in source
+    assert "const messageType = mapMsgTypeCode(normalizedMedia.type || m.type);" in source
     assert 'media_url: normalizedMedia.media_url || m.media_url || \'' in source
     assert 'contents: normalizedMedia.contents || ((m.meta && m.meta.contents) || {})' in source
 
@@ -332,7 +355,7 @@ def test_summary_list_content_uses_regular_font_weight():
 
 
 def test_local_wechat_mp_articles_have_summary_and_detail_support():
-    source = Path('app/routers/mp_rss.py').read_text(encoding='utf-8')
+    source = (ROOT / 'app/routers/mp_rss.py').read_text(encoding='utf-8')
     assert 'def _clean_local_summary' in source
     assert 'derived.get("key_info")' in source
     assert '"heat": heat_score' in source

@@ -43,20 +43,25 @@ export function buildGlobalIntelligenceContext(
   if (topicId) return buildGlobalTopicContext(topicId, state);
   const selectedEvent = state.selectedEvent && typeof state.selectedEvent === "object"
     ? state.selectedEvent as Record<string, unknown> : undefined;
-  const asOf = selectedEvent ? selectedEvent.collectedAt : state.lastUpdate;
+  const selectedPoint = state.selectedPoint && typeof state.selectedPoint === "object" ? state.selectedPoint as Record<string, unknown> : undefined;
+  const selectedRoute = state.selectedRoute && typeof state.selectedRoute === "object" ? state.selectedRoute as Record<string, unknown> : undefined;
+  const selectedRecord = selectedEvent ?? selectedPoint;
+  const presentation = state.presentation as Record<string, boolean> | undefined;
+  const asOf = selectedRecord ? selectedRecord.collectedAt : selectedRoute ? undefined : state.lastUpdate;
   const visibleEvents = Array.isArray(state.events) ? state.events as Array<Record<string, unknown>> : [];
-  const freshness = selectedEvent?.sourceFreshness
-    ?? (visibleEvents.some((event) => event.sourceFreshness === "stale") ? "stale"
+  const freshness = selectedRecord ? selectedRecord.sourceFreshness ?? "unknown" : selectedRoute ? "unknown"
+    : (visibleEvents.some((event) => event.sourceFreshness === "stale") ? "stale"
       : visibleEvents.length && visibleEvents.every((event) => event.sourceFreshness === "fresh") ? "fresh" : "unknown");
   return {
     view: { id: "global-situation", title: "全球情报" },
     visibleBlocks: [
       { id: "global-intelligence-map", type: "geospatial-map", title: "全球综合态势" },
-      { id: "global-intelligence-events", type: "event-stream", title: "实时事件流" },
-      { id: "global-intelligence-sources", type: "source-health", title: "来源健康" },
-      { id: "global-intelligence-dossier", type: "event-detail", title: "事件详情" },
+      ...(!presentation?.mapExpanded ? [{ id: "global-intelligence-events", type: "event-stream", title: "实时事件流" }] : []),
+      ...(presentation?.healthPanelOpen ? [{ id: "global-intelligence-sources", type: "source-health", title: "来源健康" }] : []),
+      ...(selectedRecord || selectedRoute ? [{ id: "global-intelligence-dossier", type: "event-detail", title: "事件详情" }] : []),
+      ...(state.investmentResearch ? [{ id: "global-intelligence-investment", type: "transmission-chain", title: "投资传导研究" }] : []),
     ],
-    selection: selectedEvent ? { event: selectedEvent } : {},
+    selection: { ...(selectedEvent ? { event: selectedEvent } : {}), ...(selectedPoint ? { point: selectedPoint } : {}), ...(selectedRoute ? { route: selectedRoute } : {}) },
     filters: state.filters && typeof state.filters === "object"
       ? state.filters as Record<string, unknown>
       : {},

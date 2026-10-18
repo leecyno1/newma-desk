@@ -139,10 +139,23 @@ test("keeps warning publication time separate from collection and Agent tracking
   const list = page.locator(".intel-event-list");
   const old = list.getByRole("button", { name: /2024-517/ });
   await expect(old).toBeVisible();
+  await expect(page.locator(".intel-layer-dock")).toBeHidden();
+  await page.getByRole("button", { name: "图层", exact: true }).click();
+  await expect(page.locator(".intel-layer-dock")).toBeVisible();
+  await page.getByRole("button", { name: "图层", exact: true }).click();
+  await page.getByRole("button", { name: "专注地图", exact: true }).click();
+  await expect(page.locator(".intel-event-rail")).toBeHidden();
+  await expect.poll(() => context.context?.data?.summary?.presentation?.mapExpanded).toBe(true);
+  await page.getByRole("button", { name: "返回事件流", exact: true }).click();
+  const mapCanvas = page.locator(".intel-map-canvas .maplibregl-canvas");
+  await expect(mapCanvas).toBeVisible();
+  await expect(page.locator(".maplibregl-ctrl-attrib")).toContainText("Natural Earth");
   await expect(old).toContainText(/发布 \d+ 天前/);
   await expect(old).not.toContainText("刚刚");
   await expect(old).toContainText("旧缓存");
   await old.click();
+  await expect(page.getByRole("region", { name: "投资传导研究", exact: true })).toContainText("旧证据");
+  await expect.poll(() => context.context?.data?.summary?.investmentResearch?.eventId).toBeDefined();
   await expect(page.getByText("最近成功采集", { exact: true })).toBeVisible();
   await expect.poll(() => context.context?.data?.summary ?? context.data?.summary).toMatchObject({
     selectedEvent: { timestamp: "2024-05-08T16:53:00.000Z", timestampBasis: "published", collectedAt: "2026-08-12T14:01:51.000Z", sourceFreshness: "stale" },

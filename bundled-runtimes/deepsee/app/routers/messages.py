@@ -3,10 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import select, func, text, or_
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Literal
 import threading
 from ..db import session_scope, SessionLocal
-from ..models import Message, Interaction, InteractionExt, Contact
+from ..models import Message, Interaction, InteractionExt, Contact, Chat
 from ..schemas import PaginatedMessages, MessageOut, UpDownVoteResult, TagUpdateIn, MessageDeriveRequest
 from ..config import settings
 from ..services.ai_tools import ensure_message_features, populate_fallback_derived
@@ -21,12 +21,12 @@ from ..services.wechat_message_normalizer import (
 from ..services.wechatapi_client import WechatApiClient
 from ..services.llm_client import load_ai_config
 from ..services.message_filters import filter_effective_messages, WECHAT_NOISE_SENDER_IDS, WECHAT_NOISE_CHAT_IDS
-from starlette.responses import FileResponse, Response, RedirectResponse
+from starlette.responses import FileResponse, Response, RedirectResponse, StreamingResponse
 from typing import Dict, Any, List
 import csv, hashlib, io, html, json, mimetypes, re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urljoin
 import requests
 
 
@@ -58,11 +58,11 @@ _DROP_META_KEYS = {
 
 def _contact_display_name(contact_id: Any, alias: Any = None, name: Any = None, fallback: Any = None) -> str:
     contact_key = str(contact_id or "").strip()
-    for value in (alias, name, fallback, contact_key):
+    for value in (alias, name, fallback):
         text_value = str(value or "").strip()
-        if text_value:
+        if text_value and text_value != contact_key:
             return text_value
-    return ""
+    return contact_key
 
 
 def _load_contact_display_names(db: Session, sender_ids: list[Any]) -> dict[str, str]:
@@ -81,9 +81,17 @@ def _load_contact_display_names(db: Session, sender_ids: list[Any]) -> dict[str,
         if not contact_key:
             continue
         display_name = _contact_display_name(contact_key, alias=alias, name=name)
-        if display_name:
+        if display_name and display_name != contact_key:
             display_names[contact_key] = display_name
     return display_names
+
+
+def _load_talker_display_names(db: Session, chat_ids: list[Any], contacts: dict[str, str]) -> dict[str, str]:
+    ids = {str(value or "").strip() for value in chat_ids if value}
+    rows = db.execute(select(Chat.id, Chat.title).where(Chat.id.in_(ids))).all() if ids else []
+    names = {chat_id: title for chat_id, title in rows if title and title != chat_id}
+    names.update({chat_id: contacts[chat_id] for chat_id in ids if contacts.get(chat_id)})
+    return names
 
 
 def _compose_message_display_summary(d: dict | None) -> str:
@@ -974,6 +982,47 @@ def resolve_image_media(
     return RedirectResponse(url=candidates[0], status_code=302)
 
 
+@router.get("/media/local")
+def resolve_local_media(message_id: int, db: Session = Depends(get_db)):
+    """Serve retained Chatlog audio/video on the same origin as the UI."""
+    message = db.get(Message, message_id)
+    if message is None or message.type not in {"voice", "video", "emoji"}:
+        raise HTTPException(404, "本地媒体记录不存在")
+    url = str(message.media_url or "")
+    parsed, base = urlsplit(url), urlsplit(settings.CHATLOG_HTTP_BASE or "")
+    if (not base.netloc or parsed.scheme not in {"http", "https"}
+            or (parsed.scheme, parsed.netloc) != (base.scheme, base.netloc)
+            or not parsed.path.startswith(("/voice/", "/video/", "/image/", "/emoji/"))):
+        raise HTTPException(404, "此记录未保留可访问的本地媒体")
+    try:
+        response = requests.get(url, stream=True, allow_redirects=False, timeout=(5, 30))
+        if response.status_code in {301, 302, 303, 307, 308}:
+            target = urljoin(url, response.headers.get("location", ""))
+            destination = urlsplit(target)
+            response.close()
+            # Chatlog redirects retained videos/thumbnails to its local data directory.
+            if ((destination.scheme, destination.netloc) != (base.scheme, base.netloc)
+                    or not destination.path.startswith("/data/msg/")):
+                raise HTTPException(502, "Chatlog 返回了非本地媒体地址")
+            response = requests.get(target, stream=True, allow_redirects=False, timeout=(5, 30))
+    except requests.RequestException:
+        raise HTTPException(502, "Chatlog 本地媒体服务不可用") from None
+    content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+    if response.status_code != 200 or not content_type.startswith(("audio/", "video/", "image/")):
+        status = 404 if response.status_code == 404 else 502
+        response.close()
+        raise HTTPException(status, "本地媒体未留存或无法解码")
+
+    def chunks():
+        try:
+            yield from response.iter_content(chunk_size=64 * 1024)
+        finally:
+            response.close()
+
+    return StreamingResponse(chunks(), media_type=content_type,
+                             headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/media/file")
 def resolve_file_media(
     message_id: int | None = Query(default=None),
@@ -1017,7 +1066,8 @@ def resolve_file_media(
         contents.get("datasize"),
         contents.get("fullsize"),
     )
-    candidates = _build_file_candidates(host=host, md5=md5, path=path, direct_url=url, contents=contents)
+    direct_url = url or (message.media_url if message else None) or contents.get("media_url")
+    candidates = _build_file_candidates(host=host, md5=md5, path=path, direct_url=direct_url, contents=contents)
     for candidate in candidates:
         served = _serve_or_cache_small_file(candidate, filename, expected_size=expected_size)
         if served is not None:
@@ -1078,6 +1128,7 @@ def resolve_file_media(
 @router.get("", response_model=PaginatedMessages)
 def list_messages(
     q: Optional[str] = Query(default=None, description="full text query"),
+    search_mode: Literal["fts", "contains"] = "fts",
     chat_id: Optional[str] = None,
     sender_id: Optional[str] = None,
     type: Optional[str] = Query(default=None, alias="msg_type"),
@@ -1089,6 +1140,7 @@ def list_messages(
     fast: bool = Query(default=False, description="Skip expensive total count; total will be len(items)."),
     include_meta: bool = Query(default=True, description="Include meta payload (pruned) for list rendering."),
     include_mp_messages: bool = Query(default=False, description="Include WeChat official-account gh_ messages in WeChat list."),
+    exclude_system_messages: bool = False,
     content_max_chars: int = Query(default=4000, ge=0, le=20000, description="Truncate content_text to avoid huge payloads."),
     db: Session = Depends(get_db),
 ):
@@ -1101,7 +1153,7 @@ def list_messages(
     if direction and direction not in {"in", "out"}:
         direction = None
 
-    if q:
+    if q and search_mode == "fts":
         # Use FTS5 when q exists. IMPORTANT: apply the same filters as non-FTS path
         # so search respects chat_id/sender_id/type/time/direction consistently.
         def _parse_dt(v: Optional[str]) -> Optional[datetime]:
@@ -1130,6 +1182,8 @@ def list_messages(
         if type:
             clauses.append("m.type = :type")
             params["type"] = type
+        if exclude_system_messages:
+            clauses.append("(m.type != 'system' OR m.type IS NULL)")
         # direction: keep historic compatibility where NULL/'' treated as inbound
         if direction == "in":
             clauses.append("(m.direction = 'in' OR m.direction IS NULL OR m.direction = '')")
@@ -1169,7 +1223,10 @@ def list_messages(
             if fast
             else (db.execute(count_sql, {k: v for k, v in params.items() if k != "limit" and k != "offset"}).scalar() or 0)
         )
-        contact_display_names = _load_contact_display_names(db, [row.get("sender_id") for row in items])
+        contact_display_names = _load_contact_display_names(
+            db, [value for row in items for value in (row.get("sender_id"), row.get("chat_id"))],
+        )
+        talker_display_names = _load_talker_display_names(db, [row.get("chat_id") for row in items], contact_display_names)
         data = []
         for row in items:
             rd = dict(row)
@@ -1192,6 +1249,7 @@ def list_messages(
             sender_key = str(rd.get("sender_id") or "").strip()
             if sender_key and contact_display_names.get(sender_key):
                 rd["sender_name"] = contact_display_names[sender_key]
+            rd["talker_name"] = talker_display_names.get(str(rd.get("chat_id") or "")) or rd["talker_name"]
             msg_id = rd.get("id")
             if msg_id in derived_map:
                 rd["derived"] = derived_map[msg_id]
@@ -1251,12 +1309,21 @@ def list_messages(
         return {"total": int(total), "items": data}
 
     query = select(Message)
+    if q and search_mode == "contains":
+        matching_contacts = select(Contact.id).where(or_(
+            Contact.alias.icontains(q, autoescape=True), Contact.name.icontains(q, autoescape=True)))
+        matching_chats = select(Chat.id).where(Chat.title.icontains(q, autoescape=True))
+        query = query.where(or_(Message.content_text.icontains(q, autoescape=True),
+            Message.sender_name.icontains(q, autoescape=True), Message.talker_name.icontains(q, autoescape=True),
+            Message.sender_id.in_(matching_contacts), Message.chat_id.in_(matching_chats)))
     if chat_id:
         query = query.where(Message.chat_id == chat_id)
     if sender_id:
         query = query.where(Message.sender_id == sender_id)
     if type:
         query = query.where(Message.type == type)
+    if exclude_system_messages:
+        query = query.where(or_(Message.type != "system", Message.type == None))
     if direction:
         if direction == "in":
             # 兼容历史数据：direction 为空/NULL 视作 "in"
@@ -1301,7 +1368,7 @@ def list_messages(
     if dt_to:
         query = query.where(Message.timestamp <= dt_to)
 
-    items = db.execute(query.order_by(Message.timestamp.desc()).limit(size).offset((page - 1) * size)).scalars().all()
+    items = db.execute(query.order_by(Message.timestamp.desc(), Message.id.desc()).limit(size).offset((page - 1) * size)).scalars().all()
     total = len(items) if fast else (db.execute(select(func.count()).select_from(query.subquery())).scalar() or 0)
     # 同理：列表接口不做派生，避免阻塞首屏。/derive 负责派生。
     # try:
@@ -1311,7 +1378,8 @@ def list_messages(
     # except Exception:
     #     concurrency = 8
     # ensure_message_features(db, list(items), concurrency=concurrency)
-    contact_display_names = _load_contact_display_names(db, [item.sender_id for item in items])
+    contact_display_names = _load_contact_display_names(db, [value for item in items for value in (item.sender_id, item.chat_id)])
+    talker_display_names = _load_talker_display_names(db, [item.chat_id for item in items], contact_display_names)
     compat_items: list[MessageOut] = []
     for i in items:
         normalized = _normalize_wechat_gateway_message_fields(i.sender_id, i.sender_name, i.chat_id, i.talker_name, i.type, i.content_text, i.media_url, i.meta, db=db)
@@ -1322,7 +1390,7 @@ def list_messages(
             chat_id=i.chat_id,
             sender_id=i.sender_id,
             sender_name=sender_display_name,
-            talker_name=normalized['talker_name'],
+            talker_name=talker_display_names.get(str(i.chat_id or "")) or normalized['talker_name'],
             timestamp=i.timestamp,
             direction=i.direction,
             type=normalized['type'],
@@ -1805,10 +1873,14 @@ def get_messages_by_ids(ids: str, db: Session = Depends(get_db)):
     rows = db.execute(select(Message).where(Message.id.in_(id_list))).scalars().all()
     # keep same order
     rows.sort(key=lambda m: (m.timestamp or datetime.min), reverse=True)
+    contact_names = _load_contact_display_names(db, [value for row in rows for value in (row.sender_id, row.chat_id)])
+    talker_names = _load_talker_display_names(db, [row.chat_id for row in rows], contact_names)
 
     items: list[MessageOut] = []
     for i in rows:
         out = MessageOut.model_validate(i)
+        out.sender_name = contact_names.get(str(i.sender_id or "")) or out.sender_name
+        out.talker_name = talker_names.get(str(i.chat_id or "")) or out.talker_name
         try:
             d = dict(out.derived or {})
             if (d.get("summary_full") or d.get("summary")) and not d.get("key_info"):

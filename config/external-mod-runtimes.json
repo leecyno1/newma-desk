@@ -74,8 +74,8 @@
         "source": {
           "env": "NEWMA_DESK_CREATOR_STUDIO_WORKSPACE",
           "candidates": [
-            { "root": "repo", "path": "bundled-runtimes/creator-studio" },
             { "root": "projects", "path": "公众号文章" },
+            { "root": "repo", "path": "bundled-runtimes/creator-studio" },
             { "root": "repo", "path": "mod-projects/creator-studio" }
           ]
         }

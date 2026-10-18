@@ -31,7 +31,8 @@ def test_legacy_wechatpad_write_route_is_not_mounted():
 
 def test_frontend_exposes_only_wechatapi_send_channel():
     source = INDEX_HTML.read_text(encoding="utf-8")
-    assert 'option value="wechatapi_gateway"' in source
+    assert 'id="sendProvider"' not in source
+    assert 'id="sendCapabilitySummary"' in source
     assert 'option value="wechatpad_direct"' not in source
     assert "function getSendProvider(){\n\t            return 'wechatapi_gateway';" in source
     assert "通讯录与发送统一使用 WeChatAPI" in source

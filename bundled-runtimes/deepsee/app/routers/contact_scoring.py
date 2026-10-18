@@ -20,6 +20,18 @@ from ..services.contact_scoring import (
 router = APIRouter(prefix="/api/contact-scoring", tags=["contact-scoring"])
 
 
+@router.post("/refresh", status_code=202)
+def refresh():
+    from ..services.contact_scoring_job import start_scoring_job
+    return start_scoring_job()
+
+
+@router.get("/refresh")
+def refresh_status():
+    from ..services.contact_scoring_job import scoring_job_status
+    return scoring_job_status()
+
+
 def get_db():
     db = SessionLocal()
     try:

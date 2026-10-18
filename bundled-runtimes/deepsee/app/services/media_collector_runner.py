@@ -230,6 +230,9 @@ def run_media_collector_once(
             _run_script(name, script, timeout_seconds=timeout, pretty=pretty, env_overrides=env_overrides)
             for name, script, env_overrides in tasks
         ]
+        if hot or search:
+            from .social_sources import collect_sources
+            results.append({"name": "extended_sources", **collect_sources()})
         ok = all(bool(item.get("ok")) for item in results) if results else True
         payload: dict[str, Any] = {
             "ok": ok,

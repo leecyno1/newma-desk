@@ -273,6 +273,11 @@ def build_chatlog_media_url(
     base = _normalize_http_base(host or c.get("host"))
     normalized_type = normalize_message_type(msg_type, app_message=c)
 
+    # Prefer Chatlog's resolved local endpoint, including its file-path fallback.
+    resolved = str(c.get("media_url") or "").strip()
+    if normalized_type in {"image", "voice", "video", "file", "emoji"} and resolved.startswith(("http://", "https://")):
+        return resolved
+
     if normalized_type in {"link", "file"}:
         direct = str(c.get("url") or "").strip()
         if direct:

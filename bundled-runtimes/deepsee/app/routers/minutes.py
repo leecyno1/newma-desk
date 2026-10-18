@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/minutes", tags=["minutes"])
 
 
 TEXT_EXTS = {".txt", ".md", ".markdown"}
-AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".aac", ".ogg", ".opus", ".flac"}
+AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".aac", ".ogg", ".opus", ".flac", ".webm", ".mp4"}
 
 
 def _default_minutes_dirs() -> list[str]:
@@ -253,6 +253,18 @@ def _collect_minutes_items(refresh: bool = False, limit: int = 500) -> list[dict
                         "file_mtime": int(st.st_mtime),
                     },
                 }
+                if is_audio:
+                    from pathlib import Path
+                    from ..services.meeting_capture import read_state
+                    capture = read_state(Path(path))
+                    if capture:
+                        item["meta"]["capture_filename"] = Path(path).name
+                        item["meta"]["transcript_status"] = capture.get("status")
+                        item["meta"]["processing_error"] = capture.get("error", "")
+                        if capture.get("minutes"):
+                            item["content_refined"] = capture["minutes"]
+                            item["summary"] = capture["minutes"]
+                            item["summary_origin"] = "shared_ai"
                 items.append(item)
                 if len(items) >= limit:
                     break
@@ -281,10 +293,14 @@ def list_minutes(
             base_items = [it for it in base_items if (ql in (it.get("sender_name") or "").lower()) or (ql in (it.get("content_text") or "").lower()) or (ql in (os.path.basename(it.get("path") or "")).lower())]
         # 工具模型摘要（可选）
         conf = load_ai_config()
-        has_key = bool(conf.get("api_key"))
+        from ..services.ai_execution import ai_available
+        has_key = ai_available(conf, "tool")
         to_summarize: list[dict] = []
         out: list[dict] = []
         for it in base_items:
+            if it.get("summary_origin") == "shared_ai":
+                out.append(it)
+                continue
             cache_key = f"minutes:{it['id']}"
             cached = _cache_get(db, cache_key)
             if cached and isinstance(cached, dict):
@@ -476,8 +492,9 @@ def refine_minutes(payload: dict) -> dict:
             return {"ok": False, "error": "no transcript"}
 
         conf = load_ai_config()
-        if not conf.get("api_key"):
-            return {"ok": False, "error": "兼容 AI 未配置"}
+        from ..services.ai_execution import ai_available
+        if not ai_available(conf, "tool"):
+            return {"ok": False, "error": "请先配置 Agent 或独立模型"}
 
         trimmed = _truncate_for_llm(text, max_chars=20000)
         model_ovr = conf.get("tool_model_messages") or conf.get("tool_model")

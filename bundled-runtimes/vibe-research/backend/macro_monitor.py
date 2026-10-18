@@ -1061,7 +1061,7 @@ def _load_liquidity(today: date) -> dict[str, Any]:
         if item: quantity.append(item)
 
     credit = _series_rows(frames.get("macro_china_new_financial_credit"), "月份", "当月")
-    item = _liquidity_item(item_id="cn-new-social-financing", name="新增社融", unit="亿元", rows=credit, today=today, source_id="pbc-social-financing", source_label="人民银行社会融资规模", source_url=source_url, max_age_days=55, effect="supportive")
+    item = _liquidity_item(item_id="cn-new-rmb-loans", name="新增人民币贷款", unit="亿元", rows=credit, today=today, source_id="pbc-rmb-loans", source_label="人民银行人民币信贷 · 非社融总量", source_url=source_url, max_age_days=55, effect="supportive")
     if item: quantity.append(item)
 
     margin_frames = [_series_rows(frames.get(name), "日期", "融资融券余额") for name in ("macro_china_market_margin_sh", "macro_china_market_margin_sz")]

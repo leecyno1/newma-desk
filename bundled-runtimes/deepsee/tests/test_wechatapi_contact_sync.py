@@ -12,7 +12,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from app.db import Base
-from app.models import Chat, Contact, SyncState
+from app.models import Chat, Contact, Message, SyncState
 from app.routers import contacts as contacts_router
 from app.services.wechat_contact_sync import sync_contacts_from_wechatapi
 from app.services.wechatapi_client import WechatApiClient
@@ -21,7 +21,7 @@ from app.services.wechatapi_client import WechatApiClient
 def _db(tmp_path: Path):
     engine = create_engine(f"sqlite:///{tmp_path / 'contacts.db'}", future=True)
     Session = sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=False)
-    Base.metadata.create_all(engine, tables=[Contact.__table__, Chat.__table__, SyncState.__table__])
+    Base.metadata.create_all(engine, tables=[Contact.__table__, Chat.__table__, Message.__table__, SyncState.__table__])
     return Session()
 
 
@@ -42,13 +42,97 @@ def test_fetch_contacts_list_uses_long_request_timeout():
             captured.update(url=url, payload=json, timeout=timeout)
             return _Response()
 
-    client = WechatApiClient(base_url="http://api.example", token="token", app_id="app")
+    client = WechatApiClient(base_url="http://api.example", token="token", header_name="VideosApi-token", app_id="app")
     client._session = _Session()
 
     client.fetch_contacts_list()
 
     assert captured["url"].endswith("/contacts/fetchContactsList")
     assert captured["timeout"] >= 120
+
+
+def test_device_contacts_paginate_and_unwrap_personal_remarks(monkeypatch):
+    client = WechatApiClient(base_url="http://device.test", token="test", header_name="key", app_id="")
+    calls = []
+
+    def request(method, path, payload=None):
+        calls.append((method, path, payload))
+        if path == "/friend/GetContactList":
+            first = payload["CurrentWxcontactSeq"] == 0
+            return {"data": {"ContactList": {
+                "contactUsernameList": ["wxid_a", "gh_a"] if first else ["room@chatroom"],
+                "currentWxcontactSeq": 12, "currentChatRoomContactSeq": 0,
+                "continueFlag": 1 if first else 0,
+            }}}
+        assert payload == {"UserNames": ["wxid_a"], "RoomWxIDList": []}
+        return {"data": {"contactList": [{
+            "userName": {"str": "wxid_a"}, "nickName": {"str": "昵称"},
+            "remark": {"str": "我的备注"}, "alias": "public_wechat_id",
+        }]}}
+
+    monkeypatch.setattr(client, "_device_request", request)
+    assert client.fetch_contacts_list()["data"] == {
+        "friends": ["wxid_a"], "chatrooms": ["room@chatroom"], "ghs": ["gh_a"],
+    }
+    assert calls[1][2]["CurrentWxcontactSeq"] == 12
+    row = client.get_brief_info(wxids=["wxid_a"])["data"][0]
+    assert row["remark"] == "我的备注"
+    assert row["nickName"] == "昵称"
+    assert "alias" not in row
+
+
+def test_device_sync_includes_unsaved_rooms_and_members_without_losing_names(tmp_path):
+    class Client:
+        device_key_mode = True
+
+        def configured(self):
+            return True
+
+        def fetch_contacts_list(self):
+            return {"data": {"friends": ["friend"], "chatrooms": ["missing@chatroom"], "ghs": []}}
+
+        def list_labels(self):
+            raise RuntimeError("route unavailable")
+
+        def get_brief_info(self, *, wxids, room_context=None):
+            details = {
+                "friend": {"userName": "friend", "nickName": "昵称", "remark": "客户备注"},
+                "member": {"userName": "member", "nickName": "群成员昵称"},
+                "unsaved@chatroom": {"userName": "unsaved@chatroom", "nickName": "未保存的群"},
+            }
+            return {"data": [details[wxid] for wxid in wxids if wxid in details]}
+
+    with _db(tmp_path) as db:
+        db.add_all([
+            Contact(id="friend", name="旧昵称", labels={"tags": ["保留标签"]}),
+            Chat(id="friend", title="旧昵称"),
+            Chat(id="missing@chatroom", title="已知群名", is_chatroom=True),
+            Message(chat_id="unsaved@chatroom", sender_id="member", meta={"source": "wechat_gateway"}),
+        ])
+        db.commit()
+        stats = sync_contacts_from_wechatapi(db, client=Client(), detail_workers=1)
+        assert stats["labels_available"] is False
+        assert db.get(Contact, "friend").alias == "客户备注"
+        assert db.get(Contact, "friend").labels == {"tags": ["保留标签"], "source": "wechatapi_gateway"}
+        assert db.get(Contact, "member").name == "群成员昵称"
+        assert db.get(Chat, "friend").title == "客户备注"
+        assert db.get(Chat, "unsaved@chatroom").title == "未保存的群"
+        assert db.get(Chat, "missing@chatroom").title == "已知群名"
+
+
+def test_enterprise_member_names_use_the_originating_group(monkeypatch):
+    client = WechatApiClient(base_url="http://device.test", token="test", header_name="key", app_id="")
+
+    def request(method, path, payload):
+        assert path == "/qy/QWContact"
+        assert payload == {"ToUserName": "member@openim", "ChatRoom": "room@chatroom", "T": ""}
+        return {"data": {"contactList": [{
+            "Username": "member@openim", "Nickname": "企业联系人", "Remark": "客户备注",
+        }]}}
+
+    monkeypatch.setattr(client, "_device_request", request)
+    rows = client.get_brief_info(wxids=["member@openim"], room_context={"member@openim": "room@chatroom"})["data"]
+    assert rows == [{"userName": "member@openim", "nickName": "企业联系人", "remark": "客户备注", "labelList": ""}]
 
 
 def test_sync_contacts_uses_wechatapi_roster_details_and_labels(tmp_path):

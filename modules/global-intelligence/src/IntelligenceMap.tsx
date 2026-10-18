@@ -4,6 +4,7 @@ import { MapboxOverlay } from "@deck.gl/mapbox";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import countriesRaw from "./basemap/countries.geojson?raw";
 
 import type {
   GlobalIntelCategory,
@@ -45,7 +46,14 @@ interface IntelligenceCluster {
 
 const COUNTRY_SOURCE = "global-intelligence-countries";
 const COUNTRY_LAYER = "global-intelligence-country-risk";
-const COUNTRY_GEOJSON = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json";
+const COUNTRY_GEOJSON = JSON.parse(countriesRaw);
+const GRATICULE = {
+  type: "FeatureCollection" as const,
+  features: [
+    ...Array.from({ length: 13 }, (_, index) => ({ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: [[-180 + index * 30, -85], [-180 + index * 30, 85]] } })),
+    ...Array.from({ length: 5 }, (_, index) => ({ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: Array.from({ length: 37 }, (_, step) => [-180 + step * 10, -60 + index * 30]) } })),
+  ],
+};
 
 const CATEGORY_COLOR: Record<GlobalIntelCategory, [number, number, number]> = {
   market: [64, 198, 255],
@@ -194,7 +202,6 @@ function dashedRouteSegments(route: GlobalIntelRoute): RouteRenderSegment[] {
 }
 
 function mapStyle(theme: "light" | "dark") {
-  const style = theme === "dark" ? "dark_all" : "light_all";
   const riskColors = theme === "dark"
     ? [
         0, "rgba(0,0,0,0)",
@@ -211,24 +218,18 @@ function mapStyle(theme: "light" | "dark") {
   return {
     version: 8 as const,
     sources: {
-      carto: {
-        type: "raster" as const,
-        tiles: [
-          `https://a.basemaps.cartocdn.com/${style}/{z}/{x}/{y}@2x.png`,
-          `https://b.basemaps.cartocdn.com/${style}/{z}/{x}/{y}@2x.png`,
-          `https://c.basemaps.cartocdn.com/${style}/{z}/{x}/{y}@2x.png`,
-          `https://d.basemaps.cartocdn.com/${style}/{z}/{x}/{y}@2x.png`,
-        ],
-        tileSize: 256,
-        attribution: "© OpenStreetMap © CARTO",
-      },
+      graticule: { type: "geojson" as const, data: GRATICULE },
       [COUNTRY_SOURCE]: {
         type: "geojson" as const,
         data: COUNTRY_GEOJSON,
+        attribution: '<a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> · 1:110m · 态势示意',
       },
     },
     layers: [
-      { id: "carto-basemap", type: "raster" as const, source: "carto" },
+      { id: "ocean", type: "background" as const, paint: { "background-color": theme === "dark" ? "#0b1b24" : "#e2ecec" } },
+      { id: "graticule", type: "line" as const, source: "graticule", paint: { "line-color": theme === "dark" ? "#22404b" : "#bacfcd", "line-width": 0.6, "line-opacity": 0.55 } },
+      { id: "land", type: "fill" as const, source: COUNTRY_SOURCE, paint: { "fill-color": theme === "dark" ? "#20353b" : "#f1f1e5" } },
+      { id: "borders", type: "line" as const, source: COUNTRY_SOURCE, paint: { "line-color": theme === "dark" ? "#4b686b" : "#9fbbb5", "line-width": 0.65 } },
       {
         id: COUNTRY_LAYER,
         type: "fill" as const,
@@ -373,7 +374,10 @@ export function IntelligenceMap({
     map.on("boxzoomend", handleBoxZoom);
     mapRef.current = map;
     overlayRef.current = overlay;
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(containerRef.current);
     return () => {
+      resizeObserver.disconnect();
       map.off("zoomend", handleZoom);
       map.off("boxzoomend", handleBoxZoom);
       overlay.finalize();
@@ -396,8 +400,11 @@ export function IntelligenceMap({
     if (!map) return;
     const apply = () => {
       if (!map.getSource(COUNTRY_SOURCE)) return;
-      for (const [countryCode, risk] of Object.entries(countryRisk)) {
-        map.setFeatureState({ source: COUNTRY_SOURCE, id: countryCode }, { risk });
+      for (const feature of COUNTRY_GEOJSON.features) {
+        const risk = countryRisk[feature.id] ?? 0;
+        if (map.getFeatureState({ source: COUNTRY_SOURCE, id: feature.id }).risk !== risk) {
+          map.setFeatureState({ source: COUNTRY_SOURCE, id: feature.id }, { risk });
+        }
       }
       if (map.getLayer(COUNTRY_LAYER)) {
         map.setLayoutProperty(COUNTRY_LAYER, "visibility", showCountryRisk ? "visible" : "none");

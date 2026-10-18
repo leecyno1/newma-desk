@@ -439,7 +439,10 @@ def call_hermes_for_reply(
             },
         }
 
-    if _WECHAT_LOCAL_MINIMAX_ENABLED:
+    from .ai_execution import agent_selected
+    from .llm_client import load_ai_config
+    use_agent = agent_selected(load_ai_config(), "tool")
+    if _WECHAT_LOCAL_MINIMAX_ENABLED or use_agent:
         # Automatic replies are cost-bound to M3. Do not silently escalate to
         # Hermes's global model when the M3 route is blocked or unavailable.
         result = _call_local_minimax_route(
@@ -453,9 +456,9 @@ def call_hermes_for_reply(
             system_prompt=system_prompt,
         )
         execution = dict(result.get("execution") or {})
-        execution["route_kind"] = "wechat_minimax_m3"
+        execution["route_kind"] = "wechat_agent" if use_agent else "wechat_minimax_m3"
         execution.setdefault("route_key", "reply")
-        execution.setdefault("configured_model", "MiniMax-M3")
+        execution.setdefault("configured_model", execution.get("final_model") if use_agent else "MiniMax-M3")
         execution["fallback_used"] = False
         execution["hermes_backup_enabled"] = False
         result["execution"] = execution

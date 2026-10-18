@@ -1930,7 +1930,9 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
         onError={() => setFrameState("error")}
         sandbox="allow-scripts allow-forms allow-downloads allow-popups allow-top-navigation-by-user-activation allow-same-origin"
         referrerPolicy="no-referrer"
-        allow="clipboard-read; clipboard-write; fullscreen"
+        allow={manifest.category === "deepsee" && resolution.src.includes("/embed/minutes-agg")
+          ? "clipboard-read; clipboard-write; fullscreen; microphone"
+          : "clipboard-read; clipboard-write; fullscreen"}
       />
     </section>
   );

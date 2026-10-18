@@ -8,7 +8,13 @@ INDEX_HTML = PROJECT_ROOT / "static" / "index.html"
 def test_primary_module_labels_use_new_names():
     source = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert 'data-module="send-management">消息群发<' in source
+    assert 'data-module="wechat-automation">微信自动化<' in source
+    assert 'data-module="send-management">群发<' in source
+    assert 'id="robotTab"' not in source
+    automation = source.split('id="wechat-automation"', 1)[1].split('id="send-management"', 1)[0]
+    assert 'id="wechat-trigger-rules"' in automation
+    assert 'id="robotToggle"' in automation
+    assert 'id="wechat-trigger-rules"' not in source.split('id="function-settings"', 1)[1]
     assert 'data-module="contact-management">分析师评分<' in source
     assert '高评分分析师' in source
     assert '消息群发默认启用“敬”' in source
@@ -227,6 +233,10 @@ def test_send_management_supports_link_only_tasks_and_current_tag_index():
     assert "thumb_url: String(preview.thumb_url || '')" in source
     assert "desc: String(preview.desc || '')" in source
     assert 'async function addComposerLink()' in source
+    assert 'id="sendCampaignHistory"' in source
+    assert "if (sendInFlight)" in source
+    assert "if (!id || id.endsWith('@chatroom')) return null;" in source
+    assert '确认重试活动 #${id} 的失败项？这会实际发送消息。' in source
 
     render_tasks = source.split('function renderTasks()', 1)[1].split('async function generateTask', 1)[0]
     assert 'if (!taskHasSendableContent(t))' in render_tasks

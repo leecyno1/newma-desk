@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import requests
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode, urlsplit, urlunsplit
+from xml.sax.saxutils import escape
 
 from .wechat_gateway import load_config
 from ..db import SessionLocal
@@ -34,6 +36,8 @@ class WechatApiClient:
         self.token = str(token or conf.get("token") or "").strip()
         self.header_name = str(header_name or conf.get("header_name") or "VideosApi-token").strip() or "VideosApi-token"
         self.app_id = str(app_id or conf.get("app_id") or "").strip()
+        # The device gateway authenticates with ?key= instead of a token header/AppId.
+        self.device_key_mode = self.header_name.lower() == "key"
         try:
             self._session = requests.Session()
             self._session.trust_env = False
@@ -43,7 +47,58 @@ class WechatApiClient:
     # ── core ──
 
     def configured(self) -> bool:
-        return bool(self.base_url and self.token and self.app_id)
+        return bool(self.base_url and self.token and (self.device_key_mode or self.app_id))
+
+    def device_ws_url(self) -> str:
+        parsed = urlsplit(self.base_url)
+        return urlunsplit(("wss" if parsed.scheme == "https" else "ws", parsed.netloc,
+                           parsed.path.rstrip("/") + "/ws/GetSyncMsg", urlencode({"key": self.token}), ""))
+
+    def _device_request(self, method: str, path: str, payload: dict | None = None) -> Dict[str, Any]:
+        if not self.configured():
+            raise RuntimeError("微信设备 API 地址或 key 未配置")
+        try:
+            response = self._session.request(
+                method, f"{self.base_url}{path}", params={"key": self.token},
+                json=payload if method != "GET" else None, timeout=20,
+            )
+            response.raise_for_status()
+            raw = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise RuntimeError(str(exc).replace(self.token, "***")) from None
+        if not isinstance(raw, dict):
+            raise RuntimeError("微信设备返回格式无效")
+        data = raw.get("Data")
+        code = raw.get("Code")
+        # This server leaves Success=false even for Code=200 / baseResponse.ret=0.
+        if str(code) not in {"0", "200"}:
+            raise RuntimeError(str(raw.get("Message") or raw.get("Text") or f"设备错误 {code}"))
+        rows = data if isinstance(data, list) else [data]
+        if isinstance(data, dict):
+            rows += [row for value in data.values() if isinstance(value, list) for row in value]
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if row.get("isSendSuccess") is False:
+                raise RuntimeError("微信设备未发送成功")
+            nested = row.get("resp")
+            if isinstance(nested, dict):
+                rows.append(nested)
+                rows.extend(nested.get("chat_send_ret_list") or [])
+            base = row.get("baseResponse") or row.get("BaseResponse") or row.get("base_response") or {}
+            ret = base.get("ret", base.get("Ret")) if isinstance(base, dict) else None
+            if ret is None:
+                ret = row.get("ret")
+            if ret is not None and str(ret) != "0":
+                raise RuntimeError(str(base.get("errMsg") or base.get("ErrMsg") or f"微信返回 {ret}"))
+        return {"ret": 200, "msg": str(raw.get("Message") or raw.get("Text") or ""),
+                "data": data, "provider": "wechat_device"}
+
+    def get_device_profile(self) -> Dict[str, Any]:
+        return self._device_request("GET", "/user/GetProfile")
+
+    def get_device_cached_messages(self) -> Dict[str, Any]:
+        return self._device_request("POST", "/other/GetRedisSyncMsg")
 
     def _headers(self) -> dict[str, str]:
         if not self.token:
@@ -51,6 +106,8 @@ class WechatApiClient:
         return {self.header_name: self.token}
 
     def _post(self, path: str, payload: dict[str, Any], *, timeout: float = 15) -> Dict[str, Any]:
+        if self.device_key_mode:
+            raise RuntimeError(f"新微信设备暂不支持旧接口 {path}，未发送请求")
         if not self.configured():
             raise RuntimeError("wechatapi gateway not configured")
         url = f"{self.base_url}{path if path.startswith('/') else '/' + path}"
@@ -124,6 +181,10 @@ class WechatApiClient:
         )
 
     def check_online(self) -> Dict[str, Any]:
+        if self.device_key_mode:
+            result = self._device_request("GET", "/login/GetLoginStatus")
+            data = result.get("data") or {}
+            return {**result, "data": isinstance(data, dict) and str(data.get("loginState")) == "1"}
         return self._post("/login/checkOnline", {"appId": self.app_id})
 
     def dialog_login(self, *, app_id: str = "") -> Dict[str, Any]:
@@ -145,6 +206,8 @@ class WechatApiClient:
         )
 
     def set_callback(self, callback_url: str) -> Dict[str, Any]:
+        if self.device_key_mode:
+            return self._device_request("POST", "/message/SetCallback", {"CallbackURL": callback_url, "Enabled": True})
         return self._post(
             "/login/setCallback",
             {"appId": self.app_id, "callbackUrl": str(callback_url or "").strip(), "token": self.token},
@@ -160,6 +223,30 @@ class WechatApiClient:
         Long-running call; use fetch_contacts_list_cache for cached results.
         Returns: {friends: [wxid, ...], chatrooms: [id, ...], ghs: [id, ...]}
         """
+        if self.device_key_mode:
+            ids: list[str] = []
+            cursor = (0, 0)
+            while True:
+                result = self._device_request("POST", "/friend/GetContactList", {
+                    "CurrentWxcontactSeq": cursor[0], "CurrentChatRoomContactSeq": cursor[1],
+                })
+                page = (result.get("data") or {}).get("ContactList") or {}
+                if "contactUsernameList" not in page:
+                    raise RuntimeError("设备未返回通讯录列表")
+                ids.extend(page.get("contactUsernameList") or [])
+                next_cursor = (int(page.get("currentWxcontactSeq") or 0),
+                               int(page.get("currentChatRoomContactSeq") or 0))
+                if not page.get("continueFlag"):
+                    break
+                if next_cursor == cursor:
+                    raise RuntimeError("设备通讯录分页游标未推进")
+                cursor = next_cursor
+            ids = list(dict.fromkeys(ids))
+            return {**result, "data": {
+                "friends": [item for item in ids if not item.endswith("@chatroom") and not item.startswith("gh_")],
+                "chatrooms": [item for item in ids if item.endswith("@chatroom")],
+                "ghs": [item for item in ids if item.startswith("gh_")],
+            }}
         return self._post("/contacts/fetchContactsList", {"appId": self.app_id}, timeout=180)
 
     def fetch_contacts_list_cache(self) -> Dict[str, Any]:
@@ -209,8 +296,46 @@ class WechatApiClient:
             {"appId": self.app_id, "wxid": str(wxid or "").strip()},
         )
 
-    def get_brief_info(self, *, wxids: List[str]) -> Dict[str, Any]:
+    def get_brief_info(self, *, wxids: List[str], room_context: dict[str, str] | None = None) -> Dict[str, Any]:
         """Get brief info for contacts/groups. wxids: list of wechat IDs."""
+        if self.device_key_mode:
+            regular_ids = [str(w).strip() for w in wxids if not str(w).endswith("@openim")]
+            result = self._device_request("POST", "/friend/GetContactDetailsList", {
+                "UserNames": regular_ids, "RoomWxIDList": [],
+            }) if regular_ids else {"ret": 200, "provider": "wechat_device", "data": {}}
+
+            def text_value(value: Any) -> str:
+                if isinstance(value, dict):
+                    value = value.get("str", value.get("string", ""))
+                return str(value or "").strip()
+
+            rows = (result.get("data") or {}).get("contactList") or []
+            normalized = [{
+                "userName": text_value(row.get("userName")),
+                "nickName": text_value(row.get("nickName")),
+                "remark": text_value(row.get("remark")),
+                # Device alias is the public WeChat ID, not the personal remark.
+                **({"labelList": text_value(row.get("labelIdlist", row.get("contactLabelIdList")))}
+                   if "labelIdlist" in row or "contactLabelIdList" in row
+                   or text_value(row.get("nickName")) or text_value(row.get("remark")) else {}),
+            } for row in rows if isinstance(row, dict)]
+            for wxid in wxids:
+                room = (room_context or {}).get(wxid)
+                if not str(wxid).endswith("@openim") or not room:
+                    continue
+                try:
+                    enterprise = self._device_request("POST", "/qy/QWContact", {
+                        "ToUserName": wxid, "ChatRoom": room, "T": "",
+                    })
+                except RuntimeError:
+                    continue
+                for row in (enterprise.get("data") or {}).get("contactList") or []:
+                    normalized.append({
+                        "userName": text_value(row.get("Username")),
+                        "nickName": text_value(row.get("Nickname")),
+                        "remark": text_value(row.get("Remark")), "labelList": "",
+                    })
+            return {**result, "data": normalized}
         return self._post(
             "/contacts/getBriefInfo",
             {"appId": self.app_id, "wxids": [str(w or "").strip() for w in (wxids or [])]},
@@ -258,6 +383,23 @@ class WechatApiClient:
     # ═══════════════════════════════════════════════════════════════
 
     def send_text(self, to_wxid: str, text: str) -> Dict[str, Any]:
+        if self.device_key_mode:
+            result = self._device_request("POST", "/message/SendTextMessage", {"MsgItem": [{
+                "ToUserName": str(to_wxid).strip(), "TextContent": str(text),
+                "MsgType": 1, "AtWxIDList": [],
+            }]})
+            data = result.get("data")
+            if isinstance(data, list):
+                data = data[0] if data else {}
+            if isinstance(data, dict):
+                response = data.get("resp")
+                if isinstance(response, dict) and response.get("chat_send_ret_list"):
+                    return {**result, "data": response["chat_send_ret_list"][0]}
+                for value in data.values():
+                    if isinstance(value, list) and value and isinstance(value[0], dict):
+                        data = value[0]
+                        break
+            return {**result, "data": data}
         return self._post(
             "/message/postText",
             {
@@ -291,6 +433,13 @@ class WechatApiClient:
     def send_link(
         self, to_wxid: str, url: str, title: str = "", desc: str = "", thumb_url: str = ""
     ) -> Dict[str, Any]:
+        if self.device_key_mode:
+            xml = (f'<msg><appmsg appid="" sdkver="0"><title>{escape(title or url)}</title>'
+                   f'<des>{escape(desc)}</des><type>5</type><url>{escape(url)}</url>'
+                   f'<thumburl>{escape(thumb_url)}</thumburl></appmsg></msg>')
+            return self._device_request("POST", "/message/SendAppMessage", {"AppList": [{
+                "ToUserName": str(to_wxid).strip(), "ContentXML": xml, "ContentType": 5,
+            }]})
         return self._post(
             "/message/postLink",
             {
@@ -813,6 +962,8 @@ class WechatApiClient:
         return self._post("/label/delete", {"appId": self.app_id, "labelId": str(label_id or "").strip()})
 
     def list_labels(self) -> Dict[str, Any]:
+        if self.device_key_mode:
+            return self._device_request("GET", "/label/GetContactLabelList")
         return self._post("/label/list", {"appId": self.app_id})
 
     def modify_member_labels(self, *, label_ids: List[str], wxids: List[str]) -> Dict[str, Any]:

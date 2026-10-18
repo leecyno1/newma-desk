@@ -95,6 +95,78 @@ from ..services.quant_analysis import normalize_quant, render_quant_section_mark
 
 router = APIRouter(prefix="/api/ai", tags=["ai"]) 
 
+from ..services.model_catalog import CatalogRequest, agent_inventory, model_catalog
+
+
+@router.get("/agents")
+def get_agent_inventory():
+    return {"items": agent_inventory()}
+
+
+@router.post("/models/catalog")
+def get_model_catalog(payload: CatalogRequest):
+    try:
+        return model_catalog(payload, load_ai_config())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
+@router.get("/execution")
+def get_ai_execution():
+    from ..services.ai_execution import public_execution_config
+    return public_execution_config(load_ai_config())
+
+
+@router.put("/execution")
+def set_ai_execution(payload: dict):
+    from ..services.ai_execution import AIExecutionConfig, public_execution_config
+    from pydantic import ValidationError
+    conf = load_ai_config()
+    previous = conf.get("ai_execution") or {}
+    raw = {**previous, **payload}
+    if payload.get("clear_key"):
+        raw["api_key"] = ""
+    elif not payload.get("api_key"):
+        same_connection = (raw.get("provider") == previous.get("provider") and
+                           str(raw.get("api_url") or "").rstrip("/") == str(previous.get("api_url") or "").rstrip("/"))
+        raw["api_key"] = previous.get("api_key", "") if same_connection else ""
+    try:
+        conf["ai_execution"] = AIExecutionConfig.model_validate(raw).model_dump()
+    except ValidationError:
+        raise HTTPException(422, "AI 执行配置不合法，请检查提供方、档位和超时时间") from None
+    save_ai_config(conf)
+    return public_execution_config(conf)
+
+
+@router.post("/execution/test")
+def test_ai_execution(payload: dict):
+    from ..services.ai_execution import agent_selected, execution_config
+    conf = load_ai_config()
+    tier = "tool" if payload.get("tier") == "light" else "main"
+    started = time.monotonic()
+    try:
+        if not agent_selected(conf, tier):
+            targets = llm_client_service.resolve_chat_targets(conf, route_kind=tier,
+                route_key='messages' if tier == 'tool' else 'market',
+                model_override=None)
+            if not targets:
+                raise ValueError('no model route')
+            target = targets[0]
+            result = _test_router_channel_connectivity({**target, 'id': target.get('channel_id')}, tier, conf)
+            return {'ok': result['ok'], 'output': result.get('output'),
+                'error': result.get('error'), 'execution': {'provider': '内置模型',
+                    'final_model': result.get('model'), 'channel_id': result.get('channel_id')},
+                'elapsed_seconds': round(time.monotonic()-started, 1)}
+        answer = siliconflow_chat([{"role": "user", "content": "连通性测试。请仅回复：Deepsee 连接正常"}],
+                                  route_kind=tier, route_key="connection_test", return_metadata=True)
+        return {"ok": True, "output": answer.get("text") if isinstance(answer, dict) else answer,
+                "execution": answer.get("execution", {}) if isinstance(answer, dict) else {},
+                "elapsed_seconds": round(time.monotonic() - started, 1)}
+    except Exception:
+        provider = execution_config(conf).provider if agent_selected(conf, tier) else "独立模型"
+        return {"ok": False, "error": f"{provider} 测试失败，请检查登录/密钥、模型 ID 和服务可用性",
+                "elapsed_seconds": round(time.monotonic() - started, 1)}
+
 
 def _sanitize_wechatpad_ws_url(value: Any) -> str:
     url = str(value or "").strip()
@@ -304,7 +376,10 @@ def _chat_with_retry(chat_fn, *, max_retries: int = 3, backoff: float = 1.0) -> 
     errors: list[str] = []
     for attempt in range(max_retries):
         try:
-            return chat_fn()
+            output = chat_fn()
+            if not isinstance(output, str) or not output.strip():
+                raise RuntimeError("AI returned empty content")
+            return output
         except Exception as exc:
             errors.append(f"attempt_{attempt + 1}: {exc}")
             if attempt < max_retries - 1:
@@ -780,6 +855,7 @@ def summary(payload: dict, db: Session = Depends(get_db)):
             "summary_db_path": summary_db_path,  # 新增：摘要数据库路径，可用于验证从摘要表提取总结的方法
             "snapshot_id": f"external:{(filters or {}).get('period') or 'custom'}" if external_only else snapshot.id,
             "_cache_db": db,
+            "options": options,
         }
 
         local_summary = _run_summary_local(summary_payload)
@@ -810,6 +886,7 @@ def summary(payload: dict, db: Session = Depends(get_db)):
         response_result = {
             "status": status,
             "snapshot_id": summary_payload.get("snapshot_id"),
+            "module_errors": local_summary.get("module_errors") or {},
             "report": summary_result,
             "meta": {**((snapshot.meta or {}) if snapshot is not None else {}), **({"time_range": time_range} if time_range else {})},
             "modules": returned_modules,
@@ -1371,9 +1448,9 @@ def _run_summary_local(payload: dict) -> dict:
         # Can be overridden per-request with options.use_llm_external_modules=true (best-effort).
         try:
             req_opts = payload.get("options") or {}
-            use_llm_external_modules = bool((req_opts or {}).get("use_llm_external_modules", False))
+            use_llm_external_modules = bool((req_opts or {}).get("use_llm_external_modules", True))
         except Exception:
-            use_llm_external_modules = False
+            use_llm_external_modules = True
         # 强化"高评分联系人"提示词：禁止模型自行打分，评分来自系统
         try:
             cp = module_prompts.get('contacts') or {}
@@ -1430,6 +1507,8 @@ def _run_summary_local(payload: dict) -> dict:
             derived = m.get("derived") or {}
             # Prefer tool summary; fallback to richer heuristic fields when needed.
             summary = derived.get("summary") or derived.get("summary_full") or derived.get("key_info") or ""
+            if not str(summary).strip() or str(summary).strip() in {"信息有限", "ai: 信息有限"}:
+                summary = _extract_text(m)[:1800]
             cid = str(m.get("sender_id") or "").strip()
             if not cid:
                 sender_label = (m.get("sender_name") or "").strip()
@@ -1996,6 +2075,9 @@ def _run_summary_local(payload: dict) -> dict:
             prompt_conf = module_prompts.get(module_key, {})
             defaults = DEFAULT_MODULE_PROMPTS.get(module_key, {})
             system_prompt = prompt_conf.get("system") or defaults.get("system") or ""
+            from ..services.ai_execution import agent_selected, execution_config
+            route = execution_config(conf)
+            system_prompt += f"\n证据输入版本 2；执行通道：{route.mode}/{route.advanced_backend}/{route.provider}/{route.advanced_model}。只依据本次 messages。"
             user_template = prompt_conf.get("user") or defaults.get("user") or ""
             module_payload = base_payload.copy()
             # 为不同模块选择更相关的子集，既覆盖"全部消息"，又避免无关噪声
@@ -2259,12 +2341,16 @@ def _run_summary_local(payload: dict) -> dict:
             else:
                 module_payload["messages"] = _compact(sorted_messages, prefer_meetings=False, limit=300)
 
-            # External aggregation modules: local summarization first to avoid long remote LLM calls.
+            if not module_payload.get("messages"):
+                result[result_key] = f"# {module_titles.get(module_key, module_key)}\n当前范围暂无可分析的正文或转写，请补充数据或扩大时间范围。"
+                continue
+
+            # Explicit lightweight mode is available, but is not an AI conclusion.
             if module_key in {"mediawatch", "mpwatch", "minuteswatch"} and not use_llm_external_modules:
                 try:
                     md = _render_external_module_md(module_key, module_payload.get("messages") or [])
                     if md:
-                        result[result_key] = md
+                        result[result_key] = md + "\n\n> 资料汇总，未调用 AI 分析。"
                         # Cache like normal (prompt hash still participates so prompt changes invalidate)
                         try:
                             snap_id = payload.get("snapshot_id")
@@ -2416,7 +2502,7 @@ def _run_summary_local(payload: dict) -> dict:
                 user_content = user_template + "\n\n数据：\n" + payload_str
 
             messages_payload = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": system_prompt + "\n输入 JSON 的 messages 数组即本次证据清单（等价于 module_input.evidence），不要等待页面上下文。会议邀请和表情不构成投资机会。"},
                 {"role": "user", "content": user_content},
             ]
 
@@ -2428,16 +2514,17 @@ def _run_summary_local(payload: dict) -> dict:
                         temperature=temperature,
                         route_kind="main",
                         route_key=module_key,
-                    )
+                    ), max_retries=1 if agent_selected(conf, "main") else 2
                 )
                 if isinstance(raw_output, dict) and "__error__" in raw_output:
                     # 记录错误但不中断，其他模块继续执行；前端可通过 _module_errors 感知
-                    result[f"_{module_key}_error"] = raw_output["__error__"]
+                    result[f"_{module_key}_error"] = "AI 通道调用失败"
                     result[result_key] = ""
                     continue
                 output_text = raw_output  # type: ignore[assignment]
             except Exception as exc:  # pragma: no cover
                 result[result_key] = ""
+                result[f"_{module_key}_error"] = "AI 执行失败，请检查当前通道"
                 # 不中断，让后续使用本地兜底生成
                 continue
 
@@ -2473,6 +2560,9 @@ def _run_summary_local(payload: dict) -> dict:
                 if hk and text_out and text_out.lstrip().startswith("<"):
                     result[hk] = text_out
 
+            if not str(result.get(result_key) or "").strip():
+                result[f"_{module_key}_error"] = "AI 返回空内容"
+                continue
             if _looks_cross_module_output(module_key, result.get(result_key) or ""):
                 result[f"_{module_key}_error"] = "cross_module_output_mismatch"
                 result[result_key] = ""
@@ -3019,10 +3109,16 @@ def _run_summary_local(payload: dict) -> dict:
                 pass
 
         active_modules = [m for m in module_map.keys() if m in module_filter]
+        errors = {m: result.get(f"_{m}_error") for m in active_modules if result.get(f"_{m}_error")}
+        for m in errors:
+            result[module_map[m]] = "本模块 AI 分析失败，请到“功能设置 → AI 执行”测试通道后重试。"
+            if html_result_map.get(m):
+                result[html_result_map[m]] = ""
         return {
-            "status": "ok",
+            "status": "error" if errors and len(errors) == len(active_modules) else ("partial" if errors else "ok"),
             "result": result,
             "modules": active_modules,
+            "module_errors": {m: "通道调用失败" for m in errors},
             "temperature": temperature,
             "meta": base_payload.get("meta") or {},
             "_partial_errors": result.get("_partial_errors") or [],
@@ -3077,7 +3173,7 @@ def generate_onepage(payload: dict) -> dict:
             [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             temperature=float(conf.get("onepage_temperature") if conf.get("onepage_temperature") is not None else 0.35),
             model_override=None,
-            route_kind="mid",
+            route_kind="main",
             route_key="onepage",
         )
         raw = str(output or "").strip()
@@ -3141,7 +3237,7 @@ def _build_onepage_image_prompt(onepage: dict[str, Any], *, period: str, templat
 def _resolve_onepage_image_target(conf: dict[str, Any]) -> dict[str, str]:
     targets = resolve_chat_targets(
         conf,
-        route_kind="mid",
+        route_kind="main",
         route_key="onepage",
         model_override=None,
     )
@@ -3384,7 +3480,6 @@ def _build_onepage_audio_script(payload: dict, conf: dict[str, Any]) -> str:
         script = siliconflow_chat(
             [{"role": "user", "content": prompt}],
             temperature=0.35,
-            max_tokens=2200 if duration == 5 else 4200,
             model_override=None,
             route_kind="main",
             route_key="minuteswatch",
@@ -3448,12 +3543,17 @@ def generate_onepage_audio(payload: dict) -> dict:
     conf = load_ai_config()
     duration = int((payload or {}).get("duration_minutes") or 5)
     duration = 10 if duration >= 10 else 5
-    script = _build_onepage_audio_script(payload or {}, conf)
+    script = str(payload.get('script') or '').strip()[:6000] or _build_onepage_audio_script(payload or {}, conf)
+    if payload.get('script_only'):
+        return {'status': 'ok', 'script': script, 'duration_minutes': duration,
+                'estimated_seconds': round(len(script) / 4.5), 'provider': 'Deepsee 高级处理'}
     api_key = _resolve_mmx_cli_key(conf)
     try:
         return _run_mmx_speech(script, api_key=api_key, duration_minutes=duration)
-    except Exception as exc:
-        raise HTTPException(502, f"MiniMax CLI语音生成失败: {exc}") from exc
+    except Exception:
+        # Preserve the editable script; the browser can read it with local speech voices.
+        return {'status': 'needs_voice', 'script': script, 'duration_minutes': duration,
+                'error': '服务端语音合成不可用。可使用浏览器朗读，或下载播报稿。'}
 
 
 @router.post("/summary-local")
@@ -3610,7 +3710,8 @@ def _test_router_channel_connectivity(channel: dict[str, Any], lane: str, conf: 
             "output": "",
             "error": "missing model",
         }
-    if not api_key:
+    from ..services.ai_execution import model_endpoint_usable
+    if not model_endpoint_usable(api_url, api_key):
         return {
             **base,
             "status": "error",
@@ -3619,7 +3720,9 @@ def _test_router_channel_connectivity(channel: dict[str, Any], lane: str, conf: 
             "output": "",
             "error": "missing api key",
         }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers['Authorization'] = f'Bearer {api_key}'
     if "openrouter.ai" in api_url:
         headers.setdefault("HTTP-Referer", "https://localhost")
         headers.setdefault("X-Title", "Dr.Lemon Information Aggregation AI")
@@ -3630,27 +3733,25 @@ def _test_router_channel_connectivity(channel: dict[str, Any], lane: str, conf: 
             {"role": "user", "content": "请输出“连接成功”四个字"},
         ],
         "temperature": 0.0,
-        "max_tokens": 32,
+        "max_tokens": 256,
         "stream": False,
     }
-    if lane == "tool":
-        payload["response_format"] = {"type": "json_object"}
     try:
         http_timeout = int(conf.get("http_timeout") or 20)
     except Exception:
         http_timeout = 20
     try:
-        resp = llm_client_service._post_with_backoff(  # type: ignore[attr-defined]
-            api_url.rstrip("/") + "/chat/completions",
-            headers,
-            payload,
-            timeout=http_timeout,
+        resp = requests.post(
+            llm_client_service._chat_completions_url(api_url),
+            headers=headers, json=payload, timeout=(5, min(20, max(1, http_timeout))),
         )
         resp.raise_for_status()
         data = resp.json()
         content = llm_client_service._normalize_llm_content(  # type: ignore[attr-defined]
             data.get("choices", [{}])[0].get("message", {}).get("content", "")
         )
+        if not str(content or '').strip():
+            raise ValueError('empty model output')
         latency_ms = max(1, int((time.perf_counter() - started) * 1000))
         return {
             **base,
@@ -3668,7 +3769,7 @@ def _test_router_channel_connectivity(channel: dict[str, Any], lane: str, conf: 
             "ok": False,
             "latency_ms": latency_ms,
             "output": "",
-            "error": str(exc)[:240],
+            "error": "模型测试失败或超时（连接 5 秒 / 响应 20 秒）；请检查该通道地址、Key 和模型。测试不会自动切换其他模型。",
         }
 
 
@@ -3678,10 +3779,9 @@ def test_all_router_models():
     router = conf.get("model_router") if isinstance(conf.get("model_router"), dict) else {}
     lanes = {
         "main": [c for c in (router.get("main_channels") if isinstance(router.get("main_channels"), list) else []) if isinstance(c, dict)],
-        "mid": [c for c in (router.get("mid_channels") if isinstance(router.get("mid_channels"), list) else []) if isinstance(c, dict)],
         "tool": [c for c in (router.get("tool_channels") if isinstance(router.get("tool_channels"), list) else []) if isinstance(c, dict)],
     }
-    out: dict[str, list[dict[str, Any]]] = {"main": [], "mid": [], "tool": []}
+    out: dict[str, list[dict[str, Any]]] = {"main": [], "tool": []}
     total = ok = disabled = 0
     for lane, channels in lanes.items():
         for channel in channels:
@@ -3716,8 +3816,17 @@ def route_preview(route_kind: str = "main", route_key: str = "default", model_ov
     kind = str(route_kind or "main").strip().lower()
     if kind not in {"main", "tool", "mid"}:
         raise HTTPException(status_code=400, detail="route_kind must be main/tool/mid")
+    kind = "main" if kind == "mid" else kind
     key = str(route_key or "default").strip() or "default"
     conf = load_ai_config()
+    from ..services.ai_execution import agent_selected, execution_config
+    if agent_selected(conf, kind):
+        cfg = execution_config(conf)
+        model = cfg.light_model if kind == "tool" else cfg.advanced_model
+        return {"status": "ok", "route_kind": kind, "route_key": key, "backend": "agent", "targets": [{
+            "order": 1, "channel_id": f"agent:{cfg.provider}", "model": model or "Agent 默认模型",
+            "provider": cfg.provider, "api_url": "", "has_api_key": True, "fallback": False,
+        }]}
     targets = resolve_chat_targets(
         conf,
         route_kind=kind,

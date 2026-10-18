@@ -3,7 +3,10 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import re
 import threading
+import time
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -159,6 +162,26 @@ _TUSHARE_CLIENT: Any | None = None
 _TUSHARE_TOKEN_CACHE = ""
 _LOOKUP_CACHE_LOCK = threading.Lock()
 _ASSET_LOOKUP_CACHE: dict[str, list[dict[str, Any]]] = {}
+_TUSHARE_REQUEST_LOCK = threading.Lock()
+_TUSHARE_LAST_REQUEST = 0.0
+_TENCENT_RETRY_AFTER = 0.0
+
+
+def _tushare_call(client, name, **kwargs):
+    global _TUSHARE_LAST_REQUEST
+    with _TUSHARE_REQUEST_LOCK:
+        time.sleep(max(0, 0.35 - (time.monotonic() - _TUSHARE_LAST_REQUEST)))
+        _TUSHARE_LAST_REQUEST = time.monotonic()
+    return getattr(client, name)(**kwargs)
+
+
+class MarketSeries(list):
+    """List-compatible prices with provenance, without altering the row contract."""
+    def __init__(self, rows, *, source: str, adjustment: str):
+        super().__init__(rows)
+        self.provenance = {"source": source, "adjustment": adjustment,
+                           "currency": "CNY", "frequency": "daily",
+                           "retrieved_at": datetime.now().isoformat()}
 
 CURATED_ASSET_ALIASES: list[dict[str, Any]] = [
     {"asset_type": "index", "asset_code": "sh000300", "asset_name": "沪深300", "aliases": ["沪深300", "hs300"]},
@@ -518,6 +541,12 @@ def load_asset_lookup_entries(config: dict[str, Any] | None = None) -> list[dict
             return cached
 
     entries = [dict(item) for item in CURATED_ASSET_ALIASES]
+    try:
+        stock_rows = json.loads(Path("data/market_stock_names.json").read_text())
+        entries.extend(_build_lookup_entry("stock", row["code"], row["zwjc"]) for row in stock_rows
+                       if row.get("category") == "A股" and len(row.get("zwjc", "")) >= 3)
+    except (OSError, ValueError):
+        pass
     if cfg.get("enable_tushare_lookup") and str(cfg.get("tushare_token") or "").strip() and HAS_TUSHARE:
         dynamic = _fetch_tushare_lookup_entries(cfg)
         if dynamic:
@@ -544,6 +573,49 @@ def load_asset_lookup_entries(config: dict[str, Any] | None = None) -> list[dict
     with _LOOKUP_CACHE_LOCK:
         _ASSET_LOOKUP_CACHE[key] = entries
     return entries
+
+
+def refresh_stock_name_directory() -> int:
+    """Download public security names only; private chat text never leaves the app."""
+    response = requests.get("https://www.cninfo.com.cn/new/data/szse_stock.json", timeout=20)
+    response.raise_for_status()
+    rows = response.json()["stockList"]
+    target = Path("data/market_stock_names.json")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    with _LOOKUP_CACHE_LOCK:
+        _ASSET_LOOKUP_CACHE.clear()
+    return len(rows)
+
+
+def build_asset_text_resolver(config: dict[str, Any] | None = None):
+    aliases = {}
+    codes = {}
+    for item in load_asset_lookup_entries(config):
+        codes[item["asset_code"]] = item
+        for alias in item.get("aliases") or []:
+            if len(alias) >= 3:
+                aliases[alias] = item
+    pattern = re.compile("|".join(re.escape(a) for a in sorted(aliases, key=len, reverse=True)))
+
+    def resolve(text):
+        coded = [codes[code] for code in re.findall(r"(?<!\d)(\d{6})(?!\d)", text) if code in codes]
+        if coded:
+            return coded[0]
+        matches = []
+        brokers = {"国泰海通", "国联民生", "申万宏源", "中信建投", "中信证券", "长江证券", "浙商证券", "东方证券",
+                   "国海证券", "招商证券", "兴业证券", "广发证券", "华泰证券", "中金公司", "东吴证券", "国金证券",
+                   "财通证券", "天风证券", "方正证券", "华安证券", "光大证券", "中泰证券", "山西证券", "东北证券"}
+        ambiguous = {"机器人", "农产品", "驱动力", "陆家嘴", "张江高科", "中国中期", "动力新科"}
+        for match in pattern.finditer(text):
+            name = match.group()
+            if name in ambiguous:
+                continue  # Common sector/place words are not sufficient security evidence.
+            if name in brokers and not re.search(r"(?:看好|推荐|配置|增持|减持|回避|买入|卖出).{0,6}$", text[max(0, match.start()-16):match.start()]):
+                continue  # Research institution / author attribution, not the investment target.
+            matches.append(aliases[name])
+        return next((m for m in matches if m["asset_type"] != "index"), matches[0] if matches else None)
+    return resolve
 
 
 def search_asset_in_text(text: str, config: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -605,7 +677,6 @@ def _fetch_tushare_series(normalized: dict[str, Any], start_date: datetime, end_
     else:
         try_specs = [
             ("daily", {"ts_code": ts_code, "start_date": start_s, "end_date": end_s, "fields": "trade_date,close"}),
-            ("fund_daily", {"ts_code": ts_code, "start_date": start_s, "end_date": end_s, "fields": "trade_date,close"}),
         ]
 
     for func_name, kwargs in try_specs:
@@ -613,10 +684,21 @@ def _fetch_tushare_series(normalized: dict[str, Any], start_date: datetime, end_
             fn = getattr(client, func_name, None)
             if not fn:
                 continue
-            df = fn(**kwargs)
+            df = _tushare_call(client, func_name, **kwargs)
             records = _records_from_df(df)
             if records:
-                return _clip_records(records, start_date, end_date)
+                records = _clip_records(records, start_date, end_date)
+                if asset_type == "index":
+                    return MarketSeries(records, source="Tushare index_daily", adjustment="none")
+                factor_api = "fund_adj" if asset_type in {"etf", "fund"} else "adj_factor"
+                factors = _tushare_call(client, factor_api, ts_code=ts_code, start_date=start_s, end_date=end_s,
+                                       fields="trade_date,adj_factor")
+                factor_map = {str(r["trade_date"]): float(r["adj_factor"]) for r in factors.to_dict("records")}
+                if not factor_map or any(row["date"].replace("-", "") not in factor_map for row in records):
+                    return []  # Never treat splits/dividends as investment losses.
+                last_factor = factor_map[max(factor_map)]
+                adjusted = [{"date": row["date"], "close": round(row["close"] * factor_map[row["date"].replace("-", "")] / last_factor, 6)} for row in records]
+                return MarketSeries(adjusted, source=f"Tushare {func_name} + {factor_api}", adjustment="qfq")
         except Exception:
             continue
     return []
@@ -675,6 +757,7 @@ def _fetch_akshare_series(normalized: dict[str, Any], start_date: datetime, end_
             fn = getattr(ak_module, func_name, None)
             if not fn:
                 continue
+            time.sleep(1)
             df = fn(**kwargs)
             records = _records_from_df(df)
             if records:
@@ -722,6 +805,9 @@ def _fetch_a_stock_direct_series(normalized: dict[str, Any], start_date: datetim
     This embeds the lightweight no-key route recommended by the a-stock-data skill.
     It is intentionally narrow: contact scoring only needs date/close series.
     """
+    global _TENCENT_RETRY_AFTER
+    if time.monotonic() < _TENCENT_RETRY_AFTER:
+        return []
     symbol = _tencent_symbol(normalized)
     if not symbol:
         return []
@@ -738,6 +824,9 @@ def _fetch_a_stock_direct_series(normalized: dict[str, Any], start_date: datetim
         try:
             params = {"param": f"{symbol},day,,,{limit},{adjust}"}
             resp = requests.get(endpoint, params=params, headers=headers, timeout=10)
+            if resp.status_code in {403, 429, 501}:
+                _TENCENT_RETRY_AFTER = time.monotonic() + 1800
+                return []
             if resp.status_code != 200:
                 continue
             data = resp.json()
@@ -746,7 +835,10 @@ def _fetch_a_stock_direct_series(normalized: dict[str, Any], start_date: datetim
             records = _records_from_tencent_kline_payload(data, symbol)
             clipped = _clip_records(records, start_date - timedelta(days=3), end_date + timedelta(days=3))
             if clipped:
-                return clipped
+                block = (data.get("data") or {}).get(symbol) or {}
+                actual_adjustment = "qfq" if block.get("qfqday") else "hfq" if block.get("hfqday") and not block.get("day") else "none"
+                return MarketSeries(clipped, source="Tencent public K-line / fqkline",
+                                    adjustment=actual_adjustment)
         except Exception:
             continue
     return []
@@ -775,7 +867,10 @@ def fetch_market_series(
         else:
             records = _fetch_akshare_series(normalized, start_date, end_date)
         if records:
-            return records
+            if hasattr(records, "provenance"):
+                return records
+            adjustment = "none" if provider == "tushare" or normalized["asset_type"] == "index" else "provider_default"
+            return MarketSeries(records, source=provider, adjustment=adjustment)
     return []
 
 

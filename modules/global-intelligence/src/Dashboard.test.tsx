@@ -20,6 +20,15 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("navigation warning page and Agent evidence", () => {
+  it("reports the selected route/point and only the currently visible evidence blocks", () => {
+    const route = { id: "shipping", name: "Test corridor" };
+    const context = buildGlobalIntelligenceContext({ selectedRoute: route, presentation: { mapExpanded: true }, events: [{ sourceFreshness: "fresh" }] });
+    expect(context.selection).toEqual({ route });
+    expect(context.data.freshness).toBe("unknown");
+    expect(context.visibleBlocks?.map((block) => block.id)).not.toContain("global-intelligence-events");
+    expect(context.visibleBlocks?.map((block) => block.id)).not.toContain("global-intelligence-sources");
+    expect(buildGlobalIntelligenceContext({ selectedPoint: { id: "point", sourceFreshness: "stale", collectedAt: "2026-10-01" } }).data).toMatchObject({ freshness: "stale", asOf: "2026-10-01" });
+  });
   it("does not treat a live connection as proof of fresh data", () => {
     const context = buildGlobalIntelligenceContext({ streamStatus: "live", lastUpdate: new Date().toISOString(), selectedEvent: { title: "Undated report", timestamp: "", timestampBasis: "unknown", sourceFreshness: "unknown" } });
     expect(context.data.freshness).toBe("unknown");

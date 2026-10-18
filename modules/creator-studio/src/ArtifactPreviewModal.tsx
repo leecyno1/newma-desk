@@ -302,21 +302,26 @@ function MarkdownProductPreview({ content }: { content: string }) {
 }
 
 export function ArtifactPreviewModal({ path, label, onClose, fetchPreview }: Props) {
+  const [activePath, setActivePath] = useState(path);
   const [data, setData] = useState<PreviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [copyState, setCopyState] = useState("");
 
+  useEffect(() => setActivePath(path), [path]);
+
   useEffect(() => {
+    let current = true;
     setLoading(true);
-    fetchPreview(path)
-      .then(setData)
-      .catch((err) => setData({ path, exists: false, error: err?.message || "加载失败" }))
-      .finally(() => setLoading(false));
-  }, [path, fetchPreview]);
+    fetchPreview(activePath)
+      .then((result) => { if (current) setData(result); })
+      .catch((err) => { if (current) setData({ path: activePath, exists: false, error: err?.message || "加载失败" }); })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
+  }, [activePath, fetchPreview]);
 
   const copyPath = async () => {
     try {
-      await navigator.clipboard.writeText(path);
+      await navigator.clipboard.writeText(activePath);
       setCopyState("✓ 已复制路径");
       setTimeout(() => setCopyState(""), 1500);
     } catch {
@@ -324,7 +329,7 @@ export function ArtifactPreviewModal({ path, label, onClose, fetchPreview }: Pro
     }
   };
 
-  const filename = path.split("/").pop() || path;
+  const filename = activePath.split("/").pop() || activePath;
 
   return (
     <div className="artifact-modal-backdrop" onClick={onClose}>
@@ -333,8 +338,8 @@ export function ArtifactPreviewModal({ path, label, onClose, fetchPreview }: Pro
           <div className="artifact-modal-title">
             {typeIcon(data?.mime, data?.suffix)}
             <div>
-              <strong>{label || filename}</strong>
-              <small className="artifact-modal-path" title={path}>{filename}</small>
+              <strong>{activePath === path ? label || filename : filename}</strong>
+              <small className="artifact-modal-path" title={activePath}>{filename}</small>
             </div>
           </div>
           <div className="artifact-modal-actions">
@@ -392,6 +397,21 @@ export function ArtifactPreviewModal({ path, label, onClose, fetchPreview }: Pro
                     srcDoc={data.content}
                     sandbox="allow-same-origin"
                     title="HTML 预览"
+                    onLoad={(event) => {
+                      const document = event.currentTarget.contentDocument;
+                      if (!document) return;
+                      document.onclick = (click) => {
+                        const target = click.target as Element | null;
+                        const href = target?.closest?.("a")?.getAttribute("href");
+                        if (!href || href.startsWith("#")) return;
+                        click.preventDefault();
+                        if (/^https?:\/\//i.test(href)) {
+                          window.open(href, "_blank", "noopener,noreferrer");
+                        } else if (/^[^/\\:?#]+\.html?$/i.test(href)) {
+                          setActivePath(activePath.slice(0, activePath.lastIndexOf("/") + 1) + href);
+                        }
+                      };
+                    }}
                   />
                   <details>
                     <summary>查看 HTML 源文件</summary>

@@ -20,6 +20,11 @@ html.vibedesk-embed .module-tabs {
     display: none !important;
 }
 
+/* Model and prompt settings belong to the host in embedded mode. */
+html.vibedesk-embed .settings-section[data-nav-hidden="1"] {
+    display: none !important;
+}
+
 html.vibedesk-embed .module-content {
     min-height: 100vh;
     overflow: visible;

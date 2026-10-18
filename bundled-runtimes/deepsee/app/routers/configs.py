@@ -106,6 +106,21 @@ def set_blacklist(payload: dict, db: Session = Depends(_get_db)):
     return {"status": "ok"}
 
 
+@router.post("/filters")
+def set_data_filters(payload: dict, db: Session = Depends(_get_db)):
+    """Atomically save data filters, without touching robot or gateway policy."""
+    keys = ("whitelist_senders", "whitelist_talkers", "blacklist_senders", "blacklist_talkers")
+    if set(payload) != set(keys) or any(
+        not isinstance(payload[key], list) or any(not isinstance(v, str) for v in payload[key])
+        for key in keys
+    ):
+        raise HTTPException(422, "请提供完整的四类数据名单，每类为字符串列表")
+    for key in keys:
+        _set_json_list(db, key, [v.strip() for v in payload[key] if v.strip()])
+    db.commit()
+    return get_filters(db)
+
+
 # --------- Module Configurations (persisted in SyncState) ---------
 
 def _get_json_obj(db: Session, key: str) -> dict:
@@ -178,6 +193,7 @@ def set_ai_runtime(payload: dict, db: Session = Depends(_get_db)):
             return d
     obj = _get_json_obj(db, _AI_RUNTIME_KEY)
     obj = obj if isinstance(obj, dict) else {}
+    payload = {**obj, **payload}
     obj["enable_msg_tool_overlay"] = _b(payload.get("enable_msg_tool_overlay"), True)
     obj["enable_email_tool_overlay"] = _b(payload.get("enable_email_tool_overlay"), True)
     obj["email_overlay_window"] = _i(payload.get("email_overlay_window"), 120, 20, 1000)

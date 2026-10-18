@@ -2,8 +2,8 @@
   "schemaVersion": "1.0",
   "id": "policy-interpretation",
   "name": "政策解读",
-  "description": "Desk 生成可审计规则基线，深入政策解读由 Newma Runtime 的轻量 Agent 完成。",
-  "version": "0.3.0",
+  "description": "官方正文、条款差异与投资传导底稿；AI 深入分析使用 Desk 配置的 Newma、本地 CLI 或 Copilot。",
+  "version": "0.5.0",
   "publisher": "Newma-Desk",
   "agentWorkspace": {"type": "desk"},
   "runtime": {
@@ -35,7 +35,11 @@
       "sdkVersion": "^0.1.0",
       "viewSpecVersion": "1.0"
     },
-    "permissions": ["investment.read"],
+    "permissions": ["investment.read", "storage.read", "storage.write"],
+    "storage": {
+      "mode": "desk-managed",
+      "namespaces": [{"id": "policy-research", "scope": "user-workspace", "schemaVersion": 1, "quotaMb": 8, "maxItemKb": 512}]
+    },
     "actions": {
       "policy.interpret": {
         "binding": {

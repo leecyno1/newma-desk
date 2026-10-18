@@ -21,6 +21,32 @@ from vibe_visualization_api.policy_analysis.refresher import PolicyRefreshServic
 from vibe_visualization_api.policy_analysis.service import compare_policy_events
 
 
+def test_policy_windows_roll_into_current_month_and_next_year():
+    from datetime import date
+    from vibe_visualization_api.policy_analysis.service import policy_events
+
+    events = policy_events(date(2026, 11, 14))
+    assert any(item["date"] == "2026-11-20" and "LPR" in item["title"] for item in events)
+    assert any(item["date"] == "2027-01-31" and item["documentType"] == "macro-data" for item in events)
+    assert all(item["certainty"] != "official" for item in events if item["status"] == "scheduled")
+    assert all(item["assessmentStatus"] == "machine" for item in events)
+
+
+def test_seed_label_is_not_a_human_review_and_real_review_is_preserved(tmp_path):
+    from datetime import date
+    from vibe_visualization_api.policy_analysis.service import policy_events
+
+    store = PolicyStore(tmp_path / "policy.db")
+    event = policy_events(date(2026, 10, 14))[0]
+    store.upsert_events([{**event, "assessmentStatus": "reviewed", "assessmentConfidence": 1}])
+    store.upsert_events([event])
+    assert store.list_events()[0]["assessmentStatus"] == "machine"
+    store.review_assessment(event["id"], 1, "实际人工复核")
+    store.upsert_events([event])
+    assert store.list_events()[0]["assessmentStatus"] == "reviewed"
+    assert store.list_events()[0]["level"] == 1
+
+
 def test_policy_dashboard_exposes_calendar_sources_and_levels(tmp_path):
     from vibe_visualization_api.config import Settings
 

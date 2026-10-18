@@ -56,6 +56,8 @@ import {
 } from "react";
 
 import { createModSnapshotCache } from "@newma-desk/mod-sdk";
+import { buildInvestmentTransmission } from "./investment";
+import { InvestmentTransmission } from "./InvestmentTransmission";
 
 import {
   GLOBAL_INTELLIGENCE_CONTRACT,
@@ -1187,6 +1189,8 @@ export function GlobalIntelligenceDashboard({
   const [trendPanelOpen, setTrendPanelOpen] = useState(false);
   const [mediaPanelOpen, setMediaPanelOpen] = useState(false);
   const [mapFocus, setMapFocus] = useState<IntelligenceMapFocus>();
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [mapExpanded, setMapExpanded] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(WATCH_REGIONS_KEY, JSON.stringify(watchedRegions));
@@ -1534,6 +1538,7 @@ export function GlobalIntelligenceDashboard({
     return risk;
   }, [currentActionableEvents]);
   const selectedEvent = eventTimeline.find((event) => event.id === selectedEventId);
+  const investmentResearch = useMemo(() => buildInvestmentTransmission(selectedEvent, routesWithRisk, routeImpacts, marketReactions, riskClock), [selectedEvent, routesWithRisk, routeImpacts, marketReactions, riskClock]);
   const selectedCluster = selectedEvent
     ? eventClusters.find((cluster) => cluster.events.some((event) => event.id === selectedEventId))
       ?? clusterGlobalIntelEvents(actionableEvents.filter((event) => (
@@ -1800,6 +1805,8 @@ export function GlobalIntelligenceDashboard({
       } : null,
       selectedPoint: selectedPoint ?? null,
       selectedRoute: selectedRoute ?? null,
+      investmentResearch,
+      presentation: { layersOpen, mapExpanded, healthPanelOpen },
       sourceHealth: {
         healthy: health.healthy,
         total: health.total,
@@ -1850,7 +1857,7 @@ export function GlobalIntelligenceDashboard({
       dataContract: GLOBAL_INTELLIGENCE_CONTRACT,
       source: "world-intel-mcp",
     });
-  }, [activeLayers, activePreset?.id, activeRouteKinds, affectedRouteCount, briefing, categoryFilter, countryRisk, currentActionableEvents.length, eventClusters.length, eventFeedMode, eventHistory.length, eventTimeline.length, health.cache, health.healthy, health.issueCount, health.items, health.total, historyByIdentity, highPriorityCount, highRouteAlertCount, lastUpdate, mapFocus, mapMode, marketConfirmedRouteCount, mediaAttentionTopics, mediaMonitor, mediaWatchRules.length, newEventCount, observationEvents.length, ongoingEventCount, onContextChange, playbackCursor, playbackPlaying, playbackTime, points.length, progress, query, recentlyResolvedEventCount, routeAlerts.length, routes.length, selectedEvent, selectedHistory, selectedPoint, selectedRegion, selectedRoute, severityFilter, showCountryRisk, showObservations, status, timeWindow, trend, unacknowledgedEventCount, visibleEventClusters.length, visibleEvents, visiblePoints.length, visibleRoutes.length, watchedMediaTopicChanges.length, watchedMediaTopics.length, watchedRegionViews, watchingAttentionCount, watchingEventCount]);
+  }, [activeLayers, activePreset?.id, activeRouteKinds, affectedRouteCount, briefing, categoryFilter, countryRisk, currentActionableEvents.length, eventClusters.length, eventFeedMode, eventHistory.length, eventTimeline.length, healthPanelOpen, layersOpen, mapExpanded, health.cache, health.healthy, health.issueCount, health.items, health.total, historyByIdentity, highPriorityCount, highRouteAlertCount, investmentResearch, lastUpdate, mapFocus, mapMode, marketConfirmedRouteCount, mediaAttentionTopics, mediaMonitor, mediaWatchRules.length, newEventCount, observationEvents.length, ongoingEventCount, onContextChange, playbackCursor, playbackPlaying, playbackTime, points.length, progress, query, recentlyResolvedEventCount, routeAlerts.length, routes.length, selectedEvent, selectedHistory, selectedPoint, selectedRegion, selectedRoute, severityFilter, showCountryRisk, showObservations, status, timeWindow, trend, unacknowledgedEventCount, visibleEventClusters.length, visibleEvents, visiblePoints.length, visibleRoutes.length, watchedMediaTopicChanges.length, watchedMediaTopics.length, watchedRegionViews, watchingAttentionCount, watchingEventCount]);
 
   const applySituationPreset = (preset: SituationPreset) => {
     setActiveLayers(new Set(preset.activeLayers));
@@ -2062,12 +2069,12 @@ export function GlobalIntelligenceDashboard({
   };
 
   return (
-    <div className="intel-dashboard">
+    <div className="intel-dashboard" data-theme={theme}>
       <section className="intel-hud" aria-label="全球情报关键指标">
         <div className="intel-risk-card" data-level={risk.rawLevel.toLocaleLowerCase()}>
-          <span><ShieldAlert size={14} />综合风险</span>
+          <span title="上游模型评分，不是用户持仓风险"><ShieldAlert size={14} />态势评分</span>
           <strong>{risk.score === undefined ? "—" : risk.score.toFixed(0)}</strong>
-          <small>{risk.level}</small>
+          <small>{risk.score === undefined ? "上游模型未返回评分" : risk.level}</small>
           <button
             type="button"
             onClick={() => {
@@ -2512,8 +2519,8 @@ export function GlobalIntelligenceDashboard({
         ) : <small>Shift + 拖拽框选区域</small>}
       </section>
 
-      <div className="intel-workbench" data-detail-open={Boolean(selectedEvent || selectedPoint || selectedRoute)}>
-        <aside className="intel-layer-dock">
+      <div className="intel-workbench" data-layers-open={layersOpen} data-map-expanded={mapExpanded} data-detail-open={Boolean(selectedEvent || selectedPoint || selectedRoute)}>
+        <aside className="intel-layer-dock" hidden={!layersOpen}>
           <header><Layers3 size={14} /><span>地图图层</span><small>{activeLayers.size}/{MAP_LAYER_CATEGORIES.length}</small></header>
           <div>
             {MAP_LAYER_CATEGORIES.map((category) => {
@@ -2555,7 +2562,11 @@ export function GlobalIntelligenceDashboard({
         <section className="intel-map-panel">
           <header className="intel-panel-title">
             <div><Satellite size={14} /><span>全球综合态势</span></div>
-            <small>MapLibre GL · deck.gl · {visibleRoutes.length}/{routes.length} 条战略通道 · {routeAlerts.length} 条预警</small>
+            <div className="intel-map-toolbar">
+              <small>{visibleRoutes.length} 条通道 · {routeAlerts.length} 条关联提示</small>
+              <button type="button" aria-pressed={layersOpen} onClick={() => setLayersOpen((value) => !value)}><Layers3 size={13} />图层</button>
+              <button type="button" aria-pressed={mapExpanded} onClick={() => setMapExpanded((value) => !value)}><MapIcon size={13} />{mapExpanded ? "返回事件流" : "专注地图"}</button>
+            </div>
           </header>
           <IntelligenceMap
             points={visiblePoints}
@@ -2671,7 +2682,7 @@ export function GlobalIntelligenceDashboard({
           </div>
         </section>
 
-        <section className="intel-event-rail">
+        <section className="intel-event-rail" hidden={mapExpanded}>
           <header className="intel-panel-title">
             <div><Radio size={14} /><span>实时事件流</span></div>
             <div className="intel-event-summary">
@@ -2877,6 +2888,7 @@ export function GlobalIntelligenceDashboard({
                   ))}
                 </dl>
               )}
+              {investmentResearch ? <InvestmentTransmission research={investmentResearch} /> : null}
               {selectedEvent ? (
                 <section className="intel-record-explanation" data-kind={selectedEvent.recordKind ?? "event"}>
                   <h3>{recordKindLabel(selectedEvent)}是什么意思</h3>

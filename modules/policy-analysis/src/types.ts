@@ -15,12 +15,36 @@ export interface PolicyComparison {
 
 export interface PolicyInterpretation {
   policyId: string; title: string; sourceUrl: string; mode: "rule";
-  impactAnalysis: { facts: string[]; inferences: string[]; uncertainties: string[] };
+  document?: PolicyDocument | null;
+  methodology?: string; generatedAt?: string; reviewStatus?: "unreviewed";
+  transmission?: Array<{
+    id: string; label: string; status: "hypothesis"; reviewStatus: "unreviewed";
+    evidence: Array<{ paragraph: number; quote: string; excerpted: boolean }>;
+    sourceUrl: string; documentRevision: number; mechanism: string;
+    indicators: string[]; invalidation: string;
+  }>;
+  assessment?: { status: string; rationale: string[] };
+  impactAnalysis: { facts: string[]; inferences: string[]; uncertainties: string[]; basis?: string };
   historicalComparison: {
     matchedPolicies: Array<{ id: string; title: string; date: string }>;
     added: string[]; removed: string[]; shared: string[]; note: string;
   };
-  transcriptComparison: { status: "available" | "unavailable"; basis: string; note: string };
+  transcriptComparison: {
+    status: "available" | "unavailable"; basis: string; note: string;
+    relation?: string; baseRevision?: number; currentRevision?: number;
+    baseTitle?: string; baseSourceUrl?: string; baseFetchedAt?: string; currentFetchedAt?: string;
+    changeCount?: number; displayLimited?: boolean;
+    changes?: Array<{ type: string; before: string[]; after: string[]; beforeParagraph: number; afterParagraph: number; excerpted: boolean }>;
+  };
+}
+
+export interface PolicyDocument {
+  status: "available" | "missing";
+  sourceUrl?: string; title?: string; revision?: number;
+  publishedAt?: string | null; issuedAt?: string | null; issuer?: string | null;
+  documentNumber?: string | null; effectiveAt?: string | null; effectiveDateQuote?: string | null;
+  fetchedAt?: string; text?: string; paragraphs?: string[]; truncated?: boolean;
+  attachments?: Array<{ title: string; url: string }>; note: string;
 }
 
 export interface PolicyEvent {
@@ -33,6 +57,8 @@ export interface PolicyEvent {
   relatedPolicyIds: string[];
   entities: PolicyEntity[]; comparison: PolicyComparison | null;
   firstSeenAt?: string; lastSeenAt?: string; discoveredBy?: string;
+  documentEvidence?: Omit<PolicyDocument, "text" | "paragraphs" | "attachments"> | null;
+  lifecycleBasis?: "title-rule" | "official-effective-date";
 }
 
 export interface PolicySource {

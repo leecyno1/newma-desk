@@ -2,7 +2,7 @@
     'use strict';
 
     const TRACK_DEFS = Object.freeze([
-        Object.freeze({ key: 'wechatapi', label: 'WeChat API', kind: '云端实时回调' }),
+        Object.freeze({ key: 'wechatapi', label: 'WeChat API', kind: '设备 API + WS 实时消息' }),
         Object.freeze({ key: 'chatlog', label: 'chatlog_alpha', kind: '本地历史补齐' }),
         Object.freeze({ key: 'wx_cli', label: 'wx-cli', kind: '本地 CLI 读取' }),
     ]);
@@ -296,11 +296,14 @@
         const document = getDocument();
         const ownOp = !pullOp;
         const fullDays = Math.max(1, days || 7);
+        const statusEl = document.getElementById('loadingStatus');
+        const hadMessageRows = !!document.querySelector(
+            '#messageTable tbody tr[data-message-id], #messageTable tbody tr[data-db-id]',
+        );
         const op = callHelper('ensurePullOperation', pullOp, `微信同步近${fullDays}天...`);
         if (!op) return;
         try {
             callHelper('throwIfPullAborted', op);
-            const statusEl = document.getElementById('loadingStatus');
             if (statusEl) statusEl.textContent = `微信同步近${fullDays}天...`;
             const resp = await callHelper(
                 'fetchWithPullControl',
@@ -356,10 +359,23 @@
                 return;
             }
             window.console?.error('微信三轨同步失败:', e);
-            callHelper(
-                'showMessageTableError',
-                `微信同步失败：${e?.message || e}。云端请检查 WeChat API；本地版请启动 chatlog_alpha 或 wx-cli。`,
-            );
+            let restored = false;
+            try {
+                restored = !!(await callHelper('loadRecentMessagesFromBackend', fullDays, false, op));
+            } catch (restoreError) {
+                window.console?.error('历史消息回退失败:', restoreError);
+            }
+            if (restored || hadMessageRows) {
+                if (statusEl) {
+                    const suffix = restored ? '已显示最近历史消息' : '继续显示现有历史消息';
+                    statusEl.textContent = `拉取失败：${e?.message || e}；${suffix}`;
+                }
+            } else {
+                callHelper(
+                    'showMessageTableError',
+                    `微信同步失败：${e?.message || e}。云端请检查 WeChat API；本地版请启动 chatlog_alpha 或 wx-cli。`,
+                );
+            }
         } finally {
             if (ownOp) callHelper('finishPullOperation', op);
         }

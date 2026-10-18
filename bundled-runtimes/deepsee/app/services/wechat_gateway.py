@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from ..models import Chat, Contact, Message, SyncState, WechatSubsession, WechatSubsessionMembership, WechatSubsessionTurn
+from .reply_contact_context import DEFAULT_REPLY_REQUIREMENTS
 from .wechat_message_normalizer import (
     extract_app_message_fields,
     normalize_message_type,
@@ -40,6 +41,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "header_name": "VideosApi-token",
     "token": "",
     "app_id": "",
+    "ws_enabled": False,
+    "self_wxid": "",
     "callback_path": "/api/wechat-gateway/callback",
     "callback_public_url": "",
     "device_type": "ipad",
@@ -77,6 +80,29 @@ DEFAULT_TRIGGER_RULES: dict[str, Any] = {
     "private_wakeup_exit_commands": [],
     "min_text_length": 1,
     "human_reply_suppression_seconds": 0,
+    "reply_mode": "ai",
+    "delivery_mode": "auto",
+    "fixed_reply_text": "",
+    "reply_system_prompt": DEFAULT_REPLY_REQUIREMENTS,
+    "reply_agent_web_search": True,
+    "max_reply_chars": 0,
+    "blocked_keywords": [],
+    "group_require_mention": False,
+    "schedule_enabled": False,
+    "schedule_start": "09:00",
+    "schedule_end": "18:00",
+    "active_days": [0, 1, 2, 3, 4, 5, 6],
+    "max_input_chars": 0,
+    "reply_cooldown_seconds": 0,
+    "blocked_reply_keywords": [],
+    "low_info_enabled": True,
+    "low_info_emoji_enabled": True,
+    "low_info_repeat_enabled": True,
+    "low_info_min_repeats": 4,
+    "low_info_max_chars": 80,
+    "low_info_repeat_units": ["哈", "呵", "嘻", "嘿", "h", "ha"],
+    "low_info_emoji_names": ["微笑", "呲牙", "大笑", "偷笑", "憨笑", "捂脸", "笑哭", "破涕为笑", "旺柴", "调皮", "愉快", "得意", "害羞", "鼓掌", "强", "握手", "抱拳", "玫瑰", "爱心"],
+    "low_info_allow_texts": [],
 }
 
 
@@ -162,6 +188,11 @@ def _normalize_trigger_rules(payload: dict[str, Any] | None) -> dict[str, Any]:
         "blacklist_sender_ids",
         "private_wakeup_whitelist_chat_ids",
         "private_wakeup_exit_commands",
+        "blocked_keywords",
+        "blocked_reply_keywords",
+        "low_info_repeat_units",
+        "low_info_emoji_names",
+        "low_info_allow_texts",
     ):
         conf[key] = _dedupe_list(conf.get(key))
     conf["enabled"] = bool(conf.get("enabled"))
@@ -175,9 +206,28 @@ def _normalize_trigger_rules(payload: dict[str, Any] | None) -> dict[str, Any]:
     conf["blacklist_sender_ids_enabled"] = bool(conf.get("blacklist_sender_ids_enabled"))
     conf["private_wakeup_whitelist_enabled"] = bool(conf.get("private_wakeup_whitelist_enabled"))
     conf["min_text_length"] = _clamp_int(conf.get("min_text_length"), 1, 0, 10000)
+    for key in ('low_info_enabled', 'low_info_emoji_enabled', 'low_info_repeat_enabled'):
+        conf[key] = bool(conf.get(key))
+    conf['low_info_min_repeats'] = _clamp_int(conf.get('low_info_min_repeats'), 4, 2, 20)
+    conf['low_info_max_chars'] = _clamp_int(conf.get('low_info_max_chars'), 80, 1, 200)
     conf["random_rate"] = _clamp_int(conf.get("random_rate"), 0, 0, 100)
     conf["human_reply_suppression_seconds"] = _clamp_int(conf.get("human_reply_suppression_seconds"), 0, 0, 864000)
     conf["private_wakeup_window_seconds"] = _clamp_int(conf.get("private_wakeup_window_seconds"), 180, 0, 864000)
+    conf["reply_mode"] = conf.get("reply_mode") if conf.get("reply_mode") in {"ai", "fixed"} else "ai"
+    conf["delivery_mode"] = conf.get("delivery_mode") if conf.get("delivery_mode") in {"auto", "preview"} else "auto"
+    conf["fixed_reply_text"] = str(conf.get("fixed_reply_text") or "").strip()[:10000]
+    conf["reply_system_prompt"] = str(conf.get("reply_system_prompt") or "").strip()[:10000]
+    conf['reply_agent_web_search'] = bool(conf.get('reply_agent_web_search'))
+    conf["max_reply_chars"] = _clamp_int(conf.get("max_reply_chars"), 0, 0, 10000)
+    conf["max_input_chars"] = _clamp_int(conf.get("max_input_chars"), 0, 0, 100000)
+    conf["reply_cooldown_seconds"] = _clamp_int(conf.get("reply_cooldown_seconds"), 0, 0, 86400)
+    days = conf.get("active_days")
+    conf["active_days"] = sorted({day for day in days if type(day) is int and 0 <= day <= 6}) if isinstance(days, list) else list(range(7))
+    conf["group_require_mention"] = bool(conf.get("group_require_mention"))
+    conf["schedule_enabled"] = bool(conf.get("schedule_enabled"))
+    for key in ("schedule_start", "schedule_end"):
+        value = str(conf.get(key) or "")
+        conf[key] = value if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value) else DEFAULT_TRIGGER_RULES[key]
     return conf
 
 
@@ -185,10 +235,29 @@ def load_trigger_rules(db: Session) -> dict[str, Any]:
     return _normalize_trigger_rules(_load_state_dict(db, TRIGGER_RULES_KEY))
 
 
+def validate_trigger_rules(merged: dict[str, Any]) -> dict[str, Any]:
+    """Shared validation for persisted rules and non-persisting draft simulations."""
+    normalized = _normalize_trigger_rules(merged)
+    if normalized["reply_mode"] == "fixed" and not normalized["fixed_reply_text"]:
+        raise ValueError("固定回复不能为空")
+    if normalized["schedule_enabled"]:
+        for key in ("schedule_start", "schedule_end"):
+            if str(merged.get(key)) != normalized[key]:
+                raise ValueError("生效时间必须为 HH:MM")
+    for pattern in normalized["regexp_patterns"]:
+        try:
+            re.compile(pattern)
+        except re.error:
+            raise ValueError("触发正则无效，请检查括号、转义和表达式格式") from None
+    return normalized
+
+
 def save_trigger_rules(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     current = load_trigger_rules(db)
     merged = {**current, **(payload or {})}
-    normalized = _normalize_trigger_rules(merged)
+    # Emergency pause must remain available even if legacy rules contain invalid input.
+    pause_only = payload in ({"smart_reply_enabled": False}, {"enabled": False})
+    normalized = _normalize_trigger_rules(merged) if pause_only else validate_trigger_rules(merged)
     _save_state_dict(db, TRIGGER_RULES_KEY, normalized)
     return normalized
 
@@ -204,6 +273,8 @@ def load_config(db: Session) -> dict[str, Any]:
         conf[key] = _dedupe_list(conf.get(key))
     conf["enabled"] = bool(conf.get("enabled"))
     conf["outbound_enabled"] = bool(conf.get("outbound_enabled"))
+    conf["ws_enabled"] = bool(conf.get("ws_enabled"))
+    conf["self_wxid"] = str(conf.get("self_wxid") or "").strip()
     conf["sessionized_reply_enabled"] = bool(conf.get("sessionized_reply_enabled"))
     conf["fixed_subsession_enabled"] = bool(conf.get("fixed_subsession_enabled"))
     conf["auto_learn_subsession_members"] = bool(conf.get("auto_learn_subsession_members", True))
@@ -337,6 +408,8 @@ def load_config_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         conf[key] = _dedupe_list(conf.get(key))
     conf["enabled"] = bool(conf.get("enabled"))
     conf["outbound_enabled"] = bool(conf.get("outbound_enabled"))
+    conf["ws_enabled"] = bool(conf.get("ws_enabled"))
+    conf["self_wxid"] = str(conf.get("self_wxid") or "").strip()
     conf["sessionized_reply_enabled"] = bool(conf.get("sessionized_reply_enabled"))
     conf["fixed_subsession_enabled"] = bool(conf.get("fixed_subsession_enabled"))
     conf["auto_learn_subsession_members"] = bool(conf.get("auto_learn_subsession_members", True))
@@ -768,16 +841,43 @@ def evaluate_auto_reply_rules(
     message_time: Any = None,
     wait_for_human_reply_suppression: bool = False,
     message_meta: Any = None,
+    rules_override: dict[str, Any] | None = None,
+    now: datetime | None = None,
+    trigger_match: str | None = None,
 ) -> dict[str, Any]:
-    rules = load_trigger_rules(db)
+    rules = _normalize_trigger_rules(rules_override) if rules_override is not None else load_trigger_rules(db)
     if not rules.get("enabled"):
         return {"scope": _RULE_SCOPE, "allowed": False, "reason": "trigger_rules_disabled", "rules": rules}
     if not rules.get("smart_reply_enabled"):
         return {"scope": _RULE_SCOPE, "allowed": False, "reason": "smart_reply_disabled", "rules": rules}
+    current = now or datetime.now(timezone.utc)
+    if current.astimezone(timezone(timedelta(hours=8))).weekday() not in rules['active_days']:
+        return {"allowed": False, "reason": "inactive_day", "rules": rules}
+    if rules['max_input_chars'] and len(str(text or '')) > rules['max_input_chars']:
+        return {"allowed": False, "reason": "input_too_long", "rules": rules}
+    cooldown = rules['reply_cooldown_seconds']
+    if cooldown:
+        threshold = current.astimezone().replace(tzinfo=None) - timedelta(seconds=cooldown)
+        recent = db.query(Message.id).filter(
+            Message.chat_id == chat_id, Message.direction == 'out', Message.timestamp >= threshold,
+            Message.meta['auto_reply']['trigger_message_id'].as_integer().isnot(None),
+        ).first()
+        if recent:
+            return {"allowed": False, "reason": "reply_cooldown", "rules": rules}
     if is_group and not rules.get("group_enabled"):
         return {"scope": _RULE_SCOPE, "allowed": False, "reason": "group_disabled", "rules": rules}
     if (not is_group) and not rules.get("private_enabled"):
         return {"scope": _RULE_SCOPE, "allowed": False, "reason": "private_disabled", "rules": rules}
+    if rules["schedule_enabled"]:
+        clock = (now or datetime.now(timezone.utc)).astimezone(timezone(timedelta(hours=8))).strftime("%H:%M")
+        start, end = rules["schedule_start"], rules["schedule_end"]
+        in_window = (start <= clock < end) if start < end else (clock >= start or clock < end)
+        if not in_window:
+            return {"scope": _RULE_SCOPE, "allowed": False, "reason": "outside_schedule", "rules": rules}
+    if any(word.casefold() in str(text or "").casefold() for word in rules["blocked_keywords"]):
+        return {"scope": _RULE_SCOPE, "allowed": False, "reason": "input_keyword_blocked", "rules": rules}
+    if is_group and rules["group_require_mention"] and not _message_has_at_mention(message_meta):
+        return {"scope": _RULE_SCOPE, "allowed": False, "reason": "group_mention_required", "rules": rules}
     if rules.get("whitelist_chat_ids_enabled") and rules.get("whitelist_chat_ids") and chat_id not in set(rules.get("whitelist_chat_ids") or []):
         return {"scope": _RULE_SCOPE, "allowed": False, "reason": "chat_not_whitelisted", "rules": rules}
     if rules.get("blacklist_chat_ids_enabled") and chat_id in set(rules.get("blacklist_chat_ids") or []):
@@ -787,7 +887,14 @@ def evaluate_auto_reply_rules(
     if sender_id and rules.get("blacklist_sender_ids_enabled") and sender_id in set(rules.get("blacklist_sender_ids") or []):
         return {"scope": _RULE_SCOPE, "allowed": False, "reason": "sender_blacklisted", "rules": rules}
     normalized_text = str(text or "").strip()
+    from .reply_input_filter import low_information_reason
+    content_text = _strip_matching_prefix(normalized_text, list(rules.get("prefixes") or []))
+    low_info = low_information_reason(content_text, rules)
+    if low_info:
+        return {"scope": _RULE_SCOPE, "allowed": False, "reason": low_info, "rules": rules}
     matched, match_reason = _pick_trigger_match(normalized_text, rules, is_group=is_group, message_meta=message_meta)
+    if trigger_match == "random" and rules["random_rate"] > 0:
+        matched, match_reason = True, "random"
     if not matched:
         return {"scope": _RULE_SCOPE, "allowed": False, "reason": str(match_reason or "no_trigger_match"), "rules": rules}
     content_text = _strip_matching_prefix(normalized_text, list(rules.get("prefixes") or []))
@@ -863,14 +970,10 @@ def _resolve_display_name(db: Session, wxid: str | None, fallback: str | None = 
             if contact:
                 alias = str(contact.alias or "").strip()
                 name = str(contact.name or "").strip()
-                if name and name != candidate:
-                    return name
                 if alias and alias != candidate:
                     return alias
-                if name:
+                if name and name != candidate:
                     return name
-                if alias:
-                    return alias
         except Exception:
             pass
         try:

@@ -269,9 +269,11 @@ def provider_capabilities(provider: str | None = None) -> dict[str, Any]:
     chosen = "wechatapi_gateway"
     client = WechatApiClient()
     configured = client.configured()
-    supports_image = True
-    supports_file = True
-    notes = ["微信联系人、群发、卡片、图片和文件统一通过 WeChatAPI；本地数据库仅作缓存。"]
+    supports_image = not client.device_key_mode
+    supports_file = not client.device_key_mode
+    notes = (["新设备已适配文本、链接卡片及通讯录名称同步；图片、文件接口尚未适配。"]
+             if client.device_key_mode else
+             ["微信联系人、群发、卡片、图片和文件统一通过 WeChatAPI；本地数据库仅作缓存。"])
     return {
         "provider": chosen,
         "configured": configured,

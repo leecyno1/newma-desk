@@ -221,8 +221,8 @@
     },
     {
       "id": "deepsee-campaigns",
-      "name": "Deepsee 消息群发",
-      "description": "在 Newma-Desk 中使用 Deepsee 的联系人选择、内容编辑、敬语和 WeChat API 群发管理页面。",
+      "name": "Deepsee 群发",
+      "description": "在 Newma-Desk 中选择群发对象、编辑图文与附件、预览和管理主动发送任务；与自动回复独立。",
       "tags": [
         "Deepsee",
         "群发",
@@ -231,7 +231,7 @@
       "route": "/embed/send-management",
       "navigation": {
         "itemOrder": 90,
-        "label": "触达"
+        "label": "群发"
       },
       "manifest": {
         "permissions": [
@@ -239,6 +239,15 @@
           "deepsee.send"
         ]
       }
+    },
+    {
+      "id": "deepsee-automation",
+      "name": "Deepsee 微信自动化",
+      "description": "在 Newma-Desk 中配置微信自动回复、实时开关、模拟当前编辑规则并查看运行记录。",
+      "tags": ["Deepsee", "微信自动化", "自动回复"],
+      "route": "/embed/wechat-automation",
+      "navigation": {"itemOrder": 85, "label": "微信自动化"},
+      "manifest": {"permissions": ["deepsee.read", "deepsee.write", "deepsee.send"]}
     },
     {
       "id": "deepsee-contacts",

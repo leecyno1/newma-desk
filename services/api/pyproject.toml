@@ -10,6 +10,7 @@ name = "newma-desk-api"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+  "beautifulsoup4>=4.13,<5",
   "croniter>=6,<7",
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",

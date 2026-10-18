@@ -18,6 +18,7 @@ from .models import EmailAccount, ExtAdapter, SyncState
 from .services.ext_adapter_service import ingest_adapter_logs
 from .services import news_client, sync_runtime
 from .services.wechat8061_sync import wechat8061_sync_loop
+from .services.wechat_device_ws import wechat_device_ws_loop
 from .services.aggregation_retention import prune_aggregation_data
 from .services.media_collector_runner import run_media_collector_once
 from .services.cache_cleanup import cleanup_application_cache
@@ -116,6 +117,7 @@ def _bg_mark_error(name: str, exc: Exception) -> None:
 _BACKGROUND_RUNTIME_NAMES = [
     "chatlog_sync",
     "wechat8061_sync",
+    "wechat_device_ws",
     "email_sync",
     "ext_adapter_sync",
     "news_refresh",
@@ -580,6 +582,7 @@ def _build_background_loop_specs() -> list[BackgroundLoopSpec]:
     return [
         BackgroundLoopSpec("chatlog_sync", interval > 0, _sync_loop),
         BackgroundLoopSpec("wechat8061_sync", wechat8061_enabled, wechat8061_sync_loop),
+        BackgroundLoopSpec("wechat_device_ws", True, wechat_device_ws_loop),
         # 邮件同步保持“仅手动触发”，不再定时自动拉取。
         BackgroundLoopSpec("email_sync", False, _email_loop),
         BackgroundLoopSpec(

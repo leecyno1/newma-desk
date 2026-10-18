@@ -15,6 +15,8 @@ def test_each_deepsee_panel_has_an_addressable_embed_route() -> None:
     from app.main import VIBEDESK_EMBED_MODULES, create_app
 
     app = create_app()
+    assert {"wechat-automation", "send-management"} <= VIBEDESK_EMBED_MODULES
+    assert "'wechat-automation': 'deepsee-automation'" in BRIDGE_JS.read_text(encoding="utf-8")
     route = next(item for item in app.routes if item.path == "/embed/{module_id}")
 
     for module_id in sorted(VIBEDESK_EMBED_MODULES):
@@ -28,8 +30,8 @@ def test_each_deepsee_panel_has_an_addressable_embed_route() -> None:
 def test_unified_ui_loads_the_vibedesk_embed_adapter() -> None:
     source = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert '<link rel="stylesheet" href="/static/modules/vibedesk-embed.css?v=20260730-theme6">' in source
-    assert '<script src="/static/modules/vibedesk-embed.js?v=20260829"></script>' in source
+    assert '<link rel="stylesheet" href="/static/modules/vibedesk-embed.css?v=20261015-settings">' in source
+    assert '<script src="/static/modules/vibedesk-embed.js?v=20261016-modules"></script>' in source
     assert BRIDGE_JS.is_file()
     assert BRIDGE_CSS.is_file()
     css = BRIDGE_CSS.read_text(encoding="utf-8")
@@ -49,6 +51,7 @@ def test_settings_embed_preserves_deepsee_secondary_navigation() -> None:
     assert "hideRuntimeOwnedSettings" in source
     assert "['settings-ai-config', 'settings-prompts']" in source
     assert "section.dataset.navHidden = '1'" in source
+    assert 'html.vibedesk-embed .settings-section[data-nav-hidden="1"]' in css
     assert "#function-settings .settings-layout" in css
     assert "min-height: calc(100vh - 16px)" in css
     assert "max-height: calc(100vh - 16px)" in css

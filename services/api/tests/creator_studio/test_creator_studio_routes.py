@@ -2,6 +2,7 @@ import json
 import threading
 import time
 from pathlib import Path
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -312,8 +313,13 @@ def test_creator_commands_share_one_workspace_scoped_run_state(tmp_path: Path):
     ]
 
 
-def test_reconcile_external_products_registers_artifacts_and_completes_node(tmp_path: Path):
+@pytest.mark.parametrize("needs_review", [False, True])
+def test_reconcile_external_products_registers_artifacts_and_completes_node(tmp_path: Path, needs_review):
     workspace = creator_workspace(tmp_path)
+    registry_path = workspace / "configs/workflow/newma_creator_studio_registry.json"
+    registry = json.loads(registry_path.read_text())
+    registry["stages"][0]["nodes"][0]["gate"] = {"required": needs_review, "kind": "human_review"}
+    registry_path.write_text(json.dumps(registry))
     source = tmp_path / "source.txt"
     source.write_text("source", encoding="utf-8")
     source_plan = tmp_path / "source_plan.json"
@@ -363,9 +369,9 @@ def test_reconcile_external_products_registers_artifacts_and_completes_node(tmp_
     assert reconciled.status_code == 200
     snapshot = reconciled.json()
     node = snapshot["stages"][0]["nodes"][0]
-    assert node["status"] == "succeeded"
+    assert node["status"] == ("waiting_user" if needs_review else "succeeded")
     assert node["artifacts"][-1]["type"] == "source_plan"
-    assert snapshot["run"]["activeNodeId"] == "collect"
+    assert snapshot["run"]["activeNodeId"] == ("source_setup" if needs_review else "collect")
 
 
 def test_reconcile_external_products_rejects_missing_declared_outputs(tmp_path: Path):
@@ -409,6 +415,19 @@ def test_reconcile_external_products_rejects_missing_declared_outputs(tmp_path: 
 
     assert response.status_code == 422
     assert "undeclared artifact type" in response.json()["detail"]
+
+
+def test_full_intake_html_is_not_truncated_at_log_limit(tmp_path: Path):
+    workspace = creator_workspace(tmp_path)
+    page = workspace / "intake_review.html"
+    page.write_text("<html>" + "x" * 250_000 + "<footer>最后一条</footer></html>", encoding="utf-8")
+    settings = Settings(runtime_dir=tmp_path / "runtime", database_path=tmp_path / "newma-desk.db",
+                        creator_studio_workspace=workspace, creator_studio_dist=tmp_path / "missing-dist")
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/api/creator-studio/artifacts/preview", params={"path": str(page)})
+    assert response.status_code == 200
+    assert not response.json()["truncated"]
+    assert "最后一条" in response.json()["content"]
 
 
 def test_marketplace_preview_assets_are_served_only_from_creator_workspace(tmp_path: Path):
@@ -2061,7 +2080,8 @@ def test_rerun_resets_succeeded_node_and_supersedes_artifacts(tmp_path: Path):
         assert rerun_again.status_code == 422
 
 
-def test_review_gate_approve_writes_stage_gate_file(tmp_path: Path):
+@pytest.mark.parametrize("stage_gate", [False, True])
+def test_review_gate_approve_writes_stage_gate_file(tmp_path: Path, stage_gate):
     workspace = creator_workspace(tmp_path)
     registry_path = (
         workspace / "configs" / "workflow" / "newma_creator_studio_registry.json"
@@ -2069,7 +2089,7 @@ def test_review_gate_approve_writes_stage_gate_file(tmp_path: Path):
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     review_node = registry["stages"][0]["nodes"][0]
     review_node["executor"] = "newma.control.review-gate"
-    review_node["gate"] = {"required": True, "kind": "human_review"}
+    review_node["gate"] = {"required": True, "kind": "human_review", "stage_gate": stage_gate}
     review_node["outputs"] = ["selected_topics"]
     registry["stages"][0]["nodes"][1]["material_requirements"] = [
         {
@@ -2182,7 +2202,9 @@ def test_review_gate_approve_writes_stage_gate_file(tmp_path: Path):
                 "expectedRevision": snap["run"]["revision"],
             },
         ).json()
-        assert gate_calls == [(run_id, "intake")]
+        assert gate_calls == ([(run_id, "intake")] if stage_gate else [])
+        if not stage_gate:
+            return
         node = next(
             n
             for s in approved["stages"]

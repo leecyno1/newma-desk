@@ -6,6 +6,31 @@ from datetime import datetime
 from .db import Base
 
 
+class DataApiProject(Base):
+    __tablename__ = "data_api_projects"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    token_digest: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_prefix: Mapped[str] = mapped_column(String(20))
+    scopes: Mapped[list] = mapped_column(JSON, default=list)
+    requests_per_minute: Mapped[int] = mapped_column(Integer, default=120)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    rotated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class DataApiRequest(Base):
+    __tablename__ = "data_api_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[str] = mapped_column(String(100), index=True)
+    route: Mapped[str] = mapped_column(String(160))
+    status_code: Mapped[int] = mapped_column(Integer)
+    request_id: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class Chat(Base):
     __tablename__ = "chats"
 

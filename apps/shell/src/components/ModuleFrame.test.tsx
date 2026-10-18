@@ -617,6 +617,19 @@ describe("ModFrame event boundary", () => {
     eventBus.close();
   });
 
+  it("delegates microphone access only to the Deepsee meeting page", () => {
+    const eventBus = new ShellEventBus();
+    const meetingManifest: ModManifest = {
+      ...manifest, id: "deepsee-meetings", category: "deepsee",
+      entry: { type: "external", url: "http://127.0.0.1:8001/embed/minutes-agg" },
+    };
+    const { rerender } = render(<ModFrame manifest={meetingManifest} eventBus={eventBus} theme="light" />);
+    expect(screen.getByTitle("市场行情")).toHaveAttribute("allow", expect.stringContaining("microphone"));
+    rerender(<ModFrame manifest={manifest} eventBus={eventBus} theme="light" />);
+    expect(screen.getByTitle("市场行情").getAttribute("allow")).not.toContain("microphone");
+    eventBus.close();
+  });
+
   it("forwards a declared event from the exact iframe window and origin", () => {
     const eventBus = new ShellEventBus();
     const route = vi.spyOn(eventBus, "route");

@@ -7,7 +7,7 @@ process.env.VIBE_E2E_DOMAIN_SUITES_API_ORIGIN ??= "http://127.0.0.1:8911";
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  testMatch: ["market-sentiment.spec.ts", "market-structure.spec.ts", "domain-suites.spec.ts", "capital-evidence.spec.ts", "capital-liquidity.spec.ts", "capital-appetite.spec.ts", "news-radar.spec.ts", "macro-monitor.spec.ts", "seven-cycle-context.spec.ts", "global-intelligence.spec.ts", "portfolio-risk.spec.ts", "earnings-evidence.spec.ts", "earnings-upload.spec.ts", "copilot-markdown.spec.ts", "valuation-inputs.spec.ts", "fund-context.spec.ts"],
+  testMatch: ["domain-suites.spec.ts", "policy-research.spec.ts", "market-structure.spec.ts", "market-sentiment.spec.ts", "capital-evidence.spec.ts", "capital-liquidity.spec.ts", "capital-appetite.spec.ts", "news-radar.spec.ts", "macro-monitor.spec.ts", "seven-cycle-context.spec.ts", "global-intelligence.spec.ts", "portfolio-risk.spec.ts", "earnings-evidence.spec.ts", "earnings-upload.spec.ts", "copilot-markdown.spec.ts", "valuation-inputs.spec.ts", "fund-context.spec.ts"],
   fullyParallel: false,
   workers: 1,
   retries: 0,

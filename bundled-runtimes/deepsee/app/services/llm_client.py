@@ -775,6 +775,11 @@ def _normalize_model_router(raw_router: Any, conf: Dict[str, Any]) -> Dict[str, 
         "mid_route_channels": _to_route_map(router.get("mid_route_channels"), mid_route_defaults, mid_ids),
         "tool_route_channels": _to_route_map(router.get("tool_route_channels"), tool_route_defaults, tool_ids),
     }
+    # A missing onepage mapping inherits the advanced default, never the old mid pool.
+    normalized["main_module_channels"]["onepage"] = _to_route_map(
+        router.get("main_module_channels"),
+        {"onepage": normalized["main_module_channels"].get("default", [])}, main_ids,
+    )["onepage"]
     return normalized
 
 
@@ -1390,9 +1395,6 @@ def _route_pool(
     if route_kind == "tool":
         channels = router.get("tool_channels") if isinstance(router, dict) else []
         route_map = router.get("tool_route_channels") if isinstance(router, dict) else {}
-    elif route_kind == "mid":
-        channels = router.get("mid_channels") if isinstance(router, dict) else []
-        route_map = router.get("mid_route_channels") if isinstance(router, dict) else {}
     else:
         channels = router.get("main_channels") if isinstance(router, dict) else []
         route_map = router.get("main_module_channels") if isinstance(router, dict) else {}
@@ -1462,10 +1464,10 @@ def resolve_chat_targets(
     model_override: str | None,
 ) -> List[Dict[str, Any]]:
     """Resolve ordered model/api targets with optional router and fallback sequence."""
+    # Legacy onepage callers share advanced processing, including fallback and stats.
+    route_kind = "main" if route_kind == "mid" else route_kind
     if route_kind == "tool":
         default_model = str(model_override or conf.get("tool_model") or conf.get("model") or "").strip()
-    elif route_kind == "mid":
-        default_model = str(model_override or conf.get("tool_model_messages") or conf.get("tool_model") or conf.get("model") or "").strip()
     else:
         default_model = str(model_override or conf.get("model") or "").strip()
     base_api_url = str(conf.get("api_url") or "https://api.siliconflow.cn/v1").strip()
@@ -1475,29 +1477,14 @@ def resolve_chat_targets(
     fallback_target = _to_target_dict(base_api_url, base_api_key, fallback_model, None)
 
     router = conf.get("model_router") if isinstance(conf.get("model_router"), dict) else {}
-    # WeChat auto-replies are deliberately cost-bound to MiniMax-M3. Never
-    # append the global base fallback (which may be a GPT-5.x model) here.
-    if (
-        route_kind == "tool"
-        and str(route_key or "").strip().lower() == "reply"
-        and default_model.lower() == "minimax-m3"
-    ):
-        if isinstance(router, dict) and bool(router.get("enabled")):
+    # Replies use the configured lightweight pool, never the advanced fallback.
+    if route_kind == "tool" and str(route_key or "").strip().lower() == "reply":
+        if router.get("enabled") and (not model_override or router.get("prefer_router", True)):
             candidates, rk = _route_pool(conf, route_kind=route_kind, route_key=route_key)
             ordered = _dynamic_rank_channels(candidates, route_key=f"{route_kind}:{rk}", conf=conf)
-            m3_targets: list[Dict[str, Any]] = []
-            seen: set[tuple[str | None, str, str]] = set()
-            for channel in ordered:
-                if str(channel.get("model") or "").strip().lower() != "minimax-m3":
-                    continue
-                target = _to_target_dict(base_api_url, base_api_key, "MiniMax-M3", channel)
-                key = (target.get("channel_id"), str(target.get("api_url") or ""), str(target.get("model") or ""))
-                if key not in seen:
-                    seen.add(key)
-                    m3_targets.append(target)
-            if m3_targets:
-                return m3_targets
-        return [default_target] if default_model.lower() == "minimax-m3" else []
+            if ordered:
+                return [_to_target_dict(base_api_url, base_api_key, default_model, c) for c in ordered]
+        return [default_target]
 
     # WeChat/message摘要要求“持续刷新”优先于“多路由试错”。
     # 对 messages 链路默认只保留稳定通道池，避免被已知慢/空响应/JSON异常通道拖住几分钟。
@@ -1606,8 +1593,6 @@ def resolve_chat_target(
     )
     if route_kind == "tool":
         fallback_model = str(model_override or conf.get("tool_model") or conf.get("model") or "").strip()
-    elif route_kind == "mid":
-        fallback_model = str(model_override or conf.get("tool_model_messages") or conf.get("tool_model") or conf.get("model") or "").strip()
     else:
         fallback_model = str(model_override or conf.get("model") or "").strip()
     return targets[0] if targets else {
@@ -1744,11 +1729,26 @@ def siliconflow_chat(
     route_kind: str = "main",
     route_key: str | None = None,
     return_metadata: bool = False,
+    allow_web_search: bool = False,
 ) -> str | Dict[str, Any]:
     """Call SiliconFlow once; auto‑retry with gentle backoff on rate limits.
     If it still fails, caller should handle local fallback.
     """
+    route_kind = "main" if route_kind == "mid" else route_kind
     conf = load_ai_config()
+    from .ai_execution import agent_chat, agent_selected, execution_config, model_endpoint_usable
+    if agent_selected(conf, route_kind):
+        try:
+            return agent_chat(conf, messages, route_kind=route_kind, force_json=force_json,
+                              return_metadata=return_metadata, route_key=route_key,
+                              allow_web_search=allow_web_search)
+        except RuntimeError:
+            if not execution_config(conf).fallback_to_models:
+                raise
+    if allow_web_search:
+        messages = [*messages, {'role': 'system', 'content':
+            '本次通过内置模型 API 生成回复，没有提供联网或知识库工具。仅依据上下文和已有知识回答；'
+            '需要实时核验或查库但无法完成时明确说明，不声称已执行检索。'}]
     targets = resolve_chat_targets(
         conf,
         route_kind=route_kind,
@@ -1771,11 +1771,7 @@ def siliconflow_chat(
             channels = (
                 router.get("tool_channels")
                 if route_kind == "tool"
-                else (
-                    router.get("mid_channels")
-                    if route_kind == "mid"
-                    else router.get("main_channels")
-                )
+                else router.get("main_channels")
             )
             if isinstance(channels, list):
                 for ch in channels:
@@ -1783,7 +1779,7 @@ def siliconflow_chat(
                         channel_dict = ch
                         break
 
-        if not api_key:
+        if not model_endpoint_usable(api_url, api_key):
             errors.append(f"[{idx+1}/{len(targets)} {channel_id}] missing_api_key")
             continue
         if _is_bad_api_key(api_key):
@@ -1791,7 +1787,9 @@ def siliconflow_chat(
             continue
 
         url = _chat_completions_url(api_url)
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
         if "openrouter.ai" in api_url:
             headers.setdefault("HTTP-Referer", "https://localhost")
             headers.setdefault("X-Title", "Dr.Lemon Information Aggregation AI")

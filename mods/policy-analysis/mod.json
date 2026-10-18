@@ -3,7 +3,7 @@
   "id": "policy-analysis",
   "name": "政策渠道",
   "description": "管理政策官方来源、采集状态与数据证据。",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/DIYgod/RSSHub",
   "tags": ["政策", "政策日历", "宏观", "监管", "RSSHub"],

@@ -1,0 +1,29 @@
+#deepsee-developer { --dev-accent: #17624c; max-width: 1160px; margin: auto; }
+#deepsee-developer .dev-head { border-bottom: 2px solid var(--dev-accent); padding: 10px 0 24px; margin-bottom: 24px; }
+#deepsee-developer .dev-kicker { font: 11px/1.5 monospace; letter-spacing: 2px; color: var(--dev-accent); }
+#deepsee-developer h3 { margin: 8px 0; font-size: 25px; }
+#deepsee-developer p { color: var(--text-muted); line-height: 1.7; font-size: 13px; }
+#deepsee-developer .dev-layout { display: grid; grid-template-columns: minmax(245px, 1fr) minmax(0, 2fr); gap: 20px; align-items: start; }
+#deepsee-developer .dev-box { background: var(--surface-elevated); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 18px; min-width: 0; }
+#deepsee-developer h4 { margin: 0 0 16px; font-size: 15px; }
+#deepsee-developer label.dev-field { display: grid; gap: 7px; margin: 14px 0; font-size: 12px; }
+#deepsee-developer input:not([type=checkbox]) { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); background: var(--surface-elevated); }
+#deepsee-developer .dev-scopes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+#deepsee-developer .dev-scopes label { font-size: 12px; display: flex; gap: 6px; align-items: center; }
+#deepsee-developer button { padding: 8px 12px; border-radius: 7px; border: 1px solid var(--border-color); background: var(--surface-elevated); color: var(--text-primary); cursor: pointer; }
+#deepsee-developer button.dev-primary { background: var(--dev-accent); color: white; border-color: var(--dev-accent); }
+#deepsee-developer button:disabled { opacity: .5; cursor: wait; }
+#deepsee-developer .dev-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+#deepsee-developer .dev-project { padding: 16px 0; border-bottom: 1px solid var(--border-color); }
+#deepsee-developer .dev-project:last-child { border-bottom: 0; }
+#deepsee-developer .dev-project strong { font-size: 14px; }
+#deepsee-developer small { display: block; color: var(--text-muted); margin-top: 7px; overflow-wrap: anywhere; }
+#deepsee-developer code { font: 12px/1.7 monospace; overflow-wrap: anywhere; }
+#deepsee-developer .dev-status { min-height: 22px; font-size: 13px; color: var(--dev-accent); }
+#deepsee-developer .dev-log { overflow-x: auto; }
+#deepsee-developer table { width: 100%; font-size: 12px; border-collapse: collapse; }
+#deepsee-developer th, #deepsee-developer td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+#deepsee-developer dialog { width: min(520px, 85vw); border: 1px solid var(--border-color); border-radius: 12px; background: var(--surface-elevated); color: var(--text-primary); padding: 25px; }
+#deepsee-developer dialog::backdrop { background: #10251f88; }
+#deepsee-developer textarea { width: 100%; box-sizing: border-box; min-height: 90px; font: 13px/1.6 monospace; padding: 12px; }
+@media (max-width: 760px) { #deepsee-developer .dev-layout { grid-template-columns: 1fr; } }

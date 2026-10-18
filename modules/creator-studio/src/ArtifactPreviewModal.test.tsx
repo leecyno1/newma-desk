@@ -1,13 +1,30 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ArtifactPreviewModal } from "./ArtifactPreviewModal";
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 describe("ArtifactPreviewModal", () => {
+  it("opens sibling reports inside the preview and source links outside without enabling scripts", async () => {
+    const fetchPreview = vi.fn(async (path: string) => ({ path, exists: true, mime: "text/html", encoding: "text", suffix: ".html", content: "<p>报告</p>" }));
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    render(<ArtifactPreviewModal path="/tmp/intake/intake_review.html" onClose={vi.fn()} fetchPreview={fetchPreview} />);
+    const iframe = await screen.findByTitle("HTML 预览") as HTMLIFrameElement;
+    expect(iframe.getAttribute("sandbox")).toBe("allow-same-origin");
+    iframe.contentDocument!.body.innerHTML = '<a href="https://example.com/article">原文</a><a href="javascript:alert(1)">无效</a><a href="dedupe_conflicts.html">差异</a>';
+    fireEvent.load(iframe);
+    fireEvent.click(iframe.contentDocument!.querySelectorAll("a")[0]);
+    expect(open).toHaveBeenCalledWith("https://example.com/article", "_blank", "noopener,noreferrer");
+    fireEvent.click(iframe.contentDocument!.querySelectorAll("a")[1]);
+    expect(open).toHaveBeenCalledTimes(1);
+    fireEvent.click(iframe.contentDocument!.querySelectorAll("a")[2]);
+    await waitFor(() => expect(fetchPreview).toHaveBeenCalledWith("/tmp/intake/dedupe_conflicts.html"));
+  });
+
   it("renders Markdown products as readable content and keeps source collapsed", async () => {
     const fetchPreview = vi.fn(async () => ({
       path: "/tmp/research.md",

@@ -1,0 +1,72 @@
+#function-settings .settings-section>h3 {font-size:19px;letter-spacing:-.3px;margin:0 0 16px;padding-bottom:12px;border-bottom:1px solid var(--border-color)}
+#function-settings .settings-sidebar {font-size:12px;min-width:170px;}
+#function-settings .settings-nav-group {text-transform:none;font-size:10px;letter-spacing:.08em;opacity:.7;padding-top:16px;}
+#function-settings .settings-nav-item {padding:8px 10px;border-radius:5px;margin:2px 0;}
+#function-settings .settings-nav-item.active {box-shadow:inset 3px 0 #167451;background:var(--panel-muted);}
+#function-settings .settings-home-grid {gap:10px;}
+#function-settings .wechat-settings-layout {display:block;}
+#function-settings .wechat-settings-card,#function-settings .engine-block {padding:14px;margin:0 0 14px;border:1px solid var(--border-color);border-radius:8px;box-shadow:none;background:var(--surface-color);}
+#function-settings .wechat-settings-side .wechat-summary-card {display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+#function-settings .wechat-settings-side .wechat-summary-card>h4 {margin:0;}
+#function-settings .wechat-action-grid {display:flex;gap:8px;flex-wrap:wrap;}
+#function-settings .wechat-gateway-switches {display:flex!important;flex-direction:row;justify-content:flex-start;gap:18px;padding:8px 0;margin:8px 0;background:transparent;border:0;}
+#function-settings .wechat-gateway-switches label {display:inline-flex;align-items:center;gap:7px;width:auto;margin:0;padding:0;background:none;}
+#function-settings .wechat-settings-grid .config-group {padding:8px;background:transparent;border:0;}
+#function-settings .settings-section {box-shadow:none;border-radius:8px;padding:18px;}
+#function-settings .settings-layout {border-radius:8px;box-shadow:none;}
+#function-settings .wechat-card-desc {line-height:1.65;}
+#function-settings .engine-details {border-top:1px solid var(--border-color);padding:12px 0;margin-top:12px;}
+#function-settings .engine-details>summary {font-weight:600;font-size:13px;cursor:pointer;}
+#function-settings .robot-form-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+#function-settings .robot-field {display:flex;flex-direction:column;gap:6px;font-size:12px;margin:10px 0;}
+#function-settings textarea {min-height:64px;max-height:200px;}
+#function-settings .wechat-status-line,#function-settings [role=status] {font-size:12px;}
+#settings-custom-engine {display:none!important;}
+#socialSourcesSettings {padding:0 0 14px!important;margin-bottom:14px;}
+.broadcast-player {border:1px solid var(--border-color);background:var(--surface-elevated);border-radius:8px;padding:12px;margin:12px 0;}
+.broadcast-player textarea {width:100%;box-sizing:border-box;min-height:140px;max-height:280px;}
+.broadcast-controls {display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0;}
+.broadcast-player audio {width:100%;}
+@media(max-width:700px){#function-settings .robot-form-grid{grid-template-columns:1fr}#function-settings .wechat-settings-side .wechat-summary-card{display:block}}
+
+/* Matching, compact editors with an explicit policy scope. */
+#policyLists {max-width:1000px;margin:0 auto;}
+#policyLists [hidden] {display:none!important;}
+#policyLists .policy-intro,#policyLists .policy-help,#policyLists .policy-footnote {font-size:12px;line-height:1.65;color:var(--text-secondary);margin:8px 0 14px;}
+#policyLists .policy-scope-tabs {display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px;}
+#policyLists .policy-scope-tabs button {text-align:left;border:1px solid var(--border-color);border-radius:7px;padding:11px 14px;background:var(--surface-color);color:var(--text-secondary);cursor:pointer;}
+#policyLists .policy-scope-tabs button[aria-selected=true] {border-color:#287953;background:var(--panel-muted);box-shadow:inset 3px 0 #287953;color:var(--text-primary);}
+#policyLists .policy-scope-tabs strong {display:block;font-size:14px;}
+#policyLists .policy-scope-tabs small {display:block;margin-top:4px;font-size:11px;}
+#policyLists .policy-heading {display:flex;justify-content:space-between;align-items:start;gap:12px;}
+#policyLists .policy-heading h4 {margin:0;font-size:15px;}
+#policyLists .policy-heading p {font-size:12px;color:var(--text-secondary);line-height:1.6;margin:5px 0;}
+#policyLists .policy-scope-badge {font-size:11px;border:1px solid var(--border-color);border-radius:4px;padding:4px 7px;white-space:nowrap;}
+#policyLists .policy-card-grid {display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+#policyLists .policy-quick-add {display:grid;grid-template-columns:minmax(0,1fr) 150px auto auto;gap:8px;margin:12px 0;}
+#policyLists .policy-quick-add input {min-width:0;padding:7px 9px;border:1px solid var(--border-color);border-radius:5px;background:var(--surface-color);color:var(--text-primary);}
+#policyLists .policy-quick-add button {font-size:12px;padding:7px 9px;border:1px solid var(--border-color);border-radius:5px;background:var(--surface-color);color:var(--text-primary);cursor:pointer;}
+#policyLists .policy-list-card {min-width:0;border:1px solid var(--border-color);border-top:2px solid #769b88;border-radius:7px;padding:12px;background:var(--surface-color);}
+#policyLists .policy-list-card[data-tone=block] {border-top-color:#bb8176;}
+#policyLists .policy-card-title {display:flex;align-items:center;justify-content:space-between;gap:8px;}
+#policyLists .policy-card-title label {font-size:13px;font-weight:600;margin:0;}
+#policyLists .policy-card-title span {font-size:11px;color:var(--text-secondary);font-variant-numeric:tabular-nums;}
+#policyLists .policy-enable {display:flex;align-items:center;gap:6px;min-height:24px;margin:6px 0;font-size:11px;color:var(--text-secondary);}
+#policyLists input[type=checkbox] {width:14px;height:14px;margin:0;accent-color:#287953;}
+#policyLists textarea,#policyLists select,#policyLists input[type=number] {display:block;box-sizing:border-box;width:100%;border:1px solid var(--border-color);border-radius:5px;padding:8px;background:var(--input-bg,var(--surface-elevated));color:var(--text-primary);font-size:12px;}
+#policyLists textarea {resize:vertical;line-height:1.6;min-height:90px;}
+#policyLists .policy-extra {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0;}
+#policyLists .policy-extra label {display:grid;gap:6px;align-content:start;font-size:12px;}
+#policyLists .policy-extra small {color:var(--text-secondary);font-size:11px;}
+#policyLists .policy-extra textarea {min-height:60px;}
+#policyLists .policy-footer {display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--border-color);padding-top:12px;}
+#policyLists .policy-footer>div,#policyLists .policy-file-actions {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+#policyLists button {font:inherit;}
+#policyLists .policy-footer button,#policyLists .policy-file-actions button {font-size:12px;border:1px solid var(--border-color);border-radius:5px;padding:7px 10px;cursor:pointer;background:var(--surface-color);color:var(--text-primary);}
+#policyLists .policy-footer .save-btn {background:#287953;color:#fff;border-color:#287953;}
+#policyLists button:disabled {opacity:.5;cursor:not-allowed;}
+#policyLists .policy-file-actions {margin:14px 0;}
+#policyLists .policy-file-actions small {font-size:11px;color:var(--text-secondary);}
+#policyLists .policy-footnote {border-top:1px solid var(--border-color);padding-top:12px;margin-top:18px;}
+#policyConnectionLink {background:none;border:0;color:var(--accent-primary);padding:0;cursor:pointer;font-size:12px;}
+@media(max-width:650px){#policyLists .policy-card-grid,#policyLists .policy-extra{grid-template-columns:1fr}#policyLists .policy-quick-add{grid-template-columns:1fr 1fr}#policyLists .policy-footer{align-items:start;flex-direction:column}}

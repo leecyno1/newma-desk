@@ -941,10 +941,13 @@ class CreatorStudioService:
             for artifact in state.get("artifacts", []):
                 if artifact.get("status") == "created":
                     artifact["status"] = "approved"
-                self._approve_artifact_file(artifact, command.input)
+                if not ((node_definition.get("gate") or {}).get("stage_gate") is False
+                        and artifact.get("type") == f"{stage_id}_manifest"):
+                    self._approve_artifact_file(artifact, command.input)
             self._append_log(state, "节点已审核通过。")
             # review-gate 节点：联动把 media 侧阶段 gate 文件翻 approved（消除双状态轨道）
-            if str(node_definition.get("executor") or "") == "newma.control.review-gate":
+            if (str(node_definition.get("executor") or "") == "newma.control.review-gate"
+                    and (node_definition.get("gate") or {}).get("stage_gate", True)):
                 selected_ids = [
                     str(item).strip()
                     for item in (command.input.get("selectedTopicIds") or [])
@@ -1110,9 +1113,10 @@ class CreatorStudioService:
                     created_at=now_iso(),
                 )
                 artifacts.append(artifact)
-            state["status"] = "succeeded"
-            state["progress"] = 100
-            self._append_log(state, f"外部产物已回写：{len(artifacts)} 项，节点完成。")
+            needs_review = bool((node_definition.get("gate") or {}).get("required"))
+            state["status"] = "waiting_user" if needs_review else "succeeded"
+            state["progress"] = 80 if needs_review else 100
+            self._append_log(state, f"外部产物已回写：{len(artifacts)} 项，" + ("等待人工审核。" if needs_review else "节点完成。"))
             document["status"] = "pending"
             phase = PUBLISH_EXECUTOR_PHASES.get(
                 str(node_definition.get("executor") or "")
@@ -1124,14 +1128,14 @@ class CreatorStudioService:
                 phase_state = publish_state.setdefault(phase, {})
                 phase_state.update(
                     {
-                        "nodeStatus": "succeeded",
+                        "nodeStatus": state["status"],
                         "reconciledAt": now_iso(),
                         "artifactCount": len(artifacts),
                     }
                 )
                 publish_state["updatedAt"] = now_iso()
             next_target = self.registry.next_node(registry, stage_id, node_id)
-            if next_target is not None:
+            if next_target is not None and not needs_review:
                 next_stage_id, next_node_id = next_target
                 try:
                     self._create_handoff(
@@ -1637,8 +1641,10 @@ class CreatorStudioService:
             try:
                 content = target.read_text(encoding="utf-8", errors="replace")
                 truncated = False
-                if len(content) > 200_000:
-                    content = content[:200_000] + "\n\n... [truncated for preview] ..."
+                # Full intake HTML includes all source rows; keep ordinary logs bounded.
+                preview_limit = 1_000_000 if suffix in {".html", ".htm"} else 200_000
+                if len(content) > preview_limit:
+                    content = content[:preview_limit] + "\n\n... [truncated for preview] ..."
                     truncated = True
                 return {
                     "path": str(target),
