@@ -282,7 +282,7 @@ def create_app(
         application.state.creator_studio_service.startup()
         application.state.policy_refresh_service.start()
         active_scheduler = application.state.scheduler_service
-        if app_settings.enable_scheduler:
+        if app_settings.enable_scheduler or app_settings.enable_capital_candidate_archive:
             if active_scheduler is None:
                 active_scheduler = application.state.scheduler_service_factory()
                 application.state.scheduler_service = active_scheduler
@@ -297,7 +297,7 @@ def create_app(
                 await workflow_runtime_worker.stop()
             application.state.creator_studio_service.shutdown()
             await application.state.policy_refresh_service.stop()
-            if app_settings.enable_scheduler and active_scheduler is not None:
+            if (app_settings.enable_scheduler or app_settings.enable_capital_candidate_archive) and active_scheduler is not None:
                 await active_scheduler.stop()
             agent_service = application.state.agent_task_service
             if agent_service is not None:
@@ -389,6 +389,8 @@ def create_app(
     application.state.scheduler_service_lock = asyncio.Lock()
 
     def create_scheduler_service() -> RefreshSchedulerService:
+        from vibe_visualization_api.capital_flow.candidate_collector import CandidateCollector
+        from vibe_visualization_api.capital_flow.store import CapitalHistoryStore
         return RefreshSchedulerService(
             store=SchedulerStore(app_settings.database_path),
             repository=resolve_module_repository(),
@@ -401,6 +403,9 @@ def create_app(
                 api_key=app_settings.research_api_key.get_secret_value(),
             ),
             poll_seconds=app_settings.scheduler_poll_seconds,
+            market_enabled=app_settings.enable_scheduler,
+            candidate_collector=CandidateCollector(app_settings.tushare_token.get_secret_value(), CapitalHistoryStore(app_settings.database_path))
+            if app_settings.enable_capital_candidate_archive else None,
         )
 
     application.state.scheduler_service_factory = create_scheduler_service

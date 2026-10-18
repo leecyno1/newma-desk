@@ -352,6 +352,7 @@ class Settings(BaseSettings):
     portfolio_quote_timeout_seconds: float = Field(default=2.5, gt=0, le=30)
     legacy_portfolio_path: Path = Path("~/.vibe-research/portfolio.json")
     enable_scheduler: bool = False
+    enable_capital_candidate_archive: bool = False
     scheduler_poll_seconds: float = Field(default=30.0, gt=0, le=3600)
     enable_workflow_runtime_worker: bool = True
     workflow_runtime_poll_seconds: float = Field(default=0.5, gt=0, le=60)

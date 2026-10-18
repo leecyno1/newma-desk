@@ -183,7 +183,7 @@ test("总览跨境联动：独立加载、窗口下钻复用，失败与缺口�
   const data = connectFixture(), contexts: any[] = [];
   let calls = 0, fail = false;
   page.on("request", r => { if (r.method() === "PUT" && new URL(r.url()).pathname === "/api/mods/capital-overview/context") contexts.push(r.postDataJSON().context); });
-  await page.route("**/api/capital-flow", route => route.fulfill({ status: 503 }));
+  await page.route(/\/api\/capital-flow(\?|$)/, route => route.fulfill({ status: 503 }));
   await page.route("**/api/capital-flow/appetite-research**", route => route.fulfill({ json: fixture() }));
   await page.route("**/api/capital-flow/connect-research**", route => { calls++; return fail ? route.fulfill({ status: 503 }) : route.fulfill({ json: data }); });
   await page.goto(`${shell}/?mod=capital-overview&workspace=overview-connect-${Date.now()}`);

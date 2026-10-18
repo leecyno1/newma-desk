@@ -8,6 +8,22 @@ import market_terminal
 import market
 
 
+def test_market_activity_missing_is_not_zero(monkeypatch):
+    values = {"上涨": "40", "下跌": "40", "平盘": "20", "涨停": "0", "跌停": "--", "真实涨停": float("nan"), "统计日期": "2026-10-15"}
+    class Frame:
+        def iterrows(self):
+            return enumerate({"item": key, "value": value} for key, value in values.items())
+    monkeypatch.setattr(astock, "akshare_call", lambda *args: Frame())
+    result = market._sentiment()
+    assert result["zt"] == 0 and result["dt"] is None
+    assert result["zt_real"] is None and result["speculation"] is None
+    assert result["date"] == "2026-10-15"
+    for bad in (None, -1, 1.5, float("inf")):
+        values["平盘"] = bad
+        result = market._sentiment()
+        assert result["flat"] is None and result["breadth"] is None
+
+
 def test_get_prefix():
     assert astock.get_prefix("600519") == "sh"
     assert astock.get_prefix("900001") == "sh"   # 9 开头也是沪
@@ -184,6 +200,43 @@ def test_sector_only_overview_does_not_wait_for_irrelevant_sentiment(monkeypatch
     monkeypatch.setattr(market, "_sectors", lambda: [{"net": 1}])
     monkeypatch.setattr(market, "_sentiment", lambda: pytest.fail("资金页不应请求乐咕情绪"))
     assert market.get_overview(include_sentiment=False)["sectors"] == [{"net": 1}]
+
+
+def test_overview_slow_source_does_not_block_other_source_or_queue_refreshes(monkeypatch):
+    from threading import Event
+    market._CACHE.clear()
+    started, release = Event(), Event()
+    calls = []
+    def slow():
+        calls.append(1)
+        started.set()
+        release.wait(2)
+        return {"up": 40, "down": 40, "flat": 20}
+    monkeypatch.setattr(market, "_sentiment", slow)
+    monkeypatch.setattr(market, "_sectors", lambda: [{"net": 1}])
+    monkeypatch.setattr(market, "_OVERVIEW_BUDGET", .02)
+    try:
+        first = market.get_overview()
+        assert started.is_set()
+        assert first["sentiment"] == {} and first["sources"]["sentiment"]["status"] == "timeout"
+        assert first["sectors"] == [{"net": 1}]
+        second = market.get_overview()
+        assert len(calls) == 1 and second["sources"]["sectors"]["status"] == "ready"
+    finally:
+        release.set()
+    market._OVERVIEW_JOBS["sentiment"].result(timeout=2)
+    assert market.get_overview()["sentiment"]["up"] == 40
+    market._CACHE.clear()
+
+
+def test_overview_empty_statistics_are_not_cached_as_success(monkeypatch):
+    market._CACHE.clear()
+    monkeypatch.setattr(market, "_sentiment", lambda: {"up": None, "down": None})
+    monkeypatch.setattr(market, "_sectors", lambda: [])
+    result = market.get_overview()
+    assert result["sentiment"] == {}
+    assert all(feed["status"] == "unavailable" for feed in result["sources"].values())
+    assert not market._CACHE
 
 
 def test_parse_tencent_compact_minute_rows():

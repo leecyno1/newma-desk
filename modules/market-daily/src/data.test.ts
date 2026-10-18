@@ -3,6 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import { createMarketDataSource, isOpenFundSecurity } from "./data";
 
 describe("createMarketDataSource", () => {
+  it("routes daily sentiment through the declared capability in both modes", async () => {
+    const invokeAction = vi.fn().mockResolvedValue({ data: { sentiment: { up: 10 } } });
+    await createMarketDataSource({ baseUrl: "https://desk.example", invokeAction }).sentiment(true);
+    expect(invokeAction).toHaveBeenCalledWith("market.sentiment", { refresh: true });
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { sentiment: { up: 10 } } }), { status: 200 }));
+    const result = await createMarketDataSource({ baseUrl: "https://desk.example", fetch }).sentiment();
+    expect(result.sentiment?.up).toBe(10);
+    expect(fetch.mock.calls[0]?.[0]).toContain("/market-breadth-data/invoke/market.sentiment");
+  });
   it("uses the provider-agnostic Mod action channel when embedded", async () => {
     const invokeAction = vi.fn().mockResolvedValue({
       data: {

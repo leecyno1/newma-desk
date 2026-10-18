@@ -354,9 +354,11 @@ def test_spa_static_files_falls_back_to_index(tmp_path: Path) -> None:
 
     with TestClient(host) as client:
         response = client.get("/mod-runtime/research/daily-review")
+        entry = client.get("/mod-runtime/research/")
 
     assert response.status_code == 200
     assert "suite" in response.text
+    assert response.headers["cache-control"] == entry.headers["cache-control"] == "no-cache"
 
 
 def test_domain_suites_receive_resolved_tushare_before_import(tmp_path, monkeypatch):

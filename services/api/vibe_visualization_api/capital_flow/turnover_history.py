@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 import httpx
 
 from vibe_visualization_api.capital_flow.turnover import TurnoverResearchService, turnover_snapshot
+from vibe_visualization_api.capital_flow.service import finite_number
+from vibe_visualization_api.capital_flow.sentiment import breadth_history
 
 
 DATASET = "capital.turnover-history.v1"
@@ -49,18 +51,20 @@ def history_analysis(observations: list[dict], sessions: list[str], days: int, c
 class TurnoverHistoryService(TurnoverResearchService):
     batch_size = 8
 
-    async def history(self, days: int = 20, *, refresh: bool = False) -> dict:
+    async def history(self, days: int = 20, *, refresh: bool = False, include_breadth: bool = False) -> dict:
         owns = self.client is None
         client = self.client or httpx.AsyncClient(timeout=18, trust_env=False)
         try:
             calendar = await self._dataset(client, "trade_cal", "SSE", {"exchange": "SSE", "is_open": "1"},
                                            "cal_date,is_open", "cal_date", refresh=refresh)
-            sessions = sorted({row["date"] for row in calendar["rows"] if str(row.get("is_open")) == "1"})[-(days + 1):]
+            sessions = sorted({row["date"] for row in calendar["rows"] if str(row.get("is_open")) == "1"})[-(days if include_breadth else days + 1):]
             calendar_ready = calendar["status"] == "ready" and not calendar.get("usingSaved")
             rows, _ = await asyncio.to_thread(self.store.read, DATASET, "CN", self.start, self.end)
             indexed = {row["date"]: row for row in rows}
             now = datetime.now(timezone.utc)
-            pending = [day for day in reversed(sessions) if indexed.get(day, {}).get("status") != "ready"]
+            def ready(row):
+                return row.get("status") == "ready" and (not include_breadth or row.get("breadthStatus") == "ready")
+            pending = [day for day in reversed(sessions) if not ready(indexed.get(day, {}))]
             if sessions:
                 latest = indexed.get(sessions[-1], {})
                 expired = not latest.get("receivedAt") or (now - datetime.fromisoformat(latest["receivedAt"])).total_seconds() >= 300
@@ -72,13 +76,17 @@ class TurnoverHistoryService(TurnoverResearchService):
             async def fetch_day(day):
                 async with gate:
                     try:
-                        quotes = await self._pages(client, "daily", {"trade_date": day.replace("-", "")}, "ts_code,trade_date,amount")
+                        quotes = await asyncio.wait_for(self._pages(client, "daily", {"trade_date": day.replace("-", "")}, "ts_code,trade_date,amount,close,pct_chg"), timeout=20)
                         snapshot = turnover_snapshot(quotes, [], day)
                         if not snapshot["coverage"]["valid"]:
                             raise ValueError("日线为空或含日期、金额、重复冲突缺口")
+                        returns = {row["ts_code"]: finite_number(row.get("pct_chg")) for row in quotes
+                                   if float(row["amount"]) > 0 and (finite_number(row.get("close")) or 0) > 0
+                                   and finite_number(row.get("pct_chg")) is not None}
                         return {"date": day, "status": "ready", "reason": "", "receivedAt": now.isoformat(),
+                                "returns": returns, "breadthStatus": "ready" if returns else "unavailable",
                                 "amounts": {row["ts_code"]: float(row["amount"]) for row in quotes}}
-                    except (httpx.HTTPError, ValueError):
+                    except (httpx.HTTPError, ValueError, TimeoutError):
                         return {**indexed.get(day, {}), "date": day, "status": "unavailable", "receivedAt": now.isoformat(),
                                 "reason": "当日分页或数据校验失败；保留值不参与基线计算"}
 
@@ -88,13 +96,13 @@ class TurnoverHistoryService(TurnoverResearchService):
                                         status="ready" if all(row["status"] == "ready" for row in fetched) else "partial",
                                         reason="", received_at=now.isoformat())
                 indexed.update({row["date"]: row for row in fetched})
-            result = history_analysis(list(indexed.values()), sessions, days, calendar_ready and bool(self.token))
-            failures = [row["date"] for row in fetched if row["status"] != "ready"]
-            return {**result, "schemaVersion": "newma-desk.turnover-history.v1", "generatedAt": now.isoformat(),
-                    "source": "Tushare daily / trade_cal", "unit": "人民币亿元", "calendarStatus": calendar["status"],
+            result = (breadth_history if include_breadth else history_analysis)(list(indexed.values()), sessions, days, calendar_ready and bool(self.token))
+            failures = [row["date"] for row in fetched if not ready(row)]
+            return {**result, "schemaVersion": "newma-desk.sentiment-history.v1" if include_breadth else "newma-desk.turnover-history.v1", "generatedAt": now.isoformat(),
+                    "source": "Tushare daily / trade_cal · 未复权日线", "unit": "% / 百分点" if include_breadth else "人民币亿元", "calendarStatus": calendar["status"],
                     "failedDates": failures, "fetchedDays": len(fetched),
                     "canContinue": bool(targets and not failures and result["remaining"] > 0),
-                    "reason": "" if calendar_ready and self.token else "交易日历未确认或 Tushare 未配置"}
+                    "reason": result.get("reason", "") if calendar_ready and self.token else "交易日历未确认或 Tushare 未配置"}
         finally:
             if owns:
                 await client.aclose()

@@ -97,6 +97,17 @@ export function buildWorkspacePageContext(input: {
   quote?: Quote;
   workspaceState: Record<string, unknown>;
 }): ModPageContext {
+  if (input.config.kind === "sentiment") {
+    const state = input.workspaceState;
+    return {
+      view: { id: input.config.modId, title: input.config.title }, visibleBlocks: input.config.blocks,
+      selection: { market: "CN" }, filters: { workspace: "sentiment" },
+      data: { source: typeof state.source === "string" ? state.source : "market.overview",
+        freshness: state.freshness === "fresh" ? "fresh" : state.freshness === "stale" ? "stale" : "unknown",
+        ...(typeof state.asOf === "string" ? { asOf: state.asOf } : {}), summary: { workspace: state } },
+      actions: [{ id: "market.refresh", label: "刷新市场统计", available: true, inputSchema: { type: "object", additionalProperties: false } }], tasks: [],
+    };
+  }
   return {
     view: { id: input.config.modId, title: input.config.title },
     visibleBlocks: input.config.blocks,
@@ -185,13 +196,14 @@ export function MarketWorkspaceApp({
   const ownsBridge = !providedBridge;
   const closeTimer = useRef<number | undefined>(undefined);
   const [security, setSecurity] = useState<SecurityRef>(initialSecurity);
-  const [securityValidated, setSecurityValidated] = useState(() => !isOpenFundSecurity(initialSecurity));
+  const [securityValidated, setSecurityValidated] = useState(() => config.kind === "sentiment" || !isOpenFundSecurity(initialSecurity));
   const [quote, setQuote] = useState<Quote>();
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [workspaceState, setWorkspaceState] = useState<Record<string, unknown>>({});
   const [workspaceAction, setWorkspaceAction] = useState<WorkspaceUiAction>();
   const alertIdentity = hostIdentity;
   const sharedAlertClient = useMemo(() => {
+    if (config.kind === "sentiment") return undefined;
     if (providedAlertClient === null) return undefined;
     if (providedAlertClient) return providedAlertClient;
     if (!alertIdentity) return undefined;
@@ -201,6 +213,7 @@ export function MarketWorkspaceApp({
       ...alertIdentity,
     });
   }, [
+    config.kind,
     alertIdentity?.userId,
     alertIdentity?.workspaceId,
     fetcher,
@@ -230,7 +243,7 @@ export function MarketWorkspaceApp({
   }, [security]);
   layoutStateRef.current = { ...layoutStateRef.current, security };
 
-  const contextualWorkspaceState = {
+  const contextualWorkspaceState = config.kind === "sentiment" ? workspaceState : {
     ...workspaceState,
     alertCount: alerts.length,
     alerts: alerts.slice(0, 8),
@@ -298,6 +311,7 @@ export function MarketWorkspaceApp({
       setRefreshNonce((value) => value + 1);
       return { refreshed: true };
     }
+    if (config.kind === "sentiment") throw new Error("市场情绪仅支持刷新市场统计，不执行个股操作");
     if (actionId === "market.set-alert") {
       const price = input.price;
       const direction = input.direction;
@@ -347,7 +361,7 @@ export function MarketWorkspaceApp({
     const action = { sequence: Date.now(), actionId, input };
     setWorkspaceAction(action);
     return { accepted: true, action };
-  }, [config.modId, config.title, createAlert, security]);
+  }, [config.kind, config.modId, config.title, createAlert, security]);
 
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
 
@@ -379,6 +393,7 @@ export function MarketWorkspaceApp({
       closeTimer.current = undefined;
     }
     const unsubscribe = bridge.subscribe((event) => {
+      if (config.kind === "sentiment") return;
       if (event.event !== "security.selected") return;
       const { symbol, name, market, exchange, assetType, securityType } = event.payload;
       if (typeof symbol !== "string" || (market !== "CN" && market !== "HK" && market !== "US")) return;
@@ -395,9 +410,10 @@ export function MarketWorkspaceApp({
       unsubscribe();
       if (ownsBridge) closeTimer.current = window.setTimeout(() => bridge.close(), 0);
     };
-  }, [bridge, ownsBridge, selectSecurity]);
+  }, [bridge, config.kind, ownsBridge, selectSecurity]);
 
   useEffect(() => {
+    if (config.kind === "sentiment") return;
     let active = true;
     const quoteResourceKey = `${securityKey(security)}:${security.assetType || "stock"}`;
     if (quoteResourceKeyRef.current !== quoteResourceKey) {
@@ -433,14 +449,14 @@ export function MarketWorkspaceApp({
     return () => {
       active = false;
     };
-  }, [dataSource, refreshNonce, security, selectSecurity]);
+  }, [config.kind, dataSource, refreshNonce, security, selectSecurity]);
 
   const content = !securityValidated
     ? null
     : config.kind === "scanner"
     ? <ScannerWorkspace dataSource={dataSource} cacheIdentity={hostIdentity} security={security} onSelectSecurity={selectSecurity} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
     : config.kind === "sentiment"
-      ? <SentimentWorkspace dataSource={dataSource} security={security} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
+      ? <SentimentWorkspace dataSource={dataSource} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
     : config.kind === "technical"
       ? <TechnicalAnalysisWorkspace dataSource={dataSource} security={security} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
     : config.kind === "multi-timeframe"
@@ -455,6 +471,7 @@ export function MarketWorkspaceApp({
     <main
       className={`market-workspace-root${error ? " has-error" : ""}`}
       data-embedded={embedded || undefined}
+      data-workspace={config.kind}
       style={{ "--workspace-accent": config.accent } as CSSProperties}
     >
       <header className="workspace-topbar">
@@ -462,10 +479,10 @@ export function MarketWorkspaceApp({
           <strong>{config.title}</strong>
           <span>{config.description}</span>
         </div> : null}
-        <SecuritySearch dataSource={dataSource} onSelect={selectSecurity} />
+        {config.kind === "sentiment" ? <span className="sentiment-scope-label">A股整体统计 · 不随个股切换</span> : <SecuritySearch dataSource={dataSource} onSelect={selectSecurity} />}
         <button type="button" className="workspace-refresh" onClick={() => setRefreshNonce((value) => value + 1)}><RefreshCw size={14} />刷新</button>
       </header>
-      <section className="workspace-quote-strip">
+      {config.kind !== "sentiment" ? <section className="workspace-quote-strip">
         <div className="workspace-current-security">
           <i>{isFund ? "基金" : isEtf ? "ETF" : security.market}</i>
           <span><strong>{quote?.name || security.name}</strong><small>{security.symbol} · {isEtf || isFund ? `${security.market} · ` : ""}{quote?.exchange || security.exchange || security.market}</small></span>
@@ -492,12 +509,12 @@ export function MarketWorkspaceApp({
             onDelete={(alert) => deleteAlert(alert.id)}
           />
         </div>
-      </section>
+      </section> : null}
       {error ? <div className="workspace-error-banner" role="alert">{error}</div> : null}
       <div className="workspace-content">{content}</div>
       <footer className="workspace-statusbar">
         <span><i />{config.modId}</span>
-        <span>当前标的事件：security.selected · {security.market}:{security.symbol}</span>
+        <span>{config.kind === "sentiment" ? "来源日期与获取时间分别标注 · 缺数不补零" : `当前标的事件：security.selected · ${security.market}:${security.symbol}`}</span>
         <span>{lastSavedLayout ? `最近布局：${lastSavedLayout.name}` : "右侧 Newma Agent 可读取并操作本页"}</span>
       </footer>
     </main>

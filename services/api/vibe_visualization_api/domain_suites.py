@@ -40,11 +40,15 @@ class SpaStaticFiles(StaticFiles):
 
     async def get_response(self, path: str, scope: dict[str, Any]):
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as error:
             if error.status_code != 404:
                 raise
-            return await super().get_response("index.html", scope)
+            response = await super().get_response("index.html", scope)
+        # Entrypoints must revalidate after a local rebuild; hashed assets may cache.
+        if response.media_type == "text/html":
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 class ResearchApiAdapter:

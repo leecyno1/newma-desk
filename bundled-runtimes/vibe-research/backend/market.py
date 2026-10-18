@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor, wait
+from threading import Lock
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 
@@ -16,6 +18,10 @@ import gstock
 BEIJING = timezone(timedelta(hours=8))
 _CACHE: dict = {}
 _TTL = 300  # 5 分钟；全站共享，省数据源压力
+_OVERVIEW_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="market-overview")
+_OVERVIEW_JOBS = {}
+_OVERVIEW_LOCK = Lock()
+_OVERVIEW_BUDGET = 10  # 留出时间给15秒的Desk网关；慢来源互不阻塞
 
 
 def _cached(key: str, fn, valid=bool):
@@ -45,11 +51,21 @@ def _sentiment() -> dict:
         d = {row["item"]: row["value"] for _, row in df.iterrows()}
     except Exception:
         return {}
-    up, down, flat = _num(d.get("上涨")), _num(d.get("下跌")), _num(d.get("平盘"))
-    zt, zt_real = _num(d.get("涨停")), _num(d.get("真实涨停"))
-    dt, dt_real = _num(d.get("跌停")), _num(d.get("真实跌停"))
-    r = up / max(down, 1)
-    if up < 600:
+    counts = {}
+    for key, label in (("up", "上涨"), ("down", "下跌"), ("flat", "平盘"),
+                       ("zt", "涨停"), ("zt_real", "真实涨停"), ("dt", "跌停"), ("dt_real", "真实跌停")):
+        try:
+            number = float(d.get(label))
+            counts[key] = int(number) if number >= 0 and number.is_integer() else None
+        except (ValueError, TypeError):
+            counts[key] = None
+    up, down, flat = (counts[key] for key in ("up", "down", "flat"))
+    zt_real = counts["zt_real"]
+    complete = all(value is not None for value in (up, down, flat)) and up + down + flat > 0
+    r = up / max(down, 1) if complete else None
+    if not complete:
+        breadth = None
+    elif up < 600:
         breadth = "冰点"
     elif r < 0.7:
         breadth = "偏弱"
@@ -59,10 +75,12 @@ def _sentiment() -> dict:
         breadth = "偏强"
     else:
         breadth = "普涨"
-    speculation = "亢奋" if zt_real >= 100 else "活跃" if zt_real >= 60 else "普通" if zt_real >= 30 else "冰点"
+    speculation = None if zt_real is None else "亢奋" if zt_real >= 100 else "活跃" if zt_real >= 60 else "普通" if zt_real >= 30 else "冰点"
     return {
-        "up": up, "down": down, "flat": flat,
-        "zt": zt, "zt_real": zt_real, "dt": dt, "dt_real": dt_real,
+        **counts,
+        "missingFields": [key for key, value in counts.items() if value is None],
+        "source": "乐咕乐股 · stock_market_activity_legu",
+        "scope": "来源返回的A股统计；不保证与其他供应商覆盖一致",
         "active": str(d.get("活跃度", "")),
         "breadth": breadth, "speculation": speculation,
         "date": str(d.get("统计日期", "")),
@@ -110,14 +128,47 @@ def _sectors() -> list[dict]:
 
 
 def get_overview(include_sentiment: bool = True) -> dict:
-    """市场情绪 + 板块资金（含缓存）。资金轮动由前端从 sectors 头尾取。"""
-    def build():
-        return {
-            "sentiment": _sentiment() if include_sentiment else {},
-            "sectors": _sectors(),
-            "updated": datetime.now(BEIJING).strftime("%Y-%m-%d %H:%M"),
-        }
-    return _cached("overview" if include_sentiment else "sector-overview", build, valid=lambda v: bool(v.get("sentiment") or v.get("sectors")))
+    """独立缓存两路来源；超时只降级该来源，复用未完成请求，避免刷新堆积。"""
+    sources = {"sentiment": _sentiment, "sectors": _sectors} if include_sentiment else {"sectors": _sectors}
+    result = {"sentiment": {}, "sectors": [], "sources": {}}
+    pending = {}
+    with _OVERVIEW_LOCK:
+        for key, fetch in sources.items():
+            cached = _CACHE.get(f"overview-source:{key}")
+            if cached and time.time() - cached[0] < _TTL:
+                result[key] = cached[1]
+                result["sources"][key] = {"status": "ready", "reason": "", "receivedAt": cached[2]}
+            else:
+                job = _OVERVIEW_JOBS.get(key)
+                if job is None:
+                    job = _OVERVIEW_POOL.submit(fetch)
+                    _OVERVIEW_JOBS[key] = job
+                pending[key] = job
+    if pending:
+        wait(pending.values(), timeout=_OVERVIEW_BUDGET)
+    for key, job in pending.items():
+        if not job.done():
+            result["sources"][key] = {"status": "timeout", "reason": "来源等待超时；不使用旧统计，请稍后刷新", "receivedAt": None}
+            continue
+        try:
+            value = job.result()
+            if key == "sentiment" and not any(value.get(field) is not None for field in ("up", "down", "flat", "zt", "dt")):
+                value = {}
+            received = datetime.now(BEIJING).isoformat()
+            result[key] = value
+            result["sources"][key] = {"status": "ready" if value else "unavailable",
+                "reason": "" if value else "来源未返回有效统计，可能访问受限或数据暂缺；不补零", "receivedAt": received}
+            if value:
+                with _OVERVIEW_LOCK:
+                    _CACHE[f"overview-source:{key}"] = (time.time(), value, received)
+        except Exception:
+            result["sources"][key] = {"status": "error", "reason": "来源读取失败；不使用旧统计", "receivedAt": None}
+        finally:
+            with _OVERVIEW_LOCK:
+                if _OVERVIEW_JOBS.get(key) is job:
+                    del _OVERVIEW_JOBS[key]
+    result["updated"] = datetime.now(BEIJING).isoformat()
+    return result
 
 
 def _emotion() -> dict:

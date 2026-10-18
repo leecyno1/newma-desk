@@ -59,7 +59,10 @@ function dataSource(): MarketDataSource {
       asOf: "2026-07-24T10:00:00+08:00",
       hasMore: false,
     })),
-    overview: vi.fn(async () => ({
+    overview: vi.fn(async () => ({})),
+    sentimentHistory: vi.fn(() => new Promise<never>(() => {})),
+    limitBoards: vi.fn(() => new Promise<never>(() => {})),
+    sentiment: vi.fn(async () => ({
       sentiment: { up: 3200, down: 1600, flat: 100, zt: 72, dt: 12, breadth: "偏强" },
       sectors: [{ name: "通信", pct: 2.3, net: 1_200_000_000 }],
       updated: "2026-08-16 14:30",
@@ -132,13 +135,27 @@ describe("market chart workspaces", () => {
     expect(screen.getByRole("button", { name: "MACD" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("renders market sentiment from the shared market overview", async () => {
-    render(<MarketWorkspaceApp config={MARKET_WORKSPACES.sentiment} bridge={bridge("market-sentiment")} dataSource={dataSource()} alertClient={null} />);
+  it("renders market sentiment through its daily sample capability", async () => {
+    const source = dataSource();
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES.sentiment} bridge={bridge("market-sentiment")} dataSource={source} alertClient={null} />);
 
-    expect(await screen.findByText("市场情绪温度")).toBeVisible();
-    expect(screen.getByText(/偏强/)).toBeVisible();
-    expect(screen.getByText("通信")).toBeVisible();
+    expect(await screen.findByText("65.31%")).toBeVisible();
+    expect(screen.getByText("A股市场参与度")).toBeVisible();
+    expect(screen.getByText("65.31%")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "搜索证券" })).not.toBeInTheDocument();
+    expect(source.quote).not.toHaveBeenCalled();
     expect(screen.getByText("涨停 / 跌停")).toBeVisible();
+  });
+
+  it("does not promote market freshness or selection using an unrelated stock quote", () => {
+    const context = buildWorkspacePageContext({ config: MARKET_WORKSPACES.sentiment, security: cnSecurity,
+      quote: { ...quotes[0]!, asOf: "2026-10-16T15:00:00+08:00" },
+      workspaceState: { status: "error", freshness: "unknown", asOf: null } });
+    expect(context.selection).toEqual({ market: "CN" });
+    expect(context.data.freshness).toBe("unknown");
+    expect(context.data.asOf).toBeUndefined();
+    expect(context.data.summary).not.toHaveProperty("quote");
+    expect(context.actions.map(action => action.id)).toEqual(["market.refresh"]);
   });
 
   it("computes technical structure from daily OHLCV", async () => {

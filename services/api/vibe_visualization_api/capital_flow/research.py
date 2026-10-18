@@ -7,6 +7,7 @@ import httpx
 
 from vibe_visualization_api.capital_flow.service import finite_number
 from vibe_visualization_api.capital_flow.store import CapitalHistoryStore
+from vibe_visualization_api.capital_flow.etf_monitor import build_etf_monitor
 
 
 ETF_SAMPLE = (
@@ -305,6 +306,7 @@ class CapitalResearchService:
                     "expectedDate": sessions[-1] if sessions else None,
                     "calendar": {"status": calendar["status"], "sessions": len(sessions), "dates": sessions[-60:], "reason": calendar["reason"]},
                     "etfs": etfs, "groups": groups, "leverage": leverage,
+                    "monitor": build_etf_monitor(etfs, sessions, calendar["status"] == "ready" and not calendar.get("usingSaved")),
                     "coverage": {"etfAvailable": sum(item["status"] == "ready" for item in etfs), "etfTotal": len(etfs),
                                  "sampleOnly": True, "primaryStatus": probe["status"], "primaryReason": probe["reason"]},
                     "notes": [f"{len(samples)}只ETF研究观察池，不代表全市场或整个资产类别；分类合计仅限观察池，研究分组不是官方分类",

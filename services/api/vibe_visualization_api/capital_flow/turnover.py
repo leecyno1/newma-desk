@@ -85,12 +85,35 @@ class TurnoverResearchService(CapitalResearchService):
     page_size = 4000
     max_pages = 5
 
-    async def _pages(self, client, api, params, fields):
+    async def stock_names(self, client, *, refresh=False):
+        """Current display names only; never use the catalog to filter historical cohorts."""
+        dataset, day = "capital.stock-names.v1", "2000-01-01"
+        saved, run = await asyncio.to_thread(self.store.read, dataset, "CN", day, day)
+        now = datetime.now(timezone.utc)
+        cached = saved[0] if saved else {"items": [], "receivedAt": None}
+        if saved and run and not refresh and (now - datetime.fromisoformat(run["received_at"])).total_seconds() < 86400:
+            return {**cached, "reason": "", "usingSaved": False}
+        try:
+            if not self.token:
+                raise ValueError("Tushare未配置")
+            items = await self._pages(client, "stock_basic", {"list_status": "L"}, "ts_code,name,industry")
+            if not items:
+                raise ValueError("名称目录为空")
+            result = {"date": day, "items": items, "receivedAt": now.isoformat()}
+            await asyncio.to_thread(self.store.save, dataset, "CN", [result], start=day, end=day,
+                                    status="ready", reason="", received_at=now.isoformat())
+            return {**result, "reason": "", "usingSaved": False}
+        except (httpx.HTTPError, ValueError):
+            return {**cached, "usingSaved": bool(saved),
+                    "reason": "名称目录更新失败，保留已缓存名称；未匹配项显示代码" if saved else "名称目录不可用，显示证券代码"}
+
+    async def _pages(self, client, api, params, fields, *, page_size=None):
+        page_size = page_size or self.page_size
         rows = []
         for page in range(self.max_pages):
             response = await client.post("https://api.tushare.pro", json={
                 "api_name": api, "token": self.token,
-                "params": {**params, "limit": self.page_size, "offset": page * self.page_size}, "fields": fields})
+                "params": {**params, "limit": page_size, "offset": page * page_size}, "fields": fields})
             response.raise_for_status()
             payload = response.json()
             if payload.get("code") != 0:
@@ -104,7 +127,7 @@ class TurnoverResearchService(CapitalResearchService):
             if page and batch and batch == rows[-len(batch):]:
                 raise ValueError(f"{api} 分页重复，不能确认榜单完整")
             rows.extend(batch)
-            if len(items) < self.page_size:
+            if len(items) < page_size:
                 return rows
         raise ValueError(f"{api} 达到分页上限，不能确认榜单完整")
 
@@ -127,11 +150,8 @@ class TurnoverResearchService(CapitalResearchService):
                     try:
                         rows = await self._pages(client, "daily", {"trade_date": expected.replace("-", "")},
                                                  "ts_code,trade_date,close,pct_chg,amount")
-                        names, name_reason = [], ""
-                        try:
-                            names = await self._pages(client, "stock_basic", {"list_status": "L"}, "ts_code,name,industry")
-                        except (httpx.HTTPError, ValueError):
-                            name_reason = "名称目录读取失败，未匹配项显示证券代码"
+                        catalog = await self.stock_names(client, refresh=refresh)
+                        names, name_reason = catalog["items"], catalog["reason"]
                         if rows:
                             snapshot = turnover_snapshot(rows, names, expected)
                             snapshot["nameNote"] = name_reason or "名称及行业为当前在市目录，不用于历史成分回测"

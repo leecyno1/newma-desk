@@ -1,4 +1,5 @@
 import type { AppetiteResearchData, CapitalFlowDashboard, CapitalResearch, CapitalSupplyData, SupplyKind, SupplyVerificationData, SectorCategory, SectorLevel, SectorResearchData, SecuritySearchItem, SecurityResearchData, SecurityEvidenceData, LiquidityResearchData } from "./types";
+import type { ETFWatchItem } from "./ETFWatchlist";
 
 export async function fetchAppetiteResearch(refresh = false, signal?: AbortSignal): Promise<AppetiteResearchData> {
   const response = await fetch("/api/capital-flow/appetite-research" + (refresh ? "?refresh=true" : ""), { signal });
@@ -55,8 +56,9 @@ export async function fetchSectorResearch(category: SectorCategory, code: string
   return response.json() as Promise<SectorResearchData>;
 }
 
-export async function fetchCapitalResearch(refresh = false, signal?: AbortSignal): Promise<CapitalResearch> {
-  const response = await fetch("/api/capital-flow/research" + (refresh ? "?refresh=true" : ""), { signal });
+export async function fetchCapitalResearch(refresh = false, signal?: AbortSignal, items?: ETFWatchItem[]): Promise<CapitalResearch> {
+  const response = await fetch("/api/capital-flow/research" + (refresh ? "?refresh=true" : ""), { signal,
+    ...(items ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: items.map(({ code, category }) => ({ code, category })) }) } : {}) });
   if (!response.ok) throw new Error(`配置与融资数据读取失败（${response.status}）`);
   return response.json() as Promise<CapitalResearch>;
 }

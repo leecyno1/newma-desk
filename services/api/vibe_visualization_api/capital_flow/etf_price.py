@@ -7,14 +7,14 @@ from .research import CapitalResearchService
 from .service import finite_number
 
 
-def price_windows(prices, factors, sessions):
+def price_windows(prices, factors, sessions, periods=(1, 5, 20)):
     prices = {row["date"]: row for row in prices}
     factors = {row["date"]: row for row in factors}
     def positive(value):
         value = finite_number(value)
         return value if value is not None and value > 0 else None
     windows = {}
-    for days in (1, 5, 20):
+    for days in periods:
         base_date = sessions[-days - 1] if len(sessions) > days else None
         dates = sessions[-days:]
         checked = ([base_date] if base_date else []) + dates

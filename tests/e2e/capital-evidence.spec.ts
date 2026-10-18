@@ -1,7 +1,284 @@
 import { expect, test } from "@playwright/test";
+
+test("异常成交候选：完整分页、名称、按需加载、历史日期、失败清空与Agent一致", async ({ page }, info) => {
+  let fail = false, calls = 0;
+  let performanceCalls = 0, performanceFail = false;
+  const contexts: any[] = [];
+  page.on("request", r => { if (r.method() === "PUT" && new URL(r.url()).pathname === "/api/mods/capital-overview/context") contexts.push(r.postDataJSON().context); });
+  await page.route(/\/api\/capital-flow(?:\?.*)?$/, route => route.fulfill({ json: fixture }));
+  await page.route("**/api/capital-flow/appetite-research**", route => route.fulfill({ status: 503 }));
+  await page.route("**/api/capital-flow/connect-research**", route => route.fulfill({ status: 503 }));
+  await page.route("**/api/capital-flow/sector-research**", route => route.fulfill({ status: 503 }));
+  await page.route("**/api/capital-flow/candidate-performance**", route => {
+    performanceCalls++;
+    if (performanceFail) return route.fulfill({ status: 503 });
+    const params = new URL(route.request().url()).searchParams;
+    const benchmarkOptions = [{ code: "000300.SH", name: "沪深300" }, { code: "000852.SH", name: "中证1000" }];
+    const benchmark = benchmarkOptions.find(item => item.code === params.get("benchmark_code"))!;
+    const benchmarkReturnPct = benchmark.code === "000852.SH" ? -3 : -1;
+    return route.fulfill({ json: { code: params.get("code"), signalDate: params.get("signal_date"), asOf: "2026-10-16", reason: "",
+      source: "测试行情", method: "复权参考，不是策略收益", benchmark: { ...benchmark, note: "非风格匹配基准" }, benchmarkOptions, feeds: {},
+      windows: [{ days: 1, end: "2026-10-16", status: "ready", rawReturnPct: -2, adjustedReturnPct: -2, benchmarkReturnPct,
+        excessPp: -2 - benchmarkReturnPct, nextOpenReturnPct: null, execution: "t-plus-one", executionNote: "A股T+1：不能当天卖出", reason: "" },
+        { days: 3, end: null, status: "pending", rawReturnPct: null, adjustedReturnPct: null, benchmarkReturnPct: null,
+          excessPp: null, nextOpenReturnPct: null, execution: "unverified", executionNote: "观察期尚未结束", reason: "" }] } });
+  });
+  await page.route("**/api/capital-flow/turnover-candidates**", route => {
+    calls++;
+    if (fail) return route.fulfill({ status: 503 });
+    const old = new URL(route.request().url()).searchParams.get("signal_date") === "2026-10-15";
+    return route.fulfill({ json: { current: true, signalDate: old ? "2026-10-15" : "2026-10-16", asOf: "2026-10-16",
+      signalDates: ["2026-10-16", "2026-10-15"], mode: old ? "retrospective" : "recorded", capturedAt: old ? null : "2026-10-17T01:00:00Z",
+      completed: 26, expected: 26, canContinue: false, reason: "", baselineStart: "2026-09-10", baselineEnd: "2026-10-15",
+      eligibleCount: 5000, excludedCount: 100, marketMedianRatio: 1.2, candidateCount: 121, displayLimit: 121, source: "验收样本", note: "成交不是净流入",
+      tracking: { recordedDays: 1, retrospectiveDays: 1, forwardCompleteDays: { "1": 0, "3": 0, "5": 0 }, note: "访问时记录，非后台自动采集；历史重算不算前向记录。",
+        rows: ["2026-10-16", "2026-10-15"].map(day => ({ signalDate: day, mode: day === "2026-10-16" ? "recorded" : "retrospective",
+          timing: day === "2026-10-16" ? "pending-calendar" : "retrospective", capturedAt: day === "2026-10-16" ? "2026-10-17T01:00:00Z" : null,
+          nextSession: day === "2026-10-15" ? "2026-10-16" : null, candidateCount: 121, current: true,
+          windows: [1, 3, 5].map(days => ({ days, end: null, candidateValid: 0, medianGapPp: null, forwardEligible: false, reason: "观察期或数据未确认" })) })) },
+      cohort: { total: 121, scope: "全部候选，不随分页变化", method: "日涨跌幅链式变化；正收益比例分母仅含有效样本，不是交易胜率。", windows: [1, 3, 5].map(days => ({
+        days, end: old && days === 1 ? "2026-10-16" : null, status: old && days === 1 ? "partial" : "pending", total: 121,
+        valid: old && days === 1 ? 119 : 0, missing: old && days === 1 ? 2 : 0, pending: old && days === 1 ? 0 : 121,
+        coveragePct: old && days === 1 ? 119 / 121 * 100 : 0, up: 0, flat: 0, down: old && days === 1 ? 119 : 0,
+        positivePct: old && days === 1 ? 0 : null, medianPct: old && days === 1 ? -2 : null, meanPct: old && days === 1 ? -2 : null,
+        p25Pct: old && days === 1 ? -2 : null, p75Pct: old && days === 1 ? -2 : null, minPct: old && days === 1 ? -2 : null, maxPct: old && days === 1 ? -2 : null,
+      })) },
+      comparison: old ? { status: "ready", reason: "", eligibleCount: 5000, method: "对照仅使用信号日可比较范围，不按后续行情重选。", control: {
+        total: 4879, scope: "信号日可比较范围内未入选股票", method: "测试对照", windows: [1, 3, 5].map(days => ({ days, end: days === 1 ? "2026-10-16" : null,
+          status: days === 1 ? "ready" : "pending", total: 4879, valid: days === 1 ? 4879 : 0, missing: 0, pending: days === 1 ? 0 : 4879,
+          coveragePct: days === 1 ? 100 : 0, up: days === 1 ? 2440 : 0, flat: 0, down: days === 1 ? 2439 : 0, positivePct: days === 1 ? 2440 / 4879 * 100 : null,
+          medianPct: days === 1 ? 1 : null, meanPct: days === 1 ? 0.5 : null, p25Pct: null, p75Pct: null, minPct: null, maxPct: null,
+        })) }, windows: [1, 3, 5].map(days => ({ days, end: days === 1 ? "2026-10-16" : null, status: "unavailable",
+          reason: days === 1 ? "两组样本未齐，不计算差值" : "观察期未到期", positiveGapPp: null, medianGapPp: null, meanGapPp: null }))
+      } : { status: "unavailable", reason: "旧快照未保存信号日可比较范围，不能还原冻结对照组", control: null, windows: [] },
+      candidates: Array.from({ length: 121 }, (_, i) => ({ code: `${String(i + 1).padStart(6, "0")}.SZ`, name: i === 120 ? null : `测试证券${i + 1}`, amountYi: 3, baselineYi: 1, ownRatio: 3, marketAdjustedRatio: 2.5, signalPct: 5,
+        forward: [{ days: 1, status: old ? i === 10 || i === 11 ? "missing" : "ready" : "pending", end: old ? "2026-10-16" : null, changePct: old && i !== 10 && i !== 11 ? -2 : null, reason: "" },
+          { days: 3, status: "pending", end: null, changePct: null, reason: "" }, { days: 5, status: "pending", end: null, changePct: null, reason: "" }] })) } });
+  });
+  await page.goto(`${shell}/?mod=capital-overview&workspace=candidate-${Date.now()}`);
+  const frame = page.frameLocator('iframe[title="资金总览"]');
+  const panel = frame.getByRole("region", { name: "异常成交候选研究" });
+  const candidateTable = panel.getByRole("table", { name: "异常成交候选与后续变化" });
+  const cohort = panel.getByRole("region", { name: "完整候选组统计" });
+  const comparison = panel.getByRole("region", { name: "同日非候选对照" });
+  const tracking = panel.getByRole("region", { name: "多日期信号追踪" });
+  await expect(panel).toBeVisible(); expect(calls).toBe(0);
+  await panel.getByRole("button", { name: "启用异常成交研究" }).click();
+  await expect(panel).toContainText("触发条件已冻结");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.data?.candidateCount).toBe(121);
+  await expect(panel.getByRole("button", { name: "测试证券1 ↗", exact: true })).toBeVisible();
+  await expect(candidateTable.getByRole("row")).toHaveCount(51);
+  await expect(cohort).toContainText("121只 · 全部候选，不随分页变化");
+  await expect(cohort.getByRole("table")).toContainText("无有效分母");
+  await expect(comparison).toContainText("旧快照未保存");
+  await expect(comparison.getByRole("table")).toHaveCount(0);
+  await expect(tracking).toContainText("已保存1日 · 事后重算1日");
+  await expect(tracking).toContainText("待下一交易日确认");
+  await expect(tracking.getByRole("button", { name: "查看2026-10-16候选" })).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "上一页", exact: true })).toBeDisabled();
+  const loadedCalls = calls;
+  await panel.getByRole("button", { name: "下一页", exact: true }).click();
+  await expect(panel).toContainText("第2/3页 · 第51–100条 / 共121条");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.data?.candidates[0]?.code).toBe("000051.SZ");
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.data.candidates).toHaveLength(50);
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.data.cohort.total).toBe(121);
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.data.cohort.windows[0].pending).toBe(121);
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.data.comparison.control).toBeNull();
+  await panel.getByRole("button", { name: "下一页", exact: true }).click();
+  await expect(candidateTable.getByRole("row")).toHaveCount(22);
+  await expect(cohort).toContainText("121只 · 全部候选，不随分页变化");
+  await expect(panel.getByRole("button", { name: "000121.SZ ↗", exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "下一页", exact: true })).toBeDisabled();
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.data?.pagination.page).toBe(3);
+  expect(calls).toBe(loadedCalls); // Pagination does not re-fetch or re-screen the cohort.
+  await panel.getByRole("button", { name: "上一页", exact: true }).click();
+  await tracking.getByRole("button", { name: "查看2026-10-15候选" }).click();
+  await expect(panel).toContainText("事后重算");
+  await expect(panel).toContainText("第1/3页 · 第1–50条 / 共121条");
+  await expect(candidateTable).toContainText("-2%");
+  await expect(candidateTable).toContainText("数据缺口");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.data?.signalDate).toBe("2026-10-15");
+  await expect(panel.getByLabel("异常成交信号日")).toHaveValue("2026-10-15");
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.data.tracking.recordedDays).toBe(1);
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.data.tracking.forwardCompleteDays["1"]).toBe(0);
+  await expect(cohort).toContainText("119/121");
+  await expect(cohort).toContainText("0 / 119只有效样本");
+  await expect(cohort).toContainText("缺失股票未被当作零收益");
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.data.cohort.windows[0].missing).toBe(2);
+  await expect(comparison).toContainText("未入选 4879只");
+  await expect(comparison).toContainText("两组样本未齐，不计算差值");
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.data.comparison.control.total).toBe(4879);
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.data.comparison.windows[0].medianGapPp).toBeNull();
+  expect(performanceCalls).toBe(0);
+  await panel.getByRole("button", { name: "核验000001.SZ表现", exact: true }).click();
+  const performance = panel.getByRole("region", { name: "候选表现核验" });
+  await expect(performance).toContainText("T+1限制");
+  await expect(performance.getByRole("table")).toContainText("-1pp");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.performance?.data?.code).toBe("000001.SZ");
+  await expect(performance.getByLabel("候选表现对照基准")).toHaveValue("000300.SH");
+  await performance.getByLabel("候选表现对照基准").selectOption("000852.SH");
+  await expect(performance.getByRole("columnheader", { name: "中证1000", exact: true })).toBeVisible();
+  await expect(performance.getByRole("cell", { name: "1pp", exact: true })).toBeVisible();
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.performance?.data?.benchmark.code).toBe("000852.SH");
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.performance.benchmarkCode).toBe("000852.SH");
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.performance.data.windows[0].adjustedReturnPct).toBe(-2);
+  await page.setViewportSize({ width: 390, height: 850 });
+  expect(await cohort.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  expect(await comparison.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  expect(await tracking.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  expect(await performance.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await performance.screenshot({ path: info.outputPath("candidate-performance-mobile.png") });
+  performanceFail = true;
+  await performance.getByLabel("候选表现对照基准").selectOption("000300.SH");
+  await expect(performance.getByRole("alert")).toContainText("503");
+  await expect(performance.getByRole("table")).toHaveCount(0);
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.performance?.data).toBeNull();
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.performance.benchmarkCode).toBe("000300.SH");
+  await expect(performance.getByLabel("候选表现对照基准")).toBeEnabled();
+  performanceFail = false;
+  await performance.getByLabel("候选表现对照基准").selectOption("000852.SH");
+  await expect(performance.getByRole("columnheader", { name: "中证1000", exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "下一页", exact: true }).click();
+  await expect(performance).toHaveCount(0);
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.performance).toBeNull();
+  await page.setViewportSize({ width: 390, height: 850 });
+  expect(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await panel.screenshot({ path: info.outputPath("turnover-candidates-mobile.png") });
+  fail = true;
+  await panel.getByRole("button", { name: "重新核验", exact: true }).click();
+  await expect(panel.getByRole("alert")).toContainText("503");
+  await expect(panel.getByRole("table")).toHaveCount(0);
+  await expect(cohort).toHaveCount(0);
+  await expect(comparison).toHaveCount(0);
+  await expect(tracking).toHaveCount(0);
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.data).toBeNull();
+  await panel.getByRole("button", { name: "收起异常成交研究" }).click();
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates).toBeNull();
+});
 import type { CapitalFlowDashboard, CapitalResearch, SectorCategory, SectorResearchData, SecurityResearchData, SecurityEvidenceData } from "../../modules/capital-flow/src/types";
 
 const shell = "http://127.0.0.1:5888";
+
+test("首次信号归档：离线浏览、日期过滤、冻结分页、失败撤回与Agent同步", async ({ page }, info) => {
+  const contexts: any[] = [];
+  let archiveCalls = 0, failList = false, failDetail = false;
+  page.on("request", r => { if (r.method() === "PUT" && new URL(r.url()).pathname === "/api/mods/capital-overview/context") contexts.push(r.postDataJSON().context); });
+  await page.route(/\/api\/capital-flow(?:\?.*)?$/, route => route.fulfill({ json: fixture }));
+  for (const endpoint of ["appetite-research", "connect-research", "sector-research", "turnover-candidates"]) {
+    await page.route(`**/api/capital-flow/${endpoint}**`, route => route.fulfill({ status: 503 }));
+  }
+  const row = { signalDate: "2020-01-02", capturedAt: "2020-01-02T08:00:00Z", candidateCount: 51, eligibleCount: 90,
+    controlCount: null, controlStatus: "missing", baselineStart: "2019-12-01", baselineEnd: "2019-12-31",
+    rules: { id: "relative-turnover-v1", baselineDays: 20, minAmountYi: 1, minOwnRatio: 2.7, minMarketAdjustedRatio: 1.5 },
+    marketMedianRatio: 1.2, mode: "recorded", verification: "not-evaluated", captureSource: "scheduled-close" };
+  await page.route("**/api/capital-flow/turnover-candidate-archive**", route => {
+    archiveCalls++;
+    const url = new URL(route.request().url()), pageNumber = Number(url.searchParams.get("page") || "1");
+    const isDetail = /archive\/\d/.test(url.pathname);
+    if (isDetail) {
+      if (failDetail) return route.fulfill({ status: 503 });
+      return route.fulfill({ json: { ...row, page: pageNumber, pageCount: 2, note: "仅存档，不重算收益。",
+        candidates: Array.from({ length: pageNumber === 1 ? 50 : 1 }, (_, i) => ({ code: `${String((pageNumber - 1) * 50 + i).padStart(6, "0")}.SZ`, amountYi: 3, baselineYi: 1, ownRatio: 3, marketAdjustedRatio: 2.5, signalPct: null })) } });
+    }
+    if (failList) return route.fulfill({ status: 503 });
+    const empty = url.searchParams.get("start") === "2025-01-01";
+    return route.fulfill({ json: { rows: empty ? [] : [{ ...row, signalDate: pageNumber === 2 ? "2020-01-01" : row.signalDate }],
+      total: empty ? 0 : 21, page: empty ? 1 : pageNumber, pageCount: empty ? 1 : 2, note: "只读归档",
+      collection: { enabled: true, tokenReady: true, schedule: "北京时间16:00–20:30，每30分钟检查", note: "未归档日期可能早于启用，非完整漏采审计。",
+        job: { status: "idle", next_run_at: "2026-10-16T16:30:00+08:00", last_success_at: "2026-10-16T16:00:00+08:00", last_error: null },
+        lastCheck: { status: "waiting-data", checkedAt: "2026-10-16T16:00:00+08:00", reason: "20日基线未齐", missingDates: ["2026-10-12"] },
+        missingDates: ["2026-10-15"], knownSessionCount: 2 } } });
+  });
+  await page.goto(`${shell}/?mod=capital-overview&workspace=archive-${Date.now()}`);
+  const frame = page.frameLocator('iframe[title="资金总览"]');
+  await frame.getByRole("button", { name: "启用异常成交研究" }).click();
+  const archive = frame.getByRole("region", { name: "首次信号归档", exact: true });
+  await expect(archive).toBeVisible();
+  expect(archiveCalls).toBe(0);
+  await archive.getByRole("button", { name: "浏览历史归档" }).click();
+  await expect(archive).toContainText("共21个已记录信号日");
+  await expect(archive).toContainText("旧记录缺对照");
+  const collection = archive.getByRole("region", { name: "收盘归档运行状态" });
+  await expect(collection).toContainText("等待行情补齐");
+  await expect(collection).toContainText("待补行情：2026-10-12");
+  await expect(collection).toContainText("未归档1日：2026-10-15");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.archive?.list.data?.collection.lastCheck.status).toBe("waiting-data");
+  await archive.getByRole("navigation", { name: "信号归档分页" }).getByRole("button", { name: "下一页" }).click();
+  await expect(archive.getByRole("button", { name: "打开2020-01-01归档" })).toBeVisible();
+  await archive.getByRole("navigation", { name: "信号归档分页" }).getByRole("button", { name: "上一页" }).click();
+  await archive.getByRole("button", { name: "打开2020-01-02归档" }).click();
+  const detail = archive.getByRole("region", { name: "冻结信号详情" });
+  await expect(detail).toContainText("自身≥2.7倍");
+  await expect(detail).toContainText("收盘任务");
+  await expect(detail.getByRole("table").getByRole("row")).toHaveCount(51);
+  await detail.getByRole("button", { name: "下一页" }).click();
+  await expect(detail.getByRole("table")).toContainText("000050.SZ");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.archive?.detail.data?.page).toBe(2);
+  expect(contexts.at(-1).data.summary.page.turnoverCandidates.archive.detail.data.candidates).toHaveLength(1);
+  failDetail = true;
+  await detail.getByRole("button", { name: "上一页" }).click();
+  await expect(detail.getByRole("alert")).toContainText("归档读取失败");
+  await expect(detail.getByRole("table")).toHaveCount(0);
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.archive?.detail.data).toBeNull();
+  await archive.getByLabel("归档开始日期").fill("2025-01-01");
+  await archive.getByRole("button", { name: "查询归档" }).click();
+  await expect(archive).toContainText("此范围没有首次观察归档");
+  await expect(detail).toHaveCount(0);
+  await archive.getByRole("button", { name: "全部日期" }).click();
+  failDetail = false;
+  await archive.getByRole("button", { name: "打开2020-01-02归档" }).click();
+  await expect(detail.getByRole("table")).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => archive.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await archive.screenshot({ path: info.outputPath("candidate-archive-mobile.png") });
+  failList = true;
+  await archive.getByRole("button", { name: "刷新归档" }).click();
+  await expect(archive.getByRole("alert")).toContainText("旧列表已撤下");
+  await expect(archive.getByRole("table", { name: "首次信号归档列表" })).toHaveCount(0);
+  await expect(collection).toHaveCount(0);
+  await archive.getByRole("button", { name: "收起归档" }).click();
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.turnoverCandidates.archive).toBeNull();
+});
+
+test("ETF大额申赎监控：线索、观察组缺口、失败撤回与Agent一致", async ({ page }, info) => {
+  const data = structuredClone(researchFixture), contexts: any[] = [];
+  let failed = false;
+  const codes = ["510300.SH", "510310.SH", "510330.SH", "159919.SZ"];
+  data.monitor = { asOf: data.expectedDate, rows: [{ code: codes[0]!, name: "测试沪深300ETF", source: "测试来源", asOf: data.expectedDate,
+    current: true, flowYi: 5, shareChangePct: 2, robustZ: 8, baselineSamples: 20, baselineExpected: 20, medianPct: .1, madPct: .05,
+    sameDirection5d: 4, persistenceComplete: true, direction: 1, flagged: true, label: "大额净申购异常", reason: "" }],
+    cohort: { name: "四只沪深300ETF", codes, expected: 4, available: 1, current: false, inflowCount: null, outflowCount: null,
+      sameDirectionPct: null, flowYi: null, abnormalCount: null, missingCodes: codes.slice(1) },
+    thresholds: { baselineDays: 20, robustZ: 3, minAbsShareChangePct: .1, minAbsFlowYi: 1 },
+    method: "测试：基准不含当日", boundary: "仅识别可观察异常，不推断汇金、国家队或其他持有人身份" };
+  await page.route(/\/api\/capital-flow(\?|$)/, route => route.fulfill({ json: fixture }));
+  await page.route("**/api/capital-flow/research**", route => failed ? route.fulfill({ status: 503 }) : route.fulfill({ json: data }));
+  await page.route("**/api/mods/capital-etf/storage/etf-watchlist/default", route => route.fulfill({ status: 404 }));
+  page.on("request", r => { if (r.method() === "PUT" && new URL(r.url()).pathname === "/api/mods/capital-etf/context") contexts.push(r.postDataJSON().context); });
+  await page.goto(`${shell}/?mod=capital-etf&workspace=etf-monitor-${Date.now()}`);
+  const frame = page.frameLocator('iframe[title="ETF资金"]');
+  const panel = frame.getByRole("region", { name: "ETF大额申赎监控" });
+  await expect(panel).toContainText("大额净申购异常");
+  await expect(panel).toContainText("观察组不完整，不计算同向度和合计");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research.monitor.data.rows[0].robustZ).toBe(8);
+  await frame.getByText(/管理ETF观察池 ·/).click();
+  await frame.getByRole("button", { name: "补入四只沪深300ETF（草稿）", exact: true }).click();
+  await expect(frame.getByRole("region", { name: "ETF观察池管理" })).toContainText("草稿未保存");
+  await expect(frame.locator('.etf-pool-list > div')).toHaveCount(11);
+  await frame.getByText(/管理ETF观察池 ·/).click();
+  await panel.screenshot({ path: info.outputPath("etf-monitor-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 850 });
+  expect(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  failed = true;
+  await frame.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(panel).toContainText("更新失败，上一批监控线索已撤下");
+  await expect(panel).not.toContainText("大额净申购异常");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research.monitor.status).toBe("error");
+  expect(contexts.at(-1).data.summary.page.research.monitor.data).toBeNull();
+  failed = false;
+  await frame.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(panel).toContainText("大额净申购异常");
+});
 const api = "http://127.0.0.1:8911";
 const dates = Array.from({ length: 90 }, (_, i) => new Date(Date.UTC(2026, 6, 16 + i)))
   .filter(date => date.getUTCDay() !== 0 && date.getUTCDay() !== 6).map(date => date.toISOString().slice(0, 10)).slice(-60);
@@ -29,6 +306,7 @@ const researchFixture: CapitalResearch = {
 
 test.beforeEach(async ({ page }, info) => {
   if (!info.title.startsWith("真实")) {
+    await page.route("**/api/capital-flow/etf-price**", route => route.fulfill({ status: 503 }));
     await page.route("**/api/capital-flow/connect-research**", route => route.fulfill({ status: 503 }));
     await page.route("**/api/capital-flow/security-evidence**", route => {
       const params = new URL(route.request().url()).searchParams;
@@ -918,6 +1196,237 @@ test("真实 HKEX 跨境快照：北向无净额，南向币种独立", async ({
   await frame.locator(".capital-root").screenshot({ path: info.outputPath("cross-border-live.png") });
 });
 
+test("ETF价赎关系：四种方向、切换隔离、因子变化和失败同步Agent", async ({ page }, info) => {
+  const contexts: any[] = [], data = structuredClone(researchFixture);
+  let mode = "ready", release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  data.etfs.forEach((row, index) => {
+    row.summary.strength = Object.fromEntries([1, 5, 20].map(days => [days, {
+      days, baseDate: dates.at(-days - 1)!, start: dates.at(-days)!, end: dates.at(-1)!,
+      baseAssetsYi: 100, flowYi: index === 1 || days === 20 ? -2 : 2, strengthPct: index === 1 || days === 20 ? -2 : 2,
+      available: days, expected: days, current: true, missingDates: [], splitDates: [], reason: "",
+    }]));
+  });
+  await page.route(/\/api\/capital-flow(\?|$)/, route => route.fulfill({ json: fixture }));
+  await page.route("**/api/capital-flow/research**", route => route.fulfill({ json: data }));
+  await page.route("**/api/capital-flow/etf-price**", async route => {
+    const code = new URL(route.request().url()).searchParams.get("code");
+    if (code === "518880.SH") await gate;
+    if (mode === "failed") return route.fulfill({ status: 503 });
+    return route.fulfill({ json: { code, source: "测试日线与因子", currency: "CNY", feeds: {}, method: "测试", windows: Object.fromEntries([1, 5, 20].map(days => [days, {
+      days, baseDate: mode === "misaligned" ? "2000-01-01" : dates.at(-days - 1), start: dates.at(-days), end: dates.at(-1), baseClose: 100, endClose: 102, baseFactor: 1, endFactor: mode === "action" ? 2 : 1,
+      rawReturnPct: mode === "action" ? -50 : 2, adjustedReturnPct: mode === "action" ? 0 : mode === "neutral" ? .03 : days === 5 ? -3 : 2,
+      current: mode !== "action", reason: mode === "action" ? "窗口复权因子变化，暂停背离判断" : "", missingDates: [], factorChangeDates: mode === "action" ? [dates.at(-1)] : [], points: [],
+    }])) } });
+  });
+  page.on("request", r => { if (r.method() === "PUT" && new URL(r.url()).pathname === "/api/mods/capital-etf/context") contexts.push(r.postDataJSON().context); });
+  await page.goto(`${shell}/?mod=capital-etf&workspace=etf-price-flow-${Date.now()}`);
+  const frame = page.frameLocator('iframe[title="ETF资金"]'), panel = frame.getByRole("region", { name: "ETF价格与申赎背离" });
+  const headline = panel.locator(".research-subhead strong");
+  await expect(headline).toHaveText("下跌伴随净申购 · 背离");
+  await expect(frame.locator(".capital-health .ready")).toContainText("所选价赎已核对");
+  await expect(frame.getByRole("group", { name: "ETF观察池窗口覆盖" })).toContainText("2 / 2 只");
+  await expect(frame.getByRole("group", { name: "所选ETF研究摘要" })).toContainText("下跌伴随净申购 · 背离");
+  await expect(frame.getByRole("region", { name: "ETF申赎研究台" })).not.toContainText("融资");
+  await expect(frame.locator(".funding-research h2")).toHaveCount(0);
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research.priceFlow.selected.divergence).toBe(true);
+  expect(contexts.at(-1).data.summary.page.research.leverage).toBeUndefined();
+  expect(contexts.at(-1).data.summary.dimensions).toBeUndefined();
+  expect(contexts.at(-1).data.source).toContain("ETF份额与净值");
+  expect(contexts.at(-1).data.summary.page.research.poolWindowCoverage).toMatchObject({ total: 2, confirmed: 2, inflow: 1, outflow: 1, unconfirmed: 0 });
+  await frame.locator(".capital-root").screenshot({ path: info.outputPath("etf-research-desk.png") });
+  await frame.getByRole("button", { name: "1日强度", exact: true }).click();
+  await expect(headline).toHaveText("上涨伴随净申购");
+  await frame.getByRole("button", { name: "20日强度", exact: true }).click();
+  await expect(headline).toHaveText("上涨伴随净赎回 · 背离");
+  await frame.locator(".funding-research > .research-table-scroll").getByRole("button", { name: /黄金ETF/ }).click();
+  await expect(headline).toHaveText("未确认");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research.priceFlow.code).toBe("518880.SH");
+  expect(contexts.at(-1).data.summary.page.research.priceFlow.selected.adjustedReturnPct).toBeNull();
+  release();
+  await frame.getByRole("button", { name: "5日强度", exact: true }).click();
+  await expect(headline).toHaveText("下跌伴随净赎回");
+  mode = "failed";
+  await frame.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(panel).toContainText("ETF价格读取失败（503）");
+  await expect(frame.locator(".capital-health .degraded")).toContainText("所选价赎待核验");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research.priceFlow.selected.current).toBe(false);
+  expect(contexts.at(-1).data.summary.page.research.priceFlow.windows.every((row: any) => !row.current && !row.divergence)).toBe(true);
+  expect(contexts.at(-1).data.freshness).toBe("unknown");
+  mode = "action";
+  await frame.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(panel).toContainText("复权因子变化日");
+  await expect(headline).toHaveText("未确认");
+  mode = "misaligned";
+  await frame.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(panel).toContainText("价格与申赎窗口日期不一致");
+  mode = "neutral";
+  await frame.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(headline).toHaveText("幅度不足，不判方向");
+  await page.setViewportSize({ width: 390, height: 850 });
+  expect(await frame.locator(".capital-root").evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await panel.screenshot({ path: info.outputPath("etf-price-flow-mobile.png") });
+});
+
+test("ETF强度：规模比较、窗口排序、缺口和刷新失败同步Agent", async ({ page }, info) => {
+  const contexts: any[] = [];
+  let fail = false;
+  const data = structuredClone(researchFixture);
+  const strengths = [[1, -2, 3], [2, 4, -1]];
+  data.etfs.forEach((row, index) => {
+    row.summary.strength = Object.fromEntries([1, 5, 20].map((days, i) => [days, {
+      days, start: dates.at(-days)!, end: dates.at(-1)!, baseDate: dates.at(-days - 1)!,
+      baseAssetsYi: index === 0 ? 1000 : 10, flowYi: strengths[index]![i]! * (index === 0 ? 10 : .1),
+      strengthPct: strengths[index]![i]!, available: days, expected: days, current: true,
+      missingDates: [], splitDates: [], reason: "",
+    }]));
+  });
+  data.etfs.push({ ...structuredClone(data.etfs[0]!), code: "513100.SH", name: "缺口ETF",
+    summary: { ...data.etfs[0]!.summary, strength: Object.fromEntries([1, 5, 20].map(days => [days, {
+      ...data.etfs[0]!.summary.strength![days], current: false, strengthPct: null, flowYi: null,
+      available: 0, missingDates: [dates.at(-1)!], reason: "同日净值缺失",
+    }])) } });
+  page.on("request", request => {
+    if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/mods/capital-etf/context") contexts.push(request.postDataJSON().context);
+  });
+  await page.route(/\/api\/capital-flow(\?|$)/, route => route.fulfill({ json: fixture }));
+  await page.route("**/api/capital-flow/research**", route => fail ? route.fulfill({ status: 503 }) : route.fulfill({ json: data }));
+  await page.goto(`${shell}/?mod=capital-etf&workspace=etf-strength-${Date.now()}`);
+  const frame = page.frameLocator('iframe[title="ETF资金"]'), detail = frame.getByRole("region", { name: "所选ETF申赎强度" });
+  await expect(detail).toContainText("-2%");
+  await expect(frame.getByRole("group", { name: "ETF观察池窗口覆盖" })).toContainText("2 / 3 只");
+  await frame.getByLabel("ETF强度排序").selectOption("inflow");
+  await expect(frame.locator(".research-table tbody tr").first()).toContainText("黄金ETF");
+  await expect(frame.locator(".research-table tbody tr").last()).toContainText("缺口ETF");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research.strengthComparison.sort).toBe("inflow");
+  expect(contexts.at(-1).data.summary.page.research.etfs[0].code).toBe("518880.SH");
+  await frame.locator(".research-table").getByRole("button", { name: /黄金ETF/ }).click();
+  await expect(detail).toContainText("+4%");
+  await expect(detail).toContainText("规模估算 10 亿元");
+  await frame.getByRole("button", { name: "20日强度", exact: true }).click();
+  await expect(detail).toContainText("-1%");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research.strengthComparison.days).toBe(20);
+  await expect(frame.locator(".research-table tbody tr").first()).toContainText("沪深300ETF");
+  await frame.getByLabel("ETF强度排序").selectOption("outflow");
+  await expect(frame.locator(".research-table tbody tr").first()).toContainText("黄金ETF");
+  await frame.getByRole("button", { name: "1日强度", exact: true }).click();
+  await expect(detail).toContainText("+2%");
+  await frame.locator(".research-table").getByRole("button", { name: /缺口ETF/ }).click();
+  await expect(detail).toContainText("--% · 未确认");
+  await expect(detail).toContainText("同日净值缺失");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research.strengthComparison.available).toBe(2);
+  await frame.locator(".research-table").getByRole("button", { name: /黄金ETF/ }).click();
+  fail = true;
+  await frame.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(detail).toContainText("+2% · 未确认");
+  await expect(frame.getByRole("group", { name: "ETF观察池窗口覆盖" })).toContainText("0 / 3 只");
+  await expect(frame.locator(".capital-health .degraded")).toContainText("研究更新失败");
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research.snapshotOnly).toBe(true);
+  expect(contexts.at(-1).data.summary.page.research.strengthComparison.selected.current).toBe(false);
+  expect(contexts.at(-1).data.summary.page.research.etfs.every((row: any) => !row.summary.strength[1].current)).toBe(true);
+  expect(contexts.at(-1).data.freshness).toBe("unknown");
+  await page.setViewportSize({ width: 390, height: 850 });
+  expect(await frame.locator(".capital-root").evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await detail.screenshot({ path: info.outputPath("etf-strength-mobile.png") });
+});
+
+test("ETF观察池：草稿隔离、工作区保存、切换清除旧数据及重载", async ({ page }, info) => {
+  const contexts: any[] = [], requests: any[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  page.on("request", request => {
+    if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/mods/capital-etf/context") contexts.push(request.postDataJSON().context);
+  });
+  await page.route("**/api/capital-flow", route => route.fulfill({ json: fixture }));
+  await page.route("**/api/capital-flow/etf-search**", route => route.fulfill({ json: { status: "ready", source: "测试ETF目录", total: 1, matched: 1,
+    items: [{ code: "588000.SH", name: "科创50测试ETF", indexName: "科创50" }] } }));
+  await page.route("**/api/capital-flow/research**", async route => {
+    if (route.request().method() !== "POST") return route.fulfill({ json: researchFixture });
+    const body = route.request().postDataJSON(); requests.push(body);
+    await gate;
+    await route.fulfill({ json: { ...researchFixture, coverage: { ...researchFixture.coverage, etfTotal: body.items.length, etfAvailable: body.items.length },
+      etfs: body.items.map((item: any) => ({ ...researchFixture.etfs[0], ...item, name: item.code === "588000.SH" ? "科创50测试ETF" : item.code })) } });
+  });
+  await page.goto(`${shell}/?mod=capital-etf&workspace=etf-watchlist-${Date.now()}`);
+  const frame = page.frameLocator('iframe[title="ETF资金"]'), editor = frame.getByRole("region", { name: "ETF观察池管理" });
+  await editor.locator("summary").click();
+  await expect(editor).toContainText("当前用户工作区");
+  await expect(editor).toContainText("观察池已载入");
+  await editor.getByLabel("搜索ETF名称或代码").fill("科创50");
+  await editor.getByRole("button", { name: /科创50测试ETF.*添加/ }).click();
+  await expect(editor.getByRole("button", { name: /科创50测试ETF.*已添加/ })).toBeDisabled();
+  await editor.getByLabel("588000.SH研究分组").selectOption("宽基");
+  await editor.getByRole("button", { name: "移除510300.SH", exact: true }).click();
+  await expect(editor).toContainText("草稿未保存");
+  expect(requests).toHaveLength(0);
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.watchlist.loaded).toBe(true);
+  expect(contexts.at(-1).data.summary.page.watchlist.items.some((item: any) => item.code === "588000.SH")).toBe(false);
+  await editor.getByRole("button", { name: "保存并应用观察池" }).click();
+  await expect(editor).toContainText("已保存到当前用户工作区");
+  await expect.poll(() => requests.length).toBe(1);
+  await expect(frame.locator(".research-table tbody tr")).toHaveCount(0);
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research).toBeNull();
+  expect(requests[0].items.some((item: any) => item.code === "510300.SH")).toBe(false);
+  release();
+  await expect(frame.locator(".research-table tbody tr")).toHaveCount(8);
+  await frame.locator(".research-table").getByRole("button", { name: /科创50测试ETF/ }).click();
+  await expect.poll(() => contexts.at(-1)?.data.summary.page.research.selectedETF.code).toBe("588000.SH");
+  await page.reload();
+  await editor.locator("summary").click();
+  await expect(editor.getByLabel("588000.SH研究分组")).toHaveValue("宽基");
+  await expect(editor.getByRole("button", { name: "移除510300.SH", exact: true })).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 850 });
+  expect(await frame.locator(".capital-root").evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await frame.locator(".capital-root").screenshot({ path: info.outputPath("etf-watchlist-mobile.png") });
+});
+
+test("ETF观察池：保存冲突保留草稿，目录失败不可新增", async ({ page }) => {
+  let reads = 0;
+  await page.route("**/api/capital-flow", route => route.fulfill({ json: fixture }));
+  await page.route("**/api/mods/capital-etf/storage/etf-watchlist/default", route => route.request().method() === "PUT"
+    ? route.fulfill({ status: 409, json: { detail: "revision conflict" } }) : ++reads === 1 ? route.fulfill({ status: 404 })
+      : route.fulfill({ json: { revision: 1, value: { items: [{ code: "510300.SH", name: "沪深300ETF", category: "行业" }] } } }));
+  await page.route("**/api/capital-flow/etf-search**", route => route.fulfill({ json: { status: "unavailable", reason: "目录权限不足", items: [] } }));
+  await page.goto(`${shell}/?mod=capital-etf&workspace=etf-conflict-${Date.now()}`);
+  const frame = page.frameLocator('iframe[title="ETF资金"]'), editor = frame.getByRole("region", { name: "ETF观察池管理" });
+  await editor.locator("summary").click();
+  await editor.getByLabel("510300.SH研究分组").selectOption("未分类");
+  await editor.getByRole("button", { name: "保存并应用观察池" }).click();
+  await expect(editor).toContainText("草稿保留");
+  await expect(editor.getByLabel("510300.SH研究分组")).toHaveValue("未分类");
+  await expect(editor.getByRole("button", { name: "保存并应用观察池" })).toBeEnabled();
+  await expect(frame.locator(".research-table tbody tr")).toHaveCount(2);
+  await editor.getByLabel("搜索ETF名称或代码").fill("588000");
+  await expect(editor.getByRole("alert").first()).toContainText("目录权限不足");
+  await expect(editor.locator(".etf-search-results button")).toHaveCount(0);
+  await editor.getByRole("button", { name: "重新读取观察池" }).click();
+  await expect(editor).toContainText("已读取最新观察池");
+  await expect(editor.getByLabel("510300.SH研究分组")).toHaveValue("未分类");
+  await editor.getByRole("button", { name: "撤销草稿修改" }).click();
+  await expect(editor.getByLabel("510300.SH研究分组")).toHaveValue("行业");
+  await expect(editor.locator(".etf-pool-list > div")).toHaveCount(1);
+});
+
+test("ETF观察池：独立页面保存，刷新失败明确历史状态", async ({ page }) => {
+  let failing = false;
+  await page.route("**/api/capital-flow", route => route.fulfill({ json: fixture }));
+  await page.route("**/api/capital-flow/research**", route => failing ? route.fulfill({ status: 503 }) : route.fulfill({ json: researchFixture }));
+  await page.goto(`${api}/mod-runtime/capital-flow/?view=etf&mod=capital-etf`);
+  const editor = page.getByRole("region", { name: "ETF观察池管理" });
+  await editor.locator("summary").click();
+  await editor.getByLabel("510300.SH研究分组").selectOption("未分类");
+  await editor.getByRole("button", { name: "保存并应用观察池" }).click();
+  await expect(editor).toContainText("已保存到本浏览器");
+  await page.reload();
+  await editor.locator("summary").click();
+  await expect(editor.getByLabel("510300.SH研究分组")).toHaveValue("未分类");
+  await expect(page.locator(".research-table tbody tr")).toHaveCount(2);
+  failing = true;
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(page.locator(".funding-research")).toContainText(/失败|503/);
+  await expect(page.locator(".research-table tbody tr")).toHaveCount(2);
+});
+
 test("ETF选择、观察窗口和缺失柱与Agent上下文一致", async ({ page }) => {
   const contexts: any[] = [];
   page.on("request", request => {
@@ -926,7 +1435,7 @@ test("ETF选择、观察窗口和缺失柱与Agent上下文一致", async ({ pag
   await page.route("**/api/capital-flow", route => route.fulfill({ json: fixture }));
   await page.goto(`${shell}/?mod=capital-etf&workspace=capital-etf-${Date.now()}`);
   const frame = page.frameLocator('iframe[title="ETF资金"]');
-  await expect(frame.getByRole("heading", { name: "ETF 配置与申赎" })).toBeVisible();
+  await expect(frame.getByRole("region", { name: "ETF申赎研究台" })).toBeVisible();
   await expect(frame.locator("[data-flow-bar]")).toHaveCount(19);
   await expect(frame.getByRole("img", { name: "沪深300ETF申赎估算历史" })).toContainText("缺");
   await frame.getByRole("button", { name: /黄金ETF/ }).click();
@@ -940,16 +1449,71 @@ test("ETF选择、观察窗口和缺失柱与Agent上下文一致", async ({ pag
 });
 
 test("ETF和资金总览研究独立加载，小屏表格不挤出页面", async ({ page }) => {
+  let snapshotRequests = 0;
   await page.route("**/api/capital-flow/appetite-research**", route => route.fulfill({ status: 503 }));
-  await page.route("**/api/capital-flow", route => route.fulfill({ status: 503, json: { detail: "行业服务不可用" } }));
+  await page.route("**/api/capital-flow", route => { snapshotRequests++; return route.fulfill({ status: 503, json: { detail: "行业服务不可用" } }); });
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto(`${api}/mod-runtime/capital-flow/?view=etf&mod=capital-etf`);
   await expect(page.locator(".research-table")).toContainText("沪深300ETF");
+  expect(snapshotRequests).toBe(0);
   expect(await page.locator(".capital-root").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.getByRole("button", { name: "资金总览", exact: true }).click();
   await expect(page.getByRole("region", { name: "资金决策总览" })).toContainText("研究证据未取得");
+  await expect.poll(() => snapshotRequests).toBe(1);
   await expect(page.locator(".research-metrics")).toHaveCount(0);
   expect(await page.locator(".capital-root").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
+test("真实ETF观察池：目录搜索、保存单标的及真实份额净值", async ({ page }, info) => {
+  await page.goto(`${shell}/?mod=capital-etf&workspace=etf-live-pool-${Date.now()}`);
+  const frame = page.frameLocator('iframe[title="ETF资金"]'), editor = frame.getByRole("region", { name: "ETF观察池管理" });
+  await editor.locator("summary").click();
+  await editor.getByLabel("搜索ETF名称或代码").fill("588000");
+  await editor.getByRole("button", { name: /588000.SH.*添加/ }).click();
+  await editor.getByLabel("588000.SH研究分组").selectOption("宽基");
+  for (const code of ["510300.SH", "510500.SH", "159915.SZ", "512480.SH", "512880.SH", "511010.SH", "518880.SH", "513100.SH"]) {
+    await editor.getByRole("button", { name: `移除${code}`, exact: true }).click();
+  }
+  const responsePromise = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/capital-flow/research");
+  const priceResponsePromise = page.waitForResponse(response => new URL(response.url()).pathname === "/api/capital-flow/etf-price" && new URL(response.url()).searchParams.get("code") === "588000.SH");
+  await editor.getByRole("button", { name: "保存并应用观察池" }).click();
+  const response = await responsePromise;
+  expect(response.ok()).toBe(true);
+  const data = await response.json() as CapitalResearch;
+  expect(data.etfs.map(item => item.code)).toEqual(["588000.SH"]);
+  expect(data.coverage.etfTotal).toBe(1);
+  expect(data.etfs[0]!.source).toContain("Tushare");
+  expect(data.etfs[0]!.latest.sharesWan).toBeGreaterThan(0);
+  expect(data.etfs[0]!.latest.nav).toBeGreaterThan(0);
+  const etf = data.etfs[0]!;
+  const priceResponse = await priceResponsePromise;
+  expect(priceResponse.ok()).toBe(true);
+  const priceData = await priceResponse.json();
+  for (const days of [1, 5, 20]) {
+    const window = etf.summary.strength![days]!;
+    expect(window.current).toBe(true);
+    const base = etf.points.find(point => point.date === window.baseDate)!;
+    const points = data.calendar.dates.slice(-days).map(day => etf.points.find(point => point.date === day)!);
+    const flow = points.reduce((sum, point) => sum + point.shareChangeWan! * point.nav! / 10000, 0);
+    expect(window.baseAssetsYi).toBeCloseTo(base.sharesWan! * base.nav! / 10000, 8);
+    expect(window.flowYi).toBeCloseTo(flow, 8);
+    expect(window.strengthPct).toBeCloseTo(flow / window.baseAssetsYi! * 100, 6);
+    const price = priceData.windows[days];
+    expect(price.baseDate).toBe(window.baseDate);
+    expect(price.end).toBe(window.end);
+    expect(price.current).toBe(true);
+    expect(price.adjustedReturnPct).toBeCloseTo((price.endClose * price.endFactor / (price.baseClose * price.baseFactor) - 1) * 100, 6);
+  }
+  await expect(frame.locator(".research-table tbody tr")).toHaveCount(1);
+  await expect(frame.locator(".research-table tbody tr")).toContainText("588000.SH");
+  await expect(editor).toContainText("已保存到当前用户工作区");
+  await expect(frame.getByRole("region", { name: "所选ETF申赎强度" })).toContainText(`${etf.summary.strength![5]!.strengthPct!.toLocaleString("zh-CN", { maximumFractionDigits: 2 })}%`);
+  await editor.locator("summary").click();
+  const relation = frame.getByRole("region", { name: "ETF价格与申赎背离" });
+  await expect(relation.locator('[data-price-flow-days="5"]')).toContainText(`${priceData.windows[5].adjustedReturnPct.toLocaleString("zh-CN", { maximumFractionDigits: 2 })}%`);
+  await expect(relation.locator(".research-subhead strong")).not.toHaveText("未确认");
+  await relation.screenshot({ path: info.outputPath("etf-price-flow-live.png") });
+  await frame.locator(".capital-root").screenshot({ path: info.outputPath("etf-custom-live.png") });
 });
 
 test("真实ETF与沪深北融资：份额净值可追溯，缺失不冒充零", async ({ page }, info) => {
@@ -960,7 +1524,7 @@ test("真实ETF与沪深北融资：份额净值可追溯，缺失不冒充零",
   const row = page.locator(".research-table tbody tr").filter({ hasText: "510300.SH" });
   await expect(row).toContainText(/份额 \/ 净值齐备|保存历史|部分缺失/);
   await expect(row).toContainText(/2026-\d\d-\d\d/);
-  await expect(page.locator(".research-source")).toContainText("Tushare");
+  await expect(page.locator(".funding-research > .research-source")).toContainText("Tushare");
   await expect(page.locator("[data-flow-bar]").first()).toBeVisible();
   await page.screenshot({ path: info.outputPath("etf-live.png"), fullPage: true });
   await page.getByRole("button", { name: "风险偏好", exact: true }).click();

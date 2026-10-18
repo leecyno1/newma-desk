@@ -83,6 +83,9 @@ function dataSource(): MarketDataSource {
       hasMore: false,
       items: [{ timestamp: 1, open: 1, high: 2, low: 1, close: 2, volume: 10 }],
     })),
+    sentiment: vi.fn(async () => ({})),
+    sentimentHistory: vi.fn(() => new Promise<never>(() => {})),
+    limitBoards: vi.fn(() => new Promise<never>(() => {})),
     overview: vi.fn(async () => ({
       sentiment: { up: 3000, down: 1800, flat: 120, breadth: "偏强" },
       sectors: [{ name: "半导体", pct: 2.1, net: 200000000 }],

@@ -29,12 +29,16 @@ class RefreshSchedulerService:
         snapshot_store: SnapshotStore,
         market_client: MarketSnapshotClient,
         poll_seconds: float = 30.0,
+        candidate_collector=None,
+        market_enabled: bool = True,
     ):
         self._store = store
         self._repository = repository
         self._snapshot_store = snapshot_store
         self._market_client = market_client
         self._poll_seconds = poll_seconds
+        self._candidate_collector = candidate_collector
+        self._market_enabled = market_enabled
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
 
@@ -60,13 +64,22 @@ class RefreshSchedulerService:
 
     async def tick(self, now: datetime | None = None) -> None:
         tick_at = now or datetime.now(timezone.utc)
+        # A quick process restart may happen before a lease expires; recover on later ticks too.
+        await self.startup(tick_at)
         modules = await run_in_threadpool(self._repository.list_published)
         scheduled_ids: set[str] = set()
         for module in modules:
+            if module.module_id == "capital-overview" and self._candidate_collector is not None:
+                from vibe_visualization_api.capital_flow.candidate_collector import CRON
+                scheduled_ids.add(module.module_id)
+                await run_in_threadpool(self._store.ensure_job, module_id=module.module_id,
+                                        cron=CRON, timezone="Asia/Shanghai", now=tick_at)
+                continue
             refresh = module.manifest.get("refresh")
             capabilities = module.manifest.get("agentCapabilities", [])
             if (
-                module.module_id != "market-daily"
+                not self._market_enabled
+                or module.module_id != "market-daily"
                 or not isinstance(refresh, dict)
                 or refresh.get("mode") != "schedule"
                 or not isinstance(refresh.get("cron"), str)
@@ -92,6 +105,8 @@ class RefreshSchedulerService:
             await asyncio.gather(*(self._run_job(job, tick_at) for job in due))
 
     async def refresh_module(self, module_id: str):
+        if module_id == "capital-overview" and self._candidate_collector is not None:
+            return await asyncio.wait_for(self._candidate_collector.collect(), timeout=180)
         if module_id != "market-daily":
             raise ValueError("no refresh handler is registered for this module")
         try:

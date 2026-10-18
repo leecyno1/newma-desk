@@ -386,12 +386,20 @@ export interface ETFResearchPoint {
   navChangePct: number | null; suspectedSplit: boolean;
 }
 
+export interface ETFStrengthWindow {
+  days: number; start: string | null; end: string | null; baseDate: string | null;
+  baseAssetsYi: number | null; flowYi: number | null; strengthPct: number | null;
+  available: number; expected: number; missingDates: string[]; splitDates: string[];
+  current: boolean; reason: string;
+}
+
 export interface ETFResearch {
   code: string; name: string; category: string; currency: string;
   source: string; sourceNote: string; receivedAt: string; fetchStatus: string; usingSaved: boolean;
   status: string; asOf: string | null; expectedDate: string | null; note: string;
   latest: Partial<ETFResearchPoint>; points: ETFResearchPoint[];
-  summary: { flow1dYi: number | null; flow5dYi: number | null; flow20dYi: number | null; baseline: ResearchBaseline };
+  summary: { flow1dYi: number | null; flow5dYi: number | null; flow20dYi: number | null; baseline: ResearchBaseline;
+    strength?: Record<string, ETFStrengthWindow> };
 }
 
 export interface MarketLeveragePoint {
@@ -401,6 +409,7 @@ export interface MarketLeveragePoint {
 }
 
 export interface CapitalResearch {
+  monitor?: ETFMonitor;
   schemaVersion: string; generatedAt: string; expectedDate: string | null;
   calendar: { status: string; sessions: number; dates: string[]; reason: string };
   coverage: { etfAvailable: number; etfTotal: number; sampleOnly: boolean; primaryStatus: string; primaryReason: string };
@@ -413,4 +422,18 @@ export interface CapitalResearch {
     summary: { net1dYi: number | null; net5dYi: number | null; net20dYi: number | null; baseline: ResearchBaseline };
   };
   notes: string[];
+}
+
+export interface ETFMonitor {
+  asOf: string | null;
+  rows: Array<{ code: string; name: string; source: string; asOf: string | null; current: boolean;
+    flowYi: number | null; shareChangePct: number | null; robustZ: number | null;
+    baselineSamples: number; baselineExpected: number; medianPct: number | null; madPct: number | null;
+    sameDirection5d: number | null; persistenceComplete: boolean; direction: number | null;
+    flagged: boolean; label: string; reason: string }>;
+  cohort: { name: string; codes: string[]; expected: number; available: number; current: boolean;
+    inflowCount: number | null; outflowCount: number | null; sameDirectionPct: number | null;
+    flowYi: number | null; abnormalCount: number | null; missingCodes: string[] };
+  thresholds: { baselineDays: number; robustZ: number; minAbsShareChangePct: number; minAbsFlowYi: number };
+  method: string; boundary: string;
 }

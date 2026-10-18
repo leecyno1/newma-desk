@@ -34,12 +34,14 @@ export const MARKET_WORKSPACES: Record<MarketWorkspaceKind, MarketWorkspaceConfi
     kind: "sentiment",
     modId: "market-sentiment",
     title: "情绪分析",
-    description: "用市场宽度、涨跌停、行业扩散和成交活跃度观察交易情绪。",
+    description: "核对A股日终样本参与度、涨跌分布与覆盖缺口；与资金模块交叉验证，不替代盘中行情。",
     accent: "var(--vibe-accent)",
     blocks: [
-      { id: "sentiment-score", type: "market-sentiment", title: "情绪温度" },
+      { id: "sentiment-participation", type: "market-sentiment", title: "A股市场参与度与证据状态" },
       { id: "sentiment-breadth", type: "market-breadth", title: "市场宽度" },
-      { id: "sentiment-sectors", type: "sector-diffusion", title: "行业扩散" },
+      { id: "sentiment-distribution", type: "market-distribution", title: "涨跌分布与样本覆盖" },
+      { id: "sentiment-history", type: "market-breadth-history", title: "20交易日固定样本参与度趋势" },
+      { id: "sentiment-limit-boards", type: "limit-board-pools", title: "非ST涨跌停、连板梯队与炸板名单" },
     ],
   },
   technical: {

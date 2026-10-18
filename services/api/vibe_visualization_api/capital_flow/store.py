@@ -47,6 +47,31 @@ class CapitalHistoryStore:
             ).fetchone()
         return [json.loads(row["payload"]) for row in rows], dict(run) if run else {}
 
+    def save_once(self, dataset: str, symbol: str, row: dict) -> dict:
+        """Freeze the first observed cohort, including an empty but valid candidate set."""
+        with self._connect() as connection:
+            connection.execute("INSERT OR IGNORE INTO capital_observations VALUES (?, ?, ?, ?, ?)",
+                               (dataset, symbol, row["date"], json.dumps(row, ensure_ascii=False), row["capturedAt"]))
+            saved = connection.execute("SELECT payload FROM capital_observations WHERE dataset=? AND symbol=? AND date=?",
+                                       (dataset, symbol, row["date"])).fetchone()
+        return json.loads(saved["payload"])
+
+    def read_page(self, dataset: str, symbol: str, start: str, end: str, page: int, page_size: int) -> dict:
+        """Browse stored observations without the live research window or a remote fetch."""
+        with self._connect() as connection:
+            params = (dataset, symbol, start, end)
+            total = connection.execute(
+                "SELECT COUNT(*) FROM capital_observations WHERE dataset=? AND symbol=? AND date BETWEEN ? AND ?", params,
+            ).fetchone()[0]
+            page_count = max(1, (total + page_size - 1) // page_size)
+            page = min(page, page_count)
+            rows = connection.execute(
+                "SELECT payload FROM capital_observations WHERE dataset=? AND symbol=? AND date BETWEEN ? AND ? ORDER BY date DESC LIMIT ? OFFSET ?",
+                (*params, page_size, (page - 1) * page_size),
+            ).fetchall()
+        return {"rows": [json.loads(row["payload"]) for row in rows], "total": total,
+                "page": page, "pageSize": page_size, "pageCount": page_count}
+
     def save(self, dataset: str, symbol: str, rows: list[dict], *, start: str, end: str,
              status: str, reason: str, received_at: str, replace_window: bool = False) -> None:
         with self._connect() as connection:

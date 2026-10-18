@@ -1,0 +1,32 @@
+{
+  "id": "market-breadth-data",
+  "name": "A股日终参与度",
+  "description": "复用资金模块的 Tushare 日线与交易日历，提供有覆盖说明的日终市场统计。",
+  "priority": 10,
+  "baseUrl": "http://127.0.0.1:8911",
+  "transport": "rest",
+  "capabilities": {
+    "market.limit-boards": {
+      "method": "GET", "path": "/api/capital-flow/limit-boards",
+      "inputSchema": { "type": "object", "properties": { "refresh": { "type": "boolean" } }, "additionalProperties": false },
+      "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+      "permission": "market.read"
+    },
+    "market.sentiment-history": {
+      "method": "GET",
+      "path": "/api/capital-flow/sentiment-history",
+      "inputSchema": { "type": "object", "properties": { "refresh": { "type": "boolean" } }, "additionalProperties": false },
+      "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+      "permission": "market.read"
+    },
+    "market.sentiment": {
+      "method": "GET",
+      "path": "/api/capital-flow/sentiment",
+      "inputSchema": { "type": "object", "properties": { "refresh": { "type": "boolean" } }, "additionalProperties": false },
+      "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+      "permission": "market.read"
+    }
+  },
+  "timeoutSeconds": 90,
+  "allowedHosts": ["127.0.0.1"]
+}

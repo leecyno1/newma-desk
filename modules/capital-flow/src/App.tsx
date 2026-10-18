@@ -1,15 +1,20 @@
 import { ExternalLink, RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { ModPageContext } from "@newma-desk/contracts";
+import type { DeskInit, ModPageContext } from "@newma-desk/contracts";
 import { connectModHost, type ModHostConnection } from "@newma-desk/mod-sdk";
 
 import { fetchAppetiteResearch, fetchCapitalFlow, fetchCapitalResearch, fetchCapitalSupply, fetchSupplyVerification, fetchSectorResearch, fetchSecurityResearch, fetchSecurityEvidence, fetchLiquidityResearch, searchCapitalFlowSecurities } from "./api";
 import { AppetiteResearch, appetiteContext, type AppetiteHorizon } from "./AppetiteResearch";
 import { FundingResearch } from "./FundingResearch";
+import { useETFPrice, priceFlowContext, type ETFPriceState } from "./ETFPriceFlow";
+import { etfMonitorContext } from "./ETFMonitor";
+import { etfPoolCoverage, sortedETFs, withETFStrengthState, type ETFStrengthDays, type ETFStrengthSort } from "./etfStrength";
+import { ETFWatchlist, useETFWatchlist, poolKey, DEFAULT_ETFS, type ETFWatchItem } from "./ETFWatchlist";
 import { SectorResearchPanel } from "./SectorResearch";
 import { OverviewBrief, overviewContext } from "./OverviewBrief";
 import { TurnoverPanel } from "./TurnoverPanel";
+import { TurnoverCandidates, useTurnoverCandidates, candidateContext, type CandidateState } from "./TurnoverCandidates";
 import { useTurnoverHistory, turnoverHistoryContext, type TurnoverHistoryState } from "./TurnoverHistory";
 import { ConnectBrief, ConnectResearch, useConnectResearch, connectContext, type ConnectResearchState } from "./ConnectResearch";
 import { SupplyResearch, supplyMetrics, supplyReview, visibleSupplyRows, type SupplyFilter } from "./SupplyResearch";
@@ -30,7 +35,7 @@ const VIEW_META: Record<View, { title: string; description: string }> = {
   sectors: { title: "行业轮动", description: "观察行业资金净流与价格扩散" },
   "cross-border": { title: "跨境资金", description: "沪深港通官方快照与成交额历史" },
   liquidity: { title: "流动性", description: "货币信用、资金价格与市场传导" },
-  etf: { title: "ETF 资金", description: "成交、份额、申赎与折溢价数据状态" },
+  etf: { title: "ETF 资金", description: "自选观察池、规模归一化申赎与价格关系" },
   emotion: { title: "风险偏好", description: "价格、ETF配置与融资关系，行业和信用独立验证" },
   security: { title: "个股资金", description: "主力资金、两融、龙虎榜与股份供需" },
   dimensions: { title: "数据口径", description: "来源、频率、时滞与覆盖边界" },
@@ -45,6 +50,7 @@ const VIEW_BLOCKS: Record<View, ModPageContext["visibleBlocks"]> = {
     { id: "connect-research", type: "investment-evidence", title: "跨境资金通道窗口与五日对照" },
     { id: "sector-flow", type: "capital-flow", title: "行业资金汇总" },
     { id: "turnover", type: "market-liquidity", title: "市场成交" },
+    { id: "turnover-candidates", type: "market-liquidity", title: "异常成交候选与后续变化" },
   ],
   sectors: [
     { id: "sector-quadrant", type: "sector-rotation", title: "行业资金与价格轮动" },
@@ -55,7 +61,9 @@ const VIEW_BLOCKS: Record<View, ModPageContext["visibleBlocks"]> = {
   liquidity: [{ id: "liquidity-rates", type: "rate-history", title: "资金利率与分层利差" },
     { id: "liquidity-credit", type: "money-credit", title: "货币与社融季节比较" },
     { id: "liquidity-transmission", type: "investment-evidence", title: "投资传导提示与缺口" }],
-  etf: [{ id: "etf-flow", type: "etf-flow", title: "ETF 资金" }],
+  etf: [{ id: "etf-pool", type: "etf-flow", title: "观察池强度比较与数据覆盖" },
+    { id: "etf-history", type: "etf-flow", title: "所选ETF申赎历史与计算依据" },
+    { id: "etf-price-flow", type: "investment-evidence", title: "价格与申赎同窗口关系" }],
   emotion: [{ id: "capital-risk-appetite", type: "capital-risk-appetite", title: "价格配置杠杆证据矩阵" },
     { id: "appetite-benchmark", type: "price-history", title: "沪深300波动与回撤" },
     { id: "appetite-background", type: "investment-evidence", title: "行业单日与月度信用背景" }],
@@ -133,7 +141,10 @@ function DragonTigerPanel({ data, coverage }: { data?: DragonTigerData; coverage
   </div>;
 }
 
-type ResearchState = { data: CapitalResearch | null; loading: boolean; error: string; selectedETF: string; days: number };
+type ResearchState = { data: CapitalResearch | null; loading: boolean; error: string; selectedETF: string; days: number;
+  strengthDays?: ETFStrengthDays; strengthSort?: ETFStrengthSort;
+  priceState?: ETFPriceState;
+  watchlist?: { items: ETFWatchItem[]; loaded: boolean; storage: string; error: string } };
 type SectorState = { data: SectorResearchData | null; loading: boolean; error: string; category: SectorCategory; code: string; days: number; query: string; level?: SectorLevel };
 type SupplyState = { data: CapitalSupplyData | null; loading: boolean; error: string; filter: SupplyFilter; limit: number };
 type VerificationTarget = { code: string; kind: SupplyKind; annDate: string; refresh?: boolean };
@@ -186,11 +197,15 @@ export function withFundingResearch(data: CapitalFlowDashboard | null, research:
   return { ...data, dimensions, riskAppetite: { drivers, available: drivers.filter(driver => driver.signal !== "unavailable").length, total: drivers.length } };
 }
 
-export function buildContext(data: CapitalFlowDashboard | null, view: View, code: string, modId = "capital-flow", selection?: SecuritySearchItem | null, loading = false, query = "", error = "", sectorSort: SectorSort = "strength", researchState?: ResearchState, sectorState?: SectorState, supplyState?: SupplyState, verificationState?: VerificationState, securityResearchState?: SecurityResearchState, evidenceState?: EvidenceState, liquidityState?: LiquidityState, appetiteState?: AppetiteState, turnoverHistory?: TurnoverHistoryState, connectResearch?: ConnectResearchState): ModPageContext {
+export function buildContext(data: CapitalFlowDashboard | null, view: View, code: string, modId = "capital-flow", selection?: SecuritySearchItem | null, loading = false, query = "", error = "", sectorSort: SectorSort = "strength", researchState?: ResearchState, sectorState?: SectorState, supplyState?: SupplyState, verificationState?: VerificationState, securityResearchState?: SecurityResearchState, evidenceState?: EvidenceState, liquidityState?: LiquidityState, appetiteState?: AppetiteState, turnoverHistory?: TurnoverHistoryState, connectResearch?: ConnectResearchState, candidates?: CandidateState): ModPageContext {
   const turnoverPending = loading || !!error;
   const research = researchState?.data;
-  const selectedETF = research?.etfs.find(item => item.code === researchState?.selectedETF);
-  if (view === "etf" && researchState) { loading = researchState.loading; error = researchState.error; }
+  const researchETFs = sortedETFs((research?.etfs ?? []).map(row => withETFStrengthState(row,
+    !researchState?.loading && !researchState?.error && research?.calendar.status === "ready")), researchState?.strengthDays ?? 5, researchState?.strengthSort ?? "pool");
+  const selectedETF = researchETFs.find(item => item.code === researchState?.selectedETF) ?? researchETFs[0];
+  const etfPriceRelation = priceFlowContext(selectedETF, researchState?.priceState, researchState?.strengthDays ?? 5);
+  const etfCoverage = etfPoolCoverage(researchETFs, researchState?.strengthDays ?? 5);
+  if (view === "etf" && researchState) { loading = researchState.loading || !!researchState.priceState?.loading; error = [researchState.error, researchState.priceState?.error].filter(Boolean).join("；"); }
   if (view === "sectors" && sectorState) { loading = sectorState.loading; error = sectorState.error; }
   if (view === "security" && securityResearchState) { loading = securityResearchState.loading; error = securityResearchState.error; }
   if (view === "liquidity" && liquidityState) { loading = liquidityState.loading; error = liquidityState.error; }
@@ -213,7 +228,7 @@ export function buildContext(data: CapitalFlowDashboard | null, view: View, code
     quadrantSummary: sectorResearch.boards.reduce<Record<string, number>>((counts, row) => { const key = sectorPhase(row).id; counts[key] = (counts[key] ?? 0) + 1; return counts; }, {}),
     selected: sectorResearch.selected ? { ...sectorResearch.selected, points: sectorResearch.selected.points.slice(-(sectorState?.days ?? 20)) } : null } : null;
   const freshness = view === "liquidity" ? !loading && !error && liquidity?.daily.series.every(row => row.current) && liquidity?.credit.money.current && liquidity?.credit.social.current ? "fresh" : "unknown"
-    : view === "etf" ? research?.calendar.status === "ready" && selectedETF?.status === "ready" ? "fresh" : "unknown"
+    : view === "etf" ? !loading && !error && research?.calendar.status === "ready" && research.coverage.etfAvailable === research.coverage.etfTotal && etfCoverage.total > 0 && !etfCoverage.unconfirmed && etfPriceRelation?.selected.current ? "fresh" : "unknown"
     : view === "sectors" ? sectorResearch?.coverage.status === "ready" && sectorResearch?.calendar.status === "ready" && sectorResearch.asOf === sectorResearch.expectedDate && (sectorResearch.category !== "industry" || sectorResearch.classification?.current) ? "fresh" : "unknown"
     : view === "security" ? stockResearch?.calendar.status === "ready" && Object.values(stockResearch.feeds).every(feed => feed.status === "ready" && !feed.usingSaved && feed.asOf === stockResearch.expectedDate)
       && selectedEvidence?.board.calendarStatus === "ready" && selectedEvidence.board.date === stockResearch.expectedDate && selectedEvidence.audit.confirmedInputs
@@ -222,10 +237,17 @@ export function buildContext(data: CapitalFlowDashboard | null, view: View, code
     : view === "emotion" || view === "overview" ? !loading && !error && appetite?.windows[appetiteState?.days ?? 5].evidence.every(row => row.current) && appetite.breadth.current && appetite.credit.money.current && (view !== "overview" || data?.upstream.status === "ready" && connectReady) ? "fresh" : "unknown"
     : data?.upstream.status === "degraded" ? "stale" : "unknown";
   const researchContext = research ? {
+    loading: !!researchState?.loading, error: researchState?.error || "", snapshotOnly: !!researchState?.loading || !!researchState?.error,
     expectedDate: research.expectedDate, coverage: research.coverage, calendar: research.calendar, groups: research.groups, notes: research.notes,
-    etfs: research.etfs.map(({ points: _points, ...item }) => item),
+    etfs: researchETFs.map(({ points: _points, ...item }) => item),
+    priceFlow: etfPriceRelation,
+    monitor: etfMonitorContext(research, !!researchState?.loading, researchState?.error || ""),
+    poolWindowCoverage: etfCoverage,
+    strengthComparison: { days: researchState?.strengthDays ?? 5, sort: researchState?.strengthSort ?? "pool",
+      available: researchETFs.filter(row => row.summary.strength?.[researchState?.strengthDays ?? 5]?.current).length,
+      total: researchETFs.length, selected: selectedETF?.summary.strength?.[researchState?.strengthDays ?? 5] ?? null,
+      method: "窗口申赎等值估算合计 / 窗口前一交易日份额×同日净值；不是收益率或官方AUM。未确认行不参与强度排序。" },
     selectedETF: view === "etf" ? { ...selectedETF, points: selectedETF?.points.slice(-(researchState?.days ?? 20)) } : undefined,
-    leverage: { ...research.leverage, points: research.leverage.points.slice(-(researchState?.days ?? 20)) },
   } : null;
   const security = data?.security?.code === code ? data.security : null;
   const supply = supplyState?.data?.code === code ? supplyState.data : null;
@@ -265,10 +287,11 @@ export function buildContext(data: CapitalFlowDashboard | null, view: View, code
       turnoverResearch: data?.turnover ? { ...data.turnover, current: data.turnover.current && !turnoverPending,
         snapshotOnly: turnoverPending || !data.turnover.current } : null,
       turnoverHistory: turnoverHistoryContext(turnoverHistory),
+      turnoverCandidates: candidateContext(candidates),
       secondarySnapshot: { scope: "折叠的单日快照，仅作来源对照；不能替代逐日研究或据此确认连续方向", crossBorder: data?.crossBorder ? { ...data.crossBorder, northbound: { ...data.crossBorder.northbound, history: undefined } } : null, sourceStatus: data?.upstream.status },
       openResearch: ["emotion", "etf", "liquidity", "sectors", "cross-border"] }
     : view === "sectors" ? { sectorResearch: sectorContext, pendingCode: sectorState?.code }
-    : view === "etf" ? { research: researchContext, note: "份额变化×净值是申赎等值估算，不是外部现金流" }
+    : view === "etf" ? { research: researchContext, watchlist: researchState?.watchlist, note: "份额变化×净值是申赎等值估算，不是外部现金流；观察池不是持仓，分组不是官方分类" }
     : { sectors: data?.sectors?.slice(0, 20), turnoverLeaders: data?.turnoverLeaders, riskAppetite: data?.riskAppetite };
   return {
     view: { id: modId, title: VIEW_META[view].title },
@@ -277,7 +300,7 @@ export function buildContext(data: CapitalFlowDashboard | null, view: View, code
       : view === "etf" ? { securityCode: researchState?.selectedETF ?? "510300.SH", securityName: selectedETF?.name ?? null, assetType: "etf", market: "CN" }
       : view === "sectors" ? { sectorCode: sectorState?.code || sectorResearch?.selected?.code || null, sectorName: sectorResearch?.selected?.name ?? null } : {},
     filters: { view, ...(["overview", "cross-border"].includes(view) ? { connectDays: connectResearch?.days ?? 20 } : {}), ...(view === "overview" && turnoverHistory?.enabled ? { turnoverHistoryDays: turnoverHistory.days } : {}), ...(["overview", "emotion"].includes(view) ? { horizonDays: appetiteState?.days ?? 5, benchmarkDays: 60, breadthScope: "单日", creditScope: "月度" } : {}), ...(view === "liquidity" ? { historyDays: liquidityState?.days ?? 60, liquidityChart: liquidityState?.chart ?? "rates", monthlyMonths: 12 } : {}), ...(view === "security" ? { historyDays: securityResearchState?.days ?? 20, boardDate: selectedEvidence?.board.date ?? evidenceState?.boardDate ?? null, boardReason: selectedEvidence?.board.groups.find(group => group.reasonKey === evidenceState?.reasonKey)?.reasonKey ?? selectedEvidence?.board.groups[0]?.reasonKey ?? null, auditDate: selectedEvidence?.audit.official.date ?? evidenceState?.auditDate ?? null, supplyType: supplyState?.filter ?? "all", supplyLimit: supplyState?.limit ?? 80 } : {}), ...(view === "sectors" ? { sectorSort, category: sectorState?.category, sectorLevel: sectorState?.category === "industry" ? sectorState?.level ?? "L1" : "all", sectorQuery: sectorState?.query, historyDays: sectorState?.days ?? 20 } : {}), ...(view === "etf" ? { historyDays: researchState?.days ?? 20 } : {}) },
-    data: { source: view === "emotion" ? "Tushare指数/ETF份额与净值/融资/行业/货币信用，各自窗口独立核验" : view === "liquidity" ? "Tushare回购成交/SHIBOR/货币供应量/社融，来源独立，央行净投放未接入" : "各维度独立来源，见 dimensions", freshness: view === "cross-border" ? (!loading && !error && !connectResearch?.loading && !connectResearch?.error && connectResearch?.data?.windows[connectResearch.days].northbound.current && connectResearch.data.windows[connectResearch.days].southbound.current ? "fresh" : "unknown") : view === "overview" && turnoverHistory?.enabled && (turnoverHistory.loading || turnoverHistory.error || !turnoverHistory.data?.current) ? "unknown" : freshness, ...(asOf ? { asOf } : {}), summary: { loading, error, researchLoading: researchState?.loading, researchError: researchState?.error, snapshotRequestedAt: ["overview", "emotion"].includes(view) ? appetite?.generatedAt : view === "liquidity" ? liquidity?.generatedAt : view === "etf" ? research?.generatedAt : view === "sectors" ? sectorResearch?.generatedAt : view === "security" ? stockResearch?.generatedAt : data?.generatedAt, metrics: ["etf", "sectors", "security", "liquidity", "emotion"].includes(view) ? undefined : data?.summary, dimensions: ["liquidity", "emotion"].includes(view) ? undefined : view === "overview" ? data?.dimensions.filter(row => ["market", "northbound", "southbound"].includes(row.id)) : data?.dimensions, page, caveats: ["请求时间不是行情时间；缺失不是零", "北向成交不代表净流入；南向用港元，不能混加", "订单大小分类不是机构账户；龙虎榜多条上榜理由不可重复累加", "各维度独立解读，不合成预测分数"] } },
+    data: { source: view === "etf" ? "Tushare ETF份额与净值、市场日线与复权因子；按交易日窗口核对" : view === "emotion" ? "Tushare指数/ETF份额与净值/融资/行业/货币信用，各自窗口独立核验" : view === "liquidity" ? "Tushare回购成交/SHIBOR/货币供应量/社融，来源独立，央行净投放未接入" : "各维度独立来源，见 dimensions", freshness: view === "cross-border" ? (!loading && !error && !connectResearch?.loading && !connectResearch?.error && connectResearch?.data?.windows[connectResearch.days].northbound.current && connectResearch.data.windows[connectResearch.days].southbound.current ? "fresh" : "unknown") : view === "overview" && turnoverHistory?.enabled && (turnoverHistory.loading || turnoverHistory.error || !turnoverHistory.data?.current) ? "unknown" : freshness, ...(asOf ? { asOf } : {}), summary: { loading, error, researchLoading: researchState?.loading, researchError: researchState?.error, snapshotRequestedAt: ["overview", "emotion"].includes(view) ? appetite?.generatedAt : view === "liquidity" ? liquidity?.generatedAt : view === "etf" ? research?.generatedAt : view === "sectors" ? sectorResearch?.generatedAt : view === "security" ? stockResearch?.generatedAt : data?.generatedAt, metrics: ["etf", "sectors", "security", "liquidity", "emotion"].includes(view) ? undefined : data?.summary, dimensions: ["etf", "liquidity", "emotion"].includes(view) ? undefined : view === "overview" ? data?.dimensions.filter(row => ["market", "northbound", "southbound"].includes(row.id)) : data?.dimensions, page, caveats: view === "etf" ? ["请求时间不是行情时间；缺失不补零", "观察池不是全市场；申赎等值估算不是外部现金流，强度不是收益率", "价格与申赎需同窗口核对；背离不是买卖指令"] : ["请求时间不是行情时间；缺失不是零", "北向成交不代表净流入；南向用港元，不能混加", "订单大小分类不是机构账户；龙虎榜多条上榜理由不可重复累加", "各维度独立解读，不合成预测分数"] } },
     actions: [{ id: "capital-flow.refresh", label: "刷新资金数据", available: ["liquidity", "emotion"].includes(view) ? !loading : !loading && !appetiteState?.loading && !researchState?.loading && !sectorState?.loading && !supplyState?.loading && !securityResearchState?.loading && !evidenceState?.loading, inputSchema: { type: "object", additionalProperties: false } }],
     tasks: [],
   };
@@ -446,12 +469,16 @@ export function CapitalFlowApp() {
   const requestedView = moduleParams.get("view") as View | null;
   const defaultView: View = requestedView && ["overview", "sectors", "cross-border", "liquidity", "etf", "emotion", "security", "dimensions"].includes(requestedView) ? requestedView : "overview";
   const embedded = window.parent !== window;
+  const [hostConfig, setHostConfig] = useState<DeskInit>();
   const [baseData, setBaseData] = useState<CapitalFlowDashboard | null>(null);
-  const [research, setResearch] = useState<CapitalResearch | null>(null);
+  const [researchData, setResearch] = useState<CapitalResearch | null>(null);
+  const [researchPoolKey, setResearchPoolKey] = useState("");
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchError, setResearchError] = useState("");
   const [selectedETF, setSelectedETF] = useState("510300.SH");
   const [historyDays, setHistoryDays] = useState(20);
+  const [strengthDays, setStrengthDays] = useState<ETFStrengthDays>(5);
+  const [strengthSort, setStrengthSort] = useState<ETFStrengthSort>("pool");
   const [liquidityData, setLiquidityData] = useState<LiquidityResearchData | null>(null);
   const [liquidityLoading, setLiquidityLoading] = useState(defaultView === "liquidity");
   const [liquidityError, setLiquidityError] = useState("");
@@ -462,6 +489,9 @@ export function CapitalFlowApp() {
   const [appetiteError, setAppetiteError] = useState("");
   const [appetiteDays, setAppetiteDays] = useState<AppetiteHorizon>(5);
   const [view, setView] = useState<View>(defaultView);
+  const etfWatchlist = useETFWatchlist(hostConfig, embedded, view === "etf");
+  const etfPoolKey = poolKey(etfWatchlist.items);
+  const research = etfWatchlist.loaded && researchPoolKey === etfPoolKey ? researchData : null;
   const [sectorData, setSectorData] = useState<SectorResearchData | null>(null);
   const [sectorLoading, setSectorLoading] = useState(false);
   const [sectorError, setSectorError] = useState("");
@@ -479,7 +509,9 @@ export function CapitalFlowApp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const etfPriceState = useETFPrice(selectedETF, view === "etf" && !!research?.etfs.some(row => row.code === selectedETF), refreshKey);
   const turnoverHistory = useTurnoverHistory(view === "overview", refreshKey);
+  const candidates = useTurnoverCandidates(view === "overview", refreshKey);
   const connectResearch = useConnectResearch(view === "cross-border" || view === "overview", refreshKey);
   const activeConnectState = view === "overview" ? { ...connectResearch.state, days: appetiteDays } : connectResearch.state;
   const [input, setInput] = useState("");
@@ -525,25 +557,26 @@ export function CapitalFlowApp() {
   const outflows = useMemo(() => [...(activeSectorData?.boards ?? [])].filter((item) => Number(item.net) < 0).sort((a, b) => Number(a.net) - Number(b.net)).slice(0, 10), [activeSectorData]);
   const contextRef = useRef(buildContext(data, view, code, moduleId));
   contextRef.current = buildContext(data, view, code, moduleId, selectedSecurity, loading, input, error, sectorSort,
-    { data: research, loading: researchLoading, error: researchError, selectedETF, days: historyDays },
+    { data: research, loading: researchLoading, error: researchError, selectedETF, days: historyDays, strengthDays, strengthSort, priceState: etfPriceState,
+      watchlist: { items: etfWatchlist.loaded ? etfWatchlist.items : [], loaded: etfWatchlist.loaded, storage: etfWatchlist.storage, error: etfWatchlist.error } },
     { data: activeSectorData, loading: sectorLoading, error: sectorError, category: activeCategory, code: activeSectorCode, days: sectorDays, query: sectorQuery, level: sectorLevel },
     { data: activeSupply, loading: supplyLoading, error: supplyError, filter: supplyFilter, limit: supplyLimit },
     { data: activeVerification, target: activeTarget, loading: verificationLoading, error: verificationError },
     { data: activeStockResearch, loading: stockLoading, error: stockError, days: stockDays },
     { data: activeEvidence, loading: evidenceLoading, error: evidenceError, boardDate, auditDate, reasonKey },
     { data: liquidityData, loading: liquidityLoading, error: liquidityError, days: liquidityDays, chart: liquidityChart },
-    { data: appetiteData, loading: appetiteLoading, error: appetiteError, days: appetiteDays }, turnoverHistory.state, activeConnectState);
+    { data: appetiteData, loading: appetiteLoading, error: appetiteError, days: appetiteDays }, turnoverHistory.state, activeConnectState, candidates.state);
 
   useEffect(() => { document.title = VIEW_META[view].title + " · Newma-Desk"; if (!document.documentElement.dataset.theme) document.documentElement.dataset.theme = "dark"; }, [view]);
   useEffect(() => {
-    if (view === "liquidity" || view === "emotion") { setLoading(false); return; }
+    if (view === "liquidity" || view === "emotion" || view === "etf") { setLoading(false); return; }
     const controller = new AbortController();
     setLoading(true); setError(""); setBaseData(null);
     void fetchCapitalFlow(code || null, controller.signal, refreshKey > 0).then(result => { if (!controller.signal.aborted) setBaseData(result); }).catch((reason: unknown) => {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "资金数据读取失败");
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [code, refreshKey, view === "liquidity" || view === "emotion"]);
+  }, [code, refreshKey, view === "liquidity" || view === "emotion" || view === "etf"]);
 
   useEffect(() => {
     if (!needsAppetite) { setAppetiteLoading(false); return; }
@@ -612,15 +645,16 @@ export function CapitalFlowApp() {
   }, [activeTarget, view, refreshKey]);
 
   useEffect(() => {
-    if (!needsResearch) { setResearchLoading(false); return; }
+    if (!needsResearch || !etfWatchlist.loaded) { setResearchLoading(false); return; }
     const controller = new AbortController();
     setResearchLoading(true); setResearchError("");
-    void fetchCapitalResearch(refreshKey > 0, controller.signal)
-      .then(result => { if (!controller.signal.aborted) setResearch(result); })
+    if (!etfWatchlist.items.some(item => item.code === selectedETF)) setSelectedETF(etfWatchlist.items[0]!.code);
+    void fetchCapitalResearch(refreshKey > 0, controller.signal, etfPoolKey === poolKey(DEFAULT_ETFS) ? undefined : etfWatchlist.items)
+      .then(result => { if (!controller.signal.aborted) { setResearch(result); setResearchPoolKey(etfPoolKey); } })
       .catch((reason: unknown) => { if (!controller.signal.aborted) setResearchError(reason instanceof Error ? reason.message : "配置与融资研究读取失败"); })
       .finally(() => { if (!controller.signal.aborted) setResearchLoading(false); });
     return () => controller.abort();
-  }, [needsResearch, refreshKey]);
+  }, [needsResearch, refreshKey, etfPoolKey, etfWatchlist.loaded]);
 
   useEffect(() => {
     if (!needsSectors) { setSectorLoading(false); return; }
@@ -652,15 +686,19 @@ export function CapitalFlowApp() {
   }, [input, selectedSecurity?.name]);
 
   useEffect(() => {
-    const controller = new AbortController(); let close: () => void = () => undefined;
-    void connectModHost({ modId: moduleId, parentOrigin: parentOrigin(), sdkVersion: "0.1.0", capabilities: ["actions", "context", "theme"], signal: controller.signal })
-      .then((connection) => { if (!connection.embedded) { close = connection.close; return; } setHost(connection); close = connection.close; })
+    const controller = new AbortController(); let close: () => void = () => undefined; let unsubscribe = () => {};
+    void connectModHost({ modId: moduleId, parentOrigin: parentOrigin(), sdkVersion: "0.1.0", capabilities: ["actions", "context", "theme", "storage"], signal: controller.signal })
+      .then((connection) => { if (!connection.embedded) { close = connection.close; return; } setHost(connection); setHostConfig(connection.config); unsubscribe = connection.subscribe(setHostConfig); close = connection.close; })
       .catch(() => undefined);
-    return () => { controller.abort(); close(); };
+    return () => { controller.abort(); unsubscribe(); close(); };
   }, [moduleId]);
   useEffect(() => host?.setContextProvider(() => contextRef.current), [host]);
+  useEffect(() => { host?.publishContext(contextRef.current); }, [host, etfPriceState.data, etfPriceState.loading, etfPriceState.error]);
+  useEffect(() => { host?.publishContext(contextRef.current); }, [host, strengthDays, strengthSort]);
+  useEffect(() => { host?.publishContext(contextRef.current); }, [host, etfWatchlist.loaded, etfWatchlist.items, etfWatchlist.error]);
   useEffect(() => { host?.publishContext(contextRef.current); }, [host, connectResearch.state.data, connectResearch.state.loading, connectResearch.state.error, connectResearch.state.days]);
   useEffect(() => { host?.publishContext(contextRef.current); }, [host, turnoverHistory.state.enabled, turnoverHistory.state.days, turnoverHistory.state.data, turnoverHistory.state.loading, turnoverHistory.state.error]);
+  useEffect(() => { host?.publishContext(contextRef.current); }, [host, candidates.state.enabled, candidates.state.data, candidates.state.loading, candidates.state.error, candidates.state.performance, candidates.state.archive]);
   useEffect(() => { host?.publishContext(contextRef.current); }, [code, data, host, view, selectedSecurity, loading, input, error, sectorSort, research, researchLoading, researchError, selectedETF, historyDays, activeSectorData, sectorLoading, sectorError, activeCategory, activeSectorCode, sectorDays, sectorQuery, activeSupply, supplyLoading, supplyError, supplyFilter, supplyLimit, activeTarget, activeVerification, verificationLoading, verificationError, activeStockResearch, stockLoading, stockError, stockDays, activeEvidence, evidenceLoading, evidenceError, boardDate, auditDate, reasonKey, liquidityData, liquidityLoading, liquidityError, liquidityDays, liquidityChart, appetiteData, appetiteLoading, appetiteError, appetiteDays, sectorLevel]);
   useEffect(() => host?.setUiActionHandler((actionId) => { if (actionId !== "capital-flow.refresh") throw new Error("资金面不支持动作 " + actionId); setRefreshKey((value) => value + 1); return { refreshed: true }; }), [host]);
 
@@ -687,19 +725,22 @@ export function CapitalFlowApp() {
   const openSector = (selected = "") => {
     setSectorData(null); setSectorCategory("industry"); setSectorLevel("L1"); setSectorCode(selected); setSectorQuery(""); setView("sectors");
   };
-  const activeLoading = view === "cross-border" ? loading || connectResearch.state.loading : view === "overview" ? loading || appetiteLoading || connectResearch.state.loading : view === "emotion" ? appetiteLoading : view === "liquidity" ? liquidityLoading : view === "etf" ? researchLoading : view === "sectors" ? sectorLoading : view === "security" ? stockLoading : loading;
-  const refreshBusy = view === "cross-border" ? loading || connectResearch.state.loading : view === "overview" ? loading || appetiteLoading || connectResearch.state.loading : view === "emotion" ? appetiteLoading : view === "liquidity" ? liquidityLoading : view === "etf" ? researchLoading : view === "sectors" ? sectorLoading : loading || researchLoading || sectorLoading || stockLoading || supplyLoading || evidenceLoading;
+  const activeETFs = (research?.etfs ?? []).map(row => withETFStrengthState(row, !researchLoading && !researchError && research?.calendar.status === "ready"));
+  const activeETFCoverage = etfPoolCoverage(activeETFs, strengthDays);
+  const activeETFRelation = priceFlowContext(activeETFs.find(row => row.code === selectedETF) ?? activeETFs[0], etfPriceState, strengthDays);
+  const activeLoading = view === "cross-border" ? loading || connectResearch.state.loading : view === "overview" ? loading || appetiteLoading || connectResearch.state.loading : view === "emotion" ? appetiteLoading : view === "liquidity" ? liquidityLoading : view === "etf" ? researchLoading || etfPriceState.loading : view === "sectors" ? sectorLoading : view === "security" ? stockLoading : loading;
+  const refreshBusy = view === "cross-border" ? loading || connectResearch.state.loading : view === "overview" ? loading || appetiteLoading || connectResearch.state.loading : view === "emotion" ? appetiteLoading : view === "liquidity" ? liquidityLoading : view === "etf" ? researchLoading || etfPriceState.loading : view === "sectors" ? sectorLoading : loading || researchLoading || sectorLoading || stockLoading || supplyLoading || evidenceLoading;
   const healthText = view === "cross-border" ? `${connectResearch.state.error ? "跨境历史更新失败" : connectResearch.state.data ? "跨境历史按官方通道交易日核对" : "跨境历史尚未取得"} · 单日快照独立标注日期` : view === "overview" ? `${appetiteError || !appetiteData ? "研究证据未完成更新" : `${appetiteData.windows[appetiteDays].verifiedRelationships}/2 组权益关系可核对`} · ${error || data?.upstream.status !== "ready" ? "跨境/成交部分来源缺失" : "跨境/成交独立快照可用"} · ${connectResearch.state.error ? "跨境研究更新失败" : activeConnectState.data?.windows[activeConnectState.days].northbound.current && activeConnectState.data?.windows[activeConnectState.days].southbound.current ? "跨境窗口齐备" : "跨境研究有缺口"}`
     : view === "emotion" ? appetiteError ? "更新失败，当前为保留快照" : appetiteData ? `${appetiteData.windows[appetiteDays].verifiedRelationships}/2 组权益关系可核对 · ${appetiteDays}交易日 · ${appetiteData.expectedDate ?? "无日期"}` : "尚未取得风险偏好证据"
     : view === "liquidity" ? liquidityError ? "更新失败，请核对保留数据" : liquidityData ? `${liquidityData.feeds.filter(feed => feed.status === "ready" && !feed.usingSaved).length}/5 来源请求成功 · 日频 ${liquidityData.daily.asOf ?? "无日期"} · 月频各自标注` : "尚未取得流动性研究"
-    : view === "etf" ? research ? `ETF 当日份额 / 净值 ${research.coverage.etfAvailable}/${research.coverage.etfTotal} 只齐备` : "尚未取得 ETF 研究数据"
+    : view === "etf" ? researchError ? "研究更新失败 · 保留数据仅供参考" : research ? `${research.coverage.etfAvailable}/${research.coverage.etfTotal} 只当日份额 / 净值齐备 · ${strengthDays}日强度 ${activeETFCoverage.confirmed}/${activeETFCoverage.total} 只可确认 · 所选价赎${activeETFRelation?.selected.current ? "已核对" : "待核验"}` : "尚未取得 ETF 研究数据"
     : view === "security" ? activeStockResearch ? `个股历史 ${Object.values(activeStockResearch.feeds).filter(feed => feed.status === "ready" && !feed.usingSaved && feed.asOf === activeStockResearch.expectedDate).length}/4 个来源日期对齐 · 龙虎榜、公告另行核验` : code ? "尚未取得个股历史" : "输入标的查询资金历史"
     : view === "sectors" ? activeSectorData ? `${activeSectorData.categoryLabel}板块 ${activeSectorData.boards.length} 个 · ${activeSectorData.coverage.status === "ready" ? "日频来源可用" : "来源异常，核对缺口"}` : "尚未取得板块研究数据"
     : data ? data.upstream.status === "ready" ? "主要来源可用" : "部分来源缺失，请按维度核对" : "尚未取得数据";
   const requestedAt = ["overview", "emotion"].includes(view) ? appetiteData?.generatedAt : view === "liquidity" ? liquidityData?.generatedAt : view === "etf" ? research?.generatedAt : view === "sectors" ? activeSectorData?.generatedAt : view === "security" ? activeStockResearch?.generatedAt : data?.generatedAt;
   const activeReady = view === "overview" ? !connectResearch.state.error && !!activeConnectState.data?.windows[activeConnectState.days].northbound.current && !!activeConnectState.data?.windows[activeConnectState.days].southbound.current && !appetiteError && !error && !!appetiteData?.breadth.current && appetiteData.windows[appetiteDays].evidence.every(row => row.current) && data?.upstream.status === "ready" : view === "emotion" ? !appetiteError && appetiteData?.windows[appetiteDays].evidence.every(row => row.current) && appetiteData.breadth.current && appetiteData.credit.money.current
     : view === "liquidity" ? !liquidityError && !!liquidityData && liquidityData.daily.series.every(row => row.current) && liquidityData.credit.money.current && liquidityData.credit.social.current
-    : view === "etf" ? research?.coverage.etfAvailable === research?.coverage.etfTotal && !!research
+    : view === "etf" ? !researchError && research?.calendar.status === "ready" && research.coverage.etfAvailable === research.coverage.etfTotal && activeETFCoverage.total > 0 && !activeETFCoverage.unconfirmed && !!activeETFRelation?.selected.current
     : view === "security" ? activeStockResearch?.calendar.status === "ready" && Object.values(activeStockResearch.feeds).every(feed => feed.status === "ready" && !feed.usingSaved && feed.asOf === activeStockResearch.expectedDate)
     : view === "sectors" ? activeSectorData?.coverage.status === "ready" && activeSectorData?.asOf === activeSectorData?.expectedDate && (activeSectorData.category !== "industry" || activeSectorData.classification?.current)
     : data?.upstream.status === "ready";
@@ -713,8 +754,9 @@ export function CapitalFlowApp() {
     {view === "overview" ? <OverviewBrief data={appetiteData} loading={appetiteLoading} error={appetiteError} days={appetiteDays} setDays={setAppetiteDays}
       open={target => target === "sectors" ? openSector() : setView(target)} /> : null}
     {error && !["etf", "sectors", "liquidity", "emotion"].includes(view) ? <div className="error-banner">{error}</div> : null}
-    {needsResearch ? <FundingResearch data={research} loading={researchLoading} error={researchError} mode={view as "overview" | "etf" | "emotion"} selected={selectedETF} select={setSelectedETF} days={historyDays} setDays={setHistoryDays} /> : null}
+    {needsResearch ? <>{etfWatchlist.scope ? <ETFWatchlist key={etfWatchlist.scope} state={etfWatchlist} /> : <p>正在连接观察池工作区…</p>}<FundingResearch data={research} loading={researchLoading} error={researchError} selected={selectedETF} select={setSelectedETF} days={historyDays} setDays={setHistoryDays} strengthDays={strengthDays} setStrengthDays={setStrengthDays} strengthSort={strengthSort} setStrengthSort={setStrengthSort} priceState={etfPriceState} /></> : null}
     {view === "overview" ? <ConnectBrief state={activeConnectState} open={() => { connectResearch.setDays(appetiteDays); setView("cross-border"); }} /> : null}
+    {view === "overview" ? <TurnoverCandidates research={candidates} select={symbol => selectSecurity({ symbol: symbol.split(".")[0]!, name: symbol, market: "CN" })} /> : null}
     {view === "overview" && data ? <details className="overview-snapshot"><summary>单日快照与来源对照（独立于窗口研究）</summary><EvidenceOverview data={data} open={setView} /></details> : null}
     {view === "overview" ? <section className="overview-grid">
       <FlowList title="东财一级 · 净流入" rows={inflows} select={openSector} /><FlowList title="东财一级 · 净流出" rows={outflows} select={openSector} />

@@ -19,6 +19,8 @@ import type {
   Quote,
   SearchResult,
   SecurityRef,
+  SentimentHistory,
+  LimitBoards,
   Timeframe,
   TurnoverStock,
 } from "./types";
@@ -242,6 +244,21 @@ export function createMarketDataSource(input: {
           {},
         ),
       );
+    },
+    async sentiment(refresh = false) {
+      return dataOf(await (unifiedClient
+        ? unifiedClient.query<DataEnvelope<MarketOverview>>("market.sentiment", { refresh })
+        : fixedClient.invoke<DataEnvelope<MarketOverview>>("market-breadth-data", "market.sentiment", { refresh })));
+    },
+    async sentimentHistory(refresh = false) {
+      return dataOf(await (unifiedClient
+        ? unifiedClient.query<DataEnvelope<SentimentHistory>>("market.sentiment-history", { refresh })
+        : fixedClient.invoke<DataEnvelope<SentimentHistory>>("market-breadth-data", "market.sentiment-history", { refresh })));
+    },
+    async limitBoards(refresh = false) {
+      return dataOf(await (unifiedClient
+        ? unifiedClient.query<DataEnvelope<LimitBoards>>("market.limit-boards", { refresh })
+        : fixedClient.invoke<DataEnvelope<LimitBoards>>("market-breadth-data", "market.limit-boards", { refresh })));
     },
     async indices() {
       return dataOf(

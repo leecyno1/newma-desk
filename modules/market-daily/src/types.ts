@@ -107,21 +107,69 @@ export interface OhlcvResult {
 }
 
 export interface MarketOverview {
+  sample?: { sampleCount: number; activeCount: number; validCount: number; inactiveCount: number; missingPctCount: number; medianPct: number | null; buckets: Array<{ label: string; count: number }>; note: string } | null;
+  coverage?: { received: number; rejected: number; invalid: number; duplicates: number; conflicts: number; universeVerified: boolean } | null;
+  session?: { expectedDate: string | null; current: boolean; calendarStatus: string; cached: boolean; usingSaved: boolean };
+  sources?: Record<string, { status: string; reason: string; receivedAt: string | null }>;
   sentiment?: {
-    up?: number;
-    down?: number;
-    flat?: number;
-    zt?: number;
-    dt?: number;
-    breadth?: string;
-    speculation?: string;
+    up?: number | null;
+    down?: number | null;
+    flat?: number | null;
+    zt?: number | null;
+    dt?: number | null;
+    breadth?: string | null;
+    speculation?: string | null;
+    date?: string;
+    source?: string;
+    scope?: string;
   };
   sectors?: Array<{
     name: string;
     pct?: number;
     net?: number;
+    asOf?: string;
+    metric?: string;
+    source?: string;
   }>;
   updated?: string;
+}
+
+export interface LimitBoards {
+  current: boolean; asOf: string | null; previousDate: string | null; status: string; reason: string;
+  source: string; generatedAt: string; receivedAt: string | null; previousStatus: string; note: string;
+  summary: { up: number | null; down: number | null; broken: number | null; attempts: number | null;
+    sealRatePct: number | null; breakRatePct: number | null; knownMaxBoards: number | null;
+    unknownBoards: number | null; reopenedUp: number | null; previousUp: number | null;
+    retainedUp: number | null; retentionRatePct: number | null };
+  ladder: Array<{ boards: number; count: number }>;
+  tracking?: {
+    ready: boolean; reason: string; note: string;
+    summary: { total: number; U: number; Z: number; D: number; absent: number; mismatches: number } | null;
+    tiers: Array<{ boards: number | null; total: number; U: number; Z: number; D: number; absent: number; retentionRatePct: number }>;
+    rows: Array<{ code: string; name: string; industry: string; previousBoards: number | null; currentBoards: number | null;
+      outcome: "U" | "Z" | "D" | "absent"; progression: "matched" | "mismatch" | "unknown" }>;
+    unmatchedContinuations: Array<{ code: string; name: string; boards: number | null }>;
+    quoteVerification?: {
+      asOf: string; source: string; receivedAt: string; dailyStatus: string; limitsStatus: string; note: string;
+      summary: { total: number; priced: number; returnCount: number; medianPct: number | null;
+        belowLimit: number; atLimit: number; conflicts: number; unresolved: number };
+      rows: Array<{ code: string; status: "unavailable" | "no_trade" | "conflict" | "traded" | "at_limit" | "below_limit";
+        reason: string; close: number | null; pct: number | null; amountYi: number | null; upLimit: number | null; downLimit: number | null }>;
+    };
+  };
+  items: Array<{ code: string; name: string; industry: string; kind: "U" | "D" | "Z"; boards: number | null;
+    openTimes: number | null; firstTime: string | null; lastTime: string | null }>;
+}
+
+export interface SentimentHistory {
+  days: number; asOf: string | null; start: string | null;
+  current: boolean; calendarReady: boolean; completed: number; expected: number; remaining: number;
+  commonCount: number; missingDates: string[]; failedDates: string[]; canContinue: boolean; fetchedDays: number;
+  source: string; generatedAt: string; note: string; reason: string;
+  summary: { latestUpRatioPct: number | null; latestChangePp: number | null; mean5Pct: number | null;
+    previous5Pct: number | null; change5Pp: number | null; aboveHalfDays: number | null };
+  points: Array<{ date: string; status: string; reason: string; sampleCount: number | null;
+    excludedCount: number | null; upRatioPct: number | null; medianPct: number | null }>;
 }
 
 export interface TurnoverStock {
@@ -187,6 +235,9 @@ export interface MarketDataSource {
     adjustment: Adjustment,
   ): Promise<OhlcvResult>;
   overview(): Promise<MarketOverview>;
+  sentiment(refresh?: boolean): Promise<MarketOverview>;
+  sentimentHistory(refresh?: boolean): Promise<SentimentHistory>;
+  limitBoards(refresh?: boolean): Promise<LimitBoards>;
   indices(): Promise<Array<Record<string, unknown>>>;
   globalIndices(): Promise<Array<Record<string, unknown>>>;
   turnoverTop(): Promise<TurnoverStock[]>;

@@ -17,6 +17,31 @@ from vibe_visualization_api.snapshots.store import SnapshotStore
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
+@pytest.mark.asyncio
+async def test_capital_collection_uses_existing_lease_without_enabling_market_jobs(tmp_path):
+    market = FakeMarketClient({})
+    _, store, repository, snapshots = scheduler_service(tmp_path, market)
+    publish_market_module(repository)
+    manifest = {**scheduled_manifest(), "id": "capital-overview", "refresh": {"mode": "manual"}}
+    draft = repository.create_draft(manifest)
+    repository.publish(draft.module_id, draft.revision)
+    class Collector:
+        calls = 0
+        async def collect(self):
+            self.calls += 1
+            return {"status": "closed"}
+    collector = Collector()
+    service = RefreshSchedulerService(store=store, repository=repository, snapshot_store=snapshots,
+                                      market_client=market, market_enabled=False, candidate_collector=collector)
+    await service.tick(datetime(2026, 10, 16, 15, 59, tzinfo=SHANGHAI))
+    assert store.get("capital-overview").next_run_at == datetime(2026, 10, 16, 16, tzinfo=SHANGHAI)
+    await asyncio.gather(*(service.tick(datetime(2026, 10, 16, 16, tzinfo=SHANGHAI)) for _ in range(2)))
+    assert collector.calls == 1 and market.calls == 0
+    assert store.get("capital-overview").next_run_at == datetime(2026, 10, 16, 16, 30, tzinfo=SHANGHAI)
+    with pytest.raises(KeyError):
+        store.get("market-daily")
+
+
 def scheduled_manifest() -> dict[str, object]:
     return {
         "schemaVersion": "1.0",
@@ -185,6 +210,20 @@ async def test_startup_recovers_a_lease_running_for_more_than_30_minutes(
     assert job.last_error == "recovered stale scheduler lease"
 
 
+@pytest.mark.asyncio
+async def test_quick_restart_eventually_recovers_old_running_lease(tmp_path):
+    client = FakeMarketClient({})
+    service, store, repository, _ = scheduler_service(tmp_path, client)
+    publish_market_module(repository)
+    due = datetime(2026, 7, 20, 9, 0, tzinfo=SHANGHAI)
+    await service.tick(due - timedelta(minutes=1))
+    assert store.try_acquire("market-daily", due)
+    await service.startup(due + timedelta(minutes=1))
+    assert store.get("market-daily").status == "running"
+    await service.tick(due + timedelta(minutes=31))
+    assert client.calls == 1 and store.get("market-daily").status == "idle"
+
+
 class SchedulerLifecycleProbe:
     def __init__(self) -> None:
         self.started = 0
@@ -218,6 +257,7 @@ def test_app_lifespan_starts_scheduler_only_when_enabled(tmp_path: Path) -> None
             runtime_dir=tmp_path / "disabled",
             database_path=tmp_path / "disabled.db",
             enable_scheduler=False,
+            enable_capital_candidate_archive=False,
         ),
         scheduler_service=disabled_probe,
     )
@@ -225,3 +265,10 @@ def test_app_lifespan_starts_scheduler_only_when_enabled(tmp_path: Path) -> None
         assert client.get("/api/health").status_code == 200
     assert disabled_probe.started == 0
     assert disabled_probe.stopped == 0
+
+    capital_probe = SchedulerLifecycleProbe()
+    capital_app = create_app(Settings(runtime_dir=tmp_path / "capital", database_path=tmp_path / "capital.db",
+                                      enable_scheduler=False, enable_capital_candidate_archive=True), scheduler_service=capital_probe)
+    with TestClient(capital_app):
+        assert capital_probe.started == 1
+    assert capital_probe.stopped == 1

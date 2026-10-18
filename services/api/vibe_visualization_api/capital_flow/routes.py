@@ -9,6 +9,8 @@ from .etf_catalog import ETFCatalog
 from .etf_price import ETFPriceService
 from .market_structure import MarketStructureService
 from .market_evidence import MarketEvidenceService
+from .sentiment import sentiment_snapshot
+from .limit_boards import LimitBoardsService
 
 from vibe_visualization_api.capital_flow.service import CapitalFlowService
 from vibe_visualization_api.capital_flow.research import CapitalResearchService
@@ -22,11 +24,39 @@ from vibe_visualization_api.capital_flow.liquidity import LiquidityResearchServi
 from vibe_visualization_api.capital_flow.appetite import AppetiteResearchService
 from vibe_visualization_api.capital_flow.turnover import TurnoverResearchService, with_turnover
 from vibe_visualization_api.capital_flow.turnover_history import TurnoverHistoryService
+from vibe_visualization_api.capital_flow.turnover_candidates import TurnoverCandidatesService
+from vibe_visualization_api.capital_flow.candidate_performance import CandidatePerformanceService
+from vibe_visualization_api.capital_flow.candidate_archive import archive, archive_detail
+from vibe_visualization_api.capital_flow.candidate_collector import collection_status
+from vibe_visualization_api.scheduler.store import SchedulerStore
 from vibe_visualization_api.capital_flow.connect_research import ConnectResearchService
 from vibe_visualization_api.config import Settings, get_settings
 
 
 router = APIRouter(prefix="/api/capital-flow", tags=["capital-flow"])
+
+
+@router.get("/sentiment")
+async def get_market_sentiment(refresh: bool = False, settings: Settings = Depends(get_settings)) -> dict:
+    turnover = await TurnoverResearchService(
+        settings.tushare_token.get_secret_value(), CapitalHistoryStore(settings.database_path),
+    ).research(refresh=refresh)
+    return {"data": sentiment_snapshot(turnover)}
+
+
+@router.get("/sentiment-history")
+async def get_sentiment_history(refresh: bool = False, settings: Settings = Depends(get_settings)) -> dict:
+    result = await TurnoverHistoryService(
+        settings.tushare_token.get_secret_value(), CapitalHistoryStore(settings.database_path),
+    ).history(20, refresh=refresh, include_breadth=True)
+    return {"data": result}
+
+
+@router.get("/limit-boards")
+async def get_limit_boards(refresh: bool = False, settings: Settings = Depends(get_settings)) -> dict:
+    return {"data": await LimitBoardsService(
+        settings.tushare_token.get_secret_value(), CapitalHistoryStore(settings.database_path),
+    ).research(refresh=refresh)}
 
 
 @router.get("/market-evidence")
@@ -97,6 +127,50 @@ async def get_turnover_history(days: int = Query(default=20), refresh: bool = Fa
     return await TurnoverHistoryService(
         settings.tushare_token.get_secret_value(), CapitalHistoryStore(settings.database_path),
     ).history(days, refresh=refresh)
+
+
+@router.get("/turnover-candidates")
+async def get_turnover_candidates(signal_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+                                  refresh: bool = False, settings: Settings = Depends(get_settings)) -> dict:
+    try:
+        return await TurnoverCandidatesService(settings.tushare_token.get_secret_value(), CapitalHistoryStore(settings.database_path)).candidates(
+            signal_date=signal_date, refresh=refresh)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/turnover-candidate-archive")
+async def get_candidate_archive(start: date = Query(default=date(1990, 1, 1)),
+                                end: date = Query(default=date(9999, 12, 31)),
+                                page: int = Query(default=1, ge=1), settings: Settings = Depends(get_settings)) -> dict:
+    if start > end:
+        raise HTTPException(422, "开始日期不能晚于结束日期")
+    store = CapitalHistoryStore(settings.database_path)
+    result = await asyncio.to_thread(archive, store, start.isoformat(), end.isoformat(), page)
+    result["collection"] = await asyncio.to_thread(collection_status, store, SchedulerStore(settings.database_path),
+                                                  enabled=settings.enable_capital_candidate_archive,
+                                                  token_ready=bool(settings.tushare_token.get_secret_value()))
+    return result
+
+
+@router.get("/turnover-candidate-archive/{signal_date}")
+async def get_candidate_archive_detail(signal_date: date, page: int = Query(default=1, ge=1),
+                                       settings: Settings = Depends(get_settings)) -> dict:
+    result = await asyncio.to_thread(archive_detail, CapitalHistoryStore(settings.database_path), signal_date.isoformat(), page)
+    if result is None:
+        raise HTTPException(404, "该日期没有首次观察归档，不使用事后重算替代")
+    return result
+
+
+@router.get("/candidate-performance")
+async def get_candidate_performance(code: str = Query(pattern=r"^\d{6}\.(SH|SZ|BJ)$"), signal_date: date = Query(),
+                                    benchmark_code: str = Query(default="000300.SH", max_length=16),
+                                    refresh: bool = False, settings: Settings = Depends(get_settings)) -> dict:
+    try:
+        return await CandidatePerformanceService(settings.tushare_token.get_secret_value(), CapitalHistoryStore(settings.database_path)).research(
+            code, signal_date.isoformat(), benchmark_code=benchmark_code, refresh=refresh)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/appetite-research")
