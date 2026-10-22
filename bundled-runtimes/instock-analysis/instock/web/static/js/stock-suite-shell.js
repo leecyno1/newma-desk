@@ -120,6 +120,8 @@
         let scopeVersion = 0;
         let restoreVersion = 0;
         const bridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+        let sessionRevision = bridge.sessionRevision;
+        let sessionInitialized = bridge.connected;
         const request = (url) => bridge.fetchAnalysis(url);
         if (moduleLabel) moduleLabel.textContent = pages[moduleId].title;
 
@@ -245,6 +247,9 @@
 
         buttons.forEach(item => item.addEventListener('click', () => setOpen(!drawer.classList.contains('is-open'))));
         document.addEventListener('vibedesk:init', () => {
+            if (sessionInitialized && sessionRevision === bridge.sessionRevision) return;
+            sessionInitialized = true;
+            sessionRevision = bridge.sessionRevision;
             scopeVersion += 1;
             selectedHistoryId = '';
             if (banner) banner.hidden = true;

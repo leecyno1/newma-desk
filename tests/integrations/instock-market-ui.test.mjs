@@ -100,6 +100,24 @@ test('market map: membership evidence is visible and matches selected Context', 
     assert.equal(p.context().data.summary.selectedSecurity.industry_classification.inDate, '2007-11-01');
   } finally {p.dom.window.close();}
 });
+
+test('market map: session change clears old evidence and old finally does not unlock a new run', async () => {
+  const p = await page('market_map');
+  try {
+    const old = p.invoke(), oldRequest = p.requests.at(-1);
+    p.window.document.dispatchEvent(new p.window.CustomEvent('instock:session-changed'));
+    assert.equal(p.snapshot(), undefined);
+    assert.equal(p.window.document.getElementById('market-map-detail').textContent, '');
+    assert.match(p.window.document.getElementById('market-map-meta').textContent, /会话授权已变化/);
+    const next = p.invoke(), nextRequest = p.requests.at(-1);
+    oldRequest.resolve({ok: true, data: payload('market_map', 'old')});
+    await assert.rejects(old, /本次结果未采用/);
+    assert.equal(p.context().data.queryState.running, true);
+    nextRequest.resolve({ok: true, data: payload('market_map', 'current')}); await next;
+    assert.equal(p.snapshot(), 'current');
+    assert.equal(p.context().data.queryState.running, false);
+  } finally {p.dom.window.close();}
+});
 for (const name of ['market_map', 'market_workbench']) {
   test(`${name}: first result survives initial Desk handshake`, async () => {
     const p = await page(name, {delayedInit: true});
@@ -130,7 +148,7 @@ for (const name of ['market_map', 'market_workbench']) {
   test(`${name}: history and scope changes cannot be overwritten by a late refresh`, async () => {
     const p = await page(name);
     try {
-      for (const event of ['instock:history-selected', 'vibedesk:init']) {
+      for (const event of ['instock:history-selected', name === 'market_map' ? 'instock:session-changed' : 'vibedesk:init']) {
         const pending = p.invoke();
         p.window.document.dispatchEvent(new p.window.CustomEvent(event,
           {detail: {payload: payload(name, 'historical'), view_source: 'history'}}));

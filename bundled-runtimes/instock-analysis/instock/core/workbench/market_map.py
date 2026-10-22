@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from datetime import date, datetime
 from typing import Any
 
@@ -57,6 +58,7 @@ class MarketMapEngine:
         with ThreadPoolExecutor(max_workers=len(requested_specs)) as pool:
             jobs = {
                 pool.submit(
+                    copy_context().run,
                     self.provider.get_stock_scan,
                     sort=sort,
                     order=order,

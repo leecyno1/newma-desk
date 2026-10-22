@@ -490,14 +490,23 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         )
 
     def _get(self, url: str, **kwargs):
+        self._require_standalone_transport()
         if self._is_loopback(url):
             kwargs["proxies"] = {"http": None, "https": None}
         return requests.get(url, **kwargs)
 
     def _post(self, url: str, **kwargs):
+        self._require_standalone_transport()
         if self._is_loopback(url):
             kwargs["proxies"] = {"http": None, "https": None}
         return requests.post(url, **kwargs)
+
+    @staticmethod
+    def _require_standalone_transport():
+        from instock.core.analysis_scope import analysis_scope
+        from instock.web.analysis_scope import desk_session_required
+        if desk_session_required() or analysis_scope.get().startswith("desk:"):
+            raise MarketDataError("当前 Desk 分析未获此直连数据入口授权；未回退静态凭据或匿名通道")
 
     @staticmethod
     def _is_loopback(url: str) -> bool:
@@ -522,6 +531,22 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         timeout: Optional[float] = None,
     ):
         request_timeout = self.timeout if timeout is None else timeout
+        from instock.core.analysis_scope import analysis_scope, analysis_session
+        from instock.web.analysis_scope import desk_session_required, validate_scope_url
+        if desk_session_required() or analysis_scope.get().startswith("desk:"):
+            session = analysis_session.get()
+            if not session or not all(session):
+                raise MarketDataError("当前分析缺少请求级 Desk 授权，未使用进程凭据")
+            try:
+                scope_url = validate_scope_url(os.environ.get("INSTOCK_DESK_SCOPE_URL", "").strip())
+            except ValueError as exc:
+                raise MarketDataError("Desk 数据委托地址配置无效") from exc
+            with requests.Session() as transport:
+                transport.trust_env = False
+                return transport.post(scope_url.removesuffix("instock-scope") + "instock-data",
+                    json={"capability": capability, "parameters": parameters},
+                    headers={"Authorization": "Bearer " + session[0], "X-Newma-Desk-Instance-Id": session[1]},
+                    timeout=request_timeout, allow_redirects=False)
         if self._use_data_service_gateway:
             return self._post(
                 f"{self._desk_origin}/api/data-services/market-data/invoke/{capability}",

@@ -37,6 +37,7 @@ from vibe_visualization_api.control_plane.packages import (
 from vibe_visualization_api.control_plane.repository import ModuleRepository
 from vibe_visualization_api.control_plane.permissions import authorize_action
 from vibe_visualization_api.control_plane.cycle_scope import CycleReadTarget, authorize_cycle_scope
+from vibe_visualization_api.control_plane.instock_data import StockDependency, invoke_stock_dependency
 from vibe_visualization_api.control_plane.sessions import (
     ModSessionError,
     bearer_token,
@@ -159,6 +160,11 @@ async def instock_request_scope(
     if not allowed:
         raise HTTPException(403, "当前 Mod 会话未授权此分析入口")
     return {"userId": claims.user_id, "workspaceId": claims.workspace_id}
+
+
+@router.post("/runtime/instock-data")
+async def instock_dependency(request: Request, response: Response, target: StockDependency):
+    return await invoke_stock_dependency(request, response, target)
 
 
 @router.get(

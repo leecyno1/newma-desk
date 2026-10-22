@@ -10,6 +10,8 @@ import json
 
 
 analysis_scope: ContextVar[str] = ContextVar("analysis_scope", default="standalone:local")
+# Request-only credentials, never persisted in snapshots, caches or Context.
+analysis_session: ContextVar[tuple[str, str] | None] = ContextVar("analysis_session", default=None)
 
 
 def desk_scope(user_id: str, workspace_id: str) -> str:

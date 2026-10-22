@@ -598,9 +598,11 @@
             }
             throw error;
         } finally {
-            runButton.disabled = false;
-            document.querySelectorAll('[data-map-capacity]').forEach(button => { button.disabled = false; });
-            publish();
+            if (generation === requestGeneration) {
+                runButton.disabled = false;
+                document.querySelectorAll('[data-map-capacity]').forEach(button => { button.disabled = false; });
+                publish();
+            }
         }
     }
     if (deskBridge?.setUiActionHandler) deskBridge.setUiActionHandler((id, input = {}) => {
@@ -609,8 +611,28 @@
 
         return run(true);
     });
-    document.addEventListener('vibedesk:init', () => { requestGeneration += 1; });
-    document.addEventListener('instock:history-selected', () => { requestGeneration += 1; });
+    document.addEventListener('instock:session-changed', () => {
+        requestGeneration += 1;
+        state.data = null; state.selected = null; state.industry = ''; lastError = null;
+        state.chart?.dispose(); state.chart = null;
+        document.querySelectorAll('.market-map-stat-grid strong, .market-map-stat-grid small').forEach(node => { node.textContent = '--'; });
+        for (const id of ['market-map-detail', 'market-map-rankings', 'market-map-symbols']) document.getElementById(id)?.replaceChildren();
+        for (const id of ['market-map-note', 'market-map-caption', 'market-map-disclosure', 'market-map-coverage-state',
+            'market-map-badge-kicker', 'market-map-badge-title', 'market-map-badge-detail']) setText(id, '等待当前会话数据');
+        document.getElementById('market-map-search').value = '';
+        document.getElementById('market-map-industry').innerHTML = '<option value="">全部行业</option>';
+        runButton.disabled = false;
+        document.querySelectorAll('[data-map-capacity]').forEach(button => { button.disabled = false; });
+        alertBox.style.display = 'none';
+        setText('market-map-meta', '会话授权已变化，请刷新云图');
+        updateMapViewport();
+        publish();
+    });
+    document.addEventListener('instock:history-selected', () => {
+        requestGeneration += 1;
+        runButton.disabled = false;
+        document.querySelectorAll('[data-map-capacity]').forEach(button => { button.disabled = false; });
+    });
 
     function locate() {
         if (!state.data) return;

@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 import tornado.web
 
 from instock.web.runtime_metrics import get_api_metrics_registry
-from instock.core.analysis_scope import analysis_scope
+from instock.core.analysis_scope import analysis_scope, analysis_session
 from instock.web.analysis_scope import AnalysisScopeError, resolve_request_scope, desk_session_required
 
 
@@ -135,8 +135,17 @@ class AnalysisApiHandler(tornado.web.RequestHandler):
             self.finish()
             return
         self._analysis_scope_token = analysis_scope.set(scope)
+        session = None
+        if scope.startswith("desk:"):
+            token = self.request.headers.get("X-Newma-Desk-Session") or self.request.headers.get("Authorization", "")[7:]
+            session = (token, self.request.headers.get("X-Newma-Desk-Instance-Id"))
+        self._analysis_session_token = analysis_session.set(session)
 
     def on_finish(self) -> None:
+        session_token = getattr(self, "_analysis_session_token", None)
+        if session_token is not None:
+            analysis_session.reset(session_token)
+            self._analysis_session_token = None
         token = getattr(self, "_analysis_scope_token", None)
         if token is not None:
             analysis_scope.reset(token)

@@ -11,6 +11,9 @@
         ? new window.BroadcastChannel(EVENT_CHANNEL)
         : null;
     let activeConfig = null;
+    let sessionKey = '';
+    let sessionRevision = 0;
+    let sessionController = new AbortController();
     let contextProvider = null;
     let uiActionHandler = null;
     let handoffHandler = null;
@@ -180,6 +183,13 @@
             typeof data.environment.locale === 'string' && typeof data.environment.timezone === 'string';
     }
 
+    function sessionIdentity(data) {
+        const grants = key => Array.isArray(data.grants?.[key]) ? [...data.grants[key]].sort() : [];
+        return JSON.stringify([data.user?.id, data.workspace?.id, data.instanceId,
+            data.session?.accessToken, data.session?.expiresAt,
+            grants('actions'), grants('permissions'), data.gateways]);
+    }
+
     function compactText(value, limit) {
         return typeof value === 'string'
             ? value.replace(/\s+/g, ' ').trim().slice(0, limit)
@@ -325,10 +335,12 @@
 
     async function publishContext(linkedRequestId) {
         if (!activeConfig) return false;
+        const revision = sessionRevision;
         try {
             const context = typeof contextProvider === 'function'
                 ? normalizePageContext(await contextProvider())
                 : visiblePageContext();
+            if (revision !== sessionRevision) return false;
             return post({
                 type: 'vibedesk:context',
                 requestId: linkedRequestId || requestId(),
@@ -337,6 +349,7 @@
                 context,
             });
         } catch (_) {
+            if (revision !== sessionRevision) return false;
             return post({
                 type: 'vibedesk:context',
                 requestId: linkedRequestId || requestId(),
@@ -418,7 +431,8 @@
 
     async function deliverUiAction(data) {
         const config = activeConfig;
-        const sameScope = () => activeConfig?.instanceId === config.instanceId
+        const revision = sessionRevision;
+        const sameScope = () => revision === sessionRevision && activeConfig?.instanceId === config.instanceId
             && activeConfig?.workspace?.id === config.workspace?.id
             && activeConfig?.user?.id === config.user?.id;
         const envelope = {type: 'vibedesk:ui-action-result', requestId: data.requestId,
@@ -447,10 +461,23 @@
         if (event.source !== window.parent || event.origin !== parentOrigin) return;
         const data = event.data;
         if (validInit(data)) {
-            if (activeConfig && (data.instanceId !== activeConfig.instanceId || data.workspace?.id !== activeConfig.workspace?.id || data.user?.id !== activeConfig.user?.id)) {
+            const key = sessionIdentity(data);
+            const changed = activeConfig && sessionKey !== key;
+            if (changed) {
+                sessionRevision += 1;
+                sessionController.abort();
+                sessionController = new AbortController();
+                for (const pending of pendingActions.values()) {
+                    window.clearTimeout(pending.timer);
+                    pending.reject(new Error('会话授权已变化，旧动作结果未采用；操作未被自动重发。'));
+                }
+                pendingActions.clear();
                 for (const pending of pendingAgents.values()) pending.reject(new Error('工作区已变化，已停止等待；宿主任务未被取消。'));
+                queuedHandoffs.length = 0;
             }
+            sessionKey = key;
             activeConfig = data;
+            if (changed) document.dispatchEvent(new CustomEvent('instock:session-changed', {detail: {revision: sessionRevision}}));
             if (themeFallbackTimer !== null) {
                 window.clearTimeout(themeFallbackTimer);
                 themeFallbackTimer = null;
@@ -533,6 +560,7 @@
         embedded,
         get connected() { return Boolean(activeConfig); },
         get config() { return activeConfig; },
+        get sessionRevision() { return sessionRevision; },
         get theme() { return document.documentElement.dataset.vibedeskTheme || 'light'; },
         get themePreference() { return standaloneTheme; },
         setStandaloneTheme(preference) {
@@ -550,17 +578,29 @@
                 throw new Error('研究请求只能发送到当前分析服务');
             }
             const config = activeConfig;
+            const revision = sessionRevision;
             const headers = new Headers(options.headers);
             if (embedded) {
-                if (!config?.session?.accessToken || !config.instanceId) {
+                if (!config?.session?.accessToken || !config.instanceId || !Array.isArray(config.grants?.permissions)
+                    || !config.grants.permissions.includes('analysis.read')
+                    || !(Date.parse(config.session.expiresAt) > Date.now())) {
                     throw new Error('Desk 工作区会话尚未就绪，请刷新；未读取独立模式数据');
                 }
                 headers.set('X-Newma-Desk-Session', config.session.accessToken);
                 headers.set('X-Newma-Desk-Instance-Id', config.instanceId);
             }
-            const response = await fetch(url.href, {...options, headers, redirect: 'error'});
-            if (embedded && (activeConfig?.user?.id !== config.user?.id || activeConfig?.workspace?.id !== config.workspace?.id)) {
-                throw new Error('工作区已切换，已丢弃旧研究响应');
+            const signal = AbortSignal.any([sessionController.signal, ...(options.signal ? [options.signal] : [])]);
+            const check = () => {
+                if (signal.aborted || revision !== sessionRevision || embedded && !(Date.parse(config.session.expiresAt) > Date.now())) {
+                    throw new Error('会话授权已变化，已丢弃旧研究响应');
+                }
+            };
+            const response = await fetch(url.href, {...options, signal, headers, credentials: 'omit', cache: 'no-store', redirect: 'error'});
+            check();
+            for (const method of ['json', 'text', 'blob', 'arrayBuffer']) {
+                if (typeof response[method] !== 'function') continue;
+                const read = response[method].bind(response);
+                response[method] = async (...args) => { check(); const value = await read(...args); check(); return value; };
             }
             return response;
         },

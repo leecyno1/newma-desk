@@ -12,7 +12,7 @@ import tornado.web
 from tornado.httpclient import HTTPClientError
 from tornado.testing import AsyncHTTPTestCase, gen_test
 
-from instock.core.analysis_scope import analysis_scope, desk_scope
+from instock.core.analysis_scope import analysis_scope, analysis_session, desk_scope
 from instock.core.analysis_snapshot import AnalysisSnapshotRegistry, get_analysis_snapshot_registry
 from instock.core.analysis_history import AnalysisHistoryRegistry
 from instock.core.research.research_book import ResearchBookEngine
@@ -144,9 +144,31 @@ class ScopeEcho(AnalysisApiHandler):
         self.write_success({"scope": analysis_scope.get(), "thread": await asyncio.to_thread(analysis_scope.get)})
 
 
+class SessionEcho(AnalysisApiHandler):
+    async def get(self):
+        # The test returns only equality, never the credentials themselves.
+        expected = (self.request.headers.get('X-Newma-Desk-Session'), self.request.headers.get('X-Newma-Desk-Instance-Id'))
+        self.write_success({'matches': analysis_session.get() == expected,
+            'thread_matches': await asyncio.to_thread(analysis_session.get) == expected,
+            'empty': analysis_session.get() is None})
+
+
 class RequestScopeTest(AsyncHTTPTestCase):
     def get_app(self):
-        return tornado.web.Application([(r"/api/v1/test-scope", ScopeEcho)])
+        return tornado.web.Application([(r"/api/v1/test-scope", ScopeEcho), (r"/api/v1/test-session", SessionEcho)])
+
+    @gen_test
+    async def test_request_credentials_survive_workers_but_not_the_next_request(self):
+        async def resolve(headers, **_):
+            return desk_scope('alice', headers['X-Newma-Desk-Instance-Id'])
+        with patch('instock.web.api_contract.resolve_request_scope', resolve):
+            responses = await asyncio.gather(*[self.http_client.fetch(self.get_url('/api/v1/test-session'),
+                headers={'X-Newma-Desk-Session': 'synthetic-' + name, 'X-Newma-Desk-Instance-Id': name}) for name in ('a', 'b')])
+        for response in responses:
+            assert json.loads(response.body)['data'] == {'matches': True, 'thread_matches': True, 'empty': False}
+        unsigned = await self.http_client.fetch(self.get_url('/api/v1/test-session'))
+        assert json.loads(unsigned.body)['data']['empty'] is True
+        assert analysis_session.get() is None
 
     @gen_test
     async def test_http_context_survives_await_thread_and_resets(self):

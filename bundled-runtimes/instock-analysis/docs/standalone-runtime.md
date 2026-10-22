@@ -59,6 +59,14 @@ Desk 通过 HTTP iframe/Bridge 接入，而不是导入本项目代码。使用�
 - `NEWMA_DESK_PARENT_ORIGIN`：Desk 的精确 origin。
 - `INSTOCK_DESK_SCOPE_URL`：Desk 会话范围校验接口；缺失时带 Desk 身份的请求必须失败，不能回退到独立用户数据。
 
+公开云端候选另须显式设置`INSTOCK_REQUIRE_DESK_SESSION=1`及`INSTOCK_DESK_SCOPE_URL=http://127.0.0.1:<实际Desk API端口>/api/mods/runtime/instock-scope`。回调仅接受固定HTTP loopback地址，不跟随重定向、不转发Cookie或自报身份。缺失/冲突/失败的签名不进入业务Handler；只允许健康、能力目录与Suite元数据匿名读取。`X-Instock-Access-Mode: desk-required`响应头可核对实际模式，不改变既有健康判断。`--mode desk`仍只表示生命周期归属，不自动开启这个云端门禁。
+
+默认`INSTOCK_REQUIRE_DESK_SESSION=0`保留本机同进程独立/嵌入兼容，不应用于公开云端；有签名头但无校验配置仍失败，不匿名回退。运行参数在启动时校验，不允许拼错开关或将凭据发往任意校验地址。页面/静态文件可以公开展示外壳，但业务API必须经受控进程，不能绕接旧匿名实例。
+
+当前云端候选仅为大盘云图补齐下游委托：请求级签名通过线程上下文进入固定loopback的`/api/mods/runtime/instock-data`，由Desk核验当前发布修订、云图Action和Website绑定，再调用既有行情服务。只允许有界CN扫描及最多50只批量报价，不复制Cookie，不回退进程凭据或匿名取数。签名不进入分析结果、Context或缓存。
+
+Bridge在令牌、实例或授权变化时终止旧响应观察；云图撤下旧图表、详情与Context，历史恢复不跨会话，主题更新保留当前数据。中止等待不表示服务端分析已经取消，不自动重发。其他股票页面的下游能力尚未接入此委托，**不能把此候选部署到所有股票页已开放的环境**；本机无签名独立模式保留原显式数据连接。真实Website/HTTPS操作与行情仍需配套验收，不等于已发布。
+
 产业链的“读取工作区财报”属于Desk私有研究输入：必须通过Bridge收到签名会话、实例和`analysis.read`授权，使用宿主HTTP接口读取；不能用用户/工作区ID代替凭据。独立页未接入该会话时明确不可用，仍可导入自己的结构化研究包，不匿名访问Desk底稿。宿主更新输入鉴权时须配套加载本项目新包；源码同步并不改变已运行的旧安装包。
 
 Desk 开发配置可设置 `NEWMA_DESK_INSTOCK_WORKSPACE` 指向本仓库；首次切换需确认实际进程 cwd、既有数据库路径、在途任务和页面版本。未验收前不改生产入口。当前相邻 Desk 的复制版本与本仓库只是候选同步，不构成已发布版本。
