@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { readPageSession, restorePageRoute, pageRoute, writePageSession, type PageSession } from '../lib/pageSession'
-import { getPageSessionScope, subscribePageSession } from '../lib/vibedesk'
+import { getPageSessionScope, subscribePageSession, getResearchSessionRevision, subscribeResearchSession, researchAccessReady } from '../lib/vibedesk'
 
 const SessionContext = createContext<{
   session: PageSession
@@ -36,9 +36,11 @@ function ScopedPageSession({ scope, entry, children }: { scope: string | null; e
 
 export function PageSessionBoundary({ children }: { children: ReactNode }) {
   const scope = useSyncExternalStore(subscribePageSession, getPageSessionScope)
+  const revision = useSyncExternalStore(subscribeResearchSession, getResearchSessionRevision)
   const location = useLocation()
   const entry = useRef(location.pathname + location.search + location.hash)
-  return <ScopedPageSession key={scope ?? 'unconnected'} scope={scope} entry={entry.current}>{children}</ScopedPageSession>
+  if (!researchAccessReady()) return <section role="status">等待 Desk 周期读取授权；未使用匿名研究快照。</section>
+  return <ScopedPageSession key={`${scope ?? 'unconnected'}:${revision}`} scope={scope} entry={entry.current}>{children}</ScopedPageSession>
 }
 
 // Values are public view preferences only, never data responses or action/run state.

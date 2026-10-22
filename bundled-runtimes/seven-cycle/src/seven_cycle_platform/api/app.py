@@ -239,6 +239,8 @@ def create_app(
         if not stat.S_ISREG(index_stat.st_mode):
             raise ValueError("web root must contain index.html")
     app.state.web_root = normalized_web_root
+    from seven_cycle_platform.api.desk_access import install_desk_access
+    install_desk_access(app)
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(

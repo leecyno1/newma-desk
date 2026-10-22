@@ -21,7 +21,8 @@ DESK_ORIGIN = "https://c10375.runtime.drlemon.cc:10443"
 WRITE_ORIGINS = frozenset(f"https://c10375.runtime.drlemon.cc:{port}" for port in (10443, 10444, 10445))
 COOKIE = "__Host-newma_desk_session"
 FLOW_COOKIE = "__Host-newma_desk_flow"
-SCOPE_PATHS = frozenset(("/api/mods/runtime/instock-scope", "/api/modules/runtime/instock-scope"))
+SCOPE_PATHS = frozenset(("/api/mods/runtime/instock-scope", "/api/modules/runtime/instock-scope",
+                       "/api/mods/runtime/cycle-scope", "/api/modules/runtime/cycle-scope"))
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 CODE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 SAFE_METHODS = frozenset(("GET", "HEAD", "OPTIONS"))

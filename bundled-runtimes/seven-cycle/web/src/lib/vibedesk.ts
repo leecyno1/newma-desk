@@ -108,6 +108,55 @@ export function publishVibeDeskContext() {
 
 const root = document.documentElement
 const isEmbedded = window.self !== window.top
+let readSession: {token: string; instance: string; expiresAt: string} | null = null
+let readScope = ''
+let readRevision = 0
+let readController = new AbortController()
+const readListeners = new Set<() => void>()
+export const getResearchSessionRevision = () => readRevision
+export const researchAccessReady = () => !isEmbedded || !!readSession
+export function subscribeResearchSession(listener: () => void) {
+  readListeners.add(listener)
+  return () => { readListeners.delete(listener) }
+}
+
+function updateResearchSession(data: Record<string, any>) {
+  const token = data.session?.accessToken
+  const expiresAt = data.session?.expiresAt
+  const permissions = Array.isArray(data.grants?.permissions) ? data.grants.permissions.filter((p: unknown) => typeof p === 'string').sort() : []
+  const valid = typeof token === 'string' && token && typeof expiresAt === 'string'
+    && Date.parse(expiresAt) > Date.now() && permissions.includes('analysis.read')
+    && typeof data.user?.id === 'string' && data.user.id && typeof data.workspace?.id === 'string' && data.workspace.id
+  // Never use this internal credential fingerprint as a sessionStorage key or Context field.
+  const scope = valid ? JSON.stringify([data.user.id, data.workspace.id, data.instanceId, token, expiresAt, permissions, data.gateways]) : ''
+  if (scope === readScope) return
+  readScope = scope
+  readController.abort()
+  readController = new AbortController()
+  readSession = valid ? {token, instance: data.instanceId, expiresAt} : null
+  readRevision += 1
+  contextProvider = undefined; visualCaptureProvider = undefined; uiActionHandler = undefined
+  contextRevision += 1; visualRevision += 1; actionRevision += 1
+  readListeners.forEach(listener => listener())
+}
+
+export async function fetchResearch<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const target = new URL(path, window.location.origin)
+  const snapshot = /^\/data\/(market-surface|cycle-research|asset-statistics|forecast-extension|data-calibration)\.json$/.test(target.pathname) && !target.search
+  const attribution = /^\/v1\/assets\/[^/]{1,600}\/attribution$/.test(target.pathname) && target.search === '?horizon=12'
+  if (target.origin !== window.location.origin || !(snapshot || attribution) || target.hash) throw new Error('未声明的周期读取入口')
+  const session = readSession
+  if (isEmbedded && (!session || Date.parse(session.expiresAt) <= Date.now())) throw new Error('等待有效的 Desk 周期读取授权')
+  const lifetime = readController.signal
+  const combined = AbortSignal.any([lifetime, AbortSignal.timeout(20_000), ...(signal ? [signal] : [])])
+  const response = await fetch(target, {method: 'GET', signal: combined, cache: 'no-store', credentials: 'omit', redirect: 'error',
+    headers: isEmbedded && session ? {Authorization: `Bearer ${session.token}`, 'X-Newma-Desk-Instance-Id': session.instance} : {},
+  })
+  if (!response.ok) throw new Error(`周期数据读取失败（${response.status}），请核对授权及服务`)
+  const result = await response.json() as T
+  if (combined.aborted || session && Date.parse(session.expiresAt) <= Date.now()) throw new Error('周期会话已变化，未采用旧结果')
+  return result
+}
 const appliedVariables = new Set<string>()
 const cssVariableName = /^--[a-z0-9-]{2,80}$/
 
@@ -499,6 +548,7 @@ if (isEmbedded) {
     ) {
       activeInstanceId = data.instanceId
       sessionRevision += 1
+      updateResearchSession(data)
       setPageSessionScope(typeof data.user?.id === 'string' && typeof data.workspace?.id === 'string'
         && data.user.id && data.workspace.id
         ? JSON.stringify([parentOrigin, data.user.id, data.workspace.id, activeModId]) : null)

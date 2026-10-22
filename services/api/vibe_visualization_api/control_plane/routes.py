@@ -36,6 +36,7 @@ from vibe_visualization_api.control_plane.packages import (
 )
 from vibe_visualization_api.control_plane.repository import ModuleRepository
 from vibe_visualization_api.control_plane.permissions import authorize_action
+from vibe_visualization_api.control_plane.cycle_scope import CycleReadTarget, authorize_cycle_scope
 from vibe_visualization_api.control_plane.sessions import (
     ModSessionError,
     bearer_token,
@@ -107,6 +108,12 @@ def _instance_id_header(
     ):
         raise HTTPException(400, "conflicting Mod instance headers")
     return instance_id or legacy_instance_id
+
+
+@router.post("/runtime/cycle-scope")
+async def cycle_request_scope(request: Request, target: CycleReadTarget, response: Response):
+    response.headers["Cache-Control"] = "private, no-store"
+    return await authorize_cycle_scope(request, target)
 
 
 @router.post("/runtime/instock-scope")

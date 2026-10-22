@@ -3,7 +3,7 @@
   "id": "seven-cycle-research",
   "name": "周期叠加",
   "description": "Circle 全球周期、市场曲面、资产统计与数据校准研究系统。",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/circle",
  "tags": ["周期", "宏观", "资产", "研究"],

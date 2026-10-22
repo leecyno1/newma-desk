@@ -13,7 +13,7 @@ const modId = 'seven-cycle-research'
 const flush = () => new Promise(resolve => setImmediate(resolve))
 const page = id => ({ view: { id, title: id }, visibleBlocks: [], selection: {}, filters: {}, data: {}, actions: [], tasks: [] })
 
-function bridge({ configured = host, embedded = true, theme } = {}) {
+function bridge({ configured = host, embedded = true, theme, fetcher = async () => new Response('{"synthetic":true}') } = {}) {
   const messages = []
   const listeners = new Map()
   const root = {
@@ -37,7 +37,7 @@ function bridge({ configured = host, embedded = true, theme } = {}) {
     exports, window,
     document: { documentElement: root, referrer: 'https://untrusted.example/embed' },
     __env: { VITE_NEWMA_DESK_PARENT_ORIGIN: configured },
-    URL, crypto: { randomUUID: () => 'published-context' },
+    URL, AbortController, AbortSignal, fetch: fetcher, crypto: { randomUUID: () => 'published-context' },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail } },
   })
   const send = (data, origin = host, sender = parent) => listeners.get('message')?.({ data, origin, source: sender })
@@ -49,6 +49,70 @@ function bridge({ configured = host, embedded = true, theme } = {}) {
   })
   return { exports, messages, root, init, request, send }
 }
+
+const signed = (user = 'a', token = 'synthetic-token') => ({
+  user: {id: user}, workspace: {id: 'workspace'}, grants: {permissions: ['analysis.read'], actions: []},
+  session: {accessToken: token, expiresAt: new Date(Date.now() + 60_000).toISOString()},
+})
+
+test('embedded reads wait for a trusted signed session; standalone stays local', async () => {
+  const calls = []
+  const fetcher = async (url, options) => {calls.push([url, options]); return new Response('{"synthetic":true}')}
+  const b = bridge({fetcher})
+  await assert.rejects(b.exports.fetchResearch('/data/cycle-research.json'), /授权/)
+  b.init('first', signed(), 'https://untrusted.example')
+  assert.equal(calls.length, 0)
+  b.init('first', signed())
+  for (const name of ['market-surface', 'cycle-research', 'asset-statistics', 'forecast-extension', 'data-calibration']) {
+    assert.equal((await b.exports.fetchResearch(`/data/${name}.json`)).synthetic, true)
+  }
+  await b.exports.fetchResearch('/v1/assets/%E5%95%86%E5%93%81%3A%3A%E5%8E%9F%E6%B2%B9/attribution?horizon=12')
+  assert.equal(calls.length, 6)
+  for (const [, options] of calls) {
+    assert.equal(options.headers.Authorization, 'Bearer synthetic-token')
+    assert.equal(options.headers['X-Newma-Desk-Instance-Id'], 'first')
+    assert.equal(options.credentials, 'omit'); assert.equal(options.redirect, 'error'); assert.equal(options.cache, 'no-store')
+  }
+  const local = bridge({embedded: false, fetcher})
+  await local.exports.fetchResearch('/data/cycle-research.json')
+  assert.equal(Object.keys(calls.at(-1)[1].headers).length, 0)
+})
+
+test('token/grant/identity changes cancel reads and providers, theme updates do not', async () => {
+  let resolve
+  const calls = []
+  const b = bridge({fetcher: (url, options) => {calls.push(options); return new Promise(done => {resolve = done})}})
+  const first = signed()
+  b.init('first', first)
+  const revision = b.exports.getResearchSessionRevision()
+  b.init('first', {...first, environment: {theme: 'light'}})
+  assert.equal(b.exports.getResearchSessionRevision(), revision)
+  const reading = b.exports.fetchResearch('/data/cycle-research.json')
+  b.init('first', signed('b')); b.init('first', first)
+  assert.equal(calls[0].signal.aborted, true)
+  resolve(new Response('{"old":true}'))
+  await assert.rejects(reading, /旧结果/)
+  b.init('first', {...first, session: {...first.session, accessToken: 'refreshed'}})
+  assert.equal(b.exports.getResearchSessionRevision(), revision + 3)
+  b.init('first', {...first, grants: {permissions: [], actions: []}})
+  assert.equal(b.exports.researchAccessReady(), false)
+  await assert.rejects(b.exports.fetchResearch('/data/cycle-research.json'), /授权/)
+  assert.equal(calls.length, 1)
+})
+
+test('failed/expired authorization never retries anonymously or leaks host credentials', async () => {
+  let calls = 0
+  const b = bridge({fetcher: async () => {calls++; return new Response('private debug', {status: 401})}})
+  b.init('first', signed())
+  await assert.rejects(b.exports.fetchResearch('/data/cycle-research.json'), /401/)
+  for (const path of ['https://other.example/data/cycle-research.json', '/v1/assets', '/data/deployment.json', '/data/cycle-research.json?token=x']) {
+    await assert.rejects(b.exports.fetchResearch(path), /未声明/)
+  }
+  b.init('first', {...signed(), session: {accessToken: 'expired', expiresAt: '2000-01-01T00:00:00Z'}})
+  await assert.rejects(b.exports.fetchResearch('/data/cycle-research.json'), /授权/)
+  assert.equal(calls, 1)
+  assert.ok(b.messages.every(message => !JSON.stringify(message).includes('synthetic-token')))
+})
 
 test('standalone defaults to light and preserves an explicit theme', () => {
   assert.equal(bridge({ embedded: false }).root.dataset.theme, 'light')

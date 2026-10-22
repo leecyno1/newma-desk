@@ -7,7 +7,7 @@ import PlotlyCanvas from '../components/PlotlyCanvas'
 import ResearchAssetMapping from '../components/ResearchAssetMapping'
 import StatusBadge from '../components/StatusBadge'
 import { useResearchData } from '../hooks/useResearchData'
-import { loadAssetStatistics } from '../lib/data'
+import { loadAssetStatistics, loadAttribution } from '../lib/data'
 import { publishVibeDeskContext, registerVibeDeskContextProvider, registerVibeDeskUiActionHandler } from '../lib/vibedesk'
 import { assetForecastAction, assetForecastView, createAssetForecastControls, initialForecastView } from '../lib/assetForecastView'
 import { assetHistoryAction, assetHistoryView, createAssetHistoryControls, initialAssetHistory, type AssetHistoryState } from '../lib/assetHistoryView'
@@ -218,13 +218,7 @@ export default function AssetsPage() {
     const controller = new AbortController()
     setAttributionResult({ assetId: selected.asset_id, rows: [], loading: true, error: null })
     const assetId = `${selected.category}::${selected.name}`
-    fetch(`/v1/assets/${encodeURIComponent(assetId)}/attribution?horizon=12`, {
-      cache: 'no-store', signal: controller.signal,
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error('attribution unavailable')
-        return response.json()
-      })
+    loadAttribution<AttributionRow>(assetId, controller.signal)
       .then((payload) => { if (!controller.signal.aborted) setAttributionResult({ assetId: selected.asset_id, rows: payload.data ?? [], loading: false, error: null }) })
       .catch((error) => {
         if (!controller.signal.aborted && error.name !== 'AbortError') {
