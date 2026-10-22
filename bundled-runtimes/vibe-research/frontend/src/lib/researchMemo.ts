@@ -1,4 +1,5 @@
-import { waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
+import type { ResearchArchiveEntry, ResearchArchiveIndex } from "@/lib/researchArchive";
 
 export type ResearchMemoStatus = "draft" | "current" | "superseded" | "archived";
 export type ResearchBias = "constructive" | "neutral" | "cautious" | "watch";
@@ -21,7 +22,9 @@ export interface ResearchArtifactReference {
   artifactId: string;
   title: string;
   asOf?: string;
-  status: "linked" | "stale" | "missing";
+  status: "linked" | "stale" | "missing" | "unverified";
+  sourceRevision?: number;
+  sourceUpdatedAt?: string;
   note?: string;
 }
 
@@ -132,7 +135,16 @@ export interface ResearchMemoWorkspace {
   memos: ResearchMemo[];
 }
 
-interface StorageDocument { revision: number; value: unknown }
+export interface ResearchMemoSession {
+  workspace: ResearchMemoWorkspace;
+  mode: "local" | "desk";
+  scope: string;
+  revision: number;
+  localVersion?: string | null;
+  writable: boolean;
+}
+
+export class ResearchMemoStorageError extends Error {}
 
 const LOCAL_KEY = "newma-desk.research-memo.v1";
 const NAMESPACE = "research-memo";
@@ -294,7 +306,9 @@ function normalizeMemo(value: unknown): ResearchMemo | null {
       artifactId,
       title: itemTitle,
       ...(typeof item.asOf === "string" ? { asOf: item.asOf.slice(0, 80) } : {}),
-      status: enumValue(item.status, ["linked", "stale", "missing"] as const, "linked"),
+      status: enumValue(item.status, ["linked", "stale", "missing", "unverified"] as const, "unverified"),
+      ...(Number.isInteger(item.sourceRevision) && Number(item.sourceRevision) > 0 ? { sourceRevision: item.sourceRevision as number } : {}),
+      ...(typeof item.sourceUpdatedAt === "string" ? { sourceUpdatedAt: item.sourceUpdatedAt.slice(0, 80) } : {}),
       ...(typeof item.note === "string" ? { note: item.note.slice(0, 2_000) } : {}),
     }];
   }).slice(0, 50);
@@ -398,13 +412,29 @@ function normalizeWorkspace(value: unknown): ResearchMemoWorkspace {
   };
 }
 
-export function loadLocalResearchMemoWorkspace() {
-  try { return normalizeWorkspace(JSON.parse(localStorage.getItem(LOCAL_KEY) || "null")); }
-  catch { return emptyResearchMemoWorkspace(); }
+export function researchMemoScope(config = getVibeDeskConfig()) {
+  return config ? JSON.stringify([config.apiOrigin, config.storageGateway, config.userId, config.workspaceId, config.moduleId, config.instanceId])
+    : isVibeDeskEmbedded ? "unconnected" : "local";
+}
+
+function assertScope(scope: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (scope !== researchMemoScope()) throw new ResearchMemoStorageError("工作区已变化，请在当前工作区重新读取；未转存旧草稿。");
+}
+
+function checkedWorkspace(value: unknown): ResearchMemoWorkspace {
+  if (!isRecord(value) || value.schemaVersion !== "newma-desk.research-memo.v1" || !Array.isArray(value.memos) || value.memos.length > 100) {
+    throw new ResearchMemoStorageError("备忘录格式不完整或超过 100 份，未读取为空档案，也未覆盖原数据。");
+  }
+  const result = normalizeWorkspace(value);
+  if (result.memos.length !== value.memos.length || new Set(result.memos.map((memo) => memo.id)).size !== result.memos.length) {
+    throw new ResearchMemoStorageError("备忘录格式不完整或档案标识重复，未覆盖原数据。");
+  }
+  return result;
 }
 
 function canRead(config: VibeDeskConfig | null): config is VibeDeskConfig & { accessToken: string; instanceId: string; storageGateway: string } {
-  return Boolean(config?.accessToken && config.instanceId && config.storageGateway && config.permissions?.includes("storage.read"));
+  return Boolean(config?.moduleId === "research-memo" && config.userId && config.workspaceId && config.accessToken && config.instanceId && config.storageGateway && config.permissions?.includes("storage.read"));
 }
 function canWrite(config: VibeDeskConfig | null): config is VibeDeskConfig & { accessToken: string; instanceId: string; storageGateway: string } {
   return canRead(config) && Boolean(config.permissions?.includes("storage.write"));
@@ -413,69 +443,104 @@ function endpoint(config: VibeDeskConfig) { return `${config.storageGateway}/${N
 function headers(config: VibeDeskConfig, json = false) {
   return { Authorization: `Bearer ${config.accessToken}`, "X-Newma-Desk-Instance-Id": config.instanceId || "", ...(json ? { "Content-Type": "application/json" } : {}) };
 }
-async function readRemote(config: VibeDeskConfig) {
-  const response = await fetch(endpoint(config), { headers: headers(config) });
-  if (response.status === 404) return { found: false, revision: 0, state: emptyResearchMemoWorkspace() };
-  if (!response.ok) throw new Error(`research memo read failed: ${response.status}`);
-  const document = await response.json() as StorageDocument;
-  return { found: true, revision: Number(document.revision) || 0, state: normalizeWorkspace(document.value) };
+function requestSignal(signal?: AbortSignal) {
+  const timeout = AbortSignal.timeout(15_000);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+function checkedDocument(value: unknown, minimumRevision = 1) {
+  if (!isRecord(value) || !Number.isInteger(value.revision) || Number(value.revision) < minimumRevision) {
+    throw new ResearchMemoStorageError("存储回执格式或修订号异常，请保留草稿并重新读取核对。");
+  }
+  return { revision: value.revision as number, workspace: checkedWorkspace(value.value) };
 }
 
-export async function hydrateResearchMemoWorkspace() {
-  const local = loadLocalResearchMemoWorkspace();
+export async function hydrateResearchMemoWorkspace(signal?: AbortSignal): Promise<ResearchMemoSession> {
   const config = await waitForVibeDeskConfig();
-  if (!canRead(config)) return local;
-  try { const remote = await readRemote(config); return remote.found ? remote.state : local; }
-  catch { return local; }
-}
-
-export async function persistResearchMemoWorkspace(workspace: ResearchMemoWorkspace) {
-  const normalized = normalizeWorkspace(workspace);
-  try { localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized)); } catch { /* browser storage may be disabled */ }
-  const config = await waitForVibeDeskConfig();
-  if (!canWrite(config)) return;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  const scope = researchMemoScope(config);
+  assertScope(scope, signal);
+  if (!config && !isVibeDeskEmbedded) {
     try {
-      const current = await readRemote(config);
-      const response = await fetch(endpoint(config), {
-        method: "PUT", headers: headers(config, true),
-        body: JSON.stringify({ expectedRevision: current.revision, value: normalized }),
-      });
-      if (response.status === 409 && attempt === 0) continue;
-      if (!response.ok) throw new Error(`research memo write failed: ${response.status}`);
-      return;
-    } catch { return; }
+      const raw = localStorage.getItem(LOCAL_KEY);
+      return { workspace: raw === null ? emptyResearchMemoWorkspace() : checkedWorkspace(JSON.parse(raw)), mode: "local", scope, revision: 0, localVersion: raw, writable: true };
+    } catch (error) {
+      if (error instanceof ResearchMemoStorageError) throw error;
+      throw new ResearchMemoStorageError("本机读取失败，原记录未改动；请检查浏览器存储后重试。");
+    }
+  }
+  if (!canRead(config)) throw new ResearchMemoStorageError("尚未连接已授权的 Desk 存储；不会读取其他工作区或本机旧缓存。");
+  try {
+    const response = await fetch(endpoint(config), { headers: headers(config), signal: requestSignal(signal) });
+    assertScope(scope, signal);
+    const document = response.status === 404 ? { revision: 0, workspace: emptyResearchMemoWorkspace() }
+      : response.ok ? checkedDocument(await response.json()) : null;
+    if (!document) throw new ResearchMemoStorageError(`Desk 读取失败（HTTP ${response.status}），未载入其他工作区或本机旧缓存。`);
+    assertScope(scope, signal);
+    return { ...document, scope, mode: "desk", writable: canWrite(config) };
+  } catch (error) {
+    if (error instanceof ResearchMemoStorageError) throw error;
+    throw new ResearchMemoStorageError("Desk 读取失败，请检查连接后重新读取；原记录未改动。");
   }
 }
 
-function cachedWorkspace(key: string) {
-  try { const parsed = JSON.parse(localStorage.getItem(key) || "null"); return isRecord(parsed) ? parsed : null; }
-  catch { return null; }
-}
-
-export function discoverCachedResearchArtifacts(): ResearchArtifactReference[] {
-  const references: ResearchArtifactReference[] = [];
-  const add = (kind: ArtifactKind, sourceModId: string, artifactId: unknown, title: unknown, asOf?: unknown) => {
-    if (typeof artifactId !== "string" || typeof title !== "string" || !artifactId || !title) return;
-    references.push({
-      id: `artifact:${sourceModId}:${artifactId}`,
-      kind, sourceModId, artifactId, title,
-      ...(typeof asOf === "string" && asOf ? { asOf: asOf.slice(0, 80) } : {}),
-      status: "linked",
-      note: "从当前浏览器的 Desk 工作区缓存发现；底层档案仍由来源 Mod 维护。",
+export async function persistResearchMemoWorkspace(workspace: ResearchMemoWorkspace, session: ResearchMemoSession, signal?: AbortSignal): Promise<ResearchMemoSession> {
+  assertScope(session.scope, signal);
+  const normalized = checkedWorkspace(workspace);
+  if (session.mode === "local") {
+    try {
+      if (localStorage.getItem(LOCAL_KEY) !== session.localVersion) throw new ResearchMemoStorageError("保存冲突：其他窗口已更新本机档案。草稿保留，请先导出再重新读取核对。");
+      const raw = JSON.stringify(normalized);
+      localStorage.setItem(LOCAL_KEY, raw);
+      if (localStorage.getItem(LOCAL_KEY) !== raw) throw new ResearchMemoStorageError("本机保存未确认，请保留草稿并重新读取核对。");
+      return { ...session, workspace: normalized, localVersion: raw };
+    } catch (error) {
+      if (error instanceof ResearchMemoStorageError) throw error;
+      throw new ResearchMemoStorageError("本机保存失败，草稿仍在；刷新或关闭前请导出草稿，检查浏览器存储空间。");
+    }
+  }
+  const config = getVibeDeskConfig();
+  if (!canWrite(config)) throw new ResearchMemoStorageError("当前工作区没有保存权限；草稿未写入，请先导出保留。");
+  try {
+    const response = await fetch(endpoint(config), {
+      method: "PUT", headers: headers(config, true), signal: requestSignal(signal),
+      body: JSON.stringify({ expectedRevision: session.revision, value: normalized }),
     });
-  };
-  const thesis = cachedWorkspace("newma-desk.thesis-tracker.v1");
-  for (const row of Array.isArray(thesis?.theses) ? thesis.theses : []) if (isRecord(row)) add("thesis", "thesis-tracker", row.id, row.title, row.updatedAt);
-  const earnings = cachedWorkspace("newma-desk.earnings-workbench.v1");
-  for (const row of Array.isArray(earnings?.workbooks) ? earnings.workbooks : []) if (isRecord(row)) {
-    const security = isRecord(row.security) ? row.security : {};
-    const period = isRecord(row.fiscalPeriod) ? row.fiscalPeriod : {};
-    add("earnings", "earnings-workbench", row.id, `${textValue(security.name, "证券")} · ${textValue(period.label, "财报研究")}`, row.updatedAt);
+    assertScope(session.scope, signal);
+    if (response.status === 409) throw new ResearchMemoStorageError("保存冲突：其他窗口已更新。草稿保留，请先导出再重新读取核对；未覆盖对方版本。");
+    if (!response.ok) throw new ResearchMemoStorageError(`Desk 保存未确认（HTTP ${response.status}）。草稿保留，请重新读取核对，勿重复提交。`);
+    const result = checkedDocument(await response.json(), session.revision + 1);
+    assertScope(session.scope, signal);
+    return { ...session, ...result };
+  } catch (error) {
+    if (error instanceof ResearchMemoStorageError) throw error;
+    throw new ResearchMemoStorageError("Desk 保存未确认，草稿仍在；请先导出，再重新读取核对，勿重复提交。");
   }
-  const peer = cachedWorkspace("newma-desk.peer-comparison.v1");
-  for (const row of Array.isArray(peer?.cases) ? peer.cases : []) if (isRecord(row)) add("peer-comparison", "peer-comparison", row.id, row.name, row.updatedAt);
-  const valuation = cachedWorkspace("newma-desk.valuation-workbench.v1");
-  for (const row of Array.isArray(valuation?.models) ? valuation.models : []) if (isRecord(row)) add("valuation", "valuation-workbench", row.id, row.name, row.updatedAt);
-  return references.slice(0, 100);
+}
+
+export function researchReferenceFromEntry(entry: ResearchArchiveEntry, previous?: ResearchArtifactReference): ResearchArtifactReference {
+  const kind = ["thesis", "earnings", "peer-comparison", "valuation"].includes(entry.kind) ? entry.kind as ArtifactKind : "other";
+  return {
+    id: previous?.id || createResearchId("artifact"), kind,
+    sourceModId: entry.sourceModId, artifactId: entry.artifactId, title: entry.title,
+    asOf: entry.asOf,
+    sourceRevision: entry.sourceRevision, sourceUpdatedAt: entry.updatedAt,
+    status: entry.sourceRevision ? entry.status === "active" ? "linked" : "stale" : "unverified",
+    note: previous?.note || (entry.sourceRevision ? "已登记档案索引版本；不代表底稿证据或投资结论已核验。" : "本机缓存引用，工作区归属与来源版本尚未核验。"),
+  };
+}
+
+export function researchReferenceCheck(reference: ResearchArtifactReference, index: ResearchArchiveIndex | null) {
+  if (!index) return { state: "unchecked", label: "尚未核对来源" };
+  const source = index.entries.find((entry) => entry.sourceModId === reference.sourceModId && entry.artifactId === reference.artifactId);
+  if (!source) {
+    const covered = ["thesis-tracker", "earnings-workbench", "peer-comparison", "valuation-workbench", "research-memo", "research-notes"].includes(reference.sourceModId);
+    return !covered || index.truncated !== false || !index.unavailableSources || index.unavailableSources.includes(reference.sourceModId)
+      ? { state: "unavailable", label: "来源未完整读取，不能判断是否删除" }
+      : { state: "missing", label: "当前工作区未找到该档案，请核对来源与 ID" };
+  }
+  if (["archived", "invalidated", "stale", "draft", "unknown"].includes(source.status)) return { state: "inactive", label: "来源为草稿、归档或待复核状态", source };
+  if (reference.sourceUpdatedAt && (reference.sourceRevision !== source.sourceRevision || reference.sourceUpdatedAt !== source.updatedAt || reference.title !== source.title || reference.asOf !== source.asOf)) {
+    return { state: "changed", label: source.sourceRevision ? "来源版本已变化，需复核后采纳" : "本机来源信息已变化，归属与版本仍待核验", source };
+  }
+  if (!source.sourceRevision || !reference.sourceRevision || !reference.sourceUpdatedAt) return { state: "unverified", label: "引用版本待确认", source };
+  return { state: "current", label: "索引版本一致；证据内容仍需核验", source };
 }

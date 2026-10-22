@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import pytest
+import requests
 
 import app as app_module
 import market_terminal
@@ -13,7 +15,10 @@ class _Response:
         self._rows = rows
 
     def json(self):
-        return {"data": {"diff": self._rows}}
+        return {"rc": 0, "data": {"total": len(self._rows), "diff": self._rows}}
+
+    def raise_for_status(self):
+        pass
 
 
 def test_scan_market_quotes_normalizes_identity_and_metrics(monkeypatch):
@@ -117,3 +122,73 @@ def test_scan_route_rejects_invalid_market():
     )
 
     assert response.status_code == 422
+
+
+def test_scan_unavailable_is_not_cached_as_an_empty_success(monkeypatch):
+    market_terminal._SCAN_CACHE.clear()
+    calls = []
+
+    def unavailable(url, **kwargs):
+        calls.append(url)
+        raise requests.ConnectionError("private transport detail")
+
+    monkeypatch.setattr(market_terminal.astock, "em_get", unavailable)
+    response = TestClient(app_module.app).get("/api/market-terminal/scan")
+    assert response.status_code == 502
+    assert "行情扫描源暂不可用" in response.json()["detail"]
+    assert "private transport detail" not in response.text
+    assert len(calls) == 2
+    assert not market_terminal._SCAN_CACHE
+
+    monkeypatch.setattr(market_terminal.astock, "em_get", lambda *a, **k: _Response([
+        {"f12": "600519", "f14": "贵州茅台", "f2": 1400},
+    ]))
+    recovered = market_terminal.scan_market_quotes("CN")
+    assert recovered["items"][0]["symbol"] == "600519"
+
+
+@pytest.mark.parametrize("payload", [
+    {"rc": 1, "data": {"diff": []}},
+    {"rc": 0, "data": None},
+    {"rc": 0, "data": {"total": 10, "diff": []}},
+    {"rc": 0, "data": {"diff": "invalid"}},
+    {"rc": 0, "data": {"diff": [{"f14": "missing identity"}]}},
+])
+def test_scan_invalid_payload_falls_back_to_next_host(monkeypatch, payload):
+    market_terminal._SCAN_CACHE.clear()
+    calls = []
+
+    def fetch(url, **kwargs):
+        calls.append(url)
+        response = _Response([{"f12": "00700", "f14": "腾讯控股"}])
+        if len(calls) == 1:
+            response.json = lambda: payload
+        return response
+
+    monkeypatch.setattr(market_terminal.astock, "em_get", fetch)
+    result = market_terminal.scan_market_quotes("HK")
+    assert len(calls) == 2
+    assert result["source"] == "eastmoney"
+    assert result["items"][0]["symbol"] == "00700"
+
+
+def test_scan_http_failure_is_not_parsed_as_success(monkeypatch):
+    market_terminal._SCAN_CACHE.clear()
+    response = _Response([{"f12": "600519"}])
+
+    def fail():
+        raise requests.HTTPError("upstream 503")
+
+    response.raise_for_status = fail
+    monkeypatch.setattr(market_terminal.astock, "em_get", lambda *a, **k: response)
+    result = TestClient(app_module.app).get("/api/market-terminal/scan")
+    assert result.status_code == 502
+    assert not market_terminal._SCAN_CACHE
+
+
+def test_scan_explicit_empty_result_stays_distinct_from_failure(monkeypatch):
+    market_terminal._SCAN_CACHE.clear()
+    monkeypatch.setattr(market_terminal.astock, "em_get", lambda *a, **k: _Response([]))
+    response = TestClient(app_module.app).get("/api/market-terminal/scan")
+    assert response.status_code == 200
+    assert response.json()["data"]["items"] == []

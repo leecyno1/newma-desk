@@ -35,6 +35,7 @@ def _probe(*, integrated: bool) -> dict:
     env = os.environ.copy()
     env.pop("NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME", None)
     env.pop("VIBEDESK_INTEGRATED_DOMAIN_RUNTIME", None)
+    env.pop("VR_DISABLE_BACKGROUND_TASKS", None)
     if integrated:
         env["NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME"] = "1"
     result = subprocess.run(

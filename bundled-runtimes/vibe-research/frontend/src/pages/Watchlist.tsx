@@ -21,6 +21,7 @@ import {
   loadLocalWatchGroups,
   parseCodes,
   saveLocalWatchGroups,
+  WatchlistRequestError,
   type SecurityRef,
   type WatchGroup,
   type WatchlistClient,
@@ -30,6 +31,8 @@ import {
   emitVibeDeskEvent,
   publishVibeDeskContext,
   registerVibeDeskContextProvider,
+  getVibeDeskConfig,
+  subscribeVibeDeskConfig,
   type VibeDeskPageContext,
 } from "@/lib/vibedesk";
 import { cn } from "@/lib/utils";
@@ -54,12 +57,24 @@ const percent = (value: number | null | undefined) =>
     ? "—"
     : `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 
+type SyncState = "connecting" | "synced" | "offline" | "local";
+
+function watchlistScope() {
+  const config = getVibeDeskConfig();
+  return JSON.stringify([config?.apiOrigin, config?.userId, config?.workspaceId, config?.instanceId]);
+}
+
+function syncFailure(error: unknown) {
+  return error instanceof WatchlistRequestError ? error.message : "Desk 自选连接未确认，请从已授权的工作区重新打开。";
+}
+
 function watchlistContext(input: {
   groups: WatchGroup[];
   activeGroup?: WatchGroup;
   selected?: SecurityRef;
   selectedQuote?: TerminalQuote;
-  synced: boolean;
+  syncState: SyncState;
+  localSaved: boolean;
 }): VibeDeskPageContext {
   const securityCount = input.groups.reduce(
     (total, group) => total + group.symbols.length,
@@ -85,10 +100,12 @@ function watchlistContext(input: {
     },
     filters: { scope: "active-group" },
     data: {
-      asOf: input.selectedQuote?.asOf || new Date().toISOString(),
-      source: input.synced ? "vibedesk-watchlist-service" : "vibe-research-local-cache",
-      freshness: input.selectedQuote ? "live" : input.synced ? "fresh" : "unknown",
+      asOf: input.selectedQuote?.asOf,
+      source: input.syncState === "synced" ? "vibedesk-watchlist-service" : "vibe-research-local-cache",
+      freshness: "unknown",
       summary: {
+        syncState: input.syncState,
+        localSaved: input.localSaved,
         groupCount: input.groups.length,
         securityCount,
         activeGroupSecurityCount: input.activeGroup?.symbols.length || 0,
@@ -120,6 +137,12 @@ function watchlistContext(input: {
 }
 
 export function Watchlist() {
+  const [scope, setScope] = useState(watchlistScope);
+  useEffect(() => subscribeVibeDeskConfig(() => setScope(watchlistScope())), []);
+  return <WatchlistContent key={scope} />;
+}
+
+function WatchlistContent() {
   const [localSnapshot] = useState(loadLocalWatchGroups);
   const [groups, setGroups] = useState<WatchGroup[]>(localSnapshot.groups);
   const [activeGroupId, setActiveGroupId] = useState(
@@ -131,9 +154,9 @@ export function Watchlist() {
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
-  const [syncState, setSyncState] = useState<
-    "connecting" | "synced" | "offline"
-  >("connecting");
+  const [syncState, setSyncState] = useState<SyncState>("connecting");
+  const [localSaved, setLocalSaved] = useState(true);
+  const [syncError, setSyncError] = useState("");
   const [client, setClient] = useState<WatchlistClient>();
   const [groupEditor, setGroupEditor] = useState<{
     mode: "create" | "rename";
@@ -142,17 +165,20 @@ export function Watchlist() {
   const [deleteConfirmId, setDeleteConfirmId] = useState("");
   const mutationQueue = useRef<Promise<unknown>>(Promise.resolve());
   const mutationToken = useRef(0);
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; mutationToken.current += 1; }; }, []);
   const activeGroup = groups.find((group) => group.id === activeGroupId) || groups[0];
   const selectedQuote = selected ? quotes[securityKey(selected)] : undefined;
   const contextRef = useRef<VibeDeskPageContext>(
-    watchlistContext({ groups, activeGroup, selected, selectedQuote, synced: false }),
+    watchlistContext({ groups, activeGroup, selected, selectedQuote, syncState, localSaved }),
   );
   contextRef.current = watchlistContext({
     groups,
     activeGroup,
     selected,
     selectedQuote,
-    synced: syncState === "synced",
+    syncState,
+    localSaved,
   });
 
   const applySnapshot = useCallback((snapshot: WatchlistSnapshot) => {
@@ -162,10 +188,9 @@ export function Watchlist() {
         ? current
         : snapshot.groups[0]?.id || "sample",
     );
-    saveLocalWatchGroups(snapshot.groups);
   }, []);
 
-  useEffect(() => saveLocalWatchGroups(groups), [groups]);
+  useEffect(() => { setLocalSaved(saveLocalWatchGroups(groups)); }, [groups]);
 
   useEffect(() => {
     const unregister = registerVibeDeskContextProvider(() => contextRef.current);
@@ -174,26 +199,21 @@ export function Watchlist() {
 
   useEffect(() => {
     void publishVibeDeskContext();
-  }, [groups, activeGroupId, selected, selectedQuote, syncState]);
+  }, [groups, activeGroupId, selected, selectedQuote, syncState, localSaved]);
 
   useEffect(() => {
     let active = true;
     void connectWorkspaceWatchlist().then(async (connectedClient) => {
       if (!active) return;
+      if (!connectedClient) { setSyncState("local"); return; }
       setClient(connectedClient);
-      let remote = await connectedClient.load();
-      if (remote.revision === 0 && localSnapshot.hasStoredValue) {
-        try {
-          remote = await connectedClient.replace(remote.revision, localSnapshot.groups);
-        } catch {
-          remote = await connectedClient.load();
-        }
-      }
+      // 读取不触发上传：旧缓存可能来自断线状态，不能据此覆盖工作区。
+      const remote = await connectedClient.load();
       if (!active) return;
       applySnapshot(remote);
       setSyncState("synced");
-    }).catch(() => {
-      if (active) setSyncState("offline");
+    }).catch((error) => {
+      if (active) { setSyncState("offline"); setSyncError(syncFailure(error)); }
     });
     return () => {
       active = false;
@@ -203,24 +223,29 @@ export function Watchlist() {
   const queueMutation = useCallback((
     operation: (nextClient: WatchlistClient) => Promise<WatchlistSnapshot>,
   ) => {
-    if (!client) return;
+    if (!client || !active.current) return;
     const token = ++mutationToken.current;
     setSyncState("connecting");
+    setSyncError("");
     mutationQueue.current = mutationQueue.current
       .catch(() => undefined)
-      .then(() => operation(client))
+      .then(() => active.current ? operation(client) : undefined)
       .then((snapshot) => {
-        if (token !== mutationToken.current) return;
+        if (!snapshot || !active.current || token !== mutationToken.current) return;
         applySnapshot(snapshot);
         setSyncState("synced");
       })
-      .catch(async () => {
-        if (token !== mutationToken.current) return;
+      .catch(async (error) => {
+        if (!active.current || token !== mutationToken.current) return;
         try {
-          applySnapshot(await client.load());
+          const snapshot = await client.load();
+          if (!active.current || token !== mutationToken.current) return;
+          applySnapshot(snapshot);
         } catch {
           // Keep the optimistic local state while the Desk API is unavailable.
         }
+        if (!active.current || token !== mutationToken.current) return;
+        setSyncError(syncFailure(error));
         setSyncState("offline");
       });
   }, [applySnapshot, client]);
@@ -269,6 +294,7 @@ export function Watchlist() {
     } catch {
       // Symbol persistence does not depend on a live quote response.
     }
+    if (!active.current) return;
     const securities = symbols.map((symbol): SecurityRef => {
       const quote = quoteBySymbol.get(symbol);
       return {
@@ -361,13 +387,15 @@ export function Watchlist() {
     ? "Desk 已同步"
     : syncState === "connecting"
       ? "同步中"
-      : "本地可用";
+      : syncState === "offline"
+        ? "Desk 未同步"
+        : localSaved ? "本机保存" : "本机未保存";
 
   return (
     <div>
       <PageHeader
         title="自选股"
-        subtitle="按你自己的方式建立分组；市场终端、研究页与 Agent 共用同一份工作区自选。"
+        subtitle={syncState === "local" ? "当前自选仅保存在此浏览器，不会同步至 Desk 或其他设备。通过 Desk 打开可使用工作区共享自选。" : "按工作区管理自选；连接与保存状态以右侧提示为准。"}
         actions={(
           <span className={cn(
             "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs",
@@ -384,6 +412,10 @@ export function Watchlist() {
           </span>
         )}
       />
+      {syncError && <p role="alert" className="mb-4 rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">{syncError}</p>}
+      {!localSaved && syncState !== "connecting" && <p role="alert" className="mb-4 rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
+        {syncState === "synced" ? "Desk 已同步，但本机缓存保存失败；离线时无法保证恢复。" : "本机保存失败，刷新或关闭页面可能丢失未同步修改。请检查浏览器存储是否可用。"}
+      </p>}
 
       <GlassCard className="mb-4 p-3 sm:p-4">
         <div className="flex flex-wrap items-center gap-2">

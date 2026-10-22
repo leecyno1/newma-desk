@@ -1,5 +1,5 @@
 {
-  "_comment": "板块·环节骨架（开源版单一来源）。零具体标的：nodes 只有产业链环节名。verified=true 者环节已核实（来自做透的板块）；false 者为占位，待实时核实补全（禁止靠模型记忆编）。用户可在本地 my-watchlist.json 挂自己的标的，不进仓库。",
+  "_comment": "静态研究主题与环节草图，不是官方行业分类或实时数据。旧字段 verified 仅兼容历史结构，不能作为证据核验状态；hot 是历史编辑标记，不是市场热度。空节点主题待补资料。",
   "indices": {
     "aShare": ["上证指数", "深证成指", "创业板指", "沪深300"],
     "us": ["道琼斯", "纳斯达克", "标普500"]
@@ -21,7 +21,7 @@
       "verified": true,
       "nodes": ["AI芯片", "光模块", "CPO光互连", "HBM存储", "先进封装", "PCB", "液冷散热"]
     },
-    { "key": "hbm", "label": "HBM", "tagline": "高带宽存储——AI 芯片的内存瓶颈", "hot": true, "verified": false, "nodes": [] },
+    { "key": "hbm", "label": "HBM", "tagline": "堆叠、互连与系统封装；混合键合作为待跟踪路线", "hot": false, "verified": false, "nodes": ["DRAM 裸片", "TSV 与微凸点", "HBM 堆叠", "CPU／GPU", "中介层与封装", "AI／HPC", "混合键合候选路线"] },
     {
       "key": "cpo",
       "label": "光模块与光互联",

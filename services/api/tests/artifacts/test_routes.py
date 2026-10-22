@@ -87,6 +87,22 @@ def test_artifact_rejects_edges_to_unknown_nodes(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_preview_renders_without_creating_or_publishing_records(tmp_path: Path) -> None:
+    settings = Settings(runtime_dir=tmp_path, database_path=tmp_path / "app.db")
+    with TestClient(create_app(settings)) as client:
+        response = client.post("/api/artifacts/preview", json=graph_payload())
+        assert response.status_code == 200
+        assert "AI 算力产业链" in response.text
+        assert 'http-equiv="Content-Security-Policy"' in response.text
+        assert "connect-src 'none'" in response.text
+        assert response.headers["cache-control"] == "no-store"
+        assert client.get("/api/artifacts", params={"module_id": "industry-map"}).json() == []
+        assert not list((tmp_path / "artifacts").rglob("artifact.json"))
+        bad = graph_payload()
+        bad["edges"] = [{"source": "demand", "target": "unknown"}]
+        assert client.post("/api/artifacts/preview", json=bad).status_code == 422
+
+
 def test_replay_session_is_persisted_as_a_vibedesk_artifact(
     tmp_path: Path,
 ) -> None:

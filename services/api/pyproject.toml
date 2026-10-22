@@ -15,8 +15,10 @@ dependencies = [
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
   "jsonschema>=4.25,<5",
+  "lxml>=6.1.2,<7",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
+  "pypdf>=6.21.1,<7",
   "python-multipart>=0.0.20,<1",
   "uvicorn[standard]>=0.35,<1"
 ]

@@ -1,6 +1,7 @@
 import os
 import sqlite3
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -272,6 +273,9 @@ class Settings(BaseSettings):
     capital_flow_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     tushare_token: SecretStr = Field(
         default=SecretStr(""), validation_alias="TUSHARE_TOKEN"
+    )
+    cn_scan_source: Literal["eastmoney", "tushare-daily"] = Field(
+        default="eastmoney", validation_alias="VR_CN_SCAN_SOURCE"
     )
     policy_rsshub_base_url: str = ""
     policy_collector_timeout_seconds: float = Field(default=8.0, gt=0, le=30)

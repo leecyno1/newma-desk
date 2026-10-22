@@ -1,7 +1,7 @@
 import type { EarningsWorkbook } from "@/lib/earningsWorkbench";
 import type { EquityResearchSnapshot } from "@/lib/api";
 import { blankValuationModel, type ValuationModel } from "@/lib/valuationWorkbench";
-import { waitForVibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, waitForVibeDeskConfig } from "@/lib/vibedesk";
 import { CAPITAL_FACT_IDS } from './earningsPdfImport';
 import type { CapitalField } from './valuationReview';
 
@@ -28,10 +28,10 @@ export function capitalReferences(workbooks: SavedEarningsInput[], model: Valuat
     && workbook.fiscalPeriod.basis === 'annual' && workbook.fiscalPeriod.periodEnd === model.asOf)
     .flatMap(workbook => (workbook.operatingMetrics || []).filter(metric => relevant.includes(metric.id)
       && metric.reported !== null && Number.isFinite(metric.reported) && metric.unit === '百万元'
-      && metric.reportedCurrency === model.security.currency && metric.periodEnd === model.asOf && metric.reportedBasis === 'annual')
+      && metric.reportedCurrency === model.security.currency && metric.periodEnd === model.asOf && ['instant', 'annual'].includes(metric.reportedBasis ?? ''))
       .flatMap(metric => {
         const source = workbook.sourceMaterials.find(source => metric.sourceIds.includes(source.id)
-          && ['available', 'verified'].includes(source.status) && source.periodEnd === metric.periodEnd && source.basis === 'annual'
+          && ['available', 'verified'].includes(source.status) && source.periodEnd === metric.periodEnd && source.basis === metric.reportedBasis
           && source.excerpt?.metricId === metric.id && source.excerpt.unit === metric.unit
           && source.importedReport?.columnHeader.includes('合并资产负债表')
           && source.excerpt.reportedValue === metric.reported);
@@ -84,14 +84,39 @@ export function valuationFromEarnings(workbook: SavedEarningsInput): ValuationMo
   };
 }
 
-export async function loadSavedEarningsInputs(): Promise<SavedEarningsInput[]> {
+export function earningsInputScope() {
+  const config = getVibeDeskConfig();
+  return JSON.stringify([config?.apiOrigin, config?.userId, config?.workspaceId, config?.moduleId, config?.instanceId,
+    Boolean(config?.accessToken && config.permissions?.includes('storage.read'))]);
+}
+
+export async function loadSavedEarningsInputs(signal?: AbortSignal): Promise<SavedEarningsInput[]> {
+  const scope = earningsInputScope();
+  const check = () => {
+    signal?.throwIfAborted();
+    if (scope !== earningsInputScope()) throw new Error("工作区或页面实例已变化，请重新读取财报底稿");
+  };
   const config = await waitForVibeDeskConfig();
+  check();
   if (!config) throw new Error("请在 Desk 中打开此页面，读取当前工作区已保存财报");
+  if (config.moduleId !== 'valuation-workbench' || !config.accessToken || !config.instanceId || !config.permissions?.includes('storage.read')) {
+    throw new Error("当前页面没有财报读取权限，请更新模组并重新打开");
+  }
   const response = await fetch(`${config.apiOrigin}/api/research-archive/earnings-inputs`, {
-    headers: { "X-User-Id": config.userId, "X-Workspace-Id": config.workspaceId },
+    headers: { Authorization: `Bearer ${config.accessToken}`, "X-Newma-Desk-Instance-Id": config.instanceId },
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
+    cache: 'no-store',
   });
+  check();
   if (!response.ok) throw new Error("财报底稿读取失败，请检查财报研究及本地服务后重试");
-  return (await response.json()).workbooks;
+  const data = await response.json();
+  check();
+  if (!Number.isInteger(data?.revision) || data.revision < 0 || !Array.isArray(data.workbooks)
+      || data.workbooks.some((row: SavedEarningsInput) => !row || typeof row.id !== 'string' || !row.security || !row.fiscalPeriod
+        || !Array.isArray(row.metrics) || !Array.isArray(row.sourceMaterials))) {
+    throw new Error("财报底稿返回格式异常，未采用任何输入");
+  }
+  return data.workbooks;
 }
 
 export function hasValuationFacts(model: ValuationModel) {

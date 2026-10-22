@@ -138,6 +138,13 @@ def analyze_financials(evidence: Iterable[EvidenceLike]) -> AnalysisResult:
                 return item, value
         return None, None
 
+    def statement_pair(left: str, right: str):
+        for prefix in ("disclosure.cn_", "disclosure.edgar_"):
+            first, second = pick(prefix + left), pick(prefix + right)
+            if first[0] is not None and second[0] is not None:
+                return first, second
+        return (None, None), (None, None)
+
     def add_ratio(
         *,
         metric_id: str,
@@ -224,33 +231,56 @@ def analyze_financials(evidence: Iterable[EvidenceLike]) -> AnalysisResult:
             confidence="medium",
         ))
 
-    op_cf_item, op_cf = pick("cash_flow.op_cf_ps")
-    earnings_item, earnings = pick("profitability.eps")
-    if not (op_cf_item and earnings_item):
-        op_cf_item, op_cf = pick("disclosure.edgar_operating_cash_flow")
-        earnings_item, earnings = pick("disclosure.edgar_net_income")
-    cash_conversion: DerivedMetric | None = None
-    if op_cf_item and earnings_item and op_cf is not None and earnings is not None and earnings > 0:
-        cash_conversion = add_ratio(
-            metric_id="derived.cash_conversion",
+    per_share_cf, per_share_cf_value = pick("cash_flow.op_cf_ps")
+    eps_item, eps = pick("profitability.eps")
+    if per_share_cf and eps_item and per_share_cf_value is not None and eps is not None and eps > 0:
+        add_ratio(
+            metric_id="derived.per_share_cash_earnings_proxy",
             dimension="cash_flow",
-            label="盈利现金转化率",
-            numerator=(op_cf_item, op_cf),
-            denominator=(earnings_item, earnings),
-            scale=100,
-            unit="%",
-            method="经营现金流 / 净利润；A 股使用每股口径",
-            interpretation="衡量账面盈利转化为经营现金的程度，单期结果可能受营运资本扰动",
+            label="每股现金流／EPS（参考）",
+            numerator=(per_share_cf, per_share_cf_value),
+            denominator=(eps_item, eps),
+            scale=1,
+            unit="x",
+            method="每股经营现金流 / 基本每股收益",
+            interpretation="股数分母及利润归属未核验，不等同于经营现金流／净利润，不进入盈利质量评分",
             require_matching_period=True,
         )
+        gaps.append("每股现金流与 EPS 的股数分母及利润归属未核验，参考比值不能替代盈利现金转化率")
+
+    (op_cf_item, op_cf), (earnings_item, earnings) = statement_pair("operating_cash_flow", "net_income")
+    cash_conversion: DerivedMetric | None = None
+    if op_cf_item and earnings_item and op_cf is not None and earnings is not None and earnings > 0:
+        comparable = (
+            getattr(op_cf_item, "period_start", None)
+            and op_cf_item.period_start == getattr(earnings_item, "period_start", None)
+            and getattr(op_cf_item, "unit", None) == getattr(earnings_item, "unit", None)
+            and getattr(op_cf_item, "unit", None) in {"USD", "CNY"}
+        )
+        if not comparable:
+            gaps.append("盈利现金转化率所需证据期间起点或币种口径不一致或未知，已停止计算")
+        else:
+            cash_conversion = add_ratio(
+                metric_id="derived.cash_conversion",
+                dimension="cash_flow",
+                label="盈利现金转化率",
+                numerator=(op_cf_item, op_cf),
+                denominator=(earnings_item, earnings),
+                scale=100,
+                unit="%",
+                method="同起止期间、同币种经营现金流 / 净利润 × 100",
+                interpretation="衡量账面盈利转化为经营现金的程度，单期结果可能受营运资本扰动",
+                require_matching_period=True,
+            )
     elif op_cf_item and earnings_item and earnings is not None and earnings <= 0:
         gaps.append("净利润非正，盈利现金转化率不具可比意义")
 
-    assets_item, assets = pick("disclosure.edgar_assets")
-    liabilities_item, liabilities = pick("disclosure.edgar_liabilities")
+    (assets_item, assets), (liabilities_item, liabilities) = statement_pair("assets", "liabilities")
     debt_ratio: DerivedMetric | None = None
     equity_multiplier: DerivedMetric | None = None
-    if assets_item and liabilities_item and assets and assets > 0 and liabilities is not None:
+    if (assets_item and liabilities_item and assets and assets > 0 and liabilities is not None
+            and getattr(assets_item, "unit", None) == getattr(liabilities_item, "unit", None)
+            and getattr(assets_item, "unit", None) in {"USD", "CNY"}):
         debt_ratio = add_ratio(
             metric_id="derived.debt_ratio",
             dimension="balance_sheet",
@@ -260,7 +290,7 @@ def analyze_financials(evidence: Iterable[EvidenceLike]) -> AnalysisResult:
             scale=100,
             unit="%",
             method="总负债 / 总资产",
-            interpretation="基于同报告期 SEC 申报值推导的财务杠杆水平",
+            interpretation="基于同报告期、同币种合并报表金额推导的财务杠杆水平；来源整理值仍需核验原件",
             require_matching_period=True,
         )
         equity = assets - liabilities

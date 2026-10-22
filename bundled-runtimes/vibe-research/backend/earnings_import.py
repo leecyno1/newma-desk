@@ -164,7 +164,7 @@ def annual_candidates(pages: list[dict], page_count: int, report_id: str, name: 
     return result
 
 
-def extract_report(path: Path, report_id: str, name: str, *, include_capital: bool = False, include_notes: bool = False) -> dict:
+def extract_report(path: Path, report_id: str, name: str, *, include_capital: bool = False, include_notes: bool = False, include_revenue: bool = False) -> dict:
     if path.suffix.lower() != ".pdf":
         raise ValueError("财报提取目前只支持 PDF")
     try:
@@ -176,6 +176,9 @@ def extract_report(path: Path, report_id: str, name: str, *, include_capital: bo
         if not any(p["text"].strip() for p in pages):
             raise ValueError("此 PDF 未提取到文字，可能是扫描件；暂不支持 OCR，未生成任何零值")
         result = annual_candidates(pages, len(reader.pages), report_id, name)
+        if include_revenue and result["periodEnd"] and result["security"]["symbol"] and result["security"]["name"] and int(result["periodEnd"][:4]) < datetime.now().year:
+            from earnings_revenue import revenue_candidates
+            result.update(revenue_candidates(pages))
         if include_capital and result["periodEnd"] and result["security"]["symbol"] and result["security"]["name"] and int(result["periodEnd"][:4]) < datetime.now().year:
             from earnings_capital import capital_candidates
             scan = (pages[i] if i < len(pages) else {"page": i + 1, "text": reader.pages[i].extract_text(extraction_mode="layout") or ""}

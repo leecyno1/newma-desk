@@ -3,6 +3,7 @@ import {
   Archive,
   BookOpenCheck,
   FileSymlink,
+  ExternalLink,
   Link2,
   Plus,
   Save,
@@ -16,10 +17,13 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import {
   blankResearchMemo,
   createResearchId,
-  discoverCachedResearchArtifacts,
+  emptyResearchMemoWorkspace,
   hydrateResearchMemoWorkspace,
-  loadLocalResearchMemoWorkspace,
   persistResearchMemoWorkspace,
+  researchMemoScope,
+  ResearchMemoStorageError,
+  researchReferenceCheck,
+  researchReferenceFromEntry,
   type ArtifactKind,
   type ResearchArtifactReference,
   type ResearchBias,
@@ -27,12 +31,15 @@ import {
   type ResearchMemo,
   type ResearchMemoSource,
   type ResearchMemoWorkspace,
+  type ResearchMemoSession,
   type ResearchRisk,
 } from "@/lib/researchMemo";
+import { ARCHIVE_KIND_LABELS, loadResearchArchive, researchArchiveSourceUrl, ResearchArchiveError, type ResearchArchiveEntry, type ResearchArchiveIndex } from "@/lib/researchArchive";
 import {
   publishVibeDeskContext,
   registerVibeDeskContextProvider,
   subscribeVibeDeskEvent,
+  subscribeVibeDeskConfig,
   type VibeDeskPageContext,
 } from "@/lib/vibedesk";
 
@@ -57,7 +64,7 @@ function currencyForMarket(market: string) { return market === "US" ? "USD" : ma
 function splitLines(value: string) { return value.split("\n").map((item) => item.trim()).filter(Boolean); }
 function joinLines(value: string[]) { return value.join("\n"); }
 
-function memoContext(workspace: ResearchMemoWorkspace, memo: ResearchMemo, dirty: boolean): VibeDeskPageContext {
+function memoContext(workspace: ResearchMemoWorkspace, memo: ResearchMemo, dirty: boolean, storage: { mode?: string; state: string; revision?: number; error: string }): VibeDeskPageContext {
   return {
     view: { id: "research-memo", title: "研究备忘录" },
     visibleBlocks: [
@@ -77,9 +84,9 @@ function memoContext(workspace: ResearchMemoWorkspace, memo: ResearchMemo, dirty
     },
     filters: { asOf: memo.boundary.asOf, horizon: memo.boundary.horizon, nextReviewAt: memo.nextReviewAt },
     data: {
-      asOf: memo.boundary.asOf || workspace.updatedAt,
+      asOf: memo.boundary.asOf || undefined,
       source: workspace.schemaVersion,
-      freshness: memo.sources.length ? "fresh" : "unknown",
+      freshness: memo.sources.some((source) => source.status === "stale") ? "stale" : "unknown",
       summary: {
         researchBoundary: memo.boundary,
         executiveView: memo.executiveView,
@@ -93,6 +100,7 @@ function memoContext(workspace: ResearchMemoWorkspace, memo: ResearchMemo, dirty
         gaps: memo.gaps,
         versions: memo.versions,
         unsavedChanges: dirty,
+        storage,
       },
     },
     actions: [
@@ -106,37 +114,96 @@ function memoContext(workspace: ResearchMemoWorkspace, memo: ResearchMemo, dirty
 }
 
 export function ResearchMemo() {
-  const initial = useMemo(loadLocalResearchMemoWorkspace, []);
-  const [workspace, setWorkspace] = useState(initial);
-  const [selectedId, setSelectedId] = useState(initial.memos[0]?.id || "__new__");
-  const [draft, setDraft] = useState(() => initial.memos[0] ? copyMemo(initial.memos[0]) : blankResearchMemo());
+  const [scope, setScope] = useState(researchMemoScope);
+  useEffect(() => {
+    const update = () => setScope(researchMemoScope());
+    const unsubscribe = subscribeVibeDeskConfig(update);
+    update();
+    return unsubscribe;
+  }, []);
+  return <ResearchMemoEditor key={scope} />;
+}
+
+function ResearchMemoEditor() {
+  const initial = useMemo(emptyResearchMemoWorkspace, []);
+  const [session, setSession] = useState<ResearchMemoSession | null>(null);
+  const workspace = session?.workspace || initial;
+  const [selectedId, setSelectedId] = useState("__new__");
+  const [draft, setDraft] = useState(blankResearchMemo);
+  const baseline = useRef(JSON.stringify(draft));
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [needsReload, setNeedsReload] = useState(false);
+  const [readAttempt, setReadAttempt] = useState(0);
+  const controller = useRef<AbortController | null>(null);
   const [versionNote, setVersionNote] = useState("");
-  const [artifacts, setArtifacts] = useState<ResearchArtifactReference[]>([]);
-  const selected = workspace.memos.find((item) => item.id === selectedId);
-  const dirty = selectedId === "__new__"
-    ? Boolean(draft.title || draft.security.symbol || draft.executiveView.conclusion)
-    : JSON.stringify(selected) !== JSON.stringify(draft);
+  const [archive, setArchive] = useState<ResearchArchiveIndex | null>(null);
+  const [archiveError, setArchiveError] = useState("");
+  const [discovering, setDiscovering] = useState(false);
+  const [artifactQuery, setArtifactQuery] = useState("");
+  const artifacts = (archive?.entries || []).filter((entry) => !(entry.sourceModId === "research-memo" && entry.artifactId === draft.id)
+    && `${entry.title} ${entry.artifactId} ${entry.security?.symbol || ""} ${entry.security?.name || ""}`.toLowerCase().includes(artifactQuery.trim().toLowerCase()));
+  const referenceChecks = draft.linkedArtifacts.map((reference) => ({ reference, ...researchReferenceCheck(reference, archiveError || discovering ? null : archive) }));
+  const dirty = baseline.current !== JSON.stringify(draft) || Boolean(versionNote.trim());
+  const busy = loading || saving;
+  const latest = useRef({ dirty, busy, selectedId });
+  latest.current = { dirty, busy, selectedId };
+
+  const showMemo = (memo?: ResearchMemo) => {
+    const next = memo ? copyMemo(memo) : blankResearchMemo();
+    baseline.current = JSON.stringify(next);
+    setSelectedId(memo?.id || "__new__");
+    setDraft(next);
+    setVersionNote("");
+  };
 
   useEffect(() => {
-    let active = true;
-    void hydrateResearchMemoWorkspace().then((value) => {
-      if (!active) return;
-      setWorkspace(value);
-      const first = value.memos[0];
-      setSelectedId(first?.id || "__new__");
-      setDraft(first ? copyMemo(first) : blankResearchMemo());
+    const abort = new AbortController();
+    controller.current = abort;
+    setLoading(true);
+    setDiscovering(false);
+    setError("");
+    void hydrateResearchMemoWorkspace(abort.signal).then((value) => {
+      if (abort.signal.aborted) return;
+      setSession(value);
+      setNeedsReload(false);
+      showMemo(value.workspace.memos[0]);
+      setArchive(null);
+      setArchiveError("");
+      setMessage("");
+    }).catch((failure: unknown) => {
+      if (!abort.signal.aborted) setError(failure instanceof ResearchMemoStorageError ? failure.message : "读取未确认，原记录未改动，请重试。");
+    }).finally(() => {
+      if (!abort.signal.aborted) setLoading(false);
     });
-    return () => { active = false; };
-  }, []);
+    return () => abort.abort();
+  }, [readAttempt]);
 
-  const contextRef = useRef<VibeDeskPageContext>(memoContext(workspace, draft, dirty));
-  contextRef.current = memoContext(workspace, draft, dirty);
+  const storageState = { mode: session?.mode, state: loading ? "loading" : saving ? "saving" : error ? "error" : dirty ? "unsaved" : "loaded", revision: session?.mode === "desk" ? session.revision : undefined, error };
+  const contextRef = useRef<VibeDeskPageContext>(memoContext(workspace, draft, dirty, storageState));
+  contextRef.current = memoContext(workspace, draft, dirty, storageState);
+  Object.assign(contextRef.current.data.summary!, {
+    referenceChecks: referenceChecks.map(({ reference, source, ...check }) => ({ id: reference.id, ...check, observedRevision: source?.sourceRevision, observedUpdatedAt: source?.updatedAt })),
+    archiveRead: { loading: discovering, error: archiveError, generatedAt: archive?.generatedAt, unavailableSources: archive?.unavailableSources, truncated: archive?.truncated },
+  });
   useEffect(() => registerVibeDeskContextProvider(() => contextRef.current), []);
-  useEffect(() => { void publishVibeDeskContext(); }, [draft, dirty, workspace]);
+  useEffect(() => { void publishVibeDeskContext(); }, [draft, dirty, workspace, loading, saving, error, archive, archiveError, discovering]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (latest.current.dirty || latest.current.busy) { event.preventDefault(); event.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
   useEffect(() => {
     const unsubscribe = subscribeVibeDeskEvent((event) => {
       if (event.event !== "security.selected") return;
+      if (latest.current.busy || latest.current.dirty || latest.current.selectedId !== "__new__") {
+        setMessage("收到新的证券选择。为保留当前研究对象和草稿，请先保存，再新建备忘录。");
+        return;
+      }
       const symbol = typeof event.payload.symbol === "string" ? event.payload.symbol.slice(0, 40).toUpperCase() : "";
       if (!symbol) return;
       const market = typeof event.payload.market === "string" ? event.payload.market.slice(0, 20).toUpperCase() : "CN";
@@ -150,28 +217,60 @@ export function ResearchMemo() {
     return () => { unsubscribe(); };
   }, []);
 
-  const commit = (next: ResearchMemoWorkspace) => {
-    setWorkspace(next);
-    void persistResearchMemoWorkspace(next);
+  const commit = async (next: ResearchMemoWorkspace) => {
+    if (latest.current.busy || !session || !session.writable || needsReload) return null;
+    latest.current.busy = true;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    const signal = controller.current!.signal;
+    try {
+      const saved = await persistResearchMemoWorkspace(next, session, signal);
+      if (signal.aborted) return null;
+      setSession(saved);
+      return saved;
+    } catch (failure) {
+      if (!signal.aborted) {
+        setError(failure instanceof ResearchMemoStorageError ? failure.message : "保存未确认，草稿仍在；请先导出，再重新读取核对。");
+        if (session.mode === "desk") setNeedsReload(true);
+      }
+      return null;
+    } finally {
+      if (!signal.aborted) { latest.current.busy = false; setSaving(false); }
+    }
+  };
+
+  const reload = () => {
+    if (busy || (dirty && !confirm("重新读取会替换当前未保存的草稿。请先导出保留，确定继续吗？"))) return;
+    setLoading(true);
+    setReadAttempt((attempt) => attempt + 1);
+  };
+
+  const exportDraft = () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ ...workspace, memos: [draft], pendingVersionNote: versionNote }, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "research-memo-draft.json";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    setMessage("已发起草稿导出，请确认浏览器下载完成；这不代表工作区已保存。");
   };
 
   const startNew = () => {
     if (dirty && !confirm("当前研究备忘录尚未保存，确定新建吗？")) return;
-    setSelectedId("__new__");
-    setDraft(blankResearchMemo());
+    showMemo();
     setMessage("");
     setVersionNote("");
   };
 
   const choose = (memo: ResearchMemo) => {
     if (dirty && !confirm("当前研究备忘录尚未保存，确定切换吗？")) return;
-    setSelectedId(memo.id);
-    setDraft(copyMemo(memo));
+    showMemo(memo);
     setMessage("");
     setVersionNote("");
   };
 
-  const save = () => {
+  const save = async () => {
     const required = [
       [draft.title, "备忘录标题"], [draft.security.symbol, "证券代码"], [draft.security.name, "公司名称"],
       [draft.executiveView.conclusion, "研究结论"], [draft.executiveView.coreThesis, "核心论点"],
@@ -180,6 +279,9 @@ export function ResearchMemo() {
     ] as const;
     const missing = required.find(([value]) => !value.trim());
     if (missing) { setMessage(`请填写${missing[1]}`); return; }
+    if (draft.scenarios.some((scenario) => !Number.isFinite(scenario.probabilityPct) || scenario.probabilityPct < 0 || scenario.probabilityPct > 100)) {
+      setMessage("每个情景的概率必须在 0–100% 之间"); return;
+    }
     const totalProbability = draft.scenarios.reduce((sum, scenario) => sum + scenario.probabilityPct, 0);
     if (Math.abs(totalProbability - 100) > 0.01) { setMessage("悲观、基准和乐观情景概率合计必须为 100%"); return; }
     const timestamp = new Date().toISOString();
@@ -209,43 +311,59 @@ export function ResearchMemo() {
       updatedAt: timestamp,
     };
     const memos = isExisting ? workspace.memos.map((item) => item.id === saved.id ? saved : item) : [saved, ...workspace.memos];
-    commit({ ...workspace, updatedAt: timestamp, memos });
-    setSelectedId(saved.id);
-    setDraft(copyMemo(saved));
-    setVersionNote("");
-    setMessage("已保存到 Desk 工作区");
+    const result = await commit({ ...workspace, updatedAt: timestamp, memos });
+    if (!result) return;
+    showMemo(result.workspace.memos.find((memo) => memo.id === saved.id));
+    setMessage(result.mode === "desk" ? "Desk 已确认保存" : "已保存到本机浏览器，未同步到 Desk");
   };
 
-  const remove = () => {
+  const remove = async () => {
     if (selectedId === "__new__") { startNew(); return; }
     if (!confirm(`删除“${draft.title}”研究备忘录？`)) return;
     const memos = workspace.memos.filter((item) => item.id !== selectedId);
     const next = { ...workspace, updatedAt: new Date().toISOString(), memos };
-    commit(next);
-    const first = memos[0];
-    setSelectedId(first?.id || "__new__");
-    setDraft(first ? copyMemo(first) : blankResearchMemo());
+    const result = await commit(next);
+    if (!result) return;
+    showMemo(result.workspace.memos[0]);
+    setMessage(result.mode === "desk" ? "Desk 已确认删除该备忘录" : "已从本机档案删除该备忘录");
   };
 
-  const discover = () => {
-    const found = discoverCachedResearchArtifacts();
-    setArtifacts(found);
-    setMessage(found.length ? `发现 ${found.length} 项本地研究档案，可按需关联` : "当前缓存未发现可关联档案；仍可手工录入档案 ID");
+  const discover = async () => {
+    if (discovering || busy) return;
+    const signal = controller.current!.signal;
+    setDiscovering(true);
+    setArchiveError("");
+    try {
+      const result = await loadResearchArchive([], signal);
+      if (signal.aborted) return;
+      setArchive(result);
+    } catch (failure) {
+      if (!signal.aborted) setArchiveError(failure instanceof ResearchArchiveError ? failure.message : "档案读取未确认，已有引用未改动。");
+    } finally {
+      if (!signal.aborted) setDiscovering(false);
+    }
   };
 
-  const linkArtifact = (artifact: ResearchArtifactReference) => {
-    if (draft.linkedArtifacts.some((item) => item.sourceModId === artifact.sourceModId && item.artifactId === artifact.artifactId)) return;
-    setDraft({ ...draft, linkedArtifacts: [...draft.linkedArtifacts, artifact].slice(0, 50) });
+  const linkArtifact = (entry: ResearchArchiveEntry) => {
+    if (archiveError || discovering || draft.linkedArtifacts.some((item) => item.sourceModId === entry.sourceModId && item.artifactId === entry.artifactId)) return;
+    setDraft({ ...draft, linkedArtifacts: [...draft.linkedArtifacts, researchReferenceFromEntry(entry)].slice(0, 50) });
   };
 
   const addManualArtifact = () => {
     const artifact: ResearchArtifactReference = {
       id: createResearchId("artifact"), kind: "other", sourceModId: "research-notes",
-      artifactId: createResearchId("manual"), title: "待命名研究档案", status: "linked",
+      artifactId: "待填写档案ID", title: "待命名研究档案", status: "unverified",
       note: "手工引用；请补充来源 Mod、档案 ID 和截至日期。",
     };
     setDraft({ ...draft, linkedArtifacts: [...draft.linkedArtifacts, artifact].slice(0, 50) });
   };
+
+  const editReference = (id: string, patch: Partial<ResearchArtifactReference>) => setDraft((current) => ({
+    ...current,
+    linkedArtifacts: current.linkedArtifacts.map((item) => item.id === id
+      ? { ...item, ...patch, status: "unverified", sourceRevision: undefined, sourceUpdatedAt: undefined }
+      : item),
+  }));
 
   const addSource = () => {
     const source: ResearchMemoSource = {
@@ -270,12 +388,20 @@ export function ResearchMemo() {
         title="研究备忘录"
         subtitle="用引用而非复制收敛投资逻辑、财报、同业、估值、催化剂与反方证据；保留来源、截至日期和版本变化。"
         actions={<>
-          <button onClick={startNew} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm"><Plus className="h-4 w-4" />新建</button>
-          <button onClick={save} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"><Save className="h-4 w-4" />保存</button>
+          <button disabled={busy} onClick={startNew} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm disabled:opacity-50"><Plus className="h-4 w-4" />新建</button>
+          <button disabled={busy || !session?.writable || needsReload} onClick={save} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Save className="h-4 w-4" />{saving ? "保存中…" : "保存"}</button>
         </>}
       />
 
-      <div className="grid gap-5 xl:grid-cols-[250px_minmax(0,1fr)]">
+      <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <span role="status">{loading ? "正在读取备忘录…" : saving ? "正在等待保存确认…" : session ? `${session.mode === "desk" ? "Desk 工作区" : "本机浏览器"} · ${error ? "存储未确认" : dirty ? "有未保存修改" : "已读取档案"}${!session.writable ? " · 只读" : ""}` : "尚未读取档案"}</span>
+        <button disabled={busy} onClick={reload} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-50">重新读取</button>
+        <button disabled={busy} onClick={exportDraft} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-50">导出当前草稿</button>
+      </div>
+      {error && <div role="alert" className="mb-4 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">{error}</div>}
+      {message && <div role="status" className="mb-4 rounded-lg border border-primary/25 bg-primary/8 px-3 py-2 text-sm text-foreground">{message}</div>}
+
+      <fieldset disabled={busy} aria-busy={busy} className="m-0 grid min-w-0 gap-5 border-0 p-0 xl:grid-cols-[250px_minmax(0,1fr)]">
         <aside className="space-y-4">
           <GlassCard className="p-3">
             <div className="mb-2 flex items-center justify-between"><h2 className="text-sm font-bold">备忘录档案</h2><span className="text-xs text-muted-foreground">{workspace.memos.length}</span></div>
@@ -296,10 +422,8 @@ export function ResearchMemo() {
         </aside>
 
         <main className="space-y-5">
-          {message && <div className="rounded-lg border border-primary/25 bg-primary/8 px-3 py-2 text-sm text-foreground">{message}</div>}
-
           <GlassCard>
-            <div className="mb-4 flex items-center justify-between gap-3"><h2 className="flex items-center gap-2 font-bold"><BookOpenCheck className="h-4 w-4 text-primary" />研究边界与执行结论</h2><button onClick={remove} className="text-muted-foreground hover:text-destructive" aria-label="删除备忘录"><Trash2 className="h-4 w-4" /></button></div>
+            <div className="mb-4 flex items-center justify-between gap-3"><h2 className="flex items-center gap-2 font-bold"><BookOpenCheck className="h-4 w-4 text-primary" />研究边界与执行结论</h2><button disabled={!session?.writable || needsReload} onClick={remove} className="text-muted-foreground hover:text-destructive disabled:opacity-50" aria-label="删除备忘录"><Trash2 className="h-4 w-4" /></button></div>
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
               <label><span className={labelClass}>备忘录标题</span><input aria-label="备忘录标题" className={inputClass} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
               <label><span className={labelClass}>证券代码</span><input aria-label="证券代码" className={inputClass} value={draft.security.symbol} onChange={(event) => setDraft({ ...draft, security: { ...draft.security, symbol: event.target.value } })} /></label>
@@ -325,15 +449,38 @@ export function ResearchMemo() {
           </GlassCard>
 
           <GlassCard>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h2 className="flex items-center gap-2 font-bold"><FileSymlink className="h-4 w-4 text-primary" />关联研究档案</h2><div className="flex gap-2"><button onClick={discover} className="rounded-lg border border-border px-3 py-1.5 text-xs">发现工作区档案</button><button onClick={addManualArtifact} className="rounded-lg border border-border px-3 py-1.5 text-xs">手工引用</button></div></div>
-            {artifacts.length > 0 && <div className="mb-4 grid gap-2 md:grid-cols-2">{artifacts.map((artifact) => <button key={artifact.id} onClick={() => linkArtifact(artifact)} className="rounded-lg border border-border bg-muted/20 p-3 text-left text-xs"><span className="font-semibold text-foreground">{KIND_LABEL[artifact.kind]} · {artifact.title}</span><span className="mt-1 block text-muted-foreground">{artifact.sourceModId} / {artifact.artifactId}</span></button>)}</div>}
-            <div className="space-y-3">{draft.linkedArtifacts.map((artifact) => <div key={artifact.id} className="grid gap-2 rounded-xl border border-border bg-muted/15 p-3 md:grid-cols-[130px_150px_1fr_1fr_auto]">
-              <select className={inputClass} value={artifact.kind} onChange={(event) => setDraft({ ...draft, linkedArtifacts: draft.linkedArtifacts.map((item) => item.id === artifact.id ? { ...item, kind: event.target.value as ArtifactKind } : item) })}>{Object.entries(KIND_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-              <input className={inputClass} value={artifact.sourceModId} onChange={(event) => setDraft({ ...draft, linkedArtifacts: draft.linkedArtifacts.map((item) => item.id === artifact.id ? { ...item, sourceModId: event.target.value } : item) })} placeholder="来源 Mod ID" />
-              <input className={inputClass} value={artifact.artifactId} onChange={(event) => setDraft({ ...draft, linkedArtifacts: draft.linkedArtifacts.map((item) => item.id === artifact.id ? { ...item, artifactId: event.target.value } : item) })} placeholder="档案 ID" />
-              <input className={inputClass} value={artifact.title} onChange={(event) => setDraft({ ...draft, linkedArtifacts: draft.linkedArtifacts.map((item) => item.id === artifact.id ? { ...item, title: event.target.value } : item) })} placeholder="引用标题" />
-              <button onClick={() => setDraft({ ...draft, linkedArtifacts: draft.linkedArtifacts.filter((item) => item.id !== artifact.id) })} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
-            </div>)}{!draft.linkedArtifacts.length && <p className="text-sm text-muted-foreground">当前没有引用。备忘录不会复制底层数据，只保存来源 Mod 和档案 ID。</p>}</div>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h2 className="flex items-center gap-2 font-bold"><FileSymlink className="h-4 w-4 text-primary" />关联研究档案</h2><div className="flex flex-wrap gap-2"><button disabled={!session || discovering} onClick={discover} className="rounded-lg border border-border px-3 py-1.5 text-xs disabled:opacity-50">{discovering ? "正在核对…" : session?.mode === "desk" ? "发现 / 核对工作区档案" : "发现本机缓存"}</button><button disabled={draft.linkedArtifacts.length >= 50} onClick={addManualArtifact} className="rounded-lg border border-border px-3 py-1.5 text-xs disabled:opacity-50">手工引用</button></div></div>
+            <p className="mb-3 text-xs text-muted-foreground">{session?.mode === "desk" ? "仅发现当前授权工作区的档案。来源变化不会自动改写引用或研究结论；确认后采纳，再保存备忘录。" : "本机旧缓存的工作区归属与资料时效尚未核验，引用前请确认来源。"} 索引版本一致不代表证据内容已核验。</p>
+            {archiveError && <p role="alert" className="mb-3 rounded-lg border border-destructive/40 p-3 text-sm">{archiveError}</p>}
+            {archive && <div className="mb-4 space-y-3">
+              <div className="text-xs text-muted-foreground">索引读取时间：{archive.generatedAt} · 共 {archive.entries.length} 项 · 匹配 {artifacts.length} 项</div>
+              {(archive.truncated || !archive.unavailableSources || archive.unavailableSources.length > 0) && <p className="text-xs text-muted-foreground">覆盖不完整，未找到不等于已删除。{archive.unavailableSources?.length ? ` 未读取来源：${archive.unavailableSources.join("、")}` : " 本机缓存或截断结果不能证明全量覆盖。"}</p>}
+              <input aria-label="筛选研究档案" className={inputClass} placeholder="搜索标题、证券或档案 ID" value={artifactQuery} onChange={(event) => setArtifactQuery(event.target.value)} />
+              <div className="grid max-h-80 gap-2 overflow-y-auto md:grid-cols-2">{artifacts.map((artifact) => {
+                const linked = draft.linkedArtifacts.some((item) => item.sourceModId === artifact.sourceModId && item.artifactId === artifact.artifactId);
+                return <button key={artifact.id} disabled={linked || discovering || Boolean(archiveError) || draft.linkedArtifacts.length >= 50} onClick={() => linkArtifact(artifact)} className="min-w-0 break-words rounded-lg border border-border bg-muted/20 p-3 text-left text-xs disabled:opacity-50">
+                  <span className="font-semibold text-foreground">{ARCHIVE_KIND_LABELS[artifact.kind]} · {artifact.title}{linked ? " · 已引用" : " · 添加引用"}</span>
+                  <span className="mt-1 block text-muted-foreground">{artifact.sourceModId} / {artifact.artifactId}</span>
+                  <span className="mt-1 block text-muted-foreground">{artifact.security?.symbol} {artifact.security?.name} · 数据截至 {artifact.asOf || "未知"} · 索引版本 {artifact.sourceRevision ?? "未知"}</span>
+                </button>;
+              })}</div>
+              {!artifacts.length && <p className="text-xs text-muted-foreground">当前结果没有匹配档案，请调整搜索或核对来源范围。</p>}
+            </div>}
+            <div className="space-y-3">{referenceChecks.map(({ reference: artifact, state, label, source }) => <div key={artifact.id} className="min-w-0 space-y-3 rounded-xl border border-border bg-muted/15 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span>{artifact.status === "unverified" ? "待核验 · " : ""}{label}</span><div className="flex flex-wrap gap-3">
+                {source && <a className="inline-flex items-center gap-1 text-primary" href={researchArchiveSourceUrl(source)} target="_blank" rel="noopener noreferrer">打开来源模块<ExternalLink className="h-3 w-3" /></a>}
+                {source && state !== "current" && <button disabled={discovering || Boolean(archiveError)} onClick={() => setDraft((current) => ({ ...current, linkedArtifacts: current.linkedArtifacts.map((item) => item.id === artifact.id ? researchReferenceFromEntry(source, item) : item) }))} className="text-primary disabled:opacity-50">{source.sourceRevision ? "采纳当前引用版本" : "更新引用信息（未核验）"}</button>}
+                <button aria-label={`移除引用 ${artifact.title}`} onClick={() => setDraft({ ...draft, linkedArtifacts: draft.linkedArtifacts.filter((item) => item.id !== artifact.id) })} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
+              </div></div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <label><span className={labelClass}>引用类型</span><select className={inputClass} value={artifact.kind} onChange={(event) => editReference(artifact.id, { kind: event.target.value as ArtifactKind })}>{Object.entries(KIND_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <label><span className={labelClass}>来源 Mod ID</span><input className={inputClass} value={artifact.sourceModId} onChange={(event) => editReference(artifact.id, { sourceModId: event.target.value })} /></label>
+                <label><span className={labelClass}>档案 ID</span><input className={inputClass} value={artifact.artifactId} onChange={(event) => editReference(artifact.id, { artifactId: event.target.value })} /></label>
+                <label><span className={labelClass}>引用标题</span><input className={inputClass} value={artifact.title} onChange={(event) => editReference(artifact.id, { title: event.target.value })} /></label>
+              </div>
+              <div className="break-words text-xs text-muted-foreground">已引用：版本 {artifact.sourceRevision ?? "未知"} · 修改时间 {artifact.sourceUpdatedAt || "未知"} · 数据截至 {artifact.asOf || "未知"}{source && <><br />当前索引：版本 {source.sourceRevision ?? "未知"} · 修改时间 {source.updatedAt} · 数据截至 {source.asOf || "未知"}</>}</div>
+              <label className="block"><span className={labelClass}>引用备注</span><textarea className={inputClass} value={artifact.note || ""} onChange={(event) => setDraft({ ...draft, linkedArtifacts: draft.linkedArtifacts.map((item) => item.id === artifact.id ? { ...item, note: event.target.value } : item) })} /></label>
+            </div>)}{!draft.linkedArtifacts.length && <p className="text-sm text-muted-foreground">当前没有引用。备忘录只记录来源、档案身份和引用版本，不复制底层研究。</p>}</div>
           </GlassCard>
 
           <div className="grid gap-5 2xl:grid-cols-2">
@@ -373,7 +520,7 @@ export function ResearchMemo() {
 
           <Disclaimer />
         </main>
-      </div>
+      </fieldset>
     </div>
   );
 }

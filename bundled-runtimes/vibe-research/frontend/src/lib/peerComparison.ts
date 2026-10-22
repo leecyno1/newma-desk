@@ -1,4 +1,7 @@
-import { waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
+import { createModStorageClient, GatewayError } from '@newma-desk/mod-sdk';
+import { reviewPeerComparison } from './peerReview';
+export { calculatePeerStatistics } from './peerReview';
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
 
 export type PeerQuestion = "valuation" | "growth" | "quality" | "efficiency" | "competitive-positioning";
 export type PeerRole = "target" | "direct" | "adjacent" | "emerging";
@@ -35,6 +38,7 @@ export interface PeerRow {
   scores: Record<string, number | null>;
   sourceIds: string[];
   warnings: string[];
+  metricEvidence?: Record<string, { id: string; source: string; asOf: string | null; unit: string | null; note?: string | null }>;
 }
 
 export interface MetricStatistics {
@@ -88,10 +92,15 @@ export interface PeerComparisonWorkspace {
   cases: PeerComparisonCase[];
 }
 
-interface StorageDocument {
+export interface PeerComparisonSession {
+  workspace: PeerComparisonWorkspace;
+  scope: string;
+  mode: 'local' | 'desk';
   revision: number;
-  value: unknown;
+  localVersion?: string | null;
+  writable: boolean;
 }
+export class PeerStorageError extends Error {}
 
 const LOCAL_KEY = "newma-desk.peer-comparison.v1";
 const NAMESPACE = "peer-comparison";
@@ -160,32 +169,6 @@ export function emptyPeerComparisonWorkspace(): PeerComparisonWorkspace {
   return { schemaVersion: "newma-desk.peer-comparison.v1", updatedAt: now(), cases: [] };
 }
 
-function quantile(sorted: number[], p: number) {
-  if (!sorted.length) return null;
-  const position = (sorted.length - 1) * p;
-  const lower = Math.floor(position);
-  const upper = Math.ceil(position);
-  if (lower === upper) return sorted[lower] ?? null;
-  const fraction = position - lower;
-  return (sorted[lower] ?? 0) * (1 - fraction) + (sorted[upper] ?? 0) * fraction;
-}
-
-export function calculatePeerStatistics(rows: PeerRow[], metrics: PeerMetric[]) {
-  return Object.fromEntries(metrics.map((metric) => {
-    const values = rows
-      .map((row) => row.values[metric.id])
-      .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
-      .sort((left, right) => left - right);
-    return [metric.id, {
-      max: values.length ? values[values.length - 1] ?? null : null,
-      q75: quantile(values, 0.75),
-      median: quantile(values, 0.5),
-      q25: quantile(values, 0.25),
-      min: values[0] ?? null,
-    } satisfies MetricStatistics];
-  }));
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -226,7 +209,7 @@ function normalizeCase(value: unknown): PeerComparisonCase | null {
   const members = (Array.isArray(value.members) ? value.members : []).flatMap((item) => {
     if (!isRecord(item)) return [];
     const security = normalizeSecurity(item.security);
-    if (!security.symbol || !security.name) return [];
+    if (item.included !== false && (!security.symbol || !security.name)) return [];
     return [{
       security,
       role: ["target", "direct", "adjacent", "emerging"].includes(String(item.role)) ? item.role as PeerRole : "direct",
@@ -262,6 +245,7 @@ function normalizeCase(value: unknown): PeerComparisonCase | null {
       scores: numberRecord(item.scores),
       sourceIds: stringList(item.sourceIds, 30),
       warnings: stringList(item.warnings, 20),
+      ...(isRecord(item.metricEvidence) ? { metricEvidence: item.metricEvidence as PeerRow['metricEvidence'] } : {}),
     }];
   }).slice(0, 8);
   const createdAt = textValue(value.createdAt, now(), 64);
@@ -283,7 +267,7 @@ function normalizeCase(value: unknown): PeerComparisonCase | null {
     },
     metrics: metrics.length >= 3 ? metrics : defaultPeerMetrics(),
     rows,
-    statistics: calculatePeerStatistics(rows, metrics.length >= 3 ? metrics : defaultPeerMetrics()),
+    statistics: {},
     strategicDimensions: Array.isArray(value.strategicDimensions) ? value.strategicDimensions.slice(0, 10) as StrategicDimension[] : [],
     sourceMaterials: Array.isArray(value.sourceMaterials) ? value.sourceMaterials.slice(0, 100) as PeerSource[] : [],
     synthesis: {
@@ -309,76 +293,116 @@ function normalizeWorkspace(value: unknown): PeerComparisonWorkspace {
   };
 }
 
-export function loadLocalPeerComparisonWorkspace() {
-  try {
-    return normalizeWorkspace(JSON.parse(localStorage.getItem(LOCAL_KEY) || "null"));
-  } catch {
-    return emptyPeerComparisonWorkspace();
+export function peerComparisonScope(config = getVibeDeskConfig()) {
+  return config ? JSON.stringify([config.apiOrigin, config.storageGateway, config.moduleId, config.userId, config.workspaceId,
+    config.instanceId, Boolean(config.accessToken), config.permissions?.includes('storage.read'), config.permissions?.includes('storage.write')])
+    : isVibeDeskEmbedded || import.meta.env.VITE_NEWMA_DESK_INTEGRATED === '1' ? 'unconnected' : 'local';
+}
+
+function assertScope(scope: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (scope !== peerComparisonScope()) throw new PeerStorageError('工作区或权限已变化，旧结果未转存，请重新读取。');
+}
+
+function checkedWorkspace(value: unknown): PeerComparisonWorkspace {
+  if (!isRecord(value) || value.schemaVersion !== 'newma-desk.peer-comparison.v1' || !Array.isArray(value.cases) || value.cases.length > 100) {
+    throw new PeerStorageError('同业档案格式异常，未按空库处理，也未覆盖原记录。');
   }
+  const workspace = normalizeWorkspace(value);
+  if (workspace.cases.length !== value.cases.length || new Set(workspace.cases.map(item => item.id)).size !== workspace.cases.length
+    || value.cases.some((item, index) => !isRecord(item) || !item.id
+      || !Array.isArray(item.members) || item.members.length !== workspace.cases[index]?.members.length
+      || !Array.isArray(item.metrics) || item.metrics.length !== workspace.cases[index]?.metrics.length
+      || !Array.isArray(item.rows) || item.rows.length !== workspace.cases[index]?.rows.length
+      || item.rows.some(row => !isRecord(row) || !isRecord(row.values)
+        || Object.values(row.values).some(number => number !== null && (typeof number !== 'number' || !Number.isFinite(number)))
+        || (row.metricEvidence !== undefined && (!isRecord(row.metricEvidence) || Object.values(row.metricEvidence).some(evidence =>
+          !isRecord(evidence) || typeof evidence.id !== 'string' || typeof evidence.source !== 'string'
+          || (evidence.asOf !== null && typeof evidence.asOf !== 'string') || (evidence.unit !== null && typeof evidence.unit !== 'string')))))
+      || !Array.isArray(item.sourceMaterials) || item.sourceMaterials.length > 100
+      || item.sourceMaterials.some(source => !isRecord(source) || typeof source.id !== 'string' || typeof source.label !== 'string' || typeof source.asOf !== 'string')
+      || !Array.isArray(item.strategicDimensions) || item.strategicDimensions.length > 10
+      || item.strategicDimensions.some(dimension => !isRecord(dimension) || typeof dimension.id !== 'string' || typeof dimension.label !== 'string'))) {
+    throw new PeerStorageError('同业档案的公司、指标或来源不完整，未丢弃记录，请核对原数据。');
+  }
+  for (const draft of workspace.cases) draft.statistics = reviewPeerComparison(draft).statistics;
+  return workspace;
+}
+
+function checkedDocument(value: unknown, minimumRevision = 1) {
+  if (!isRecord(value) || !Number.isInteger(value.revision) || Number(value.revision) < minimumRevision) {
+    throw new PeerStorageError('保存回执或修订号异常，请保留草稿并重新读取核对。');
+  }
+  return { revision: value.revision as number, workspace: checkedWorkspace(value.value) };
 }
 
 function canRead(config: VibeDeskConfig | null): config is VibeDeskConfig & { accessToken: string; instanceId: string; storageGateway: string } {
-  return Boolean(config?.accessToken && config.instanceId && config.storageGateway && config.permissions?.includes("storage.read"));
+  return Boolean(config?.moduleId === 'peer-comparison' && config.userId && config.workspaceId && config.accessToken && config.instanceId && config.storageGateway && config.permissions?.includes("storage.read"));
 }
 
 function canWrite(config: VibeDeskConfig | null): config is VibeDeskConfig & { accessToken: string; instanceId: string; storageGateway: string } {
   return canRead(config) && Boolean(config.permissions?.includes("storage.write"));
 }
 
-function endpoint(config: VibeDeskConfig) {
-  return `${config.storageGateway}/${NAMESPACE}/${DOCUMENT_KEY}`;
+function storageClient(config: VibeDeskConfig & { accessToken: string; instanceId: string }, signal?: AbortSignal) {
+  const cancel = signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+  return createModStorageClient({ baseUrl: config.apiOrigin, modId: 'peer-comparison', accessToken: config.accessToken, instanceId: config.instanceId,
+    fetch: async (url, init) => { cancel.throwIfAborted(); return fetch(url, { ...init, signal: cancel, cache: 'no-store' }); },
+  });
 }
 
-function headers(config: VibeDeskConfig, json = false) {
-  return {
-    Authorization: `Bearer ${config.accessToken}`,
-    "X-Newma-Desk-Instance-Id": config.instanceId || "",
-    ...(json ? { "Content-Type": "application/json" } : {}),
-  };
-}
-
-async function readRemote(config: VibeDeskConfig) {
-  const response = await fetch(endpoint(config), { headers: headers(config) });
-  if (response.status === 404) return { found: false, revision: 0, state: emptyPeerComparisonWorkspace() };
-  if (!response.ok) throw new Error(`peer comparison read failed: ${response.status}`);
-  const document = await response.json() as StorageDocument;
-  return { found: true, revision: Number(document.revision) || 0, state: normalizeWorkspace(document.value) };
-}
-
-export async function hydratePeerComparisonWorkspace() {
-  const local = loadLocalPeerComparisonWorkspace();
+export async function hydratePeerComparisonWorkspace(signal?: AbortSignal): Promise<PeerComparisonSession> {
+  const scope = peerComparisonScope();
   const config = await waitForVibeDeskConfig();
-  if (!canRead(config)) return local;
-  try {
-    const remote = await readRemote(config);
-    return remote.found ? remote.state : local;
-  } catch {
-    return local;
-  }
-}
-
-export async function persistPeerComparisonWorkspace(workspace: PeerComparisonWorkspace) {
-  const normalized = normalizeWorkspace(workspace);
-  try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
-  } catch {
-    // Keep the in-memory comparison usable when browser persistence is disabled.
-  }
-  const config = await waitForVibeDeskConfig();
-  if (!canWrite(config)) return;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  assertScope(scope, signal);
+  if (scope === 'local' && !config) {
     try {
-      const current = await readRemote(config);
-      const response = await fetch(endpoint(config), {
-        method: "PUT",
-        headers: headers(config, true),
-        body: JSON.stringify({ expectedRevision: current.revision, value: normalized }),
-      });
-      if (response.status === 409 && attempt === 0) continue;
-      if (!response.ok) throw new Error(`peer comparison write failed: ${response.status}`);
-      return;
-    } catch {
-      return;
+      const raw = localStorage.getItem(LOCAL_KEY);
+      return { workspace: raw === null ? emptyPeerComparisonWorkspace() : checkedWorkspace(JSON.parse(raw)),
+        scope, mode: 'local', revision: 0, localVersion: raw, writable: true };
+    } catch (error) {
+      if (error instanceof PeerStorageError) throw error;
+      throw new PeerStorageError('本机同业档案读取失败，未按空库处理，请检查浏览器存储。');
     }
+  }
+  if (!canRead(config)) throw new PeerStorageError('尚未获得同业档案读取授权，不会使用本机旧缓存替代。');
+  try {
+    const document = await storageClient(config, signal).get(NAMESPACE, DOCUMENT_KEY);
+    assertScope(scope, signal);
+    return { ...checkedDocument(document), scope, mode: 'desk', writable: canWrite(config) };
+  } catch (error) {
+    assertScope(scope, signal);
+    if (error instanceof GatewayError && error.status === 404) return { workspace: emptyPeerComparisonWorkspace(), scope, mode: 'desk', revision: 0, writable: canWrite(config) };
+    if (error instanceof PeerStorageError) throw error;
+    throw new PeerStorageError('Desk 同业档案读取失败，未使用本机旧缓存替代；原记录未改动。');
+  }
+}
+
+export async function persistPeerComparisonWorkspace(workspace: PeerComparisonWorkspace, session: PeerComparisonSession, signal?: AbortSignal): Promise<PeerComparisonSession> {
+  assertScope(session.scope, signal);
+  const normalized = checkedWorkspace(workspace);
+  if (session.mode === 'local') {
+    try {
+      if (localStorage.getItem(LOCAL_KEY) !== session.localVersion) throw new PeerStorageError('保存冲突：其他窗口已更新本机同业档案，请先导出草稿再重新读取。');
+      const raw = JSON.stringify(normalized);
+      localStorage.setItem(LOCAL_KEY, raw);
+      if (localStorage.getItem(LOCAL_KEY) !== raw) throw new PeerStorageError('本机保存未确认，请保留草稿并重新读取核对。');
+      return { ...session, workspace: normalized, localVersion: raw };
+    } catch (error) {
+      if (error instanceof PeerStorageError) throw error;
+      throw new PeerStorageError('本机保存失败，请在关闭或刷新前导出草稿。');
+    }
+  }
+  const config = getVibeDeskConfig();
+  if (!session.writable || !canWrite(config)) throw new PeerStorageError('当前工作区没有保存权限，请先导出草稿。');
+  try {
+    const result = await storageClient(config, signal).put(NAMESPACE, DOCUMENT_KEY, normalized, session.revision);
+    assertScope(session.scope, signal);
+    return { ...session, ...checkedDocument(result, session.revision + 1) };
+  } catch (error) {
+    assertScope(session.scope, signal);
+    if (error instanceof GatewayError && error.status === 409) throw new PeerStorageError('保存冲突：其他窗口已更新。草稿保留，未覆盖对方版本；请先导出再重新读取核对。');
+    if (error instanceof PeerStorageError) throw error;
+    throw new PeerStorageError('Desk 保存未确认，可能已写入；请保留草稿并重新读取核对，勿重复提交。');
   }
 }

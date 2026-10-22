@@ -1,4 +1,4 @@
-import { waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
 import { normalizeCapitalEvidence, normalizeCapitalDrafts, normalizeReviewStamp, valuationReadiness, eligibleCash, priceComparisonIssue, latestValuationHistorical, type CapitalEvidence, type CapitalEvidenceDraft, type CapitalField, type ReviewStamp } from './valuationReview';
 
 export type ValuationScenarioId = "bear" | "base" | "bull";
@@ -140,10 +140,16 @@ export interface ValuationWorkspace {
   models: ValuationModel[];
 }
 
-interface StorageDocument {
+export interface ValuationSession {
+  workspace: ValuationWorkspace;
+  mode: "local" | "desk";
+  scope: string;
   revision: number;
-  value: unknown;
+  localVersion?: string | null;
+  writable: boolean;
 }
+
+export class ValuationStorageError extends Error {}
 
 const LOCAL_KEY = "newma-desk.valuation-workbench.v1";
 const NAMESPACE = "valuation-workbench";
@@ -541,20 +547,50 @@ function normalizeWorkspace(value: unknown): ValuationWorkspace {
   };
 }
 
-function localKey(config: VibeDeskConfig | null) {
-  return config ? `${LOCAL_KEY}:${encodeURIComponent(config.userId)}:${encodeURIComponent(config.workspaceId)}` : LOCAL_KEY;
+export function valuationScope(config = getVibeDeskConfig()) {
+  return config ? JSON.stringify([config.apiOrigin, config.storageGateway, config.userId, config.workspaceId,
+    config.moduleId, config.instanceId, Boolean(config.accessToken),
+    Boolean(config.permissions?.includes("storage.read")), Boolean(config.permissions?.includes("storage.write"))])
+    : isVibeDeskEmbedded ? "unconnected" : "local";
 }
 
-export function loadLocalValuationWorkspace(config: VibeDeskConfig | null = null) {
-  try {
-    return normalizeWorkspace(JSON.parse(localStorage.getItem(localKey(config)) || "null"));
-  } catch {
-    return emptyValuationWorkspace();
+function assertScope(scope: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (scope !== valuationScope()) throw new ValuationStorageError("工作区或权限已变化，请重新读取；旧模型未转存到新工作区。");
+}
+
+function checkedWorkspace(value: unknown): ValuationWorkspace {
+  if (!isRecord(value) || value.schemaVersion !== "newma-desk.valuation-workbench.v1" || !Array.isArray(value.models) || value.models.length > 100) {
+    throw new ValuationStorageError("估值档案格式异常或超过 100 份，未按空库处理，也未覆盖原记录。");
   }
+  const workspace = normalizeWorkspace(value);
+  if (workspace.models.length !== value.models.length || new Set(workspace.models.map(model => model.id)).size !== workspace.models.length
+    || value.models.some((model, index) => !isRecord(model) || !model.id || !isRecord(model.capitalInputs)
+      || !Array.isArray(model.historicals) || model.historicals.length !== workspace.models[index]?.historicals.length
+      || !Array.isArray(model.sourceMaterials) || model.sourceMaterials.length !== workspace.models[index]?.sourceMaterials.length
+      || !Array.isArray(model.scenarios) || model.scenarios.length !== 3
+      || new Set(model.scenarios.map(scenario => isRecord(scenario) ? scenario.id : null)).size !== 3
+      || model.scenarios.some(scenario => !isRecord(scenario) || !["bear", "base", "bull"].includes(String(scenario.id))
+        || !Array.isArray(scenario.drivers) || scenario.drivers.length < 3 || scenario.drivers.length > 10))) {
+    throw new ValuationStorageError("估值模型、情景或来源不完整，未丢弃记录；请先核对原数据。");
+  }
+  return workspace;
+}
+
+function checkedDocument(value: unknown, minimumRevision = 1) {
+  if (!isRecord(value) || !Number.isInteger(value.revision) || Number(value.revision) < minimumRevision) {
+    throw new ValuationStorageError("存储回执或修订号异常，请保留草稿并重新读取核对。");
+  }
+  return { revision: value.revision as number, workspace: checkedWorkspace(value.value) };
+}
+
+function requestSignal(signal?: AbortSignal) {
+  return signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
 }
 
 function canRead(config: VibeDeskConfig | null): config is VibeDeskConfig & { accessToken: string; instanceId: string; storageGateway: string } {
-  return Boolean(config?.accessToken && config.instanceId && config.storageGateway && config.permissions?.includes("storage.read"));
+  return Boolean(config?.moduleId === "valuation-workbench" && config.userId && config.workspaceId
+    && config.accessToken && config.instanceId && config.storageGateway && config.permissions?.includes("storage.read"));
 }
 
 function canWrite(config: VibeDeskConfig | null): config is VibeDeskConfig & { accessToken: string; instanceId: string; storageGateway: string } {
@@ -573,55 +609,64 @@ function headers(config: VibeDeskConfig, json = false) {
   };
 }
 
-async function readRemote(config: VibeDeskConfig) {
-  const response = await fetch(endpoint(config), { headers: headers(config) });
-  if (response.status === 404) return { found: false, revision: 0, state: emptyValuationWorkspace() };
-  if (!response.ok) throw new Error(`valuation workspace read failed: ${response.status}`);
-  const document = await response.json() as StorageDocument;
-  return { found: true, revision: Number(document.revision) || 0, state: normalizeWorkspace(document.value) };
-}
-
-export async function hydrateValuationWorkspace() {
+export async function hydrateValuationWorkspace(signal?: AbortSignal): Promise<ValuationSession> {
+  const scope = valuationScope();
   const config = await waitForVibeDeskConfig();
-  const local = loadLocalValuationWorkspace(config);
-  if (!canRead(config)) return local;
-  try {
-    const remote = await readRemote(config);
-    return remote.found ? remote.state : local;
-  } catch {
-    return local;
-  }
-}
-
-export async function persistValuationWorkspace(workspace: ValuationWorkspace) {
-  const normalized = normalizeWorkspace(workspace);
-  const config = await waitForVibeDeskConfig();
-  let localSaved = false;
-  try {
-    localStorage.setItem(localKey(config), JSON.stringify(normalized));
-    localSaved = true;
-  } catch {
-    // Keep the current model usable when browser persistence is disabled.
-  }
-  if (!canWrite(config)) {
-    if (!localSaved) throw new Error("估值草稿未能保存");
-    return "local" as const;
-  }
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  assertScope(scope, signal);
+  if (!config && !isVibeDeskEmbedded) {
     try {
-      const current = await readRemote(config);
-      const response = await fetch(endpoint(config), {
-        method: "PUT",
-        headers: headers(config, true),
-        body: JSON.stringify({ expectedRevision: current.revision, value: normalized }),
-      });
-      if (response.status === 409 && attempt === 0) continue;
-      if (!response.ok) throw new Error(`valuation workspace write failed: ${response.status}`);
-      return "desk" as const;
-    } catch {
-      if (!localSaved) throw new Error("估值草稿未能保存");
-      return "local" as const;
+      const raw = localStorage.getItem(LOCAL_KEY);
+      return { workspace: raw === null ? emptyValuationWorkspace() : checkedWorkspace(JSON.parse(raw)), mode: "local", scope, revision: 0, localVersion: raw, writable: true };
+    } catch (error) {
+      if (error instanceof ValuationStorageError) throw error;
+      throw new ValuationStorageError("本机估值读取失败，原记录未改动；请检查浏览器存储后重试。");
     }
   }
-  return "local" as const;
+  if (!canRead(config)) throw new ValuationStorageError("尚未连接已授权的 Desk 存储，不会使用本机或其他工作区的旧模型。");
+  try {
+    const response = await fetch(endpoint(config), { headers: headers(config), cache: "no-store", signal: requestSignal(signal) });
+    assertScope(scope, signal);
+    const document = response.status === 404 ? { revision: 0, workspace: emptyValuationWorkspace() }
+      : response.ok ? checkedDocument(await response.json()) : null;
+    if (!document) throw new ValuationStorageError(`Desk 读取失败（HTTP ${response.status}），未使用本机旧模型替代。`);
+    assertScope(scope, signal);
+    return { ...document, mode: "desk", scope, writable: canWrite(config) };
+  } catch (error) {
+    if (error instanceof ValuationStorageError) throw error;
+    throw new ValuationStorageError("Desk 读取未确认，请检查连接后重试；原记录未改动。");
+  }
+}
+
+export async function persistValuationWorkspace(workspace: ValuationWorkspace, session: ValuationSession, signal?: AbortSignal): Promise<ValuationSession> {
+  assertScope(session.scope, signal);
+  const normalized = checkedWorkspace(workspace);
+  if (session.mode === "local") {
+    try {
+      if (localStorage.getItem(LOCAL_KEY) !== session.localVersion) throw new ValuationStorageError("保存冲突：其他窗口已更新本机估值。草稿保留，请先导出再重新读取核对。");
+      const raw = JSON.stringify(normalized);
+      localStorage.setItem(LOCAL_KEY, raw);
+      if (localStorage.getItem(LOCAL_KEY) !== raw) throw new ValuationStorageError("本机保存未确认，请保留草稿并重新读取核对。");
+      return { ...session, workspace: normalized, localVersion: raw };
+    } catch (error) {
+      if (error instanceof ValuationStorageError) throw error;
+      throw new ValuationStorageError("本机保存失败，草稿仍在；刷新或关闭前请先导出草稿。");
+    }
+  }
+  const config = getVibeDeskConfig();
+  if (!canWrite(config) || !session.writable) throw new ValuationStorageError("当前工作区没有保存权限；请先导出草稿。");
+  try {
+    const response = await fetch(endpoint(config), {
+      method: "PUT", headers: headers(config, true), signal: requestSignal(signal),
+      body: JSON.stringify({ expectedRevision: session.revision, value: normalized }),
+    });
+    assertScope(session.scope, signal);
+    if (response.status === 409) throw new ValuationStorageError("保存冲突：其他窗口已更新。草稿保留，请先导出再重新读取核对；未覆盖对方版本。");
+    if (!response.ok) throw new ValuationStorageError(`Desk 保存未确认（HTTP ${response.status}），草稿仍在；请重新读取核对，勿重复提交。`);
+    const result = checkedDocument(await response.json(), session.revision + 1);
+    assertScope(session.scope, signal);
+    return { ...session, ...result };
+  } catch (error) {
+    if (error instanceof ValuationStorageError) throw error;
+    throw new ValuationStorageError("Desk 保存未确认，可能已写入；请保留草稿并重新读取核对，勿重复提交。");
+  }
 }

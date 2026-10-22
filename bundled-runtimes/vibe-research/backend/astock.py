@@ -45,6 +45,10 @@ class DependencyMissing(RuntimeError):
     """惰性依赖未安装时抛出，前端据此提示 pip install。"""
 
 
+class AnnouncementSourceUnavailable(RuntimeError):
+    """The provider did not deliver the selected public document."""
+
+
 # ---------------------------------------------------------------------------
 # Layer 1 · 行情（腾讯财经，仅标准库，不封 IP）
 # ---------------------------------------------------------------------------
@@ -160,8 +164,11 @@ def eastmoney_reports(code: str, max_pages: int = 3) -> list[dict]:
             "p": str(page), "pageNum": str(page), "pageNumber": str(page),
         }
         r = session.get(_REPORT_API, params=params, timeout=30)
+        r.raise_for_status()
         d = r.json()
-        rows = d.get("data") or []
+        rows = d.get("data") if isinstance(d, dict) else None
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError("研报源未返回有效列表，不视为零条研报")
         if not rows:
             break
         out.extend(rows)
@@ -312,14 +319,68 @@ def individual_info(code: str) -> dict:
 
 
 def disclosure(code: str) -> list[dict]:
-    """巨潮公告全文列表（akshare cninfo，本环境不稳，保留作备用）。"""
-    market = "沪市" if code.startswith("6") else ("北交所" if code.startswith("8") else "深市")
-    df = akshare_call(
-        "stock_zh_a_disclosure_report_cninfo",
-        symbol=code,
-        market=market,
-    )
-    return df.head(30).to_dict("records") if df is not None and not df.empty else []
+    """Compatibility list: latest 30 official announcements within 365 days."""
+    return [{"代码": code, "简称": row["name"], "公告标题": row["title"], "公告时间": row["date"], "公告链接": row["url"]}
+            for row in _cninfo_announcement_page(code)["items"]]
+
+
+def _cninfo_announcement_page(code: str, *, keyword: str = "") -> dict:
+    import requests
+    from zoneinfo import ZoneInfo
+
+    if not re.fullmatch(r"\d{6}", code):
+        raise ValueError("证券代码须为六位数字")
+    response = requests.get("https://www.cninfo.com.cn/new/data/szse_stock.json", timeout=10)
+    response.raise_for_status()
+    security = next((row for row in response.json().get("stockList", []) if row.get("code") == code), None)
+    if not security or not security.get("orgId"):
+        raise ValueError("巨潮沪深京证券目录未找到该代码，未猜测公司身份")
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    begin, end = (today - timedelta(days=365)).isoformat(), today.isoformat()
+    response = requests.post("https://www.cninfo.com.cn/new/hisAnnouncement/query", data={
+        "pageNum": "1", "pageSize": "30", "column": "szse", "tabName": "fulltext",
+        "stock": f"{code},{security['orgId']}", "searchkey": keyword,
+        "seDate": f"{begin}~{end}", "sortName": "time", "sortType": "desc", "isHLtitle": "false",
+    }, timeout=10)
+    response.raise_for_status()
+    payload = response.json()
+    rows = payload.get("announcements")
+    if rows is None and payload.get("totalAnnouncement") == 0:
+        rows = []
+    if not isinstance(rows, list):
+        raise AnnouncementSourceUnavailable("巨潮未返回有效公告列表，不视为零条公告")
+    items = []
+    for row in rows:
+        announcement_id = str(row.get("announcementId") or "")
+        if row.get("secCode") != code or not re.fullmatch(r"\d{10,20}", announcement_id):
+            raise AnnouncementSourceUnavailable("巨潮公告列表证券或编号不符，未用于本公司研究")
+        published = row.get("announcementTime")
+        if not isinstance(published, (int, float)):
+            raise AnnouncementSourceUnavailable("巨潮公告日期缺失，未将无日期结果视为近期公告")
+        date = datetime.fromtimestamp(published / 1000, ZoneInfo("Asia/Shanghai")).date().isoformat()
+        if not begin <= date <= end:
+            raise AnnouncementSourceUnavailable("巨潮返回公告超出查询日期范围，未用于近期公告列表")
+        items.append({"symbol": code, "name": str(row.get("secName") or security.get("zwjc") or code),
+                      "announcementId": announcement_id, "title": str(row.get("announcementTitle") or ""), "date": date,
+                      "url": f"https://www.cninfo.com.cn/new/disclosure/detail?stockCode={code}&announcementId={announcement_id}"})
+    total = payload.get("totalAnnouncement")
+    return {"symbol": code, "source": "cninfo", "begin": begin, "end": end, "page": 1, "pageSize": 30,
+            "hasMore": total > 30 if isinstance(total, int) else len(rows) >= 30,
+            "items": sorted(items, key=lambda item: (item["date"], item["announcementId"]), reverse=True)}
+
+
+def statement_announcements(code: str) -> dict:
+    result = _cninfo_announcement_page(code, keyword="年度报告")
+    selected = []
+    for row in result["items"]:
+        title = row["title"].strip().removeprefix(row["name"]).lstrip(" ：:")
+        if re.search(r"英文|English", title, re.IGNORECASE):
+            continue  # The existing statement extractor reads Chinese table labels only.
+        match = re.fullmatch(r"(20\d{2})年(半年度|年度)报告(?:全文)?(?:[（(][^）)]*[）)])?", title)
+        if match:
+            selected.append({**row, "periodEnd": match[1] + ("-06-30" if match[2] == "半年度" else "-12-31")})
+    return {**result, "items": selected,
+            "boundary": "仅检索最近365日公告的第一页（最多30条），筛出中文年度/半年度报告全文；不含季报，非全历史。请明确选择版本，未自动核对。"}
 
 
 def announcements(code: str, limit: int = 15) -> list[dict]:
@@ -438,14 +499,14 @@ def _announcement_pdf_bytes(pdf_url: str) -> tuple[bytes, str]:
     with requests.get(pdf_url, headers={"User-Agent": UA}, timeout=20, stream=True, allow_redirects=False) as response:
         response.raise_for_status()
         if response.status_code != 200:
-            raise ValueError("PDF 附件跳转或暂不可用，请打开公告详情核对")
+            raise AnnouncementSourceUnavailable("PDF 附件跳转或暂不可用，请打开公告详情核对")
         content = bytearray()
         for chunk in response.iter_content(65536):
             content.extend(chunk)
             if len(content) > 20 * 1024 * 1024:
                 raise ValueError("PDF 超过 20 MB 阅读上限，请打开原件核对")
     if not content.startswith(b"%PDF-"):
-        raise ValueError("来源未返回 PDF，可能是网页校验或错误页；请打开原件核对，本次未读取正文")
+        raise AnnouncementSourceUnavailable("来源未返回 PDF，可能是网页校验或错误页；请打开原件核对，本次未读取正文")
     retrieved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     if len(_ANN_PDF_CACHE) >= 4:
         _ANN_PDF_CACHE.pop(next(iter(_ANN_PDF_CACHE)))
@@ -453,8 +514,30 @@ def _announcement_pdf_bytes(pdf_url: str) -> tuple[bytes, str]:
     return bytes(content), retrieved_at
 
 
-def announcement_pdf_page(code: str, announcement_id: str, page: int = 1) -> dict:
-    """Read one physical PDF page; never relabel provider text segments as pages."""
+def _cninfo_announcement_metadata(code: str, announcement_id: str) -> dict:
+    """Read the explicitly selected official announcement, not a title match."""
+    import requests
+    from zoneinfo import ZoneInfo
+
+    if not re.fullmatch(r"\d{6}", code) or not re.fullmatch(r"\d{10,20}", announcement_id):
+        raise ValueError("证券代码或巨潮公告编号无效")
+    response = requests.post("https://www.cninfo.com.cn/new/announcement/bulletin_detail",
+                             params={"announceId": announcement_id, "flag": "true" if code.startswith(("0", "3")) else "false"}, timeout=12)
+    response.raise_for_status()
+    data = response.json().get("announcement") or {}
+    if str(data.get("announcementId")) != announcement_id or data.get("secCode") != code:
+        raise ValueError("巨潮公告不属于当前证券或编号不符，未读取为本公司证据")
+    attachment = str(data.get("adjunctUrl") or "")
+    if not re.fullmatch(r"finalpage/\d{4}-\d{2}-\d{2}/" + announcement_id + r"\.pdf", attachment, re.I):
+        raise ValueError("巨潮未提供与公告编号一致的 PDF 附件")
+    published = data.get("announcementTime")
+    date = datetime.fromtimestamp(published / 1000, ZoneInfo("Asia/Shanghai")).date().isoformat() if isinstance(published, (int, float)) else None
+    return {"notice_title": data.get("announcementTitle") or announcement_id, "notice_date": date,
+            "attach_url": "https://static.cninfo.com.cn/" + attachment}
+
+
+def _announcement_pdf_document(code: str, announcement_id: str, source: str = "eastmoney"):
+    """Resolve only a provider-verified attachment; share reading and comparison."""
     from io import BytesIO
     from urllib.parse import urlparse
     try:
@@ -462,18 +545,40 @@ def announcement_pdf_page(code: str, announcement_id: str, page: int = 1) -> dic
     except ImportError as exc:
         raise DependencyMissing("PDF 阅读需要安装 Research requirements 中的 pypdf") from exc
 
-    if not 1 <= page <= 1000:
-        raise ValueError("PDF 页码须在 1 至 1000 之间")
-    data = _announcement_metadata(code, announcement_id)
+    if source not in {"eastmoney", "cninfo"}:
+        raise ValueError("公告来源不支持")
+    data = _cninfo_announcement_metadata(code, announcement_id) if source == "cninfo" else _announcement_metadata(code, announcement_id)
     pdf_url = data.get("attach_url") or ""
     parsed = urlparse(pdf_url)
-    if parsed.scheme != "https" or parsed.hostname != "pdf.dfcfw.com" or parsed.port not in (None, 443) or parsed.username or parsed.password:
+    expected_host = "static.cninfo.com.cn" if source == "cninfo" else "pdf.dfcfw.com"
+    if parsed.scheme != "https" or parsed.hostname != expected_host or parsed.port not in (None, 443) or parsed.username or parsed.password:
         raise ValueError("公告源没有提供可读取的 PDF 附件")
     # Only the verified provider attachment is fetched, never a caller-supplied URL.
     content, retrieved_at = _announcement_pdf_bytes(pdf_url)
     reader = PdfReader(BytesIO(content))
     if reader.is_encrypted:
         raise ValueError("PDF 已加密，请打开原件核对")
+    return data, pdf_url, reader, retrieved_at
+
+
+def announcement_statement_evidence(code: str, announcement_id: str, source: str = "eastmoney") -> dict:
+    from earnings_statements import statement_candidates
+
+    data, pdf_url, reader, retrieved_at = _announcement_pdf_document(code, announcement_id, source)
+    pages = ({"page": i + 1, "text": p.extract_text(extraction_mode="layout") or ""}
+             for i, p in enumerate(reader.pages[:200]))
+    result = statement_candidates(pages, code)
+    return {**result, "announcementId": announcement_id, "announcementSource": source, "title": data.get("notice_title") or announcement_id,
+            "reportPublishedAt": str(data.get("notice_date") or "")[:10],
+            "pdfUrl": pdf_url, "pdfPageCount": len(reader.pages), "contentOrigin": "pdf-text",
+            "retrievedAt": retrieved_at}
+
+
+def announcement_pdf_page(code: str, announcement_id: str, page: int = 1) -> dict:
+    """Read one physical PDF page; never relabel provider text segments as pages."""
+    if not 1 <= page <= 1000:
+        raise ValueError("PDF 页码须在 1 至 1000 之间")
+    data, pdf_url, reader, retrieved_at = _announcement_pdf_document(code, announcement_id)
     count = len(reader.pages)
     if page > count:
         raise ValueError(f"PDF 共 {count} 页，请选择范围内页码")
@@ -715,6 +820,48 @@ def financials(code: str, basis: str = "ytd") -> dict:
     }
 
 
+def financial_statement(code: str, statement: str) -> dict:
+    """Latest consolidated statement, vendor-transcribed amounts in CNY yuan.
+
+    Sina's HTML display uses 万元; this JSON endpoint returns yuan. Never apply
+    the HTML multiplier here. Report publication is not a revision timestamp.
+    """
+    import requests
+
+    if not re.fullmatch(r"\d{6}", code) or statement not in {"lrb", "llb", "fzb"}:
+        raise ValueError("报表仅支持6位A股代码及利润表/现金流量表/资产负债表")
+    url = "https://quotes.sina.cn/cn/api/openapi.php/CompanyFinanceService.getFinanceReport2022"
+    response = requests.get(url, params={
+        "paperCode": get_prefix(code) + code, "source": statement,
+        "type": "0", "page": "1", "num": "1",
+    }, headers={"User-Agent": UA}, timeout=12)
+    response.raise_for_status()
+    result = response.json().get("result") or {}
+    if (result.get("status") or {}).get("code") != 0:
+        raise ValueError("财务报表数据源返回错误")
+    reports = (result.get("data") or {}).get("report_list") or {}
+    if not reports:
+        return {}
+    period = max(reports)
+    row = reports[period]
+    if row.get("rType") != "合并期末" or row.get("rCurrency") != "CNY":
+        raise ValueError("当前报表不是受支持的人民币合并报表，不与其他口径拼接")
+    report_date = datetime.strptime(period, "%Y%m%d").date().isoformat()
+    if report_date[5:] not in {"03-31", "06-30", "09-30", "12-31"}:
+        raise ValueError("非标准定期报告期，不能推导累计期间起点")
+    publication = str(row.get("publish_date") or "")
+    published = datetime.strptime(publication, "%Y%m%d").date().isoformat() if publication else None
+    return {
+        "period": report_date,
+        "period_start": report_date[:4] + "-01-01" if statement != "fzb" else None,
+        "period_start_basis": "calendar_ytd_rule" if statement != "fzb" else None,
+        "report_published_at": published,
+        "currency": "CNY", "scope": row["rType"], "audit": row.get("is_audit"),
+        "url": response.url,
+        "values": {item["item_field"]: item.get("item_value") for item in row.get("data") or [] if item.get("item_field")},
+    }
+
+
 def valuation_percentile(code: str, period: str = "近五年") -> dict:
     """历史估值分位（百度股市通）：PE-TTM / PB 的当前值 + 历史 20/50/80 分位带 + 所处分位。
 
@@ -767,6 +914,7 @@ def full_valuation(code: str) -> dict:
     price = q["price"]
     out = {
         "name": q["name"], "code": code, "price": price,
+        "quote_time": q.get("quote_time"),
         "mcap_yi": q["mcap_yi"], "pe_ttm": q["pe_ttm"], "pb": q["pb"],
         "eps_26e": None, "eps_27e": None, "pe_26e": None,
         "cagr_pct": None, "peg": None, "digest_years": None, "analyst_count": 0,
@@ -908,7 +1056,11 @@ def em_zt_topic_pool(endpoint: str, date: str, sort: str = "fbt:asc") -> list[di
     headers = {"User-Agent": UA, "Referer": "https://quote.eastmoney.com/"}
     try:
         r = em_get(url, params=params, headers=headers, timeout=10)
-        return (r.json().get("data") or {}).get("pool") or []
+        data = r.json().get("data") or {}
+        # 盘前/休市请求可能返回前一交易日的池，不能把请求日当作数据日。
+        if str(data.get("qdate") or "") != date:
+            return []
+        return data.get("pool") or []
     except Exception:
         return []
 
@@ -962,6 +1114,9 @@ def eastmoney_datacenter(report_name: str, columns: str = "ALL", filter_str: str
             raise
         return []
     if strict and d.get("success") is False:
+        # The provider explicitly uses success=false for its documented empty-result code.
+        if d.get("code") == 9201 and d.get("message") == "返回数据为空" and d.get("result") is None:
+            return []
         raise ValueError("东财数据中心查询失败")
     if d.get("result") and d["result"].get("data"):
         return d["result"]["data"]
@@ -981,49 +1136,68 @@ def margin_trading(code: str, page_size: int = 30) -> list[dict]:
     } for r in data]
 
 
+def _event_number(value) -> float | None:
+    """Preserve unknown event metrics instead of converting them to zero."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def block_trade(code: str, page_size: int = 20) -> list[dict]:
     """大宗交易：成交价 / 折溢价率 / 量 / 买卖方营业部。"""
     data = eastmoney_datacenter(
         "RPT_DATA_BLOCKTRADE", filter_str=f'(SECURITY_CODE="{code}")',
-        page_size=page_size, sort_columns="TRADE_DATE", sort_types="-1")
+        page_size=page_size, sort_columns="TRADE_DATE", sort_types="-1", strict=True)
     rows = []
     for r in data:
-        close = r.get("CLOSE_PRICE") or 0
-        deal = r.get("DEAL_PRICE") or 0
+        close = _event_number(r.get("CLOSE_PRICE"))
+        deal = _event_number(r.get("DEAL_PRICE"))
         rows.append({
             "date": str(r.get("TRADE_DATE", ""))[:10],
             "price": deal, "close": close,
-            "premium_pct": round((deal / close - 1) * 100, 2) if close else 0,
-            "vol": r.get("DEAL_VOLUME", 0), "amount": r.get("DEAL_AMT", 0),
+            "premium_pct": round((deal / close - 1) * 100, 2)
+            if close is not None and close > 0 and deal is not None and deal > 0 else None,
+            "vol": _event_number(r.get("DEAL_VOLUME")), "amount": _event_number(r.get("DEAL_AMT")),
             "buyer": r.get("BUYER_NAME", ""), "seller": r.get("SELLER_NAME", ""),
         })
     return rows
 
 
 def holder_num_change(code: str, page_size: int = 10) -> list[dict]:
-    """股东户数变化（季度级）：户数 / 环比 / 户均持股。持续减少 = 筹码集中。"""
+    """股东户数：统计期与披露日分开；户均为总 A 股股数口径，并非流通股。"""
     data = eastmoney_datacenter(
         "RPT_HOLDERNUMLATEST", filter_str=f'(SECURITY_CODE="{code}")',
-        page_size=page_size, sort_columns="END_DATE", sort_types="-1")
+        page_size=page_size, sort_columns="END_DATE", sort_types="-1", strict=True)
     return [{
         "date": str(r.get("END_DATE", ""))[:10],
-        "holder_num": r.get("HOLDER_NUM", 0),
-        "change_ratio": r.get("HOLDER_NUM_RATIO", 0),
-        "avg_shares": r.get("AVG_FREE_SHARES", 0),
+        "published_at": str(r.get("HOLD_NOTICE_DATE") or "")[:10] or None,
+        "holder_num": _event_number(r.get("HOLDER_NUM")),
+        "change_ratio": _event_number(r.get("HOLDER_NUM_RATIO")),
+        "avg_shares": _event_number(r.get("AVG_HOLD_NUM")),
+        "avg_shares_basis": "total_a_shares_per_holder",
     } for r in data]
 
 
 def dividend_history(code: str, page_size: int = 20) -> list[dict]:
-    """分红送转历史：每股派息（税前）/ 每10股转增 / 每10股送股 / 进度。"""
+    """分红方案当前记录：派息/转增/送股均为每10股，披露与除权日期分开。"""
     data = eastmoney_datacenter(
         "RPT_SHAREBONUS_DET", filter_str=f'(SECURITY_CODE="{code}")',
-        page_size=page_size, sort_columns="EX_DIVIDEND_DATE", sort_types="-1")
+        page_size=page_size, sort_columns="REPORT_DATE", sort_types="-1", strict=True)
     return [{
-        "date": str(r.get("EX_DIVIDEND_DATE", ""))[:10],
-        "bonus_rmb": r.get("PRETAX_BONUS_RMB", 0),
-        "transfer_ratio": r.get("TRANSFER_RATIO", 0),
-        "bonus_ratio": r.get("BONUS_RATIO", 0),
+        "date": str(r.get("EX_DIVIDEND_DATE") or "")[:10] or None,
+        "published_at": str(r.get("NOTICE_DATE") or "")[:10] or None,
+        "plan_published_at": str(r.get("PLAN_NOTICE_DATE") or "")[:10] or None,
+        "report_date": str(r.get("REPORT_DATE") or "")[:10] or None,
+        "record_date": str(r.get("EQUITY_RECORD_DATE") or "")[:10] or None,
+        "bonus_rmb": _event_number(r.get("PRETAX_BONUS_RMB")),
+        "transfer_ratio": _event_number(r.get("IT_RATIO")),
+        "bonus_ratio": _event_number(r.get("BONUS_RATIO")),
         "plan": r.get("ASSIGN_PROGRESS", ""),
+        "plan_description": r.get("IMPL_PLAN_PROFILE") or None,
     } for r in data]
 
 
@@ -1157,30 +1331,28 @@ def dragon_tiger_board(code: str, trade_date: str | None = None, look_back: int 
 
 
 def lockup_expiry(code: str, trade_date: str | None = None, forward_days: int = 90) -> dict:
-    """限售解禁日历：历史解禁记录 + 未来 N 天待解禁事件。
+    """解禁日历：股数单位万股，ratio为占流通股本的小数；不代表实际减持。
 
-    字段随东财 2026 改列名同步（a-stock-data §3.6）：旧 LIMITED_STOCK_TYPE/FREE_SHARES_NUM
-    已废、致 type/shares 恒空 → 改 FREE_SHARES_TYPE/FREE_SHARES，并补 able_shares（实际可流通股数）。
+    FREE_SHARES是流通基数，CURRENT_FREE_SHARES才是本批数量；EUTIME不是公告披露日。
     """
     trade_date = trade_date or datetime.now().strftime("%Y-%m-%d")
-    history = [{
-        "date": str(r.get("FREE_DATE", ""))[:10], "type": r.get("FREE_SHARES_TYPE", ""),
-        "shares": r.get("FREE_SHARES", 0), "able_shares": r.get("ABLE_FREE_SHARES", 0),
-        "ratio": r.get("FREE_RATIO", 0),
-    } for r in eastmoney_datacenter(
-        "RPT_LIFT_STAGE", filter_str=f'(SECURITY_CODE="{code}")',
-        page_size=15, sort_columns="FREE_DATE", sort_types="-1")]
-
     end = (datetime.strptime(trade_date, "%Y-%m-%d") + timedelta(days=forward_days)).strftime("%Y-%m-%d")
-    upcoming = [{
-        "date": str(r.get("FREE_DATE", ""))[:10], "type": r.get("FREE_SHARES_TYPE", ""),
-        "shares": r.get("FREE_SHARES", 0), "able_shares": r.get("ABLE_FREE_SHARES", 0),
-        "ratio": r.get("FREE_RATIO", 0),
-    } for r in eastmoney_datacenter(
+    def normalize(rows):
+        return [{
+            "date": str(r.get("FREE_DATE") or "")[:10], "type": r.get("FREE_SHARES_TYPE", ""),
+            "shares": _event_number(r.get("CURRENT_FREE_SHARES")),
+            "able_shares": _event_number(r.get("ABLE_FREE_SHARES")),
+            "ratio": _event_number(r.get("FREE_RATIO")), "published_at": None,
+        } for r in rows]
+    history = normalize(eastmoney_datacenter(
+        "RPT_LIFT_STAGE", filter_str=f'(SECURITY_CODE="{code}")(FREE_DATE<\'{trade_date}\')',
+        page_size=15, sort_columns="FREE_DATE", sort_types="-1", strict=True))
+    upcoming = normalize(eastmoney_datacenter(
         "RPT_LIFT_STAGE",
         filter_str=f'(SECURITY_CODE="{code}")(FREE_DATE>=\'{trade_date}\')(FREE_DATE<=\'{end}\')',
-        page_size=20, sort_columns="FREE_DATE", sort_types="1")]
-    return {"history": history, "upcoming": upcoming}
+        page_size=20, sort_columns="FREE_DATE", sort_types="1", strict=True))
+    return {"history": [r for r in history if r["date"] and r["date"] < trade_date],
+            "upcoming": [r for r in upcoming if trade_date <= r["date"] <= end]}
 
 
 def concept_blocks(code: str) -> dict:

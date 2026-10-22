@@ -3,7 +3,7 @@
   "id": "research-industry-suite",
   "name": "Vibe 产业研究",
   "description": "将产业链研究转为可沉淀、可复用的结构化图谱。",
-  "version": "0.4.0",
+  "version": "0.9.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": ["产业链", "行业", "图谱", "Archify"],
@@ -50,8 +50,8 @@
     {
       "id": "industry-map",
       "name": "产业图谱",
-      "description": "将 Agent 产业链研究转换为可固化的结构化节点、关系和 Archify 交互图谱。",
-      "version": "0.4.0",
+      "description": "产业主题导航、HBM 原文引用示例、工作区结构编辑与逐条证据；结构变更待复核，概念候选与企业暴露分离。",
+      "version": "0.9.0",
       "tags": ["产业链", "研究", "公司", "Archify", "Artifact"],
       "route": "/mod-runtime/research/sectors",
       "navigation": {"itemOrder": 1, "label": "产业图谱"},
@@ -62,7 +62,11 @@
           "sdkVersion": "^0.1.0",
           "viewSpecVersion": "1.0"
         },
-        "permissions": ["investment.read"],
+        "permissions": ["investment.read", "analysis.read", "storage.read", "storage.write"],
+        "storage": {
+          "mode": "desk-managed",
+          "namespaces": [{"id": "industry-maps", "scope": "user-workspace", "schemaVersion": 1, "quotaMb": 12, "maxItemKb": 512}]
+        },
         "dataServices": ["vibe-investment-native"],
         "wiki": {
           "contractVersion": "1.0",

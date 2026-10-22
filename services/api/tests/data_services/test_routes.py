@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,7 @@ from vibe_visualization_api.data_services.models import (
     ServiceCapability,
 )
 from vibe_visualization_api.main import create_app
+from vibe_visualization_api.data_services.client import UpstreamServiceError
 
 
 class FakeDataServiceClient:
@@ -65,6 +67,20 @@ def client(
     )
     with TestClient(application) as test_client:
         yield test_client
+
+
+@pytest.mark.parametrize("code", ["UPSTREAM_TIMEOUT", "UPSTREAM_UNAVAILABLE", "UPSTREAM_FAILURE", "UPSTREAM_INVALID_RESPONSE"])
+def test_data_route_exposes_safe_error_contract(client, fake_client, code):
+    error = UpstreamServiceError("private-upstream?token=secret", code=code)
+    fake_client.invoke = AsyncMock(side_effect=error)
+    response = client.post("/api/data-services/market-data/invoke/market.overview", json={})
+    assert response.status_code == 502
+    assert response.json() == {"detail": error.public_message,
+                               "error": {"code": code, "message": error.public_message}}
+    assert "secret" not in response.text
+    assert "private-upstream" not in response.text
+    if code == "UPSTREAM_TIMEOUT":
+        assert "仍在运行" in response.json()["detail"]
 
 
 def test_data_service_routes_discover_only_public_metadata(

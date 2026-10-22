@@ -405,15 +405,22 @@ async function resolvePageContext() {
 
 async function postPageContext(linkedRequestId?: string) {
   if (!currentConfig || !bridgeInstanceId) return false;
+  const config = currentConfig;
+  const instanceId = bridgeInstanceId;
+  const provider = contextProvider;
+  const context = await resolvePageContext();
+  if (currentConfig?.moduleId !== config.moduleId || currentConfig?.gatewayOrigin !== config.gatewayOrigin
+    || currentConfig?.userId !== config.userId || currentConfig?.workspaceId !== config.workspaceId
+    || currentConfig?.accessToken !== config.accessToken || bridgeInstanceId !== instanceId || contextProvider !== provider) return false;
   window.parent.postMessage(
     {
       type: "vibedesk:context",
       requestId: linkedRequestId || requestId("context"),
-      instanceId: bridgeInstanceId,
-      modId: currentConfig.moduleId,
-      context: await resolvePageContext(),
+      instanceId,
+      modId: config.moduleId,
+      context,
     },
-    currentConfig.gatewayOrigin,
+    config.gatewayOrigin,
   );
   return true;
 }
@@ -557,25 +564,37 @@ if (isVibeDeskEmbedded) {
       ) return;
       const config = currentConfig;
       const instanceId = bridgeInstanceId;
-      const respond = (payload: Record<string, unknown>) => window.parent.postMessage(
-        {
-          type: "vibedesk:ui-action-result",
-          requestId: data.requestId,
-          instanceId,
-          modId: config.moduleId,
-          actionId: data.actionId,
-          ...payload,
-        },
-        config.gatewayOrigin,
-      );
-      if (!uiActionHandler) {
+      const handler = uiActionHandler;
+      const active = () => currentConfig?.moduleId === config.moduleId
+        && currentConfig?.gatewayOrigin === config.gatewayOrigin
+        && currentConfig?.userId === config.userId && currentConfig?.workspaceId === config.workspaceId
+        && currentConfig?.accessToken === config.accessToken
+        && bridgeInstanceId === instanceId && uiActionHandler === handler;
+      const respond = (payload: Record<string, unknown>) => {
+        if (!active()) return;
+        window.parent.postMessage(
+          {
+            type: "vibedesk:ui-action-result",
+            requestId: data.requestId,
+            instanceId,
+            modId: config.moduleId,
+            actionId: data.actionId,
+            ...payload,
+          },
+          config.gatewayOrigin,
+        );
+      };
+      if (!handler) {
         respond({
           ok: false,
           error: { code: "handler_unavailable", message: "页面动作暂不可用" },
         });
         return;
       }
-      void Promise.resolve(uiActionHandler(data.actionId, data.input)).then(
+      void Promise.resolve().then(() => {
+        if (!active()) throw new Error('页面会话已变化，操作未执行');
+        return handler(data.actionId, data.input);
+      }).then(
         (result) => respond({ ok: true, result: result ?? {} }),
         (reason: unknown) => respond({
           ok: false,
@@ -595,6 +614,7 @@ if (isVibeDeskEmbedded) {
     const gatewayOrigin = safeOrigin(data.gatewayOrigin);
     if (
       !gatewayOrigin ||
+      event.origin !== gatewayOrigin ||
       typeof data.moduleId !== "string" ||
       typeof data.userId !== "string"
     ) {
@@ -605,18 +625,25 @@ if (isVibeDeskEmbedded) {
     const appearance = sanitizedAppearance?.mode === theme
       ? sanitizedAppearance
       : undefined;
+    const workspaceId = typeof data.workspaceId === "string" ? data.workspaceId : "local-workspace";
+    const sameScope = currentConfig?.gatewayOrigin === gatewayOrigin
+      && currentConfig.moduleId === data.moduleId && currentConfig.userId === data.userId
+      && currentConfig.workspaceId === workspaceId;
+    // Legacy config also carries theme updates. Do not briefly drop the
+    // authenticated instance and remount editors on every repeated config.
+    if (!sameScope) bridgeInstanceId = null;
     currentConfig = {
+      ...(sameScope ? currentConfig : {}),
       gatewayOrigin,
-      apiOrigin: gatewayOrigin,
+      apiOrigin: sameScope ? currentConfig!.apiOrigin : gatewayOrigin,
       moduleId: data.moduleId,
       userId: data.userId,
-      workspaceId:
-        typeof data.workspaceId === "string" ? data.workspaceId : "local-workspace",
+      workspaceId,
       theme,
       appearance,
     };
     applyEmbeddedTheme(theme, appearance);
-    announceContextBridge(currentConfig);
+    if (!sameScope || !bridgeInstanceId) announceContextBridge(currentConfig);
     notifyConfig(currentConfig);
   });
   requestVibeDeskConfig();

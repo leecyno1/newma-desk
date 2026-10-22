@@ -1,4 +1,4 @@
-import { waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
 
 export type ThesisStatus = "draft" | "active" | "watch" | "invalidated" | "archived";
 export type ThesisConviction = "high" | "medium" | "low";
@@ -77,10 +77,16 @@ export interface InvestmentThesisPortfolio {
   theses: InvestmentThesis[];
 }
 
-interface StorageDocument {
+export interface ThesisSession {
+  portfolio: InvestmentThesisPortfolio;
+  mode: "local" | "desk";
+  scope: string;
   revision: number;
-  value: unknown;
+  localVersion?: string | null;
+  writable: boolean;
 }
+
+export class ThesisStorageError extends Error {}
 
 const LOCAL_KEY = "newma-desk.thesis-tracker.v1";
 const NAMESPACE = "thesis-tracker";
@@ -173,7 +179,7 @@ function normalizeEvidence(value: unknown): ThesisEvidence | null {
       ...(sourceUrl ? { url: sourceUrl } : {}),
     },
     summary,
-    asOf: stringValue(value.asOf, dateValue(undefined), 64),
+    asOf: stringValue(value.asOf, "待核验", 64),
     freshness: {
       status: enumValue(freshness.status, ["live", "fresh", "stale", "unknown"], "unknown"),
       ...(ageDays === undefined ? {} : { ageDays }),
@@ -286,12 +292,39 @@ function normalizePortfolio(value: unknown): InvestmentThesisPortfolio {
   };
 }
 
-export function loadLocalThesisPortfolio() {
-  try {
-    return normalizePortfolio(JSON.parse(localStorage.getItem(LOCAL_KEY) || "null"));
-  } catch {
-    return emptyThesisPortfolio();
+export function thesisScope(config = getVibeDeskConfig()) {
+  return config ? JSON.stringify([config.apiOrigin, config.storageGateway, config.userId, config.workspaceId, config.moduleId, config.instanceId])
+    : isVibeDeskEmbedded ? "unconnected" : "local";
+}
+
+function assertScope(scope: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (scope !== thesisScope()) throw new ThesisStorageError("工作区已变化，请重新读取；旧草稿未转存到新工作区。");
+}
+
+function checkedPortfolio(value: unknown): InvestmentThesisPortfolio {
+  if (!isRecord(value) || value.schemaVersion !== "newma-desk.investment-thesis.v1" || !Array.isArray(value.theses) || value.theses.length > 100) {
+    throw new ThesisStorageError("投资逻辑档案格式异常或超过 100 份，未读取为空档案，也未覆盖原记录。");
   }
+  const portfolio = normalizePortfolio(value);
+  if (portfolio.theses.length !== value.theses.length || new Set(portfolio.theses.map((item) => item.id)).size !== portfolio.theses.length
+    || value.theses.some((row, i) => !isRecord(row) || ["pillars", "invalidationRisks"].some((key) => !Array.isArray(row[key]) || row[key].length < 3 || row[key].length > 5)
+      || (["evidence", "updates", "linkedCatalysts"] as const).some((key) =>
+      row[key] !== undefined && (!Array.isArray(row[key]) || row[key].length !== portfolio.theses[i]?.[key].length)))) {
+    throw new ThesisStorageError("投资逻辑档案或证据不完整，未丢弃记录；请先核对原数据。");
+  }
+  return portfolio;
+}
+
+function requestSignal(signal?: AbortSignal) {
+  return signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+}
+
+function checkedDocument(value: unknown, minimumRevision = 1) {
+  if (!isRecord(value) || !Number.isInteger(value.revision) || Number(value.revision) < minimumRevision) {
+    throw new ThesisStorageError("存储回执格式或修订号异常，请保留草稿并重新读取核对。");
+  }
+  return { revision: value.revision as number, portfolio: checkedPortfolio(value.value) };
 }
 
 function canRead(config: VibeDeskConfig | null): config is VibeDeskConfig & {
@@ -300,7 +333,7 @@ function canRead(config: VibeDeskConfig | null): config is VibeDeskConfig & {
   storageGateway: string;
 } {
   return Boolean(
-    config?.accessToken &&
+    config?.moduleId === "thesis-tracker" && config.userId && config.workspaceId && config.accessToken &&
     config.instanceId &&
     config.storageGateway &&
     config.permissions?.includes("storage.read"),
@@ -327,54 +360,64 @@ function headers(config: VibeDeskConfig, json = false) {
   };
 }
 
-async function readRemote(config: VibeDeskConfig) {
-  const response = await fetch(endpoint(config), { headers: headers(config) });
-  if (response.status === 404) {
-    return { found: false, revision: 0, state: emptyThesisPortfolio() };
-  }
-  if (!response.ok) throw new Error(`thesis tracker read failed: ${response.status}`);
-  const document = await response.json() as StorageDocument;
-  return {
-    found: true,
-    revision: Number(document.revision) || 0,
-    state: normalizePortfolio(document.value),
-  };
-}
-
-export async function hydrateThesisPortfolio() {
-  const local = loadLocalThesisPortfolio();
+export async function hydrateThesisPortfolio(signal?: AbortSignal): Promise<ThesisSession> {
   const config = await waitForVibeDeskConfig();
-  if (!canRead(config)) return local;
-  try {
-    const remote = await readRemote(config);
-    return remote.found ? remote.state : local;
-  } catch {
-    return local;
-  }
-}
-
-export async function persistThesisPortfolio(portfolio: InvestmentThesisPortfolio) {
-  const normalized = normalizePortfolio(portfolio);
-  try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
-  } catch {
-    // The in-memory page remains usable when browser persistence is disabled.
-  }
-  const config = await waitForVibeDeskConfig();
-  if (!canWrite(config)) return;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  const scope = thesisScope(config);
+  assertScope(scope, signal);
+  if (!config && !isVibeDeskEmbedded) {
     try {
-      const current = await readRemote(config);
-      const response = await fetch(endpoint(config), {
-        method: "PUT",
-        headers: headers(config, true),
-        body: JSON.stringify({ expectedRevision: current.revision, value: normalized }),
-      });
-      if (response.status === 409 && attempt === 0) continue;
-      if (!response.ok) throw new Error(`thesis tracker write failed: ${response.status}`);
-      return;
-    } catch {
-      return;
+      const raw = localStorage.getItem(LOCAL_KEY);
+      return { portfolio: raw === null ? emptyThesisPortfolio() : checkedPortfolio(JSON.parse(raw)), mode: "local", scope, revision: 0, localVersion: raw, writable: true };
+    } catch (error) {
+      if (error instanceof ThesisStorageError) throw error;
+      throw new ThesisStorageError("本机档案读取失败，原记录未改动；请检查浏览器存储后重试。");
     }
+  }
+  if (!canRead(config)) throw new ThesisStorageError("尚未连接已授权的 Desk 存储；不会读取本机或其他工作区的旧档案。");
+  try {
+    const response = await fetch(endpoint(config), { headers: headers(config), signal: requestSignal(signal) });
+    assertScope(scope, signal);
+    const document = response.status === 404 ? { revision: 0, portfolio: emptyThesisPortfolio() }
+      : response.ok ? checkedDocument(await response.json()) : null;
+    if (!document) throw new ThesisStorageError(`Desk 读取失败（HTTP ${response.status}），未使用本机旧档案替代。`);
+    assertScope(scope, signal);
+    return { ...document, mode: "desk", scope, writable: canWrite(config) };
+  } catch (error) {
+    if (error instanceof ThesisStorageError) throw error;
+    throw new ThesisStorageError("Desk 读取未确认，请检查连接后重试；原记录未改动。");
+  }
+}
+
+export async function persistThesisPortfolio(portfolio: InvestmentThesisPortfolio, session: ThesisSession, signal?: AbortSignal): Promise<ThesisSession> {
+  assertScope(session.scope, signal);
+  const normalized = checkedPortfolio(portfolio);
+  if (session.mode === "local") {
+    try {
+      if (localStorage.getItem(LOCAL_KEY) !== session.localVersion) throw new ThesisStorageError("保存冲突：其他窗口已更新本机档案。草稿保留，请先导出再重新读取核对。");
+      const raw = JSON.stringify(normalized);
+      localStorage.setItem(LOCAL_KEY, raw);
+      if (localStorage.getItem(LOCAL_KEY) !== raw) throw new ThesisStorageError("本机保存未确认，请保留草稿并重新读取核对。");
+      return { ...session, portfolio: normalized, localVersion: raw };
+    } catch (error) {
+      if (error instanceof ThesisStorageError) throw error;
+      throw new ThesisStorageError("本机保存失败，草稿仍在；刷新或关闭前请先导出草稿。");
+    }
+  }
+  const config = getVibeDeskConfig();
+  if (!canWrite(config)) throw new ThesisStorageError("当前工作区没有保存权限；请先导出草稿。");
+  try {
+    const response = await fetch(endpoint(config), {
+      method: "PUT", headers: headers(config, true), signal: requestSignal(signal),
+      body: JSON.stringify({ expectedRevision: session.revision, value: normalized }),
+    });
+    assertScope(session.scope, signal);
+    if (response.status === 409) throw new ThesisStorageError("保存冲突：其他窗口已更新。草稿保留，请先导出再重新读取核对；未覆盖对方版本。");
+    if (!response.ok) throw new ThesisStorageError(`Desk 保存未确认（HTTP ${response.status}），草稿仍在；请重新读取核对，勿重复提交。`);
+    const result = checkedDocument(await response.json(), session.revision + 1);
+    assertScope(session.scope, signal);
+    return { ...session, ...result };
+  } catch (error) {
+    if (error instanceof ThesisStorageError) throw error;
+    throw new ThesisStorageError("Desk 保存未确认，草稿仍在；请先导出，再重新读取核对，勿重复提交。");
   }
 }

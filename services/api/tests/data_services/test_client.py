@@ -46,6 +46,55 @@ def market_service() -> DataServiceDescriptor:
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure, code", [
+    ("timeout", "UPSTREAM_TIMEOUT"),
+    ("connection", "UPSTREAM_UNAVAILABLE"),
+    ("status", "UPSTREAM_FAILURE"),
+    ("json", "UPSTREAM_INVALID_RESPONSE"),
+])
+async def test_upstream_failure_keeps_safe_reason(market_service, failure, code):
+    def handler(request):
+        if failure == "timeout":
+            raise httpx.ReadTimeout("private-url?token=secret", request=request)
+        if failure == "connection":
+            raise httpx.ConnectError("private-url?token=secret", request=request)
+        return httpx.Response(503 if failure == "status" else 200, text="private-url?token=secret")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = DataServiceClient(public_mode=False, client=http, secret_resolver=lambda _: "token")
+        with pytest.raises(UpstreamServiceError) as caught:
+            await client.invoke(market_service, "market.indices", {})
+    assert caught.value.code == code
+    assert "private-url" not in caught.value.public_message
+    assert "secret" not in caught.value.public_message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,code", [(401, "UPSTREAM_AUTH_REQUIRED"), (403, "UPSTREAM_FORBIDDEN")])
+async def test_upstream_auth_failure_is_distinct(market_service, status, code):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(status, text="secret"))) as http:
+        client = DataServiceClient(public_mode=False, client=http, secret_resolver=lambda _: "token")
+        with pytest.raises(UpstreamServiceError) as caught:
+            await client.invoke(market_service, "market.indices", {})
+    assert caught.value.code == code
+    assert "secret" not in caught.value.public_message
+
+
+@pytest.mark.asyncio
+async def test_capability_timeout_overrides_only_its_own_service_budget(market_service):
+    market_service.capabilities["market.indices"].timeout_seconds = 55
+    timeouts = []
+    def handler(request):
+        timeouts.append(request.extensions["timeout"]["read"])
+        return httpx.Response(200, json={})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = DataServiceClient(public_mode=False, client=http, secret_resolver=lambda _: "token")
+        await client.invoke(market_service, "market.indices", {})
+        await client.invoke(market_service, "market.overview", {})
+    assert timeouts == [55, 15]
+
+
 @pytest.mark.parametrize(
     "url",
     [

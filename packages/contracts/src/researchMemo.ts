@@ -42,7 +42,9 @@ export const researchArtifactReferenceSchema = z.object({
   artifactId: z.string().min(1),
   title: z.string().min(1),
   asOf: z.string().min(1).optional(),
-  status: z.enum(["linked", "stale", "missing"]),
+  status: z.enum(["linked", "stale", "missing", "unverified"]),
+  sourceRevision: z.number().int().positive().optional(),
+  sourceUpdatedAt: z.string().min(1).optional(),
   note: z.string().optional(),
 }).strict();
 

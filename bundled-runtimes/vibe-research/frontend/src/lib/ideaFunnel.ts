@@ -1,4 +1,5 @@
-import { waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
+import { createModStorageClient, GatewayError } from '@newma-desk/mod-sdk';
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
 
 export type IdeaStage = "inbox" | "triage" | "shortlist" | "deep-dive" | "handoff" | "deferred" | "closed";
 export type IdeaPriority = "high" | "medium" | "low";
@@ -79,7 +80,11 @@ export interface WatchlistCandidate {
   groupName: string;
 }
 
-interface StorageDocument { revision: number; value: unknown }
+export interface IdeaFunnelSession {
+  workspace: IdeaFunnelWorkspace; scope: string; mode: 'local' | 'desk'; revision: number;
+  localVersion?: string | null; writable: boolean;
+}
+export class IdeaStorageError extends Error {}
 const LOCAL_KEY = "newma-desk.idea-funnel.v1";
 const NAMESPACE = "idea-funnel";
 const DOCUMENT_KEY = "pipeline";
@@ -131,7 +136,7 @@ export function blankResearchIdea(): ResearchIdea {
     linkedArtifacts: [],
     sources: [],
     gaps: ["补齐原始来源、量化筛选结果和反方证据"],
-    nextActions: [{ id: createIdeaId("action"), kind: "data-check", label: "核验候选的基础事实与来源", status: "pending", completionStandard: "关键数据具备来源、截至日期和口径" }],
+    nextActions: [{ id: createIdeaId("action"), kind: "data-check", label: "待补充研究任务", status: "pending", completionStandard: "待补充完成标准" }],
     handoff: { targetModId: "thesis-tracker", status: "none", note: "通过初筛后交接到投资逻辑或其他深度研究 Mod" },
     reviewLog: [{ id: createIdeaId("review"), createdAt: timestamp, stage: "inbox", summary: "进入研究机会池" }],
     createdAt: timestamp,
@@ -168,22 +173,19 @@ function normalizeIdea(value: unknown): ResearchIdea | null {
     falsifiability: numberValue(rawScore.falsifiability, 50), researchEffort: numberValue(rawScore.researchEffort, 50), total: 0,
   };
   scorecard.total = calculateIdeaScore(scorecard);
-  const normalizeRows = (raw: unknown, minimum: number, defaults: Record<string, unknown>[]) => {
-    const rows = Array.isArray(raw) ? raw.filter(isRecord) : [];
-    return rows.length >= minimum ? rows : defaults;
-  };
-  const signals = normalizeRows(value.signals, 2, fallback.signals).slice(0, 30).map((row) => ({
+  const normalizeRows = (raw: unknown) => Array.isArray(raw) ? raw.filter(isRecord) : [];
+  const signals = normalizeRows(value.signals).slice(0, 30).map((row) => ({
     id: text(row.id, createIdeaId("signal"), 160),
     type: enumValue(row.type, ["quantitative", "thematic", "quality", "catalyst", "risk", "pattern"] as const, "pattern"),
     direction: enumValue(row.direction, ["supports", "challenges", "neutral"] as const, "neutral"),
     summary: text(row.summary, "待补充"), sourceIds: strings(row.sourceIds, 20),
   }));
-  const risks = normalizeRows(value.risks, 1, fallback.risks).slice(0, 20).map((row) => ({
+  const risks = normalizeRows(value.risks).slice(0, 20).map((row) => ({
     id: text(row.id, createIdeaId("risk"), 160), statement: text(row.statement, "待补充"),
     earlyWarning: text(row.earlyWarning, "待补充"), falsificationCondition: text(row.falsificationCondition, "待补充"),
     sourceIds: strings(row.sourceIds, 20),
   }));
-  const actions = normalizeRows(value.nextActions, 1, fallback.nextActions).slice(0, 30).map((row) => ({
+  const actions = normalizeRows(value.nextActions).slice(0, 30).map((row) => ({
     id: text(row.id, createIdeaId("action"), 160),
     kind: enumValue(row.kind, ["data-check", "filing", "model", "peer", "industry", "catalyst", "expert", "other"] as const, "other"),
     label: text(row.label, "待补充"), status: enumValue(row.status, ["pending", "done", "skipped"] as const, "pending"),
@@ -265,49 +267,86 @@ function normalizeWorkspace(value: unknown): IdeaFunnelWorkspace {
   };
 }
 
-export function loadLocalIdeaFunnelWorkspace() {
-  try { return normalizeWorkspace(JSON.parse(localStorage.getItem(LOCAL_KEY) || "null")); }
-  catch { return emptyIdeaFunnelWorkspace(); }
+export function ideaFunnelScope(config = getVibeDeskConfig()) {
+  return config ? JSON.stringify([config.apiOrigin, config.moduleId, config.userId, config.workspaceId, config.instanceId,
+    config.accessToken, config.permissions?.includes('storage.read'), config.permissions?.includes('storage.write')])
+    : isVibeDeskEmbedded || import.meta.env.VITE_NEWMA_DESK_INTEGRATED === '1' ? 'unconnected' : 'local';
 }
-
-function canRead(config: VibeDeskConfig | null): config is VibeDeskConfig & { accessToken: string; instanceId: string; storageGateway: string } {
-  return Boolean(config?.accessToken && config.instanceId && config.storageGateway && config.permissions?.includes("storage.read"));
+function assertScope(scope: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (scope !== ideaFunnelScope()) throw new IdeaStorageError('工作区或授权已变化，旧结果未采用，请重新读取。');
 }
-function canWrite(config: VibeDeskConfig | null): config is VibeDeskConfig & { accessToken: string; instanceId: string; storageGateway: string } {
-  return canRead(config) && Boolean(config.permissions?.includes("storage.write"));
+function checkedWorkspace(value: unknown) {
+  if (!isRecord(value) || value.schemaVersion !== 'newma-desk.idea-funnel.v1' || !Array.isArray(value.ideas) || value.ideas.length > 300) {
+    throw new IdeaStorageError('机会池档案格式异常，未按空库处理，也未覆盖原记录。');
+  }
+  const normalized = normalizeWorkspace(value);
+  const collections = ['signals', 'risks', 'nextActions', 'metrics', 'catalysts', 'linkedArtifacts', 'sources', 'reviewLog'] as const;
+  if (normalized.ideas.length !== value.ideas.length || new Set(normalized.ideas.map(idea => idea.id)).size !== normalized.ideas.length
+    || value.ideas.some((idea, index) => !isRecord(idea) || typeof idea.id !== 'string' || !idea.id
+      || collections.some(key => !Array.isArray(idea[key]) || idea[key].length !== normalized.ideas[index]?.[key].length)
+      || !isRecord(idea.scorecard) || ['relevance', 'evidenceQuality', 'novelty', 'catalystClarity', 'falsifiability', 'researchEffort'].some(key => {
+        const score = (idea.scorecard as Record<string, unknown>)[key];
+        return typeof score !== 'number' || !Number.isFinite(score) || score < 0 || score > 100;
+      }))) {
+    throw new IdeaStorageError('机会池公司、评分或证据记录不完整，未丢弃条目，请核对原档案。');
+  }
+  return normalized;
 }
-function endpoint(config: VibeDeskConfig) { return `${config.storageGateway}/${NAMESPACE}/${DOCUMENT_KEY}`; }
-function headers(config: VibeDeskConfig, json = false) { return { Authorization: `Bearer ${config.accessToken}`, "X-Newma-Desk-Instance-Id": config.instanceId || "", ...(json ? { "Content-Type": "application/json" } : {}) }; }
-async function readRemote(config: VibeDeskConfig) {
-  const response = await fetch(endpoint(config), { headers: headers(config) });
-  if (response.status === 404) return { found: false, revision: 0, state: emptyIdeaFunnelWorkspace() };
-  if (!response.ok) throw new Error(`idea funnel read failed: ${response.status}`);
-  const document = await response.json() as StorageDocument;
-  return { found: true, revision: Number(document.revision) || 0, state: normalizeWorkspace(document.value) };
+function checkedDocument(value: unknown, minimum = 1) {
+  if (!isRecord(value) || !Number.isInteger(value.revision) || Number(value.revision) < minimum) throw new IdeaStorageError('保存回执或修订号异常，请保留草稿并重新读取。');
+  return { workspace: checkedWorkspace(value.value), revision: value.revision as number };
 }
-export async function hydrateIdeaFunnelWorkspace() {
-  const local = loadLocalIdeaFunnelWorkspace();
-  const config = await waitForVibeDeskConfig();
-  if (!canRead(config)) return local;
-  try { const remote = await readRemote(config); return remote.found ? remote.state : local; } catch { return local; }
+function canRead(config: VibeDeskConfig | null): config is VibeDeskConfig & { accessToken: string; instanceId: string } {
+  return Boolean(config?.moduleId === 'idea-funnel' && config.userId && config.workspaceId && config.accessToken && config.instanceId && config.storageGateway && config.permissions?.includes('storage.read'));
 }
-export async function persistIdeaFunnelWorkspace(workspace: IdeaFunnelWorkspace) {
-  const normalized = normalizeWorkspace(workspace);
-  try { localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized)); } catch { /* persistence is optional outside Desk */ }
-  const config = await waitForVibeDeskConfig();
-  if (!canWrite(config)) return;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+function client(config: VibeDeskConfig & { accessToken: string; instanceId: string }, signal?: AbortSignal) {
+  const cancel = signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+  return createModStorageClient({ baseUrl: config.apiOrigin, modId: 'idea-funnel', accessToken: config.accessToken, instanceId: config.instanceId,
+    fetch: (url, init) => { cancel.throwIfAborted(); return fetch(url, { ...init, signal: cancel, cache: 'no-store' }); },
+  });
+}
+export async function hydrateIdeaFunnelWorkspace(signal?: AbortSignal): Promise<IdeaFunnelSession> {
+  const scope = ideaFunnelScope(); const config = await waitForVibeDeskConfig(); assertScope(scope, signal);
+  if (scope === 'local' && !config) {
+    try { const raw = localStorage.getItem(LOCAL_KEY);
+      return { workspace: raw === null ? emptyIdeaFunnelWorkspace() : checkedWorkspace(JSON.parse(raw)), scope, mode: 'local', revision: 0, localVersion: raw, writable: true };
+    } catch (error) { if (error instanceof IdeaStorageError) throw error; throw new IdeaStorageError('本机机会池读取失败，未按空库处理。'); }
+  }
+  if (!canRead(config)) throw new IdeaStorageError('尚未获得机会池读取授权，不使用本机旧缓存替代。');
+  try { const document = await client(config, signal).get(NAMESPACE, DOCUMENT_KEY); assertScope(scope, signal);
+    return { ...checkedDocument(document), scope, mode: 'desk', writable: config.permissions?.includes('storage.write') === true };
+  } catch (error) {
+    assertScope(scope, signal);
+    if (error instanceof GatewayError && error.status === 404) return { workspace: emptyIdeaFunnelWorkspace(), scope, mode: 'desk', revision: 0, writable: config.permissions?.includes('storage.write') === true };
+    if (error instanceof IdeaStorageError) throw error;
+    throw new IdeaStorageError('Desk 机会池读取失败，未使用本机旧缓存替代。');
+  }
+}
+export async function persistIdeaFunnelWorkspace(workspace: IdeaFunnelWorkspace, session: IdeaFunnelSession, signal?: AbortSignal): Promise<IdeaFunnelSession> {
+  assertScope(session.scope, signal); const normalized = checkedWorkspace(workspace);
+  if (session.mode === 'local') {
     try {
-      const current = await readRemote(config);
-      const response = await fetch(endpoint(config), { method: "PUT", headers: headers(config, true), body: JSON.stringify({ expectedRevision: current.revision, value: normalized }) });
-      if (response.status === 409 && attempt === 0) continue;
-      if (!response.ok) throw new Error(`idea funnel write failed: ${response.status}`);
-      return;
-    } catch { return; }
+      if (localStorage.getItem(LOCAL_KEY) !== session.localVersion) throw new IdeaStorageError('保存冲突：其他窗口已更新本机机会池，请导出草稿后重新读取。');
+      const raw = JSON.stringify(normalized); localStorage.setItem(LOCAL_KEY, raw);
+      if (localStorage.getItem(LOCAL_KEY) !== raw) throw new IdeaStorageError('本机保存未确认，请保留草稿并重新读取。');
+      return { ...session, workspace: normalized, localVersion: raw };
+    } catch (error) { if (error instanceof IdeaStorageError) throw error; throw new IdeaStorageError('本机保存失败，请在关闭前导出草稿。'); }
+  }
+  const config = getVibeDeskConfig();
+  if (!session.writable || !canRead(config) || !config.permissions?.includes('storage.write')) throw new IdeaStorageError('当前没有机会池保存权限。');
+  try { const document = await client(config, signal).put(NAMESPACE, DOCUMENT_KEY, normalized, session.revision); assertScope(session.scope, signal);
+    return { ...session, ...checkedDocument(document, session.revision + 1) };
+  } catch (error) {
+    assertScope(session.scope, signal);
+    if (error instanceof GatewayError && error.status === 409) throw new IdeaStorageError('保存冲突：其他窗口已更新。草稿保留，未覆盖新版；请导出后重新读取。');
+    if (error instanceof IdeaStorageError) throw error;
+    throw new IdeaStorageError('Desk 保存未确认，可能已写入；草稿保留，请重新读取核对，勿重复提交。');
   }
 }
 
 export function discoverWatchlistCandidates(): WatchlistCandidate[] {
+  if (ideaFunnelScope() !== 'local') throw new Error('Desk 自选候选共享尚未接通，不读取本机旧账户缓存；请从自选股页面选择证券。');
   try {
     const groups = JSON.parse(localStorage.getItem("vibedesk.research.watch-groups.v1") || "[]");
     if (!Array.isArray(groups)) return [];

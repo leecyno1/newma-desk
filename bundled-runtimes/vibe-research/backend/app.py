@@ -44,11 +44,12 @@ app = FastAPI(title="Vibe-Research API", version="0.1.3")
 
 @app.on_event("startup")
 def _start_security_master_scheduler() -> None:
-    security_master.start_scheduler()
+    if not _env_enabled("VR_DISABLE_BACKGROUND_TASKS"):
+        security_master.start_scheduler()
 
 # 独立版保留原有的持仓快照刷新线程；集成版由 Desk Scheduler /
 # 显式刷新统一编排，避免每个 Research worker 都常驻一条重复线程。
-if not _INTEGRATED_DOMAIN_RUNTIME:
+if not _INTEGRATED_DOMAIN_RUNTIME and not _env_enabled("VR_DISABLE_BACKGROUND_TASKS"):
     pf.start_scheduler(1800)
 
 # CORS：默认放开（本地自托管友好）；公网部署时用 VR_ALLOW_ORIGINS 收紧成白名单。
@@ -76,7 +77,11 @@ async def _require_api_key(request: Request, call_next):
     ):
         if request.headers.get("authorization", "") != f"Bearer {_API_KEY}":
             return JSONResponse({"detail": "未授权：缺少或错误的 API Key（VR_API_KEY）"}, status_code=401)
-    return await call_next(request)
+    response = await call_next(request)
+    if request.url.path.startswith("/api/myreports"):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 _CODE_RE = r"^\d{6}$"
 
@@ -214,29 +219,42 @@ def portfolio_remove(code: str = Query(...)):
 
 # ---- 我的研报（用户上传自己的研报，存本地、不上传、不进开源仓库）----
 
+@app.exception_handler(mr.ReportStorageError)
+async def report_storage_error(_request: Request, error: mr.ReportStorageError):
+    return JSONResponse({"detail": str(error), "code": "REPORT_STORAGE_UNAVAILABLE"}, status_code=503,
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
 class ReportIn(BaseModel):
     name: str
     content_b64: str
 
 
+def _report_scope(request: Request):
+    scope = request.scope.get("newma.research_file_scope")
+    if _INTEGRATED_DOMAIN_RUNTIME and scope is None:
+        raise HTTPException(401, "请通过已授权的 Desk 工作区访问研报")
+    return scope
+
+
 @app.get("/api/myreports")
-def myreports_list():
-    return {"data": mr.list_reports()}
+def myreports_list(request: Request):
+    return {"data": mr.list_reports(scope=_report_scope(request))}
 
 
 @app.post("/api/myreports")
-def myreports_upload(r: ReportIn):
+def myreports_upload(r: ReportIn, request: Request):
     """上传一份研报（base64）→ 存本地 + 按文件名自动打行业标签。"""
     try:
-        return {"data": mr.save_report(r.name, r.content_b64)}
+        return {"data": mr.save_report(r.name, r.content_b64, scope=_report_scope(request))}
     except mr.ReportError as e:
         raise HTTPException(400, str(e)) from e
 
 
 @app.get("/api/myreports/file/{rid}")
-def myreports_file(rid: str, inline: bool = Query(False)):
+def myreports_file(rid: str, request: Request, inline: bool = Query(False)):
     """下载/预览某份研报原文件。"""
-    hit = mr.report_path(rid)
+    hit = mr.report_path(rid, scope=_report_scope(request))
     if not hit:
         raise HTTPException(404, "研报不存在")
     path, name = hit
@@ -244,18 +262,18 @@ def myreports_file(rid: str, inline: bool = Query(False)):
 
 
 @app.delete("/api/myreports/{rid}")
-def myreports_delete(rid: str):
-    return {"data": {"ok": mr.delete_report(rid)}}
+def myreports_delete(rid: str, request: Request):
+    return {"data": {"ok": mr.delete_report(rid, scope=_report_scope(request))}}
 
 
 @app.get("/api/myreports/{rid}/earnings-candidates")
-def myreports_earnings_candidates(rid: str, capital: bool = False, notes: bool = False):
+def myreports_earnings_candidates(rid: str, request: Request, capital: bool = False, notes: bool = False, revenue: bool = False):
     from earnings_import import extract_report
-    hit = mr.report_path(rid)
+    hit = mr.report_path(rid, scope=_report_scope(request))
     if not hit:
         raise HTTPException(404, "研报不存在")
     try:
-        return {"data": extract_report(hit[0], rid, hit[1], include_capital=capital, include_notes=notes)}
+        return {"data": extract_report(hit[0], rid, hit[1], include_capital=capital, include_notes=notes, include_revenue=revenue)}
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
 
@@ -412,6 +430,31 @@ def equity_research_snapshot(symbol: str = Query(..., min_length=1, max_length=1
         raise HTTPException(502, f"个股研究证据聚合异常：{e}") from e
 
 
+@app.get("/api/equity-research/statement-evidence")
+def equity_statement_evidence(code: str = Query(..., pattern=r"^\d{6}$"), announcement_id: str = Query(..., alias="announcementId", pattern=r"^(?:AN\d{10,30}|\d{10,20})$"), source: Literal["eastmoney", "cninfo"] = "eastmoney"):
+    """Explicit, read-only PDF amount extraction; never changes an equity snapshot."""
+    try:
+        return {"data": astock.announcement_statement_evidence(code, announcement_id, source)}
+    except astock.DependencyMissing as error:
+        raise HTTPException(501, str(error)) from error
+    except astock.AnnouncementSourceUnavailable as error:
+        raise HTTPException(503, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    except Exception as error:
+        raise HTTPException(502, "财报原件暂不可读，本次未核验，请稍后重试或打开原件") from error
+
+
+@app.get("/api/equity-research/statement-announcements")
+def equity_statement_announcements(code: str = Query(..., pattern=r"^\d{6}$")):
+    try:
+        return {"data": astock.statement_announcements(code)}
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    except Exception as error:
+        raise HTTPException(502, "巨潮财报列表暂不可读；也可粘贴已知公告详情链接核对") from error
+
+
 @app.get("/api/equity-research/comparison")
 def equity_research_comparison(symbols: str = Query(..., min_length=3, max_length=160)):
     """按统一财务字段横向比较 2-8 个 A/H/US 证券；不改变原始市场口径。"""
@@ -534,6 +577,7 @@ def market_terminal_ohlcv(
     limit: int = Query(320, ge=40, le=800),
     adjust: str = Query("qfq", pattern="^(none|qfq|hfq)$"),
     asset_type: str = Query("stock", alias="assetType", pattern="^(stock|etf|fund|index)$"),
+    as_of: date | None = Query(None, alias="asOf"),
 ):
     """KLineChart 所需的统一 OHLCV 数据。"""
     try:
@@ -545,10 +589,13 @@ def market_terminal_ohlcv(
                 limit=limit,
                 adjust=adjust,
                 asset_type=asset_type,
+                **({"as_of": as_of.isoformat()} if as_of else {}),
             )
         }
     except astock.DependencyMissing as e:
         raise HTTPException(501, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"K 线查询异常：{e}") from e
 
@@ -639,6 +686,8 @@ def announcement_pdf_page(
         return {"data": astock.announcement_pdf_page(code, announcement_id, page)}
     except astock.DependencyMissing as e:
         raise HTTPException(501, str(e)) from e
+    except astock.AnnouncementSourceUnavailable as e:
+        raise HTTPException(503, str(e)) from e
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
     except Exception as e:
@@ -717,7 +766,7 @@ def info(code: str = Query(...)):
 
 @app.get("/api/disclosure")
 def disclosure(code: str = Query(...)):
-    """巨潮公告列表（需 akshare）。"""
+    """巨潮近期公告兼容列表：最近365日、最多30条，不是全部历史。"""
     code = _validate(code)
     try:
         return {"data": astock.disclosure(code)}
@@ -873,6 +922,14 @@ def investor_qa(code: str = Query(...)):
 @app.get("/api/industry")
 def industry(top: int = Query(20, ge=5, le=50)):
     """全行业涨跌幅排名（东财行业板块，板块级、零个股名单）。缓存 5 分钟。"""
+    if os.environ.get("VR_CN_SCAN_SOURCE") == "tushare-daily":
+        from market_scan_daily import daily_market_breadth, DailyScanUnavailable
+        try:
+            data = daily_market_breadth()["industryBreadth"]
+            rows = data["top"]
+            return {"data": {**data, "top": rows[:top], "bottom": rows[-top:]}}
+        except DailyScanUnavailable:
+            raise HTTPException(502, "日频行业广度暂不可用，未切换到其他时点或分类。") from None
     key = ("industry", str(top))
     hit = _DC_CACHE.get(key)
     if hit and _time.time() - hit[0] < 300:

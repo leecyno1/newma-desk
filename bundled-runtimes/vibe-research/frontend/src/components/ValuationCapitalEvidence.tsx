@@ -17,12 +17,13 @@ const GUIDANCE: Record<CapitalField, string> = {
   otherClaimsM: '列明未计入有息债务、现金剔除或稀释股数的优先股、类债务等其他索偿价值，避免可转债同时扣价值又稀释股数。无适用项须以零和依据确认。单位：百万元。',
 };
 
-function EvidenceEditor({ model, field, disabled, onAttach, onSaveDraft, onDiscardDraft, onClose, onDirtyChange, requestDiscard }: {
+function EvidenceEditor({ model, field, disabled, onAttach, onSaveDraft, onDiscardDraft, onClose, onDirtyChange, onEditSnapshot, requestDiscard }: {
   model: ValuationModel; field: CapitalField; disabled: boolean;
   onAttach: (field: CapitalField, input: CapitalEvidenceInput) => void; onClose: () => void;
   onSaveDraft: (field: CapitalField, input: CapitalEvidenceInput) => Promise<boolean>;
   onDiscardDraft: (field: CapitalField) => Promise<boolean>;
   onDirtyChange: (dirty: boolean) => void;
+  onEditSnapshot?: (snapshot: unknown) => void;
   requestDiscard: (run: () => void) => void;
 }) {
   const existing = model.capitalEvidence[field];
@@ -40,6 +41,8 @@ function EvidenceEditor({ model, field, disabled, onAttach, onSaveDraft, onDisca
   const dirty = editSnapshot !== originalEdit.current;
   useEffect(() => { onDirtyChange(dirty); }, [dirty,onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
+  useEffect(() => { onEditSnapshot?.({ field, input: { ...input, ...(usingLines ? { lineItems: lines } : {}) }, dirty }); }, [field, input, usingLines, lines, dirty, onEditSnapshot]);
+  useEffect(() => () => onEditSnapshot?.(null), [onEditSnapshot]);
   const scope = JSON.stringify([model.security.market,model.security.symbol,model.security.currency,model.asOf,model.capitalInputs.cashBasis]);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
@@ -49,6 +52,8 @@ function EvidenceEditor({ model, field, disabled, onAttach, onSaveDraft, onDisca
   const [references, setReferences] = useState<ReturnType<typeof capitalReferences>>([]);
   const [notes, setNotes] = useState<ReturnType<typeof capitalNoteReferences>>([]);
   const [reading, setReading] = useState(false);
+  const readingController = useRef<AbortController | null>(null);
+  useEffect(() => () => readingController.current?.abort(), []);
   const [status, setStatus] = useState('');
   const [discardRequested,setDiscardRequested] = useState(false);
   const canReadReferences = ['dilutedSharesM','totalDebtM','cashM','excludedCashM'].includes(field);
@@ -69,16 +74,18 @@ function EvidenceEditor({ model, field, disabled, onAttach, onSaveDraft, onDisca
     </>}
     <div className="space-y-2">
       {canReadReferences ? <button className={control} disabled={disabled || reading} onClick={async () => {
+        readingController.current?.abort();
+        const controller = new AbortController(); readingController.current = controller;
         setReading(true); setReferences([]); setNotes([]);
         try {
-          const workbooks = await loadSavedEarningsInputs();
+          const workbooks = await loadSavedEarningsInputs(controller.signal);
           if(scopeRef.current!==scope)return;
           const rows = capitalReferences(workbooks,model,field), passages = capitalNoteReferences(workbooks,model,field);
           setReferences(rows); setNotes(passages);
           setStatus(rows.length || passages.length ? `找到 ${rows.length} 项同证券、同币种、同基期的已保存事实及 ${passages.length} 段附注；仅引用原文，不改数值和确认状态。`
             : '没有匹配事实。请先在财报研究“补充资本项目”或“定位资本附注”并保存；本处不采用其他期间或未经核对的数据。');
-        } catch(error) { setStatus(error instanceof Error ? error.message : '读取失败'); }
-        finally { setReading(false); }
+        } catch(error) { if (!controller.signal.aborted) setStatus(error instanceof Error ? error.message : '读取失败'); }
+        finally { if (!controller.signal.aborted) setReading(false); }
       }}>{reading ? '读取中…' : '读取已保存财报资本参考'}</button> : <p className="text-muted-foreground">此项尚无自动提取，请填写附注或独立估值依据，不能直接照搬账面金额。</p>}
       {status && <p role="status" className="text-muted-foreground">{status}</p>}
       {references.map(({workbookId,savedAt,metric,source}) => <div key={`${workbookId}:${metric.id}`} className="border-l-2 border-border pl-3">
@@ -122,7 +129,7 @@ function EvidenceEditor({ model, field, disabled, onAttach, onSaveDraft, onDisca
   </fieldset>;
 }
 
-export function ValuationCapitalEvidence({ model, disabled, onAttach, onSaveDraft, onDiscardDraft, onRevoke, editorDirty, onDirtyChange, requestDiscard }: {
+export function ValuationCapitalEvidence({ model, disabled, onAttach, onSaveDraft, onDiscardDraft, onRevoke, editorDirty, onDirtyChange, onEditSnapshot, requestDiscard }: {
   model: ValuationModel; disabled: boolean;
   onAttach: (field: CapitalField, input: CapitalEvidenceInput) => boolean;
   onSaveDraft: (field: CapitalField, input: CapitalEvidenceInput) => Promise<boolean>;
@@ -130,6 +137,7 @@ export function ValuationCapitalEvidence({ model, disabled, onAttach, onSaveDraf
   onRevoke: (field: CapitalField) => void;
   editorDirty: boolean;
   onDirtyChange: (dirty: boolean) => void;
+  onEditSnapshot?: (snapshot: unknown) => void;
   requestDiscard: (run: () => void) => void;
 }) {
   const [editing, setEditing] = useState<CapitalField | null>(null);
@@ -156,7 +164,7 @@ export function ValuationCapitalEvidence({ model, disabled, onAttach, onSaveDraf
         </details>}
       </div>;
     })}</div>
-    {editing && <EvidenceEditor key={`${model.id}:${editing}`} onDirtyChange={onDirtyChange} requestDiscard={requestDiscard}
+    {editing && <EvidenceEditor key={`${model.id}:${editing}`} onDirtyChange={onDirtyChange} onEditSnapshot={onEditSnapshot} requestDiscard={requestDiscard}
       model={model} field={editing} disabled={disabled} onSaveDraft={onSaveDraft} onDiscardDraft={onDiscardDraft} onClose={() => setEditing(null)} onAttach={(field, input) => { if (onAttach(field, input)) setEditing(null); }} />}
   </section>;
 }

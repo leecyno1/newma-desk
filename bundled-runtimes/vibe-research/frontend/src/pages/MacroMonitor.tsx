@@ -80,7 +80,8 @@ function formatValue(value: number | null | undefined, unit = "") {
 function formatChange(value: number | null | undefined, unit = "") {
   if (value == null || !Number.isFinite(value)) return "较前值 —";
   const suffix = unit === "%" ? " 个百分点" : unit ? ` ${unit}` : "";
-  return `较前值 ${value > 0 ? "+" : ""}${value.toFixed(Math.abs(value) >= 10 ? 1 : 2)}${suffix}`;
+  const digits = value !== 0 && Math.abs(value) < 0.01 ? 4 : Math.abs(value) >= 10 ? 1 : 2;
+  return `较前值 ${value > 0 ? "+" : ""}${value.toFixed(digits)}${suffix}`;
 }
 
 function freshnessLabel(status: "fresh" | "stale" | "unknown") {
@@ -609,11 +610,12 @@ export function MacroMonitor() {
         <div className="grid gap-3 lg:grid-cols-3">{liquidity.groups.map((group) => <GlassCard key={group.id} className="p-4">
           <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold">{group.label}</h3><span className="text-xs text-muted-foreground">{group.indicators.length} 项</span></div>
           <div className="mt-3 divide-y divide-border/60">{group.indicators.map((item) => <div key={item.id} className="py-3 first:pt-0 last:pb-0">
-            <div className="flex items-start justify-between gap-3"><div><strong className="text-sm font-medium">{item.name}</strong><div className="mt-1 text-xs text-muted-foreground">{item.period} · {freshnessLabel(item.freshness.status)}</div></div><div className="text-right"><strong className="block text-base">{formatValue(item.value, item.unit)}</strong><span className={cn("text-xs", liquidityTone(item))}>{formatChange(item.change, item.unit)}</span></div></div>
+            <div className="flex items-start justify-between gap-3"><div><strong className="text-sm font-medium">{item.name}</strong><div className="mt-1 text-xs text-muted-foreground">{item.period} · {item.frequency === "month" ? "已结束月份" : item.frequency === "day" ? "日度观测" : "统计期间"} · {freshnessLabel(item.freshness.status)}</div></div><div className="text-right"><strong className="block text-base">{formatValue(item.value, item.unit)}{item.unit !== "%" && <span className="ml-1 text-xs font-normal">{item.unit}</span>}</strong><span className={cn("text-xs", liquidityTone(item))}>{formatChange(item.change, item.unit)}</span></div></div>
+            <a className="mt-1 block text-xs text-muted-foreground underline underline-offset-2" href={item.source.url} target="_blank" rel="noreferrer">{item.source.label}</a>
           </div>)}</div>
           {!group.indicators.length && <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">当前分组暂无可用序列</div>}
         </GlassCard>)}</div>
-        <GlassCard className="mt-3 flex flex-wrap items-center justify-between gap-3 p-4 text-sm"><div><strong>{liquidity.source}</strong><p className="mt-1 text-xs text-muted-foreground">{liquidity.assessment.method}</p></div><span className="text-xs text-muted-foreground">数据截至 {liquidity.coverage.asOf || "—"}</span></GlassCard>
+        <GlassCard className="mt-3 flex flex-wrap items-center justify-between gap-3 p-4 text-sm"><div><strong>{liquidity.source}</strong><p className="mt-1 text-xs text-muted-foreground">{liquidity.assessment.method}</p><p className="mt-1 text-xs text-muted-foreground">{liquidity.note}</p></div><span className="text-xs text-muted-foreground">最近观测截止 {liquidity.coverage.asOf || "—"}</span></GlassCard>
       </section>}
 
       <section className="mb-6">

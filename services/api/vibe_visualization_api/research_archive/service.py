@@ -139,7 +139,6 @@ def _theses(value: dict[str, Any], revision: int, updated_at: str):
             title=row.get("title"),
             status=status_map.get(status, "active" if status in {"active", "watch"} else "unknown"),
             security=row.get("security"),
-            as_of=row.get("nextReviewAt"),
             updated_at=row.get("updatedAt"),
             fallback_updated_at=updated_at,
             source_revision=revision,
@@ -262,6 +261,37 @@ class ResearchArchiveService:
     def __init__(self, storage: ModStorageStore):
         self._storage = storage
 
+    def relation_inputs(self, *, user_id: str, workspace_id: str) -> dict[str, Any]:
+        """Reuse adopted filing passages, not financial metrics or model conclusions."""
+        try:
+            document = self._storage.get(user_id=user_id, workspace_id=workspace_id,
+                                         module_id="earnings-workbench", namespace="earnings-workbench", key="workbooks")
+        except ModStorageNotFoundError:
+            return {"revision": 0, "materials": []}
+        materials = []
+        for book in _rows(document.get("value"), "workbooks"):
+            if book.get("mode") != "reported":
+                continue
+            for source in _rows(book, "sourceMaterials"):
+                if source.get("kind") != "filing" or source.get("status") not in {"available", "verified"}:
+                    continue
+                for section, label in (("discussion", "管理层讨论"), ("capitalNote", "资本附注")):
+                    note = source.get(section)
+                    if not isinstance(note, dict) or note.get("contentOrigin") != "pdf-text" or not note.get("confirmedAt"):
+                        continue
+                    page, total, text = note.get("pdfPage"), note.get("pdfPageCount"), note.get("text")
+                    if (type(page) is not int or type(total) is not int or not 1 <= page <= total
+                            or page not in note.get("readPages", []) or not isinstance(text, str) or not 0 < len(text) <= 6000):
+                        continue
+                    materials.append({"workbookId": book.get("id"), "workbookUpdatedAt": book.get("updatedAt"),
+                        "sourceId": source.get("id"), "section": section, "sectionLabel": label,
+                        "label": source.get("label"), "security": book.get("security"),
+                        "periodEnd": source.get("periodEnd"), "basis": source.get("basis"),
+                        "sourceRef": source.get("url"), "reportId": note.get("reportId"),
+                        "pdfPage": page, "pdfPageCount": total, "text": text,
+                        "truncated": bool(note.get("truncated")), "confirmedAt": note["confirmedAt"]})
+        return {"revision": document["revision"], "materials": materials}
+
     def industry_inputs(self, *, user_id: str, workspace_id: str) -> dict[str, Any]:
         """Read-only company evidence for industry research; never infer membership."""
         try:
@@ -310,6 +340,7 @@ class ResearchArchiveService:
 
     def list(self, *, user_id: str, workspace_id: str) -> dict[str, Any]:
         entries: list[dict[str, Any]] = []
+        unavailable_sources: list[str] = []
         for module_id, namespace, key, parser in SOURCES:
             try:
                 document = self._storage.get(
@@ -319,17 +350,22 @@ class ResearchArchiveService:
                     namespace=namespace,
                     key=key,
                 )
-            except (ModStorageNotFoundError, ModStorageCorruptError):
+            except ModStorageNotFoundError:
+                continue
+            except ModStorageCorruptError:
+                unavailable_sources.append(module_id)
                 continue
             try:
-                entries.extend(
-                    parser(
-                        _record(document.get("value")),
-                        int(document["revision"]),
-                        _iso(document.get("updatedAt"), _now()),
-                    )
-                )
+                value = _record(document.get("value"))
+                collection = value.get("theses" if key == "portfolio" else key)
+                if not isinstance(collection, list) or any(not isinstance(row, dict) for row in collection):
+                    raise ValueError("invalid source collection")
+                parsed = parser(value, int(document["revision"]), _iso(document.get("updatedAt"), _now()))
+                if len(parsed) != len(collection):
+                    raise ValueError("incomplete source index")
+                entries.extend(parsed)
             except (OSError, OverflowError, TypeError, ValueError):
+                unavailable_sources.append(module_id)
                 continue
         entries.sort(key=lambda entry: entry["updatedAt"], reverse=True)
         return {
@@ -338,4 +374,6 @@ class ResearchArchiveService:
             "workspaceId": workspace_id,
             "generatedAt": _now(),
             "entries": entries[:1000],
+            "unavailableSources": unavailable_sources,
+            "truncated": len(entries) > 1000,
         }

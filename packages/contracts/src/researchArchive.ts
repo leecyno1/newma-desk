@@ -45,6 +45,8 @@ export const researchArchiveIndexSchema = z.object({
   workspaceId: z.string().min(1).max(128),
   generatedAt: z.string().datetime(),
   entries: z.array(researchArchiveEntrySchema).max(1000),
+  unavailableSources: z.array(z.string().min(1)).optional(),
+  truncated: z.boolean().optional(),
 }).strict().superRefine((index, context) => {
   const ids = new Set<string>();
   index.entries.forEach((entry, entryIndex) => {

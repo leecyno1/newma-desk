@@ -14,7 +14,10 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import hashlib
+import math
 import os
+import re
 import shutil
 import sys
 import threading
@@ -27,7 +30,6 @@ _DATA_DIR = Path(os.environ.get("VR_DATA_DIR") or Path.home() / ".vibe-research"
 _DEFAULT_DIR = _DATA_DIR / "myreports"
 # 空串视同未设置（与 VR_DATA_DIR 语义一致，避免 Path("") 落到进程工作目录）
 REPORTS_DIR = Path(os.environ.get("VR_REPORTS_DIR") or str(_DEFAULT_DIR))
-_INDEX = REPORTS_DIR / "index.json"
 
 
 def _migrate_legacy() -> None:
@@ -74,25 +76,63 @@ class ReportError(ValueError):
     """上传/校验类错误（对应 HTTP 400/413）。"""
 
 
-def _ensure_dir() -> None:
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+class ReportStorageError(RuntimeError):
+    """资料库不可读写；文案可返回用户，不包含磁盘路径。"""
 
 
-def _load_index() -> list[dict]:
-    if not _INDEX.exists():
-        return []
+def _directory(scope: tuple[str, str] | None = None) -> Path:
+    # Only the verified in-process Desk adapter supplies scope. Native files
+    # stay at their original location; never import them into a tenant.
+    if scope is None:
+        return REPORTS_DIR
+    key = hashlib.sha256(json.dumps(scope, ensure_ascii=False).encode()).hexdigest()
+    return REPORTS_DIR / "workspaces" / key
+
+
+def _load_index(directory: Path) -> list[dict]:
+    index = directory / "index.json"
     try:
-        data = json.loads(_INDEX.read_text("utf-8"))
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError):
+        data = json.loads(index.read_text("utf-8"))
+    except FileNotFoundError:
+        # 新库可以为空，已有原文却丢失索引不能当作空库覆盖。
+        try:
+            if any(p.suffix.lower() in ALLOWED_EXT for p in directory.iterdir()):
+                raise ReportStorageError("研报索引缺失，原文件仍保留；请先恢复索引后再操作。")
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise ReportStorageError("研报目录无法读取，请检查存储权限后重试。") from exc
         return []
+    except (ValueError, UnicodeError, OSError) as exc:
+        raise ReportStorageError("研报索引无法读取，请先检查或恢复索引；未覆盖原资料。") from exc
+    if not isinstance(data, list):
+        raise ReportStorageError("研报索引格式损坏，请先恢复索引；未覆盖原资料。")
+    seen = set()
+    for row in data:
+        if (not isinstance(row, dict)
+                or not isinstance(row.get("id"), str)
+                or not re.fullmatch(r"[0-9a-f]{32}", row["id"])
+                or row["id"] in seen
+                or not isinstance(row.get("ext"), str) or row["ext"] not in ALLOWED_EXT
+                or not isinstance(row.get("name"), str)
+                or not isinstance(row.get("industry"), str)
+                or type(row.get("size")) is not int or row["size"] < 0
+                or type(row.get("ts")) not in (int, float)
+                or not math.isfinite(row["ts"]) or row["ts"] < 0):
+            raise ReportStorageError("研报索引条目损坏，请先恢复索引；未覆盖原资料。")
+        seen.add(row["id"])
+    return data
 
 
-def _save_index(items: list[dict]) -> None:
-    _ensure_dir()
-    tmp = _INDEX.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2), "utf-8")
-    os.replace(tmp, _INDEX)  # 原子改名，避免半截写入损坏索引（进程被 kill / OOM）
+def _save_index(items: list[dict], directory: Path) -> None:
+    index = directory / "index.json"
+    tmp = index.with_suffix(".json.tmp")
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2), "utf-8")
+        os.replace(tmp, index)  # 原子替换；提交失败不破坏旧索引。
+    except OSError as exc:
+        raise ReportStorageError("研报索引保存失败，请检查磁盘空间和存储权限后重新核对。") from exc
 
 
 def classify(filename: str) -> str:
@@ -110,12 +150,13 @@ def _sanitize_name(name: str) -> str:
     return base or "未命名"
 
 
-def list_reports() -> list[dict]:
+def list_reports(*, scope: tuple[str, str] | None = None) -> list[dict]:
     """按上传时间倒序返回元数据列表。"""
-    return sorted(_load_index(), key=lambda r: r.get("ts", 0), reverse=True)
+    with _LOCK:
+        return sorted(_load_index(_directory(scope)), key=lambda r: r["ts"], reverse=True)
 
 
-def save_report(name: str, content_b64: str) -> dict:
+def save_report(name: str, content_b64: str, *, scope: tuple[str, str] | None = None) -> dict:
     """解码 base64 存盘 + 打行业标签 + 记录元数据。返回该条元数据。"""
     fname = _sanitize_name(name)
     ext = os.path.splitext(fname)[1].lower()
@@ -138,9 +179,9 @@ def save_report(name: str, content_b64: str) -> dict:
     if len(blob) > MAX_BYTES:
         raise ReportError(f"文件过大（{len(blob) // 1024 // 1024}MB），上限 {MAX_BYTES // 1024 // 1024}MB")
 
-    _ensure_dir()
+    directory = _directory(scope)
     rid = uuid.uuid4().hex
-    (REPORTS_DIR / f"{rid}{ext}").write_bytes(blob)
+    path = directory / f"{rid}{ext}"
     meta = {
         "id": rid,
         "name": fname,
@@ -150,32 +191,49 @@ def save_report(name: str, content_b64: str) -> dict:
         "ts": int(time.time() * 1000),
     }
     with _LOCK:
-        items = _load_index()
-        items.append(meta)
-        _save_index(items)
+        items = _load_index(directory)
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(blob)
+            _save_index([*items, meta], directory)
+        except (OSError, ReportStorageError) as exc:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                raise ReportStorageError("上传未完成，残留文件无法清理；请先检查资料目录，不要重复上传。") from exc
+            raise ReportStorageError("上传保存失败，未加入资料库；请检查磁盘空间和存储权限。") from exc
     return meta
 
 
-def report_path(rid: str) -> tuple[Path, str] | None:
+def report_path(rid: str, *, scope: tuple[str, str] | None = None) -> tuple[Path, str] | None:
     """按 id 取 (磁盘路径, 原始文件名)；不存在返回 None。"""
-    for r in _load_index():
-        if r.get("id") == rid:
-            p = REPORTS_DIR / f"{rid}{r.get('ext', '')}"
-            return (p, r.get("name", rid)) if p.exists() else None
+    directory = _directory(scope)
+    with _LOCK:
+        for r in _load_index(directory):
+            if r["id"] == rid:
+                p = directory / f"{rid}{r['ext']}"
+                return (p, r["name"]) if p.exists() else None
     return None
 
 
-def delete_report(rid: str) -> bool:
+def delete_report(rid: str, *, scope: tuple[str, str] | None = None) -> bool:
     """删文件 + 移除索引条目。删成功（或本就不在）返回是否命中。"""
     with _LOCK:
-        items = _load_index()
+        directory = _directory(scope)
+        items = _load_index(directory)
         hit = next((r for r in items if r.get("id") == rid), None)
         if hit is None:
             return False
-        fp = REPORTS_DIR / f"{rid}{hit.get('ext', '')}"
+        fp = directory / f"{rid}{hit.get('ext', '')}"
+        # 先提交索引，提交失败不删原文；删除失败恢复索引，不能报告成功。
+        # 这是单进程内的失败回滚，不是多进程/断电事务。
+        _save_index([r for r in items if r.get("id") != rid], directory)
         try:
             fp.unlink(missing_ok=True)
-        except OSError:
-            pass
-        _save_index([r for r in items if r.get("id") != rid])
+        except OSError as exc:
+            try:
+                _save_index(items, directory)
+            except ReportStorageError:
+                raise ReportStorageError("删除未完成，原文件仍保留但索引恢复失败；请先检查资料目录并恢复索引。") from exc
+            raise ReportStorageError("删除失败，原文件和索引均已保留；请检查存储权限后重试。") from exc
     return True

@@ -72,6 +72,7 @@ class ServiceCapability(DataServiceModel):
     input_schema: dict[str, Any] | str
     output_schema: dict[str, Any] | str
     permission: str = Field(pattern=PERMISSION_PATTERN)
+    timeout_seconds: float | None = Field(default=None, gt=0, le=300)
 
     @field_validator("path")
     @classmethod

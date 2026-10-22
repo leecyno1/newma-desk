@@ -14,17 +14,18 @@ import {
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Disclaimer } from "@/components/ui/Disclaimer";
-import { api, ApiError, downloadReport, type MyReport } from "@/lib/api";
+import { ReportSourceLink } from "@/components/ReportSourceLink";
+import { api, downloadReport, reportScope, assertReportScope, researchApiUrl, type MyReport } from "@/lib/api";
 import {
   ARCHIVE_KIND_LABELS,
   loadResearchArchive,
+  reportEntries,
   researchArchiveSourceUrl,
   type ResearchArchiveEntry,
   type ResearchArchiveKind,
 } from "@/lib/researchArchive";
 import { cn } from "@/lib/utils";
 import {
-  createVibeDeskSnapshotCache,
   publishVibeDeskContext,
   registerVibeDeskContextProvider,
   subscribeVibeDeskConfig,
@@ -54,14 +55,14 @@ const fileToB64 = (file: File): Promise<string> =>
   });
 
 export function MyReports() {
-  const [cacheRevision, setCacheRevision] = useState(0);
-  const archiveCache = useMemo(
-    () => createVibeDeskSnapshotCache<{ reports: MyReport[]; entries: ResearchArchiveEntry[] }>("research-archive:index", 1, 2 * 1024 * 1024),
-    [cacheRevision],
-  );
-  const cachedArchive = archiveCache.read()?.value;
-  const [reports, setReports] = useState<MyReport[]>(() => cachedArchive?.reports ?? []);
-  const [entries, setEntries] = useState<ResearchArchiveEntry[]>(() => cachedArchive?.entries ?? []);
+  const [scope, setScope] = useState(reportScope);
+  useEffect(() => subscribeVibeDeskConfig(() => setScope(reportScope())), []);
+  return <ReportArchive key={scope} scope={scope} />;
+}
+
+function ReportArchive({ scope }: { scope: string }) {
+  const [reports, setReports] = useState<MyReport[]>([]);
+  const [entries, setEntries] = useState<ResearchArchiveEntry[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<ResearchArchiveKind | "all">("all");
@@ -70,69 +71,87 @@ export function MyReports() {
   const [err, setErr] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const cacheRevisionRef = useRef(cacheRevision);
+  const lifetime = useRef(new AbortController());
+  const readController = useRef<AbortController | null>(null);
+  const working = useRef(false);
+  const [notice, setNotice] = useState("");
+  const [coverage, setCoverage] = useState("");
+  const [loadedAt, setLoadedAt] = useState<string>();
+  const active = () => !lifetime.current.signal.aborted && scope === reportScope();
+  const options = () => ({ scope, signal: lifetime.current.signal });
 
   const load = async () => {
+    if (!active()) return;
+    readController.current?.abort();
+    const controller = new AbortController(); readController.current = controller;
+    const signal = AbortSignal.any([controller.signal, lifetime.current.signal]);
+    const current = () => active() && !signal.aborted;
     setLoading(true);
     setErr(null);
-    const cached = archiveCache.read()?.value;
-    const identityChanged = cacheRevisionRef.current !== cacheRevision;
-    cacheRevisionRef.current = cacheRevision;
-    const visibleReports = identityChanged ? cached?.reports ?? [] : reports;
-    const visibleEntries = identityChanged ? cached?.entries ?? [] : entries;
-    if (identityChanged || (!entries.length && cached)) {
-      setReports(visibleReports);
-      setEntries(visibleEntries);
-    }
-    let files: MyReport[] = cached?.reports ?? visibleReports;
     try {
-      files = await api.myReports();
+      const files = await api.myReports({ scope, signal });
+      if (!current()) return;
       setReports(files);
-    } catch (error) {
-      setErr((files.length || visibleEntries.length)
-        ? "上传研报列表暂时不可用，正在显示上次索引"
-        : error instanceof ApiError ? error.message : "上传研报列表暂时不可用");
-    }
-    try {
-      const index = await loadResearchArchive(files);
+      setEntries(previous => [...previous.filter(item => item.kind !== "uploaded-report"), ...reportEntries(files)]);
+      const index = await loadResearchArchive(files, signal);
+      if (!current()) return;
       setEntries(index.entries);
-      archiveCache.write({ reports: files, entries: index.entries }, index.generatedAt);
-    } catch {
-      setErr((current) => current ?? ((visibleEntries.length || cached?.entries.length)
-        ? "研究档案索引更新失败，正在显示上次索引"
-        : "研究档案索引加载失败"));
+      setLoadedAt(index.generatedAt);
+      setCoverage([index.unavailableSources?.length ? `未完整读取：${index.unavailableSources.join("、")}` : "", index.truncated ? "索引覆盖不完整，未列出不代表档案不存在。" : ""].filter(Boolean).join("；"));
+    } catch (error) {
+      if (current()) setErr(error instanceof Error ? error.message : "研究档案读取失败，保留本页上次结果；不能据此判断没有档案。");
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   };
 
-  useEffect(() => { void load(); }, [archiveCache]);
-  useEffect(() => subscribeVibeDeskConfig(() => setCacheRevision((value) => value + 1)), []);
+  useEffect(() => {
+    lifetime.current = new AbortController();
+    void load();
+    return () => { lifetime.current.abort(); readController.current?.abort(); };
+  }, []);
 
   const upload = async (files: FileList | File[]) => {
+    if (working.current || !active()) return;
+    working.current = true;
     setBusy(true);
-    setErr(null);
+    setErr(null); setNotice("");
+    let completed = 0;
+    let failure = "";
+    const batch = Array.from(files);
     try {
-      for (const file of Array.from(files)) {
-        await api.uploadReport(file.name, await fileToB64(file));
+      for (const file of batch) {
+        assertReportScope(scope, lifetime.current.signal);
+        if (!file.size || file.size > 25 * 1024 * 1024) throw new Error(`${file.name}：文件须非空且不超过 25MB。`);
+        const content = await fileToB64(file);
+        assertReportScope(scope, lifetime.current.signal);
+        await api.uploadReport(file.name, content, options());
+        completed++;
       }
-      await load();
     } catch (error) {
-      setErr(error instanceof ApiError ? error.message : "上传失败");
+      failure = error instanceof Error ? error.message : "上传未确认，请刷新核对后再操作，不要重复上传。";
     } finally {
-      setBusy(false);
+      if (active()) {
+        await load();
+        if (active()) { setNotice(`本批已确认保存 ${completed}/${batch.length} 份。${failure}`); setBusy(false); }
+      }
+      working.current = false;
     }
   };
 
   const remove = async (item: ResearchArchiveEntry) => {
     const report = reports.find((candidate) => candidate.id === item.artifactId);
-    if (!report || !confirm(`删除「${report.name}」？（同时从本地归档目录移除）`)) return;
+    if (working.current || !active() || !report || !confirm(`删除「${report.name}」？将从当前资料库移除原文件，已有研究引用不会自动删除。`)) return;
+    working.current = true; setBusy(true);
     try {
-      await api.deleteReport(report.id);
+      await api.deleteReport(report.id, options());
+      if (!active()) return;
       if (selectedId === item.id) setSelectedId(null);
       await load();
     } catch (error) {
-      setErr(error instanceof ApiError ? error.message : "删除失败");
+      if (active()) setErr(error instanceof Error ? error.message : "删除未确认，请刷新核对。");
+    } finally {
+      working.current = false; if (active()) setBusy(false);
     }
   };
 
@@ -140,9 +159,9 @@ export function MyReports() {
     const report = reports.find((candidate) => candidate.id === item.artifactId);
     if (!report) return;
     try {
-      await downloadReport(report.id, report.name);
+      await downloadReport(report.id, report.name, options());
     } catch (error) {
-      setErr(error instanceof ApiError ? error.message : "下载失败");
+      if (active()) setErr(error instanceof Error ? error.message : "下载失败");
     }
   };
 
@@ -186,9 +205,8 @@ export function MyReports() {
     } : {},
     filters: { query, kind },
     data: {
-      asOf: new Date().toISOString(),
       source: "newma-desk.research-archive.v1",
-      freshness: loading ? "unknown" : "fresh",
+      freshness: err && entries.length ? "stale" : "unknown",
       summary: {
         entryCount: entries.length,
         visibleCount: visible.length,
@@ -196,18 +214,19 @@ export function MyReports() {
         attentionCount,
         countsByKind: Object.fromEntries(grouped.map(([groupKind, items]) => [groupKind, items.length])),
         selectedReference: selected,
+        indexRetrievedAt: loadedAt, coverage, error: err, loading, busy,
         note: "统一索引只包含引用与最小元数据，不复制研究正文、财务明细或上传文件。",
       },
     },
     actions: [
-      { id: "archive.summarize", label: "总结研究覆盖", available: entries.length > 0 },
-      { id: "archive.find-gaps", label: "识别研究缺口", available: entries.length > 0 },
-      { id: "archive.open-source", label: "打开来源档案", available: Boolean(selected) },
+      { id: "archive.summarize", label: "总结研究覆盖", available: false },
+      { id: "archive.find-gaps", label: "识别研究缺口", available: false },
+      { id: "archive.open-source", label: "打开来源档案", available: false },
     ],
     tasks: [],
   };
   useEffect(() => registerVibeDeskContextProvider(() => contextRef.current), []);
-  useEffect(() => { void publishVibeDeskContext(); }, [attentionCount, entries.length, kind, loading, query, selectedId, visible.length]);
+  useEffect(() => { void publishVibeDeskContext(); }, [entries, kind, loading, query, selectedId, err, busy, coverage, loadedAt]);
 
   return (
     <div>
@@ -215,7 +234,7 @@ export function MyReports() {
         title="研究档案"
         subtitle="统一索引上传文件、研究记录与结构化研究档案；这里只保存引用，正文和底层数据仍由来源 Mod 维护。"
         actions={(
-          <button onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-50">
+          <button onClick={() => void load()} disabled={loading || busy} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-50">
             <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> 刷新索引
           </button>
         )}
@@ -241,7 +260,7 @@ export function MyReports() {
           onDragOver={(event) => { event.preventDefault(); setDrag(true); }}
           onDragLeave={() => setDrag(false)}
           onDrop={(event) => { event.preventDefault(); setDrag(false); if (event.dataTransfer.files.length) void upload(event.dataTransfer.files); }}
-          onClick={() => inputRef.current?.click()}
+          onClick={() => { if (!busy) inputRef.current?.click(); }}
           className={cn(
             "flex cursor-pointer items-center justify-center gap-3 rounded-xl border border-dashed px-4 py-5 text-center transition-colors",
             drag ? "border-primary bg-primary/10" : "border-border hover:border-primary/50 hover:bg-primary/5",
@@ -249,10 +268,10 @@ export function MyReports() {
         >
           {busy ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <Upload className="h-5 w-5 text-primary" />}
           <div className="text-left">
-            <p className="text-sm font-medium">{busy ? "上传中…" : "添加本地研报文件"}</p>
+            <p className="text-sm font-medium">{busy ? "处理中…" : "添加研报文件"}</p>
             <p className="text-[11px] text-muted-foreground">PDF / Word / txt / md / 表格 / 图片，单个 ≤ 25MB</p>
           </div>
-          <input ref={inputRef} type="file" multiple accept=".pdf,.doc,.docx,.txt,.md,.markdown,.csv,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp" className="hidden" onChange={(event) => { if (event.target.files?.length) void upload(event.target.files); event.target.value = ""; }} />
+          <input ref={inputRef} aria-label="选择研报文件" disabled={busy} type="file" multiple accept=".pdf,.doc,.docx,.txt,.md,.markdown,.csv,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp" className="hidden" onChange={(event) => { if (event.target.files?.length) void upload(event.target.files); event.target.value = ""; }} />
         </div>
       </GlassCard>
 
@@ -267,12 +286,14 @@ export function MyReports() {
         </select>
       </div>
 
+      {notice && <p role="status" className="mb-3 text-sm">{notice}</p>}
+      {coverage && <p className="mb-3 text-sm text-muted-foreground">{coverage}</p>}
       {err && <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{err}</div>}
 
       {loading && entries.length === 0 ? (
         <GlassCard><div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />正在汇总研究档案…</div></GlassCard>
       ) : visible.length === 0 ? (
-        <GlassCard><div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground"><FolderOpen className="h-8 w-8 text-muted-foreground/40" />没有符合条件的研究档案。</div></GlassCard>
+        <GlassCard><div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground"><FolderOpen className="h-8 w-8 text-muted-foreground/40" />{err ? "读取未完成，暂时无法确认档案数量。" : "没有符合条件的研究档案。"}</div></GlassCard>
       ) : (
         <div className="space-y-4">
           {grouped.map(([groupKind, items]) => (
@@ -301,8 +322,9 @@ export function MyReports() {
                       </div>
                       {item.kind === "uploaded-report" ? (
                         <>
+                          {report?.ext === ".pdf" && <ReportSourceLink href={researchApiUrl(`/myreports/file/${encodeURIComponent(report.id)}?inline=true`)} className="text-xs text-primary">核对原文</ReportSourceLink>}
                           <button onClick={(event) => { event.stopPropagation(); void download(item); }} className="text-muted-foreground/60 hover:text-primary" title="下载"><Download className="h-4 w-4" /></button>
-                          <button onClick={(event) => { event.stopPropagation(); void remove(item); }} className="text-muted-foreground/50 hover:text-destructive" title="删除"><Trash2 className="h-3.5 w-3.5" /></button>
+                          <button disabled={busy} onClick={(event) => { event.stopPropagation(); void remove(item); }} className="text-muted-foreground/50 hover:text-destructive" title="删除"><Trash2 className="h-3.5 w-3.5" /></button>
                         </>
                       ) : (
                         <a href={researchArchiveSourceUrl(item)} target="_top" onClick={(event) => event.stopPropagation()} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">打开来源<ExternalLink className="h-3.5 w-3.5" /></a>

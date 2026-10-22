@@ -27,6 +27,11 @@ describe("research archive contract", () => {
     expect(researchArchiveIndexSchema.parse(index)).toEqual(index);
   });
 
+  it("preserves incomplete source coverage separately from empty results", () => {
+    const partial = { ...index, entries: [], unavailableSources: ["valuation-workbench"], truncated: true };
+    expect(researchArchiveIndexSchema.parse(partial)).toEqual(partial);
+  });
+
   it("rejects copied artifact payloads and duplicate references", () => {
     expect(() => researchArchiveIndexSchema.parse({
       ...index,

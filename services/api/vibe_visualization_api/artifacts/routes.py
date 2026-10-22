@@ -32,6 +32,27 @@ def get_archify_renderer(request: Request) -> ArchifyRenderer:
     return request.app.state.archify_renderer
 
 
+@router.post("/preview", response_class=HTMLResponse)
+def preview_artifact(
+    spec: GraphArtifactCreate,
+    renderer: ArchifyRenderer = Depends(get_archify_renderer),
+) -> HTMLResponse:
+    # Preview has no store dependency: opening a curated graph must not publish it.
+    html = inject_newma_theme_adapter(renderer.render(to_archify_ir(spec)))
+    policy = (
+        "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; "
+        "script-src 'unsafe-inline'; font-src data:; connect-src 'none'; "
+        "base-uri 'none'; form-action 'none'"
+    )
+    # srcdoc does not inherit the fetch response's CSP header.
+    html = html.replace("<head>", f'<head><meta http-equiv="Content-Security-Policy" content="{policy}">', 1)
+    return HTMLResponse(html, headers={
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": policy,
+        "X-Content-Type-Options": "nosniff",
+    })
+
+
 @router.post("", response_model=ArtifactRecord, status_code=201)
 def create_artifact(
     spec: GraphArtifactCreate,

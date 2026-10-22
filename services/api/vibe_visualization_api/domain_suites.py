@@ -24,12 +24,15 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.concurrency import run_in_threadpool
 
 from vibe_visualization_api.config import Settings
 from vibe_visualization_api.control_plane.sessions import (
     ModSessionError,
     ModSessionService,
+    bearer_token,
 )
+from vibe_visualization_api.control_plane.repository import ModuleRepositoryError
 
 
 logger = logging.getLogger(__name__)
@@ -54,8 +57,11 @@ class SpaStaticFiles(StaticFiles):
 class ResearchApiAdapter:
     """Expose Research's historical ``/api/*`` routes under one Desk prefix."""
 
-    def __init__(self, application: Any):
+    def __init__(self, application: Any, session_service=None, repository_provider=None, api_key: str = ""):
         self.application = application
+        self.session_service = session_service
+        self.repository_provider = repository_provider
+        self.api_key = api_key
 
     async def __call__(self, scope, receive, send):
         if scope["type"] in {"http", "websocket"}:
@@ -71,6 +77,33 @@ class ResearchApiAdapter:
             raw_path = scope.get("raw_path")
             if isinstance(raw_path, bytes):
                 scope["raw_path"] = scope["path"].encode("utf-8")
+            if scope["type"] == "http" and (path == "/api/myreports" or path.startswith("/api/myreports/")) and scope.get("method") != "OPTIONS":
+                try:
+                    if self.session_service is None or self.repository_provider is None:
+                        raise StarletteHTTPException(503, "Research file authorization is not configured")
+                    headers = {name.lower(): value.decode("utf-8") for name, value in scope.get("headers", [])}
+                    claims = self.session_service.validate(bearer_token(headers.get(b"authorization")))
+                    if claims.instance_id != headers.get(b"x-newma-desk-instance-id"):
+                        raise StarletteHTTPException(403, "Mod session does not grant this instance")
+                    if claims.module_id not in {"research-library", "earnings-workbench"} or "investment.files" not in claims.permissions:
+                        raise StarletteHTTPException(403, "Mod session does not grant research files")
+                    module = await run_in_threadpool(self.repository_provider().get_published, claims.module_id)
+                    if claims.revision != module.revision:
+                        raise StarletteHTTPException(403, "Mod session revision changed; reload this module")
+                    # ASGI metadata cannot be forged with HTTP identity headers.
+                    scope["newma.research_file_scope"] = (claims.user_id, claims.workspace_id)
+                    scope["headers"] = [(n, v) for n, v in scope.get("headers", []) if n.lower() != b"authorization"]
+                    if self.api_key:
+                        scope["headers"].append((b"authorization", f"Bearer {self.api_key}".encode()))
+                except (ModSessionError, UnicodeDecodeError):
+                    await JSONResponse({"detail": "Valid Mod session is required"}, status_code=401)(scope, receive, send)
+                    return
+                except ModuleRepositoryError:
+                    await JSONResponse({"detail": "Published research module is unavailable"}, status_code=403)(scope, receive, send)
+                    return
+                except StarletteHTTPException as error:
+                    await JSONResponse({"detail": error.detail}, status_code=error.status_code)(scope, receive, send)
+                    return
         await self.application(scope, receive, send)
 
 
@@ -374,6 +407,7 @@ def mount_domain_suites(
     # Research and Trading consume the SDK's standard environment variable.
     # Bridge the resolved server setting before importing either domain suite.
     os.environ["TUSHARE_TOKEN"] = settings.tushare_token.get_secret_value().strip()
+    os.environ["VR_CN_SCAN_SOURCE"] = settings.cn_scan_source
 
     research_root = settings.investment_workspace.expanduser().resolve()
     trading_root = settings.trading_workspace.expanduser().resolve()
@@ -392,7 +426,12 @@ def mount_domain_suites(
             research_app_path,
         )
         research_app = research_module.app
-        application.mount("/api/research", ResearchApiAdapter(research_app))
+        application.mount("/api/research", ResearchApiAdapter(
+            research_app,
+            getattr(application.state, "mod_session_service", None),
+            getattr(application.state, "resolve_module_repository", None),
+            getattr(research_module, "_API_KEY", ""),
+        ))
         runtime.applications.append(research_app)
         runtime.mounted["research"] = True
         research_dist = research_root / "frontend" / "dist"

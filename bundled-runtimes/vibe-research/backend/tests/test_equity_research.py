@@ -55,7 +55,7 @@ def test_cn_adapter_builds_common_framework_and_evidence_ledger():
         "data-quality-diagnostics",
     ]
     evidence = {item["id"]: item for item in snapshot["evidenceLedger"]}
-    assert evidence["valuation.pe_ttm"]["source"] == "Tencent quote / THS consensus"
+    assert evidence["valuation.pe_ttm"]["source"] == "Tencent quote"
     assert evidence["growth.revenue_yoy"]["asOf"] == "2026-06-30"
     assert evidence["cash_flow.op_cf_ps"]["unit"] == "CNY/share"
     sections = {item["id"]: item for item in snapshot["sections"]}

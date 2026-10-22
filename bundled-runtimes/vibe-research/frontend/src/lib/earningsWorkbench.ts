@@ -1,8 +1,14 @@
-import { waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
+import type { EarningsRevenueGroup } from './api';
 
 export type EarningsMode = "preview" | "reported";
 export const EARNINGS_BASIS = { ytd: '年初至今累计', quarter: '单季度', annual: '完整年度', ttm: '滚动十二个月（TTM）' } as const;
 export type EarningsBasis = keyof typeof EARNINGS_BASIS;
+export const EARNINGS_METRIC_BASIS = {...EARNINGS_BASIS, instant: '期末余额'} as const;
+export type EarningsMetricBasis = keyof typeof EARNINGS_METRIC_BASIS;
+function normalizeMetricBasis(value: unknown): EarningsMetricBasis | undefined {
+  return value === 'instant' ? value : normalizeBasis(value);
+}
 function normalizeBasis(value: unknown): EarningsBasis | undefined {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(EARNINGS_BASIS, value) ? value as EarningsBasis : undefined;
 }
@@ -24,8 +30,8 @@ export interface EarningsMetric {
   periodEnd?: string;
   reportedCurrency?: string;
   reportedOrigin?: 'provider' | 'manual';
-  reportedBasis?: EarningsBasis;
-  consensusBasis?: EarningsBasis;
+  reportedBasis?: EarningsMetricBasis;
+  consensusBasis?: EarningsMetricBasis;
   consensusPeriodEnd?: string;
   note?: string;
 }
@@ -86,8 +92,11 @@ export interface EarningsSource {
   asOf?: string;
   periodEnd?: string;
   retrievedAt?: string;
-  basis?: EarningsBasis;
+  basis?: EarningsMetricBasis;
   status: "verified" | "available" | "stale" | "unavailable";
+  businessRevenue?: Omit<EarningsRevenueGroup, 'id' | 'page'> & {
+    reportId: string; pdfPage: number; pdfPageCount: number; confirmedAt: string; contentOrigin: 'pdf-text';
+  };
   discussion?: {
     reportId: string; text: string; topics: string[];
     pdfPage: number; pdfPageCount: number; readPages: number[];
@@ -102,6 +111,7 @@ export interface EarningsSource {
   importedReport?: {
     reportId: string; rawValue: string; rawUnit: string; columnHeader: string;
     confirmedAt: string;
+    scope?: 'consolidated';
   };
   correction?: {
     before: number | null;
@@ -168,10 +178,16 @@ export interface EarningsWorkspace {
   workbooks: EarningsWorkbook[];
 }
 
-interface StorageDocument {
+export interface EarningsSession {
+  workspace: EarningsWorkspace;
+  mode: 'local' | 'desk';
+  scope: string;
   revision: number;
-  value: unknown;
+  localVersion?: string | null;
+  writable: boolean;
 }
+
+export class EarningsStorageError extends Error {}
 
 const LOCAL_KEY = "newma-desk.earnings-workbench.v1";
 const NAMESPACE = "earnings-workbench";
@@ -344,8 +360,8 @@ function normalizeMetric(value: unknown, fallback: EarningsMetric): EarningsMetr
       bps: numberValue(variance.bps),
     },
     sourceIds: stringList(row.sourceIds, 20),
-    reportedBasis: normalizeBasis(row.reportedBasis),
-    consensusBasis: normalizeBasis(row.consensusBasis),
+    reportedBasis: normalizeMetricBasis(row.reportedBasis),
+    consensusBasis: normalizeMetricBasis(row.consensusBasis),
     ...(textValue(row.consensusPeriodEnd) ? { consensusPeriodEnd: textValue(row.consensusPeriodEnd, '', 10) } : {}),
     ...(textValue(row.asOf) ? { asOf: textValue(row.asOf, "", 64) } : {}),
     ...(textValue(row.periodEnd) ? { periodEnd: textValue(row.periodEnd, '', 10) } : {}),
@@ -425,12 +441,49 @@ function normalizeWorkspace(value: unknown): EarningsWorkspace {
   };
 }
 
-export function loadLocalEarningsWorkspace() {
-  try {
-    return normalizeWorkspace(JSON.parse(localStorage.getItem(LOCAL_KEY) || "null"));
-  } catch {
-    return emptyEarningsWorkspace();
+export function earningsScope(config = getVibeDeskConfig()) {
+  return config ? JSON.stringify([config.apiOrigin, config.storageGateway, config.userId, config.workspaceId,
+    config.moduleId, config.instanceId, Boolean(config.accessToken),
+    Boolean(config.permissions?.includes('storage.read')), Boolean(config.permissions?.includes('storage.write'))])
+    : isVibeDeskEmbedded ? 'unconnected' : 'local';
+}
+
+function assertScope(scope: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (scope !== earningsScope()) throw new EarningsStorageError('工作区或权限已变化，请重新读取；旧底稿未转存到新工作区。');
+}
+
+function checkedWorkspace(value: unknown): EarningsWorkspace {
+  if (!isRecord(value) || value.schemaVersion !== 'newma-desk.earnings-research.v1'
+    || !Array.isArray(value.workbooks) || value.workbooks.length > 100) {
+    throw new EarningsStorageError('财报档案格式异常或超过 100 份，未按空库处理，也未覆盖原记录。');
   }
+  const workspace = normalizeWorkspace(value);
+  if (workspace.workbooks.length !== value.workbooks.length
+    || new Set(workspace.workbooks.map(row => row.id)).size !== workspace.workbooks.length
+    || value.workbooks.some((row, index) => {
+      if (!isRecord(row) || !row.id || !isRecord(row.fiscalPeriod) || !isRecord(row.verification)) return true;
+      const normalized = workspace.workbooks[index];
+      return (['metrics', 'operatingMetrics', 'guidance', 'scenarios', 'estimateRevisions', 'thesisImpacts', 'sourceMaterials'] as const)
+        .some(key => !Array.isArray(row[key]) || row[key].length !== normalized[key].length
+          || row[key].some(item => !isRecord(item)))
+        || (row.metrics as Record<string, unknown>[]).some(metric => !normalized.metrics.some(item => item.id === metric.id))
+        || new Set((row.metrics as Record<string, unknown>[]).map(metric => metric.id)).size !== normalized.metrics.length;
+    })) {
+    throw new EarningsStorageError('财报底稿、指标或来源不完整，未丢弃记录；请先核对原数据。');
+  }
+  return workspace;
+}
+
+function checkedDocument(value: unknown, minimumRevision = 1) {
+  if (!isRecord(value) || !Number.isInteger(value.revision) || Number(value.revision) < minimumRevision) {
+    throw new EarningsStorageError('存储回执或修订号异常，请保留草稿并重新读取核对。');
+  }
+  return { revision: value.revision as number, workspace: checkedWorkspace(value.value) };
+}
+
+function requestSignal(signal?: AbortSignal) {
+  return signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
 }
 
 function canRead(config: VibeDeskConfig | null): config is VibeDeskConfig & {
@@ -438,7 +491,8 @@ function canRead(config: VibeDeskConfig | null): config is VibeDeskConfig & {
   instanceId: string;
   storageGateway: string;
 } {
-  return Boolean(config?.accessToken && config.instanceId && config.storageGateway && config.permissions?.includes("storage.read"));
+  return Boolean(config?.moduleId === 'earnings-workbench' && config.userId && config.workspaceId
+    && config.accessToken && config.instanceId && config.storageGateway && config.permissions?.includes("storage.read"));
 }
 
 function canWrite(config: VibeDeskConfig | null): config is VibeDeskConfig & {
@@ -461,52 +515,65 @@ function headers(config: VibeDeskConfig, json = false) {
   };
 }
 
-async function readRemote(config: VibeDeskConfig) {
-  const response = await fetch(endpoint(config), { headers: headers(config) });
-  if (response.status === 404) return { found: false, revision: 0, state: emptyEarningsWorkspace() };
-  if (!response.ok) throw new Error(`earnings workbench read failed: ${response.status}`);
-  const document = await response.json() as StorageDocument;
-  return { found: true, revision: Number(document.revision) || 0, state: normalizeWorkspace(document.value) };
-}
-
-export async function hydrateEarningsWorkspace() {
-  const local = loadLocalEarningsWorkspace();
+export async function hydrateEarningsWorkspace(signal?: AbortSignal): Promise<EarningsSession> {
+  const scope = earningsScope();
   const config = await waitForVibeDeskConfig();
-  if (!canRead(config)) return local;
-  try {
-    const remote = await readRemote(config);
-    return remote.found ? remote.state : local;
-  } catch {
-    return local;
-  }
-}
-
-export async function persistEarningsWorkspace(workspace: EarningsWorkspace) {
-  const normalized = normalizeWorkspace(workspace);
-  let localSaved=false;
-  try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
-    localSaved=true;
-  } catch {
-    // Keep the in-memory workbench usable when browser persistence is disabled.
-  }
-  const config = await waitForVibeDeskConfig();
-  const fallback=()=>{if(localSaved)return 'local' as const;throw new Error('工作区及本地均未保存成功，请保留当前草稿并重试。')};
-  if (!canWrite(config)) return fallback();
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  assertScope(scope, signal);
+  if (!config && !isVibeDeskEmbedded) {
     try {
-      const current = await readRemote(config);
-      const response = await fetch(endpoint(config), {
-        method: "PUT",
-        headers: headers(config, true),
-        body: JSON.stringify({ expectedRevision: current.revision, value: normalized }),
-      });
-      if (response.status === 409 && attempt === 0) continue;
-      if (!response.ok) throw new Error(`earnings workbench write failed: ${response.status}`);
-      return 'desk' as const;
-    } catch {
-      return fallback();
+      const raw = localStorage.getItem(LOCAL_KEY);
+      return { workspace: raw === null ? emptyEarningsWorkspace() : checkedWorkspace(JSON.parse(raw)),
+        mode: 'local', scope, revision: 0, localVersion: raw, writable: true };
+    } catch (error) {
+      if (error instanceof EarningsStorageError) throw error;
+      throw new EarningsStorageError('本机财报读取失败，原记录未改动；请检查浏览器存储后重试。');
     }
   }
-  return fallback();
+  if (!canRead(config)) throw new EarningsStorageError('尚未连接已授权的 Desk 存储，不会使用本机或其他工作区的旧底稿。');
+  try {
+    const response = await fetch(endpoint(config), { headers: headers(config), cache: 'no-store', signal: requestSignal(signal) });
+    assertScope(scope, signal);
+    const document = response.status === 404 ? { revision: 0, workspace: emptyEarningsWorkspace() }
+      : response.ok ? checkedDocument(await response.json()) : null;
+    if (!document) throw new EarningsStorageError(`Desk 读取失败（HTTP ${response.status}），未使用本机旧底稿替代。`);
+    assertScope(scope, signal);
+    return { ...document, mode: 'desk', scope, writable: canWrite(config) };
+  } catch (error) {
+    if (error instanceof EarningsStorageError) throw error;
+    throw new EarningsStorageError('Desk 读取未确认，请检查连接后重试；原记录未改动。');
+  }
+}
+
+export async function persistEarningsWorkspace(workspace: EarningsWorkspace, session: EarningsSession, signal?: AbortSignal): Promise<EarningsSession> {
+  assertScope(session.scope, signal);
+  const normalized = checkedWorkspace(workspace);
+  if (session.mode === 'local') {
+    try {
+      if (localStorage.getItem(LOCAL_KEY) !== session.localVersion) throw new EarningsStorageError('保存冲突：其他窗口已更新本机财报。草稿保留，请先导出再重新读取核对。');
+      const raw = JSON.stringify(normalized);
+      localStorage.setItem(LOCAL_KEY, raw);
+      if (localStorage.getItem(LOCAL_KEY) !== raw) throw new EarningsStorageError('本机保存未确认，请保留草稿并重新读取核对。');
+      return { ...session, workspace: normalized, localVersion: raw };
+    } catch (error) {
+      if (error instanceof EarningsStorageError) throw error;
+      throw new EarningsStorageError('本机保存失败，草稿仍在；刷新或关闭前请先导出草稿。');
+    }
+  }
+  const config = getVibeDeskConfig();
+  if (!canWrite(config) || !session.writable) throw new EarningsStorageError('当前工作区没有保存权限；请先导出草稿。');
+  try {
+    const response = await fetch(endpoint(config), {
+      method: 'PUT', headers: headers(config, true), signal: requestSignal(signal),
+      body: JSON.stringify({ expectedRevision: session.revision, value: normalized }),
+    });
+    assertScope(session.scope, signal);
+    if (response.status === 409) throw new EarningsStorageError('保存冲突：其他窗口已更新。草稿保留，请先导出再重新读取核对；未覆盖对方版本。');
+    if (!response.ok) throw new EarningsStorageError(`Desk 保存未确认（HTTP ${response.status}），草稿仍在；请重新读取核对，勿重复提交。`);
+    const result = checkedDocument(await response.json(), session.revision + 1);
+    assertScope(session.scope, signal);
+    return { ...session, ...result };
+  } catch (error) {
+    if (error instanceof EarningsStorageError) throw error;
+    throw new EarningsStorageError('Desk 保存未确认，可能已写入；请保留草稿并重新读取核对，勿重复提交。');
+  }
 }

@@ -7,6 +7,17 @@
   "healthPath": "/health",
   "transport": "rest",
   "capabilities": {
+    "market.health": {
+      "method": "GET",
+      "path": "/health",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": {
+        "type": "object",
+        "required": ["ok", "service"],
+        "properties": { "ok": { "type": "boolean" }, "service": { "type": "string" } }
+      },
+      "permission": "market.read"
+    },
     "market.global-indices": {
       "method": "GET",
       "path": "/global/indices",
@@ -53,7 +64,7 @@
     },
     "market.symbol-search": {
       "method": "GET",
-      "path": "/api/market-terminal/search",
+      "path": "/market-terminal/search",
       "inputSchema": {
         "type": "object",
         "required": ["query"],
@@ -73,7 +84,7 @@
     },
     "market.security-master": {
       "method": "GET",
-      "path": "/api/market-terminal/security-master",
+      "path": "/market-terminal/security-master",
       "inputSchema": { "type": "object", "additionalProperties": false },
       "outputSchema": {
         "type": "object",
@@ -84,7 +95,7 @@
     },
     "market.security-master-refresh": {
       "method": "POST",
-      "path": "/api/market-terminal/security-master/refresh",
+      "path": "/market-terminal/security-master/refresh",
       "inputSchema": { "type": "object", "additionalProperties": false },
       "outputSchema": {
         "type": "object",
@@ -95,7 +106,7 @@
     },
     "market.quotes": {
       "method": "GET",
-      "path": "/api/market-terminal/quotes",
+      "path": "/market-terminal/quotes",
       "inputSchema": {
         "type": "object",
         "required": ["symbols"],
@@ -111,7 +122,7 @@
     },
     "market.quote": {
       "method": "GET",
-      "path": "/api/market-terminal/quote",
+      "path": "/market-terminal/quote",
       "inputSchema": {
         "type": "object",
         "required": ["symbol", "market"],
@@ -131,7 +142,7 @@
     },
     "market.scan": {
       "method": "GET",
-      "path": "/api/market-terminal/scan",
+      "path": "/market-terminal/scan",
       "inputSchema": {
         "type": "object",
         "required": ["market"],
@@ -152,7 +163,7 @@
     },
     "market.ohlcv": {
       "method": "GET",
-      "path": "/api/market-terminal/ohlcv",
+      "path": "/market-terminal/ohlcv",
       "inputSchema": {
         "type": "object",
         "required": ["symbol", "market", "timeframe"],
@@ -160,6 +171,7 @@
           "symbol": { "type": "string", "minLength": 1, "maxLength": 24 },
           "market": { "enum": ["CN", "HK", "US"] },
           "timeframe": { "enum": ["1m", "5m", "15m", "30m", "60m", "1d", "1w", "1M"] },
+          "asOf": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "仅CN日线；在当前来源窗口中筛选截止日，非任意历史回放。" },
           "limit": { "type": "integer", "minimum": 40, "maximum": 800 },
           "adjust": { "enum": ["none", "qfq", "hfq"] },
           "assetType": { "enum": ["stock", "etf", "fund", "index"] }
@@ -175,7 +187,7 @@
     },
     "market.intraday": {
       "method": "GET",
-      "path": "/api/market-terminal/ohlcv",
+      "path": "/market-terminal/ohlcv",
       "inputSchema": {
         "type": "object",
         "required": ["symbol", "market", "timeframe"],
@@ -196,9 +208,27 @@
       },
       "permission": "market.read"
     },
+    "research.financials": {
+      "method": "GET", "path": "/financials",
+      "inputSchema": { "type": "object", "required": ["code", "basis"], "properties": {
+        "code": { "type": "string", "pattern": "^[0-9]{6}$" }, "basis": { "enum": ["ytd", "quarter", "annual"] }
+      }, "additionalProperties": false },
+      "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": {
+        "type": "object", "required": ["basis", "period"], "properties": {
+          "basis": { "enum": ["ytd", "quarter", "annual"] }, "period": { "type": ["string", "number", "null"] },
+          "revenue": { "type": ["string", "null"] }, "revenue_yoy": { "type": ["string", "null"] },
+          "net_profit": { "type": ["string", "null"] }, "net_profit_yoy": { "type": ["string", "null"] },
+          "eps": { "type": ["string", "null"] }, "bvps": { "type": ["string", "null"] },
+          "roe": { "type": ["string", "null"] }, "gross_margin": { "type": ["string", "null"] },
+          "net_margin": { "type": ["string", "null"] }, "op_cf_ps": { "type": ["string", "null"] }
+        }
+      } } },
+      "permission": "market.read"
+    },
     "research.equity-snapshot": {
       "method": "GET",
       "path": "/equity-research/snapshot",
+      "timeoutSeconds": 45,
       "inputSchema": {
         "type": "object",
         "required": ["symbol"],
@@ -214,9 +244,35 @@
       },
       "permission": "market.read"
     },
+    "research.statement-announcements": {
+      "method": "GET", "path": "/equity-research/statement-announcements",
+      "inputSchema": { "type": "object", "required": ["code"], "properties": { "code": { "type": "string", "pattern": "^[0-9]{6}$" } }, "additionalProperties": false },
+      "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["symbol", "source", "items", "begin", "end", "hasMore", "boundary"], "properties": { "source": { "const": "cninfo" }, "items": { "type": "array" } } } } },
+      "permission": "market.read"
+    },
+    "research.statement-evidence": {
+      "method": "GET",
+      "path": "/equity-research/statement-evidence",
+      "inputSchema": {
+        "type": "object", "required": ["code", "announcementId"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[0-9]{6}$" },
+          "announcementId": { "type": "string", "pattern": "^(AN[0-9]{10,30}|[0-9]{10,20})$" },
+          "source": { "type": "string", "enum": ["eastmoney", "cninfo"], "default": "eastmoney" }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object", "required": ["data"],
+        "properties": { "data": { "type": "object", "required": ["symbol", "announcementId", "announcementSource", "periodEnd", "facts", "pdfUrl", "contentOrigin"],
+          "properties": { "facts": { "type": "array" }, "announcementSource": { "enum": ["eastmoney", "cninfo"] }, "contentOrigin": { "const": "pdf-text" } } } }
+      },
+      "permission": "market.read"
+    },
     "research.equity-comparison": {
       "method": "GET",
       "path": "/equity-research/comparison",
+      "timeoutSeconds": 55,
       "inputSchema": {
         "type": "object",
         "required": ["symbols"],

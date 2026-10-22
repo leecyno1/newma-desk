@@ -9,6 +9,8 @@ from decimal import Decimal
 from earnings_import import compact
 
 CAPITAL_ROWS = {
+    "存货": "inventory",
+    "应收账款": "accounts-receivable",
     "货币资金": "cash-funds",
     "短期借款": "short-borrowings",
     "长期借款": "long-borrowings",
@@ -68,6 +70,7 @@ def capital_candidates(pages, period_end: str) -> dict:
             scale = {"元": Decimal("0.000001"), "万元": Decimal("0.01"), "亿元": Decimal(100)}[unit]
             value = float(Decimal(raw.replace(",", "")) * scale)
             row = {"id": f"capital-{key}", "label": name, "value": value, "unit": "百万元",
+                   "basis": "instant", "periodEnd": period_end, "scope": "consolidated",
                    "rawValue": raw, "rawUnit": unit, "page": page["page"], "excerpt": line.strip(),
                    "columnHeader": "合并资产负债表 · " + header}
             if key in found and found[key]["value"] != value:
@@ -83,5 +86,6 @@ def _result(found, conflicts, read_pages):
                 f"已扫描 {len(read_pages)} 页定位合并资产负债表（最多前 200 页、表内连续 6 页）。只接受本年/上年列序、人民币单位及金额格式明确的原始项目；空白、整数无格式、重述多列不猜值。",
                 "仅作资本核验参考：股本金额不是稀释股数；货币资金不是可归属现金；一年内到期负债须看附注拆分，不能与其明细重复相加；未提取借款不等于无债务。",
                 "财务公司客户存款、受限资金、少数股东权益和非经营性资产等仍需另行核验；本次不自动计算净债务或每股价值。",
+                "存货、应收账款为合并报表期末账面价值，不是年度发生额；应收账款不包含应收票据、应收款项融资及其他应收款，不据此直接计算周转天数。",
                 *(["同项存在冲突，已排除：" + "、".join(sorted(conflicts))] if conflicts else []),
             ]}

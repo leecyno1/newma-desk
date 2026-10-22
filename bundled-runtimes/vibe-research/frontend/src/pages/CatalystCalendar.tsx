@@ -268,12 +268,12 @@ export function CatalystCalendar() {
   useEffect(() => {
     let active = true;
     void Promise.allSettled([
-      connectWorkspaceWatchlist().then((client) => client.load()),
+      connectWorkspaceWatchlist().then((client) => client?.load() ?? null),
       api.portfolio(),
       loadWorkspacePortfolioResearchGroups(),
     ]).then(([watchResult, localPortfolioResult, workspacePortfolioResult]) => {
       if (!active) return;
-      const watchGroups = watchResult.status === "fulfilled"
+      const watchGroups = watchResult.status === "fulfilled" && watchResult.value
         ? watchResult.value.groups
         : loadLocalWatchGroups().groups;
       const localPortfolio = localPortfolioResult.status === "fulfilled"

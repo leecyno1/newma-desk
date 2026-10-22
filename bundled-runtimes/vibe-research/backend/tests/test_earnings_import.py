@@ -75,7 +75,14 @@ def test_real_moutai_capital_is_reference_not_diluted_shares_or_available_cash()
     result = extract_report(path, "real", path.name, include_capital=True)
     rows = {row["id"]: row for row in result["capitalCandidates"]}
     assert len(result["candidates"]) == 7
-    assert len(rows) == 5
+    assert len(rows) == 7
+    assert rows["capital-inventory"]["value"] == pytest.approx(54343.28515747)
+    assert rows["capital-accounts-receivable"]["value"] == pytest.approx(18.97419275)
+    for key in ("capital-inventory", "capital-accounts-receivable"):
+        assert rows[key]["page"] == 59
+        assert rows[key]["basis"] == "instant"
+        assert rows[key]["periodEnd"] == "2024-12-31"
+        assert rows[key]["scope"] == "consolidated"
     assert rows["capital-cash-funds"]["value"] == pytest.approx(59295.82295689)
     assert rows["capital-cash-funds"]["page"] == 58
     assert rows["capital-lease-liabilities"]["value"] == pytest.approx(313.90641576)
@@ -89,6 +96,19 @@ def test_real_moutai_capital_is_reference_not_diluted_shares_or_available_cash()
 def summary(body, unit="元", header="2024年 2023年 本期比上年同期增减 2022年"):
     return [{"page": 1, "text": "公司代码：600519 公司简称：贵州茅台\n2024 年年度报告"},
             {"page": 5, "text": f"主要会计数据\n单位：{unit} 币种：人民币\n{header}\n{body}"}]
+
+
+def test_working_capital_preserves_balance_scope_and_excludes_other_receivables():
+    header = "合并资产负债表\n单位：万元 币种：人民币\n项目 附注 2024年12月31日 2023年12月31日\n"
+    rows = "存货 9 1,000.00 900.00\n应收账款 5 0.00 10.00\n应收票据 4 200.00 100.00\n其他应收款 7 800.00 700.00\n应收款项融资 6 300.00 200.00"
+    pages = [{"page": 58, "text": header + rows}, {"page": 59, "text": "母公司资产负债表\n存货 9 9,000.00 8,000.00"}]
+    result = capital_candidates(pages, "2024-12-31")["capitalCandidates"]
+    assert [(r["id"], r["value"]) for r in result] == [("capital-inventory", 10), ("capital-accounts-receivable", 0)]
+    assert all(r["basis"] == "instant" and r["scope"] == "consolidated" for r in result)
+    for bad in ("应收账款 5 — 10.00", "应收账款 5 10.00", "应收账款 5 100 90"):
+        assert capital_candidates([{"page": 58, "text": header + bad}], "2024-12-31")["capitalCandidates"] == []
+    conflict = header + rows + "\n存货 9 2,000.00 900.00"
+    assert [r["id"] for r in capital_candidates([{"page": 58, "text": conflict}], "2024-12-31")["capitalCandidates"]] == ["capital-accounts-receivable"]
 
 
 def test_candidates_preserve_unit_page_and_zero():

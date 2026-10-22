@@ -103,4 +103,12 @@ describe("research memo contract", () => {
     recommendation.memos[0]!.recommendation = "buy";
     expect(() => researchMemoWorkspaceSchema.parse(recommendation)).toThrow();
   });
+
+  it("keeps captured reference versions and permits explicitly unverified references", () => {
+    const value = workspace();
+    const reference = { ...value.memos[0]!.linkedArtifacts[0]!, status: "unverified", sourceRevision: 3, sourceUpdatedAt: "2026-10-20T00:00:00Z" };
+    const candidate = { ...value, memos: [{ ...value.memos[0], linkedArtifacts: [reference] }] };
+    expect(researchMemoWorkspaceSchema.parse(candidate).memos[0]?.linkedArtifacts[0]).toMatchObject(reference);
+    expect(() => researchMemoWorkspaceSchema.parse({ ...candidate, memos: [{ ...candidate.memos[0], linkedArtifacts: [{ ...reference, sourceRevision: 0 }] }] })).toThrow();
+  });
 });

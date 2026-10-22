@@ -1,8 +1,14 @@
-import { getVibeDeskConfig, waitForVibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig } from "@/lib/vibedesk";
 
 const LEGACY_KEY = "vr-watchlist";
 const SAMPLE_SEED_KEY = "vr-watchlist-sample-v1";
 const GROUPS_KEY = "vibedesk.research.watch-groups.v1";
+
+function groupsStorageKey(): string | null {
+  const config = getVibeDeskConfig();
+  if (config) return `${GROUPS_KEY}:${encodeURIComponent(JSON.stringify([config.apiOrigin, config.userId, config.workspaceId]))}`;
+  return isVibeDeskEmbedded ? null : GROUPS_KEY;
+}
 
 export type SecurityMarket = "CN" | "HK" | "US";
 
@@ -132,15 +138,20 @@ export function loadLocalWatchGroups(): {
   groups: WatchGroup[];
   hasStoredValue: boolean;
 } {
+  const key = groupsStorageKey();
+  if (!key) return { groups: [], hasStoredValue: false };
   try {
-    const raw = localStorage.getItem(GROUPS_KEY);
-    const groups = parsedGroups(JSON.parse(raw || "null"));
-    if (groups.length) return { groups, hasStoredValue: true };
+    const raw = localStorage.getItem(key);
+    const value = JSON.parse(raw || "null");
+    const groups = parsedGroups(value);
+    if (Array.isArray(value) && (groups.length || value.length === 0)) return { groups, hasStoredValue: true };
   } catch {
     // Fall through to the legacy flat A-share list.
   }
+  // 工作区不读取未隔离的旧浏览器缓存，更不自动上传它。
+  if (key !== GROUPS_KEY) return { groups: [], hasStoredValue: false };
   const legacy = legacyCodes();
-  if (legacy.codes.length) {
+  if (legacy.stored) {
     return {
       groups: [{
         id: "sample",
@@ -154,8 +165,15 @@ export function loadLocalWatchGroups(): {
 }
 
 export function saveLocalWatchGroups(groups: WatchGroup[]) {
+  const key = groupsStorageKey();
+  if (!key) return false;
   try {
-    localStorage.setItem(GROUPS_KEY, JSON.stringify(groups));
+    localStorage.setItem(key, JSON.stringify(groups));
+  } catch {
+    return false;
+  }
+  if (key !== GROUPS_KEY) return true;
+  try {
     const codes = Array.from(new Set(
       groups.flatMap((group) => group.symbols)
         .filter((security) => security.market === "CN" && /^\d{6}$/.test(security.symbol))
@@ -164,8 +182,9 @@ export function saveLocalWatchGroups(groups: WatchGroup[]) {
     localStorage.setItem(LEGACY_KEY, JSON.stringify(codes));
     localStorage.setItem(SAMPLE_SEED_KEY, "1");
   } catch {
-    // Private browsing may disable persistence; the in-memory page remains usable.
+    // 主分组已保存；兼容旧版的副本失败不撤销主记录。
   }
+  return true;
 }
 
 export function loadWatch(): string[] {
@@ -241,14 +260,12 @@ export class WatchlistRequestError extends Error {
   }
 }
 
-function errorMessage(body: unknown, fallback: string) {
-  if (
-    body &&
-    typeof body === "object" &&
-    "detail" in body &&
-    typeof body.detail === "string"
-  ) return body.detail;
-  return fallback;
+function errorMessage(status: number) {
+  if (status === 401 || status === 403) return "自选服务未授权，请从已登录的 Desk 工作区打开。";
+  if (status === 404) return "当前服务未提供 Desk 自选同步；本机修改尚未同步。";
+  if (status === 409) return "自选分组已被其他页面更新，请重新读取后再修改。";
+  if (status === 422) return "自选分组或证券信息不符合要求，请核对输入。";
+  return "Desk 自选服务暂时不可用，本次同步未确认。";
 }
 
 export function createWatchlistClient(input: {
@@ -287,8 +304,12 @@ export function createWatchlistClient(input: {
     if (!response.ok) {
       throw new WatchlistRequestError(
         response.status,
-        errorMessage(payload, `Watchlist API returned ${response.status}`),
+        errorMessage(response.status),
       );
+    }
+    if (!payload || typeof payload !== "object" || !("groups" in payload) || !("revision" in payload)
+      || !Array.isArray(payload.groups) || !Number.isInteger(payload.revision)) {
+      throw new WatchlistRequestError(502, "自选服务返回格式异常，本次同步未确认。");
     }
     return payload as WatchlistSnapshot;
   };
@@ -313,6 +334,11 @@ export function createWatchlistClient(input: {
 
 export async function connectWorkspaceWatchlist() {
   const config = getVibeDeskConfig() || await waitForVibeDeskConfig();
+  if (!config) {
+    if (isVibeDeskEmbedded) throw new Error("尚未连接 Desk 工作区，请等待宿主完成连接后再试。");
+    // 集成构建独立打开时仍由同源 Desk 提供共享接口；原生 Research 无此接口。
+    if (import.meta.env.VITE_NEWMA_DESK_INTEGRATED !== "1") return null;
+  }
   return createWatchlistClient({
     baseUrl: config?.apiOrigin || window.location.origin,
     userId: config?.userId || "local-user",

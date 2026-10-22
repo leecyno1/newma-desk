@@ -1,5 +1,7 @@
 # Vibe-Research · 个人 AI 投研系统（A股/美股/港股）
 
+Desk集成说明：Research独立注册为market-data时，baseUrl使用该服务的/api前缀，健康接口为/api/health；股票Desk消费者经宿主现有market.health能力探测，不要求继续挂载旧Research API。新股票包与能力声明须配套加载，数据凭据仅保留在服务端，不复制给股票Desk进程。
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)

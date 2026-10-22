@@ -1,4 +1,5 @@
 import type { GraphArtifactInput } from "@/lib/artifacts";
+import { HBM_GRAPH } from "./hbm-research";
 
 const HUMANOID_SOURCE = `# 人形机器人基础产业链
 
@@ -31,6 +32,7 @@ const OPTICAL_MODULE_SOURCE = `# 光模块与高速光互联基础产业链
 `;
 
 export const BASE_INDUSTRY_GRAPHS: Record<string, GraphArtifactInput> = {
+  hbm: HBM_GRAPH,
   humanoid: {
     moduleId: "industry-map",
     title: "人形机器人基础产业链图谱",

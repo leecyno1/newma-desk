@@ -94,7 +94,7 @@ function stagesToNodes(stages: IndustryStage[]): GraphArtifactNode[] {
     label: stage.label,
     subtitle: stage.items.join(" · "),
     kind: nodeKind(`${stage.label} ${stage.items.join(" ")}`),
-    group: `第 ${index + 1} 环节`,
+    group: "文本提取环节（未核实）",
   }));
 }
 
@@ -109,12 +109,12 @@ export function industryAnswerToArtifact(
   return {
     moduleId: "industry-map",
     title: `${options.sectorLabel}产业链图谱`,
-    subtitle: "Agent 生成 · VibeDesk Artifact · Archify 可视化",
+    subtitle: "Agent 文本提取 · 待核实，不代表供应关系或投资结论",
     nodes,
-    edges: nodes.slice(1).map((node, index) => ({
+    edges: treeStages.length >= 2 ? [] : nodes.slice(1).map((node, index) => ({
       source: nodes[index].id,
       target: node.id,
-      label: index === 0 ? "需求 / 供给传导" : "产业链传导",
+      label: "原文箭头（含义待核实）",
       kind: "flow" as const,
     })),
     sourceText: answer,
@@ -123,6 +123,8 @@ export function industryAnswerToArtifact(
       sectorKey: options.sectorKey,
       question: options.question,
       extraction: treeStages.length >= 2 ? "text-tree" : "arrow-chain",
+      evidenceStatus: "unverified",
+      limitation: "树形分组不推断串行关系；箭头仅保留原文方向，不证明供需或因果。",
     },
   };
 }

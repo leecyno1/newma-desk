@@ -3,7 +3,7 @@
   "id": "research-suite",
   "name": "Vibe 公司研究",
   "description": "Vibe Research 的公司研究流程，覆盖财报、逻辑、同业、估值与研究沉淀。",
-  "version": "0.4.0",
+  "version": "0.7.0",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": [
@@ -57,7 +57,7 @@
       "id": "earnings-workbench",
       "name": "财报研究",
       "description": "统一完成财报前预期、财报后实际、预期差、指引变化、预测修订与投资逻辑影响分析，并保留来源和截至日期。",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "tags": [
         "财报",
         "业绩预期",
@@ -79,7 +79,8 @@
         "permissions": [
           "market.read",
           "storage.read",
-          "storage.write"
+          "storage.write",
+          "investment.files"
         ],
         "dataServices": [
           "market-data"
@@ -95,6 +96,34 @@
               "maxItemKb": 256
             }
           ]
+        },
+        "actions": {
+          "earnings.fetch-financials": {
+            "binding": { "type": "data", "capability": "research.financials" },
+            "execution": "request", "permission": "market.read",
+            "inputSchema": { "type": "object", "required": ["code", "basis"], "properties": {
+              "code": { "type": "string", "pattern": "^[0-9]{6}$" },
+              "basis": { "enum": ["ytd", "quarter", "annual"] }
+            }, "additionalProperties": false },
+            "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+            "confirmation": "none", "timeoutSeconds": 30
+          },
+          "earnings.refresh-evidence": {
+            "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+            "inputSchema": { "type": "object", "additionalProperties": false },
+            "outputSchema": { "type": "object", "required": ["status", "adopted", "saved"], "properties": {
+              "status": { "const": "pending-review" }, "adopted": { "const": false }, "saved": { "const": false }
+            } }, "confirmation": "none", "timeoutSeconds": 45
+          },
+          "earnings.compare": {
+            "binding": { "type": "local" },
+            "execution": "request",
+            "permission": "storage.read",
+            "inputSchema": { "type": "object", "additionalProperties": false },
+            "outputSchema": { "type": "object", "additionalProperties": true },
+            "confirmation": "none",
+            "timeoutSeconds": 15
+          }
         },
         "events": {
           "emits": [
@@ -164,7 +193,7 @@
       "id": "peer-comparison",
       "name": "同业比较",
       "description": "先审计业务模式、报告期、币种和指标口径的可比性，再比较同业增长、盈利质量、资本效率、估值倍数与竞争优势。",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "tags": [
         "同业比较",
         "可比公司",
@@ -177,6 +206,32 @@
         "itemOrder": 68
       },
       "manifest": {
+        "actions": {
+          "peer.fetch-snapshot": {
+            "binding": { "type": "data", "capability": "research.equity-snapshot" },
+            "execution": "request", "permission": "market.read",
+            "inputSchema": { "type": "object", "required": ["symbol"], "properties": {
+              "symbol": { "type": "string", "minLength": 1, "maxLength": 16 }
+            }, "additionalProperties": false },
+            "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["identity", "evidenceLedger"], "properties": {
+              "identity": { "type": "object", "required": ["symbol", "market", "currency", "name"], "properties": {
+                "symbol": { "type": "string" }, "market": { "type": "string" }, "currency": { "type": "string" }, "name": { "type": "string" }
+              } }, "evidenceLedger": { "type": "array", "items": { "type": "object" } }
+            } } } }, "confirmation": "none", "timeoutSeconds": 30
+          },
+          "peer.refresh": {
+            "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+            "inputSchema": { "type": "object", "additionalProperties": false },
+            "outputSchema": { "type": "object", "required": ["status", "received", "requested", "saved"], "properties": {
+              "status": { "enum": ["partial", "draft-updated"] }, "received": { "type": "integer" }, "requested": { "type": "integer" }, "saved": { "const": false }
+            } }, "confirmation": "none", "timeoutSeconds": 45
+          },
+          "peer.audit-comparability": {
+            "binding": { "type": "local" }, "execution": "request", "permission": "storage.read",
+            "inputSchema": { "type": "object", "additionalProperties": false },
+            "outputSchema": { "type": "object", "additionalProperties": true }, "confirmation": "none", "timeoutSeconds": 15
+          }
+        },
         "compatibility": {
           "level": 3,
           "bridgeProtocol": "1.0",
@@ -218,7 +273,7 @@
       "id": "valuation-workbench",
       "name": "预测与估值",
       "description": "用可追溯历史基期、三种经营情景、WACC、自由现金流、企业价值桥接和完整敏感性矩阵形成轻量驱动式 DCF。",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "tags": [
         "财务预测",
         "DCF",
@@ -256,6 +311,55 @@
               "maxItemKb": 256
             }
           ]
+        },
+        "actions": {
+          "valuation.fetch-price": {
+            "binding": { "type": "data", "capability": "research.equity-snapshot" },
+            "execution": "request", "permission": "market.read",
+            "inputSchema": { "type": "object", "required": ["symbol"], "properties": {
+              "symbol": { "type": "string", "minLength": 1, "maxLength": 16 }
+            }, "additionalProperties": false },
+            "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["identity", "evidenceLedger"], "properties": {
+              "identity": { "type": "object", "required": ["symbol", "market", "currency"], "properties": {
+                "symbol": { "type": "string" }, "market": { "type": "string" }, "currency": { "type": "string" }
+              } }, "evidenceLedger": { "type": "array", "items": { "type": "object" } }
+            } } } },
+            "confirmation": "none", "timeoutSeconds": 30
+          },
+          "valuation.refresh-evidence": {
+            "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+            "inputSchema": { "type": "object", "additionalProperties": false },
+            "outputSchema": { "type": "object", "required": ["status", "assumptionsChanged", "saved"], "properties": {
+              "status": { "const": "draft-updated" }, "assumptionsChanged": { "const": false }, "saved": { "const": false }
+            } }, "confirmation": "none", "timeoutSeconds": 45
+          },
+          "valuation.audit-inputs": {
+            "binding": { "type": "local" },
+            "execution": "request",
+            "permission": "storage.read",
+            "inputSchema": { "type": "object", "additionalProperties": false },
+            "outputSchema": { "type": "object", "additionalProperties": true },
+            "confirmation": "none",
+            "timeoutSeconds": 15
+          },
+          "valuation.test-scenarios": {
+            "binding": { "type": "local" },
+            "execution": "request",
+            "permission": "storage.read",
+            "inputSchema": { "type": "object", "additionalProperties": false },
+            "outputSchema": { "type": "object", "additionalProperties": true },
+            "confirmation": "none",
+            "timeoutSeconds": 15
+          },
+          "valuation.explain-sensitivity": {
+            "binding": { "type": "local" },
+            "execution": "request",
+            "permission": "storage.read",
+            "inputSchema": { "type": "object", "additionalProperties": false },
+            "outputSchema": { "type": "object", "additionalProperties": true },
+            "confirmation": "none",
+            "timeoutSeconds": 15
+          }
         },
         "events": {
           "emits": [
@@ -348,9 +452,7 @@
           "investment.read",
           "investment.files"
         ],
-        "dataServices": [
-          "vibe-investment-native"
-        ]
+        "dataServices": []
       },
       "defaultInstall": true
     },

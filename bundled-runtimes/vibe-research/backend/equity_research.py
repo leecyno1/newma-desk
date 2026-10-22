@@ -19,6 +19,7 @@ import requests
 import astock
 import financial_analytics
 import gstock
+from quote_time import price_as_of
 
 
 FRAMEWORK_VERSION = "1.2"
@@ -41,6 +42,11 @@ class Evidence:
     note: str | None = None
     depends_on: tuple[str, ...] = ()
     method: str | None = None
+    period_start: str | None = None
+    published_at: str | None = None
+    report_published_at: str | None = None
+    retrieved_at: str | None = None
+    time_basis: str | None = None
 
 
 @dataclass
@@ -102,7 +108,7 @@ def _normalize_value(value: Any, unit: str | None) -> Any:
     value = _clean(value)
     if not isinstance(value, str) or not unit:
         return value
-    numeric_unit = unit in {"%", "x", "count", "percentile"} or unit.endswith("/share")
+    numeric_unit = unit in {"%", "x", "count", "percentile", "CNY", "USD"} or unit.endswith("/share")
     if not numeric_unit:
         return value
     text = value.strip().replace(",", "")
@@ -130,6 +136,11 @@ def _append(
     confidence: str = "medium",
     url: str | None = None,
     note: str | None = None,
+    period_start: str | None = None,
+    published_at: str | None = None,
+    report_published_at: str | None = None,
+    retrieved_at: str | None = None,
+    time_basis: str | None = None,
 ) -> None:
     value = _normalize_value(value, unit)
     if value is None:
@@ -149,6 +160,11 @@ def _append(
             confidence=confidence,
             url=url,
             note=note,
+            period_start=period_start,
+            published_at=published_at,
+            report_published_at=report_published_at,
+            retrieved_at=retrieved_at,
+            time_basis=time_basis,
         )
     )
 
@@ -174,15 +190,19 @@ class ChinaEquityResearchAdapter:
         percentile: dict = {}
         gaps: list[str] = []
         source_status: list[ResearchSourceStatus] = []
+        quote_as_of = None
+        quote_retrieved_at = None
         try:
             valuation = self._valuation_loader(symbol) or {}
+            quote_retrieved_at = _now_iso()
+            quote_as_of = price_as_of(valuation.get("quote_time"), "Asia/Shanghai")
             source_status.append(ResearchSourceStatus(
                 id="cn-quote-valuation",
                 title="行情与估值",
                 status="available" if valuation else "missing",
                 source="Tencent quote / THS consensus",
                 blocks=("valuation",),
-                as_of=_now_iso(),
+                as_of=quote_as_of,
                 message=None if valuation else "数据源返回空结果",
             ))
         except Exception as exc:  # noqa: BLE001 - source failures become explicit gaps
@@ -224,8 +244,8 @@ class ChinaEquityResearchAdapter:
                 status="available" if percentile.get("metrics") else "missing",
                 source="Baidu valuation history",
                 blocks=("valuation",),
-                as_of=str(percentile.get("period") or "") or None,
-                message=None if percentile.get("metrics") else "历史分位数据为空",
+                as_of=None,
+                message="历史窗口 " + str(percentile.get("period") or "未提供") + "；样本截止日期未提供" if percentile.get("metrics") else "历史分位数据为空",
             ))
         except Exception as exc:  # noqa: BLE001
             gaps.append(f"A股历史估值分位暂不可用：{exc}")
@@ -248,7 +268,9 @@ class ChinaEquityResearchAdapter:
             gaps=gaps,
             source_status=source_status,
         )
-        quote_as_of = _now_iso()
+        if valuation and not quote_as_of:
+            inputs.gaps.append("行情源时间未核实；获取时间不代表报价时间")
+        quote_fields = {"price", "mcap_yi", "pe_ttm", "pb"}
         for key, label, unit in (
             ("price", "现价", "CNY/share"),
             ("mcap_yi", "总市值", "CNY 100m"),
@@ -258,19 +280,23 @@ class ChinaEquityResearchAdapter:
             ("peg", "PEG", "x"),
             ("analyst_count", "一致预期覆盖机构", "count"),
         ):
+            is_quote = key in quote_fields
             _append(
                 inputs.evidence,
                 evidence_id=f"valuation.{key}",
                 dimension="valuation",
                 label=label,
                 value=valuation.get(key),
-                source="Tencent quote / THS consensus",
+                source="Tencent quote" if is_quote else "Tencent quote / THS consensus",
                 source_type="structured",
                 field_name=key,
-                as_of=quote_as_of,
+                as_of=quote_as_of if is_quote else None,
+                retrieved_at=quote_retrieved_at,
+                time_basis="source_quote" if quote_as_of and is_quote else "unknown",
+                note=None if is_quote else "一致预期的版本日期未提供，不能套用行情时间或作为历史点时证据",
                 unit=unit,
                 currency="CNY" if key in {"price", "mcap_yi"} else None,
-                confidence="high" if key in {"price", "mcap_yi", "pe_ttm", "pb"} else "medium",
+                confidence="high" if is_quote else "medium",
             )
 
         metrics = percentile.get("metrics") or {}
@@ -285,9 +311,10 @@ class ChinaEquityResearchAdapter:
                 source="Baidu valuation history",
                 source_type="structured",
                 field_name="percentile",
-                as_of=quote_as_of,
+                as_of=None,
+                time_basis="unknown",
                 unit="percentile",
-                note=str(percentile.get("period") or "historical window"),
+                note=str(percentile.get("period") or "historical window") + "；历史样本截止日期未提供，不能用取数时间代替",
             )
 
         period = str(financials.get("period") or "") or None
@@ -323,6 +350,49 @@ class ChinaEquityResearchAdapter:
         return inputs
 
 
+class ChinaStatementEvidenceAdapter:
+    """Extend the existing ledger; do not substitute vendor tables for filings."""
+
+    def __init__(self, loader=astock.financial_statement):
+        self._loader = loader
+
+    def supports(self, inputs: ResearchInputs) -> bool:
+        return inputs.market == "CN"
+
+    def enrich(self, inputs: ResearchInputs) -> None:
+        statements = (
+            ("lrb", "利润表", (("NETPROFIT", "net_income", "合并净利润", "profitability"),)),
+            ("llb", "现金流量表", (("MANANETR", "operating_cash_flow", "合并经营现金流净额", "cash_flow"),)),
+            ("fzb", "资产负债表", (("TOTASSET", "assets", "合并总资产", "balance_sheet"), ("TOTLIAB", "liabilities", "合并总负债", "balance_sheet"))),
+        )
+        for statement, title, fields in statements:
+            before = len(inputs.evidence)
+            try:
+                report = self._loader(inputs.symbol, statement)
+                for field, key, label, dimension in fields:
+                    _append(inputs.evidence, evidence_id=f"disclosure.cn_{key}", dimension=dimension,
+                            label=label, value=(report.get("values") or {}).get(field),
+                            source="Sina consolidated statements", source_type="structured",
+                            field_name=field, as_of=report.get("period"), unit="CNY", currency="CNY",
+                            period_start=report.get("period_start"), url=report.get("url"),
+                            report_published_at=report.get("report_published_at"), confidence="medium",
+                            note="人民币合并报表金额（元），供应商整理；利润/现金流期间起点按年内累计规则推导。报告披露日不证明当前数值未经后续修订，未逐页核验原始财报")
+                status = "available" if len(inputs.evidence) > before else "missing"
+                message = None if status == "available" else "报表关键科目未返回"
+            except Exception as exc:  # noqa: BLE001 - isolate each statement, retain other evidence
+                report = {}
+                status, message = "fetch_failed", str(exc)
+                inputs.gaps.append(f"合并{title}暂不可用：{exc}")
+            inputs.source_status.append(ResearchSourceStatus(
+                id=f"cn-statement-{statement}", title=f"合并{title}", status=status,
+                source="Sina consolidated statements", blocks=tuple(dict.fromkeys(field[3] for field in fields)),
+                as_of=report.get("period"), message=message,
+            ))
+        if any(item.id.startswith("disclosure.cn_") for item in inputs.evidence):
+            inputs.sources.append("Sina consolidated statements")
+            inputs.gaps.append("合并报表采用供应商当前整理值，未逐页核验原始财报，不能用报告披露日冒充当前数值的历史版本日期")
+
+
 class GlobalEquityResearchAdapter:
     def __init__(self, *, stock_loader: Callable[[str], dict] = gstock.us_hk_stock):
         self._stock_loader = stock_loader
@@ -337,6 +407,9 @@ class GlobalEquityResearchAdapter:
         raw_market = str(payload.get("market") or "US").upper()
         market = "US" if raw_market in {"NASDAQ", "NYSE", "AMEX", "US"} else raw_market
         quote = payload.get("quote") or {}
+        quote_retrieved_at = _now_iso()
+        market_timezone = {"HK": "Asia/Hong_Kong", "KR": "Asia/Seoul"}.get(market, "America/New_York")
+        quote_as_of = price_as_of(quote.get("quote_time"), quote.get("quote_timezone") or market_timezone)
         metrics = payload.get("metrics") or {}
         currency = "HKD" if market == "HK" else "KRW" if market == "KR" else "USD"
         sources = list(dict.fromkeys(payload.get("data_sources") or quote.get("sources") or []))
@@ -369,7 +442,7 @@ class GlobalEquityResearchAdapter:
                     status=quote_status,
                     source="global-stock-data",
                     blocks=("valuation",),
-                    as_of=str(quote.get("as_of") or "") or None,
+                    as_of=quote_as_of,
                     message=quote_message,
                 ),
                 ResearchSourceStatus(
@@ -384,23 +457,28 @@ class GlobalEquityResearchAdapter:
             ],
         )
         quote_source = str(quote.get("source") or (sources[0] if sources else "global-stock-data"))
-        quote_as_of = str(quote.get("as_of") or "") or _now_iso()
+        if quote and not quote_as_of:
+            inputs.gaps.append("海外行情源时间未核实；获取时间不代表报价时间")
         for key, label, unit in (
             ("price", "现价", f"{currency}/share"),
             ("mcap", "总市值", currency),
             ("pe", "PE", "x"),
             ("pb", "PB", "x"),
         ):
+            origin = (quote.get("field_provenance") or {}).get(key, quote)
+            field_as_of = price_as_of(origin.get("quote_time"), origin.get("quote_timezone") or market_timezone)
             _append(
                 inputs.evidence,
                 evidence_id=f"valuation.{key}",
                 dimension="valuation",
                 label=label,
                 value=quote.get(key),
-                source=quote_source,
+                source=origin.get("source") or quote_source,
                 source_type="structured",
                 field_name=key,
-                as_of=quote_as_of,
+                as_of=field_as_of,
+                retrieved_at=quote_retrieved_at,
+                time_basis="source_quote" if field_as_of else "unknown",
                 unit=unit,
                 currency=currency if key in {"price", "mcap"} else None,
                 confidence="high",
@@ -488,19 +566,21 @@ class EdgarEvidenceAdapter:
         return mapping
 
     @staticmethod
-    def _latest_fact(facts: dict, concepts: tuple[str, ...]) -> tuple[Any, str | None, str | None]:
+    def _latest_fact(facts: dict, concepts: tuple[str, ...]) -> tuple[Any, str | None, str | None, str | None, str | None]:
         us_gaap = facts.get("us-gaap") or {}
         candidates: list[dict] = []
         for concept in concepts:
             entry = us_gaap.get(concept) or {}
-            for rows in (entry.get("units") or {}).values():
-                if isinstance(rows, list):
-                    candidates.extend(row for row in rows if isinstance(row, dict) and row.get("val") is not None)
+            rows = (entry.get("units") or {}).get("USD", [])
+            if isinstance(rows, list):
+                candidates.extend(row for row in rows if isinstance(row, dict) and row.get("val") is not None)
         if not candidates:
-            return None, None, None
-        candidates.sort(key=lambda row: (str(row.get("filed") or ""), str(row.get("end") or "")))
+            return None, None, None, None, None
+        candidates.sort(key=lambda row: (str(row.get("end") or ""), str(row.get("filed") or "")))
         latest = candidates[-1]
-        return latest.get("val"), str(latest.get("end") or "") or None, str(latest.get("form") or "") or None
+        return (latest.get("val"), str(latest.get("end") or "") or None,
+                str(latest.get("form") or "") or None, str(latest.get("start") or "") or None,
+                str(latest.get("filed") or "") or None)
 
     def enrich(self, inputs: ResearchInputs) -> None:
         evidence_before = len(inputs.evidence)
@@ -534,7 +614,7 @@ class EdgarEvidenceAdapter:
                 ("liabilities", "SEC 总负债", "balance_sheet", ("Liabilities",)),
             )
             for key, label, dimension, concepts in mapping:
-                value, as_of, form = self._latest_fact(facts, concepts)
+                value, as_of, form, period_start, published_at = self._latest_fact(facts, concepts)
                 _append(
                     inputs.evidence,
                     evidence_id=f"disclosure.edgar_{key}",
@@ -550,6 +630,8 @@ class EdgarEvidenceAdapter:
                     confidence="high",
                     url=source_url,
                     note=form,
+                    period_start=period_start,
+                    published_at=published_at,
                 )
             inputs.sources.append("SEC EDGAR Company Facts")
             inputs.source_status.append(ResearchSourceStatus(
@@ -843,6 +925,11 @@ class EquityResearchService:
 
         analysis = financial_analytics.analyze_financials(inputs.evidence)
         for metric in analysis.metrics:
+            dependencies = [item for item in inputs.evidence if item.id in metric.depends_on]
+            publication_dates = [item.published_at for item in dependencies]
+            published_at = max(publication_dates) if (
+                len(dependencies) == len(metric.depends_on) and publication_dates and all(publication_dates)
+            ) else None
             inputs.evidence.append(Evidence(
                 id=metric.id,
                 dimension=metric.dimension,
@@ -857,6 +944,7 @@ class EquityResearchService:
                 note=metric.interpretation,
                 depends_on=metric.depends_on,
                 method=metric.method,
+                published_at=published_at,
             ))
         inputs.gaps.extend(analysis.gaps)
         analyzed = time.perf_counter()
@@ -897,6 +985,11 @@ class EquityResearchService:
                 "field": item.field,
                 "asOf": item.as_of,
                 "unit": item.unit,
+                "periodStart": item.period_start,
+                "publishedAt": item.published_at,
+                "reportPublishedAt": item.report_published_at,
+                "retrievedAt": item.retrieved_at,
+                "timeBasis": item.time_basis,
                 "currency": item.currency,
                 "confidence": item.confidence,
                 "url": item.url,
@@ -1041,7 +1134,7 @@ def build_default_service() -> EquityResearchService:
     edgar = EdgarEvidenceAdapter(os.environ.get("VR_SEC_USER_AGENT", ""))
     return EquityResearchService(
         [ChinaEquityResearchAdapter(), GlobalEquityResearchAdapter()],
-        enrichers=[edgar],
+        enrichers=[ChinaStatementEvidenceAdapter(), edgar],
     )
 
 

@@ -124,6 +124,8 @@ from vibe_visualization_api.industry_production import router as industry_produc
 from vibe_visualization_api.industry_prices import router as industry_prices_router
 from vibe_visualization_api.industry_capacity import router as industry_capacity_router
 from vibe_visualization_api.mod_storage.routes import router as mod_storage_router
+from vibe_visualization_api.research_sources import router as research_sources_router
+from vibe_visualization_api.industry_map_inputs import router as industry_map_inputs_router
 from vibe_visualization_api.mod_storage.store import (
     ModStorageConflictError,
     ModStorageCorruptError,
@@ -576,6 +578,8 @@ def create_app(
         include_in_schema=False,
     )
     application.include_router(mod_storage_router, prefix="/api/mods")
+    application.include_router(research_sources_router, prefix="/api/mods")
+    application.include_router(industry_map_inputs_router, prefix="/api/mods")
     application.include_router(
         mod_storage_router,
         prefix="/api/modules",
@@ -893,7 +897,10 @@ def create_app(
     ) -> JSONResponse:
         return JSONResponse(
             status_code=502,
-            content={"detail": "data service upstream failed"},
+            content={
+                "detail": error.public_message,
+                "error": {"code": error.code, "message": error.public_message},
+            },
         )
 
     @application.exception_handler(JsonContractError)

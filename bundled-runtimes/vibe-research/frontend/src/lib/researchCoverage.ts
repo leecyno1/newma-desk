@@ -1,7 +1,8 @@
 import type { IdeaFunnelWorkspace, IdeaStage, ResearchIdea } from "@/lib/ideaFunnel";
+import type { ResearchArchiveIndex } from './researchArchive';
 
 export type CoverageModId = "idea-funnel" | "thesis-tracker" | "earnings-workbench" | "peer-comparison" | "valuation-workbench" | "research-memo";
-export type CoverageStatus = "ready" | "due" | "stale" | "missing";
+export type CoverageStatus = "ready" | "due" | "stale" | "missing" | 'unknown' | 'linked';
 
 export interface CoverageModuleState {
   modId: CoverageModId;
@@ -34,6 +35,8 @@ export interface ResearchCoverageItem {
 }
 
 export interface ResearchCoverageSnapshot {
+  mode?: 'index';
+  warnings?: string[];
   asOf: string;
   items: ResearchCoverageItem[];
   totals: { securities: number; dueReviews: number; pendingTasks: number; overdueTasks: number; staleSources: number; coverageGaps: number };
@@ -120,11 +123,52 @@ function addIdea(map: Map<string, Mutable>, idea: ResearchIdea, today: string) {
   const item = ensure(map, { market: idea.security.market.toUpperCase(), symbol: idea.security.symbol.toUpperCase(), name: idea.security.name || idea.security.symbol });
   const pending = idea.nextActions.filter((action) => action.status === "pending");
   const stale = idea.sources.filter((source) => source.status === "stale" || source.status === "unavailable").length;
-  item.idea = idea;
+  if (!item.idea || Date.parse(idea.updatedAt) > Date.parse(item.idea.updatedAt)) item.idea = idea;
   item.latestAt = pickTime(item.latestAt, time(idea.updatedAt), true);
   item.pendingTaskCount += pending.length;
-  item.overdueTaskCount += pending.filter((action) => action.dueAt && action.dueAt <= today).length;
-  item.modules.set("idea-funnel", { modId: "idea-funnel", label: "机会池", status: stale ? "stale" : "ready", artifactCount: 1, sourceCount: idea.sources.length, staleSourceCount: stale, gapCount: idea.gaps.length, latestAt: idea.updatedAt });
+  item.overdueTaskCount += pending.filter((action) => action.dueAt && time(action.dueAt) && action.dueAt < today).length;
+  const previous = item.modules.get('idea-funnel');
+  item.modules.set("idea-funnel", { modId: "idea-funnel", label: "机会池", status: stale || previous?.staleSourceCount ? "stale" : "ready", artifactCount: (previous?.artifactCount || 0) + 1,
+    sourceCount: (previous?.sourceCount || 0) + idea.sources.length, staleSourceCount: (previous?.staleSourceCount || 0) + stale,
+    gapCount: (previous?.gapCount || 0) + idea.gaps.length, latestAt: item.latestAt });
+}
+
+// Desk uses the authorized index, never the browser's unscoped workspaces.
+// The index proves existence, not evidence counts or next-review dates.
+export function buildIndexedResearchCoverage(workspace: IdeaFunnelWorkspace, index: ResearchArchiveIndex | null): ResearchCoverageSnapshot {
+  const base = buildResearchCoverageSnapshot(workspace, () => null);
+  const items = new Map(base.items.map(item => [item.id, item]));
+  for (const entry of index?.entries || []) {
+    if (!entry.security || !MODS.some(mod => mod.id === entry.sourceModId)) continue;
+    const key = `${entry.security.market.toUpperCase()}:${entry.security.symbol.toUpperCase()}`;
+    if (!items.has(key)) items.set(key, { id: key, security: entry.security, stage: 'untracked', sourceCount: 0, staleSourceCount: 0, gapCount: 0,
+      pendingTaskCount: 0, overdueTaskCount: 0, modules: MODS.map(emptyModule), nextModId: 'idea-funnel', nextModLabel: '机会池', attention: [] });
+  }
+  for (const item of items.values()) {
+    item.modules = item.modules.map(mod => {
+      if (mod.modId === 'idea-funnel') return mod;
+      const matches = (index?.entries || []).filter(entry => entry.sourceModId === mod.modId && entry.security
+        && `${entry.security.market.toUpperCase()}:${entry.security.symbol.toUpperCase()}` === item.id);
+      const known = index && !index.truncated && !index.unavailableSources?.includes(mod.modId);
+      return { ...emptyModule({ id: mod.modId, label: mod.label }), artifactCount: matches.length,
+        status: matches.length ? 'linked' : known ? 'missing' : 'unknown' };
+    });
+    const missing = item.modules.filter(mod => mod.status === 'missing');
+    const unknown = item.modules.filter(mod => mod.status === 'unknown');
+    const next = unknown[0] || missing[0] || item.modules.find(mod => mod.modId === 'idea-funnel')!;
+    item.nextModId = next.modId;
+    item.nextModLabel = next.label;
+    item.attention = [`${missing.length} 个环节未发现档案`, ...(unknown.length ? [`${unknown.length} 个环节读取未确认`] : []),
+      '存在档案不代表研究完成；跨模块复核日、来源与任务明细尚未读取'];
+    item.nextReviewAt = undefined;
+  }
+  const values = [...items.values()];
+  return { ...base, mode: 'index', items: values, asOf: index?.generatedAt || base.asOf,
+    warnings: [index ? '使用当前工作区授权档案索引；任务、来源和缺口计数仅来自机会池。' : '尚未读取当前工作区档案索引，其他模块状态未知。',
+      ...(index?.truncated ? ['索引被截断，不能由未返回记录断言档案不存在。'] : []),
+      ...(index?.unavailableSources?.length ? [`部分来源未读取：${index.unavailableSources.join('、')}`] : [])],
+    totals: { ...base.totals, securities: values.length, dueReviews: 0,
+      coverageGaps: values.reduce((sum, item) => sum + item.modules.filter(mod => mod.status === 'missing').length, 0) } };
 }
 
 function addArtifact(map: Map<string, Mutable>, row: Row, mod: typeof MODS[number]) {

@@ -1,6 +1,6 @@
 import type { MyReport } from "@/lib/api";
 import { loadNotes } from "@/lib/notes";
-import { getVibeDeskConfig, waitForVibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
 
 export type ResearchArchiveKind =
   | "uploaded-report"
@@ -39,6 +39,8 @@ export interface ResearchArchiveIndex {
   workspaceId: string;
   generatedAt: string;
   entries: ResearchArchiveEntry[];
+  unavailableSources?: string[];
+  truncated?: boolean;
 }
 
 export const ARCHIVE_KIND_LABELS: Record<ResearchArchiveKind, string> = {
@@ -155,7 +157,6 @@ function discoverLocalEntries() {
         ? status
         : status === "active" || status === "watch" ? "active" : "unknown",
       security: row.security,
-      asOf: row.nextReviewAt,
       tags: [status, row.conviction],
     }));
   }
@@ -207,7 +208,7 @@ function discoverLocalEntries() {
   return found;
 }
 
-function reportEntries(reports: MyReport[]) {
+export function reportEntries(reports: MyReport[]) {
   return reports.map((report): ResearchArchiveEntry => ({
     id: `archive:research-library:${report.id}`,
     kind: "uploaded-report",
@@ -215,7 +216,6 @@ function reportEntries(reports: MyReport[]) {
     artifactId: report.id,
     title: report.name,
     status: "active",
-    asOf: new Date(report.ts).toISOString().slice(0, 10),
     updatedAt: new Date(report.ts).toISOString(),
     tags: [report.industry, report.ext.replace(/^\./, "").toUpperCase()].filter(Boolean),
   }));
@@ -231,43 +231,71 @@ function mergeEntries(...groups: ResearchArchiveEntry[][]) {
     .slice(0, 1000);
 }
 
-export async function loadResearchArchive(reports: MyReport[]): Promise<ResearchArchiveIndex> {
-  const localEntries = discoverLocalEntries();
+export class ResearchArchiveError extends Error {}
+
+function archiveScope(config: VibeDeskConfig | null) {
+  return JSON.stringify([config?.apiOrigin, config?.userId, config?.workspaceId, config?.moduleId, config?.instanceId, config?.accessToken, config?.permissions]);
+}
+
+export async function loadResearchArchive(reports: MyReport[] = [], signal?: AbortSignal): Promise<ResearchArchiveIndex> {
   const config = await waitForVibeDeskConfig();
-  let remoteEntries: ResearchArchiveEntry[] = [];
-  let remoteLoaded = false;
+  signal?.throwIfAborted();
   if (config) {
+    const scope = archiveScope(config);
+    const permission = ['research-memo', 'idea-funnel'].includes(config.moduleId) ? "storage.read" : config.moduleId === "research-library" ? "investment.read" : "";
+    if (!permission || !config.permissions?.includes(permission) || !config.accessToken || !config.instanceId) {
+      throw new ResearchArchiveError("当前页面没有工作区档案读取权限，请从已授权的 Desk 重新打开。");
+    }
     try {
       const response = await fetch(`${config.apiOrigin}/api/research-archive`, {
+        cache: 'no-store',
         headers: {
-          "X-User-Id": config.userId,
-          "X-Workspace-Id": config.workspaceId,
+          Authorization: `Bearer ${config.accessToken}`,
+          "X-Newma-Desk-Instance-Id": config.instanceId,
         },
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
       });
-      if (response.ok) {
-        const payload = await response.json() as ResearchArchiveIndex;
-        if (payload.schemaVersion === "newma-desk.research-archive.v1" && Array.isArray(payload.entries)) {
-          remoteEntries = payload.entries;
-          remoteLoaded = true;
-        }
+      if (!response.ok) throw new ResearchArchiveError(`工作区档案读取失败（HTTP ${response.status}），未使用本机缓存替代。`);
+      const payload = await response.json() as ResearchArchiveIndex;
+      if (scope !== archiveScope(getVibeDeskConfig()) || payload.userId !== config.userId || payload.workspaceId !== config.workspaceId) {
+        throw new ResearchArchiveError("工作区身份已变化，未采用旧工作区的档案结果。");
       }
-    } catch {
-      // The local cache remains useful when the Desk archive Interface is offline.
+      if (payload.schemaVersion !== "newma-desk.research-archive.v1" || !Array.isArray(payload.entries)
+        || typeof payload.generatedAt !== "string" || !Number.isFinite(Date.parse(payload.generatedAt))
+        || !Array.isArray(payload.unavailableSources) || !payload.unavailableSources.every((item) => typeof item === "string")
+        || typeof payload.truncated !== "boolean" || payload.entries.some((item) => !item || !Object.prototype.hasOwnProperty.call(ARCHIVE_SOURCE_ROUTES, item.kind)
+          || item.sourceModId !== ARCHIVE_SOURCE_ROUTES[item.kind] || typeof item.artifactId !== "string" || !item.artifactId
+          || typeof item.id !== "string" || !item.id || !["active", "draft", "archived", "invalidated", "stale", "unknown"].includes(item.status)
+          || typeof item.title !== "string" || !item.title || typeof item.updatedAt !== "string" || !Number.isFinite(Date.parse(item.updatedAt))
+          || !Number.isInteger(item.sourceRevision) || Number(item.sourceRevision) < 1)) {
+        throw new ResearchArchiveError("档案索引格式或完整性信息不完整，请更新服务后重试；不能据此判断引用已删除。");
+      }
+      signal?.throwIfAborted();
+      return { ...payload, entries: mergeEntries(payload.entries, reportEntries(reports)) };
+    } catch (error) {
+      if (error instanceof ResearchArchiveError) throw error;
+      throw new ResearchArchiveError("工作区档案读取未确认，请检查连接后重试；已有引用未改动。");
     }
   }
+  if (isVibeDeskEmbedded || import.meta.env.VITE_NEWMA_DESK_INTEGRATED === '1') throw new ResearchArchiveError("尚未连接 Desk 工作区，不读取本机旧缓存。");
   return {
     schemaVersion: "newma-desk.research-archive.v1",
-    userId: config?.userId ?? "local-user",
-    workspaceId: config?.workspaceId ?? "local-workspace",
+    userId: "local-user",
+    workspaceId: "local-workspace",
     generatedAt: new Date().toISOString(),
-    entries: mergeEntries(remoteLoaded ? [] : localEntries, remoteEntries, reportEntries(reports)),
+    entries: mergeEntries(discoverLocalEntries(), reportEntries(reports)),
+    // Local caches cannot establish complete coverage or workspace ownership.
+    truncated: true,
   };
 }
 
 export function researchArchiveSourceUrl(item: ResearchArchiveEntry) {
   const modId = ARCHIVE_SOURCE_ROUTES[item.kind];
   const config = getVibeDeskConfig();
-  if (!config) return `/${modId}`;
+  if (!config) {
+    const route = item.kind === "uploaded-report" ? "my-reports" : item.kind === "research-record" ? "notes" : modId;
+    return `${import.meta.env.BASE_URL || "/"}${route}${item.kind === "thesis" ? `#artifact=${encodeURIComponent(item.artifactId)}` : ""}`;
+  }
   const url = new URL(config.gatewayOrigin);
   url.searchParams.set("mod", modId);
   url.hash = `artifact=${encodeURIComponent(item.artifactId)}`;

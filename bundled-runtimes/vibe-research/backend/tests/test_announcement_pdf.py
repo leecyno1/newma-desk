@@ -91,6 +91,37 @@ def test_reuses_pdf_bytes_and_original_retrieval_time(monkeypatch):
 def test_provider_html_challenge_is_not_read_or_cached_as_pdf(monkeypatch):
     mock_pdf(monkeypatch)
     monkeypatch.setitem(globals(), 'pdf_bytes', lambda: b'<script>provider verification</script>')
-    with pytest.raises(ValueError, match='本次未读取正文'):
+    with pytest.raises(astock.AnnouncementSourceUnavailable, match='本次未读取正文'):
         astock.announcement_pdf_page('600519', ANN_ID, 1)
     assert not astock._ANN_PDF_CACHE
+
+
+@pytest.mark.parametrize('path', ['/api/announcement-pdf-page', '/api/equity-research/statement-evidence'])
+def test_source_challenge_is_not_a_user_input_error(monkeypatch, path):
+    mock_pdf(monkeypatch)
+    monkeypatch.setitem(globals(), 'pdf_bytes', lambda: b'<script>provider verification</script>')
+    response = TestClient(app_module.app).get(path, params={'code': '600519', 'announcementId': ANN_ID})
+    assert response.status_code == 503
+    assert '本次未读取正文' in response.json()['detail']
+    assert not astock._ANN_PDF_CACHE
+
+
+def test_explicit_cninfo_source_verifies_security_and_exact_attachment(monkeypatch):
+    announcement = {'secCode':'300502', 'announcementId':'1225499406', 'announcementTitle':'2026年半年度报告',
+                    'announcementTime':1787587200000, 'adjunctUrl':'finalpage/2026-08-25/1225499406.PDF'}
+    def post(url, **kwargs):
+        assert url == 'https://www.cninfo.com.cn/new/announcement/bulletin_detail'
+        assert kwargs['params']['announceId'] == '1225499406'
+        return SimpleNamespace(raise_for_status=lambda:None, json=lambda:{'announcement':announcement})
+    monkeypatch.setattr(requests, 'post', post)
+    monkeypatch.setattr(astock, '_announcement_pdf_bytes', lambda url:(pdf_bytes(), '2026-10-20T00:00:00Z'))
+    metadata, url, reader, _ = astock._announcement_pdf_document('300502', '1225499406', 'cninfo')
+    assert url == 'https://static.cninfo.com.cn/finalpage/2026-08-25/1225499406.PDF'
+    assert metadata['notice_date'] == '2026-08-25' and len(reader.pages)==2
+    with pytest.raises(ValueError, match='当前证券'):
+        astock._announcement_pdf_document('600519', '1225499406', 'cninfo')
+    announcement['adjunctUrl'] = 'https://example.com/1225499406.pdf'
+    with pytest.raises(ValueError, match='编号一致'):
+        astock._announcement_pdf_document('300502', '1225499406', 'cninfo')
+    with pytest.raises(ValueError, match='编号无效'):
+        astock._announcement_pdf_document('300502', ANN_ID, 'cninfo')

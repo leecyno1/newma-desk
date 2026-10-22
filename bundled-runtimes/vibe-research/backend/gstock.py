@@ -226,6 +226,7 @@ def _merge_quotes(*quotes: dict) -> dict:
     """以前面的数据源为主，只用后续来源填充空字段。"""
     merged: dict = {}
     sources: list[str] = []
+    provenance: dict = {}
     for quote in quotes:
         if not quote:
             continue
@@ -233,11 +234,18 @@ def _merge_quotes(*quotes: dict) -> dict:
         if source and source not in sources:
             sources.append(source)
         for key, value in quote.items():
-            if key == "source":
+            if key in {"source", "sources", "field_provenance", "quote_time", "quote_timezone"}:
                 continue
             if key not in merged or merged[key] in (None, ""):
                 merged[key] = value
-    merged["source"] = sources[0] if sources else None
+                if value not in (None, ""):
+                    provenance[key] = {"source": source, "quote_time": quote.get("quote_time"),
+                                       "quote_timezone": quote.get("quote_timezone")}
+    price_origin = provenance.get("price", {})
+    merged["quote_time"] = price_origin.get("quote_time")
+    merged["quote_timezone"] = price_origin.get("quote_timezone")
+    merged["field_provenance"] = provenance
+    merged["source"] = price_origin.get("source") or (sources[0] if sources else None)
     merged["sources"] = sources
     return merged
 

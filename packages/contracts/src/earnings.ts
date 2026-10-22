@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { businessRevenueSchema } from './businessRevenue';
 
 export const earningsResearchModeSchema = z.enum(["preview", "reported"]);
 export const earningsBasisSchema = z.enum(['ytd', 'quarter', 'annual', 'ttm']);
+const metricBasisSchema = z.union([earningsBasisSchema, z.literal('instant')]);
 export const earningsVerificationStatusSchema = z.enum([
   "verified",
   "partial",
@@ -22,8 +24,9 @@ const sourceReferenceSchema = z.object({
   asOf: z.string().min(1).optional(),
   periodEnd: z.string().date().optional(),
   retrievedAt: z.string().datetime().optional(),
-  basis: earningsBasisSchema.optional(),
+  basis: metricBasisSchema.optional(),
   status: z.enum(["verified", "available", "stale", "unavailable"]),
+  businessRevenue: businessRevenueSchema.optional(),
   capitalNote: z.object({
     reportId: z.string().min(1), title: z.string().min(1).max(240), text: z.string().min(1).max(6000),
     topics: z.array(z.string().min(1)).max(5),
@@ -43,6 +46,7 @@ const sourceReferenceSchema = z.object({
   importedReport: z.object({
     reportId: z.string().min(1), rawValue: z.string().min(1), rawUnit: z.string().min(1),
     columnHeader: z.string().min(1), confirmedAt: z.string().datetime(),
+    scope: z.literal('consolidated').optional(),
   }).strict().optional(),
   correction: z.object({
     before: z.number().nullable(), after: z.number(), reason: z.string().min(1).max(2000),
@@ -89,8 +93,8 @@ const comparisonMetricSchema = z.object({
   periodEnd: z.string().date().optional(),
   reportedCurrency: z.string().min(1).optional(),
   reportedOrigin: z.enum(['provider', 'manual']).optional(),
-  reportedBasis: earningsBasisSchema.optional(),
-  consensusBasis: earningsBasisSchema.optional(),
+  reportedBasis: metricBasisSchema.optional(),
+  consensusBasis: metricBasisSchema.optional(),
   consensusPeriodEnd: z.string().date().optional(),
   note: z.string().optional(),
 }).strict();

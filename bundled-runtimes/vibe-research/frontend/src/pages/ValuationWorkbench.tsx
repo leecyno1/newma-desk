@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   BarChart3,
   BookOpenCheck,
@@ -18,8 +18,13 @@ import { Disclaimer } from "@/components/ui/Disclaimer";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ValuationCapitalEvidence } from '@/components/ValuationCapitalEvidence';
+import { ResearchBackupRecovery } from '@/components/ResearchBackupRecovery';
+import { ResearchAnalysisPanel, useResearchAnalysis } from '@/components/ResearchAnalysisPanel';
+import { flushSync } from 'react-dom';
+import { canRefreshResearchData, fetchValuationPrice } from '@/lib/researchData';
+import { analyzeValuation, valuationAnalysisActions } from '@/lib/researchAnalysis';
+import { recoverValuationBackup, type ResearchBackupRow } from '@/lib/researchBackup';
 import { alignValuationYears, attachCapitalEvidence, stageCapitalEvidence, confirmScenario, eligibleCash, priceComparisonIssue, scenarioReviewIssue, valuationReadiness } from '@/lib/valuationReview';
-import { api } from "@/lib/api";
 import { applyMarketPrice, hasValuationFacts, loadSavedEarningsInputs, previewEarningsInput, valuationFromEarnings, type SavedEarningsInput } from "@/lib/valuationInputs";
 import { cn } from "@/lib/utils";
 import {
@@ -29,6 +34,9 @@ import {
   hydrateValuationWorkspace,
   emptyValuationWorkspace,
   persistValuationWorkspace,
+  valuationScope,
+  ValuationStorageError,
+  type ValuationSession,
   type AuditCheck,
   type ForecastDriver,
   type ValuationModel,
@@ -40,6 +48,7 @@ import {
   publishVibeDeskContext,
   registerVibeDeskContextProvider,
   subscribeVibeDeskEvent,
+  subscribeVibeDeskConfig,
   type VibeDeskPageContext,
 } from "@/lib/vibedesk";
 
@@ -87,12 +96,13 @@ function contextFor(workspace: ValuationWorkspace, model: ValuationModel, loadin
       market: model.security.market,
       symbol: model.security.symbol,
       name: model.security.name,
+      currency: model.security.currency,
       modelId: model.id,
       scenario: model.selectedScenario,
     },
     filters: { asOf: model.asOf, unitScale: model.unitScale, modelScope: model.modelScope },
     data: {
-      asOf: model.asOf || workspace.updatedAt,
+      asOf: model.asOf || undefined,
       source: workspace.schemaVersion,
       freshness: "unknown",
       summary: {
@@ -115,10 +125,10 @@ function contextFor(workspace: ValuationWorkspace, model: ValuationModel, loadin
       },
     },
     actions: [
-      { id: "valuation.refresh-evidence", label: "刷新股价（不改预测假设）", available: true },
-      { id: "valuation.audit-inputs", label: "审计历史与资本输入", available: true },
-      { id: "valuation.test-scenarios", label: "比较三种情景", available: model.projections.length > 0 },
-      { id: "valuation.explain-sensitivity", label: "解释敏感性和主要驱动", available: model.result.impliedPrice !== null },
+      { id: "valuation.refresh-evidence", label: "刷新股价（页面按钮可用，Agent动作尚未接通）", available: false },
+      { id: "valuation.audit-inputs", label: "审计历史与资本输入（尚未接通）", available: false },
+      { id: "valuation.test-scenarios", label: "比较三种情景（尚未接通）", available: false },
+      { id: "valuation.explain-sensitivity", label: "解释敏感性和主要驱动（尚未接通）", available: false },
     ],
     tasks: loading ? [{ id: `valuation-refresh:${model.id}`, status: "running", actionId: "valuation.refresh-evidence" }] : [],
   };
@@ -155,15 +165,34 @@ function ValuationActionDialog({message,onConfirm,onCancel}: {message:string;onC
 }
 
 export function ValuationWorkbench() {
+  const scope = useSyncExternalStore(subscribeVibeDeskConfig, valuationScope);
+  return <ValuationWorkbenchContent key={scope} />;
+}
+
+function ValuationWorkbenchContent() {
+  const inputRead = useRef<AbortController | null>(null);
+  useEffect(() => () => inputRead.current?.abort(), []);
   const initial = useMemo(emptyValuationWorkspace, []);
   const [workspace, setWorkspace] = useState(initial);
   const [selectedId, setSelectedId] = useState(initial.models[0]?.id || "__new__");
   const [draft, setDraft] = useState(() => initial.models[0] ? copyModel(initial.models[0]) : blankValuationModel());
+  const baseline = useRef(JSON.stringify(draft));
+  const session = useRef<ValuationSession | null>(null);
+  const operation = useRef<AbortController | null>(null);
+  const refreshRead = useRef<AbortController | null>(null);
+  const refreshBusy = useRef(false);
+  const alive = useRef(true);
+  const operationBusy = useRef(false);
+  const [reading, setReading] = useState(true);
+  const [storageError, setStorageError] = useState("");
+  const [editorSnapshot, setEditorSnapshot] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [pendingAction,setPendingAction] = useState<{message:string;run:()=>void|Promise<void>}|null>(null);
+  const recoveryResolve = useRef<((accepted: boolean) => void) | null>(null);
+  const [recoveredFrom, setRecoveredFrom] = useState<{ id: string; updatedAt: string } | null>(null);
   const [editorDirty,setEditorDirty] = useState(false);
   const [editorVersion,setEditorVersion] = useState(0);
   const editorDirtyRef = useRef(editorDirty);
@@ -174,28 +203,63 @@ export function ValuationWorkbench() {
   draftRef.current = draft;
   const identityLocked = draft.sourceMaterials.length > 0 || (selectedId !== '__new__' && hasValuationFacts(draft));
   const calculated = useMemo(() => calculateValuationModel(draft), [draft]);
-  const selected = workspace.models.find((item) => item.id === selectedId);
-  const dirty = selectedId === "__new__"
-    ? Boolean(draft.name || draft.security.symbol || draft.historicals.some((item) => item.revenue !== null))
-    : JSON.stringify(selected) !== JSON.stringify(calculated);
+  const dirty = JSON.stringify(draft) !== baseline.current;
+  const busy = reading || saving || loading;
+
+  const readWorkspace = async () => {
+    if (operationBusy.current) return;
+    operationBusy.current = true;
+    const controller = new AbortController();
+    operation.current = controller;
+    inputRead.current?.abort();
+    setEarningsLoading(false);
+    setReading(true); setHydrated(false); setStorageError("");
+    try {
+      const loaded = await hydrateValuationWorkspace(controller.signal);
+      if (!alive.current || controller.signal.aborted) return;
+      session.current = loaded;
+      setWorkspace(loaded.workspace);
+      const first = loaded.workspace.models.find(model => model.id === selectedId) ?? loaded.workspace.models[0];
+      const next = first ? copyModel(first) : blankValuationModel();
+      baseline.current = JSON.stringify(next);
+      setSelectedId(first?.id ?? "__new__"); setDraft(next);
+      setRecoveredFrom(null);
+      setEditorVersion(version => version + 1); setEarningsInputs(null);
+      setHydrated(true); setMessage(loaded.mode === "local" ? "仅使用本机浏览器档案，未同步到 Desk" : "已读取当前 Desk 工作区");
+    } catch (error) {
+      if (alive.current && !controller.signal.aborted) setStorageError(error instanceof ValuationStorageError ? error.message : "读取失败，现有草稿保留");
+    } finally {
+      if (alive.current && !controller.signal.aborted) { setReading(false); operationBusy.current = false; }
+    }
+  };
 
   useEffect(() => {
-    let active = true;
-    const original = draftRef.current;
-    void hydrateValuationWorkspace().then((value) => {
-      if (!active) return;
-      setWorkspace(value);
-      setHydrated(true);
-      if (draftRef.current !== original) return;
-      const first = value.models[0];
-      setSelectedId(first?.id || "__new__");
-      setDraft(first ? copyModel(first) : blankValuationModel());
-    });
-    return () => { active = false; };
+    alive.current = true;
+    operationBusy.current = false;
+    void readWorkspace();
+    return () => { alive.current = false; operation.current?.abort(); refreshRead.current?.abort(); recoveryResolve.current?.(false); };
   }, []);
 
+  const refreshAvailable = hydrated && !storageError && !busy && !pendingAction && !earningsLoading && !editorDirty
+    && Boolean(draft.security.symbol.trim()) && canRefreshResearchData('valuation-workbench');
+  const analysis = useResearchAnalysis({ moduleId: 'valuation-workbench', draft,
+    enabled: hydrated && !storageError && !busy && !pendingAction && !earningsLoading && !editorDirty,
+    isBusy: () => operationBusy.current || refreshBusy.current,
+    actions: valuationAnalysisActions, calculate: analyzeValuation,
+    refresh: { id: 'valuation.refresh-evidence', label: '刷新股价（保留预测假设，不自动保存）', available: refreshAvailable, run: () => refreshEvidence() },
+  });
   const contextRef = useRef<VibeDeskPageContext>(contextFor(workspace, calculated, loading));
   contextRef.current = contextFor(workspace, calculated, loading);
+  contextRef.current.filters = { ...contextRef.current.filters, unsavedChanges: dirty || editorDirty };
+  contextRef.current.actions = contextRef.current.actions?.map(action => analysis.refreshAction?.id === action.id ? analysis.refreshAction : analysis.actions.find(item => item.id === action.id) ?? action);
+  if (analysis.report) contextRef.current.visibleBlocks?.push({ id: 'research-analysis', type: 'table', title: analysis.report.title });
+  contextRef.current.data.summary = { ...contextRef.current.data.summary,
+    currentAnalysis: analysis.report,
+    storage: { mode: session.current?.mode ?? 'unavailable', revision: session.current?.revision ?? null,
+      status: reading ? 'reading' : saving ? 'saving' : storageError ? 'error' : 'ready', error: storageError || undefined },
+    unsavedCapitalEditor: editorSnapshot,
+    backupRecovery: recoveredFrom ? { ...recoveredFrom, status: dirty ? 'unsaved-copy' : 'saved-copy', requiresReview: true } : null,
+  };
   useEffect(() => registerVibeDeskContextProvider(() => contextRef.current), []);
   useEffect(() => {
     const unsubscribe = subscribeVibeDeskEvent((event) => {
@@ -204,7 +268,8 @@ export function ValuationWorkbench() {
       if (!symbol) return;
       const market = typeof event.payload.market === "string" ? event.payload.market.slice(0, 20).toUpperCase() : "CN";
       const name = typeof event.payload.name === "string" ? event.payload.name.slice(0, 120) : "";
-      if (hasValuationFacts(draftRef.current) || editorDirtyRef.current) {
+      if (operationBusy.current || hasValuationFacts(draftRef.current) || editorDirtyRef.current
+        || JSON.stringify(draftRef.current) !== baseline.current || session.current?.workspace.models.some(model => model.id === draftRef.current.id)) {
         setMessage("当前模型已有财务输入，未替换证券；研究其他公司请新建模型");
         return;
       }
@@ -212,33 +277,72 @@ export function ValuationWorkbench() {
     });
     return () => { unsubscribe(); };
   }, []);
-  useEffect(() => { void publishVibeDeskContext(); }, [calculated, loading, workspace]);
+  useEffect(() => { void publishVibeDeskContext(); }, [calculated, loading, workspace, reading, saving, storageError, editorDirty, editorSnapshot,pendingAction,earningsLoading,hydrated,analysis.report]);
 
   const commit = async (next: ValuationWorkspace) => {
+    if (!session.current || !hydrated || operationBusy.current) return null;
+    operationBusy.current = true;
+    const controller = new AbortController();
+    operation.current = controller;
     setSaving(true);
     try {
-      const destination = await persistValuationWorkspace(next);
-      setWorkspace(next);
-      return destination;
-    } finally { setSaving(false); }
+      const result = await persistValuationWorkspace(next, session.current, controller.signal);
+      if (!alive.current || controller.signal.aborted) return null;
+      session.current = result;
+      setWorkspace(result.workspace);
+      return result;
+    } catch (error) {
+      if (alive.current && !controller.signal.aborted) {
+        setHydrated(false);
+        setStorageError(error instanceof ValuationStorageError ? error.message : "保存未确认，请保留草稿并重新读取核对，勿重复提交。");
+      }
+      return null;
+    } finally {
+      if (alive.current && !controller.signal.aborted) { setSaving(false); operationBusy.current = false; }
+    }
   };
 
   const requestAction = (message:string,run:()=>void|Promise<void>,needsConfirmation=true) => {
-    if(saving||!hydrated)return;
+    if(operationBusy.current||loading||pendingAction)return;
     if(needsConfirmation)setPendingAction({message,run});else void run();
   };
   const startNew = () => requestAction('新建会放弃未保存修改，包括未暂存的资本编辑。需要保留请取消并先暂存、保存。确定新建吗？',()=>{
     setSelectedId("__new__");
-    setDraft(blankValuationModel());
+    const next = blankValuationModel();
+    baseline.current = JSON.stringify(next);
+    setEditorVersion(version => version + 1);
+    setDraft(next);
+    setRecoveredFrom(null);
     setMessage("");
   },dirty||editorDirty);
 
   const choose = (model: ValuationModel) => requestAction('切换会放弃未保存修改，包括未暂存的资本编辑。需要保留请取消并先暂存、保存。确定切换吗？',()=>{
     setEditorVersion(version=>version+1);
     setSelectedId(model.id);
+    baseline.current = JSON.stringify(model);
     setDraft(copyModel(model));
+    setRecoveredFrom(null);
     setMessage("");
   },dirty||editorDirty);
+
+  const recoverBackup = (row: ResearchBackupRow): Promise<boolean> => {
+    if (busy || operationBusy.current || pendingAction || !hydrated || !session.current?.writable) return Promise.resolve(false);
+    const next = recoverValuationBackup(row);
+    return new Promise(resolve => {
+      recoveryResolve.current = resolve;
+      const run = () => {
+        if (!alive.current || operationBusy.current) { resolve(false); return; }
+        inputRead.current?.abort(); setEarningsLoading(false); setEarningsInputs(null);
+        setSelectedId('__new__'); setDraft(next);
+        setEditorVersion(version => version + 1); setEditorDirty(false); setEditorSnapshot(null);
+        setRecoveredFrom({ id: row.id, updatedAt: row.updatedAt });
+        setMessage('已恢复为新草稿，尚未保存；来源与情景须重新核验，资本编辑未自动采用为金额。');
+        recoveryResolve.current = null; resolve(true);
+      };
+      if (dirty || editorDirty) setPendingAction({message:'恢复会替换当前未保存模型与资本编辑，但不覆盖已保存档案。请先导出需保留内容，确定继续吗？',run});
+      else run();
+    });
+  };
 
   const validate = (candidate: ValuationModel) => {
     if (!candidate.name.trim()) return "请填写模型名称";
@@ -248,7 +352,7 @@ export function ValuationWorkbench() {
   };
 
   const save = async (candidate = draft) => {
-    if (saving || !hydrated) return;
+    if (operationBusy.current || loading || !hydrated || !session.current?.writable) return;
     const error = validate(candidate);
     if (error) {
       setMessage(error);
@@ -271,20 +375,26 @@ export function ValuationWorkbench() {
     const models = exists ? workspace.models.map((item) => item.id === saved.id ? saved : item) : [saved, ...workspace.models];
     const original = candidate;
     try {
-      const destination = await commit({ ...workspace, updatedAt: timestamp, models });
+      const result = await commit({ ...workspace, updatedAt: timestamp, models });
+      if (!result) return;
+      const confirmed = result.workspace.models.find(model => model.id === saved.id);
       if (draftRef.current === original) {
-        setSelectedId(saved.id);
-        setDraft(copyModel(saved));
+        if (confirmed) {
+          baseline.current = JSON.stringify(confirmed);
+          setSelectedId(confirmed.id);
+          setDraft(copyModel(confirmed));
+        }
       }
-      setMessage(destination === "desk" ? "已保存到 Desk 工作区" : "仅保存到本机浏览器，尚未同步到 Desk");
-      return destination;
+      setMessage(result.mode === "desk" ? "Desk 已确认保存" : "仅保存到本机浏览器，尚未同步到 Desk");
+      return result.mode;
     } catch {
-      setMessage("保存失败，当前草稿仍保留，请重试");
+      setStorageError("保存未确认，当前草稿仍保留，请重新读取核对");
+      setHydrated(false);
     }
   };
 
   const remove = async () => {
-    if (saving || !hydrated) return;
+    if (operationBusy.current || loading || !hydrated || !session.current?.writable) return;
     if (selectedId === "__new__") {
       startNew();
       return;
@@ -292,42 +402,53 @@ export function ValuationWorkbench() {
     requestAction(`删除“${draft.name}”估值模型及其暂存编辑？该操作不能在页面内撤销。`,async()=>{
       const models = workspace.models.filter((item) => item.id !== selectedId);
       const next = { ...workspace, updatedAt: new Date().toISOString(), models };
-      let destination;
-      try { destination=await commit(next); } catch { setMessage("删除未保存，请重试"); return; }
-      const first = models[0];
+      const result = await commit(next);
+      if (!result) return;
+      const first = result.workspace.models[0];
+      const nextDraft = first ? copyModel(first) : blankValuationModel();
+      baseline.current = JSON.stringify(nextDraft);
       setSelectedId(first?.id || "__new__");
-      setDraft(first ? copyModel(first) : blankValuationModel());
-      setMessage(destination==='desk'?'模型已从 Desk 工作区移除':'仅本机移除，尚未同步到 Desk');
+      setEditorVersion(version => version + 1);
+      setDraft(nextDraft);
+      setRecoveredFrom(null);
+      setMessage(result.mode==='desk'?'模型已从 Desk 工作区移除':'仅本机移除，尚未同步到 Desk');
     });
   };
 
   const refreshEvidence = async () => {
+    if (operationBusy.current || refreshBusy.current || !refreshAvailable) throw new Error('当前模型尚不可刷新，请先完成读取、保存或待确认操作');
     const symbol = draft.security.symbol.trim().toUpperCase();
-    if (!symbol) {
-      setMessage("先填写证券代码再刷新证据");
-      return;
-    }
+    const controller = new AbortController(); refreshRead.current = controller; refreshBusy.current = true;
     setLoading(true);
     setMessage("");
     try {
-      const snapshot = await api.equityResearch(symbol);
-      if (draftRef.current !== draft) { setMessage("读取期间模型已修改，未覆盖输入；可重新刷新股价"); return; }
-      setDraft(applyMarketPrice(draft, snapshot));
-      setMessage("已刷新股价；历史基期、稀释股数与预测假设均保持不变");
+      const snapshot = await fetchValuationPrice(symbol, controller.signal);
+      if (!alive.current || controller.signal.aborted) throw new Error('页面已切换，旧结果未采用');
+      if (draftRef.current !== draft) throw new Error("读取期间模型已修改，未覆盖输入；可重新刷新股价");
+      const next = applyMarketPrice(draft, snapshot);
+      flushSync(() => { setDraft(next); setMessage("已刷新股价；历史基期、稀释股数与预测假设均保持不变，尚未保存"); });
+      return { status: 'draft-updated', modelId: next.id, symbol, currency: next.security.currency,
+        currentPrice: next.capitalInputs.currentPrice, asOf: next.capitalInputs.currentPriceAsOf, assumptionsChanged: false, saved: false };
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "行情读取失败，已保留当前输入");
+      if (alive.current) setMessage(error instanceof Error ? error.message : "行情读取失败，已保留当前输入");
+      throw error;
     } finally {
-      setLoading(false);
+      refreshBusy.current = false;
+      if (alive.current) flushSync(() => setLoading(false));
     }
   };
 
   const loadEarnings = async () => {
+    inputRead.current?.abort();
+    const controller = new AbortController();
+    inputRead.current = controller;
     setEarningsLoading(true);
-    try { setEarningsInputs(await loadSavedEarningsInputs()); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "读取失败"); }
-    finally { setEarningsLoading(false); }
+    try { setEarningsInputs(await loadSavedEarningsInputs(controller.signal)); }
+    catch (error) { if (!controller.signal.aborted) setMessage(error instanceof Error ? error.message : "读取失败"); }
+    finally { if (!controller.signal.aborted) setEarningsLoading(false); }
   };
   const adoptEarnings = (workbook: SavedEarningsInput) => requestAction('从财报新建会放弃未保存修改，包括未暂存的资本编辑。需要保留请取消并先暂存、保存。确定继续吗？',()=>{
+    setRecoveredFrom(null);
     setDraft(valuationFromEarnings(workbook));
     setSelectedId("__new__");
     setEarningsInputs(null);
@@ -357,7 +478,9 @@ export function ValuationWorkbench() {
 
   return (
     <div>
-      {pendingAction&&<ValuationActionDialog message={pendingAction.message} onCancel={()=>setPendingAction(null)} onConfirm={()=>{
+      {pendingAction&&<ValuationActionDialog message={pendingAction.message} onCancel={()=>{
+        setPendingAction(null); recoveryResolve.current?.(false); recoveryResolve.current=null;
+      }} onConfirm={()=>{
         const action=pendingAction;setPendingAction(null);void action.run();
       }}/>}
       <PageHeader
@@ -365,18 +488,32 @@ export function ValuationWorkbench() {
         subtitle="用可追溯的历史基期、三种经营情景、WACC、自由现金流与敏感性矩阵形成轻量驱动式 DCF；不把缺失数据静默估算成精确结论。"
         actions={(
           <>
-            <button onClick={startNew} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm hover:border-primary/40"><Plus className="h-4 w-4" /> 新建</button>
-            <button onClick={loadEarnings} disabled={earningsLoading} className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50">{earningsLoading ? "读取中…" : "从已保存财报接入"}</button>
-            <button onClick={refreshEvidence} disabled={loading} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm hover:border-primary/40 disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} 刷新股价</button>
+            <button onClick={startNew} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm hover:border-primary/40 disabled:opacity-50"><Plus className="h-4 w-4" /> 新建</button>
+            <button onClick={loadEarnings} disabled={earningsLoading || busy} className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50">{earningsLoading ? "读取中…" : "从已保存财报接入"}</button>
+            <button onClick={() => { void refreshEvidence().catch(() => {}); }} disabled={!refreshAvailable} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm hover:border-primary/40 disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} 刷新股价</button>
             <button onClick={()=>{
               if(editorDirty){setMessage('资本编辑尚未暂存，请先在编辑区暂存或确认采用，再保存模型');return;}
               void save();
-            }} disabled={saving || !hydrated} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"><Save className="h-4 w-4" /> {saving ? "保存中…" : "保存"}</button>
+            }} disabled={busy || !hydrated || !session.current?.writable} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"><Save className="h-4 w-4" /> {saving ? "保存中…" : "保存"}</button>
           </>
         )}
       />
 
-      {message && <div className="mb-4 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/8 px-3 py-2 text-sm"><CheckCircle2 className="h-4 w-4 text-primary" /> {message}</div>}
+      <div className="mb-4 flex flex-wrap items-center gap-3 text-sm" aria-label="估值存储状态">
+        <span>{reading ? '正在读取估值档案…' : saving ? '正在等待保存回执…' : session.current?.mode === 'desk' ? `Desk 工作区 · 修订 ${session.current.revision}${session.current.writable ? '' : ' · 只读'}` : session.current?.mode === 'local' ? '本机档案，不代表 Desk 同步' : '存储尚未连接'}</span>
+        <button disabled={busy} className="rounded border border-border px-3 py-2 disabled:opacity-50" onClick={() => {
+          const run = async () => { await readWorkspace(); };
+          if (dirty || editorDirty) setPendingAction({ message: '重新读取将替换当前草稿与未暂存资本编辑，请先导出保留。确定继续吗？', run });
+          else void run();
+        }}>重新读取档案</button>
+        <a className="rounded border border-border px-3 py-2" download="valuation-draft.json"
+          href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify({ model: draft, unsavedCapitalEditor: editorSnapshot, note: '草稿备份，不代表已保存或已核验；未暂存资本编辑不属于已采用数值' }, null, 2))}`}>导出当前草稿</a>
+      </div>
+      {storageError && <div role="alert" className="mb-4 rounded-lg border border-destructive/40 p-3 text-sm text-destructive">{storageError}</div>}
+      {message && !storageError && <div role="status" className="mb-4 rounded-lg border border-border px-3 py-2 text-sm">{message}</div>}
+      <ResearchAnalysisPanel analysis={analysis}/>
+      <ResearchBackupRecovery kind="valuation" disabled={busy||Boolean(pendingAction)||earningsLoading} canRecover={hydrated&&Boolean(session.current?.writable)} onRecover={recoverBackup}/>
+      <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
       {earningsInputs !== null && <section aria-label="财报收入接入预览" className="mb-4 rounded-lg border border-border p-4 text-sm">
         <div className="mb-2 flex justify-between"><h2 className="font-bold">已保存财报 → 独立估值草稿</h2><button onClick={() => setEarningsInputs(null)}>关闭预览</button></div>
         <p className="mb-3 text-muted-foreground">只采用已确认的年度营业收入，保留来源。不带入净利润、经营现金流或预测假设。旧估值模型和原财报不受影响。</p>
@@ -453,7 +590,7 @@ export function ValuationWorkbench() {
             <p className="mt-1 text-muted-foreground">非经营资产只加回未含于现金或经营预测的价值；少数股东权益按与预测一致的范围估值，不直接照搬账面值；其他索偿不能与债务或稀释股数重复计入。具体依据在下方逐项核验。</p>
           </section>
 
-          <ValuationCapitalEvidence key={`${draft.id}:${editorVersion}`} model={draft} disabled={saving} editorDirty={editorDirty} onDirtyChange={setEditorDirty}
+          <ValuationCapitalEvidence key={`${draft.id}:${editorVersion}`} model={draft} disabled={busy} editorDirty={editorDirty} onDirtyChange={setEditorDirty} onEditSnapshot={setEditorSnapshot}
             requestDiscard={run=>requestAction('资本编辑尚未暂存，继续会放弃本次未暂存修改；已暂存和已采用的内容不变。需要保留请取消并先暂存。',run)} onSaveDraft={async(field,input)=>{
             const next=stageCapitalEvidence(draftRef.current,field,input);
             draftRef.current=next;setDraft(next);
@@ -522,6 +659,7 @@ export function ValuationWorkbench() {
           <Disclaimer />
         </div>
       </div>
+      </fieldset>
     </div>
   );
 }

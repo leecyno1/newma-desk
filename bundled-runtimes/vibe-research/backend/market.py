@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import time
+import os
 from concurrent.futures import ThreadPoolExecutor, wait
 from threading import Lock
 from collections import Counter
@@ -130,6 +131,10 @@ def _sectors() -> list[dict]:
 def get_overview(include_sentiment: bool = True) -> dict:
     """独立缓存两路来源；超时只降级该来源，复用未完成请求，避免刷新堆积。"""
     sources = {"sentiment": _sentiment, "sectors": _sectors} if include_sentiment else {"sectors": _sectors}
+    daily_mode = include_sentiment and os.environ.get("VR_CN_SCAN_SOURCE") == "tushare-daily"
+    if daily_mode:
+        from market_scan_daily import daily_market_breadth
+        sources = {"dailyBreadth": daily_market_breadth, "sectors": _sectors}
     result = {"sentiment": {}, "sectors": [], "sources": {}}
     pending = {}
     with _OVERVIEW_LOCK:
@@ -167,6 +172,11 @@ def get_overview(include_sentiment: bool = True) -> dict:
             with _OVERVIEW_LOCK:
                 if _OVERVIEW_JOBS.get(key) is job:
                     del _OVERVIEW_JOBS[key]
+    if daily_mode:
+        daily = result.pop("dailyBreadth", {})
+        result.update(daily)
+        result.setdefault("industryBreadth", {"top": [], "bottom": [], "total": 0,
+            "data_state": "unavailable", "source": "tushare.daily+index_member_all"})
     result["updated"] = datetime.now(BEIJING).isoformat()
     return result
 

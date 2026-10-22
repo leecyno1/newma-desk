@@ -1,5 +1,6 @@
 // Vibe-Research 后端 API 客户端。/api → vite 代理到本地 FastAPI（默认 8900）。
 // 后端未启动或数据源异常时抛 ApiError，页面据此优雅降级。
+import { getVibeDeskConfig, isVibeDeskEmbedded } from "@/lib/vibedesk";
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -40,15 +41,74 @@ export function authHeaders(): Record<string, string> {
   return k ? { Authorization: `Bearer ${k}` } : {};
 }
 
+export function reportScope(): string {
+  const c = getVibeDeskConfig();
+  return JSON.stringify([API_BASE, c?.apiOrigin, c?.userId, c?.workspaceId, c?.moduleId, c?.instanceId]);
+}
+
+export interface ReportRequestOptions { scope?: string; signal?: AbortSignal }
+
+export function assertReportScope(scope: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (scope !== reportScope()) throw new ApiError("工作区已切换，旧操作已停止；已发送的上传请回原工作区核对。", 409);
+}
+
+async function reportFetch(path: string, init: RequestInit = {}, options: ReportRequestOptions = {}) {
+  const scope = options.scope ?? reportScope();
+  assertReportScope(scope, options.signal);
+  const config = getVibeDeskConfig();
+  if (!config && (isVibeDeskEmbedded || import.meta.env.VITE_NEWMA_DESK_INTEGRATED === "1")) {
+    throw new ApiError("请从已授权的 Desk 打开研究档案或财报研究。", 401);
+  }
+  if (config && (!config.accessToken || !config.instanceId || !config.permissions?.includes("investment.files"))) {
+    throw new ApiError("当前页面没有研报文件权限，请更新模组并重新打开。", 403);
+  }
+  const headers: Record<string, string> = config ? {
+    Authorization: `Bearer ${config.accessToken}`,
+    "X-Newma-Desk-Instance-Id": config.instanceId!,
+  } : authHeaders();
+  if (init.body) headers["Content-Type"] = "application/json";
+  const url = config ? `${config.apiOrigin}/api/research${path}` : researchApiUrl(path);
+  const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000);
+  const response = await fetch(url, { ...init, headers, signal });
+  assertReportScope(scope, options.signal);
+  if (!response.ok) {
+    const failure = await response.json().catch(() => null);
+    assertReportScope(scope, options.signal);
+    const message = failure?.code === "REPORT_STORAGE_UNAVAILABLE"
+      ? "研报资料库读写异常，操作未完成。请先检查索引、磁盘空间及存储权限；不要重复上传或删除。"
+      : `研报操作未完成（HTTP ${response.status}），请核对权限或连接后重试。`;
+    throw new ApiError(message, response.status);
+  }
+  return { response, scope };
+}
+
+async function reportRequest<T>(path: string, method = "GET", body?: unknown, options: ReportRequestOptions = {}): Promise<T> {
+  const { response, scope } = await reportFetch(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, options);
+  const payload = await response.json();
+  assertReportScope(scope, options.signal);
+  return payload.data as T;
+}
+
+export async function reportBlob(id: string, options: ReportRequestOptions = {}): Promise<Blob> {
+  const { response, scope } = await reportFetch(`/myreports/file/${encodeURIComponent(id)}`, {}, options);
+  const blob = await response.blob();
+  assertReportScope(scope, options.signal);
+  return blob;
+}
+
 export interface MyReport {
   id: string; name: string; industry: string; size: number; ext: string; ts: number;
 }
 
 export interface EarningsPdfCandidate {
+  basis?: 'instant'; periodEnd?: string; scope?: 'consolidated';
   id: string; label: string; value: number; unit: string;
   rawValue: string; rawUnit: string; page: number; excerpt: string; columnHeader: string;
 }
 export interface EarningsPdfImport {
+  revenueGroups?: EarningsRevenueGroup[];
+  revenueWarnings?: string[];
   reportId: string; name: string; pageCount: number; readPages: number[];
   security: {market: string; symbol: string; name: string; currency: string};
   periodEnd: string | null; basis: 'annual'; retrievedAt: string;
@@ -63,11 +123,18 @@ export interface EarningsPdfImport {
   capitalNotesWarnings?: string[];
 }
 
+export interface EarningsRevenueRow {
+  label: string; value: number; rawValue: string; rawUnit: '元' | '万元' | '亿元'; excerpt: string;
+}
+export interface EarningsRevenueGroup {
+  id: string; dimension: 'industry' | 'product' | 'region' | 'channel'; title: string;
+  scope: 'main-business'; currency: 'CNY'; unit: '亿元'; page: number; columnHeader: string;
+  rows: EarningsRevenueRow[]; total: EarningsRevenueRow | null; skippedRows: number;
+}
+
 // 下载/预览研报：带鉴权头 fetch → blob → 触发浏览器下载（<a download> 无法带 Authorization，故走 blob）。
-export async function downloadReport(id: string, name: string): Promise<void> {
-  const resp = await fetch(researchApiUrl(`/myreports/file/${id}`), { headers: authHeaders() });
-  if (!resp.ok) throw new ApiError(`下载失败 HTTP ${resp.status}`, resp.status);
-  const blob = await resp.blob();
+export async function downloadReport(id: string, name: string, options: ReportRequestOptions = {}): Promise<void> {
+  const blob = await reportBlob(id, options);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -78,10 +145,10 @@ export async function downloadReport(id: string, name: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-async function request<T>(path: string, method: "GET" | "POST" | "DELETE" = "GET", body?: unknown): Promise<T> {
+async function request<T>(path: string, method: "GET" | "POST" | "DELETE" = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
   let resp: Response;
   const headers: Record<string, string> = { ...authHeaders() };
-  const opts: RequestInit = { method };
+  const opts: RequestInit = { method, signal };
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
@@ -107,7 +174,7 @@ async function request<T>(path: string, method: "GET" | "POST" | "DELETE" = "GET
   return (payload?.data ?? payload) as T;
 }
 
-const get = <T>(path: string) => request<T>(path, "GET");
+const get = <T>(path: string, signal?: AbortSignal) => request<T>(path, "GET", undefined, signal);
 
 export interface Quote {
   name: string; price: number; last_close: number; change_pct: number;
@@ -340,6 +407,9 @@ export interface MacroLiquidityIndicator {
   effect: "supportive" | "supportive_inverse" | "restrictive" | "restrictive_inverse" | string;
   period: string;
   asOf: string;
+  frequency?: "day" | "month";
+  dateBasis?: "period-end" | "observation-date";
+  periodEnd?: string;
   source: { id: string; label: string; url: string };
   freshness: { status: "fresh" | "stale" | "unknown"; ageDays?: number };
   history: Array<{ period: string; value: number }>;
@@ -531,18 +601,18 @@ export interface PortfolioData {
 }
 
 // 资金面 / 筹码 / 信号（v3.3 并入，均为「用户查的那只股」的公开数据）
-export interface MarginRow { date: string; rzye: number; rzmre: number; rzche: number; rqye: number; rqmcl: number; rzrqye: number }
-export interface BlockTradeRow { date: string; price: number; close: number; premium_pct: number; vol: number; amount: number; buyer: string; seller: string }
-export interface HolderRow { date: string; holder_num: number; change_ratio: number; avg_shares: number }
-export interface DividendRow { date: string; bonus_rmb: number; transfer_ratio: number; bonus_ratio: number | null; plan: string }
-export interface FundFlowRow { date: string; main_net: number; small_net: number; mid_net: number; large_net: number; super_net: number }
+export interface MarginRow { date: string; rzye: number | null; rzmre: number | null; rzche: number | null; rqye: number | null; rqmcl: number | null; rzrqye: number | null }
+export interface BlockTradeRow { date: string; price: number | null; close: number | null; premium_pct: number | null; vol: number | null; amount: number | null; buyer: string; seller: string }
+export interface HolderRow { date: string; published_at?: string | null; holder_num: number | null; change_ratio: number | null; avg_shares: number | null; avg_shares_basis?: string }
+export interface DividendRow { date: string | null; published_at?: string | null; plan_published_at?: string | null; report_date?: string | null; record_date?: string | null; bonus_rmb: number | null; transfer_ratio: number | null; bonus_ratio: number | null; plan: string; plan_description?: string | null }
+export interface FundFlowRow { date: string; main_net: number | null; small_net?: number | null; mid_net?: number | null; large_net?: number | null; super_net?: number | null; source?: string }
 export interface DtSeat { name: string; buy_amt: number; sell_amt: number; net: number }
 export interface DragonTiger {
   records: { date: string; reason: string; net_buy: number; turnover: number }[];
   seats: { buy: DtSeat[]; sell: DtSeat[] };
   institution: { buy_amt: number; sell_amt: number; net_amt: number };
 }
-export interface LockupRow { date: string; type: string; shares: number; able_shares: number; ratio: number }
+export interface LockupRow { date: string; type: string; shares: number | null; able_shares: number | null; ratio: number | null; published_at?: string | null }
 export interface Lockup { history: LockupRow[]; upcoming: LockupRow[] }
 export interface Board { name: string; code: string; change_pct: number | string; lead_stock: string }
 export interface Blocks { total: number; boards: Board[]; concept_tags: string[] }
@@ -815,9 +885,10 @@ export const api = {
   turnoverTop: () => get<TurnoverTop>("/market/turnover-top"),
   globalIndices: () => get<GlobalIndex[]>("/global/indices"),
   globalStock: (symbol: string) => get<GlobalStock>(`/global/stock?symbol=${encodeURIComponent(symbol)}`),
-  equityResearch: (symbol: string) =>
+  equityResearch: (symbol: string, signal?: AbortSignal) =>
     get<EquityResearchSnapshot>(
       `/equity-research/snapshot?symbol=${encodeURIComponent(symbol)}`,
+      signal,
     ),
   equityResearchComparison: (symbols: string[]) =>
     get<EquityResearchComparison>(
@@ -868,7 +939,7 @@ export const api = {
   removeClosed: (index: number) => request<PortfolioData>(`/portfolio/close?index=${index}`, "DELETE"),
   valuation: (code: string) => get<Valuation>(`/valuation?code=${code}`),
   percentile: (code: string) => get<ValPercentile>(`/valuation/percentile?code=${code}`),
-  financials: (code: string, basis: 'ytd' | 'quarter' | 'annual' = 'ytd') => get<Financials>(`/financials?code=${code}&basis=${basis}`),
+  financials: (code: string, basis: 'ytd' | 'quarter' | 'annual' = 'ytd', signal?: AbortSignal) => get<Financials>(`/financials?code=${encodeURIComponent(code)}&basis=${basis}`, signal),
   announcements: (code: string) => get<Announcement[]>(`/announcements?code=${code}`),
   announcementSearch: (code:string, begin:string, end:string, category:'all'|'financial', page=1) => get<AnnouncementSearch>(`/announcement-search?${new URLSearchParams({code,begin,end,category,page:String(page)})}`),
   announcementText: (code: string, announcementId: string, segment = 1) => get<AnnouncementText>(`/announcement-text?code=${encodeURIComponent(code)}&announcementId=${encodeURIComponent(announcementId)}&segment=${segment}`),
@@ -898,11 +969,12 @@ export const api = {
   hotConcepts: (code: string) => get<HotConcept[]>(`/hot-concepts?code=${code}`),
   investorQa: (code: string) => get<QaRow[]>(`/investor-qa?code=${code}`),
   industry: (top = 20) => get<IndustryData>(`/industry?top=${top}`),
-  myReports: () => get<MyReport[]>("/myreports"),
-  earningsPdfCandidates: (id: string) => get<EarningsPdfImport>(`/myreports/${encodeURIComponent(id)}/earnings-candidates`),
-  earningsCapitalCandidates: (id: string) => get<EarningsPdfImport>(`/myreports/${encodeURIComponent(id)}/earnings-candidates?capital=true`),
-  earningsCapitalNotes: (id: string) => get<EarningsPdfImport>(`/myreports/${encodeURIComponent(id)}/earnings-candidates?notes=true`),
-  uploadReport: (name: string, contentB64: string) =>
-    request<MyReport>("/myreports", "POST", { name, content_b64: contentB64 }),
-  deleteReport: (id: string) => request<{ ok: boolean }>(`/myreports/${id}`, "DELETE"),
+  myReports: (options?: ReportRequestOptions) => reportRequest<MyReport[]>("/myreports", "GET", undefined, options),
+  earningsPdfCandidates: (id: string, options?: ReportRequestOptions) => reportRequest<EarningsPdfImport>(`/myreports/${encodeURIComponent(id)}/earnings-candidates`, "GET", undefined, options),
+  earningsCapitalCandidates: (id: string) => reportRequest<EarningsPdfImport>(`/myreports/${encodeURIComponent(id)}/earnings-candidates?capital=true`),
+  earningsRevenueCandidates: (id: string) => reportRequest<EarningsPdfImport>(`/myreports/${encodeURIComponent(id)}/earnings-candidates?revenue=true`),
+  earningsCapitalNotes: (id: string) => reportRequest<EarningsPdfImport>(`/myreports/${encodeURIComponent(id)}/earnings-candidates?notes=true`),
+  uploadReport: (name: string, contentB64: string, options?: ReportRequestOptions) =>
+    reportRequest<MyReport>("/myreports", "POST", { name, content_b64: contentB64 }, options),
+  deleteReport: (id: string, options?: ReportRequestOptions) => reportRequest<{ ok: boolean }>(`/myreports/${encodeURIComponent(id)}`, "DELETE", undefined, options),
 };

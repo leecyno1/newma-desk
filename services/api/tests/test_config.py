@@ -8,6 +8,24 @@ from vibe_visualization_api.config import Settings, resolve_database_path
 from vibe_visualization_api.external_mod_runtimes import resolve_runtime_workspace
 
 
+def test_market_scan_source_reads_dotenv_and_process_override(tmp_path, monkeypatch):
+    monkeypatch.delenv("VR_CN_SCAN_SOURCE", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("VR_CN_SCAN_SOURCE=tushare-daily\n")
+
+    assert Settings(_env_file=env_file).cn_scan_source == "tushare-daily"
+    monkeypatch.setenv("VR_CN_SCAN_SOURCE", "eastmoney")
+    assert Settings(_env_file=env_file).cn_scan_source == "eastmoney"
+
+
+def test_market_scan_source_defaults_and_rejects_unknown(monkeypatch):
+    monkeypatch.delenv("VR_CN_SCAN_SOURCE", raising=False)
+    assert Settings(_env_file=None).cn_scan_source == "eastmoney"
+    monkeypatch.setenv("VR_CN_SCAN_SOURCE", "auto")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
 def test_tushare_reads_shared_dotenv_and_keeps_secret_private(tmp_path, monkeypatch):
     monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
     env_file = tmp_path / ".env"

@@ -18,11 +18,13 @@ not change the VibeDesk protocol.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 import socket
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -31,13 +33,15 @@ import requests
 import astock
 import gstock
 import security_master
+from market_scan_daily import DailyScanUnavailable, load_adjusted_daily_history, scan_daily_quotes
+from quote_time import price_as_of as _price_as_of
 
 
 SEARCH_URL = "https://searchapi.eastmoney.com/api/suggest/get"
 SEARCH_TOKEN = "D43BF722C8E33BDC906FB84D85E326E8"
 FUND_SUGGEST_URL = "https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx"
 TENCENT_SEARCH_URL = "https://smartbox.gtimg.cn/s3/"
-TENCENT_KLINE_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+TENCENT_KLINE_URL = "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get"
 TENCENT_HK_KLINE_URL = "https://web.ifzq.gtimg.cn/appstock/app/kline/kline"
 TENCENT_MINUTE_KLINE_URL = "https://ifzq.gtimg.cn/appstock/app/kline/mkline"
 TENCENT_DAY_MINUTE_URL = "https://web.ifzq.gtimg.cn/appstock/app/day/query"
@@ -81,6 +85,10 @@ _SCAN_SORT_FIELDS = {
     "marketCap": "f20",
     "pb": "f23",
 }
+
+
+class MarketScanUnavailable(RuntimeError):
+    """Neither configured scan endpoint returned a usable market response."""
 
 
 def _now_iso() -> str:
@@ -365,17 +373,6 @@ def _quote_identity(market: str, symbol: str, name: str = "") -> dict[str, Any]:
     }
 
 
-def _price_as_of(value: str | None, timezone: str) -> str | None:
-    if not value:
-        return None
-    for pattern in ('%Y%m%d%H%M%S', '%Y/%m/%d %H:%M:%S', '%Y-%m-%d %H:%M:%S'):
-        try:
-            return datetime.strptime(value, pattern).replace(tzinfo=ZoneInfo(timezone)).isoformat()
-        except ValueError:
-            continue
-    return None
-
-
 def _cn_quote(symbol: str, raw: dict[str, Any]) -> dict[str, Any]:
     identity = _quote_identity("CN", symbol, str(raw.get("name") or symbol))
     return {
@@ -601,6 +598,14 @@ def scan_market_quotes(
     if order not in {"asc", "desc"}:
         raise ValueError("扫描排序方向必须是 asc 或 desc")
     limit = min(max(int(limit), 20), 200)
+    cn_source = os.environ.get("VR_CN_SCAN_SOURCE", "eastmoney").strip()
+    if market_id == "CN" and cn_source != "eastmoney":
+        if cn_source != "tushare-daily":
+            raise MarketScanUnavailable("VR_CN_SCAN_SOURCE 必须是 eastmoney 或 tushare-daily。")
+        try:
+            return scan_daily_quotes(sort=sort, order=order, limit=limit)
+        except DailyScanUnavailable as error:
+            raise MarketScanUnavailable(str(error)) from error
     cache_key = (market_id, sort, order, limit)
     cached = _SCAN_CACHE.get(cache_key)
     if cached and time.time() - cached[0] < 20:
@@ -618,7 +623,7 @@ def scan_market_quotes(
         "fields": "f2,f3,f4,f5,f6,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f100",
     }
     rows: list[dict[str, Any]] = []
-    source = "eastmoney-delay"
+    source = None
     for host in ("push2delay.eastmoney.com", "push2.eastmoney.com"):
         try:
             response = astock.em_get(
@@ -627,14 +632,35 @@ def scan_market_quotes(
                 headers={"User-Agent": astock.UA, "Referer": "https://quote.eastmoney.com/"},
                 timeout=10,
             )
+            response.raise_for_status()
             payload = response.json()
-            raw_rows = (payload.get("data") or {}).get("diff") or []
-            rows = list(raw_rows.values()) if isinstance(raw_rows, dict) else raw_rows
+            if not isinstance(payload, dict) or payload.get("rc") != 0:
+                raise ValueError("scan provider returned an error response")
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                raise ValueError("scan provider omitted market data")
+            raw_rows = data.get("diff")
+            if raw_rows is None and data.get("total") == 0:
+                raw_rows = []
+            if not isinstance(raw_rows, (list, dict)):
+                raise ValueError("scan provider returned an invalid row collection")
+            candidate_rows = list(raw_rows.values()) if isinstance(raw_rows, dict) else raw_rows
+            if any(not isinstance(row, dict) or not str(row.get("f12") or "").strip()
+                   for row in candidate_rows):
+                raise ValueError("scan provider returned rows without security identity")
+            if not candidate_rows and data.get("total") != 0:
+                raise ValueError("scan provider returned an unexplained empty market")
+            rows = candidate_rows
+            source = "eastmoney-delay" if host.startswith("push2delay") else "eastmoney"
             if rows:
-                source = "eastmoney-delay" if host.startswith("push2delay") else "eastmoney"
                 break
-        except Exception:  # noqa: BLE001 - next host is the explicit fallback
-            continue
+        except (requests.RequestException, ValueError) as error:
+            logging.getLogger(__name__).warning(
+                "Market scan %s %s %s via %s failed: %s",
+                market_id, sort, order, host, type(error).__name__,
+            )
+    if source is None:
+        raise MarketScanUnavailable("行情扫描源暂不可用，未取得市场候选；请稍后重试。这不代表没有符合条件的股票。")
 
     items = []
     for row in rows:
@@ -726,7 +752,8 @@ def _tencent_ohlcv(symbol: str, timeframe: str, limit: int, adjust: str) -> list
     if int(payload.get("code", -1)) != 0:
         return []
     block = (payload.get("data") or {}).get(prefixed) or {}
-    rows = block.get(f"{adjustment}{period}") or block.get(period) or []
+    # A raw day/week/month series is not evidence of the requested adjustment.
+    rows = block.get(f"{adjustment}{period}") or []
     return _parse_tencent_rows(rows)[-limit:]
 
 
@@ -1168,10 +1195,26 @@ def get_ohlcv(
     limit: int = 320,
     adjust: str = "qfq",
     asset_type: str = "stock",
+    as_of: str | None = None,
 ) -> dict[str, Any]:
     """Load normalized OHLCV bars for the terminal chart."""
     market_id, code = _split_symbol(f"{market}:{symbol}" if market else symbol)
+    cutoff = date.fromisoformat(as_of) if as_of else None
+    if cutoff and (market_id != "CN" or timeframe != "1d" or asset_type == "fund"):
+        raise ValueError("截止日筛选目前仅支持A股日线，不代表其他市场或周期已支持历史回放")
     limit = min(max(int(limit), 40), 800)
+    source_count = 0
+    history_metadata = {}
+
+    def window(rows):
+        nonlocal source_count
+        source_count = len(rows)
+        if cutoff is None:
+            return rows
+        return [bar for bar in rows if datetime.fromtimestamp(
+            bar["timestamp"] / 1000, _CHINA_TIMEZONE
+        ).date() <= cutoff]
+
     effective_adjust = "none" if asset_type == "fund" else (adjust if market_id == "CN" else "none")
     if asset_type == "fund":
         bars = _fund_nav_ohlcv(code, limit) if market_id == "CN" and timeframe == "1d" else []
@@ -1182,19 +1225,33 @@ def get_ohlcv(
             source = "tencent-minute"
         else:
             try:
-                bars = _tencent_ohlcv(code, timeframe, limit, adjust)
+                bars = window(_tencent_ohlcv(code, timeframe, limit, adjust))
             except (requests.RequestException, ValueError):
                 bars = []
             source = "tencent"
             if not bars:
                 try:
-                    bars = _eastmoney_ohlcv(code, timeframe, limit, adjust)
+                    bars = window(_eastmoney_ohlcv(code, timeframe, limit, adjust))
                 except (requests.RequestException, ValueError):
                     bars = []
                 source = "eastmoney"
+            if (not bars and timeframe == "1d" and asset_type == "stock"
+                    and adjust in {"qfq", "hfq"}
+                    and os.environ.get("VR_CN_SCAN_SOURCE", "").strip().lower() == "tushare-daily"):
+                try:
+                    exchange = {"sh": "SH", "sz": "SZ", "bj": "BJ"}[astock.get_prefix(code)]
+                    history = load_adjusted_daily_history(
+                        f"{code}.{exchange}", limit=limit, adjust=adjust, end=cutoff,
+                    )
+                    bars = window(history["items"])
+                    if bars:
+                        source = "tushare-daily"
+                        history_metadata = {key: value for key, value in history.items() if key != "items"}
+                except DailyScanUnavailable as error:
+                    logging.getLogger(__name__).warning("Adjusted daily fallback %s unavailable: %s", code, error)
             if not bars:
                 try:
-                    bars = _sina_cn_ohlcv(code, timeframe, limit)
+                    bars = window(_sina_cn_ohlcv(code, timeframe, limit))
                 except (requests.RequestException, ValueError):
                     bars = []
                 if bars:
@@ -1202,14 +1259,14 @@ def get_ohlcv(
                     source = "sina-unadjusted"
             if not bars and adjust != "none":
                 try:
-                    bars = _eastmoney_ohlcv(code, timeframe, limit, "none")
+                    bars = window(_eastmoney_ohlcv(code, timeframe, limit, "none"))
                 except (requests.RequestException, ValueError):
                     bars = []
                 if bars:
                     effective_adjust = "none"
                     source = "eastmoney-unadjusted"
         if not bars:
-            bars = _mootdx_ohlcv(code, timeframe, limit)
+            bars = window(_mootdx_ohlcv(code, timeframe, limit))
             source = "mootdx"
             effective_adjust = "none"
     else:
@@ -1251,7 +1308,8 @@ def get_ohlcv(
             bars = _yahoo_ohlcv(market_id, code, timeframe, limit)
             source = "yahoo"
     if not bars:
-        raise RuntimeError(f"{market_id}:{code} {timeframe} 暂无可用行情")
+        boundary = f"（截止 {as_of}，现有来源窗口不足）" if cutoff else ""
+        raise RuntimeError(f"{market_id}:{code} {timeframe} 暂无可用行情{boundary}")
     return {
         "symbol": code,
         "market": market_id,
@@ -1260,5 +1318,7 @@ def get_ohlcv(
         "items": bars,
         "source": source,
         "asOf": _now_iso(),
-        "hasMore": len(bars) >= limit,
+        "hasMore": (source_count if cutoff else len(bars)) >= limit,
+        **history_metadata,
+        **({"requestedAsOf": as_of, "historicalMode": "bounded-daily-window" if source == "tushare-daily" else "latest-window-filter"} if cutoff else {}),
     }

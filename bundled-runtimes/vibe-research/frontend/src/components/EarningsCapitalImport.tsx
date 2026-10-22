@@ -1,3 +1,4 @@
+import { ReportSourceLink } from '@/components/ReportSourceLink';
 import {useState} from 'react';
 import {api, researchApiUrl, type EarningsPdfImport} from '@/lib/api';
 import {missingPdfCapital, missingPdfCapitalNotes} from '@/lib/earningsPdfImport';
@@ -44,22 +45,22 @@ export function EarningsCapitalImport({workbook, disabled, onBusy, onAdopt, onAd
   };
   return <section aria-label="补充财报资本项目" className="mb-4 border-b border-border pb-3 text-sm">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-muted-foreground">补充合并报表资本事实，供估值核验引用；不重复上传、不自动回填估值。</p>
+      <p className="text-muted-foreground">补充合并报表期末余额，含存货、应收账款及资本项目，供行业和估值核验；不重复上传、不自动回填估值。</p>
       {reports.size>1 && <select aria-label="资本项目财报" className={button} disabled={disabled} value={currentId} onChange={e=>{setReportId(e.target.value);setDocument(null);setConfirmed(false);setStatus('')}}>
         {[...reports].map(([id,label])=><option key={id} value={id}>{label}</option>)}
       </select>}
-      <button className={button} disabled={disabled} onClick={()=>void read()}>补充资本项目</button>
+      <button className={button} disabled={disabled} onClick={()=>void read()}>补充资本项目（含存货 / 应收）</button>
       <button className={button} disabled={disabled} onClick={()=>void readNotes()}>定位资本附注</button>
     </div>
     {status && <p role="status" className="mt-2">{status}</p>}
     {document && <div className="mt-3 space-y-3">
-      <p>{document.security.name} · {document.security.symbol} · {document.periodEnd} · 合并报表 · 人民币</p>
+      <p>{document.security.name} · {document.security.symbol} · {document.periodEnd} · 合并报表期末余额 · 人民币</p>
       {(document.capitalNotesWarnings || document.capitalWarnings || document.warnings).map((text,i)=><p key={i} className="text-muted-foreground">{text}</p>)}
       {!!document.capitalNotes?.length && <section aria-label="资本附注候选" className="space-y-3">
         {document.capitalNotes.map(row=><div key={row.id} className="flex items-start gap-2">
           <input type="checkbox" className="mt-1" aria-label={`采用${row.title}第 ${row.page} 页`} disabled={disabled} checked={selected.includes(row.id)} onChange={e=>{setSelected(e.target.checked?[...selected,row.id]:selected.filter(id=>id!==row.id));setConfirmed(false)}}/>
           <details className="min-w-0 flex-1"><summary className="cursor-pointer">{row.title} · 第 {row.page} 页{row.truncated?' · 内容已截断':''}</summary>
-            <a className="text-primary underline" href={`${researchApiUrl(`/myreports/file/${document.reportId}?inline=true`)}#page=${row.page}`} target="_blank" rel="noreferrer">核对 PDF 原页</a>
+            <ReportSourceLink className="text-primary underline" href={`${researchApiUrl(`/myreports/file/${document.reportId}?inline=true`)}#page=${row.page}`} target="_blank" rel="noreferrer">核对 PDF 原页</ReportSourceLink>
             <pre className="max-h-80 overflow-auto whitespace-pre-wrap py-2 text-sm">{row.text}</pre>
           </details>
         </div>)}
@@ -88,7 +89,7 @@ export function EarningsCapitalImport({workbook, disabled, onBusy, onAdopt, onAd
       <summary className="cursor-pointer">已采用资本附注 · {workbook.sourceMaterials.filter(source=>source.capitalNote).length} 段</summary>
       {workbook.sourceMaterials.filter(source=>source.capitalNote).map(source=><details key={source.id} className="border-t border-border py-2">
         <summary className="cursor-pointer">{source.label}{source.capitalNote!.truncated?' · 内容已截断':''}</summary>
-        <a className="text-primary underline" href={source.url} target="_blank" rel="noreferrer">核对 PDF 原页</a>
+        <ReportSourceLink className="text-primary underline" href={source.url} target="_blank" rel="noreferrer">核对 PDF 原页</ReportSourceLink>
         <pre className="max-h-80 overflow-auto whitespace-pre-wrap py-2 text-sm">{source.capitalNote!.text}</pre>
       </details>)}
     </details>}

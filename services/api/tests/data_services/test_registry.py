@@ -65,6 +65,13 @@ def test_registry_rejects_duplicate_service_ids(
         DataServiceRegistry([market_service, market_service])
 
 
+@pytest.mark.parametrize("timeout", [0, -1, 301])
+def test_capability_rejects_invalid_timeout(timeout):
+    with pytest.raises(ValueError):
+        ServiceCapability(method="GET", path="/indices", input_schema="Input",
+                          output_schema="Output", permission="market.read", timeoutSeconds=timeout)
+
+
 @pytest.mark.parametrize(
     "path",
     [

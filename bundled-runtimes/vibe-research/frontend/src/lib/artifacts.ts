@@ -1,4 +1,4 @@
-import { waitForVibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig } from "@/lib/vibedesk";
 
 export type ArtifactNodeKind =
   | "source"
@@ -48,6 +48,22 @@ export interface ModArtifactRecord {
   viewUrl: string;
   spec: GraphArtifactInput;
   archifyIr: Record<string, unknown>;
+}
+
+export async function previewGraphArtifact(input: GraphArtifactInput, signal: AbortSignal): Promise<string> {
+  const config = getVibeDeskConfig();
+  if (!config && (isVibeDeskEmbedded || import.meta.env.VITE_NEWMA_DESK_INTEGRATED !== "1")) {
+    throw new Error("关系图预览需要连接 Desk 图谱服务；可继续查看节点、关系和来源列表。");
+  }
+  const origin = config?.gatewayOrigin ?? window.location.origin;
+  const response = await fetch(`${origin}/api/artifacts/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal,
+  });
+  if (!response.ok) throw new Error(`关系图暂不可用（HTTP ${response.status}），仍可查看节点与来源。`);
+  return response.text();
 }
 
 function absoluteViewUrl(record: ModArtifactRecord, gatewayOrigin: string): ModArtifactRecord {

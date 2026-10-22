@@ -116,6 +116,37 @@ def test_macro_monitor_reports_partial_indicator_failures(monkeypatch):
     )
 
 
+def test_tushare_pmi_requests_explicit_official_fields(monkeypatch):
+    calls = []
+
+    class PmiClient:
+        def query(self, api, **params):
+            if api != "cn_pmi":
+                return pd.DataFrame()
+            calls.append(params)
+            # cn_pmi has no default output columns in the documented API.
+            if params.get("fields") != "month,pmi010000":
+                raise ValueError("output fields required")
+            return pd.DataFrame([
+                {"month": "202609", "pmi010000": 50.1},
+                {"month": "202608", "pmi010000": 49.8},
+            ])
+
+    monkeypatch.setattr(macro_monitor, "_tushare_client", PmiClient)
+    today = date(2026, 10, 22)
+    indicators, errors, status = macro_monitor._load_tushare_indicators(today)
+    assert "cn-pmi" in indicators, errors
+    pmi = indicators["cn-pmi"]
+    assert status == "ok" and errors == []
+    assert pmi["period"] == "2026-09" and pmi["value"] == 50.1
+    assert pmi["previous"] == 49.8
+    assert pmi["source"]["id"] == "tushare-cn_pmi"
+    assert pmi["releaseDate"] is None and pmi["dateBasis"] == "period"
+    assert calls == [{"start_m": "202401", "end_m": "202610", "fields": "month,pmi010000"}]
+    macro_monitor._load_tushare_indicators(today)
+    assert len(calls) == 1
+
+
 def test_tushare_monthly_series_uses_latest_period():
     config = next(item for item in macro_monitor._INDICATORS if item["id"] == "cn-cpi-yoy")
     series = next(item for item in macro_monitor._TUSHARE_SERIES if item["id"] == "cn-cpi-yoy")
@@ -872,6 +903,56 @@ def test_liquidity_item_rejects_future_rows():
     )
     assert item["value"] == 7.0 and item["previous"] is None
     assert len(item["history"]) == 1
+
+
+def test_liquidity_monthly_series_excludes_unfinished_month_and_uses_period_end(monkeypatch):
+    frames = {
+        "macro_china_money_supply": pd.DataFrame([
+            {"月份": "2026-08", "货币和准货币(M2)-同比增长": 7.5, "货币(M1)-同比增长": 4.1},
+            {"月份": "2026-09", "货币和准货币(M2)-同比增长": 7.2, "货币(M1)-同比增长": 3.2},
+        ]),
+        "macro_stock_finance": pd.DataFrame([
+            {"月份": "2026-08", "募集资金": 451.29},
+            {"月份": "2026-09", "募集资金": 627.81},
+            {"月份": "2026-10", "募集资金": 224.84},
+        ]),
+    }
+    monkeypatch.setattr(macro_monitor.astock, 'akshare_parallel_call', lambda name, **_: frames.get(name))
+    result = macro_monitor._load_liquidity(date(2026, 10, 22))
+    rows = {row['id']: row for row in result['indicators']}
+    money = rows['cn-m2-yoy']
+    assert money['period'] == '2026-09'
+    assert money['periodEnd'] == money['asOf'] == '2026-09-30'
+    assert money['frequency'] == 'month' and money['dateBasis'] == 'period-end'
+    assert money['freshness']['ageDays'] == 22
+    financing = rows['cn-equity-financing']
+    assert financing['value'] == 627.81 and financing['previous'] == 451.29
+    assert financing['change'] == 176.52
+    assert financing['history'][-1] == {'period': '2026-09', 'value': 627.81}
+    assert financing['source']['url'] == 'https://data.10jqka.com.cn/macro/finance/'
+    assert '聚合' in money['source']['label']
+
+
+@pytest.mark.parametrize("today", [date(2026, 10, 22), date(2026, 10, 31)])
+def test_liquidity_current_month_only_is_missing_not_zero(monkeypatch, today):
+    monkeypatch.setattr(macro_monitor.astock, 'akshare_parallel_call', lambda name, **_:
+        pd.DataFrame([{'月份': '2026-10', '募集资金': 224.84}]) if name == 'macro_stock_finance' else None)
+    result = macro_monitor._load_liquidity(today)
+    assert result['indicators'] == []
+    assert result['coverage']['available'] == 0
+    assert result['coverage']['asOf'] is None
+
+
+def test_liquidity_daily_observations_keep_actual_dates(monkeypatch):
+    monkeypatch.setattr(macro_monitor.astock, 'akshare_parallel_call', lambda name, **_:
+        pd.DataFrame([{'日期': '2026-10-21', 'O/N-定价': 1.261}, {'日期': '2026-10-22', 'O/N-定价': 1.2612}])
+        if name == 'macro_china_shibor_all' else None)
+    result = macro_monitor._load_liquidity(date(2026, 10, 22))
+    row = result['indicators'][0]
+    assert row['period'] == row['asOf'] == '2026-10-22'
+    assert row['frequency'] == 'day' and row['dateBasis'] == 'observation-date'
+    assert row['change'] == 0.0002
+    assert '金十' in row['source']['label']
 
 
 def test_liquidity_does_not_call_one_exchange_a_whole_market(monkeypatch):

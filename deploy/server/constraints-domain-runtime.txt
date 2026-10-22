@@ -5,6 +5,7 @@ croniter==6.2.4
 fastapi==0.140.7
 httpx==0.28.1
 jsonschema==4.26.0
+lxml==6.1.2
 numpy==2.5.1
 pandas==2.3.3
 pydantic==2.13.4

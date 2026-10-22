@@ -61,3 +61,5 @@ class ResearchArchiveIndex(ResearchArchiveModel):
     workspace_id: str
     generated_at: str
     entries: list[ResearchArchiveEntry]
+    unavailable_sources: list[str] = Field(default_factory=list)
+    truncated: bool = False

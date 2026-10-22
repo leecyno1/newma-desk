@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@newma-desk/contracts": "file:../../../../packages/contracts",
+    "@newma-desk/mod-sdk": "file:../../../../packages/module-sdk",
     "clsx": "^2.1.0",
     "lucide-react": "^0.460.0",
     "react": "^19.0.0",

@@ -20,8 +20,11 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import {
   hydrateThesisPortfolio,
-  loadLocalThesisPortfolio,
+  emptyThesisPortfolio,
   persistThesisPortfolio,
+  thesisScope,
+  ThesisStorageError,
+  type ThesisSession,
   type InvestmentThesis,
   type InvestmentThesisPortfolio,
   type ThesisConviction,
@@ -32,6 +35,7 @@ import { cn } from "@/lib/utils";
 import {
   publishVibeDeskContext,
   registerVibeDeskContextProvider,
+  subscribeVibeDeskConfig,
   type VibeDeskPageContext,
 } from "@/lib/vibedesk";
 
@@ -152,8 +156,9 @@ function thesisContext(
   selected: InvestmentThesis | undefined,
   draft: InvestmentThesis,
   dirty: boolean,
+  storage: { mode?: string; state: string; revision?: number; error: string },
 ): VibeDeskPageContext {
-  const active = selected || draft;
+  const active = draft;
   return {
     view: { id: "thesis-tracker", title: "投资逻辑" },
     visibleBlocks: [
@@ -175,10 +180,11 @@ function thesisContext(
       unsavedChanges: dirty,
     },
     data: {
-      asOf: selected?.updatedAt || portfolio.updatedAt,
       source: portfolio.schemaVersion,
-      freshness: "fresh",
+      freshness: active.evidence.some((item) => item.freshness.status === "stale") ? "stale" : "unknown",
       summary: {
+        storage,
+        savedUpdatedAt: selected?.updatedAt,
         thesisCount: portfolio.theses.length,
         selectedThesis: {
           title: active.title,
@@ -197,86 +203,198 @@ function thesisContext(
       },
     },
     actions: [
-      { id: "thesis.create", label: "新建投资逻辑", available: true },
-      { id: "thesis.add-evidence", label: "新增证据并判断影响", available: true },
-      { id: "thesis.review", label: "记录阶段复盘", available: true },
-      { id: "thesis.invalidate", label: "标记已证伪", available: active.status !== "invalidated" },
+      { id: "thesis.create", label: "新建投资逻辑", available: false },
+      { id: "thesis.add-evidence", label: "新增证据并判断影响", available: false },
+      { id: "thesis.review", label: "记录阶段复盘", available: false },
+      { id: "thesis.invalidate", label: "标记已证伪", available: false },
     ],
     tasks: [],
   };
 }
 
 export function ThesisTracker() {
-  const initial = useMemo(loadLocalThesisPortfolio, []);
-  const [portfolio, setPortfolio] = useState(initial);
-  const [selectedId, setSelectedId] = useState(initial.theses[0]?.id || "__new__");
-  const [draft, setDraft] = useState(() => initial.theses[0] ? copyThesis(initial.theses[0]) : blankThesis());
+  const [scope, setScope] = useState(thesisScope);
+  useEffect(() => {
+    const update = () => setScope(thesisScope());
+    const unsubscribe = subscribeVibeDeskConfig(update);
+    update();
+    return unsubscribe;
+  }, []);
+  return <ThesisEditor key={scope} />;
+}
+
+function ThesisEditor() {
+  const initial = useMemo(emptyThesisPortfolio, []);
+  const [session, setSession] = useState<ThesisSession | null>(null);
+  const portfolio = session?.portfolio || initial;
+  const [selectedId, setSelectedId] = useState("__new__");
+  const [draft, setDraft] = useState(blankThesis);
+  const baseline = useRef(JSON.stringify(draft));
   const [message, setMessage] = useState("");
-  const [catalystDraft, setCatalystDraft] = useState({ id: "", title: "", date: "" });
-  const [evidenceDraft, setEvidenceDraft] = useState({
+  const [pendingArtifact, setPendingArtifact] = useState<string>();
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [needsReload, setNeedsReload] = useState(false);
+  const [readAttempt, setReadAttempt] = useState(0);
+  const controller = useRef<AbortController | null>(null);
+  const emptyForms = useMemo(() => ({ catalyst: { id: "", title: "", date: "" }, evidence: {
     source: "",
     url: "",
     asOf: today(),
     summary: "",
-    freshness: "fresh" as "live" | "fresh" | "stale" | "unknown",
+    freshness: "unknown" as "live" | "fresh" | "stale" | "unknown",
     confidence: "medium" as ThesisConviction,
     impact: "neutral" as ThesisImpact,
     pillarId: "",
-  });
-  const [reviewDraft, setReviewDraft] = useState({
+  }, review: {
     date: today(),
     dataPoint: "",
     impact: "neutral" as ThesisImpact,
     pillarId: "",
-  });
+  } }), []);
+  const [catalystDraft, setCatalystDraft] = useState(emptyForms.catalyst);
+  const [evidenceDraft, setEvidenceDraft] = useState(emptyForms.evidence);
+  const [reviewDraft, setReviewDraft] = useState(emptyForms.review);
 
   const selected = portfolio.theses.find((item) => item.id === selectedId);
-  const dirty = selectedId === "__new__"
-    ? Boolean(draft.security.symbol || draft.security.name || draft.title || draft.statement)
-    : JSON.stringify(selected) !== JSON.stringify(draft);
+  const pendingForms = JSON.stringify({ catalyst: catalystDraft, evidence: evidenceDraft, review: reviewDraft }) !== JSON.stringify(emptyForms);
+  const dirty = baseline.current !== JSON.stringify(draft) || pendingForms;
+  const busy = loading || saving;
+  const latest = useRef({ busy, dirty });
+  latest.current = { busy, dirty };
+  const showThesis = (thesis?: InvestmentThesis, keepPendingLink = false) => {
+    if (!keepPendingLink) setPendingArtifact(undefined);
+    const next = thesis ? copyThesis(thesis) : blankThesis();
+    baseline.current = JSON.stringify(next);
+    setSelectedId(thesis?.id || "__new__");
+    setDraft(next);
+    setCatalystDraft(emptyForms.catalyst);
+    setEvidenceDraft(emptyForms.evidence);
+    setReviewDraft(emptyForms.review);
+  };
 
   useEffect(() => {
-    let active = true;
-    void hydrateThesisPortfolio().then((value) => {
-      if (!active) return;
-      setPortfolio(value);
-      const first = value.theses[0];
-      setSelectedId(first?.id || "__new__");
-      setDraft(first ? copyThesis(first) : blankThesis());
+    const abort = new AbortController();
+    controller.current = abort;
+    setLoading(true);
+    setError("");
+    void hydrateThesisPortfolio(abort.signal).then((value) => {
+      if (abort.signal.aborted) return;
+      setSession(value);
+      setNeedsReload(false);
+      const target = new URLSearchParams(window.location.hash.slice(1)).get("artifact");
+      const thesis = target ? value.portfolio.theses.find((item) => item.id === target) : value.portfolio.theses[0];
+      showThesis(thesis);
+      setMessage(target && !thesis ? "当前档案中未找到链接指定的投资逻辑；未替换为其他档案，请核对工作区和档案 ID。" : "");
+    }).catch((failure: unknown) => {
+      if (!abort.signal.aborted) setError(failure instanceof ThesisStorageError ? failure.message : "读取未确认，原档案未改动，请重试。");
+    }).finally(() => {
+      if (!abort.signal.aborted) setLoading(false);
     });
-    return () => { active = false; };
+    return () => abort.abort();
+  }, [readAttempt]);
+
+  const openLinkedArtifact = (target: string) => {
+    const thesis = portfolio.theses.find((item) => item.id === target);
+    if (!thesis) {
+      setPendingArtifact(undefined);
+      setMessage("当前档案中未找到链接指定的投资逻辑；当前草稿未改动，请核对工作区或重新读取。");
+      return;
+    }
+    showThesis(thesis);
+    setMessage("已打开链接指定的投资逻辑。");
+  };
+  useEffect(() => {
+    const followLink = () => {
+      const target = new URLSearchParams(window.location.hash.slice(1)).get("artifact");
+      if (!target || target === selectedId) { setPendingArtifact(undefined); return; }
+      if (busy || dirty) {
+        setPendingArtifact(target);
+        setMessage("");
+        return;
+      }
+      openLinkedArtifact(target);
+    };
+    window.addEventListener("hashchange", followLink);
+    return () => window.removeEventListener("hashchange", followLink);
+  }, [portfolio, selectedId, busy, dirty]);
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (latest.current.dirty || latest.current.busy) { event.preventDefault(); event.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
   }, []);
 
-  const contextRef = useRef<VibeDeskPageContext>(thesisContext(portfolio, selected, draft, dirty));
-  contextRef.current = thesisContext(portfolio, selected, draft, dirty);
+  const storage = { mode: session?.mode, state: loading ? "loading" : saving ? "saving" : error ? "error" : dirty ? "unsaved" : "loaded", revision: session?.mode === "desk" ? session.revision : undefined, error };
+  const contextRef = useRef<VibeDeskPageContext>(thesisContext(portfolio, selected, draft, dirty, storage));
+  contextRef.current = thesisContext(portfolio, selected, draft, dirty, storage);
+  Object.assign(contextRef.current.data.summary!, { pendingArtifactId: pendingArtifact, pendingInputs: { catalyst: catalystDraft, evidence: evidenceDraft, review: reviewDraft }, actionLimit: "当前仅支持页面手工编辑；Agent 写入动作尚未接通。" });
   useEffect(() => registerVibeDeskContextProvider(() => contextRef.current), []);
   useEffect(() => {
     void publishVibeDeskContext();
-  }, [dirty, draft, portfolio, selectedId]);
+  }, [dirty, draft, portfolio, selectedId, loading, saving, error, pendingArtifact, catalystDraft, evidenceDraft, reviewDraft]);
 
-  const commit = (next: InvestmentThesisPortfolio) => {
-    setPortfolio(next);
-    void persistThesisPortfolio(next);
+  const commit = async (next: InvestmentThesisPortfolio) => {
+    if (latest.current.busy || !session?.writable || needsReload) return null;
+    latest.current.busy = true;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    const signal = controller.current!.signal;
+    try {
+      const saved = await persistThesisPortfolio(next, session, signal);
+      if (signal.aborted) return null;
+      setSession(saved);
+      return saved;
+    } catch (failure) {
+      if (!signal.aborted) {
+        setError(failure instanceof ThesisStorageError ? failure.message : "保存未确认，草稿仍在；请先导出再重新读取核对。");
+        if (session.mode === "desk") setNeedsReload(true);
+      }
+      return null;
+    } finally {
+      if (!signal.aborted) { latest.current.busy = false; setSaving(false); }
+    }
+  };
+
+  const reload = () => {
+    if (busy || (dirty && !confirm("重新读取会替换未保存的草稿，请先导出保留。确定继续吗？"))) return;
+    setLoading(true);
+    setReadAttempt((attempt) => attempt + 1);
+  };
+  const exportDraft = () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ ...portfolio, theses: [draft], pendingInputs: { catalyst: catalystDraft, evidence: evidenceDraft, review: reviewDraft } }, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "investment-thesis-draft.json";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    setMessage("已发起草稿导出，请确认浏览器下载完成；这不代表工作区已保存。");
   };
 
   const choose = (thesis: InvestmentThesis) => {
     if (dirty && !confirm("当前修改尚未保存，确定切换吗？")) return;
-    setSelectedId(thesis.id);
-    setDraft(copyThesis(thesis));
+    if (busy) return;
+    showThesis(thesis);
     setMessage("");
   };
 
   const startNew = () => {
     if (dirty && !confirm("当前修改尚未保存，确定新建吗？")) return;
-    setSelectedId("__new__");
-    setDraft(blankThesis());
+    if (busy) return;
+    showThesis();
     setMessage("");
   };
 
-  const save = () => {
-    const error = validateThesis(draft);
-    if (error) {
-      setMessage(error);
+  const save = async () => {
+    if (busy) return;
+    if (pendingForms) { setError("还有尚未加入草稿的证据、催化剂或复盘输入，请先加入或清空后再保存。"); return; }
+    const validation = validateThesis(draft);
+    if (validation) {
+      setError(validation);
       return;
     }
     const timestamp = new Date().toISOString();
@@ -297,13 +415,13 @@ export function ThesisTracker() {
     const theses = exists
       ? portfolio.theses.map((item) => item.id === saved.id ? saved : item)
       : [saved, ...portfolio.theses];
-    commit({ ...portfolio, updatedAt: timestamp, theses });
-    setSelectedId(saved.id);
-    setDraft(copyThesis(saved));
-    setMessage("已保存到 Desk 工作区");
+    const result = await commit({ ...portfolio, updatedAt: timestamp, theses });
+    if (!result) return;
+    showThesis(result.portfolio.theses.find((item) => item.id === saved.id), true);
+    setMessage(result.mode === "desk" ? "Desk 已确认保存" : "已保存到本机浏览器，未同步到 Desk");
   };
 
-  const remove = () => {
+  const remove = async () => {
     if (selectedId === "__new__") {
       startNew();
       return;
@@ -311,11 +429,10 @@ export function ThesisTracker() {
     if (!confirm(`删除“${draft.title || draft.security.name}”的投资逻辑？`)) return;
     const theses = portfolio.theses.filter((item) => item.id !== selectedId);
     const next = { ...portfolio, updatedAt: new Date().toISOString(), theses };
-    commit(next);
-    const first = theses[0];
-    setSelectedId(first?.id || "__new__");
-    setDraft(first ? copyThesis(first) : blankThesis());
-    setMessage("");
+    const result = await commit(next);
+    if (!result) return;
+    showThesis(result.portfolio.theses[0]);
+    setMessage(result.mode === "desk" ? "Desk 已确认删除该投资逻辑" : "已从本机档案删除该投资逻辑");
   };
 
   const addCatalyst = () => {
@@ -332,19 +449,19 @@ export function ThesisTracker() {
         },
       ].slice(0, 20),
     }));
-    setCatalystDraft({ id: "", title: "", date: "" });
+    setCatalystDraft(emptyForms.catalyst);
   };
 
   const addEvidence = () => {
     if (!evidenceDraft.source.trim() || !evidenceDraft.summary.trim() || !evidenceDraft.asOf) {
-      setMessage("新增证据需要来源、截至日期和摘要");
+      setError("新增证据需要来源、截至日期和摘要");
       return;
     }
     if (evidenceDraft.url.trim()) {
       try {
-        new URL(evidenceDraft.url.trim());
+        if (!["http:", "https:"].includes(new URL(evidenceDraft.url.trim()).protocol)) throw new Error("invalid protocol");
       } catch {
-        setMessage("证据链接需要是完整的 HTTP(S) URL");
+        setError("证据链接需要是完整的 HTTP(S) URL");
         return;
       }
     }
@@ -386,16 +503,8 @@ export function ThesisTracker() {
         ? { ...pillar, evidenceIds: [...new Set([evidenceId, ...pillar.evidenceIds])].slice(0, 100) }
         : pillar),
     }));
-    setEvidenceDraft({
-      source: "",
-      url: "",
-      asOf: today(),
-      summary: "",
-      freshness: "fresh",
-      confidence: "medium",
-      impact: "neutral",
-      pillarId: "",
-    });
+    setEvidenceDraft(emptyForms.evidence);
+    setError("");
     setMessage("证据已加入草稿，请保存投资逻辑");
   };
 
@@ -414,7 +523,7 @@ export function ThesisTracker() {
         note: "阶段复盘",
       }, ...current.updates].slice(0, 100),
     }));
-    setReviewDraft({ date: today(), dataPoint: "", impact: "neutral", pillarId: "" });
+    setReviewDraft(emptyForms.review);
   };
 
   const evidenceById = useMemo(
@@ -435,18 +544,41 @@ export function ThesisTracker() {
         subtitle="把核心论点、支柱、反方证据、催化与复盘固化为可证伪、可持续更新的研究档案。"
         actions={(
           <>
-            <button onClick={startNew} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm hover:border-primary/40">
+            <button disabled={busy} onClick={startNew} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm hover:border-primary/40 disabled:opacity-50">
               <Plus className="h-4 w-4" /> 新建
             </button>
-            <button onClick={save} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90">
-              <Save className="h-4 w-4" /> 保存
+            <button disabled={busy || !session?.writable || needsReload} onClick={save} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
+              <Save className="h-4 w-4" /> {saving ? "保存中…" : "保存"}
             </button>
           </>
         )}
       />
 
+      <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <span role="status">{loading ? "正在读取投资逻辑…" : saving ? "正在等待保存确认…" : session ? `${session.mode === "desk" ? "Desk 工作区" : "本机浏览器"} · ${error ? "操作未完成" : dirty ? "有未保存修改" : "已读取档案"}${!session.writable ? " · 只读" : ""}` : "尚未读取档案"}</span>
+        <button disabled={busy} onClick={reload} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-50">重新读取</button>
+        <button disabled={busy} onClick={exportDraft} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-50">导出当前草稿</button>
+      </div>
+      {error && <div role="alert" className="mb-4 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">{error}</div>}
+      {pendingForms && <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        还有未加入草稿的证据、催化剂或复盘输入。
+        <button disabled={busy} className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-50" onClick={() => {
+          if (!confirm("清空尚未加入草稿的输入？已加入的研究内容不受影响。")) return;
+          setCatalystDraft(emptyForms.catalyst); setEvidenceDraft(emptyForms.evidence); setReviewDraft(emptyForms.review);
+        }}>清空未加入输入</button>
+      </div>}
+      {pendingArtifact && (
+        <div role="status" className="rounded-xl border border-border p-3 text-sm">
+          链接指向另一份投资逻辑，当前草稿保持不变。请先保存或导出，再打开目标档案。
+          <button disabled={busy} className="ml-3 underline disabled:opacity-50" onClick={() => {
+            if (dirty && !confirm("打开链接档案会替换未保存草稿，请先保存或导出。确定继续吗？")) return;
+            openLinkedArtifact(pendingArtifact);
+          }}>打开链接指定档案</button>
+          <button className="ml-3 underline" onClick={() => setPendingArtifact(undefined)}>暂不切换</button>
+        </div>
+      )}
       {message && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/8 px-3 py-2 text-sm text-foreground">
+        <div role="status" className="mb-4 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/8 px-3 py-2 text-sm text-foreground">
           <CheckCircle2 className="h-4 w-4 text-primary" /> {message}
         </div>
       )}
@@ -460,7 +592,7 @@ export function ThesisTracker() {
         ))}
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[250px_minmax(0,1fr)]">
+      <fieldset disabled={busy || !session} className="grid min-w-0 items-start gap-4 xl:grid-cols-[250px_minmax(0,1fr)]">
         <GlassCard className="p-3 xl:sticky xl:top-3">
           <div className="mb-2 flex items-center justify-between px-2">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">研究对象</span>
@@ -505,7 +637,7 @@ export function ThesisTracker() {
               </div>
               <div className="flex items-center gap-2">
                 {dirty && <span className="text-xs text-warning">有未保存修改</span>}
-                <button onClick={remove} className="rounded-lg border border-border p-2 text-muted-foreground hover:border-destructive/40 hover:text-destructive" title="删除">
+                <button disabled={!session?.writable || needsReload} onClick={remove} className="rounded-lg border border-border p-2 text-muted-foreground hover:border-destructive/40 hover:text-destructive disabled:opacity-50" title="删除" aria-label="删除投资逻辑">
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
@@ -673,7 +805,7 @@ export function ThesisTracker() {
           </div>
           <Disclaimer />
         </div>
-      </div>
+      </fieldset>
     </div>
   );
 }

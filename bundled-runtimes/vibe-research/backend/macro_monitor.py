@@ -226,7 +226,8 @@ _INDICATORS: tuple[dict[str, Any], ...] = (
 )
 
 _TUSHARE_SERIES: tuple[dict[str, str], ...] = (
-    {"id": "cn-pmi", "api": "cn_pmi", "periodKey": "MONTH", "valueKey": "PMI010000", "frequency": "month", "updateKey": "UPDATE_TIME"},
+    # cn_pmi has no default columns; request the documented statistical fields.
+    {"id": "cn-pmi", "api": "cn_pmi", "periodKey": "month", "valueKey": "pmi010000", "frequency": "month", "fields": "month,pmi010000"},
     {"id": "cn-gdp-yoy", "api": "cn_gdp", "periodKey": "quarter", "valueKey": "gdp_yoy", "frequency": "quarter"},
     {"id": "cn-cpi-yoy", "api": "cn_cpi", "periodKey": "month", "valueKey": "nt_yoy", "frequency": "month"},
     {"id": "cn-ppi-yoy", "api": "cn_ppi", "periodKey": "month", "valueKey": "ppi_yoy", "frequency": "month"},
@@ -639,6 +640,8 @@ def _load_tushare_indicators(today: date) -> tuple[dict[str, dict[str, Any]], li
                 params = {"start_q": f"{today.year - 3}Q1", "end_q": f"{today.year}Q{((today.month - 1) // 3) + 1}"}
             else:
                 params = {"start_m": f"{today.year - 2}01", "end_m": f"{today.year}{today.month:02d}"}
+            if series.get("fields"):
+                params["fields"] = series["fields"]
             frame = _cached(
                 f"tushare:{series['api']}:{params}",
                 6 * 3600,
@@ -958,10 +961,15 @@ def _liquidity_item(
     source_url: str,
     max_age_days: int,
     effect: str,
+    frequency: str = "day",
 ) -> dict[str, Any] | None:
+    if frequency == "month":
+        rows = [{**row, "period": row["period"].replace(day=calendar.monthrange(row["period"].year, row["period"].month)[1])} for row in rows]
     # Source frames may include future calendar rows or duplicate periods. Neither
-    # is an observed value that can enter today's assessment.
-    observed = sorted({row["period"]: row for row in rows if row["period"] <= today}.values(), key=lambda row: row["period"])
+    # is an observed value that can enter today's assessment. Monthly values
+    # are comparable only after their statistical period has ended.
+    cutoff = today - timedelta(days=1) if frequency == "month" else today
+    observed = sorted({row["period"]: row for row in rows if row["period"] <= cutoff}.values(), key=lambda row: row["period"])
     if not observed:
         return None
     latest = observed[-1]
@@ -977,11 +985,14 @@ def _liquidity_item(
         "change": round(change, 4) if change is not None else None,
         "direction": "higher" if change is not None and change > 0 else ("lower" if change is not None and change < 0 else "flat"),
         "effect": effect,
-        "period": latest["period"].isoformat(),
+        "period": latest["period"].strftime("%Y-%m") if frequency == "month" else latest["period"].isoformat(),
+        "periodEnd": latest["period"].isoformat(),
+        "frequency": frequency,
+        "dateBasis": "period-end" if frequency == "month" else "observation-date",
         "asOf": latest["period"].isoformat(),
         "source": {"id": source_id, "label": source_label, "url": source_url},
         "freshness": freshness,
-        "history": [{"period": row["period"].isoformat(), "value": round(row["value"], 4)} for row in observed[-30:]],
+        "history": [{"period": row["period"].strftime("%Y-%m") if frequency == "month" else row["period"].isoformat(), "value": round(row["value"], 4)} for row in observed[-30:]],
     }
 
 
@@ -1032,7 +1043,7 @@ def _load_liquidity(today: date) -> dict[str, Any]:
         for function_name, frame in pool.map(fetch, _LIQUIDITY_FUNCTIONS):
             frames[function_name] = frame
 
-    source_url = "https://www.pbc.gov.cn/"
+    source_url = "https://data.eastmoney.com/cjsj/hbgyl.html"
     quantity: list[dict[str, Any]] = []
     price: list[dict[str, Any]] = []
     transmission: list[dict[str, Any]] = []
@@ -1041,7 +1052,7 @@ def _load_liquidity(today: date) -> dict[str, Any]:
     for key, item_id, label in (("O/N-定价", "cn-shibor-on", "SHIBOR 隔夜"), ("1W-定价", "cn-shibor-1w", "SHIBOR 1 周"), ("3M-定价", "cn-shibor-3m", "SHIBOR 3 个月")):
         item = _liquidity_item(
             item_id=item_id, name=label, unit="%", rows=_series_rows(shibor, "日期", key), today=today,
-            source_id="shibor", source_label="中国外汇交易中心 SHIBOR", source_url="https://www.shibor.org/", max_age_days=5, effect="restrictive",
+            source_id="shibor", source_label="金十聚合 · SHIBOR", source_url="https://datacenter.jin10.com/reportType/dc_shibor", max_age_days=5, effect="restrictive",
         )
         if item: price.append(item)
 
@@ -1052,16 +1063,16 @@ def _load_liquidity(today: date) -> dict[str, Any]:
         ("cn-m2-yoy", "M2 同比", m2_rows, "supportive"),
         ("cn-m1-yoy", "M1 同比", m1_rows, "supportive"),
     ):
-        item = _liquidity_item(item_id=item_id, name=label, unit="%", rows=rows, today=today, source_id="pbc-money-supply", source_label="人民银行货币供应量", source_url=source_url, max_age_days=55, effect=effect)
+        item = _liquidity_item(item_id=item_id, name=label, unit="%", rows=rows, today=today, source_id="pbc-money-supply", source_label="东方财富聚合 · 货币供应量", source_url=source_url, max_age_days=55, effect=effect, frequency="month")
         if item: quantity.append(item)
     if m2_rows and m1_rows:
         m1_by_period = {row["period"]: row["value"] for row in m1_rows}
         spread_rows = [{"period": row["period"], "value": row["value"] - m1_by_period[row["period"]]} for row in m2_rows if row["period"] in m1_by_period]
-        item = _liquidity_item(item_id="cn-m2-m1-spread", name="M2-M1 增速差", unit="百分点", rows=spread_rows, today=today, source_id="pbc-money-supply", source_label="人民银行货币供应量", source_url=source_url, max_age_days=55, effect="supportive")
+        item = _liquidity_item(item_id="cn-m2-m1-spread", name="M2-M1 增速差", unit="百分点", rows=spread_rows, today=today, source_id="pbc-money-supply", source_label="东方财富聚合 · 货币供应量", source_url=source_url, max_age_days=55, effect="supportive", frequency="month")
         if item: quantity.append(item)
 
     credit = _series_rows(frames.get("macro_china_new_financial_credit"), "月份", "当月")
-    item = _liquidity_item(item_id="cn-new-rmb-loans", name="新增人民币贷款", unit="亿元", rows=credit, today=today, source_id="pbc-rmb-loans", source_label="人民银行人民币信贷 · 非社融总量", source_url=source_url, max_age_days=55, effect="supportive")
+    item = _liquidity_item(item_id="cn-new-rmb-loans", name="新增人民币贷款", unit="亿元", rows=credit, today=today, source_id="pbc-rmb-loans", source_label="东方财富聚合 · 人民币信贷（非社融总量）", source_url="https://data.eastmoney.com/cjsj/xzxd.html", max_age_days=55, effect="supportive", frequency="month")
     if item: quantity.append(item)
 
     margin_frames = [_series_rows(frames.get(name), "日期", "融资融券余额") for name in ("macro_china_market_margin_sh", "macro_china_market_margin_sz")]
@@ -1069,11 +1080,11 @@ def _load_liquidity(today: date) -> dict[str, Any]:
     # A one-exchange observation is not a whole-market balance.
     common_dates = set(margin_maps[0]) & set(margin_maps[1])
     margin_by_date = {period: (margin_maps[0][period] + margin_maps[1][period]) / 100_000_000 for period in common_dates}
-    item = _liquidity_item(item_id="cn-margin-balance", name="全市场两融余额", unit="亿元", rows=[{"period": period, "value": value} for period, value in sorted(margin_by_date.items())], today=today, source_id="margin-exchanges", source_label="沪深交易所两融", source_url="https://www.sse.com.cn/market/othersdata/margin/", max_age_days=5, effect="supportive")
+    item = _liquidity_item(item_id="cn-margin-balance", name="全市场两融余额", unit="亿元", rows=[{"period": period, "value": value} for period, value in sorted(margin_by_date.items())], today=today, source_id="margin-exchanges", source_label="金十聚合 · 沪深两融合计", source_url="https://datacenter.jin10.com/", max_age_days=5, effect="supportive")
     if item: transmission.append(item)
 
     financing = _series_rows(frames.get("macro_stock_finance"), "月份", "募集资金")
-    item = _liquidity_item(item_id="cn-equity-financing", name="股票市场融资额", unit="亿元", rows=financing, today=today, source_id="csrc-equity-financing", source_label="A 股再融资与 IPO", source_url="https://www.csrc.gov.cn/", max_age_days=55, effect="restrictive")
+    item = _liquidity_item(item_id="cn-equity-financing", name="股票市场融资额", unit="亿元", rows=financing, today=today, source_id="csrc-equity-financing", source_label="同花顺聚合 · 股票市场融资", source_url="https://data.10jqka.com.cn/macro/finance/", max_age_days=55, effect="restrictive", frequency="month")
     if item: transmission.append(item)
 
     groups = [
@@ -1087,8 +1098,8 @@ def _load_liquidity(today: date) -> dict[str, Any]:
         "indicators": all_indicators,
         "assessment": _liquidity_assessment(all_indicators),
         "coverage": {"available": len(all_indicators), "total": 9, "asOf": max((item["asOf"] for item in all_indicators), default=None)},
-        "source": "AkShare · 人民银行 / SHIBOR / 沪深交易所",
-        "note": "数量、价格和市场传导分开统计；仅展示已观测边际变化，不提供未经回测的短期预测。",
+        "source": "AkShare 接入 · 东方财富 / 金十 / 同花顺聚合数据",
+        "note": "月度序列仅比较已结束月份，月末为统计截止日而非已核验发布日期；日度序列保留观测日期。各序列比较各自前一有效观测，不代表统一时点或已核验原始公告。仅展示边际变化，不提供未经回测的短期预测。",
     }
 
 

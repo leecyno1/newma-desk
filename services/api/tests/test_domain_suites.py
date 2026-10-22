@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +17,18 @@ from vibe_visualization_api.domain_suites import (
     _set_trading_api_key,
     mount_domain_suites,
 )
+
+
+def test_financial_html_parser_is_available_before_loading_workspace_venvs() -> None:
+    # BeautifulSoup registers parsers at its first import. Adding a workspace
+    # containing lxml later cannot repair an already-initialized registry.
+    result = subprocess.run(
+        [sys.executable, "-c", "from bs4 import BeautifulSoup; "
+         "soup = BeautifulSoup('<p id=main>财务摘要</p>', features='lxml'); "
+         "assert soup.find('p', id='main').string == '财务摘要'"],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _session_headers(
@@ -363,15 +377,18 @@ def test_spa_static_files_falls_back_to_index(tmp_path: Path) -> None:
 
 def test_domain_suites_receive_resolved_tushare_before_import(tmp_path, monkeypatch):
     monkeypatch.setenv("TUSHARE_TOKEN", "old-test-token")
+    monkeypatch.setenv("VR_CN_SCAN_SOURCE", "eastmoney")
     monkeypatch.setenv("NEWMA_DESK_INTEGRATED_DOMAIN_RUNTIME", "0")
     monkeypatch.setenv("VIBEDESK_INTEGRATED_DOMAIN_RUNTIME", "0")
     backend = tmp_path / "research" / "backend"
     backend.mkdir(parents=True)
     (backend / "app.py").touch()
-    imported_tokens = []
+    imported_configuration = []
 
     def load_module(*_args):
-        imported_tokens.append(os.environ.get("TUSHARE_TOKEN"))
+        imported_configuration.append((
+            os.environ.get("TUSHARE_TOKEN"), os.environ.get("VR_CN_SCAN_SOURCE"),
+        ))
         return SimpleNamespace(app=FastAPI())
 
     monkeypatch.setattr("vibe_visualization_api.domain_suites._load_module", load_module)
@@ -381,13 +398,14 @@ def test_domain_suites_receive_resolved_tushare_before_import(tmp_path, monkeypa
         investment_workspace=backend.parent,
         trading_workspace=tmp_path / "missing-trading",
         tushare_token="configured-test-token",
+        cn_scan_source="tushare-daily",
         _env_file=None,
     )
 
     runtime = mount_domain_suites(FastAPI(), settings)
 
     assert runtime.mounted["research"] is True
-    assert imported_tokens == ["configured-test-token"]
+    assert imported_configuration == [("configured-test-token", "tushare-daily")]
 
 
 def test_domain_suites_are_opt_in_for_isolated_app_factories(tmp_path: Path) -> None:

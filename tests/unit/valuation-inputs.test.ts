@@ -8,8 +8,8 @@ import {summarizeCapitalLines, type CapitalLineItem} from '../../bundled-runtime
 import {capitalEvidenceIssue, normalizeCapitalEvidence, stageCapitalEvidence, capitalDraftIssue, normalizeCapitalDrafts} from '../../bundled-runtimes/vibe-research/frontend/src/lib/valuationReview';
 import {valuationModelSchema} from '../../packages/contracts/src/valuation';
 
-const { config } = vi.hoisted(() => ({ config: { userId:'u',workspaceId:'w',accessToken:'test',instanceId:'i',storageGateway:'http://test/storage',permissions:['storage.read','storage.write'] } }));
-vi.mock('@/lib/vibedesk', () => ({ waitForVibeDeskConfig:async()=>config }));
+const bridge = vi.hoisted(() => ({ config: null as any }));
+vi.mock('@/lib/vibedesk', () => ({ waitForVibeDeskConfig:async()=>bridge.config, getVibeDeskConfig:()=>bridge.config, isVibeDeskEmbedded:false }));
 const workbook = ():SavedEarningsInput => ({
   id:'earnings:moutai',updatedAt:'2026-09-20T00:00:00Z',mode:'reported',
   security:{market:'CN',symbol:'600519',name:'贵州茅台',currency:'CNY'},
@@ -165,6 +165,11 @@ describe('行情与 DCF 口径',()=>{
       importedReport:{...row.sourceMaterials[0].importedReport!,columnHeader:'合并资产负债表 · 2024年12月31日 2023年12月31日'},
       excerpt:{...row.sourceMaterials[0].excerpt!,metricId:'capital-cash-funds',unit:'百万元',reportedValue:10}});
     expect(capitalReferences([row],model,'cashM')).toHaveLength(1);
+    row.operatingMetrics[0].reportedBasis='instant';
+    expect(capitalReferences([row],model,'cashM')).toEqual([]);
+    row.sourceMaterials.at(-1)!.basis='instant';
+    expect(capitalReferences([row],model,'cashM')).toHaveLength(1);
+    row.operatingMetrics.push({...row.operatingMetrics[0],id:'capital-inventory'});
     expect(capitalReferences([row],model,'totalDebtM')).toEqual([]);
     expect(model.capitalInputs.cashM).toBeNull();
     expect(capitalReferences([row],{...model,asOf:'2023-12-31'},'cashM')).toEqual([]);
@@ -286,46 +291,48 @@ describe('资本依据与情景确认',()=>{
 
 describe('工作区存储结果',()=>{
   const values=new Map<string,string>();
-  beforeEach(()=>{vi.restoreAllMocks();values.clear();vi.stubGlobal('localStorage',{getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value)});});
+  beforeEach(()=>{vi.restoreAllMocks();bridge.config=null;values.clear();vi.stubGlobal('localStorage',{getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value)});});
   it('远端空工作区不读取其他工作区的旧全局缓存',async()=>{
+    bridge.config={moduleId:'valuation-workbench',userId:'u',workspaceId:'w',accessToken:'test',instanceId:'i',storageGateway:'http://test/storage',permissions:['storage.read','storage.write']};
     const model=valuationFromEarnings(workbook());values.set('newma-desk.valuation-workbench.v1',JSON.stringify({models:[model]}));
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('',{status:404})));
-    expect((await hydrateValuationWorkspace()).models).toEqual([]);
+    expect((await hydrateValuationWorkspace()).workspace.models).toEqual([]);
   });
   it('确认记录保存重开仍有效；存量模型不默认获得确认',async()=>{
     const model=valuationFromEarnings(workbook());Object.assign(model.capitalInputs,{dilutedSharesM:10,totalDebtM:0,cashM:50});
     const confirmed=reviewed(model);
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('',{status:404})));
-    // PUT is deliberately unavailable; check the same-workspace local round trip.
-    await persistValuationWorkspace({schemaVersion:'newma-desk.valuation-workbench.v1',updatedAt:'2026-09-20',models:[confirmed]});
-    const restored=(await hydrateValuationWorkspace()).models[0];
+    // Explicit native mode: no Desk session, no remote fallback.
+    await persistValuationWorkspace({schemaVersion:'newma-desk.valuation-workbench.v1',updatedAt:'2026-09-20',models:[confirmed]}, await hydrateValuationWorkspace());
+    const restored=(await hydrateValuationWorkspace()).workspace.models[0];
     expect(valuationReadiness(restored).ready).toBe(true);
     expect(restored.result.impliedPrice).toBe(calculateValuationModel(confirmed).result.impliedPrice);
     expect(restored.capitalEvidence.cashM?.excerpt).toContain('cashM');
     const legacy=structuredClone(model);delete (legacy as Partial<ValuationModel>).capitalEvidence;
     delete legacy.capitalInputs.nonOperatingAssetsM;delete legacy.capitalInputs.minorityInterestM;delete legacy.capitalInputs.otherClaimsM;
-    values.set('newma-desk.valuation-workbench.v1:u:w',JSON.stringify({models:[legacy]}));
-    const old=(await hydrateValuationWorkspace()).models[0];
+    values.set('newma-desk.valuation-workbench.v1',JSON.stringify({schemaVersion:'newma-desk.valuation-workbench.v1',models:[legacy]}));
+    const old=(await hydrateValuationWorkspace()).workspace.models[0];
     expect(old.capitalInputs.cashM).toBe(50);expect(valuationReadiness(old).ready).toBe(false);expect(old.result.impliedPrice).toBeNull();
     expect(old.capitalInputs.nonOperatingAssetsM).toBeNull();expect(old.capitalInputs.minorityInterestM).toBeNull();expect(old.capitalInputs.otherClaimsM).toBeNull();
   });
-  it('远端失败只报告本地保存；均失败则报错',async()=>{
+  it('原生保存需实际落盘，失败不报告成功',async()=>{
     vi.stubGlobal('fetch',vi.fn().mockRejectedValue(new Error('offline')));
     const workspace={schemaVersion:'newma-desk.valuation-workbench.v1' as const,updatedAt:'2026-09-20',models:[valuationFromEarnings(workbook())]};
-    expect(await persistValuationWorkspace(workspace)).toBe('local');
-    expect(values.has('newma-desk.valuation-workbench.v1:u:w')).toBe(true);
+    const session=await persistValuationWorkspace(workspace,await hydrateValuationWorkspace());
+    expect(session.mode).toBe('local');
+    expect(values.has('newma-desk.valuation-workbench.v1')).toBe(true);
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('',{status:404})));
-    expect((await hydrateValuationWorkspace()).models[0].id).toBe(workspace.models[0].id);
+    expect((await hydrateValuationWorkspace()).workspace.models[0].id).toBe(workspace.models[0].id);
     vi.stubGlobal('fetch',vi.fn().mockRejectedValue(new Error('offline')));
     vi.stubGlobal('localStorage',{setItem:()=>{throw new Error('full')}});
-    await expect(persistValuationWorkspace(workspace)).rejects.toThrow('未能保存');
+    await expect(persistValuationWorkspace(workspace,session)).rejects.toThrow('本机保存失败');
   });
   it('未核验编辑本地重开仍保留空字段，旧值与原确认不变',async()=>{
     let model=valuationFromEarnings(workbook());Object.assign(model.capitalInputs,{dilutedSharesM:10,totalDebtM:20,cashM:50});model=reviewed(model);
     const staged=stageCapitalEvidence(model,'totalDebtM',{title:'未完成资料',url:'',locator:'',excerpt:'',method:'',lineItems:[{id:'draft-1',label:'待核对借款',amountM:null,treatment:'add',locator:'',reason:''}]});
     vi.stubGlobal('fetch',vi.fn().mockRejectedValue(new Error('offline')));
-    await persistValuationWorkspace({schemaVersion:'newma-desk.valuation-workbench.v1',updatedAt:staged.updatedAt,models:[staged]});
-    const restored=(await hydrateValuationWorkspace()).models[0];
+    await persistValuationWorkspace({schemaVersion:'newma-desk.valuation-workbench.v1',updatedAt:staged.updatedAt,models:[staged]},await hydrateValuationWorkspace());
+    const restored=(await hydrateValuationWorkspace()).workspace.models[0];
     expect(restored.capitalEvidenceDrafts).toEqual(staged.capitalEvidenceDrafts);
     expect(restored.capitalInputs.totalDebtM).toBe(20);expect(valuationReadiness(restored).ready).toBe(true);
   });

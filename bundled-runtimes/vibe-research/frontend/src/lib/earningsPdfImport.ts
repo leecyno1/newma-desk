@@ -15,7 +15,7 @@ function discussionSources(document: EarningsPdfImport, selectedIds: string[]): 
 }
 
 function assertLinkedReport(workbook: EarningsWorkbook, document: EarningsPdfImport) {
-  const linked = workbook.sourceMaterials.some(source => (source.importedReport?.reportId || source.discussion?.reportId || source.capitalNote?.reportId) === document.reportId);
+  const linked = workbook.sourceMaterials.some(source => (source.importedReport?.reportId || source.discussion?.reportId || source.capitalNote?.reportId || source.businessRevenue?.reportId) === document.reportId);
   if (!linked) throw new Error('该 PDF 未关联当前底稿，请重新选择已关联文件');
   if (!document.periodEnd || document.security.market !== workbook.security.market || document.security.symbol !== workbook.security.symbol
     || document.security.currency !== workbook.security.currency || document.periodEnd !== workbook.fiscalPeriod.periodEnd || document.basis !== workbook.fiscalPeriod.basis) {
@@ -29,13 +29,42 @@ export function missingPdfDiscussion(workbook: EarningsWorkbook, document: Earni
     source.discussion?.reportId === document.reportId && source.discussion.pdfPage === passage.page));
 }
 
+export function missingPdfRevenue(workbook: EarningsWorkbook, document: EarningsPdfImport) {
+  assertLinkedReport(workbook, document);
+  return (document.revenueGroups || []).filter(group => !workbook.sourceMaterials.some(source =>
+    source.businessRevenue?.reportId === document.reportId && source.businessRevenue.pdfPage === group.page && source.businessRevenue.dimension === group.dimension));
+}
+
+export function appendPdfRevenue(workbook: EarningsWorkbook, document: EarningsPdfImport, selectedIds: string[]): EarningsWorkbook {
+  const groups = missingPdfRevenue(workbook, document).filter(group => selectedIds.includes(group.id));
+  if (!groups.length) throw new Error('没有新的收入结构表，已采用内容不重复添加');
+  if (workbook.sourceMaterials.length + groups.length > 100) throw new Error('底稿来源已达上限，请先整理');
+  const confirmedAt = new Date().toISOString();
+  const pdfUrl = new URL(researchApiUrl(`/myreports/file/${encodeURIComponent(document.reportId)}?inline=true`), window.location.origin).href;
+  const sources: EarningsSource[] = groups.map(({id, page, ...group}) => {
+    if (group.scope !== 'main-business' || group.currency !== workbook.security.currency || group.unit !== '亿元'
+      || !['industry','product','region','channel'].includes(group.dimension) || !group.columnHeader
+      || page < 1 || page > document.pageCount || !group.rows.length || group.rows.length > 40
+      || new Set(group.rows.map(row=>row.label)).size !== group.rows.length
+      || [...group.rows, ...(group.total ? [group.total] : [])].some(row=>!Number.isFinite(row.value) || !row.label || !row.excerpt || !row.rawValue)) {
+      throw new Error('收入结构口径或原文不完整，请重新核对');
+    }
+    return {id:`uploaded:${document.reportId}:${id}`, label:`${group.title} · PDF 第 ${page} 页`, kind:'filing',
+      url:`${pdfUrl}#page=${page}`, status:'available', basis:document.basis, periodEnd:document.periodEnd!,
+      retrievedAt:new Date(document.retrievedAt).toISOString(),
+      businessRevenue:{...group, reportId:document.reportId, pdfPage:page, pdfPageCount:document.pageCount, confirmedAt, contentOrigin:'pdf-text'}};
+  });
+  return {...workbook, updatedAt:confirmedAt, sourceMaterials:[...workbook.sourceMaterials,...sources]};
+}
+
 export const CAPITAL_FACT_IDS = ['capital-cash-funds', 'capital-short-borrowings', 'capital-long-borrowings',
   'capital-bonds-payable', 'capital-current-noncurrent-liabilities', 'capital-lease-liabilities',
   'capital-share-capital', 'capital-customer-deposits'];
+export const WORKING_CAPITAL_IDS = ['capital-inventory', 'capital-accounts-receivable'];
 
 export function missingPdfCapital(workbook: EarningsWorkbook, document: EarningsPdfImport) {
   assertLinkedReport(workbook, document);
-  return (document.capitalCandidates || []).filter(row => CAPITAL_FACT_IDS.includes(row.id)
+  return (document.capitalCandidates || []).filter(row => [...CAPITAL_FACT_IDS, ...WORKING_CAPITAL_IDS].includes(row.id)
     && !workbook.operatingMetrics.some(metric => metric.id === row.id)
     && !workbook.sourceMaterials.some(source => source.id === `uploaded:${document.reportId}:${row.id}`));
 }
@@ -70,7 +99,7 @@ export function appendPdfCapital(workbook: EarningsWorkbook, document: EarningsP
   if (workbook.operatingMetrics.length + rows.length > 50 || workbook.sourceMaterials.length + rows.length > 100) throw new Error('底稿指标或来源已达上限，请先整理');
   return {...workbook, updatedAt: new Date().toISOString(),
     operatingMetrics: [...workbook.operatingMetrics, ...extracted.operatingMetrics.map(metric => ({...metric,
-      note: `${metric.note} 合并报表原始项目，仅供资本核验参考；不是可直接使用的稀释股数、总债务或可归属现金。`}))],
+      note: `${metric.note} ${WORKING_CAPITAL_IDS.includes(metric.id) ? '合并报表期末账面价值，不是发生额，不直接推算周转天数；应收账款不含票据、融资及其他应收。' : '合并报表原始项目，仅供资本核验参考；不是可直接使用的稀释股数、总债务或可归属现金。'}`}))],
     sourceMaterials: [...workbook.sourceMaterials, ...extracted.sourceMaterials],
   };
 }
@@ -86,7 +115,8 @@ export function appendPdfDiscussion(workbook: EarningsWorkbook, document: Earnin
 export function workbookFromPdf(document: EarningsPdfImport, selectedIds: string[], discussionIds: string[] = []): EarningsWorkbook {
   if (!document.periodEnd || !document.security.symbol || !document.security.name) throw new Error('财报身份不完整，不能采用');
   const selected = document.candidates.filter(row => selectedIds.includes(row.id));
-  if (!selected.length) throw new Error('请至少选择一个已核对的指标');
+  const discussions = discussionSources(document,discussionIds);
+  if (!selected.length && !discussions.length) throw new Error('请至少选择一项已核对的指标或经营原文');
   const workbook = blankEarningsWorkbook();
   const confirmedAt = new Date().toISOString();
   const retrievedAt = new Date(document.retrievedAt).toISOString();
@@ -96,22 +126,25 @@ export function workbookFromPdf(document: EarningsPdfImport, selectedIds: string
   workbook.fiscalPeriod = {label: `${document.periodEnd.slice(0,4)} 年报`, periodEnd: document.periodEnd, basis: document.basis, reportingTime: 'unknown'};
   for (const row of selected) {
     if (!Number.isFinite(row.value) || !row.excerpt || row.page < 1 || row.page > document.pageCount) throw new Error('候选证据不完整，请重新提取');
+    if ((row.basis === 'instant' || WORKING_CAPITAL_IDS.includes(row.id))
+      && (row.basis !== 'instant' || row.periodEnd !== document.periodEnd || row.scope !== 'consolidated')) throw new Error('期末余额须核对合并报表及截止日，请重新提取');
+    const basis = row.basis ?? document.basis;
     const sourceId = `uploaded:${document.reportId}:${row.id}`;
     workbook.sourceMaterials.push({id: sourceId, label: `${document.name} · 第 ${row.page} 页`, kind: 'filing',
-      url: `${pdfUrl}#page=${row.page}`, status: 'available', periodEnd: document.periodEnd, basis: document.basis, retrievedAt,
-      importedReport: {reportId: document.reportId, rawValue: row.rawValue, rawUnit: row.rawUnit, columnHeader: row.columnHeader, confirmedAt},
+      url: `${pdfUrl}#page=${row.page}`, status: 'available', periodEnd: document.periodEnd, basis, retrievedAt,
+      importedReport: {reportId: document.reportId, rawValue: row.rawValue, rawUnit: row.rawUnit, columnHeader: row.columnHeader, confirmedAt, ...(row.scope ? {scope: row.scope} : {})},
       excerpt: {text: row.excerpt, pdfPage: row.page, pdfPageCount: document.pageCount, pdfUrl, metricId: row.id, reportedValue: row.value, unit: row.unit, contentOrigin: 'pdf-text', association: 'user-linked'},
     });
     const base = workbook.metrics.find(metric => metric.id === row.id);
     const metric: EarningsMetric = calculateVariance({...(base || {id: row.id, category: 'operating', internalEstimate: null, consensus: null, varianceVsConsensus: {amount:null,percent:null,bps:null}}),
-      label: row.label, unit: row.unit, reported: row.value, reportedOrigin: 'manual', reportedBasis: document.basis,
+      label: row.label, unit: row.unit, reported: row.value, reportedOrigin: 'manual', reportedBasis: basis,
       reportedCurrency: document.security.currency, periodEnd: document.periodEnd, sourceIds: [sourceId],
       note: `PDF 文字提取后由用户确认；原值 ${row.rawValue} ${row.rawUnit}，物理页 ${row.page}。不是自动审计。`,
     });
     if (base) workbook.metrics = workbook.metrics.map(item => item.id === row.id ? metric : item);
     else workbook.operatingMetrics.push(metric);
   }
-  workbook.sourceMaterials.push(...discussionSources(document,discussionIds));
+  workbook.sourceMaterials.push(...discussions);
   workbook.verification = {status:'partial', latestPeriodChecked:false, checkedAt:confirmedAt, primarySourceIds:workbook.sourceMaterials.map(source=>source.id)};
   workbook.gaps = [...document.warnings, '一致预期未提供，不计算 Beat/Miss；缺少的指标保持空白。'];
   return workbook;

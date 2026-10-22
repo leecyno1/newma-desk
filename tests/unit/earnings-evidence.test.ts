@@ -1,31 +1,38 @@
 import {describe,it,expect,vi} from 'vitest';
-vi.mock('@/lib/vibedesk',()=>({waitForVibeDeskConfig:async()=>null}));
+vi.mock('@/lib/vibedesk',()=>({waitForVibeDeskConfig:async()=>null,getVibeDeskConfig:()=>null,isVibeDeskEmbedded:false}));
 import {convertFilingAmount,applyFilingCorrection,previewFilingCorrection,announcementRevisionHint,filingExcerptPassage,filingExcerptTarget,reviewFilingExcerpts,linkFilingExcerpt,parseFinancialValue,previewFinancialEvidence} from '../../bundled-runtimes/vibe-research/frontend/src/lib/earningsEvidence';
-import {blankEarningsWorkbook,calculateVariance,earningsComparisonIssue,earningsDataStatus,loadLocalEarningsWorkspace,persistEarningsWorkspace} from '../../bundled-runtimes/vibe-research/frontend/src/lib/earningsWorkbench';
+import {blankEarningsWorkbook,calculateVariance,earningsComparisonIssue,earningsDataStatus,hydrateEarningsWorkspace,persistEarningsWorkspace as persistStorage,type EarningsWorkspace} from '../../bundled-runtimes/vibe-research/frontend/src/lib/earningsWorkbench';
 import type {AnnouncementText,EarningsPdfImport,Financials} from '../../bundled-runtimes/vibe-research/frontend/src/lib/api';
 import {earningsResearchWorkbookSchema} from '../../packages/contracts/src/earnings';
-import {appendPdfCapital,appendPdfCapitalNotes,appendPdfDiscussion,missingPdfDiscussion,workbookFromPdf} from '../../bundled-runtimes/vibe-research/frontend/src/lib/earningsPdfImport';
+import {appendPdfCapital,appendPdfCapitalNotes,appendPdfDiscussion,missingPdfDiscussion,workbookFromPdf,appendPdfRevenue,missingPdfRevenue} from '../../bundled-runtimes/vibe-research/frontend/src/lib/earningsPdfImport';
 
 const facts=(overrides:Partial<Financials>={}):Financials=>({basis:'ytd',period:'2026-06-30',revenue:'123亿元',revenue_yoy:'5%',net_profit:null,net_profit_yoy:null,eps:'2元',bvps:null,roe:null,gross_margin:null,net_margin:null,op_cf_ps:null,...overrides});
+const persistEarningsWorkspace=async(workspace:EarningsWorkspace)=>persistStorage(workspace,await hydrateEarningsWorkspace());
 const draft=()=>{const d=blankEarningsWorkbook();d.security.symbol='600519';d.security.name='合成测试';d.fiscalPeriod.basis='ytd';return d};
 const filingReading=(text:string):AnnouncementText=>({announcementId:'AN202608141827994407',symbol:'600519',title:'合成公告',date:'2026-08-15',url:'https://data.eastmoney.com/notices/detail/600519/AN202608141827994407.html',pdfUrl:null,text,segment:1,segmentCount:1,truncated:false,contentOrigin:'provider-transcription',retrievedAt:'2026-09-19T00:00:00Z'});
 describe('financial evidence adoption',()=>{
   it('persists only selected discussion with physical pages without treating passages as metrics',async()=>{
     vi.stubGlobal('window',{location:{origin:'http://127.0.0.1:8911'}});
     const memory=new Map<string,string>();
-    vi.stubGlobal('localStorage',{getItem:(k:string)=>memory.get(k),setItem:(k:string,v:string)=>memory.set(k,v)});
+    vi.stubGlobal('localStorage',{getItem:(k:string)=>memory.get(k)??null,setItem:(k:string,v:string)=>memory.set(k,v)});
     try{
       const document:EarningsPdfImport={reportId:'sample',name:'合成测试.pdf',security:{market:'CN',symbol:'600519',name:'示例',currency:'CNY'},periodEnd:'2024-12-31',basis:'annual',retrievedAt:'2026-09-19T00:00:00+00:00',pageCount:100,readPages:[1,2,3],warnings:[],
         candidates:[{id:'revenue',label:'营业收入',value:12,unit:'亿元',rawValue:'12',rawUnit:'亿元',page:2,excerpt:'营业收入 12',columnHeader:'2024年 2023年'}],
         discussion:[{id:'discussion:3',page:3,topics:['现金流'],text:'现金流量变动原因说明：回款增加。',truncated:true},
           {id:'excluded',page:2,topics:['风险披露'],text:'不选中原文',truncated:false}]};
       const workbook=workbookFromPdf(document,['revenue'],['discussion:3']);
+      const textOnly=workbookFromPdf({...document,candidates:[]},[],['discussion:3']);
+      expect(textOnly.metrics.every(metric=>metric.reported===null)).toBe(true);
+      expect(textOnly.sourceMaterials).toHaveLength(1);
+      expect(textOnly.sourceMaterials[0].discussion?.reportId).toBe(document.reportId);
+      expect(earningsResearchWorkbookSchema.safeParse(textOnly).success).toBe(true);
+      expect(()=>workbookFromPdf({...document,candidates:[]},[],['missing-id'])).toThrow('经营原文');
       expect(earningsResearchWorkbookSchema.safeParse(workbook).success).toBe(true);
       expect(workbook.sourceMaterials).toHaveLength(2);
       expect(workbook.sourceMaterials[1].excerpt).toBeUndefined();
       expect(workbook.operatingMetrics).toEqual([]);
       await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:workbook.updatedAt,workbooks:[workbook]});
-      const saved=loadLocalEarningsWorkspace().workbooks[0].sourceMaterials[1];
+      const saved=(await hydrateEarningsWorkspace()).workspace.workbooks[0].sourceMaterials[1];
       expect(saved.discussion).toMatchObject({pdfPage:3,pdfPageCount:100,readPages:[1,2,3],truncated:true,text:'现金流量变动原因说明：回款增加。'});
       expect(saved.url).toContain('#page=3');
       expect(workbookFromPdf(document,['revenue']).sourceMaterials).toHaveLength(1);
@@ -52,7 +59,22 @@ describe('financial evidence adoption',()=>{
       expect(()=>appendPdfCapital(extended,capital,['capital-share-capital'])).toThrow('不会重复');
       expect(()=>appendPdfCapital(old,{...capital,periodEnd:'2023-12-31'},['capital-share-capital'])).toThrow('不一致');
       await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:extended.updatedAt,workbooks:[extended]});
-      expect(loadLocalEarningsWorkspace().workbooks[0].operatingMetrics[0].reported).toBe(12);
+      expect((await hydrateEarningsWorkspace()).workspace.workbooks[0].operatingMetrics[0].reported).toBe(12);
+      const balances: EarningsPdfImport = {...document, capitalCandidates: [
+        {...document.candidates[0], id:'capital-inventory', label:'存货', value:0, rawValue:'0.00', unit:'百万元',
+          basis:'instant', periodEnd:'2024-12-31', scope:'consolidated', columnHeader:'合并资产负债表 · 2024年12月31日 2023年12月31日'},
+      ]};
+      const withBalances=appendPdfCapital(extended,balances,['capital-inventory']);
+      expect(withBalances.operatingMetrics.at(-1)).toMatchObject({reported:0,reportedBasis:'instant',periodEnd:'2024-12-31'});
+      expect(withBalances.sourceMaterials.at(-1)).toMatchObject({basis:'instant',importedReport:{scope:'consolidated'}});
+      expect(withBalances.fiscalPeriod.basis).toBe('annual');
+      expect(earningsResearchWorkbookSchema.safeParse(withBalances).success).toBe(true);
+      await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:withBalances.updatedAt,workbooks:[withBalances]});
+      expect((await hydrateEarningsWorkspace()).workspace.workbooks[0].operatingMetrics.at(-1)?.reportedBasis).toBe('instant');
+      expect(()=>appendPdfCapital(withBalances,balances,['capital-inventory'])).toThrow('不会重复');
+      for(const patch of [{basis:undefined},{periodEnd:'2023-12-31'},{scope:undefined}]) {
+        expect(()=>appendPdfCapital(extended,{...balances,capitalCandidates:[{...balances.capitalCandidates![0],...patch}]},['capital-inventory'])).toThrow('期末余额');
+      }
       const noteDocument={...document,capitalNotesReadPages:[1,2,3,80],capitalNotes:[
         {id:'capital-note:80:0',page:80,title:'31、租赁负债',topics:['债务与租赁'],text:'长期租赁负债 12 元',truncated:false},
         {id:'capital-note:80:1',page:80,title:'32、货币资金',topics:['现金与受限资金'],text:'货币资金 10 元',truncated:false}]};
@@ -65,20 +87,30 @@ describe('financial evidence adoption',()=>{
       expect(appendPdfCapitalNotes(withNotes,noteDocument,['capital-note:80:1']).sourceMaterials).toHaveLength(withNotes.sourceMaterials.length+1);
       expect(()=>appendPdfCapitalNotes(extended,{...noteDocument,periodEnd:'2023-12-31'},['capital-note:80:0'])).toThrow('不一致');
       await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:withNotes.updatedAt,workbooks:[withNotes]});
-      expect(loadLocalEarningsWorkspace().workbooks[0].sourceMaterials.at(-1)?.capitalNote).toEqual(withNotes.sourceMaterials.at(-1)?.capitalNote);
+      expect((await hydrateEarningsWorkspace()).workspace.workbooks[0].sourceMaterials.at(-1)?.capitalNote).toEqual(withNotes.sourceMaterials.at(-1)?.capitalNote);
+      const revenueDocument:EarningsPdfImport={...document,revenueGroups:[{id:'business-revenue:9:product',dimension:'product',title:'主营业务分产品情况',scope:'main-business',currency:'CNY',unit:'亿元',page:9,columnHeader:'营业收入 营业成本',rows:[{label:'测试产品',value:8,rawValue:'800,000,000.00',rawUnit:'元',excerpt:'测试产品 800,000,000.00'}],total:null,skippedRows:0}]};
+      const withRevenue=appendPdfRevenue(old,revenueDocument,['business-revenue:9:product']);
+      expect(withRevenue.metrics).toEqual(old.metrics);expect(withRevenue.operatingMetrics).toEqual(old.operatingMetrics);expect(withRevenue.headline).toBe(old.headline);
+      expect(withRevenue.sourceMaterials.at(-1)?.businessRevenue).toMatchObject({dimension:'product',pdfPage:9,rows:[{label:'测试产品',value:8}]});
+      expect(earningsResearchWorkbookSchema.safeParse(withRevenue).success).toBe(true);
+      expect(missingPdfRevenue(withRevenue,revenueDocument)).toEqual([]);
+      expect(()=>appendPdfRevenue(withRevenue,revenueDocument,['business-revenue:9:product'])).toThrow('不重复');
+      expect(()=>appendPdfRevenue(old,{...revenueDocument,periodEnd:'2023-12-31'},['business-revenue:9:product'])).toThrow('不一致');
+      await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:withRevenue.updatedAt,workbooks:[withRevenue]});
+      expect((await hydrateEarningsWorkspace()).workspace.workbooks[0].sourceMaterials.at(-1)?.businessRevenue).toEqual(withRevenue.sourceMaterials.at(-1)?.businessRevenue);
     }finally{vi.unstubAllGlobals()}
   });
   it('creates a separate sourced workbook from selected PDF candidates and preserves missing values',async()=>{
     vi.stubGlobal('window',{location:{origin:'http://127.0.0.1:8911'}});
     const memory=new Map<string,string>();
-    vi.stubGlobal('localStorage',{getItem:(k:string)=>memory.get(k),setItem:(k:string,v:string)=>memory.set(k,v)});
+    vi.stubGlobal('localStorage',{getItem:(k:string)=>memory.get(k)??null,setItem:(k:string,v:string)=>memory.set(k,v)});
     try{
       const workbook=workbookFromPdf({reportId:'sample',name:'合成年报.pdf',security:{market:'CN',symbol:'600519',name:'示例',currency:'CNY'},periodEnd:'2024-12-31',basis:'annual',retrievedAt:'2026-09-19T00:00:00Z',pageCount:10,readPages:[1,2],warnings:['仅读取前两页'],candidates:[{id:'revenue',label:'营业收入',value:12,unit:'亿元',rawValue:'1,200,000,000',rawUnit:'元',page:2,excerpt:'营业收入 1,200,000,000',columnHeader:'2024年 2023年'}]},['revenue']);
       expect(earningsResearchWorkbookSchema.safeParse(workbook).success).toBe(true);
       expect(earningsDataStatus(workbook)).toMatchObject({present:1,missing:8,filingAdopted:1,comparable:0});
       expect(workbook.metrics[1].reported).toBeNull();
       await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:workbook.updatedAt,workbooks:[workbook]});
-      expect(loadLocalEarningsWorkspace().workbooks[0].sourceMaterials[0].importedReport?.rawValue).toBe('1,200,000,000');
+      expect((await hydrateEarningsWorkspace()).workspace.workbooks[0].sourceMaterials[0].importedReport?.rawValue).toBe('1,200,000,000');
     }finally{vi.unstubAllGlobals()}
   });
   it('derives current coverage separately from historical notes and adopted-source history',()=>{
@@ -204,8 +236,8 @@ describe('financial evidence adoption',()=>{
     expect(next.sourceMaterials.slice(1)).toEqual(d.sourceMaterials);
     expect(next.verification.latestPeriodChecked).toBe(false);
     expect(earningsResearchWorkbookSchema.parse(next).sourceMaterials[0].correction?.amountInput).toEqual(amountInput);
-    const memory=new Map<string,string>();vi.stubGlobal('localStorage',{setItem:(k:string,v:string)=>memory.set(k,v),getItem:(k:string)=>memory.get(k)});
-    try{await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:next.updatedAt,workbooks:[next]});expect(loadLocalEarningsWorkspace().workbooks[0].sourceMaterials[0].correction).toEqual(next.sourceMaterials[0].correction)}finally{vi.unstubAllGlobals()}
+    const memory=new Map<string,string>();vi.stubGlobal('localStorage',{setItem:(k:string,v:string)=>memory.set(k,v),getItem:(k:string)=>memory.get(k)??null});
+    try{await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:next.updatedAt,workbooks:[next]});expect((await hydrateEarningsWorkspace()).workspace.workbooks[0].sourceMaterials[0].correction).toEqual(next.sourceMaterials[0].correction)}finally{vi.unstubAllGlobals()}
   });
   it('refuses stale correction baselines, unit/period mismatches, and missing or unchanged values',()=>{
     const {next:d}=previewFinancialEvidence(draft(),facts());
@@ -249,10 +281,10 @@ describe('financial evidence adoption',()=>{
     d.sourceMaterials=[source];
     expect(earningsResearchWorkbookSchema.safeParse(d).success).toBe(true);
     const memory=new Map<string,string>();
-    vi.stubGlobal('localStorage',{setItem:(k:string,v:string)=>memory.set(k,v),getItem:(k:string)=>memory.get(k)});
+    vi.stubGlobal('localStorage',{setItem:(k:string,v:string)=>memory.set(k,v),getItem:(k:string)=>memory.get(k)??null});
     try {
       await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:d.updatedAt,workbooks:[d]});
-      expect(loadLocalEarningsWorkspace().workbooks[0].sourceMaterials[0].excerpt).toEqual(source.excerpt);
+      expect((await hydrateEarningsWorkspace()).workspace.workbooks[0].sourceMaterials[0].excerpt).toEqual(source.excerpt);
     }finally{vi.unstubAllGlobals()}
   });
   it('does not infer units from magnitude or turn missing markers into zero',()=>{
@@ -303,12 +335,12 @@ describe('financial evidence adoption',()=>{
   });
   it('persists new provenance and marks local-only save honestly',async()=>{
     const memory=new Map<string,string>();
-    vi.stubGlobal('localStorage',{setItem:(k:string,v:string)=>memory.set(k,v),getItem:(k:string)=>memory.get(k)});
+    vi.stubGlobal('localStorage',{setItem:(k:string,v:string)=>memory.set(k,v),getItem:(k:string)=>memory.get(k)??null});
     try{
       const {next}=previewFinancialEvidence(draft(),facts());
       next.verification.status='verified';next.verification.latestPeriodChecked=true; // Legacy stored metadata must not be silently rewritten.
-      expect(await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:next.updatedAt,workbooks:[next]})).toBe('local');
-      const restored=loadLocalEarningsWorkspace().workbooks[0];
+      expect(await persistEarningsWorkspace({schemaVersion:'newma-desk.earnings-research.v1',updatedAt:next.updatedAt,workbooks:[next]})).toMatchObject({mode:'local'});
+      const restored=(await hydrateEarningsWorkspace()).workspace.workbooks[0];
       expect(restored.metrics[0].periodEnd).toBe('2026-06-30');
       expect(restored.fiscalPeriod.basis).toBe('ytd');
       expect(restored.metrics[0].reportedBasis).toBe('ytd');
