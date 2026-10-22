@@ -3,7 +3,7 @@
   "id": "catalyst-calendar",
   "name": "催化剂日历",
   "description": "聚合财报预约、解禁、宏观周期观察窗和用户自定义事件，记录来源、新鲜度、确认条件、失效条件与实际结果。",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": ["催化剂", "事件日历", "财报", "宏观周期"],

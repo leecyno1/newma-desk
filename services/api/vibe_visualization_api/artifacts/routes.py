@@ -19,6 +19,7 @@ from vibe_visualization_api.artifacts.replay_html import (
     render_replay_html,
 )
 from vibe_visualization_api.artifacts.store import ArtifactStore
+from vibe_visualization_api.watchlists.access import StorageScope
 
 
 router = APIRouter(prefix="/api/artifacts", tags=["mod artifacts"])
@@ -26,6 +27,11 @@ router = APIRouter(prefix="/api/artifacts", tags=["mod artifacts"])
 
 def get_artifact_store(request: Request) -> ArtifactStore:
     return request.app.state.artifact_store
+
+
+def get_replay_store(request: Request, scope: StorageScope) -> ArtifactStore:
+    store = request.app.state.artifact_store
+    return store.for_replay_owner(scope.user_id, scope.workspace_id) if scope.module_id else store
 
 
 def get_archify_renderer(request: Request) -> ArchifyRenderer:
@@ -89,7 +95,7 @@ def latest_artifact(
 @router.post("/replays", response_model=ReplayArtifactRecord, status_code=201)
 def create_replay_artifact(
     spec: ReplayArtifactCreate,
-    store: ArtifactStore = Depends(get_artifact_store),
+    store: ArtifactStore = Depends(get_replay_store),
 ) -> ReplayArtifactRecord:
     return store.create_replay(spec, render_replay_html(spec))
 
@@ -99,9 +105,9 @@ def list_replay_artifacts(
     module_id: str,
     response: Response,
     status: Literal["draft", "published"] | None = None,
-    store: ArtifactStore = Depends(get_artifact_store),
+    store: ArtifactStore = Depends(get_replay_store),
 ) -> list[ReplayArtifactRecord]:
-    response.headers["Cache-Control"] = "no-store"
+    response.headers["Cache-Control"] = "private, no-store"
     return store.list_replays(module_id, status=status)
 
 
@@ -110,9 +116,9 @@ def latest_replay_artifact(
     module_id: str,
     response: Response,
     status: Literal["draft", "published"] | None = None,
-    store: ArtifactStore = Depends(get_artifact_store),
+    store: ArtifactStore = Depends(get_replay_store),
 ) -> ReplayArtifactRecord:
-    response.headers["Cache-Control"] = "no-store"
+    response.headers["Cache-Control"] = "private, no-store"
     return store.latest_replay(module_id, status=status)
 
 
@@ -120,16 +126,16 @@ def latest_replay_artifact(
 def get_replay_artifact(
     artifact_id: str,
     response: Response,
-    store: ArtifactStore = Depends(get_artifact_store),
+    store: ArtifactStore = Depends(get_replay_store),
 ) -> ReplayArtifactRecord:
-    response.headers["Cache-Control"] = "no-store"
+    response.headers["Cache-Control"] = "private, no-store"
     return store.get_replay(artifact_id)
 
 
 @router.post("/replays/{artifact_id}/publish", response_model=ReplayArtifactRecord)
 def publish_replay_artifact(
     artifact_id: str,
-    store: ArtifactStore = Depends(get_artifact_store),
+    store: ArtifactStore = Depends(get_replay_store),
 ) -> ReplayArtifactRecord:
     return store.publish_replay(artifact_id)
 
@@ -137,16 +143,20 @@ def publish_replay_artifact(
 @router.get("/replays/{artifact_id}/view", response_class=HTMLResponse)
 def view_replay_artifact(
     artifact_id: str,
-    store: ArtifactStore = Depends(get_artifact_store),
+    store: ArtifactStore = Depends(get_replay_store),
 ) -> HTMLResponse:
+    policy = (
+        "default-src 'none'; style-src 'unsafe-inline'; "
+        "script-src 'unsafe-inline'; font-src data:; connect-src 'none'; "
+        "base-uri 'none'; form-action 'none'"
+    )
+    html = inject_newma_replay_theme_adapter(store.read_replay_html(artifact_id))
+    html = html.replace("<head>", f'<head><meta http-equiv="Content-Security-Policy" content="{policy}">', 1)
     return HTMLResponse(
-        inject_newma_replay_theme_adapter(store.read_replay_html(artifact_id)),
+        html,
         headers={
-            "Cache-Control": "public, max-age=0, must-revalidate",
-            "Content-Security-Policy": (
-                "default-src 'none'; style-src 'unsafe-inline'; "
-                "script-src 'unsafe-inline'; font-src data:; connect-src 'none'"
-            ),
+            "Cache-Control": "private, no-store",
+            "Content-Security-Policy": policy,
             "X-Content-Type-Options": "nosniff",
         },
     )

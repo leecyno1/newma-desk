@@ -2,7 +2,8 @@ import { Archive, ExternalLink, Pause, Play, RefreshCcw, SkipForward, TrendingDo
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { KLineChartPanel, type ChartAnnotation } from "@newma-desk/chart-kit";
-import { createModSnapshotCache, type ArtifactClient, type ReplayArtifactRecord } from "@newma-desk/mod-sdk";
+import { createModSnapshotCache, type ReplayArtifactRecord } from "@newma-desk/mod-sdk";
+import type { ReplayClient } from "../workspaceStorage";
 
 import type { Bar, MarketDataSource, SecurityRef, Timeframe } from "../types";
 import { formatPrice, movement, signed } from "./shared";
@@ -30,6 +31,7 @@ function formatReplayDate(timestamp?: number) {
 export function ReplayWorkspace({
   action,
   artifactClient,
+  canSave = false,
   cacheIdentity,
   dataSource,
   security,
@@ -38,7 +40,8 @@ export function ReplayWorkspace({
   onContextChange,
 }: {
   action?: WorkspaceUiAction;
-  artifactClient: ArtifactClient;
+  artifactClient?: ReplayClient;
+  canSave?: boolean;
   cacheIdentity?: { userId: string; workspaceId: string };
   dataSource: MarketDataSource;
   security: SecurityRef;
@@ -58,6 +61,18 @@ export function ReplayWorkspace({
   const [savingArtifact, setSavingArtifact] = useState(false);
   const [savedArtifact, setSavedArtifact] = useState<ReplayArtifactRecord>();
   const [artifactError, setArtifactError] = useState("");
+  const [previewHtml, setPreviewHtml] = useState("");
+  const [viewing, setViewing] = useState(false);
+  const archiveGeneration = useRef(0);
+  useEffect(() => {
+    archiveGeneration.current += 1;
+    setSavedArtifact(undefined);
+    setArtifactError("");
+    setPreviewHtml("");
+    setSavingArtifact(false);
+    setViewing(false);
+    return () => { archiveGeneration.current += 1; };
+  }, [artifactClient]);
   const [dataError, setDataError] = useState("");
   const cache = useMemo(() => cacheIdentity ? createModSnapshotCache<Bar[]>({
     modId: "trading-replay",
@@ -156,9 +171,11 @@ export function ReplayWorkspace({
 
   useEffect(() => {
     let active = true;
+    const generation = archiveGeneration.current;
+    if (!artifactClient) return;
     void artifactClient.listReplays("trading-replay")
-      .then((artifacts) => active && setSavedArtifact(artifacts[0]))
-      .catch(() => undefined);
+      .then((artifacts) => active && generation === archiveGeneration.current && setSavedArtifact(artifacts[0]))
+      .catch(() => active && generation === archiveGeneration.current && setArtifactError("回放归档读取未确认，请检查登录与读取权限"));
     return () => {
       active = false;
     };
@@ -182,10 +199,12 @@ export function ReplayWorkspace({
         id: savedArtifact.id,
         title: savedArtifact.title,
         status: savedArtifact.status,
-        viewUrl: artifactClient.viewUrl(savedArtifact),
+        ...(artifactClient?.readView ? { private: true } : { viewUrl: artifactClient?.viewUrl(savedArtifact) }),
       } : null,
+      archiveAvailable: Boolean(artifactClient),
+      archiveWritable: canSave,
     });
-  }, [artifactClient, bars.length, currentBar?.timestamp, cursor, equity, onContextChange, orders, playing, position, primaryIndicator, savedArtifact, secondaryIndicator, speed, timeframe]);
+  }, [artifactClient, canSave, bars.length, currentBar?.timestamp, cursor, equity, onContextChange, orders, playing, position, primaryIndicator, savedArtifact, secondaryIndicator, speed, timeframe]);
 
   const recordOrder = (side: ReplayOrder["side"]) => {
     if (!currentBar || (side === "sell" && position <= 0)) return;
@@ -205,9 +224,12 @@ export function ReplayWorkspace({
   };
 
   const saveReplayArtifact = async () => {
-    if (!currentBar || !bars.length || savingArtifact) return;
+    if (!artifactClient || !canSave || !currentBar || !bars.length || savingArtifact) return;
+    const generation = ++archiveGeneration.current;
     setSavingArtifact(true);
     setArtifactError("");
+    setPreviewHtml("");
+    setViewing(false);
     try {
       const artifact = await artifactClient.createReplay({
         moduleId: "trading-replay",
@@ -231,11 +253,25 @@ export function ReplayWorkspace({
         },
         metadata: { source: "market-data", simulationOnly: true },
       });
-      setSavedArtifact(artifact);
+      if (generation === archiveGeneration.current) setSavedArtifact(artifact);
     } catch (reason) {
-      setArtifactError(reason instanceof Error ? reason.message : "回放沉淀失败");
+      if (generation === archiveGeneration.current) setArtifactError(reason instanceof Error ? reason.message : "回放沉淀失败");
     } finally {
-      setSavingArtifact(false);
+      if (generation === archiveGeneration.current) setSavingArtifact(false);
+    }
+  };
+
+  const openArchive = async () => {
+    if (!artifactClient?.readView || !savedArtifact || viewing) return;
+    const generation = archiveGeneration.current;
+    setViewing(true);
+    try {
+      const html = await artifactClient.readView(savedArtifact);
+      if (generation === archiveGeneration.current) setPreviewHtml(html);
+    } catch {
+      if (generation === archiveGeneration.current) setArtifactError("归档读取未确认，请检查当前账户授权");
+    } finally {
+      if (generation === archiveGeneration.current) setViewing(false);
     }
   };
 
@@ -253,7 +289,7 @@ export function ReplayWorkspace({
           </button>
           <button type="button" disabled={cursor >= bars.length} onClick={() => setCursor((value) => Math.min(value + 1, bars.length))}><SkipForward size={14} />下一根</button>
           <button type="button" onClick={reset}><RefreshCcw size={14} />重置</button>
-          <button type="button" disabled={!currentBar || savingArtifact} onClick={() => void saveReplayArtifact()}><Archive size={14} />{savingArtifact ? "沉淀中" : "沉淀回放"}</button>
+          <button type="button" disabled={!canSave || !artifactClient || !currentBar || savingArtifact} title={!canSave ? "未获回放归档写入权限" : undefined} onClick={() => void saveReplayArtifact()}><Archive size={14} />{savingArtifact ? "沉淀中" : "沉淀回放"}</button>
           <div className="workspace-segment replay-speed" role="group" aria-label="回放速度">
             {([1, 2, 4] as const).map((item) => <button type="button" key={item} aria-pressed={speed === item} onClick={() => setSpeed(item)}>{item}×</button>)}
           </div>
@@ -310,9 +346,12 @@ export function ReplayWorkspace({
           <div><dt>决策次数</dt><dd>{orders.length}</dd></div>
         </dl>
         <div className="replay-orders">
-          {savedArtifact ? (
-            <a className="replay-artifact-link" href={artifactClient.viewUrl(savedArtifact)} target="_blank" rel="noreferrer"><Archive size={13} /><span><strong>最近沉淀</strong><small>{savedArtifact.title}</small></span><ExternalLink size={12} /></a>
+          {savedArtifact && artifactClient ? (
+            artifactClient.readView
+              ? <button type="button" className="replay-artifact-link" disabled={viewing} onClick={() => void openArchive()}><Archive size={13} /><span><strong>查看私有归档</strong><small>{savedArtifact.title}</small></span></button>
+              : <a className="replay-artifact-link" href={artifactClient.viewUrl(savedArtifact)} target="_blank" rel="noreferrer"><Archive size={13} /><span><strong>最近沉淀</strong><small>{savedArtifact.title}</small></span><ExternalLink size={12} /></a>
           ) : null}
+          {previewHtml ? <section aria-label="私有回放归档"><button type="button" onClick={() => setPreviewHtml("")}>关闭归档</button><iframe title="私有回放归档" sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={previewHtml} style={{ width: "100%", minHeight: 360, border: 0 }} /></section> : null}
           {artifactError ? <div className="workspace-error replay-artifact-error">{artifactError}</div> : null}
           {orders.slice().reverse().map((order) => (
             <div key={order.id}>

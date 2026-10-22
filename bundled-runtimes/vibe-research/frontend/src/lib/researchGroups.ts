@@ -4,9 +4,14 @@ import {
   type WatchGroup,
   parseCodes,
 } from "@/lib/watchlist";
-import { getVibeDeskConfig, waitForVibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, waitForVibeDeskConfig, isVibeDeskEmbedded } from "@/lib/vibedesk";
 
 const STORAGE_KEY = "vibedesk.research.catalyst-groups.v1";
+function groupStorageKey() {
+  const config = getVibeDeskConfig();
+  if (config) return `${STORAGE_KEY}:${encodeURIComponent(JSON.stringify([config.apiOrigin, config.userId, config.workspaceId]))}`;
+  return isVibeDeskEmbedded || import.meta.env.VITE_NEWMA_DESK_INTEGRATED === "1" ? null : STORAGE_KEY;
+}
 
 export type CatalystResearchGroupSource =
   | "watchlist"
@@ -75,8 +80,10 @@ function validGroup(value: unknown): value is CatalystResearchGroup {
 }
 
 export function loadLocalCatalystResearchGroups(): CatalystResearchGroup[] {
+  const key = groupStorageKey();
+  if (!key) return [];
   try {
-    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    const value = JSON.parse(localStorage.getItem(key) || "[]");
     if (!Array.isArray(value)) return [];
     return value.filter(validGroup).map((group) => ({
       ...group,
@@ -92,7 +99,9 @@ export function loadLocalCatalystResearchGroups(): CatalystResearchGroup[] {
 }
 
 export function saveLocalCatalystResearchGroups(groups: CatalystResearchGroup[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(
+  const key = groupStorageKey();
+  if (!key) throw new Error("尚未连接工作区，研究分组未保存");
+  localStorage.setItem(key, JSON.stringify(
     groups.filter((group) => group.source === "custom").map((group) => ({
       ...group,
       sourceLabel: "用户自定义",

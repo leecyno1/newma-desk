@@ -3,7 +3,7 @@
   "id": "multi-timeframe",
   "name": "多周期分析",
   "description": "日线与分钟 K 线联动，统一指标，分别披露实际复权口径和 Agent 上下文。",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-desk",
  "tags": ["K线", "多周期", "技术分析", "联动"],
@@ -15,6 +15,7 @@
     "navigation": { "groupLabel": "市场", "groupOrder": 40, "itemOrder": 50, "label": "多周期分析", "directory": { "id": "market-suite", "label": "市场工具", "order": 5 }, "project": { "id": "market-surface", "name": "市场", "order": 40, "description": "行情、市场复盘、云图、技术结构、强弱、宽度与情绪。" }, "icon": "market" },
     "compatibility": { "level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0" },
     "permissions": ["market.read", "storage.read", "storage.write"], "dataServices": ["market-data"],
+    "storage": {"mode":"desk-managed","namespaces":[{"id":"layouts","scope":"user-workspace","schemaVersion":1,"quotaMb":2,"maxItemKb":256}]},
     "actions": {
       "market.refresh": {
         "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
@@ -41,7 +42,7 @@
         "confirmation": "none"
       },
       "workspace.save-layout": {
-        "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+        "binding": { "type": "local" }, "execution": "request", "permission": "storage.write",
         "inputSchema": { "type": "object", "properties": { "name": { "type": "string", "maxLength": 80 } }, "additionalProperties": false },
         "outputSchema": { "type": "object", "additionalProperties": true },
         "confirmation": "none"

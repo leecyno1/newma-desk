@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import re
 from datetime import datetime, timezone
@@ -34,9 +35,15 @@ class CorruptArtifactError(ArtifactStoreError):
 
 
 class ArtifactStore:
-    def __init__(self, runtime_dir: Path):
+    def __init__(self, runtime_dir: Path, *, owner: tuple[str, str] | None = None):
         self._root = runtime_dir / "artifacts"
+        self._owner = owner
         self._root.mkdir(parents=True, exist_ok=True)
+
+    def for_replay_owner(self, user_id: str, workspace_id: str) -> "ArtifactStore":
+        # Never adopt the legacy unowned archive. Identity is supplied by signed claims.
+        scope = hashlib.sha256(json.dumps([user_id, workspace_id]).encode()).hexdigest()
+        return ArtifactStore(self._root / "_accounts" / scope, owner=(user_id, workspace_id))
 
     def create(
         self,
@@ -86,6 +93,7 @@ class ArtifactStore:
             "moduleId": spec.module_id,
             "kind": "replay",
             "renderer": "replay-html",
+            **({"userId": self._owner[0], "workspaceId": self._owner[1]} if self._owner else {}),
             "title": spec.title,
             "status": "draft",
             "createdAt": now.isoformat(),
@@ -220,6 +228,8 @@ class ArtifactStore:
         return self._module_dir(module_id) / artifact_id
 
     def _replay_module_dir(self, module_id: str) -> Path:
+        if self._owner and module_id != "trading-replay":
+            raise ArtifactNotFoundError("replay artifact module was not found")
         if MODULE_ID_PATTERN.fullmatch(module_id) is None:
             raise ArtifactNotFoundError("replay artifact module was not found")
         return self._root / "_replays" / module_id

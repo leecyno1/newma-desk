@@ -3,7 +3,7 @@
   "id": "trading-replay",
   "name": "复盘回放",
   "description": "隐藏未来 K 线，逐根播放历史行情并记录模拟买卖、仓位和训练盈亏。",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-desk",
  "tags": ["回放", "模拟交易", "复盘", "K线"],
@@ -15,6 +15,7 @@
     "navigation": { "groupLabel": "交易", "groupOrder": 90, "itemOrder": 30, "label": "复盘回放", "directory": { "id": "trading-replay-suite", "label": "交易复盘", "order": 20 }, "project": { "id": "trading", "name": "交易", "order": 90, "description": "战术择时、交易计划、纸面执行、复盘回放与执行记录。" }, "icon": "trading" },
     "compatibility": { "level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0" },
     "permissions": ["market.read", "storage.read", "storage.write"], "dataServices": ["market-data"],
+    "storage": {"mode":"desk-managed","namespaces":[{"id":"layouts","scope":"user-workspace","schemaVersion":1,"quotaMb":2,"maxItemKb":256}]},
     "actions": {
       "market.refresh": {
         "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
@@ -41,7 +42,7 @@
         "confirmation": "none"
       },
       "workspace.save-layout": {
-        "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+        "binding": { "type": "local" }, "execution": "request", "permission": "storage.write",
         "inputSchema": { "type": "object", "properties": { "name": { "type": "string", "maxLength": 80 } }, "additionalProperties": false },
         "outputSchema": { "type": "object", "additionalProperties": true },
         "confirmation": "none"

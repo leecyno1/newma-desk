@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { connectWorkspaceWatchlist, createWatchlistClient, loadLocalWatchGroups, saveLocalWatchGroups } from '@/lib/watchlist';
+import { connectWorkspaceWatchlist, createWatchlistClient, loadLocalWatchGroups, saveLocalWatchGroups, loadWorkspaceWatchGroups } from '@/lib/watchlist';
 import { previewGraphArtifact } from '@/lib/artifacts';
 import { Watchlist } from '@/pages/Watchlist';
 
@@ -24,6 +24,51 @@ beforeEach(() => {
   vi.stubEnv('VITE_NEWMA_DESK_INTEGRATED','');
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+
+describe('新闻与催化剂签名共享自选', () => {
+  function configure(moduleId = 'news-radar') {
+    bridge.embedded = true;
+    bridge.config = { apiOrigin: 'https://desk.test', storageGateway: 'https://desk.test/api/mods', moduleId,
+      userId: 'alice', workspaceId: 'one', instanceId: 'instance-a', accessToken: 'synthetic', permissions: ['storage.read'] };
+  }
+  it.each(['news-radar','catalyst-calendar'])('%s只读签名访问，不带自报身份或Cookie', async moduleId => {
+    configure(moduleId);
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({userId:'alice',workspaceId:'one',revision:1,groups})));
+    expect(await loadWorkspaceWatchGroups()).toEqual(groups);
+    expect(fetch).toHaveBeenCalledWith('https://desk.test/api/watchlists', expect.objectContaining({
+      credentials:'omit',redirect:'error',cache:'no-store',headers:{Accept:'application/json',Authorization:'Bearer synthetic','X-Newma-Desk-Instance-Id':'instance-a'},
+    }));
+  });
+  it('嵌入缺握手、缺读取权或服务拒绝均不退回旧自选', async () => {
+    saveLocalWatchGroups(groups); bridge.embedded = true;
+    await expect(loadWorkspaceWatchGroups()).rejects.toMatchObject({status:401});
+    configure(); bridge.config.permissions=[];
+    await expect(loadWorkspaceWatchGroups()).rejects.toMatchObject({status:403});
+    expect(fetch).not.toHaveBeenCalled();
+    configure(); vi.mocked(fetch).mockResolvedValue(new Response('{}',{status:401}));
+    await expect(loadWorkspaceWatchGroups()).rejects.toMatchObject({status:401});
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('跨账户响应被拒绝', async () => {
+    configure(); vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({userId:'bob',workspaceId:'one',revision:1,groups})));
+    await expect(loadWorkspaceWatchGroups()).rejects.toMatchObject({status:403});
+  });
+  it('A到B再到A也不会接受旧读取', async () => {
+    configure(); let finish!: (value: Response) => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise(resolve => {finish=resolve;}));
+    const pending=loadWorkspaceWatchGroups().catch(error=>error);
+    const original=bridge.config;
+    bridge.config={...original,workspaceId:'two'}; bridge.changed(bridge.config);
+    bridge.config=original; bridge.changed(bridge.config);
+    finish(new Response(JSON.stringify({userId:'alice',workspaceId:'one',revision:1,groups})));
+    expect(await pending).toMatchObject({status:409});
+  });
+  it('原生单机仍读取明确保存的本机自选', async () => {
+    saveLocalWatchGroups(groups);
+    expect(await loadWorkspaceWatchGroups()).toEqual(groups);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
 
 describe('独立研究的本机保存与共享能力边界', () => {
   it('保存的空分组列表与旧空自选不复活示例', () => {

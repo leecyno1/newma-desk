@@ -3,7 +3,7 @@
   "id": "market-technical",
   "name": "技术分析",
   "description": "基于真实日线 OHLCV 计算趋势、波动、量价确认、回撤与支撑阻力；完整缠论由 CZSC Mod 承接。",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "Newma-Desk",
   "agentWorkspace": { "type": "desk" },
   "runtime": { "type": "direct", "entry": { "type": "structured", "url": "/mods/market-daily/?workspace=technical" } },
@@ -15,7 +15,9 @@
     "permissions": ["market.read", "storage.read", "storage.write"],
     "dataServices": ["market-data"],
     "wiki": { "contractVersion": "1.0", "subjectTypes": ["security", "etf"], "concepts": ["technical-analysis", "price-action"], "entrypoints": [{ "id": "technical", "intent": "technical.structure", "label": "技术结构", "contextContract": "newma.wiki.subject.v1", "defaults": { "timeframe": "daily" } }] },
+    "storage": {"mode":"desk-managed","namespaces":[{"id":"layouts","scope":"user-workspace","schemaVersion":1,"quotaMb":2,"maxItemKb":256}]},
     "actions": {
+      "workspace.save-layout": {"binding":{"type":"local"},"execution":"request","permission":"storage.write","inputSchema":{"type":"object","properties":{"name":{"type":"string","maxLength":80}},"additionalProperties":false},"outputSchema":{"type":"object","additionalProperties":true},"confirmation":"none"},
       "market.set-alert": {"binding":{"type":"local"},"execution":"request","permission":"storage.write","inputSchema":{"type":"object","required":["direction","price"],"properties":{"direction":{"enum":["above","below"]},"price":{"type":"number","exclusiveMinimum":0},"label":{"type":"string","maxLength":80}},"additionalProperties":false},"outputSchema":{"type":"object","additionalProperties":true},"confirmation":"none"},
       "market.refresh": { "binding": { "type": "local" }, "execution": "request", "permission": "market.read", "inputSchema": { "type": "object", "additionalProperties": false }, "outputSchema": { "type": "object", "additionalProperties": true }, "confirmation": "none" },
       "market.symbol-search": { "binding": { "type": "data" }, "execution": "request", "permission": "market.read", "inputSchema": { "type": "object", "additionalProperties": true }, "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } }, "confirmation": "none" },

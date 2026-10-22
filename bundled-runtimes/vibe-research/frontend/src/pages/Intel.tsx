@@ -55,7 +55,7 @@ import {
   type VibeDeskPageContext,
   type VibeDeskWikiSubject,
 } from "@/lib/vibedesk";
-import { loadWatch } from "@/lib/watchlist";
+import { loadWatch, loadWorkspaceWatchGroups } from "@/lib/watchlist";
 
 const TABS = [
   { key: "monitor", label: "新闻监测", icon: Gauge },
@@ -925,7 +925,7 @@ function WatchlistFeed({ kind, onContextChange, onRefreshReady }: {
   onContextChange: (context: NewsPanelContext) => void;
   onRefreshReady: (refresh: FeedRefresh | null) => void;
 }) {
-  const [codes, setCodes] = useState<string[]>(loadWatch);
+  const [codes, setCodes] = useState<string[]>(() => usesDeskResearch() ? [] : loadWatch());
   const feedCache = useMemo(() => createVibeDeskSnapshotCache<FeedRow[]>(`news-watch:${kind}`, 2, 1024 * 1024), [kind]);
   const [rows, setRows] = useState<FeedRow[]>(() => cachedFeedRows(feedCache.read()?.value || []));
   const [asOf, setAsOf] = useState<string | undefined>(() => feedCache.read()?.updatedAt);
@@ -936,9 +936,11 @@ function WatchlistFeed({ kind, onContextChange, onRefreshReady }: {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [depNote, setDepNote] = useState<string | null>(null);
+  const watchGeneration = useRef(0);
 
-  const load = useCallback(async (symbols: string[]) => {
+  const load = useCallback(async (symbols: string[], generation: number) => {
     const scope = researchDataScope();
+    const current = () => scope === researchDataScope() && generation === watchGeneration.current;
     if (!symbols.length) { setRows([]); setAsOf(undefined); return { rows: [], asOf: undefined }; }
     setLoading(true); setErr(null); setDepNote(null);
     try {
@@ -977,10 +979,10 @@ function WatchlistFeed({ kind, onContextChange, onRefreshReady }: {
             summary: watchNewsSummary(item.新闻内容, relevance), url: item.新闻链接, relevance,
           });
         }
-        if (scope !== researchDataScope()) return null;
+        if (!current()) return null;
         if (dependency && output.length === 0) setDepNote(dependency);
       }
-      if (scope !== researchDataScope()) return null;
+      if (!current()) return null;
       if (failedSymbols.length === symbols.length) throw new Error("资讯来源暂时不可用");
       if (failedSymbols.length) {
         output.push(...rowsRef.current.flatMap((row) => {
@@ -1003,15 +1005,28 @@ function WatchlistFeed({ kind, onContextChange, onRefreshReady }: {
       feedCache.write(nextRows, refreshedAt);
       return { rows: nextRows, asOf: refreshedAt, failedSymbols };
     } catch (reason) {
-      if (scope !== researchDataScope()) return null;
+      if (!current()) return null;
       setErr(rowsRef.current.length ? "更新失败，正在显示上次数据" : reason instanceof Error ? reason.message : "加载失败");
       return null;
     } finally {
-      if (scope === researchDataScope()) setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [feedCache, kind]);
 
-  useEffect(() => { const symbols = loadWatch(); setCodes(symbols); void load(symbols); }, [load]);
+  const refresh = useCallback(async () => {
+    const generation = ++watchGeneration.current;
+    try {
+      const groups = await loadWorkspaceWatchGroups();
+      if (generation !== watchGeneration.current) return null;
+      const symbols = Array.from(new Set(groups.flatMap(group => group.symbols).filter(item => item.market === "CN" && /^\d{6}$/.test(item.symbol)).map(item => item.symbol)));
+      setCodes(symbols);
+      return await load(symbols, generation);
+    } catch (reason) {
+      if (generation === watchGeneration.current) { setCodes([]); setRows([]); rowsRef.current = []; setAsOf(undefined); setLoading(false); setErr(reason instanceof Error ? reason.message : "共享自选读取失败"); }
+      return null;
+    }
+  }, [load]);
+  useEffect(() => { void refresh(); return () => { watchGeneration.current += 1; }; }, [refresh]);
   useEffect(() => {
     let scope = researchDataScope();
     return subscribeVibeDeskConfig(() => {
@@ -1020,23 +1035,20 @@ function WatchlistFeed({ kind, onContextChange, onRefreshReady }: {
       scope = next;
       rowsRef.current = [];
       setRows([]); setAsOf(undefined); setErr(null); setDepNote(null);
-      const symbols = loadWatch(); setCodes(symbols); void load(symbols);
+      setCodes([]); setActiveCode("all"); setQuery(""); void refresh();
     });
-  }, [load]);
-  const refresh = () => { const symbols = loadWatch(); setCodes(symbols); void load(symbols); };
+  }, [refresh]);
   useEffect(() => {
     onRefreshReady({
       tab: kind === "filings" ? "filings" : "watch-news",
       run: async () => {
-        const symbols = loadWatch();
-        setCodes(symbols);
-        const result = await load(symbols);
+        const result = await refresh();
         if (!result) throw new Error("当前资讯刷新失败，已保留上次数据");
         return { rowCount: result.rows.length, refreshedAt: result.asOf, failedSymbols: result.failedSymbols || [] };
       },
     });
     return () => onRefreshReady(null);
-  }, [kind, load, onRefreshReady]);
+  }, [kind, refresh, onRefreshReady]);
 
   const counts = useMemo(() => {
     const result = new Map<string, number>();

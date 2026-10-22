@@ -13,7 +13,11 @@ from vibe_visualization_api.mod_storage.models import (
 )
 
 
-router = APIRouter(tags=["mod storage"])
+def private_storage_response(response: Response):
+    response.headers["Cache-Control"] = "private, no-store"
+
+
+router = APIRouter(tags=["mod storage"], dependencies=[Depends(private_storage_response)])
 ModuleId = Annotated[str, Path(pattern=r"^[a-z][a-z0-9-]{2,63}$")]
 NamespaceId = Annotated[str, Path(pattern=r"^[a-z][a-z0-9-]{1,47}$")]
 DocumentKey = Annotated[
@@ -90,6 +94,7 @@ async def _authorize(
         claims.module_id != module_id
         or claims.revision != module.revision
         or permission not in claims.permissions
+        or permission not in module.manifest.get("permissions", [])
     ):
         raise HTTPException(403, "Mod session does not grant this storage operation")
     return claims, _namespace_policy(module.manifest, namespace)
@@ -281,4 +286,4 @@ async def delete_mod_storage_document(
         key=key,
         expected_revision=expected_revision,
     )
-    return Response(status_code=204)
+    return Response(status_code=204, headers={"Cache-Control": "private, no-store"})

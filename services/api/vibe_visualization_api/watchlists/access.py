@@ -25,6 +25,8 @@ def storage_permission(path: str, method: str, module_id: str) -> str | None:
         allowed = WATCHLIST_READERS if read else WATCHLIST_EDITORS
     elif resource == "/api/market-alerts" or resource.startswith("/api/market-alerts/"):
         allowed = ALERT_MODULES
+    elif resource == "/api/artifacts/replays" or resource.startswith("/api/artifacts/replays/"):
+        allowed = {"trading-replay"}
     else:
         return None
     return ("storage.read" if read else "storage.write") if module_id in allowed else None
@@ -34,6 +36,7 @@ def storage_permission(path: str, method: str, module_id: str) -> str | None:
 class MarketStorageScope:
     user_id: str
     workspace_id: str
+    module_id: str | None = None
 
 
 async def market_storage_scope(
@@ -60,7 +63,7 @@ async def market_storage_scope(
     module = await run_in_threadpool(repository.get_published, claims.module_id)
     if claims.revision != module.revision or permission not in module.manifest.get("permissions", []):
         raise HTTPException(403, "模组授权已更新，请重新打开页面")
-    return MarketStorageScope(claims.user_id, claims.workspace_id)
+    return MarketStorageScope(claims.user_id, claims.workspace_id, claims.module_id)
 
 
 StorageScope = Annotated[MarketStorageScope, Depends(market_storage_scope)]

@@ -3,7 +3,7 @@
   "id": "event-timeline",
   "name": "日线时间轴",
   "description": "把股票、ETF 与开放式基金的日线、公开事件和异动按交易日对齐。",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-desk",
   "tags": ["日K", "ETF", "基金", "事件", "量价", "研究沉淀"],
@@ -29,6 +29,7 @@
         }
       ]
     },
+    "storage": {"mode":"desk-managed","namespaces":[{"id":"layouts","scope":"user-workspace","schemaVersion":1,"quotaMb":2,"maxItemKb":256}]},
     "actions": {
       "market.refresh": {
         "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
@@ -49,7 +50,7 @@
         "confirmation": "none"
       },
       "workspace.save-layout": {
-        "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+        "binding": { "type": "local" }, "execution": "request", "permission": "storage.write",
         "inputSchema": { "type": "object", "properties": { "name": { "type": "string", "maxLength": 80 } }, "additionalProperties": false },
         "outputSchema": { "type": "object", "additionalProperties": true },
         "confirmation": "none"

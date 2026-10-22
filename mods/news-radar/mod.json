@@ -3,7 +3,7 @@
   "id": "news-radar",
   "name": "新闻与舆情",
   "description": "聚合公开新闻与自选动态，按事件聚类展示热度变化、报道语气、传播范围、来源分歧和待核验线索。",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": ["新闻", "舆情", "资讯", "事件"],
@@ -41,7 +41,7 @@
       "sdkVersion": "^0.1.0",
       "viewSpecVersion": "1.0"
     },
-    "permissions": ["investment.read", "market.read"],
+    "permissions": ["investment.read", "market.read", "storage.read"],
     "dataServices": ["market-data", "crucix"],
     "wiki": {
       "contractVersion": "1.0",

@@ -1,5 +1,5 @@
 import type { CatalystEvent, CatalystStatus } from "@/lib/api";
-import { waitForVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, isVibeDeskEmbedded, subscribeVibeDeskConfig, type VibeDeskConfig } from "@/lib/vibedesk";
 
 const LOCAL_KEY = "newma-desk.catalyst-tracker.v1";
 const NAMESPACE = "catalyst-calendar";
@@ -52,6 +52,7 @@ function normalize(value: unknown): CatalystTrackerState {
 }
 
 export function loadLocalCatalystTracker() {
+  if (getVibeDeskConfig() || isVibeDeskEmbedded || import.meta.env.VITE_NEWMA_DESK_INTEGRATED === "1") return EMPTY_STATE;
   try {
     return normalize(JSON.parse(localStorage.getItem(LOCAL_KEY) || "null"));
   } catch {
@@ -93,48 +94,65 @@ function headers(config: VibeDeskConfig, json = false) {
 }
 
 async function readRemote(config: VibeDeskConfig) {
-  const response = await fetch(endpoint(config), { headers: headers(config) });
+  const response = await fetch(endpoint(config), { headers: headers(config), credentials: "omit", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(15000) });
   if (response.status === 404) return { revision: 0, state: EMPTY_STATE };
-  if (!response.ok) throw new Error(`catalyst tracker read failed: ${response.status}`);
+  if (!response.ok) throw new Error("催化剂跟踪读取失败，请核验当前工作区授权");
   const document = await response.json() as StorageDocument;
+  if (!Number.isInteger(document.revision) || document.revision < 1) throw new Error("催化剂跟踪响应无效");
   return { revision: Number(document.revision) || 0, state: normalize(document.value) };
 }
 
-export async function hydrateCatalystTracker() {
-  const local = loadLocalCatalystTracker();
-  const config = await waitForVibeDeskConfig();
-  if (!canRead(config)) return local;
+function scope(config: VibeDeskConfig | null) {
+  return JSON.stringify(config && [config.apiOrigin, config.storageGateway, config.moduleId, config.userId, config.workspaceId, config.instanceId, config.accessToken, config.permissions]);
+}
+let loaded: { scope: string; revision: number } | undefined;
+
+async function inScope<T>(config: VibeDeskConfig, operation: (assertCurrent: () => void) => Promise<T>): Promise<T> {
+  const initial = scope(config);
+  let active = true;
+  const unsubscribe = subscribeVibeDeskConfig(next => { if (scope(next) !== initial) active = false; });
+  const assertCurrent = () => { if (!active || scope(getVibeDeskConfig()) !== initial) throw new Error("工作区已切换，未应用旧跟踪结果"); };
   try {
+    assertCurrent();
+    const value = await operation(assertCurrent);
+    assertCurrent();
+    return value;
+  } finally { unsubscribe(); }
+}
+
+export async function hydrateCatalystTracker() {
+  const config = getVibeDeskConfig();
+  if (!config && !isVibeDeskEmbedded && import.meta.env.VITE_NEWMA_DESK_INTEGRATED !== "1") return loadLocalCatalystTracker();
+  if (!canRead(config) || config.moduleId !== "catalyst-calendar") throw new Error("催化剂跟踪读取未获授权");
+  return inScope(config, async assertCurrent => {
     const remote = await readRemote(config);
-    const hasRemote = remote.state.trackedIds.length || remote.state.customEvents.length || Object.keys(remote.state.outcomes).length;
-    return hasRemote ? remote.state : local;
-  } catch {
-    return local;
-  }
+    assertCurrent();
+    loaded = { scope: scope(config), revision: remote.revision };
+    return remote.state;
+  });
 }
 
 export async function persistCatalystTracker(state: CatalystTrackerState) {
   const normalized = normalize(state);
-  try {
+  const config = getVibeDeskConfig();
+  if (!config && !isVibeDeskEmbedded && import.meta.env.VITE_NEWMA_DESK_INTEGRATED !== "1") {
     localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
-  } catch {
-    // Keep the in-memory tracker usable when local persistence is disabled.
+    return;
   }
-  const config = await waitForVibeDeskConfig();
-  if (!canWrite(config)) return;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const current = await readRemote(config);
-      const response = await fetch(endpoint(config), {
-        method: "PUT",
-        headers: headers(config, true),
-        body: JSON.stringify({ expectedRevision: current.revision, value: normalized }),
-      });
-      if (response.status === 409 && attempt === 0) continue;
-      if (!response.ok) throw new Error(`catalyst tracker write failed: ${response.status}`);
-      return;
-    } catch {
-      return;
-    }
-  }
+  if (!canWrite(config) || config.moduleId !== "catalyst-calendar") throw new Error("催化剂跟踪保存未获授权");
+  if (!loaded || loaded.scope !== scope(config)) throw new Error("请先读取当前工作区跟踪记录，再保存");
+  const revision = loaded.revision;
+  return inScope(config, async assertCurrent => {
+    const response = await fetch(endpoint(config), {
+      method: "PUT", headers: headers(config, true), credentials: "omit", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({ expectedRevision: revision, value: normalized }),
+    });
+    assertCurrent();
+    if (response.status === 409) throw new Error("跟踪记录已更新，请重新打开页面读取；本次未覆盖");
+    if (!response.ok) throw new Error("跟踪保存未确认，请核验权限；未自动重试");
+    const document = await response.json() as StorageDocument;
+    assertCurrent();
+    if (document.revision !== revision + 1) throw new Error("跟踪保存响应无效，请重新核验");
+    loaded = { scope: scope(config), revision: document.revision };
+  });
 }

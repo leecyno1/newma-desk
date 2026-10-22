@@ -123,6 +123,8 @@ class ReplayArtifactCreate(ArtifactModel):
 
 
 class ReplayArtifactRecord(ArtifactModel):
+    user_id: str | None = None
+    workspace_id: str | None = None
     id: str = Field(pattern=ARTIFACT_ID_PATTERN)
     module_id: str = Field(pattern=MODULE_ID_PATTERN)
     kind: Literal["replay"] = "replay"

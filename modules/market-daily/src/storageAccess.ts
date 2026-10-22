@@ -44,6 +44,7 @@ export interface StorageClientOptions {
   workspaceId: string;
   fetch?: GatewayFetch;
   session?: StorageSession;
+  validateResponse?: (payload: unknown) => void;
 }
 
 export class StorageAccessError extends Error {
@@ -59,7 +60,7 @@ export function createStorageRequest(input: StorageClientOptions) {
   const assertCurrent = () => {
     if (session && !session.isCurrent()) throw new StorageAccessError(409, "账户或页面授权已切换，请重新操作");
   };
-  return async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+  return async <T>(method: string, path: string, body?: unknown, format: "json" | "html" = "json"): Promise<T> => {
     assertCurrent();
     const permission = method === "GET" ? "storage.read" : "storage.write";
     const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
@@ -81,17 +82,27 @@ export function createStorageRequest(input: StorageClientOptions) {
         signal: AbortSignal.timeout(15_000),
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-      const payload: unknown = await response.json().catch(() => undefined);
+      const payload: unknown = format === "html" ? await response.text() : await response.json().catch(() => undefined);
       assertCurrent();
       if (!response.ok) {
         const messages: Record<number, string> = {
           401: "页面会话已失效，请重新打开页面", 403: "当前页面没有所需的存储权限",
           404: "记录或存储接口不存在，请刷新核验", 409: "数据版本已变化，请刷新后重试",
-          422: "提交的自选或预警内容不符合要求",
+          422: "提交的存储内容不符合要求",
         };
         throw new StorageAccessError(response.status, messages[response.status] ?? "共享存储暂时不可用");
       }
+      if (format === "html") {
+        if (!response.headers.get("content-type")?.includes("text/html") || typeof payload !== "string") {
+          throw new StorageAccessError(502, "归档视图响应无效");
+        }
+        return payload as T;
+      }
       if (!payload || typeof payload !== "object") throw new StorageAccessError(502, "共享存储响应无效");
+      if (input.validateResponse) {
+        input.validateResponse(payload);
+        return payload as T;
+      }
       const checkOwner = (record: unknown) => {
         if (!record || typeof record !== "object") throw new StorageAccessError(502, "共享存储响应无效");
         const row = record as Record<string, unknown>;
@@ -102,7 +113,9 @@ export function createStorageRequest(input: StorageClientOptions) {
         }
       };
       if (method !== "DELETE" || path.startsWith("/api/watchlists")) {
-        if (path.startsWith("/api/market-alerts") && method === "GET") {
+        if (path.startsWith("/api/artifacts/replays") && Array.isArray(payload)) {
+          payload.forEach(checkOwner);
+        } else if (path.startsWith("/api/market-alerts") && method === "GET") {
           const items = (payload as { items?: unknown }).items;
           if (!Array.isArray(items)) throw new StorageAccessError(502, "共享存储响应无效");
           items.forEach(checkOwner);

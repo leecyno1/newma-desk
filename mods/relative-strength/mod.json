@@ -3,7 +3,7 @@
   "id": "relative-strength",
   "name": "强弱对比",
   "description": "比较多个 A/H/US 标的的归一化收益曲线和阶段排名，支持跨 Mod 标的联动。",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-desk",
  "tags": ["相对强弱", "跨市场", "对比", "排名"],
@@ -15,6 +15,7 @@
     "navigation": { "groupLabel": "市场", "groupOrder": 40, "itemOrder": 60, "label": "强弱对比", "directory": { "id": "market-suite", "label": "市场工具", "order": 5 }, "project": { "id": "market-surface", "name": "市场", "order": 40, "description": "行情、市场复盘、云图、技术结构、强弱、宽度与情绪。" }, "icon": "market" },
     "compatibility": { "level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0" },
     "permissions": ["market.read", "storage.read", "storage.write"], "dataServices": ["market-data"],
+    "storage": {"mode":"desk-managed","namespaces":[{"id":"layouts","scope":"user-workspace","schemaVersion":1,"quotaMb":2,"maxItemKb":256}]},
     "actions": {
       "market.refresh": {
         "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
@@ -29,7 +30,7 @@
         "confirmation": "none"
       },
       "workspace.save-layout": {
-        "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+        "binding": { "type": "local" }, "execution": "request", "permission": "storage.write",
         "inputSchema": { "type": "object", "properties": { "name": { "type": "string", "maxLength": 80 } }, "additionalProperties": false },
         "outputSchema": { "type": "object", "additionalProperties": true },
         "confirmation": "none"

@@ -19,7 +19,7 @@ import {
 import { Disclaimer } from "@/components/ui/Disclaimer";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { api, type CatalystEvent, type CatalystFeed, type CatalystStatus, type CatalystType } from "@/lib/api";
+import { api, usesDeskResearch, researchDataScope, type CatalystEvent, type CatalystFeed, type CatalystStatus, type CatalystType } from "@/lib/api";
 import {
   hydrateCatalystTracker,
   loadLocalCatalystTracker,
@@ -35,9 +35,10 @@ import {
   saveLocalCatalystResearchGroups,
   type CatalystResearchGroup,
 } from "@/lib/researchGroups";
-import { connectWorkspaceWatchlist, loadLocalWatchGroups } from "@/lib/watchlist";
+import { loadWorkspaceWatchGroups, loadLocalWatchGroups } from "@/lib/watchlist";
 import {
   createVibeDeskSnapshotCache,
+  getVibeDeskConfig,
   publishVibeDeskContext,
   registerVibeDeskContextProvider,
   subscribeVibeDeskConfig,
@@ -140,6 +141,7 @@ function calendarContext(input: {
   workView: WorkView;
   trackedIds: string[];
   loading: boolean;
+  trackerWritable: boolean;
 }): VibeDeskPageContext {
   return {
     view: { id: "catalyst-calendar", title: "催化剂日历" },
@@ -180,9 +182,9 @@ function calendarContext(input: {
       },
     },
     actions: [
-      { id: "catalyst.track", label: "跟踪催化剂", available: true },
-      { id: "catalyst.add-custom", label: "添加自定义催化剂", available: true },
-      { id: "catalyst.mark-outcome", label: "记录确认或证伪", available: true },
+      { id: "catalyst.track", label: "跟踪催化剂", available: input.trackerWritable },
+      { id: "catalyst.add-custom", label: "添加自定义催化剂", available: input.trackerWritable },
+      { id: "catalyst.mark-outcome", label: "记录确认或证伪", available: input.trackerWritable },
     ],
     tasks: [],
   };
@@ -191,7 +193,7 @@ function calendarContext(input: {
 export function CatalystCalendar() {
   const [customGroups, setCustomGroups] = useState(loadLocalCatalystResearchGroups);
   const [researchGroups, setResearchGroups] = useState(() => composeCatalystResearchGroups({
-    watchGroups: loadLocalWatchGroups().groups,
+    watchGroups: usesDeskResearch() ? [] : loadLocalWatchGroups().groups,
     customGroups: loadLocalCatalystResearchGroups(),
   }));
   const [groupId, setGroupId] = useState(() => researchGroups[0]?.id || "system:macro-geopolitics");
@@ -201,6 +203,11 @@ export function CatalystCalendar() {
   const [workView, setWorkView] = useState<WorkView>("all");
   const [feed, setFeed] = useState<CatalystFeed | null>(null);
   const [tracker, setTracker] = useState(loadLocalCatalystTracker);
+  const [trackerReady, setTrackerReady] = useState(false);
+  const [trackerError, setTrackerError] = useState("");
+  const [watchError, setWatchError] = useState("");
+  const savingTracker = useRef(false);
+  const trackerWritable = trackerReady && (!usesDeskResearch() || Boolean(getVibeDeskConfig()?.permissions?.includes("storage.write")));
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -240,10 +247,13 @@ export function CatalystCalendar() {
   const cacheKey = `${resourceKey}:${cacheRevision}`;
   const cache = useMemo(() => createVibeDeskSnapshotCache<CatalystFeed>(resourceKey), [resourceKey]);
   const feedRef = useRef(feed);
+  const feedGeneration = useRef(0);
   const resourceKeyRef = useRef<string | undefined>(undefined);
   feedRef.current = feed;
 
   const refresh = useCallback(async () => {
+    const scope = researchDataScope();
+    const generation = ++feedGeneration.current;
     setLoading(true);
     setError("");
     const cached = cache.read()?.value;
@@ -252,30 +262,50 @@ export function CatalystCalendar() {
     if (resourceChanged) setFeed(cached ?? null);
     try {
       const next = await api.catalysts(symbols, horizon, true, concepts, includeMacro);
+      if (scope !== researchDataScope() || generation !== feedGeneration.current) return;
       setFeed(next);
       cache.write(next, next.generatedAt);
     } catch (reason) {
+      if (scope !== researchDataScope() || generation !== feedGeneration.current) return;
       setError(cached || (!resourceChanged && feedRef.current)
         ? "更新失败，当前为上次数据"
         : reason instanceof Error ? reason.message : "催化剂数据暂时不可用");
     } finally {
-      setLoading(false);
+      if (scope === researchDataScope() && generation === feedGeneration.current) setLoading(false);
     }
   }, [cache, cacheKey, concepts, horizon, includeMacro, symbols]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => subscribeVibeDeskConfig(() => setCacheRevision((value) => value + 1)), []);
+  useEffect(() => { void refresh(); return () => { feedGeneration.current += 1; }; }, [refresh]);
+  useEffect(() => {
+    let scope = researchDataScope();
+    return subscribeVibeDeskConfig(() => {
+      const next = researchDataScope();
+      if (next === scope) return;
+      scope = next;
+      feedGeneration.current += 1;
+      setFeed(null); feedRef.current = null; setSelectedId("");
+      setCustomGroups(loadLocalCatalystResearchGroups());
+      setTracker(loadLocalCatalystTracker());
+      setTrackerReady(false); setTrackerError(""); setWatchError("");
+      setShowComposer(false); setShowGroupComposer(false);
+      setDraft({ title: "", date: "", summary: "", importance: "medium", confirmation: "", invalidation: "" });
+      setGroupDraft({ name: "", codes: "", concepts: "", includeMacro: true });
+      setResearchGroups(composeCatalystResearchGroups({ watchGroups: [], customGroups: [] }));
+      setGroupId("system:macro-geopolitics");
+      setCacheRevision((value) => value + 1);
+    });
+  }, []);
   useEffect(() => {
     let active = true;
+    if (usesDeskResearch()) setResearchGroups(composeCatalystResearchGroups({ watchGroups: [], customGroups }));
     void Promise.allSettled([
-      connectWorkspaceWatchlist().then((client) => client?.load() ?? null),
-      api.portfolio(),
-      loadWorkspacePortfolioResearchGroups(),
+      loadWorkspaceWatchGroups(),
+      usesDeskResearch() ? Promise.resolve(null) : api.portfolio(),
+      usesDeskResearch() ? Promise.resolve([]) : loadWorkspacePortfolioResearchGroups(),
     ]).then(([watchResult, localPortfolioResult, workspacePortfolioResult]) => {
       if (!active) return;
-      const watchGroups = watchResult.status === "fulfilled" && watchResult.value
-        ? watchResult.value.groups
-        : loadLocalWatchGroups().groups;
+      const watchGroups = watchResult.status === "fulfilled" ? watchResult.value : [];
+      setWatchError(watchResult.status === "rejected" ? "共享自选读取失败，未使用本机自选或原生持仓。" : "");
       const localPortfolio = localPortfolioResult.status === "fulfilled"
         ? localPortfolioResult.value
         : null;
@@ -292,12 +322,14 @@ export function CatalystCalendar() {
       setGroupId((current) => next.some((group) => group.id === current) ? current : next[0]?.id || "system:macro-geopolitics");
     });
     return () => { active = false; };
-  }, [customGroups]);
+  }, [customGroups, cacheRevision]);
   useEffect(() => {
     let active = true;
-    void hydrateCatalystTracker().then((value) => active && setTracker(value));
+    setTrackerReady(false);
+    void hydrateCatalystTracker().then((value) => { if (active) { setTracker(value); setTrackerReady(true); setTrackerError(""); } })
+      .catch(() => { if (active) setTrackerError("当前工作区跟踪记录读取失败；未采用旧浏览器记录。"); });
     return () => { active = false; };
-  }, []);
+  }, [cacheRevision]);
 
   const allItems = useMemo(() => applyTracker(feed, tracker), [feed, tracker]);
   const visibleItems = useMemo(() => allItems.filter((event) => (
@@ -346,6 +378,7 @@ export function CatalystCalendar() {
     workView,
     trackedIds: tracker.trackedIds,
     loading,
+    trackerWritable,
   }));
   contextRef.current = calendarContext({
     feed,
@@ -361,14 +394,25 @@ export function CatalystCalendar() {
     workView,
     trackedIds: tracker.trackedIds,
     loading,
+    trackerWritable,
   });
 
   useEffect(() => registerVibeDeskContextProvider(() => contextRef.current), []);
-  useEffect(() => { void publishVibeDeskContext(); }, [concepts, feed, groupId, horizon, importance, includeMacro, loading, selectedId, tracker, type, visibleItems.length, workView]);
+  useEffect(() => { void publishVibeDeskContext(); }, [concepts, feed, groupId, horizon, importance, includeMacro, loading, selectedId, tracker, trackerWritable, type, visibleItems.length, workView]);
 
-  const commit = (next: CatalystTrackerState) => {
-    setTracker(next);
-    void persistCatalystTracker(next);
+  const commit = async (next: CatalystTrackerState) => {
+    if (!trackerWritable || savingTracker.current) return false;
+    const scope = researchDataScope();
+    savingTracker.current = true;
+    try {
+      await persistCatalystTracker(next);
+      if (scope !== researchDataScope()) return false;
+      setTracker(next); setTrackerError("");
+      return true;
+    } catch (reason) {
+      if (scope === researchDataScope()) setTrackerError(reason instanceof Error ? reason.message : "跟踪保存未确认");
+      return false;
+    } finally { savingTracker.current = false; }
   };
 
   const toggleTracked = (event: CatalystEvent) => {
@@ -385,7 +429,7 @@ export function CatalystCalendar() {
     });
   };
 
-  const addCustom = () => {
+  const addCustom = async () => {
     if (!draft.title.trim() || !draft.date) return;
     const createdAt = new Date().toISOString();
     const event: CatalystEvent = {
@@ -411,11 +455,12 @@ export function CatalystCalendar() {
       invalidationConditions: draft.invalidation.trim() ? [draft.invalidation.trim()] : ["补充可核实的失效条件"],
       importance: draft.importance,
     };
-    commit({
+    const saved = await commit({
       ...tracker,
       trackedIds: [...new Set([...tracker.trackedIds, event.id])],
       customEvents: [...tracker.customEvents, event],
     });
+    if (!saved) return;
     setDraft({ title: "", date: "", summary: "", importance: "medium", confirmation: "", invalidation: "" });
     setShowComposer(false);
   };
@@ -436,7 +481,8 @@ export function CatalystCalendar() {
       return;
     }
     const next = [...customGroups, group];
-    saveLocalCatalystResearchGroups(next);
+    try { saveLocalCatalystResearchGroups(next); }
+    catch { setGroupError("本机分组保存失败，请检查浏览器存储或工作区连接。"); return; }
     setCustomGroups(next);
     setGroupId(group.id);
     setGroupDraft({ name: "", codes: "", concepts: "", includeMacro: true });
@@ -447,7 +493,8 @@ export function CatalystCalendar() {
   const removeResearchGroup = () => {
     if (!activeGroup?.editable) return;
     const next = customGroups.filter((group) => group.id !== activeGroup.id);
-    saveLocalCatalystResearchGroups(next);
+    try { saveLocalCatalystResearchGroups(next); }
+    catch { setGroupError("本机分组删除未保存，请检查浏览器存储或工作区连接。"); return; }
     setCustomGroups(next);
   };
 
@@ -461,7 +508,7 @@ export function CatalystCalendar() {
             <button type="button" className="rounded-lg border border-border bg-card px-3 py-2 text-xs hover:border-primary/50" onClick={() => setShowGroupComposer((value) => !value)}>
               <FolderPlus className="mr-1 inline h-3.5 w-3.5" />新建分组
             </button>
-            <button type="button" className="rounded-lg border border-border bg-card px-3 py-2 text-xs hover:border-primary/50" onClick={() => setShowComposer((value) => !value)}>
+            <button type="button" className="rounded-lg border border-border bg-card px-3 py-2 text-xs hover:border-primary/50" disabled={!trackerWritable} onClick={() => setShowComposer((value) => !value)}>
               <Plus className="mr-1 inline h-3.5 w-3.5" />添加事件
             </button>
             <button type="button" className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground" onClick={() => void refresh()} disabled={loading}>
@@ -511,7 +558,7 @@ export function CatalystCalendar() {
         <GlassCard className="mb-4 p-4">
           <div className="mb-3">
             <strong className="text-sm">新建研究分组</strong>
-            <p className="mt-1 text-xs text-muted-foreground">标的、概念和宏观日程可以自由组合；自选与组合中心账户会自动出现在分组列表。</p>
+            <p className="mt-1 text-xs text-muted-foreground">{usesDeskResearch() ? "共享自选按当前账户读取；自定义研究分组仅保存于本机当前工作区，暂不接入组合中心账户。" : "标的、概念和宏观日程可以自由组合；自选与组合中心账户会自动出现在分组列表。"}</p>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <input className="rounded-lg border border-border bg-background px-3 py-2 text-sm" placeholder="分组名称，例如：AI 算力链" value={groupDraft.name} onChange={(event) => setGroupDraft({ ...groupDraft, name: event.target.value })} />
@@ -522,7 +569,6 @@ export function CatalystCalendar() {
               同时纳入宏观与政策日程
             </label>
           </div>
-          {groupError && <p className="mt-2 text-xs text-destructive">{groupError}</p>}
           <div className="mt-3 flex justify-end"><button type="button" className="rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground" onClick={addResearchGroup}>保存分组</button></div>
         </GlassCard>
       )}
@@ -537,7 +583,7 @@ export function CatalystCalendar() {
           </select>
           <input className="rounded-lg border border-border bg-background px-3 py-2 text-sm" placeholder="确认条件" value={draft.confirmation} onChange={(event) => setDraft({ ...draft, confirmation: event.target.value })} />
           <input className="rounded-lg border border-border bg-background px-3 py-2 text-sm" placeholder="失效条件" value={draft.invalidation} onChange={(event) => setDraft({ ...draft, invalidation: event.target.value })} />
-          <div className="md:col-span-2 flex justify-end"><button type="button" className="rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground" onClick={addCustom}>保存并跟踪</button></div>
+          <div className="md:col-span-2 flex justify-end"><button type="button" className="rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground" disabled={!trackerWritable} onClick={addCustom}>保存并跟踪</button></div>
         </GlassCard>
       )}
 
@@ -571,7 +617,7 @@ export function CatalystCalendar() {
         ))}
       </div>
 
-      {error && <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}；已保留本地自定义与跟踪记录。</div>}
+      {[error, watchError, trackerError, groupError].filter(Boolean).map((message) => <div key={message} role="alert" className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{message}</div>)}
 
       <div className="space-y-6">
         {grouped.map(([groupKey, events]) => {
@@ -604,7 +650,7 @@ export function CatalystCalendar() {
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{event.summary}</p>
                         {event.nextAction && <p className="mt-2 rounded-md bg-primary/10 px-2 py-1.5 text-xs text-primary">下一步：{event.nextAction}</p>}
                       </button>
-                      <button type="button" className="rounded-md border border-border p-2 text-muted-foreground hover:text-primary" aria-label={tracked ? "取消跟踪" : "跟踪"} onClick={() => toggleTracked(event)}>{tracked ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}</button>
+                      <button type="button" className="rounded-md border border-border p-2 text-muted-foreground hover:text-primary" aria-label={tracked ? "取消跟踪" : "跟踪"} disabled={!trackerWritable} onClick={() => toggleTracked(event)}>{tracked ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}</button>
                     </div>
 
                     <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
@@ -626,10 +672,10 @@ export function CatalystCalendar() {
                     </details>
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <button type="button" className="rounded-md border border-success/30 px-2 py-1 text-[11px] text-success" onClick={() => markOutcome(event, "confirmed")}><CheckCircle2 className="mr-1 inline h-3 w-3" />确认</button>
-                      <button type="button" className="rounded-md border border-destructive/30 px-2 py-1 text-[11px] text-destructive" onClick={() => markOutcome(event, "invalidated")}><XCircle className="mr-1 inline h-3 w-3" />证伪</button>
+                      <button type="button" className="rounded-md border border-success/30 px-2 py-1 text-[11px] text-success" disabled={!trackerWritable} onClick={() => markOutcome(event, "confirmed")}><CheckCircle2 className="mr-1 inline h-3 w-3" />确认</button>
+                      <button type="button" className="rounded-md border border-destructive/30 px-2 py-1 text-[11px] text-destructive" disabled={!trackerWritable} onClick={() => markOutcome(event, "invalidated")}><XCircle className="mr-1 inline h-3 w-3" />证伪</button>
                       {event.source.url && <a className="ml-auto inline-flex items-center gap-1 text-[11px] text-primary hover:underline" href={event.source.url} target="_blank" rel="noreferrer">来源 <ExternalLink className="h-3 w-3" /></a>}
-                      {event.type === "custom" && <button type="button" className="ml-auto text-[11px] text-muted-foreground hover:text-destructive" onClick={() => removeCustom(event)}><Trash2 className="mr-1 inline h-3 w-3" />删除</button>}
+                      {event.type === "custom" && <button type="button" className="ml-auto text-[11px] text-muted-foreground hover:text-destructive" disabled={!trackerWritable} onClick={() => removeCustom(event)}><Trash2 className="mr-1 inline h-3 w-3" />删除</button>}
                     </div>
                   </GlassCard>
                 );

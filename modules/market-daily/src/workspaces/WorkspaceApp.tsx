@@ -11,7 +11,6 @@ import {
 import type { ModPageContext } from "@newma-desk/contracts";
 import {
   connectModHost,
-  createArtifactClient,
   createModBridge,
   type ArtifactClient,
   type GatewayFetch,
@@ -26,7 +25,8 @@ import {
   type MarketAlertClient,
 } from "../alerts";
 import { resolveParentOrigin } from "../lib/runtimeOrigin";
-import { useStorageSession } from "../storageAccess";
+import { useStorageSession, type StorageSession } from "../storageAccess";
+import { createLayoutSaver, createReplayStorage } from "../workspaceStorage";
 import { MarketAlertCenter } from "../MarketAlertCenter";
 import type { MarketDataSource, Quote, SecurityRef } from "../types";
 import {
@@ -98,6 +98,7 @@ export function buildWorkspacePageContext(input: {
   quote?: Quote;
   workspaceState: Record<string, unknown>;
   alertsAvailable?: boolean;
+  layoutAvailable?: boolean;
 }): ModPageContext {
   if (input.config.kind === "sentiment") {
     const state = input.workspaceState;
@@ -141,7 +142,7 @@ export function buildWorkspacePageContext(input: {
         ? [{ id: "chart.set-indicator", label: "设置图表指标", available: true, inputSchema: { type: "object", required: ["position", "indicator"], properties: { position: { enum: ["primary", "secondary"] }, indicator: { enum: ["MA", "EMA", "BOLL", "VOL", "MACD", "RSI", "KDJ"] } }, additionalProperties: false } }]
         : []),
       { id: "market.set-alert", label: "设置价格预警", available: input.alertsAvailable ?? true, inputSchema: { type: "object", required: ["direction", "price"], properties: { direction: { enum: ["above", "below"] }, price: { type: "number", exclusiveMinimum: 0 }, label: { type: "string", maxLength: 80 } }, additionalProperties: false } },
-      { id: "workspace.save-layout", label: "保存当前布局", available: true, inputSchema: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, additionalProperties: false } },
+      { id: "workspace.save-layout", label: "保存当前布局", available: input.layoutAvailable ?? false, inputSchema: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, additionalProperties: false } },
     ],
     ...(input.config.kind === "event-timeline" || input.config.kind === "technical"
       ? {
@@ -171,7 +172,7 @@ export function MarketWorkspaceApp({
   const initialSecurity = useStoredSecurity(config.modId);
   const fetcher = useMemo(() => providedFetch ?? globalThis.fetch.bind(globalThis), [providedFetch]);
   const [gatewayOrigin, setGatewayOrigin] = useState(gatewayBaseUrl || configuredOrigin("gateway"));
-  const [connectedHost, setHostConnection] = useState<EmbeddedHost | undefined>(providedHostConnection);
+  const [connectedHost, setHostConnection] = useState<EmbeddedHost | undefined>();
   const hostConnection = providedHostConnection ?? connectedHost;
   const storageSession = useStorageSession(hostConnection);
   const hostIdentity = useMemo(() => hostConnection
@@ -190,10 +191,15 @@ export function MarketWorkspaceApp({
     }),
     [fetcher, gatewayOrigin, hostConnection, providedDataSource],
   );
-  const artifactClient = useMemo<ArtifactClient>(
-    () => providedArtifactClient ?? createArtifactClient({ baseUrl: gatewayOrigin, fetch: fetcher }),
-    [fetcher, gatewayOrigin, providedArtifactClient],
-  );
+  const artifactClient = useMemo(() => hostIdentity
+    ? (storageSession ? undefined : providedArtifactClient) ?? createReplayStorage({ baseUrl: gatewayOrigin, fetch: fetcher, ...hostIdentity, session: storageSession })
+    : undefined, [fetcher, gatewayOrigin, providedArtifactClient, hostIdentity, storageSession]);
+  const saveLayout = useMemo(() => hostIdentity ? createLayoutSaver({ baseUrl: gatewayOrigin, fetch: fetcher, ...hostIdentity, session: storageSession }, config.modId) : undefined,
+    [fetcher, gatewayOrigin, hostIdentity, storageSession, config.modId]);
+  const layoutAvailable = Boolean(saveLayout && (!storageSession || storageSession.config.grants.permissions.includes("storage.write")));
+  const replayWritable = Boolean(artifactClient && (!storageSession || storageSession.config.grants.permissions.includes("storage.write")));
+  const storageGeneration = useRef({ session: storageSession, value: 0 });
+  if (storageGeneration.current.session !== storageSession) storageGeneration.current = { session: storageSession, value: storageGeneration.current.value + 1 };
   const [bridge] = useState(() => providedBridge ?? createModBridge({ modId: config.modId, parentOrigin: configuredOrigin("parent") }));
   const ownsBridge = !providedBridge;
   const closeTimer = useRef<number | undefined>(undefined);
@@ -201,7 +207,8 @@ export function MarketWorkspaceApp({
   const [securityValidated, setSecurityValidated] = useState(() => config.kind === "sentiment" || !isOpenFundSecurity(initialSecurity));
   const [quote, setQuote] = useState<Quote>();
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [workspaceState, setWorkspaceState] = useState<Record<string, unknown>>({});
+  const [workspaceEntry, setWorkspaceEntry] = useState<{ session?: StorageSession; value: Record<string, unknown> }>({ session: storageSession, value: {} });
+  const workspaceState = workspaceEntry.session === storageSession ? workspaceEntry.value : {};
   const [workspaceAction, setWorkspaceAction] = useState<WorkspaceUiAction>();
   const alertIdentity = hostIdentity;
   const sharedAlertClient = useMemo(() => {
@@ -232,7 +239,10 @@ export function MarketWorkspaceApp({
     deleteAlert,
   } = useMarketAlerts(sharedAlertClient);
   const alertsAvailable = alertStatus === "ready" && (!hostConnection || Boolean(storageSession?.config.grants.permissions.includes("storage.write")));
-  const [lastSavedLayout, setLastSavedLayout] = useState<{ name: string; savedAt: string }>();
+  const [savedLayoutEntry, setSavedLayoutEntry] = useState<{ session?: StorageSession; name: string; savedAt: string }>();
+  const lastSavedLayout = useMemo(() => savedLayoutEntry && savedLayoutEntry.session === storageSession
+    ? { name: savedLayoutEntry.name, savedAt: savedLayoutEntry.savedAt } : undefined, [savedLayoutEntry, storageSession]);
+  useEffect(() => { setWorkspaceAction(undefined); }, [storageSession]);
   const [error, setError] = useState("");
   const quoteResourceKeyRef = useRef("");
   const isEtf = isEtfSecurity(security);
@@ -241,11 +251,16 @@ export function MarketWorkspaceApp({
     ? [...WORKSPACE_SECURITIES.slice(0, 2), ...EVENT_TIMELINE_ETFS]
     : WORKSPACE_SECURITIES.slice(0, 6);
   const layoutStateRef = useRef<Record<string, unknown>>({ security, ...workspaceState });
+  const layoutScopeRef = useRef(storageSession);
+  if (layoutScopeRef.current !== storageSession) {
+    layoutScopeRef.current = storageSession;
+    layoutStateRef.current = { security };
+  }
 
   const updateWorkspaceState = useCallback((next: Record<string, unknown>) => {
     layoutStateRef.current = { security, ...next };
-    setWorkspaceState((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
-  }, [security]);
+    setWorkspaceEntry((current) => current.session === storageSession && JSON.stringify(current.value) === JSON.stringify(next) ? current : { session: storageSession, value: next });
+  }, [security, storageSession]);
   layoutStateRef.current = { ...layoutStateRef.current, security };
 
   const contextualWorkspaceState = config.kind === "sentiment" ? workspaceState : {
@@ -254,8 +269,8 @@ export function MarketWorkspaceApp({
     alerts: alerts.slice(0, 8),
     lastSavedLayout: lastSavedLayout ?? null,
   };
-  const contextRef = useRef<ModPageContext>(buildWorkspacePageContext({ config, security, quote, workspaceState: contextualWorkspaceState, alertsAvailable }));
-  contextRef.current = buildWorkspacePageContext({ config, security, quote, workspaceState: contextualWorkspaceState, alertsAvailable });
+  const contextRef = useRef<ModPageContext>(buildWorkspacePageContext({ config, security, quote, workspaceState: contextualWorkspaceState, alertsAvailable, layoutAvailable }));
+  contextRef.current = buildWorkspacePageContext({ config, security, quote, workspaceState: contextualWorkspaceState, alertsAvailable, layoutAvailable });
 
   useEffect(() => {
     document.title = `${config.title} · Newma-Desk`;
@@ -331,17 +346,9 @@ export function MarketWorkspaceApp({
       const name = typeof input.name === "string" && input.name.trim()
         ? input.name.trim().slice(0, 80)
         : `${config.title} ${new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date())}`;
-      const key = `vibedesk.${config.modId}.layouts.v1`;
-      let current: unknown[] = [];
-      try {
-        const parsed = JSON.parse(window.localStorage.getItem(key) || "[]");
-        if (Array.isArray(parsed)) current = parsed;
-      } catch {
-        current = [];
-      }
-      const record = { id: globalThis.crypto?.randomUUID?.() ?? `layout-${Date.now()}`, name, savedAt, ...layoutStateRef.current };
-      window.localStorage.setItem(key, JSON.stringify([record, ...current].slice(0, 20)));
-      setLastSavedLayout({ name, savedAt });
+      if (!saveLayout || !layoutAvailable) throw new Error("当前页面未获布局存储授权");
+      const record = await saveLayout({ id: globalThis.crypto.randomUUID(), name, savedAt, state: layoutStateRef.current });
+      setSavedLayoutEntry({ session: storageSession, name, savedAt });
       return { layout: record };
     }
     if (actionId === "market.set-timeframe") {
@@ -362,7 +369,7 @@ export function MarketWorkspaceApp({
     const action = { sequence: Date.now(), actionId, input };
     setWorkspaceAction(action);
     return { accepted: true, action };
-  }, [config.kind, config.modId, config.title, createAlert, security]);
+  }, [config.kind, config.modId, config.title, createAlert, security, saveLayout, layoutAvailable, storageSession]);
 
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
 
@@ -466,7 +473,7 @@ export function MarketWorkspaceApp({
         ? <RelativeStrengthWorkspace dataSource={dataSource} cacheIdentity={hostIdentity} security={security} onSelectSecurity={selectSecurity} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
         : config.kind === "event-timeline"
           ? <EventTimelineWorkspace action={workspaceAction} cacheIdentity={hostIdentity} dataSource={dataSource} security={security} quote={quote} theme={theme} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />
-          : <ReplayWorkspace action={workspaceAction} artifactClient={artifactClient} cacheIdentity={hostIdentity} dataSource={dataSource} security={security} theme={theme} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />;
+          : <ReplayWorkspace key={storageGeneration.current.value} action={workspaceAction} artifactClient={artifactClient} canSave={replayWritable} cacheIdentity={hostIdentity} dataSource={dataSource} security={security} theme={theme} refreshNonce={refreshNonce} onContextChange={updateWorkspaceState} />;
 
   return (
     <main

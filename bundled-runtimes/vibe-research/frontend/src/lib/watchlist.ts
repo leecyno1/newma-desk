@@ -1,4 +1,4 @@
-import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig } from "@/lib/vibedesk";
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig, subscribeVibeDeskConfig } from "@/lib/vibedesk";
 
 const LEGACY_KEY = "vr-watchlist";
 const SAMPLE_SEED_KEY = "vr-watchlist-sample-v1";
@@ -344,4 +344,36 @@ export async function connectWorkspaceWatchlist() {
     userId: config?.userId || "local-user",
     workspaceId: config?.workspaceId || "local-workspace",
   });
+}
+
+// News/calendar only consume the shared list. They cannot mutate it or fall
+// back to legacy browser holdings when a signed read is unavailable.
+export async function loadWorkspaceWatchGroups(): Promise<WatchGroup[]> {
+  const config = getVibeDeskConfig() || (isVibeDeskEmbedded ? await waitForVibeDeskConfig() : null);
+  if (!config && !isVibeDeskEmbedded && import.meta.env.VITE_NEWMA_DESK_INTEGRATED !== "1") return loadLocalWatchGroups().groups;
+  if (!config?.accessToken || !config.instanceId) throw new WatchlistRequestError(401, errorMessage(401));
+  if (!["news-radar", "catalyst-calendar"].includes(config.moduleId) || !config.permissions?.includes("storage.read")) {
+    throw new WatchlistRequestError(403, errorMessage(403));
+  }
+  const scope = (c: typeof config | null) => JSON.stringify(c && [c.apiOrigin, c.storageGateway, c.moduleId, c.userId, c.workspaceId, c.instanceId, c.accessToken, c.permissions]);
+  const initial = scope(config);
+  let current = true;
+  const unsubscribe = subscribeVibeDeskConfig(c => { if (scope(c) !== initial) current = false; });
+  try {
+    const response = await fetch(`${new URL(config.storageGateway || config.apiOrigin).origin}/api/watchlists`, {
+      credentials: "omit", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(15000),
+      headers: { Accept: "application/json", Authorization: `Bearer ${config.accessToken}`, "X-Newma-Desk-Instance-Id": config.instanceId },
+    });
+    const payload: unknown = await response.json().catch(() => null);
+    if (!current || initial !== scope(getVibeDeskConfig())) throw new WatchlistRequestError(409, "工作区已切换，请重新读取自选。");
+    if (!response.ok) throw new WatchlistRequestError(response.status, errorMessage(response.status));
+    const snapshot = payload as WatchlistSnapshot | null;
+    if (snapshot?.userId !== config.userId || snapshot?.workspaceId !== config.workspaceId || !Array.isArray(snapshot.groups) || !Number.isInteger(snapshot.revision)) {
+      throw new WatchlistRequestError(403, "自选响应与当前账户不匹配。");
+    }
+    return parsedGroups(snapshot.groups);
+  } catch (error) {
+    if (error instanceof WatchlistRequestError) throw error;
+    throw new WatchlistRequestError(503, "共享自选读取未确认；未改用本机自选。");
+  } finally { unsubscribe(); }
 }

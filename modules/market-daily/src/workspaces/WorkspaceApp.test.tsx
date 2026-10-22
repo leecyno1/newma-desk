@@ -1,8 +1,8 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ArtifactClient, ModBridge } from "@newma-desk/mod-sdk";
+import type { ArtifactClient, ModBridge, ModHostConnection, ReplayArtifactRecord } from "@newma-desk/mod-sdk";
 
 import type { MarketDataSource, Quote, SecurityRef } from "../types";
 import { buildWorkspacePageContext, MarketWorkspaceApp } from "./WorkspaceApp";
@@ -102,6 +102,19 @@ function bridge(modId: string): ModBridge {
     subscribe: vi.fn(() => () => undefined),
     close: vi.fn(),
   };
+}
+
+function storageHost(modId: string, user = "alice", permissions = ["storage.read", "storage.write"]) {
+  const handle = vi.fn();
+  const host = {
+    embedded: true, config: { modId, instanceId: `${user}-instance`, user: { id: user }, workspace: { id: `${user}-workspace` },
+      gateways: { data: "https://desk.test/api/data", storage: "https://desk.test/api/mods" },
+      grants: { permissions, actions: ["workspace.save-layout"] },
+      session: { accessToken: `${user}-synthetic`, expiresAt: new Date(Date.now() + 60000).toISOString() },
+    }, subscribe: vi.fn(() => () => {}), setContextProvider: vi.fn(() => () => {}), publishContext: vi.fn(),
+    setUiActionHandler: handle, setHandoffHandler: vi.fn(() => () => {}),
+  } as unknown as Extract<ModHostConnection, { embedded: true }>;
+  return { host, handle };
 }
 
 describe("market chart workspaces", () => {
@@ -291,5 +304,67 @@ describe("market chart workspaces", () => {
     expect(context.selection).toMatchObject({ symbol: "600519", market: "CN" });
     expect(context.filters).toMatchObject({ workspace: "relative-strength", timeframe: "1d" });
     expect(context.data.summary).toMatchObject({ workspace: { timeframe: "1d" } });
+  });
+
+  it("publishes saved layout metadata without putting credentials in Agent context", async () => {
+    const { host, handle } = storageHost("multi-timeframe");
+    const fetcher = vi.fn(async (_url, init) => {
+      const { value } = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ moduleId: "multi-timeframe", namespace: "layouts", key: value.id, value }));
+    });
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES["multi-timeframe"]} bridge={bridge("multi-timeframe")} dataSource={dataSource()} alertClient={null} hostConnection={host} embedded fetch={fetcher} />);
+    await screen.findAllByTestId("workspace-kline");
+    await act(async () => { await handle.mock.calls.at(-1)![0]("workspace.save-layout", { name: "已保存布局" }); });
+    expect(screen.getByText("最近布局：已保存布局")).toBeVisible();
+    const context = vi.mocked(host.publishContext).mock.calls.at(-1)![0]!;
+    expect(context.data?.summary?.workspace).toMatchObject({ lastSavedLayout: { name: "已保存布局" } });
+    expect(JSON.stringify(context)).not.toContain("alice-synthetic");
+    expect(JSON.stringify(context)).not.toContain("accessToken");
+  });
+
+  it("saves layouts with a signature and never reports an old account's late save", async () => {
+    const first = storageHost("multi-timeframe");
+    const second = storageHost("multi-timeframe", "bob");
+    let finish!: (value: Response) => void;
+    let body!: { value: { id: string; name: string } };
+    const fetcher = vi.fn((_url, init) => { body = JSON.parse(String(init?.body)); return new Promise<Response>(resolve => { finish = resolve; }); });
+    const props = { config: MARKET_WORKSPACES["multi-timeframe"], bridge: bridge("multi-timeframe"), dataSource: dataSource(), alertClient: null, embedded: true, fetch: fetcher };
+    const view = render(<MarketWorkspaceApp {...props} hostConnection={first.host} />);
+    await screen.findAllByTestId("workspace-kline");
+    const handler = first.handle.mock.calls.at(-1)![0];
+    const result = handler("workspace.save-layout", { name: "旧账户布局" }).catch((error: Error) => error);
+    view.rerender(<MarketWorkspaceApp {...props} hostConnection={second.host} />);
+    await act(async () => { finish(new Response(JSON.stringify({ moduleId: "multi-timeframe", namespace: "layouts", key: body.value.id, value: body.value }))); });
+    expect(await result).toBeInstanceOf(Error);
+    expect(screen.queryByText(/最近布局：旧账户布局/)).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("vibedesk.multi-timeframe.layouts.v1")).toBeNull();
+    expect(fetcher.mock.calls[0]![1]).toMatchObject({ headers: { Authorization: "Bearer alice-synthetic" } });
+  });
+
+  it("disables layout writes for readonly sessions and archive saves before a host is connected", async () => {
+    const first = storageHost("multi-timeframe", "alice", ["storage.read"]);
+    const fetcher = vi.fn();
+    const view = render(<MarketWorkspaceApp config={MARKET_WORKSPACES["multi-timeframe"]} bridge={bridge("multi-timeframe")} dataSource={dataSource()} hostConnection={first.host} fetch={fetcher} alertClient={null} embedded />);
+    await expect(first.handle.mock.calls.at(-1)![0]("workspace.save-layout", {})).rejects.toThrow("未获布局存储授权");
+    expect(fetcher).not.toHaveBeenCalled();
+    view.unmount();
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES["trading-replay"]} bridge={bridge("trading-replay")} dataSource={dataSource()} fetch={fetcher} alertClient={null} embedded />);
+    await screen.findByText(/未来数据已隐藏/);
+    expect(screen.getByRole("button", { name: "沉淀回放" })).toBeDisabled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("does not replace a saved replay with a late initial archive list", async () => {
+    let finish!: (records: ReplayArtifactRecord[]) => void;
+    const client = artifactClient();
+    client.listReplays = vi.fn(() => new Promise<ReplayArtifactRecord[]>(resolve => { finish = resolve; }));
+    client.createReplay = vi.fn(async () => ({ id: "new", title: "新回放", viewUrl: "/new", moduleId: "trading-replay" }) as never);
+    render(<MarketWorkspaceApp config={MARKET_WORKSPACES["trading-replay"]} bridge={bridge("trading-replay")} dataSource={dataSource()} artifactClient={client} alertClient={null} />);
+    await screen.findByText(/未来数据已隐藏/);
+    await userEvent.click(screen.getByRole("button", { name: "沉淀回放" }));
+    expect(await screen.findByText("新回放")).toBeVisible();
+    await act(async () => { finish([{ id: "old", title: "旧回放", viewUrl: "/old" } as ReplayArtifactRecord]); });
+    expect(screen.queryByText("旧回放")).not.toBeInTheDocument();
+    expect(screen.getByText("新回放")).toBeVisible();
   });
 });
