@@ -1,0 +1,6 @@
+{
+  "name": "@newma-desk/industry-research", "version": "0.16.1", "private": true, "type": "module",
+  "scripts": {"dev": "vite", "dev:standalone": "vite --host 127.0.0.1 --mode standalone --base=/", "build": "tsc --noEmit && vite build", "build:standalone": "tsc --noEmit && vite build --mode standalone --base=/", "preview": "vite preview --host 127.0.0.1", "test:run": "vitest run", "typecheck": "tsc --noEmit"},
+  "dependencies": {"@newma-desk/contracts": "0.1.0", "@newma-desk/desk-ui": "0.1.0", "@newma-desk/mod-sdk": "0.1.0", "react": "^19.0.0", "react-dom": "^19.0.0"},
+  "devDependencies": {"@types/react": "^19.0.0", "@types/react-dom": "^19.0.0", "@vitejs/plugin-react": "^4.3.4", "typescript": "^5.7.3", "vite": "^6.4.0", "vitest": "^4.0.0"}
+}

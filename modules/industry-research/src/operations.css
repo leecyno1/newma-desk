@@ -1,0 +1,11 @@
+.operations-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0}
+.operations-grid article{min-width:0;padding:14px;background:var(--vibe-surface);border:1px solid var(--vibe-border);border-top:2px solid var(--vibe-accent)}
+.operations-grid h3{margin:0 0 12px;min-height:32px;line-height:1.5}
+.operations-grid dl{margin:0}.operations-grid dl>div{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--vibe-border)}
+.operations-grid dt{font-size:12px}.operations-grid dd{white-space:nowrap;font-size:14px}
+.operations-panel p,.operations-panel li{line-height:1.8}.operations-panel ol{padding-left:20px;font-size:12px}
+.capacity-panel .facts,.national-sales .facts{margin:12px 0}.capacity-panel .facts span,.national-sales .facts span{line-height:1.6}.capacity-panel .facts b,.national-sales .facts b{display:block;margin-top:6px}
+.national-sales{margin-top:16px;padding:12px;background:var(--vibe-surface);border:1px solid var(--vibe-border)}
+.diagnosis-facts article:last-child:nth-child(5){grid-column:1/-1}
+@media(max-width:1100px){.operations-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.operations-grid{grid-template-columns:1fr}.operations-grid h3{min-height:0}}

@@ -205,6 +205,10 @@ def _default_capital_flow_dist() -> Path:
     return _default_project_root() / "modules" / "capital-flow" / "dist"
 
 
+def _default_industry_research_dist() -> Path:
+    return _default_project_root() / "modules" / "industry-research" / "dist"
+
+
 def _default_external_finance_pilot_descriptor() -> Path:
     return _default_project_root() / "config" / "external-finance-mod-pilots.json"
 
@@ -264,6 +268,7 @@ class Settings(BaseSettings):
     workflow_center_dist: Path = Field(default_factory=_default_workflow_center_dist)
     policy_analysis_dist: Path = Field(default_factory=_default_policy_analysis_dist)
     capital_flow_dist: Path = Field(default_factory=_default_capital_flow_dist)
+    industry_research_dist: Path = Field(default_factory=_default_industry_research_dist)
     capital_flow_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     tushare_token: SecretStr = Field(
         default=SecretStr(""), validation_alias="TUSHARE_TOKEN"

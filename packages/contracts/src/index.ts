@@ -1,6 +1,7 @@
 export * from "./bridge";
 export * from "./catalyst";
 export * from "./earnings";
+export * from "./businessRevenue";
 export * from "./event";
 export * from "./ideaFunnel";
 export * from "./investmentDomain";

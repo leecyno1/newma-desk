@@ -119,6 +119,10 @@ from vibe_visualization_api.policy_analysis.routes import (
 )
 from vibe_visualization_api.policy_analysis.refresher import PolicyRefreshService
 from vibe_visualization_api.capital_flow.routes import router as capital_flow_router
+from vibe_visualization_api.industry_research import router as industry_research_router
+from vibe_visualization_api.industry_production import router as industry_production_router
+from vibe_visualization_api.industry_prices import router as industry_prices_router
+from vibe_visualization_api.industry_capacity import router as industry_capacity_router
 from vibe_visualization_api.mod_storage.routes import router as mod_storage_router
 from vibe_visualization_api.mod_storage.store import (
     ModStorageConflictError,
@@ -595,6 +599,10 @@ def create_app(
     application.include_router(global_topics_router)
     application.include_router(policy_analysis_router)
     application.include_router(capital_flow_router)
+    application.include_router(industry_research_router)
+    application.include_router(industry_production_router)
+    application.include_router(industry_prices_router)
+    application.include_router(industry_capacity_router)
     application.include_router(wiki_router)
     application.include_router(mod_snapshots_router, prefix="/api/mods")
     application.include_router(
@@ -941,6 +949,14 @@ def create_app(
             "/mod-runtime/policy-analysis",
             SpaStaticFiles(directory=str(policy_analysis_dist), html=True),
             name="policy-analysis-mod-runtime",
+        )
+
+    industry_research_dist = app_settings.industry_research_dist.expanduser().resolve()
+    if industry_research_dist.is_dir():
+        application.mount(
+            "/mod-runtime/industry-research",
+            SpaStaticFiles(directory=str(industry_research_dist), html=True),
+            name="industry-research-mod-runtime",
         )
 
     capital_flow_dist = app_settings.capital_flow_dist.expanduser().resolve()

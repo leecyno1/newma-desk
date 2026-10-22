@@ -22,6 +22,11 @@
   ],
   "mods": [
     {
+      "id": "industry-prosperity",
+      "path": "industry-prosperity/mod.json",
+      "defaultInstall": true
+    },
+    {
       "id": "global-situation",
       "path": "global-situation/mod.json",
       "defaultInstall": true

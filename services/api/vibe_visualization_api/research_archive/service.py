@@ -262,6 +262,25 @@ class ResearchArchiveService:
     def __init__(self, storage: ModStorageStore):
         self._storage = storage
 
+    def industry_inputs(self, *, user_id: str, workspace_id: str) -> dict[str, Any]:
+        """Read-only company evidence for industry research; never infer membership."""
+        try:
+            document = self._storage.get(user_id=user_id, workspace_id=workspace_id,
+                                         module_id="earnings-workbench", namespace="earnings-workbench", key="workbooks")
+        except ModStorageNotFoundError:
+            return {"revision": 0, "workbooks": []}
+        ids = {"revenue", "revenue-yoy", "net-profit", "net-profit-yoy", "operating-cash-flow", "op-cf-ps",
+               "capital-inventory", "capital-accounts-receivable"}
+        workbooks = []
+        for row in _rows(document.get("value"), "workbooks"):
+            metrics = [metric for metric in _rows(row, "metrics") + _rows(row, "operatingMetrics") if metric.get("id") in ids]
+            source_ids = {source_id for metric in metrics for source_id in metric.get("sourceIds", []) if isinstance(source_id, str)}
+            sources = [{key: source[key] for key in ("id", "label", "kind", "url", "asOf", "periodEnd", "basis", "status", "excerpt", "importedReport", "correction", "businessRevenue") if key in source}
+                       for source in _rows(row, "sourceMaterials") if source.get("id") in source_ids or isinstance(source.get("businessRevenue"), dict)]
+            workbooks.append({**{key: row.get(key) for key in ("id", "updatedAt", "security", "fiscalPeriod", "mode")},
+                              "metrics": metrics, "sourceMaterials": sources})
+        return {"revision": document["revision"], "workbooks": workbooks}
+
     def earnings_inputs(self, *, user_id: str, workspace_id: str) -> dict[str, Any]:
         """Read saved revenue, capital facts and adopted notes, excluding MD&A."""
         try:

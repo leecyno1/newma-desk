@@ -2,7 +2,14 @@
   "name": "@newma-desk/contracts",
   "version": "0.1.0",
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./bridge": "./src/bridge.ts",
+    "./event": "./src/event.ts",
+    "./earnings": "./src/earnings.ts",
+    "./valuation": "./src/valuation.ts",
+    "./business-revenue": "./src/businessRevenue.ts"
+  },
   "scripts": {
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit"

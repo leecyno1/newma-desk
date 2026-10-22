@@ -591,6 +591,11 @@ if (checkOnly) {
         "@newma-desk/capital-flow",
         "modules/capital-flow",
       ),
+      () => buildFirstPartyModule(
+        "Industry Research",
+        "@newma-desk/industry-research",
+        "modules/industry-research",
+      ),
     ], { concurrency: runtimeBuildConcurrency });
     await Promise.all(
       runtimePlan.preCoreServices.map((service) => supervisor.start(service)),

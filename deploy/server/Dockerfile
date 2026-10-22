@@ -2,6 +2,9 @@ FROM node:22-bookworm-slim AS web-builder
 
 WORKDIR /app
 
+ARG VITE_PARENT_ORIGIN
+ARG VITE_DESK_URL
+
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
@@ -16,6 +19,7 @@ RUN npm ci \
     && NEWMA_DESK_INTEGRATED=1 NEWMA_DOCK_INTEGRATED=1 VITE_NEWMA_DESK_INTEGRATED=1 VITE_BASE_PATH=/mod-runtime/trading/ VITE_API_BASE=/api/trading npm run build --prefix mod-projects/vibe-trading/frontend \
     && npm run build -w @newma-desk/portfolio-center \
     && npm run build -w @newma-desk/creator-studio \
+    && VITE_PARENT_ORIGIN="$VITE_PARENT_ORIGIN" VITE_DESK_URL="$VITE_DESK_URL" npm run build -w @newma-desk/industry-research \
     && npm run build -w @newma-desk/desk
 
 FROM python:3.12-slim-bookworm AS python-builder
@@ -88,6 +92,7 @@ COPY --from=web-builder /app/mod-projects/vibe-trading/frontend/dist ./mod-proje
 
 COPY --from=web-builder /app/modules/portfolio-center/dist ./modules/portfolio-center/dist
 COPY --from=web-builder /app/modules/creator-studio/dist ./modules/creator-studio/dist
+COPY --from=web-builder /app/modules/industry-research/dist ./modules/industry-research/dist
 
 RUN rm -rf \
     /app/mod-projects/vibe-trading/agent/runs \
