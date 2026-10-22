@@ -1,0 +1,533 @@
+{
+  "global-situation": {
+    "title": "全球情报",
+    "eyebrow": "GLOBAL INTELLIGENCE / 01",
+    "description": "只读查看已验收的 USGS 公开地震快照；来源时间与覆盖缺口一并保留。",
+    "notice": "历史公开快照，采集于 2026-10-22T12:09:05Z；不是实时情报。只覆盖当次USGS查询的5条事件，不代表全球全部风险。",
+    "metrics": [
+      {
+        "label": "公开来源",
+        "value": "USGS",
+        "detail": "原始事件链接可核对"
+      },
+      {
+        "label": "快照事件",
+        "value": "5 条",
+        "detail": "当次查询阈值：震级≥4.5、24小时窗口"
+      },
+      {
+        "label": "当前状态",
+        "value": "历史快照",
+        "detail": "未连接实时采集；其他风险未知"
+      }
+    ],
+    "chart": {
+      "type": "bars",
+      "title": "USGS 事件震级",
+      "subtitle": "震级不是市场风险评分。点击事件查看地点、发生时间与深度。",
+      "max": 7,
+      "unit": "震级",
+      "labels": [
+        "印度尼西亚",
+        "阿富汗",
+        "俄罗斯远东",
+        "关岛附近",
+        "巴伦群岛"
+      ],
+      "values": [
+        4.9,
+        4.6,
+        4.5,
+        4.6,
+        4.8
+      ],
+      "notes": [
+        "85 km NNW of Curup, Indonesia · 2026-10-22T10:57:52Z · 震级 4.9 · 深度 135.261 km。市场影响未评估。",
+        "11 km W of Ashkāsham, Afghanistan · 2026-10-22T10:07:41Z · 震级 4.6 · 深度 174.513 km。市场影响未评估。",
+        "136 km NE of Petropavlovsk-Kamchatsky, Russia · 2026-10-22T08:34:18Z · 震级 4.5 · 深度 61.06 km。市场影响未评估。",
+        "49 km NE of Yigo Village, Guam · 2026-10-22T08:06:35Z · 震级 4.6 · 深度 99.23 km。市场影响未评估。",
+        "Balleny Islands region · 2026-10-22T07:49:29Z · 震级 4.8 · 深度 10 km。市场影响未评估。"
+      ]
+    },
+    "sections": [
+      {
+        "title": "快照覆盖",
+        "items": [
+          "只展示既有真实公开源验收中保存的USGS结果，不发起新采集。",
+          "采集时间与地震发生时间分别保留，不将页面打开时间当成新数据时间。",
+          "缺少航运、新闻与军事数据，不能据此声称全球风险为零。"
+        ]
+      },
+      {
+        "title": "使用边界",
+        "items": [
+          "事件震级不能直接转化为资产价格预测。",
+          "尚未核验供应链、企业敞口或经济损失。",
+          "点击原始来源可自行核对后续修订；此快照不会自动更新。"
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "title": "USGS us6000u42q · 2026-10-22T10:57:52Z",
+        "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us6000u42q"
+      },
+      {
+        "title": "USGS us6000u42e · 2026-10-22T10:07:41Z",
+        "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us6000u42e"
+      },
+      {
+        "title": "USGS us6000u423 · 2026-10-22T08:34:18Z",
+        "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us6000u423"
+      },
+      {
+        "title": "USGS us6000u41z · 2026-10-22T08:06:35Z",
+        "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us6000u41z"
+      },
+      {
+        "title": "USGS us6000u41y · 2026-10-22T07:49:29Z",
+        "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us6000u41y"
+      }
+    ],
+    "publication": {
+      "ready": true,
+      "dataKind": "public-snapshot",
+      "asOf": "2026-10-22T12:09:05Z",
+      "reason": "历史公开快照可读，不代表完整业务或实时数据验收",
+      "coverage": "USGS 5条历史事件，不代表完整全球情报"
+    },
+    "provenance": [
+      {
+        "source": "USGS",
+        "observedFrom": "2026-10-22T07:49:29Z",
+        "observedTo": "2026-10-22T10:57:52Z",
+        "collectedAt": "2026-10-22T12:09:05Z",
+        "sourceEvidence": "global-source-check-20261022/world-result.real",
+        "freshness": "historical-snapshot"
+      }
+    ]
+  },
+  "seven-cycle-research": {
+    "title": "周期叠加",
+    "eyebrow": "CYCLE RESEARCH / 02",
+    "description": "只读展示已批准的 2026-10-04 周期研究快照，保留发布限制和原始观测期。",
+    "notice": "历史研究输出，非实时数据。C4使用最新修订宏观观测，缺少真实历史发布版本；不能用于声称无前视偏差的实时回测。其他周期的阻断状态保持不变。",
+    "metrics": [
+      {
+        "label": "研究快照",
+        "value": "2026-10-04",
+        "detail": "不是数据观测日期"
+      },
+      {
+        "label": "C4 数据截至",
+        "value": "2026-08",
+        "detail": "伪实时状态估计，不是价格"
+      },
+      {
+        "label": "最新状态",
+        "value": "-0.06944",
+        "detail": "标准化模型水平，不能当仓位建议"
+      }
+    ],
+    "chart": {
+      "type": "line",
+      "title": "C4 库存周期 · 历史状态估计",
+      "subtitle": "原研究快照rt_level，单位为标准化模型刻度；非真实发布vintage。",
+      "labels": [
+        "2024-09",
+        "2024-10",
+        "2024-11",
+        "2024-12",
+        "2025-01",
+        "2025-02",
+        "2025-03",
+        "2025-04",
+        "2025-05",
+        "2025-06",
+        "2025-07",
+        "2025-08",
+        "2025-09",
+        "2025-10",
+        "2025-11",
+        "2025-12",
+        "2026-01",
+        "2026-02",
+        "2026-03",
+        "2026-04",
+        "2026-05",
+        "2026-06",
+        "2026-07",
+        "2026-08"
+      ],
+      "values": [
+        -0.10105,
+        -0.1013,
+        -0.08818,
+        -0.06359,
+        -0.1112,
+        -0.09392,
+        -0.08655,
+        -0.18371,
+        -0.21235,
+        -0.20658,
+        -0.22425,
+        -0.21438,
+        -0.19148,
+        -0.23995,
+        -0.24514,
+        -0.20396,
+        -0.20323,
+        -0.23196,
+        -0.17479,
+        -0.16081,
+        -0.12321,
+        -0.08842,
+        -0.10577,
+        -0.06944
+      ],
+      "unit": "标准化模型刻度",
+      "seriesLabel": "C4历史状态",
+      "kind": "research-snapshot"
+    },
+    "sections": [
+      {
+        "title": "七周期发布门槛（原快照）",
+        "items": [
+          "C1 康波周期：历史 scenario_only / 实时 blocked。35至70年频率在七个实体家族中均未通过红噪声检验；仅发布低置信长期结构说明，不发布精确相位、预测或资产权重。",
+          "C2 地产周期：历史 blocked / 实时 blocked。尺度敏感且红噪声显著性不足，经验中心暂不发布。",
+          "C3 资本周期：历史 blocked / 实时 blocked。原值、对数与增长口径结果不稳定，经验中心暂不发布。",
+          "C4 库存周期：历史 formal / 实时 limited。历史周期得到强支持；实时缺少真实vintage，预测输入已过期。",
+          "C5 流动性周期：历史 blocked / 实时 blocked。12至27个月候选分散且未稳定通过红噪声检验。",
+          "C6 季节效应：历史 calendar_only / 实时 blocked。频率由日历定义，仅发布随时间变化的季节振幅和月份结构。",
+          "C7 风偏和市场交易周期：历史 blocked / 实时 blocked。约5.6个月仅为条件候选，市场收益和广度触及搜索边界。"
+        ]
+      },
+      {
+        "title": "明确限制",
+        "items": [
+          "快照生成于2026-10-04，C4观测截至2026-08。",
+          "图示是模型估计而非原始宏观指标，不代表已完成实时预测。",
+          "不会重新运行模型、修改研究输入、发布资产权重或连接私人研究库。"
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "title": "FRED 公开宏观数据（原研究来源体系）",
+        "url": "https://fred.stlouisfed.org/"
+      },
+      {
+        "title": "世界银行公开指标（原研究来源体系）",
+        "url": "https://data.worldbank.org/"
+      }
+    ],
+    "publication": {
+      "ready": true,
+      "dataKind": "research-snapshot",
+      "asOf": "2026-08",
+      "reason": "批准历史研究快照可读，不代表实时周期预测验收",
+      "coverage": "C4历史状态与七周期发布门槛，不含实时预测/配置"
+    },
+    "provenance": [
+      {
+        "source": "已批准research-20261004/cycle-research.json",
+        "generatedAt": "2026-10-04",
+        "observedTo": "2026-08",
+        "fields": [
+          "C4Realtime.timeline.date",
+          "C4Realtime.timeline.rt_level",
+          "governance.cycles.publication"
+        ],
+        "dataVintageLimit": "source panel contains latest-restated observations; original release vintages are unavailable",
+        "freshness": "historical-snapshot"
+      }
+    ]
+  },
+  "market-daily": {
+    "title": "市场行情",
+    "eyebrow": "MARKET SURFACE / 03",
+    "description": "只读浏览既有研究快照中的标普500历史月频数据，不接入个人自选和交易账户。",
+    "notice": "公开来源历史快照：原研究归档标记为FRED/SP500，展示至2026-09；不是实时行情。剔除了归档中尚未完整结束的2026-10月份，不重新请求数据源。",
+    "metrics": [
+      {
+        "label": "历史标的",
+        "value": "标普 500",
+        "detail": "FRED / SP500，点"
+      },
+      {
+        "label": "观察频率",
+        "value": "月频归档",
+        "detail": "保留原始归档口径，非实时日K"
+      },
+      {
+        "label": "数据截至",
+        "value": "2026-09",
+        "detail": "研究快照生成：2026-10-04"
+      }
+    ],
+    "chart": {
+      "type": "line",
+      "title": "标普500 · 历史月频快照",
+      "subtitle": "来自批准研究归档的原始raw轨道；单位：点。不展示2026-10未完整月份。",
+      "labels": [
+        "2024-10",
+        "2024-11",
+        "2024-12",
+        "2025-01",
+        "2025-02",
+        "2025-03",
+        "2025-04",
+        "2025-05",
+        "2025-06",
+        "2025-07",
+        "2025-08",
+        "2025-09",
+        "2025-10",
+        "2025-11",
+        "2025-12",
+        "2026-01",
+        "2026-02",
+        "2026-03",
+        "2026-04",
+        "2026-05",
+        "2026-06",
+        "2026-07",
+        "2026-08",
+        "2026-09"
+      ],
+      "values": [
+        5705.45,
+        6032.38,
+        5881.63,
+        6040.53,
+        5954.5,
+        5611.85,
+        5569.06,
+        5911.69,
+        6204.95,
+        6339.39,
+        6460.26,
+        6688.46,
+        6840.2,
+        6849.09,
+        6845.5,
+        6939.03,
+        6878.88,
+        6528.52,
+        7209.01,
+        7580.06,
+        7499.36,
+        7489.72,
+        7686.14,
+        7651.54
+      ],
+      "unit": "点",
+      "seriesLabel": "标普500历史月频",
+      "kind": "public-snapshot"
+    },
+    "sections": [
+      {
+        "title": "数据口径",
+        "items": [
+          "来源为批准研究快照的SP500轨道；非本轮独立重新校对原始数据供应商。",
+          "仅保留date与raw，不发布周期贡献、预测权重或客户研究。",
+          "原归档按月采样，本入口不推断月均/月末之外未声明的聚合细节。"
+        ]
+      },
+      {
+        "title": "未包含的业务",
+        "items": [
+          "不代表原市场模块的实时报价、盘口或完整日K验收。",
+          "个人自选股、提醒及历史记录不对外展示。",
+          "不调用行情网关，不新增采集任务或付费请求。"
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "title": "FRED · S&P 500 (SP500)",
+        "url": "https://fred.stlouisfed.org/series/SP500"
+      }
+    ],
+    "publication": {
+      "ready": true,
+      "dataKind": "public-snapshot",
+      "asOf": "2026-09",
+      "reason": "历史月频快照可读，不代表原市场终端实时报价验收",
+      "coverage": "标普500月频历史投影，不含实时盘口"
+    },
+    "provenance": [
+      {
+        "source": "FRED/SP500 via approved research-20261004/market-surface.json",
+        "generatedAt": "2026-10-04",
+        "observedFrom": "2024-10",
+        "observedTo": "2026-09",
+        "fields": [
+          "tracks[id=sp500].dates",
+          "tracks[id=sp500].raw"
+        ],
+        "frequency": "M",
+        "unit": "点",
+        "freshness": "historical-snapshot"
+      }
+    ]
+  },
+  "instock-industry-chain": {
+    "title": "产业链研究",
+    "eyebrow": "INDUSTRY RESEARCH / 04",
+    "description": "以半导体产业为例，阅读上下游关系与研究线索。",
+    "notice": "这是人工编制的简化产业关系示例，不含企业评级、实际持仓或未公开研究。点击环节查看说明，不启动采集。",
+    "metrics": [
+      {
+        "label": "示例产业",
+        "value": "半导体",
+        "detail": "公开常识层面的简化示意"
+      },
+      {
+        "label": "展示环节",
+        "value": "5 个节点",
+        "detail": "不等于完整供应链覆盖"
+      },
+      {
+        "label": "瓶颈评级",
+        "value": "未评定",
+        "detail": "缺少证据时保持未知"
+      }
+    ],
+    "chart": {
+      "type": "chain",
+      "title": "从设计到终端应用",
+      "subtitle": "箭头表示示意关系，并非已核验的企业供应合同。",
+      "labels": [
+        "设计工具与IP",
+        "芯片设计",
+        "晶圆制造",
+        "封装测试",
+        "终端应用"
+      ],
+      "values": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "notes": [
+        "观察设计工具授权、IP生态与研发投入；不据示意图判断供应商壁垒。",
+        "区分产品设计、客户结构和流片验证，关注需求与库存。",
+        "材料与设备是并行支撑环节；制程、良率和产能利用率需分别核验。",
+        "封装形式、测试能力和先进封装需求影响资本开支与交付。",
+        "计算、通信、汽车等应用需求不同，应分别核对订单与终端销量。"
+      ]
+    },
+    "sections": [
+      {
+        "title": "研究补证清单",
+        "items": [
+          "每条关系需要原始出处、有效日期和置信说明。",
+          "将技术依赖、供货关系和资本关系分开标识。",
+          "对单一来源、过期资料或推断关系保留风险提示。"
+        ]
+      },
+      {
+        "title": "公开版限制",
+        "items": [
+          "没有真实企业打分或投资推荐。",
+          "不提交主题、不调用模型、不抓取付费资料。",
+          "个人研究档案与历史结果不进入此入口。"
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "title": "美国半导体行业协会公开资料",
+        "url": "https://www.semiconductors.org/"
+      }
+    ],
+    "publication": {
+      "ready": false,
+      "dataKind": "illustrative",
+      "asOf": null,
+      "reason": "仅有方法示例，尚无已核验公开业务内容"
+    },
+    "provenance": []
+  },
+  "orchestra-committee": {
+    "title": "投决会",
+    "eyebrow": "INVESTMENT COMMITTEE / 05",
+    "description": "看清提案、质询、风险复核与决策留痕之间的关系。",
+    "notice": "这里展示虚构组织与静态议事样例，不是真实投决结果。不会启动 Agent、读取聊天记录或提交投资指令。",
+    "metrics": [
+      {
+        "label": "组织形式",
+        "value": "多角色审议",
+        "detail": "角色为公开演示设定"
+      },
+      {
+        "label": "样例结论",
+        "value": "待补证",
+        "detail": "不是赞成、否决或投资建议"
+      },
+      {
+        "label": "执行状态",
+        "value": "未启动",
+        "detail": "无Agent、无交易、无写入"
+      }
+    ],
+    "chart": {
+      "type": "committee",
+      "title": "研究意见如何形成可复核结论",
+      "subtitle": "选择角色查看职责；全部是静态演示，不产生新会话。",
+      "labels": [
+        "研究提案",
+        "反方质询",
+        "风险复核",
+        "主席汇总"
+      ],
+      "values": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "notes": [
+        "研究员：说明假设、来源、时间范围与尚未验证的推断。",
+        "质询人：寻找反例，区分事实、观点与模型输出。",
+        "风控角色：核对集中度、流动性与损失承受能力；此公开版没有任何真实组合。",
+        "主席角色：记录分歧、补证要求与后续复核条件；没有执行权。"
+      ]
+    },
+    "sections": [
+      {
+        "title": "静态议事样例 · 非真实记录",
+        "items": [
+          "提案：观察某虚构行业需求是否改善。",
+          "质询：样本不完整，尚不能排除季节性影响。",
+          "风险复核：缺少敞口数据，无法判断组合影响。",
+          "汇总：待补充证据，不形成执行指令。"
+        ]
+      },
+      {
+        "title": "公开与私有边界",
+        "items": [
+          "不展示账户、团队成员或历史聊天。",
+          "不开放工具调用、角色编辑或投票写入。",
+          "正常投决业务仍需独立登录与权限校验。"
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "title": "CFA Institute 职业道德与标准",
+        "url": "https://www.cfainstitute.org/ethics-standards"
+      }
+    ],
+    "publication": {
+      "ready": false,
+      "dataKind": "illustrative",
+      "asOf": null,
+      "reason": "仅有方法示例，尚无已核验公开业务内容"
+    },
+    "provenance": []
+  }
+}

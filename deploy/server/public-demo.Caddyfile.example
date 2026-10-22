@@ -1,0 +1,16 @@
+# Merge inside the existing 10443 site. Keep all normal login/API rules intact.
+# This /demo/* handle MUST precede any SPA fallback or broad forward_auth route.
+# Do not use handle_path: the independent service expects the /demo prefix.
+handle /demo/* {
+    reverse_proxy 127.0.0.1:18957 {
+        header_up -Cookie
+        header_up -Authorization
+        header_up -X-User-Id
+        header_up -X-Workspace-Id
+        header_up -X-Newma-Desk-Instance-Id
+    }
+}
+# The application supplies its own CSP with exactly:
+# frame-ancestors 'self' http://127.0.0.1:8766
+# Do not apply a global X-Frame-Options:DENY or duplicate incompatible CSP here.
+# Do not add CORS headers globally. Only /demo/status.json has exact material CORS.
