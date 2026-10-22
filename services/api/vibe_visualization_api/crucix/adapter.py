@@ -128,7 +128,14 @@ def _freshness(
             "staleAfterSeconds": stale_after_seconds,
         }
     parsed = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
-    age_seconds = max(0, int((now.astimezone(UTC) - parsed).total_seconds()))
+    age = (now.astimezone(UTC) - parsed).total_seconds()
+    if age < 0:
+        return {
+            "status": "unknown",
+            "ageSeconds": None,
+            "staleAfterSeconds": stale_after_seconds,
+        }
+    age_seconds = int(age)
     return {
         "status": "stale" if age_seconds > stale_after_seconds else "fresh",
         "ageSeconds": age_seconds,

@@ -72,7 +72,7 @@ export function buildGlobalIntelligenceContext(
       summary: state,
     },
     actions: [
-      { id: "global-intel.refresh", label: "刷新全球情报", available: true, inputSchema: { type: "object", additionalProperties: false } },
+      { id: "global-intel.refresh", label: "刷新全球情报", available: Boolean(state.refresh) && (state.refresh as Record<string, unknown>).status !== "loading", inputSchema: { type: "object", additionalProperties: false } },
       { id: "workspace.save-layout", label: "保存当前视图", available: true, inputSchema: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, additionalProperties: false } },
     ],
     tasks: [],
@@ -110,6 +110,10 @@ export function GlobalIntelligenceApp({
       ? undefined
       : { userId: "local-user", workspaceId: "local-workspace" });
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const refreshSequence = useRef(0);
+  const pendingRefresh = useRef<{
+    nonce: number; resolve(value: unknown): void; reject(error: Error): void;
+  } | undefined>(undefined);
   const [dashboardState, setDashboardState] = useState<Record<string, unknown>>({});
   const contextRef = useRef(buildGlobalIntelligenceContext(dashboardState, topicId));
   contextRef.current = buildGlobalIntelligenceContext(dashboardState, topicId);
@@ -188,24 +192,53 @@ export function GlobalIntelligenceApp({
     hostConnection?.publishContext(contextRef.current);
   }, [dashboardState, hostConnection, topicId]);
 
+  useEffect(() => {
+    const pending = pendingRefresh.current;
+    const refresh = dashboardState.refresh as Record<string, unknown> | undefined;
+    if (!pending || refresh?.nonce !== pending.nonce || refresh.status === "loading") return;
+    pendingRefresh.current = undefined;
+    if (refresh.status === "error") {
+      pending.reject(new Error(typeof refresh.error === "string" ? refresh.error : "刷新失败，未取得本次有效数据；旧数据显示不代表更新成功。"));
+    } else {
+      const coverage = dashboardState.dataAvailability as Record<string, unknown> | undefined;
+      pending.resolve({ refreshed: true, status: coverage?.status === "partial" ? "partial" : refresh.status, context: contextRef.current });
+    }
+  }, [dashboardState]);
+
+  useEffect(() => () => {
+    pendingRefresh.current?.reject(new Error("页面或工作区已切换，未确认刷新结果；不会自动重试。"));
+    pendingRefresh.current = undefined;
+  }, [runtimeModId, cacheIdentity?.userId, cacheIdentity?.workspaceId]);
+
+  const refreshPage = useCallback(() => {
+    pendingRefresh.current?.reject(new Error("用户已重新刷新，前次动作结果未确认。"));
+    pendingRefresh.current = undefined;
+    setRefreshNonce(++refreshSequence.current);
+  }, []);
+
   const handleUiAction = useCallback((actionId: string, input: Record<string, unknown>) => {
     if (actionId === "global-intel.refresh") {
-      setRefreshNonce((value) => value + 1);
-      return { refreshed: true };
+      if (pendingRefresh.current) return Promise.reject(new Error("刷新正在进行，请等待本次结果。"));
+      const nonce = ++refreshSequence.current;
+      return new Promise((resolve, reject) => {
+        pendingRefresh.current = { nonce, resolve, reject };
+        setRefreshNonce(nonce);
+      });
     }
     if (actionId === "workspace.save-layout") {
+      if (!cacheIdentity) throw new Error("工作区身份尚未就绪，不能保存视图。");
       const name = typeof input.name === "string" && input.name.trim()
         ? input.name.trim().slice(0, 80)
         : `${topicTitle}视图`;
       const record = { id: crypto.randomUUID(), name, savedAt: new Date().toISOString(), state: dashboardState };
-      const key = "newma-desk.global-intelligence.layouts.v1";
+      const key = "newma-desk.global-intelligence.layouts.v1:" + JSON.stringify([cacheIdentity.userId, cacheIdentity.workspaceId, runtimeModId]);
       const current = JSON.parse(localStorage.getItem(key) || "[]") as unknown;
       const layouts = Array.isArray(current) ? current : [];
       localStorage.setItem(key, JSON.stringify([record, ...layouts].slice(0, 20)));
       return { layout: record };
     }
     throw new Error(`全球情报不支持动作 ${actionId}`);
-  }, [dashboardState, topicTitle]);
+  }, [dashboardState, topicTitle, cacheIdentity?.userId, cacheIdentity?.workspaceId, runtimeModId]);
 
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
 
@@ -218,7 +251,7 @@ export function GlobalIntelligenceApp({
             <span><strong>{topicTitle}</strong><small>{topicId ? "GLOBAL THEMATIC RESEARCH" : "GLOBAL INTELLIGENCE OPERATIONS"}</small></span>
           </div>
           <div className="global-intelligence-runtime"><Radio size={13} />{topicId ? "专题研究 · 来源观测与手动推演" : "World Intelligence MCP · 实时数据平面"}</div>
-          <button type="button" onClick={() => setRefreshNonce((value) => value + 1)}><RefreshCw size={14} />刷新情报</button>
+          <button type="button" onClick={refreshPage}><RefreshCw size={14} />刷新情报</button>
         </header>
       ) : null}
       {topicId ? (
@@ -229,7 +262,7 @@ export function GlobalIntelligenceApp({
         theme={theme}
         refreshNonce={refreshNonce}
         cacheIdentity={cacheIdentity}
-        onRefresh={() => setRefreshNonce((value) => value + 1)}
+        onRefresh={refreshPage}
         onContextChange={setDashboardState}
       />}
       {!embedded ? (

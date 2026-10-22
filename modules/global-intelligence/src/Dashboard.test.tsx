@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GlobalIntelligenceDashboard } from "./Dashboard";
@@ -20,6 +20,121 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("navigation warning page and Agent evidence", () => {
+  it("settles refresh only after its source requests and stream finish, never from retained data", async () => {
+    const onContextChange = vi.fn();
+    let payload!: (value: Record<string, unknown>) => void;
+    let status!: (value: "connecting" | "live" | "degraded") => void;
+    let fail = false;
+    const dataSource: GlobalIntelDataSource = {
+      health: async () => ({}), overview: async () => ({}),
+      staticSnapshot: async () => { if (fail) throw new Error("unavailable"); return { nav_warnings: { warnings: [] } }; },
+      crucixSnapshot: async () => ({}),
+      subscribe: (onPayload, onStatus) => { payload = onPayload; status = onStatus; onStatus("connecting"); return () => {}; },
+    };
+    const props = { dataSource, theme: "dark" as const, onRefresh: () => {}, onContextChange };
+    const view = render(<GlobalIntelligenceDashboard {...props} refreshNonce={0} />);
+    await waitFor(() => expect(onContextChange.mock.calls.at(-1)?.[0]).toMatchObject({ pointCount: 0, refresh: { nonce: 0, status: "loading" } }));
+    act(() => { payload({ _done: 0, _total: 2 }); });
+    expect(onContextChange.mock.calls.at(-1)?.[0].refresh.status).toBe("loading");
+    act(() => { payload({ _done: 2, _total: 2 }); });
+    await waitFor(() => expect(onContextChange.mock.calls.at(-1)?.[0].refresh).toMatchObject({ nonce: 0, status: "ready" }));
+    fail = true;
+    view.rerender(<GlobalIntelligenceDashboard {...props} refreshNonce={1} />);
+    expect(onContextChange.mock.calls.at(-1)?.[0].refresh).toMatchObject({ nonce: 1, status: "loading" });
+    act(() => { status("degraded"); });
+    await waitFor(() => expect(onContextChange.mock.calls.at(-1)?.[0]).toMatchObject({ pointCount: 0, refresh: { nonce: 1, status: "error" } }));
+  });
+
+  it.each(["stale", "unknown"])("does not confirm a fully fresh refresh from a %s Crucix snapshot", async (freshness) => {
+    const onContextChange = vi.fn();
+    const dataSource: GlobalIntelDataSource = {
+      health: async () => ({}), overview: async () => ({}), staticSnapshot: async () => ({}),
+      crucixSnapshot: async () => ({
+        asOf: "2026-08-24T00:00:00Z", freshness: { status: freshness },
+        sourceHealth: { ok: 1 }, news: [{ title: "Retained report" }],
+      }),
+      subscribe: (payload) => { payload({ _done: 1, _total: 1 }); return () => {}; },
+    };
+    render(<GlobalIntelligenceDashboard dataSource={dataSource} theme="dark" refreshNonce={0} onRefresh={() => {}} onContextChange={onContextChange} />);
+    await waitFor(() => expect(onContextChange.mock.calls.at(-1)?.[0].refresh).toMatchObject({ status: "partial" }));
+  });
+
+  it("keeps a connected source with expired observations degraded in refresh and Agent context", async () => {
+    const onContextChange = vi.fn();
+    const payload = {
+      _done: 1, _total: 1, _stale: true,
+      earthquakes: { earthquakes: [], freshness: "stale" },
+      source_health: { seismology: { status: "closed" } },
+      cache_freshness: { seismology: { is_stale: true, last_updated_s_ago: 900 } },
+    };
+    const dataSource: GlobalIntelDataSource = {
+      health: async () => ({}), overview: async () => payload, staticSnapshot: async () => payload,
+      crucixSnapshot: async () => ({}),
+      subscribe: (onPayload) => { onPayload(payload); return () => {}; },
+    };
+    render(<GlobalIntelligenceDashboard dataSource={dataSource} theme="dark" refreshNonce={0} onRefresh={() => {}} onContextChange={onContextChange} />);
+    await waitFor(() => expect(onContextChange.mock.calls.at(-1)?.[0]).toMatchObject({
+      refresh: { status: "partial" }, dataAvailability: { status: "partial" },
+    }));
+  });
+
+  it("does not present unavailable feeds as zero risk or an empty filtered result", async () => {
+    const onContextChange = vi.fn();
+    const unavailable = async () => { throw new Error("source unavailable"); };
+    const dataSource: GlobalIntelDataSource = {
+      health: unavailable, overview: unavailable, staticSnapshot: unavailable,
+      crucixSnapshot: unavailable,
+      subscribe: (_payload, status) => { status("degraded"); return () => {}; },
+    };
+    const { container } = render(<GlobalIntelligenceDashboard dataSource={dataSource} theme="dark" refreshNonce={0} onRefresh={() => {}} onContextChange={onContextChange} />);
+    await waitFor(() => expect(screen.getByText("数据不可用，无法判断当前风险")).toBeVisible());
+    const hud = container.querySelector(".intel-hud")!;
+    expect(hud).not.toHaveTextContent("负面 0%");
+    expect(hud).not.toHaveTextContent("0 个事件");
+    expect(hud).not.toHaveTextContent("连接中");
+    expect(container).not.toHaveTextContent("当前筛选没有重点变化");
+    expect(onContextChange.mock.calls.at(-1)?.[0]).toMatchObject({
+      dataAvailability: { status: "unavailable", world: false, media: false },
+      pointCount: null, eventCount: null, highPriorityCount: null,
+      eventLifecycle: null, mediaMonitor: null, trendRadar: null,
+      routes: { alerts: null, affected: null },
+    });
+  });
+
+  it("keeps an explicit empty successful feed as a real zero, but not missing media", async () => {
+    const onContextChange = vi.fn();
+    const payload = { timestamp: new Date().toISOString(), _done: 1, _total: 1, nav_warnings: { warnings: [] } };
+    const dataSource: GlobalIntelDataSource = {
+      health: async () => ({}), overview: async () => payload, staticSnapshot: async () => payload,
+      crucixSnapshot: async () => ({}),
+      subscribe: (_payload, status) => { status("live"); return () => {}; },
+    };
+    const { container } = render(<GlobalIntelligenceDashboard dataSource={dataSource} theme="dark" refreshNonce={0} onRefresh={() => {}} onContextChange={onContextChange} />);
+    await waitFor(() => expect(onContextChange.mock.calls.at(-1)?.[0]).toMatchObject({
+      dataAvailability: { status: "available", world: true, media: false },
+      pointCount: 0, eventCount: 0, highPriorityCount: 0,
+    }));
+    expect(container.querySelector(".intel-priority-card strong")).toHaveTextContent("0");
+    expect(container.querySelector(".intel-media-card")).toHaveTextContent("舆情数据未接入");
+    expect(screen.getByText("数据已结算，暂无实时事件")).toBeVisible();
+  });
+
+  it("does not count an error-only settled snapshot as available evidence", async () => {
+    const onContextChange = vi.fn();
+    const payload = { timestamp: new Date().toISOString(), _done: 1, _total: 1, nav_warnings: { error: "upstream unavailable" } };
+    const dataSource: GlobalIntelDataSource = {
+      health: async () => ({}), overview: async () => payload, staticSnapshot: async () => payload,
+      crucixSnapshot: async () => ({}),
+      subscribe: (_payload, status) => { status("degraded"); return () => {}; },
+    };
+    render(<GlobalIntelligenceDashboard dataSource={dataSource} theme="dark" refreshNonce={0} onRefresh={() => {}} onContextChange={onContextChange} />);
+    await waitFor(() => expect(onContextChange.mock.calls.at(-1)?.[0]).toMatchObject({
+      dataAvailability: { status: "unavailable" }, eventCount: null,
+    }));
+    expect(screen.getByText("数据不可用，无法判断当前风险")).toBeVisible();
+    expect(screen.queryByText("数据已结算，暂无实时事件")).not.toBeInTheDocument();
+  });
+
   it("reports the selected route/point and only the currently visible evidence blocks", () => {
     const route = { id: "shipping", name: "Test corridor" };
     const context = buildGlobalIntelligenceContext({ selectedRoute: route, presentation: { mapExpanded: true }, events: [{ sourceFreshness: "fresh" }] });

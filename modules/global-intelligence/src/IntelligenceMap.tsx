@@ -2,6 +2,7 @@ import type { PickingInfo } from "@deck.gl/core";
 import { PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import * as maplibregl from "maplibre-gl";
+import mapWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import countriesRaw from "./basemap/countries.geojson?raw";
@@ -47,6 +48,8 @@ interface IntelligenceCluster {
 const COUNTRY_SOURCE = "global-intelligence-countries";
 const COUNTRY_LAYER = "global-intelligence-country-risk";
 const COUNTRY_GEOJSON = JSON.parse(countriesRaw);
+// MapLibre's relative default URL is not discoverable by Vite's asset bundler.
+maplibregl.setWorkerUrl(mapWorkerUrl);
 const GRATICULE = {
   type: "FeatureCollection" as const,
   features: [

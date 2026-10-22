@@ -709,8 +709,6 @@ function freshnessLabel(seconds: number) {
 function sourceHealthDetails(snapshot: Record<string, unknown>) {
   const items = new Map<string, SourceHealthItem>();
   const sourceHealth = recordValue(snapshot.source_health);
-  let healthy = 0;
-  let total = Object.keys(sourceHealth).length;
 
   for (const [source, raw] of Object.entries(sourceHealth)) {
     const info = recordValue(raw);
@@ -718,7 +716,6 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
     const failures = Number(info.failures ?? 0);
     const cooldown = Number(info.cooldown_remaining_s ?? 0);
     const isHealthy = rawStatus === "closed" || rawStatus === "ok" || rawStatus === "healthy";
-    if (isHealthy) healthy += 1;
     const status = isHealthy ? "healthy" : rawStatus === "half-open" ? "degraded" : "error";
     const reason = status === "healthy"
       ? `连接正常${failures > 0 ? `，近期失败 ${failures} 次` : ""}`
@@ -742,7 +739,12 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
     const existing = items.get(source);
     const freshness = Number.isFinite(seconds) ? freshnessLabel(seconds) : undefined;
     if (existing) {
-      items.set(source, { ...existing, ...(freshness ? { freshness } : {}) });
+      items.set(source, {
+        ...existing,
+        ...(isStale && existing.status === "healthy"
+          ? { status: "stale", statusLabel: "缓存过期", reason: "来源连接正常，但最新缓存已经超过有效期" } as const : {}),
+        ...(freshness ? { freshness } : {}),
+      });
       continue;
     }
     items.set(source, {
@@ -781,13 +783,18 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
       reason: queried > 0 ? `${ok}/${queried} 个来源采集正常，${failed} 不可用、${partial} 部分可用、${Number(crucixHealth.stale ?? 0)} 陈旧、${unknown} 待核验` : "等待 Crucix 首轮扫描",
       ...(Number.isFinite(ageSeconds) ? { freshness: freshnessLabel(ageSeconds) } : {}),
     });
-    total += 1;
-    if (status === "healthy") healthy += 1;
   }
 
   for (const [domain, raw] of Object.entries(snapshot)) {
     if (domain.startsWith("_") || domain === "source_health" || domain === "cache_freshness" || domain === "cache_stats") continue;
     const info = recordValue(raw);
+    if (!info.error && info.freshness === "stale") {
+      items.set(domain, {
+        id: domain, label: sourceLabel(domain), status: "stale",
+        statusLabel: "数据过期", reason: "当前展示上次成功取得的数据，尚未更新",
+      });
+      continue;
+    }
     if (typeof info.error !== "string" || !info.error) continue;
     const timedOut = info._timeout === true;
     items.set(domain, {
@@ -810,8 +817,8 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
   ));
   const cacheStats = recordValue(snapshot.cache_stats);
   return {
-    healthy,
-    total,
+    healthy: sortedItems.filter((item) => item.status === "healthy").length,
+    total: sortedItems.length,
     issueCount: sortedItems.filter((item) => item.status !== "healthy").length,
     items: sortedItems,
     cache: {
@@ -995,6 +1002,27 @@ function mergeSnapshot(
   return next;
 }
 
+function hasDomainData(value: unknown) {
+  if (Array.isArray(value)) return true;
+  const domain = recordValue(value);
+  if (domain.error || ["error", "unavailable"].includes(String(domain.status))) return false;
+  return Object.keys(domain).some((key) => !key.startsWith("_")
+    && !["timestamp", "collected_at", "freshness", "status", "sourceHealth", "asOf"].includes(key));
+}
+
+function hasWorldSnapshotData(snapshot: Record<string, unknown>) {
+  return Object.entries(snapshot).some(([key, value]) => !key.startsWith("_")
+    && !["source_health", "cache_freshness", "cache_stats", "crucix_intelligence"].includes(key)
+    && hasDomainData(value));
+}
+
+function hasCrucixSnapshotData(value: unknown) {
+  const crucix = recordValue(value);
+  const health = recordValue(crucix.sourceHealth);
+  return Object.keys(health).length
+    ? Number(health.ok ?? 0) + Number(health.partial ?? 0) > 0 : hasDomainData(crucix);
+}
+
 function matchesSeverity(severity: GlobalIntelSeverity, filter: SeverityFilter) {
   if (filter === "all") return true;
   if (filter === "priority") return severity === "critical" || severity === "high";
@@ -1160,6 +1188,9 @@ export function GlobalIntelligenceDashboard({
   const [riskClock, setRiskClock] = useState(() => Date.now());
   const [status, setStatus] = useState<"connecting" | "live" | "degraded">("connecting");
   const [error, setError] = useState("");
+  const [refreshRun, setRefreshRun] = useState<{
+    nonce: number; source: GlobalIntelDataSource; status: "ready" | "partial" | "error";
+  }>();
   const [activeLayers, setActiveLayers] = useState(DEFAULT_LAYERS);
   const [categoryFilter, setCategoryFilter] = useState<"all" | GlobalIntelCategory>("all");
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
@@ -1249,6 +1280,17 @@ export function GlobalIntelligenceDashboard({
 
   useEffect(() => {
     let active = true;
+    let staticSettled = false;
+    let crucixSettled = false;
+    let streamSettled = false;
+    let receivedNewData = false;
+    let failed = false;
+    const finish = () => {
+      if (active && staticSettled && crucixSettled && streamSettled) {
+        setRefreshRun({ nonce: refreshNonce, source: dataSource,
+          status: !receivedNewData ? "error" : failed ? "partial" : "ready" });
+      }
+    };
     setStatus(Object.keys(snapshot).length ? "degraded" : "connecting");
     setError("");
     setProgress({ done: 0, total: 0 });
@@ -1259,15 +1301,22 @@ export function GlobalIntelligenceDashboard({
     ) => {
       void request.then((payload) => {
         if (!active) return;
+        receivedNewData ||= quiet ? hasCrucixSnapshotData(payload.crucix_intelligence) : hasWorldSnapshotData(payload);
+        failed ||= payload._stale === true || sourceHealthDetails(payload).issueCount > 0;
         setSnapshot((current) => mergeSnapshot(current, payload));
         const done = Number(payload._done);
         const total = Number(payload._total);
         if (Number.isFinite(done) && Number.isFinite(total)) setProgress({ done, total });
         if (payload._static === true) setStatus("degraded");
       }).catch(() => {
+        failed = true;
         if (active && !quiet) setError(Object.keys(snapshot).length
           ? "更新失败，当前为上次数据"
           : "全球情报静态数据暂时不可用");
+      }).finally(() => {
+        if (quiet) crucixSettled = true;
+        else staticSettled = true;
+        finish();
       });
     };
     loadSnapshot(dataSource.staticSnapshot());
@@ -1278,11 +1327,23 @@ export function GlobalIntelligenceDashboard({
 
     const close = dataSource.subscribe((payload) => {
       if (!active) return;
+      receivedNewData ||= hasWorldSnapshotData(payload);
+      failed ||= payload._stale === true || sourceHealthDetails(payload).issueCount > 0;
       setSnapshot((current) => mergeSnapshot(current, payload));
       const done = Number(payload._done);
       const total = Number(payload._total);
       if (Number.isFinite(done) && Number.isFinite(total)) setProgress({ done, total });
-    }, (next) => active && setStatus(next));
+      if (total > 0 && done >= total) streamSettled = true;
+      finish();
+    }, (next) => {
+      if (!active) return;
+      setStatus(next);
+      if (next === "degraded") {
+        failed = true;
+        streamSettled = true;
+        finish();
+      }
+    });
 
     return () => {
       active = false;
@@ -1632,6 +1693,12 @@ export function GlobalIntelligenceDashboard({
   );
   const totalWatchAlerts = watchedRegionViews.reduce((sum, region) => sum + region.alertCount, 0);
   const health = useMemo(() => sourceHealthDetails(snapshot), [snapshot]);
+  const hasWorldData = hasWorldSnapshotData(snapshot);
+  const hasCrucixData = hasCrucixSnapshotData(snapshot.crucix_intelligence);
+  const hasData = hasWorldData || hasCrucixData;
+  const hasMediaData = hasDomainData(snapshot.media_monitor);
+  const dataAvailability = hasData ? (error || health.issueCount || snapshot._stale === true ? "partial" : "available")
+    : error || status === "degraded" || dataSettlementComplete ? "unavailable" : "loading";
   const activePreset = useMemo(() => SITUATION_PRESETS.find((preset) => (
     setMatches(activeLayers, preset.activeLayers)
     && setMatches(activeRouteKinds, preset.activeRouteKinds)
@@ -1747,26 +1814,29 @@ export function GlobalIntelligenceDashboard({
 
   useEffect(() => {
     onContextChange({
+      refresh: { nonce: refreshNonce, status: refreshRun?.nonce === refreshNonce && refreshRun.source === dataSource ? refreshRun.status : "loading" },
       streamStatus: status,
+      dataAvailability: { status: dataAvailability, world: hasWorldData, media: hasMediaData,
+        crucix: hasCrucixData, scope: "received-domains-only", error: error || null },
       progress,
-      pointCount: points.length,
-      visiblePointCount: visiblePoints.length,
-      eventCount: eventTimeline.length,
+      pointCount: hasData ? points.length : null,
+      visiblePointCount: hasData ? visiblePoints.length : null,
+      eventCount: hasData ? eventTimeline.length : null,
       historicalEventCount: eventHistory.length,
-      actionableEventCount: currentActionableEvents.length,
-      observationCount: observationEvents.length,
-      visibleEventCount: visibleEvents.length,
-      eventClusterCount: eventClusters.length,
-      visibleEventClusterCount: visibleEventClusters.length,
-      eventLifecycle: {
+      actionableEventCount: hasData ? currentActionableEvents.length : null,
+      observationCount: hasData ? observationEvents.length : null,
+      visibleEventCount: hasData ? visibleEvents.length : null,
+      eventClusterCount: hasData ? eventClusters.length : null,
+      visibleEventClusterCount: hasData ? visibleEventClusters.length : null,
+      eventLifecycle: hasData ? {
         new: newEventCount,
         ongoing: ongoingEventCount,
         recentlyResolved: recentlyResolvedEventCount,
         unacknowledged: unacknowledgedEventCount,
         watching: watchingEventCount,
         watchingAttention: watchingAttentionCount,
-      },
-      highPriorityCount,
+      } : null,
+      highPriorityCount: hasData ? highPriorityCount : null,
       situationPreset: activePreset?.id ?? "custom",
       activeLayers: [...activeLayers],
       filters: { categoryFilter, severityFilter, timeWindow, timeBasis: "tracking-activity", query, showObservations, eventFeedMode },
@@ -1782,10 +1852,10 @@ export function GlobalIntelligenceDashboard({
         visible: activeRouteKinds.size > 0,
         count: visibleRoutes.length,
         total: routes.length,
-        affected: affectedRouteCount,
-        marketConfirmed: marketConfirmedRouteCount,
-        alerts: routeAlerts.length,
-        highAlerts: highRouteAlertCount,
+        affected: hasData ? affectedRouteCount : null,
+        marketConfirmed: hasData ? marketConfirmedRouteCount : null,
+        alerts: hasData ? routeAlerts.length : null,
+        highAlerts: hasData ? highRouteAlertCount : null,
         kinds: [...activeRouteKinds],
       },
       countryRisk: { visible: showCountryRisk, countries: countryRisk },
@@ -1794,8 +1864,8 @@ export function GlobalIntelligenceDashboard({
         id: region.id,
         name: region.name,
         bounds: region.bounds,
-        coveredPointCount: region.coveredPointCount,
-        alertCount: region.alertCount,
+        coveredPointCount: hasData ? region.coveredPointCount : null,
+        alertCount: hasData ? region.alertCount : null,
       })),
       playback: { cursor: playbackCursor, playing: playbackPlaying, timestamp: new Date(playbackTime).toISOString() },
       selectedEvent: selectedEvent ? {
@@ -1814,7 +1884,7 @@ export function GlobalIntelligenceDashboard({
         cache: health.cache,
         items: health.items,
       },
-      strategicBriefing: {
+      strategicBriefing: hasData ? {
         score: briefing.score ?? null,
         level: briefing.level,
         alertCount: briefing.alertCount,
@@ -1822,16 +1892,16 @@ export function GlobalIntelligenceDashboard({
         topThreats: briefing.threats.slice(0, 5),
         brief: briefing.brief || null,
         timestamp: briefing.timestamp || null,
-      },
-      trendRadar: {
+      } : null,
+      trendRadar: hasData ? {
         anomalyCount: trend.anomalyCount,
         trendCount: trend.trendCount,
         maxConvergence: trend.maxConvergence,
         anomalies: trend.anomalies.slice(0, 5),
         hotspots: trend.hotspots,
         focusedHotspot: mapFocus ?? null,
-      },
-      mediaMonitor: {
+      } : null,
+      mediaMonitor: hasMediaData ? {
         analyzedItems: mediaMonitor.summary.analyzedItems,
         sourceCount: mediaMonitor.summary.sourceCount,
         languageCount: mediaMonitor.summary.languageCount,
@@ -1848,7 +1918,7 @@ export function GlobalIntelligenceDashboard({
         watchedTopicCount: watchedMediaTopics.length,
         watchedTopicChangeCount: watchedMediaTopicChanges.length,
         topTopics: mediaAttentionTopics.slice(0, 6),
-      },
+      } : null,
       lastUpdate: lastUpdate || null,
       events: visibleEvents.slice(0, 30).map((event) => {
         const history = historyByIdentity.get(globalIntelEventIdentity(event));
@@ -1857,7 +1927,7 @@ export function GlobalIntelligenceDashboard({
       dataContract: GLOBAL_INTELLIGENCE_CONTRACT,
       source: "world-intel-mcp",
     });
-  }, [activeLayers, activePreset?.id, activeRouteKinds, affectedRouteCount, briefing, categoryFilter, countryRisk, currentActionableEvents.length, eventClusters.length, eventFeedMode, eventHistory.length, eventTimeline.length, healthPanelOpen, layersOpen, mapExpanded, health.cache, health.healthy, health.issueCount, health.items, health.total, historyByIdentity, highPriorityCount, highRouteAlertCount, investmentResearch, lastUpdate, mapFocus, mapMode, marketConfirmedRouteCount, mediaAttentionTopics, mediaMonitor, mediaWatchRules.length, newEventCount, observationEvents.length, ongoingEventCount, onContextChange, playbackCursor, playbackPlaying, playbackTime, points.length, progress, query, recentlyResolvedEventCount, routeAlerts.length, routes.length, selectedEvent, selectedHistory, selectedPoint, selectedRegion, selectedRoute, severityFilter, showCountryRisk, showObservations, status, timeWindow, trend, unacknowledgedEventCount, visibleEventClusters.length, visibleEvents, visiblePoints.length, visibleRoutes.length, watchedMediaTopicChanges.length, watchedMediaTopics.length, watchedRegionViews, watchingAttentionCount, watchingEventCount]);
+  }, [refreshNonce, refreshRun, dataSource, dataAvailability, error, hasData, hasMediaData, hasWorldData, hasCrucixData, activeLayers, activePreset?.id, activeRouteKinds, affectedRouteCount, briefing, categoryFilter, countryRisk, currentActionableEvents.length, eventClusters.length, eventFeedMode, eventHistory.length, eventTimeline.length, healthPanelOpen, layersOpen, mapExpanded, health.cache, health.healthy, health.issueCount, health.items, health.total, historyByIdentity, highPriorityCount, highRouteAlertCount, investmentResearch, lastUpdate, mapFocus, mapMode, marketConfirmedRouteCount, mediaAttentionTopics, mediaMonitor, mediaWatchRules.length, newEventCount, observationEvents.length, ongoingEventCount, onContextChange, playbackCursor, playbackPlaying, playbackTime, points.length, progress, query, recentlyResolvedEventCount, routeAlerts.length, routes.length, selectedEvent, selectedHistory, selectedPoint, selectedRegion, selectedRoute, severityFilter, showCountryRisk, showObservations, status, timeWindow, trend, unacknowledgedEventCount, visibleEventClusters.length, visibleEvents, visiblePoints.length, visibleRoutes.length, watchedMediaTopicChanges.length, watchedMediaTopics.length, watchedRegionViews, watchingAttentionCount, watchingEventCount]);
 
   const applySituationPreset = (preset: SituationPreset) => {
     setActiveLayers(new Set(preset.activeLayers));
@@ -2084,14 +2154,15 @@ export function GlobalIntelligenceDashboard({
               setMediaPanelOpen(false);
             }}
             aria-expanded={briefPanelOpen}
+            disabled={!hasData}
           >
             研判<Gauge size={11} />
           </button>
         </div>
         <div className="intel-priority-card" data-anomalies={trend.anomalyCount > 0 || highRouteAlertCount > 0}>
           <span><AlertTriangle size={14} />高优先级</span>
-          <strong>{highPriorityCount}</strong>
-          <small>{highPriorityEventCount} 个事件 · {highRouteAlertCount} 条通道预警{trend.anomalyCount ? ` · ${trend.anomalyCount} 项基线偏离` : ""}</small>
+          <strong>{hasData ? highPriorityCount : "—"}</strong>
+          <small>{hasData ? `${highPriorityEventCount} 个事件 · ${highRouteAlertCount} 条通道预警（已覆盖数据内）${trend.anomalyCount ? ` · ${trend.anomalyCount} 项基线偏离` : ""}` : "尚无有效情报，不能判断风险"}</small>
           <button
             type="button"
             onClick={() => {
@@ -2101,15 +2172,18 @@ export function GlobalIntelligenceDashboard({
               setMediaPanelOpen(false);
             }}
             aria-expanded={trendPanelOpen}
+            disabled={!hasData}
           >
             趋势<TrendingUp size={11} />
           </button>
         </div>
         <div className="intel-media-card" data-alert={mediaMonitor.summary.flaggedTopicCount > 0}>
           <span><Sparkles size={14} />舆情雷达</span>
-          <strong>{mediaMonitor.summary.attentionTopicCount || mediaMonitor.summary.topicCount || "—"}</strong>
+          <strong>{hasMediaData ? mediaMonitor.summary.attentionTopicCount || mediaMonitor.summary.topicCount : "—"}</strong>
           <small>
-            {mediaMonitor.summary.analyzedItems} 条报道 · 负面 {mediaMonitor.summary.sentiment.negativePct}% · 热度 {mediaVelocityLabel(mediaMonitor.summary.heatVelocityPct, mediaMonitor.summary.velocityState)}
+            {!hasMediaData ? "舆情数据未接入" : mediaMonitor.summary.analyzedItems > 0
+              ? `${mediaMonitor.summary.analyzedItems} 条报道 · 负面 ${mediaMonitor.summary.sentiment.negativePct}% · 热度 ${mediaVelocityLabel(mediaMonitor.summary.heatVelocityPct, mediaMonitor.summary.velocityState)}`
+              : "0 条报道 · 暂无情绪样本"}
             {mediaMonitor.summary.flaggedTopicCount ? ` · ${mediaMonitor.summary.flaggedTopicCount} 条核验提示` : ""}
             {watchedMediaTopicChanges.length ? ` · 关注变化 ${watchedMediaTopicChanges.length}` : watchedMediaTopics.length ? ` · 关注命中 ${watchedMediaTopics.length}` : ""}
           </small>
@@ -2122,15 +2196,16 @@ export function GlobalIntelligenceDashboard({
               setHealthPanelOpen(false);
             }}
             aria-expanded={mediaPanelOpen}
+            disabled={!hasMediaData}
           >
             查看<Languages size={11} />
           </button>
         </div>
-        <div><span><CircleDot size={14} />地图与通道</span><strong>{visiblePoints.length}</strong><small>{points.length} 个点位 · {affectedRouteCount} 条通道受影响</small></div>
+        <div><span><CircleDot size={14} />地图与通道</span><strong>{hasData ? visiblePoints.length : "—"}</strong><small>{hasData ? `${points.length} 个已收录点位 · ${affectedRouteCount} 条通道受影响` : "仅基础地图，动态风险数据缺失"}</small></div>
         <div className="intel-health-card" data-issues={health.issueCount > 0}>
           <span><Radio size={14} />数据与更新</span>
-          <strong>{health.total ? `${health.healthy}/${health.total}` : status === "degraded" && dataSettlementComplete ? "静态可用" : health.issueCount ? `${health.issueCount} 异常` : "连接中"}</strong>
-          <small>{status === "live" ? "实时" : status === "degraded" ? "降级" : "连接中"} · {progress.total ? `${progress.done}/${progress.total}` : "静态层"} · {lastUpdate ? relativeTime(lastUpdate) : "等待更新"}{status === "degraded" && dataSettlementComplete ? " · 已结算" : ""}{health.issueCount ? ` · ${health.issueCount} 异常` : ""}</small>
+          <strong>{dataAvailability === "unavailable" ? "数据不可用" : health.total ? `${health.healthy}/${health.total}` : hasData && dataSettlementComplete ? "静态可用" : health.issueCount ? `${health.issueCount} 异常` : "连接中"}</strong>
+          <small>{dataAvailability === "unavailable" ? "尚无有效来源，不能判断正常或安全" : `${status === "live" ? "实时" : status === "degraded" ? "降级" : "连接中"} · ${progress.total ? `${progress.done}/${progress.total}` : "静态层"} · ${lastUpdate ? relativeTime(lastUpdate) : "等待更新"}${status === "degraded" && dataSettlementComplete ? " · 已结算" : ""}${health.issueCount ? ` · ${health.issueCount} 异常` : ""}`}</small>
           <div className="intel-health-actions">
             <button type="button" onClick={onRefresh} aria-label="刷新全球情报"><RefreshCw size={11} />刷新</button>
             <button
@@ -2165,7 +2240,7 @@ export function GlobalIntelligenceDashboard({
               <article key={item.id} data-status={item.status}>
                 <i />
                 <span><strong>{item.label}</strong><small>{item.reason}</small></span>
-                <em>{item.freshness ?? "实时"}</em>
+                <em>{item.freshness ?? "时效未知"}</em>
                 <b>{item.statusLabel}</b>
               </article>
             ))}
@@ -2780,11 +2855,11 @@ export function GlobalIntelligenceDashboard({
             {visibleEventClusters.length === 0 ? (
               <div
                 className="intel-empty"
-                data-state={dataSettlementComplete && eventTimeline.length === 0 ? "settled" : "filtered"}
+                data-state={!hasData ? dataAvailability : dataSettlementComplete && eventTimeline.length === 0 ? "settled" : "filtered"}
                 role="status"
               >
                 <strong>
-                  {dataSettlementComplete && eventTimeline.length === 0
+                  {!hasData ? dataAvailability === "loading" ? "正在等待有效情报数据" : "数据不可用，无法判断当前风险" : dataSettlementComplete && eventTimeline.length === 0
                     ? "数据已结算，暂无实时事件"
                     : eventFeedMode === "changes"
                       ? "当前筛选没有重点变化"
@@ -2795,7 +2870,7 @@ export function GlobalIntelligenceDashboard({
                           : "当前筛选没有匹配事件"}
                 </strong>
                 <small>
-                  {dataSettlementComplete && eventTimeline.length === 0
+                  {!hasData ? "请检查数据源配置或连接。基础地图与战略通道是参考资料，不表示动态风险已覆盖。" : dataSettlementComplete && eventTimeline.length === 0
                     ? `${progress.done}/${progress.total} 个数据任务已完成；地图、点位和战略通道仍可正常浏览。`
                     : "可调整时间、级别或分类筛选查看其他内容。"}
                 </small>

@@ -21,10 +21,11 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       proxy: {
-        "/api": env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8911",
+        "/api": env.VITE_API_PROXY_TARGET || (mode === "standalone" ? "http://127.0.0.1:18952" : "http://127.0.0.1:8911"),
       },
     },
     test: {
+      include: ["src/**/*.{test,spec}.{ts,tsx}"],
       environment: "jsdom",
       setupFiles: ["./src/test/setup.ts"],
     },

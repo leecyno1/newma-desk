@@ -14,8 +14,6 @@ from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
 import httpx
-from vibe_visualization_api.data_services.client import DataServiceClientError
-from vibe_visualization_api.data_services.registry import DataServiceRegistryError
 from .maritime import NGA_URL, maritime_evidence
 
 FRED = "https://fred.stlouisfed.org/graph/fredgraph.csv"
@@ -93,12 +91,14 @@ def parse_fed_events(text: str, today: date) -> list[dict]:
 class TopicSources:
     def __init__(self, *, tushare_token: str = "", crucix_snapshot: Callable[[], Awaitable[dict]],
                  maritime_snapshot: Callable[[], Awaitable[dict]] | None = None,
-                 client: httpx.AsyncClient | None = None, clock: Callable[[], datetime] = lambda: datetime.now(UTC)):
+                 client: httpx.AsyncClient | None = None, clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+                 upstream_errors: tuple[type[Exception], ...] = ()):
         self.token = tushare_token
         self.crucix_snapshot = crucix_snapshot
         self.maritime_snapshot = maritime_snapshot
         self.client = client
         self.clock = clock
+        self.source_errors = (httpx.HTTPError, ValueError, ET.ParseError, RuntimeError) + upstream_errors
         self.cache: dict[str, tuple[datetime, Any]] = {}
         self.locks: dict[str, asyncio.Lock] = {}
 
@@ -114,7 +114,7 @@ class TopicSources:
                         raise ValueError("没有可用观测")
                     cached = (self.clock(), data)
                     self.cache[key] = cached
-                except (httpx.HTTPError, ValueError, ET.ParseError, RuntimeError, DataServiceClientError, DataServiceRegistryError) as error:
+                except self.source_errors as error:
                     status = "stale" if cached else "unavailable"
                     reason = f"来源暂不可用（{type(error).__name__}）" + ("，保留上次成功数据" if cached else "")
             return {"id": key, "label": label, "url": url, "status": status, "reason": reason,

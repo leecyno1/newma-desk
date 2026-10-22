@@ -103,6 +103,18 @@ def test_gdelt_indexing_and_legacy_sweep_dates_are_not_publication_dates() -> No
     assert rss["publishedAt"] == "2026-09-10T07:00:00Z"
 
 
+@pytest.mark.parametrize("offset", ["00:30:00.001", "01:30:00"])
+def test_future_sweep_is_unknown_not_fresh(offset) -> None:
+    timestamp = f"2026-08-24T{offset}Z"
+    now = datetime(2026, 8, 24, 0, 30, tzinfo=UTC)
+    snapshot = normalize_snapshot({"meta": {"timestamp": timestamp}}, now=now)
+    health = normalize_health({"status": "ok", "lastSweep": timestamp, "sourcesOk": 1}, now=now)
+    assert snapshot["freshness"]["status"] == "unknown"
+    assert snapshot["freshness"]["ageSeconds"] is None
+    assert health["freshness"]["status"] == "unknown"
+    assert health["status"] == "degraded"
+
+
 def test_health_marks_old_or_partial_sweep_as_degraded() -> None:
     result = normalize_health(
         {

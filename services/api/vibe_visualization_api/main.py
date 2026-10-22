@@ -194,10 +194,9 @@ from vibe_visualization_api.finance_pilots.service import (
     FinancePilotNotFoundError,
     FinancePilotService,
 )
-from vibe_visualization_api.global_intel.client import GlobalIntelClient
+from vibe_visualization_api.global_intelligence_adapter import install_global_intelligence
 from vibe_visualization_api.global_intel.routes import router as global_intel_router
 from vibe_visualization_api.global_topics.routes import router as global_topics_router
-from vibe_visualization_api.global_topics.sources import TopicSources
 from vibe_visualization_api.scheduler.service import (
     RefreshSchedulerService,
     SchedulerLifecycle,
@@ -436,19 +435,7 @@ def create_app(
     )
     application.state.data_service_registry = data_service_registry
     application.state.data_service_client = resolved_data_service_client
-    async def topic_crucix_snapshot():
-        return await resolved_data_service_client.invoke(data_service_registry.get("crucix"), "crucix.snapshot", {})
-
-    application.state.global_intel_client = GlobalIntelClient(app_settings.world_intel_url)
-
-    async def topic_maritime_snapshot():
-        return await application.state.global_intel_client.get_json("/api/maritime/warnings", timeout_seconds=15)
-
-    application.state.global_topic_sources = TopicSources(
-        tushare_token=app_settings.tushare_token.get_secret_value(),
-        crucix_snapshot=topic_crucix_snapshot,
-        maritime_snapshot=topic_maritime_snapshot,
-    )
+    install_global_intelligence(application, app_settings)
     application.state.data_service_preference_store = DataServicePreferenceStore(
         app_settings.database_path
     )

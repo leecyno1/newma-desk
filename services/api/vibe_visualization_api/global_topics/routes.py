@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from vibe_visualization_api.config import Settings, get_settings
+from vibe_visualization_api.global_intel.runtime import Settings, get_settings
 from vibe_visualization_api.global_topics.service import TOPICS, forecast, topic_snapshot
 from vibe_visualization_api.global_topics.store import GlobalTopicStore
 

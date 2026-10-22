@@ -47,7 +47,8 @@
         "permission": "market.read",
         "inputSchema": { "type": "object", "additionalProperties": false },
         "outputSchema": { "type": "object", "additionalProperties": true },
-        "confirmation": "none"
+        "confirmation": "none",
+        "timeoutSeconds": 180
       },
       "global-intel.snapshot": {
         "binding": { "type": "data" },

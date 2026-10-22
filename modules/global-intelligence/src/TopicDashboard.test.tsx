@@ -75,14 +75,14 @@ describe("topic page and Agent share one state", () => {
     for (const cacheIdentity of [{ ...identity, workspaceId: "desk-b" }, { ...identity, userId: "reader-b" }]) {
       reopened.rerender(<GlobalTopicDashboard {...props} cacheIdentity={cacheIdentity} />);
       await screen.findByText("HYDROPAC 2024-1");
-      expect(current().selection?.warningId).toBeNull();
+      await waitFor(() => expect(current().selection?.warningId).toBeNull());
       expect(screen.getByRole("textbox", { name: "警告关键词" })).toHaveValue("");
       expect(screen.getByRole("button", { name: /^全部$/ })).toHaveAttribute("aria-pressed", "true");
     }
     maritime = { ...maritime, warnings: [] };
     reopened.rerender(<GlobalTopicDashboard {...props} />);
     await screen.findByText("本次快照未匹配到相关记录，不代表海峡安全或没有警告。");
-    expect(current().selection?.warningId).toBeNull();
+    await waitFor(() => expect(current().selection?.warningId).toBeNull());
     expect(current().visibleBlocks?.some((block) => block.id === "topic-maritime-detail")).toBe(false);
   });
 
@@ -140,6 +140,7 @@ describe("topic page and Agent share one state", () => {
     expect(screen.queryByRole("img", { name: /趋势图/ })).toBeNull();
     expect(screen.getByText("来源观测 · 6 条事件")).toBeVisible();
     expect(screen.getByText("市场定价尚未接入")).toBeVisible();
+    await waitFor(() => expect(buildGlobalTopicContext("fed-rates", publish.mock.calls.at(-1)![0]).data.freshness).toBe("fresh"));
     const state = publish.mock.calls.at(-1)![0];
     expect(buildGlobalTopicContext("fed-rates", state).data.freshness).toBe("fresh");
     expect(state.sourceStatus[0].status).toBe("ready");
@@ -189,14 +190,14 @@ describe("topic page and Agent share one state", () => {
     fireEvent.click(screen.getByRole("button", { name: "重新推演" }));
     await screen.findByRole("alert");
     expect(screen.getByRole("alert")).toHaveTextContent("推演失败");
-    expect(state()).toMatchObject({ forecastStatus: "error", forecast: initial.forecast, factors: { pressure: 80 } });
+    await waitFor(() => expect(state()).toMatchObject({ forecastStatus: "error", forecast: initial.forecast, factors: { pressure: 80 } }));
     fireEvent.click(screen.getByRole("button", { name: "重新推演" }));
     await screen.findByText("更新结果");
-    expect(state()).toMatchObject({
+    await waitFor(() => expect(state()).toMatchObject({
       metrics: initial.metrics, events: initial.events, observations: initial.observations,
       forecast: nextForecast, forecastFactors: { pressure: 80 }, forecastPending: false,
       generatedAt: initial.updatedAt, dataMode: "reference-baseline",
-    });
+    }));
     expect(fetcher.mock.calls[2]![0]).toBe("http://127.0.0.1:8911/api/global-topics/fed-rates/forecast");
     expect(JSON.parse(fetcher.mock.calls[2]![1]!.body as string)).toEqual({ factors: { pressure: 80 } });
   });

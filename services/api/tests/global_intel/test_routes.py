@@ -20,6 +20,8 @@ class FakeGlobalIntelClient:
 
     async def stream(self, path: str) -> AsyncIterator[bytes]:
         assert path == "/api/stream"
+        if self.unavailable:
+            raise GlobalIntelUnavailable("internal source address must not be exposed")
         yield b'data: {"timestamp":"2026-08-09T12:00:00Z"}\n\n'
 
 
@@ -77,3 +79,12 @@ def test_gateway_preserves_sse_transport_headers(client: TestClient) -> None:
     assert response.headers["content-type"].startswith("text/event-stream")
     assert response.headers["cache-control"] == "no-cache"
     assert response.text == 'data: {"timestamp":"2026-08-09T12:00:00Z"}\n\n'
+
+
+def test_stream_source_failure_is_a_terminal_error_not_a_successful_empty_feed(client: TestClient) -> None:
+    install_fake(client, FakeGlobalIntelClient(unavailable=True))
+    response = client.get("/api/global-intel/stream")
+    assert response.status_code == 200  # SSE transport began; source status is in the event.
+    assert response.text.startswith("event: error\n")
+    assert '"status":"unavailable"' in response.text
+    assert "internal source address" not in response.text

@@ -11,7 +11,10 @@ router = APIRouter(prefix="/api/global-intel", tags=["global-intel"])
 
 
 def get_global_intel_client(request: Request) -> GlobalIntelClient:
-    return request.app.state.global_intel_client
+    client = getattr(request.app.state, "global_intel_client", None)
+    if client is None:
+        raise HTTPException(503, "World Intelligence 数据源未配置")
+    return client
 
 
 async def _json_response(
@@ -56,8 +59,17 @@ async def global_intel_overview(
 async def global_intel_stream(
     client: GlobalIntelClient = Depends(get_global_intel_client),
 ) -> StreamingResponse:
+    async def events():
+        try:
+            async for chunk in client.stream("/api/stream"):
+                yield chunk
+        except GlobalIntelUnavailable:
+            # Headers may already be sent. Terminate with an explicit SSE error,
+            # not an unhandled transport exception or a fake empty snapshot.
+            yield b'event: error\ndata: {"status":"unavailable","message":"World Intelligence source unavailable"}\n\n'
+
     return StreamingResponse(
-        client.stream("/api/stream"),
+        events(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -1387,6 +1387,43 @@ describe("global intelligence normalization", () => {
     );
   });
 
+  it.each(["stale", "unknown"])("preserves %s supply-chain timing without substituting the sweep date", (freshness) => {
+    const events = normalizeGlobalIntelEvents({
+      timestamp: "2026-10-22T10:00:00Z",
+      crucix_intelligence: {
+        asOf: "2026-10-22T09:00:00Z", freshness: { status: "fresh" },
+        macro: { gscpi: { value: 1.4, date: freshness === "stale" ? "2026-08" : null, freshness: { status: freshness } } },
+      },
+    });
+    expect(events[0]).toMatchObject({
+      sourceFreshness: freshness,
+      timestamp: freshness === "stale" ? "2026-08-01T00:00:00.000Z" : "",
+      collectedAt: "2026-10-22T09:00:00.000Z",
+    });
+  });
+
+  it("keeps Crucix collection freshness on news and marks defense time as collection only", () => {
+    const events = normalizeGlobalIntelEvents({
+      crucix_intelligence: {
+        asOf: "2026-10-22T09:00:00Z", freshness: { status: "unknown" },
+        news: [{ title: "Shipping disruption", publishedAt: "2026-10-22T08:00:00Z" }],
+        global: { defenseContracts: [{ recipient: "Example Corp", amount: 10 }] },
+      },
+    });
+    expect(events.find((event) => event.recordKind === "news")).toMatchObject({ sourceFreshness: "unknown" });
+    expect(events.find((event) => event.recordKind === "observation")).toMatchObject({
+      timestampBasis: "collected", sourceFreshness: "unknown", collectedAt: "2026-10-22T09:00:00.000Z",
+    });
+  });
+
+  it("does not upgrade an individually stale news source after a fresh sweep", () => {
+    const [event] = normalizeGlobalIntelEvents({ crucix_intelligence: {
+      asOf: "2026-10-22T09:00:00Z", freshness: { status: "fresh" },
+      news: [{ title: "Retained report", publishedAt: "2026-10-22T08:00:00Z", freshness: "stale" }],
+    } });
+    expect(event?.sourceFreshness).toBe("stale");
+  });
+
   it("adds only titled Crucix news plus supply-chain and defense observations", () => {
     const events = normalizeGlobalIntelEvents({
       timestamp: "2026-08-24T00:00:00Z",
@@ -1457,6 +1494,9 @@ describe("createGlobalIntelDataSource", () => {
     expect(onPayload).toHaveBeenCalledWith({ timestamp: "now" });
     sourceState.onerror?.();
     expect(onStatus).toHaveBeenLastCalledWith("degraded");
+    expect(close).toHaveBeenCalledOnce();
+    sourceState.onmessage?.({ data: JSON.stringify({ timestamp: "late" }) } as MessageEvent<string>);
+    expect(onPayload).toHaveBeenCalledTimes(1);
     unsubscribe();
     expect(close).toHaveBeenCalledOnce();
   });

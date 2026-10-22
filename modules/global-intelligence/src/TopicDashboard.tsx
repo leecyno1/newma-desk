@@ -152,6 +152,7 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
   }>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [settledRequest, setSettledRequest] = useState("");
   const [retryNonce, setRetryNonce] = useState(0);
   const [running, setRunning] = useState(false);
   const [forecastError, setForecastError] = useState("");
@@ -169,6 +170,7 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
   const maritimeView = useMemo(() => snapshot?.maritime ? buildMaritimeView(snapshot.maritime, maritimeFilters) : undefined, [snapshot?.maritime, maritimeFilters]);
   const forecastPending = Boolean(view && Object.keys(view.factors).some((id) => view.factors[id] !== view.forecastFactors[id]));
   const endpoint = new URL(`/api/global-topics/${topicId}`, gatewayBaseUrl).toString();
+  const requestKey = JSON.stringify([endpoint, refreshNonce, retryNonce]);
 
   useEffect(() => {
     // Persist reading controls, never source text or a claim of current validity.
@@ -195,19 +197,23 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
       } catch {
         if (!controller.signal.aborted) setError("专题数据暂时不可用");
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+          setSettledRequest(requestKey);
+        }
       }
     })();
     return () => {
       controller.abort();
       forecastRequest.current?.abort();
     };
-  }, [endpoint, refreshNonce, retryNonce]);
+  }, [endpoint, refreshNonce, retryNonce, requestKey]);
 
   useEffect(() => {
     const dates = snapshot?.observations.map((item) => item.date).sort() ?? [];
     onContextChange?.({
       topicId, title: GLOBAL_TOPICS[topicId].title,
+      refresh: { nonce: refreshNonce, status: settledRequest !== requestKey || loading ? "loading" : error ? "error" : "ready", error: error || null },
       loadState: loading ? "loading" : error ? "error" : "ready",
       refreshError: error || null,
       displayingPreviousData: Boolean(snapshot && error),
@@ -229,7 +235,7 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
         forecastError: forecastError || null,
       } : {}),
     });
-  }, [topicId, view, snapshot, loading, error, running, forecastError, forecastPending, maritimeView, onContextChange]);
+  }, [topicId, view, snapshot, loading, error, running, forecastError, forecastPending, maritimeView, onContextChange, refreshNonce, settledRequest, requestKey]);
 
   const runForecast = async () => {
     if (!view || running || loading) return;

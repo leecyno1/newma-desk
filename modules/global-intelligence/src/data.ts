@@ -2943,7 +2943,11 @@ export function normalizeGlobalIntelEvents(
   }
 
   const crucixSnapshot = objectValue(snapshot.crucix_intelligence);
-  const crucixTimestamp = isoTimestamp(crucixSnapshot.asOf, fallbackTimestamp);
+  const crucixTimestamp = isoTimestamp(crucixSnapshot.asOf);
+  const crucixTiming = sourceCollectionTiming({
+    collected_at: crucixTimestamp,
+    freshness: objectValue(crucixSnapshot.freshness).status,
+  });
   for (const item of listValue(crucixSnapshot.news)) {
     const title = stringValue(item, "title");
     if (!title) continue;
@@ -2958,7 +2962,8 @@ export function normalizeGlobalIntelEvents(
       source: `Crucix / ${source}`,
       severity: item.urgent === true ? "high" : "info",
       ...timing,
-      ...(objectValue(crucixSnapshot.freshness).status === "stale" ? { sourceFreshness: "stale" as const } : {}),
+      ...crucixTiming,
+      ...(timing.sourceFreshness === "stale" ? { sourceFreshness: "stale" as const } : {}),
       ...(url ? { url } : {}),
       recordKind: "news",
     });
@@ -2968,14 +2973,21 @@ export function normalizeGlobalIntelEvents(
   const gscpi = objectValue(crucixMacro.gscpi);
   const gscpiValue = numberValue(gscpi, "value");
   if (gscpiValue !== undefined) {
+    const observationDate = isoTimestamp(gscpi.date);
+    const observationFreshness = objectValue(gscpi.freshness).status;
     events.push({
-      id: stableId("crucix-gscpi", isoTimestamp(gscpi.date, crucixTimestamp), gscpiValue),
+      id: stableId("crucix-gscpi", observationDate, gscpiValue),
       category: "market",
       title: `全球供应链压力指数 ${gscpiValue.toFixed(2)}`,
       detail: stringValue(gscpi, "interpretation") || "纽约联储 GSCPI 最新观测",
       source: "Crucix / New York Fed GSCPI",
       severity: Math.abs(gscpiValue) >= 2 ? "high" : Math.abs(gscpiValue) >= 1 ? "medium" : "info",
-      timestamp: isoTimestamp(gscpi.date, crucixTimestamp),
+      timestamp: observationDate,
+      ...(!observationDate ? { timestampBasis: "unknown" as const } : {}),
+      ...crucixTiming,
+      sourceFreshness: crucixTiming.sourceFreshness === "stale" || observationFreshness === "stale"
+        ? "stale" : crucixTiming.sourceFreshness === "fresh" && observationFreshness === "fresh" ? "fresh" : "unknown",
+      facts: eventFacts([["观测期", stringValue(gscpi, "period", "date") || "未知"]]),
       recordKind: "observation",
     });
   }
@@ -2994,6 +3006,8 @@ export function normalizeGlobalIntelEvents(
       source: "Crucix / USAspending",
       severity: amount >= 1_000_000_000 ? "medium" : "info",
       timestamp: crucixTimestamp,
+      timestampBasis: crucixTimestamp ? "collected" : "unknown",
+      ...crucixTiming,
       recordKind: "observation",
     });
   }
@@ -3548,19 +3562,31 @@ export function createGlobalIntelDataSource(input: {
       const source = (input.eventSourceFactory ?? ((target) => new EventSource(target)))(
         url("/api/global-intel/stream"),
       );
-      source.onopen = () => onStatus("live");
+      let closed = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        source.close();
+      };
+      const unavailable = () => {
+        if (closed) return;
+        onStatus("degraded");
+        close(); // Retry only via the visible refresh action, not an automatic loop.
+      };
+      source.onopen = () => { if (!closed) onStatus("live"); };
       source.onmessage = (message) => {
+        if (closed) return;
         try {
           const payload = JSON.parse(message.data) as unknown;
           if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
             onPayload(payload as Record<string, unknown>);
           }
         } catch {
-          onStatus("degraded");
+          unavailable();
         }
       };
-      source.onerror = () => onStatus("degraded");
-      return () => source.close();
+      source.onerror = unavailable;
+      return close;
     },
   };
 }
