@@ -19,7 +19,7 @@ import tornado.web
 
 from instock.web.runtime_metrics import get_api_metrics_registry
 from instock.core.analysis_scope import analysis_scope
-from instock.web.analysis_scope import AnalysisScopeError, resolve_request_scope
+from instock.web.analysis_scope import AnalysisScopeError, resolve_request_scope, desk_session_required
 
 
 API_VERSION = "1.0"
@@ -102,6 +102,8 @@ def apply_cors_headers(handler: tornado.web.RequestHandler) -> None:
 class AnalysisApiHandler(tornado.web.RequestHandler):
     """Base handler supporting both the legacy and v1 response contracts."""
 
+    requires_analysis_scope = True
+
     @property
     def is_v1(self) -> bool:
         return self.request.path.startswith("/api/v1/")
@@ -117,13 +119,14 @@ class AnalysisApiHandler(tornado.web.RequestHandler):
     def set_default_headers(self) -> None:
         self.set_header("Content-Type", "application/json; charset=UTF-8")
         self.set_header("X-Request-Id", self.request_id)
+        self.set_header("X-Instock-Access-Mode", "desk-required" if desk_session_required() else "local-compatible")
         apply_security_headers(self, api=True)
         apply_cors_headers(self)
 
     async def prepare(self) -> None:
         if self.is_v1:
             self._metrics_started_at = get_api_metrics_registry().start()
-        if self.request.method == "OPTIONS":
+        if self.request.method == "OPTIONS" or not self.requires_analysis_scope:
             return
         try:
             scope = await resolve_request_scope(self.request.headers, method=self.request.method, path=self.request.path)

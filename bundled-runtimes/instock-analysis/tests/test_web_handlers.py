@@ -616,6 +616,17 @@ class AnalysisHandlerTest(AsyncHTTPTestCase):
                     assert data["market_data"]["configured_as"] == "http"
 
     @gen_test
+    async def test_required_mode_keeps_metadata_public_and_blocks_business(self):
+        with patch.dict(os.environ, {"INSTOCK_REQUIRE_DESK_SESSION": "1"}):
+            for endpoint in ('/api/v1/health', '/api/v1/capabilities'):
+                response = await self.http_client.fetch(self.get_url(endpoint))
+                assert response.code == 200
+                assert response.headers['X-Instock-Access-Mode'] == 'desk-required'
+            response = await self.http_client.fetch(self.get_url('/api/v1/analysis-history'), raise_error=False)
+            assert response.code == 401
+            assert 'data' not in json.loads(response.body)
+
+    @gen_test
     async def test_health_and_capabilities_report_analysis_and_market_data_separately(self):
         analysis_modules_before = {
             name for name in sys.modules

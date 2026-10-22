@@ -243,6 +243,8 @@ def _volatile_runtime_state() -> dict:
 class NewmaDeskSuiteHandler(AnalysisApiHandler):
     """Serve the canonical HTTP Suite Descriptor used by Newma-Desk discovery."""
 
+    requires_analysis_scope = False
+
     def get(self) -> None:
         descriptor = copy.deepcopy(_newma_suite_descriptor())
         configured = (
@@ -258,6 +260,8 @@ class NewmaDeskSuiteHandler(AnalysisApiHandler):
 
 
 class IntegrationHealthHandler(AnalysisApiHandler):
+    requires_analysis_scope = False
+
     def get(self) -> None:
         configured_provider = os.environ.get(
             "INSTOCK_MARKET_DATA_PROVIDER", "newma-desk"
@@ -329,6 +333,8 @@ class IntegrationHealthHandler(AnalysisApiHandler):
 
 
 class IntegrationCapabilitiesHandler(AnalysisApiHandler):
+    requires_analysis_scope = False
+
     def get(self) -> None:
         self.write_success({
             "service": "instock-analysis",

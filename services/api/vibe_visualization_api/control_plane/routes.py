@@ -119,17 +119,16 @@ async def cycle_request_scope(request: Request, target: CycleReadTarget, respons
 @router.post("/runtime/instock-scope")
 async def instock_request_scope(
     request: Request,
+    response: Response,
     target: dict[str, str] = Body(),
     authorization: str | None = Header(default=None),
     instance_id: str | None = Header(default=None, alias="X-Newma-Desk-Instance-Id"),
+    legacy_instance_id: str | None = Header(default=None, alias="X-Newma-Dock-Instance-Id"),
     repository: ModuleRepository = Depends(get_repository),
 ):
-    """Validate a runtime request against the existing local Mod session.
-
-    Session issuance is still Desk's trusted-local workspace selection, not
-    authenticated multi-tenant identity. The runtime cannot pick a scope itself.
-    """
-    claims = _validate_session(request, authorization, instance_id)
+    """Validate existing Mod grants; Website middleware binds cloud identity."""
+    response.headers["Cache-Control"] = "private, no-store"
+    claims = _validate_session(request, authorization, _instance_id_header(instance_id, legacy_instance_id))
     module = await run_in_threadpool(repository.get_published, claims.module_id)
     if claims.revision != module.revision:
         raise HTTPException(403, "模组版本变化，请刷新后重试")
@@ -145,6 +144,7 @@ async def instock_request_scope(
         capability = service.capabilities.get(binding.get("capability"))
         if (binding.get("type") == "data" and binding.get("service") in (None, service.id)
                 and capability and capability.permission == action.get("permission")
+                and capability.permission in module.manifest.get("permissions", [])
                 and capability.permission in claims.permissions):
             granted.append(capability)
     method, path = target.get("method"), target.get("path", "")

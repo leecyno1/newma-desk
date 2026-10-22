@@ -3,6 +3,7 @@
 import asyncio
 from contextlib import contextmanager
 import json
+import os
 import sqlite3
 from unittest.mock import patch
 
@@ -169,6 +170,15 @@ class RequestScopeTest(AsyncHTTPTestCase):
         assert response.code == 403
         assert "data" not in json.loads(response.body)
 
+    @gen_test
+    async def test_required_mode_blocks_unsigned_http_before_business_handler(self):
+        with patch.dict(os.environ, {"INSTOCK_REQUIRE_DESK_SESSION": "1"}):
+            response = await self.http_client.fetch(self.get_url("/api/v1/test-scope"),
+                headers={"Cookie": "synthetic=logged-in"}, raise_error=False)
+        assert response.code == 401
+        assert response.headers["X-Instock-Access-Mode"] == "desk-required"
+        assert "data" not in json.loads(response.body)
+
 
 def test_scope_validation_failure_is_not_anonymous(monkeypatch):
     async def main():
@@ -179,7 +189,7 @@ def test_scope_validation_failure_is_not_anonymous(monkeypatch):
         with pytest.raises(AnalysisScopeError) as missing:
             await resolve_request_scope(headers, **args)
         assert missing.value.status == 503
-        monkeypatch.setenv("INSTOCK_DESK_SCOPE_URL", "http://127.0.0.1/session-validator")
+        monkeypatch.setenv("INSTOCK_DESK_SCOPE_URL", "http://127.0.0.1/api/mods/runtime/instock-scope")
         async def denied(request):
             assert request.follow_redirects is False
             assert request.headers["Authorization"] == "Bearer bad"
@@ -189,4 +199,40 @@ def test_scope_validation_failure_is_not_anonymous(monkeypatch):
             with pytest.raises(AnalysisScopeError) as invalid:
                 await resolve_request_scope(headers, **args)
             assert invalid.value.status == 401
+    asyncio.run(main())
+
+
+def test_required_desk_mode_rejects_anonymous_and_partial_credentials(monkeypatch):
+    monkeypatch.setenv("INSTOCK_REQUIRE_DESK_SESSION", "1")
+    monkeypatch.setenv("INSTOCK_DESK_SCOPE_URL", "http://127.0.0.1/api/mods/runtime/instock-scope")
+
+    async def main():
+        for headers in ({}, {"Cookie": "logged-in"}, {"X-User-Id": "alice"},
+                        {"Authorization": ""}, {"Authorization": "Bearer token"},
+                        {"X-Newma-Desk-Session": "token", "X-Newma-Desk-Instance-Id": "one", "Authorization": "Bearer other"}):
+            with pytest.raises(AnalysisScopeError) as error:
+                await resolve_request_scope(headers, method="GET", path="/api/v1/analysis-history")
+            assert error.value.status == 401
+    asyncio.run(main())
+
+
+def test_stock_validator_is_loopback_and_uses_authoritative_identity(monkeypatch):
+    from types import SimpleNamespace
+    from instock.web.analysis_scope import validate_scope_url
+    for endpoint in ("https://other.example/api/mods/runtime/instock-scope", "http://localhost/private",
+                     "http://user@localhost/api/mods/runtime/instock-scope", "http://localhost/api/mods/runtime/instock-scope?x=y"):
+        with pytest.raises(ValueError):
+            validate_scope_url(endpoint)
+    monkeypatch.setenv("INSTOCK_DESK_SCOPE_URL", "http://127.0.0.1/api/mods/runtime/instock-scope")
+
+    async def main():
+        async def granted(request):
+            assert request.follow_redirects is False
+            assert set(request.headers) == {"Authorization", "X-Newma-Desk-Instance-Id", "Content-Type"}
+            return SimpleNamespace(body=b'{"userId":"bound-user","workspaceId":"bound-workspace"}')
+        with patch("instock.web.analysis_scope.AsyncHTTPClient") as factory:
+            factory.return_value.fetch = granted
+            result = await resolve_request_scope({"Authorization": "Bearer token", "X-Newma-Desk-Instance-Id": "one",
+                "Cookie": "private", "X-User-Id": "forged"}, method="GET", path="/api/v1/analysis-history")
+        assert result == desk_scope("bound-user", "bound-workspace")
     asyncio.run(main())

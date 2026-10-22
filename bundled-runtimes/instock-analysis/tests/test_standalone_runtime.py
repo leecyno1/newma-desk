@@ -86,3 +86,13 @@ def test_market_services_origin_is_explicit_and_validated(tmp_path):
     for invalid in ["https://user:secret@calendar.example", "https://calendar.example/api", "file:///tmp/calendar"]:
         with pytest.raises(ValueError, match="基础数据服务"):
             configure_runtime(arguments(market_services_url=invalid), {})
+
+
+def test_cloud_gate_requires_explicit_valid_loopback_validator():
+    for env in ({"INSTOCK_REQUIRE_DESK_SESSION": "true"}, {"INSTOCK_REQUIRE_DESK_SESSION": "1"},
+                {"INSTOCK_REQUIRE_DESK_SESSION": "1", "INSTOCK_DESK_SCOPE_URL": "https://other.example/check"}):
+        with pytest.raises(ValueError):
+            configure_runtime(arguments(), env)
+    env = {"INSTOCK_REQUIRE_DESK_SESSION": "1", "INSTOCK_DESK_SCOPE_URL": "http://127.0.0.1:8911/api/mods/runtime/instock-scope"}
+    configure_runtime(arguments(), env)
+    assert env["INSTOCK_REQUIRE_DESK_SESSION"] == "1"

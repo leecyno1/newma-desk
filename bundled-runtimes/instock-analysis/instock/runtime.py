@@ -17,6 +17,13 @@ def validate_market_services_url(value):
 
 def configure_runtime(args, environ=None):
     env = os.environ if environ is None else environ
+    from instock.web.analysis_scope import desk_session_required, validate_scope_url
+    required = desk_session_required(env)
+    scope_url = env.get("INSTOCK_DESK_SCOPE_URL", "").strip()
+    if scope_url:
+        validate_scope_url(scope_url)
+    elif required:
+        raise ValueError("仅 Desk 会话模式必须配置 INSTOCK_DESK_SCOPE_URL")
     data_url = args.data_url or env.get("INSTOCK_DATA_URL") or env.get("NEWMA_DESK_DATA_URL")
     if not data_url:
         raise ValueError("请用 --data-url 或 INSTOCK_DATA_URL 配置兼容的数据接口；未自动连接本机 Desk")
