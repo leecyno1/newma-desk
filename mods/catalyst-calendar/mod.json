@@ -3,7 +3,7 @@
   "id": "catalyst-calendar",
   "name": "催化剂日历",
   "description": "聚合财报预约、解禁、宏观周期观察窗和用户自定义事件，记录来源、新鲜度、确认条件、失效条件与实际结果。",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": ["催化剂", "事件日历", "财报", "宏观周期"],
@@ -55,7 +55,25 @@
         }
       ]
     },
-    "actions": {},
+    "actions": {
+      "research.catalysts": {
+        "binding": { "type": "data", "service": "market-data", "capability": "research.catalysts" },
+        "execution": "request",
+        "permission": "market.read",
+        "inputSchema": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "symbols": { "type": "string", "maxLength": 512 },
+            "concepts": { "type": "string", "maxLength": 300 },
+            "days": { "type": "integer", "minimum": 14, "maximum": 1095 },
+            "include_cycles": { "type": "boolean" },
+            "include_macro": { "type": "boolean" }
+          }
+        },
+        "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+        "confirmation": "none"
+      }
+    },
     "events": {
       "emits": ["security.selected"],
       "accepts": ["security.selected"]

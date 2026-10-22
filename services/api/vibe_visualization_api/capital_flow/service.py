@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 import json
 import math
@@ -33,11 +34,13 @@ class CapitalFlowService:
         *,
         timeout_seconds: float = 15.0,
         client: httpx.AsyncClient | None = None,
+        transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
         tushare_token: str | None = None,
     ):
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
         self._client = client
+        self._transport_factory = transport_factory
         self._tushare_token = (
             tushare_token if tushare_token is not None else os.environ.get("TUSHARE_TOKEN", "")
         ).strip()
@@ -51,6 +54,7 @@ class CapitalFlowService:
     async def search_securities(self, query: str, limit: int = 8) -> dict:
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(
+            transport=self._transport_factory() if self._transport_factory else None,
             timeout=self._timeout,
             follow_redirects=False,
             trust_env=False,
@@ -513,6 +517,7 @@ class CapitalFlowService:
     async def dashboard(self, code: str | None = None, *, include_legacy_turnover: bool = True) -> dict:
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(
+            transport=self._transport_factory() if self._transport_factory else None,
             timeout=self._timeout,
             follow_redirects=False,
             trust_env=False,

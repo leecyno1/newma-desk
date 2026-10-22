@@ -40,6 +40,18 @@ CREATE TABLE IF NOT EXISTS global_topic_forecasts (
   factors_json TEXT NOT NULL,
   result_json TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS global_topic_scoped_forecasts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  topic_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  factors_json TEXT NOT NULL,
+  result_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_global_topic_scoped_forecasts
+ON global_topic_scoped_forecasts(user_id, workspace_id, topic_id, created_at DESC);
 """
 
 
@@ -111,8 +123,14 @@ class GlobalTopicStore:
             for row in rows
         ]
 
-    def save_forecast(self, topic_id: str, created_at: str, factors: dict[str, float], result: dict[str, Any]) -> None:
+    def save_forecast(self, topic_id: str, created_at: str, factors: dict[str, float], result: dict[str, Any], *, scope: tuple[str, str] | None = None) -> None:
         with self._connect() as connection:
+            if scope is not None:
+                connection.execute(
+                    "INSERT INTO global_topic_scoped_forecasts (user_id, workspace_id, topic_id, created_at, factors_json, result_json) VALUES (?, ?, ?, ?, ?, ?)",
+                    (*scope, topic_id, created_at, json.dumps(factors), json.dumps(result, ensure_ascii=False)),
+                )
+                return
             connection.execute(
                 "INSERT INTO global_topic_forecasts (topic_id, created_at, factors_json, result_json) VALUES (?, ?, ?, ?)",
                 (topic_id, created_at, json.dumps(factors), json.dumps(result, ensure_ascii=False)),

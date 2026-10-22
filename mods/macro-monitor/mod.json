@@ -3,7 +3,7 @@
   "id": "macro-monitor",
   "name": "宏观观察",
   "description": "汇总增长、价格与流动性的可核验证据，连接经济事件、反证、数据缺口和研究采纳意见。",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": ["宏观", "经济日历", "PMI", "通胀", "流动性", "经济预测"],
@@ -48,6 +48,14 @@
     "permissions": ["market.read"],
     "dataServices": ["market-data", "crucix"],
     "actions": {
+      "research.macro-monitor": {
+        "binding": { "type": "data", "service": "market-data", "capability": "research.macro-monitor" },
+        "execution": "request",
+        "permission": "market.read",
+        "inputSchema": { "type": "object", "properties": { "days": { "type": "integer", "minimum": 1, "maximum": 30 } }, "additionalProperties": false },
+        "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+        "confirmation": "none"
+      },
       "macro.refresh": {
         "binding": { "type": "local" },
         "execution": "request",

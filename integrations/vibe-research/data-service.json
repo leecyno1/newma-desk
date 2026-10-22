@@ -7,6 +7,28 @@
   "healthPath": "/health",
   "transport": "rest",
   "capabilities": {
+    "research.news-snapshot": {
+      "method": "GET", "path": "/radar/snapshot",
+      "inputSchema": { "type": "object", "additionalProperties": false },
+      "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+      "permission": "market.read"
+    },
+    "research.news-topics": {
+      "method": "GET", "path": "/radar/topics",
+      "inputSchema": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "q": { "type": "string", "maxLength": 200 },
+          "industry": { "type": "string", "maxLength": 48 },
+          "signal": { "enum": ["all", "rising", "risk", "opportunity", "verify"] },
+          "sort": { "enum": ["attention", "latest"] },
+          "offset": { "type": "integer", "minimum": 0 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 160 }
+        }
+      },
+      "outputSchema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object" } } },
+      "permission": "market.read"
+    },
     "market.health": {
       "method": "GET",
       "path": "/health",
@@ -295,8 +317,10 @@
         "type": "object",
         "properties": {
           "symbols": { "type": "string", "maxLength": 512 },
+          "concepts": { "type": "string", "maxLength": 300 },
           "days": { "type": "integer", "minimum": 14, "maximum": 1095 },
-          "include_cycles": { "type": "boolean" }
+          "include_cycles": { "type": "boolean" },
+          "include_macro": { "type": "boolean" }
         },
         "additionalProperties": false
       },

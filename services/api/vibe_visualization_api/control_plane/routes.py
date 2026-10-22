@@ -320,6 +320,11 @@ async def create_mod_session(
     ),
     repository: ModuleRepository = Depends(get_repository),
 ) -> ModSessionResponse:
+    website_auth = getattr(request.app.state, "website_auth", None)
+    if website_auth and website_auth.enabled:
+        identity = request.state.website_identity
+        if user_id != identity.user_id or session_request.workspace_id != identity.workspace_id:
+            raise HTTPException(403, "当前账号不能签发其他工作区的会话")
     module = await run_in_threadpool(repository.get_published, module_id)
     actions = _manifest_action_ids(module.manifest)
     permissions = [
@@ -336,6 +341,9 @@ async def create_mod_session(
         actions=actions,
         permissions=permissions,
     )
+    if website_auth and website_auth.enabled:
+        # The middleware has already rejected browser-selected identities.
+        website_auth.bind(claims, request.state.website_token)
     return ModSessionResponse(
         sessionId=claims.session_id,
         instanceId=claims.instance_id,

@@ -3,7 +3,7 @@ import {
   GitCompareArrows, RefreshCw, SlidersHorizontal,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createModSnapshotCache } from "@newma-desk/mod-sdk";
+import { createModSnapshotCache, type GatewayFetch } from "@newma-desk/mod-sdk";
 
 import { GLOBAL_TOPICS, TOPIC_BASELINE_WARNING, type GlobalTopicId } from "./topicContext";
 import { buildMaritimeView, DEFAULT_MARITIME_FILTERS, MARITIME_SCOPES, TopicMaritime, type MaritimeEvidence, type MaritimeFilters } from "./TopicMaritime";
@@ -89,13 +89,14 @@ function TopicChart({ snapshot }: { snapshot: TopicSnapshot }) {
   );
 }
 
-function ForecastPanel({ snapshot, factors, pending, running, loading, error, onFactorChange, onRun }: {
+function ForecastPanel({ snapshot, factors, pending, running, loading, error, canForecast, onFactorChange, onRun }: {
   snapshot: TopicSnapshot;
   factors: Record<string, number>;
   pending: boolean;
   running: boolean;
   loading: boolean;
   error: string;
+  canForecast: boolean;
   onFactorChange(id: string, value: number): void;
   onRun(): void;
 }) {
@@ -114,7 +115,8 @@ function ForecastPanel({ snapshot, factors, pending, running, loading, error, on
           </label>
         ))}
       </div>
-      <button className="topic-run-button" type="button" onClick={onRun} disabled={running || loading}><RefreshCw size={14} className={running ? "spin" : ""} />{running ? "计算中" : "重新推演"}</button>
+      <button className="topic-run-button" type="button" onClick={onRun} disabled={running || loading || !canForecast}><RefreshCw size={14} className={running ? "spin" : ""} />{running ? "计算中" : "重新推演"}</button>
+      {!canForecast ? <p className="topic-notice" role="status">当前为只读授权，保存推演需要 storage.write 权限；请由宿主更新授权后重新加载。</p> : null}
       {pending ? <p className="topic-notice" role="status">参数已修改，当前结果仍对应上次参数；请重新推演。</p> : null}
       {error ? <p className="topic-notice" role="alert">{error}</p> : null}
       <p className="topic-disclaimer">以下百分比是手动参数产生的情景权重，不是事件发生概率。</p>
@@ -135,6 +137,8 @@ interface TopicDashboardProps {
   topicId: GlobalTopicId;
   refreshNonce: number;
   gatewayBaseUrl?: string;
+  request?: GatewayFetch;
+  canForecast?: boolean;
   embedded?: boolean;
   cacheIdentity?: { userId: string; workspaceId: string };
   onContextChange?: (state: Record<string, unknown>) => void;
@@ -144,7 +148,7 @@ export function GlobalTopicDashboard(props: TopicDashboardProps) {
   return <TopicWorkspace key={JSON.stringify([props.topicId, props.cacheIdentity?.userId, props.cacheIdentity?.workspaceId])} {...props} />;
 }
 
-function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.location.origin, embedded = false, cacheIdentity, onContextChange }: TopicDashboardProps) {
+function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.location.origin, request = globalThis.fetch, canForecast = true, embedded = false, cacheIdentity, onContextChange }: TopicDashboardProps) {
   const [view, setView] = useState<{
     snapshot: TopicSnapshot;
     factors: Record<string, number>;
@@ -152,7 +156,7 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
   }>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [settledRequest, setSettledRequest] = useState("");
+  const [settledRequest, setSettledRequest] = useState<object | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [running, setRunning] = useState(false);
   const [forecastError, setForecastError] = useState("");
@@ -170,7 +174,7 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
   const maritimeView = useMemo(() => snapshot?.maritime ? buildMaritimeView(snapshot.maritime, maritimeFilters) : undefined, [snapshot?.maritime, maritimeFilters]);
   const forecastPending = Boolean(view && Object.keys(view.factors).some((id) => view.factors[id] !== view.forecastFactors[id]));
   const endpoint = new URL(`/api/global-topics/${topicId}`, gatewayBaseUrl).toString();
-  const requestKey = JSON.stringify([endpoint, refreshNonce, retryNonce]);
+  const requestKey = useMemo(() => ({ endpoint, refreshNonce, retryNonce }), [endpoint, refreshNonce, retryNonce, request, canForecast]);
 
   useEffect(() => {
     // Persist reading controls, never source text or a claim of current validity.
@@ -186,7 +190,7 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
     setError("");
     void (async () => {
       try {
-        const response = await fetch(endpoint, { signal: controller.signal });
+        const response = await request(endpoint, { signal: controller.signal });
         if (!response.ok) throw new Error("HTTP " + response.status);
         const next = await response.json() as TopicSnapshot;
         if (controller.signal.aborted) return;
@@ -207,7 +211,7 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
       controller.abort();
       forecastRequest.current?.abort();
     };
-  }, [endpoint, refreshNonce, retryNonce, requestKey]);
+  }, [endpoint, refreshNonce, retryNonce, requestKey, request]);
 
   useEffect(() => {
     const dates = snapshot?.observations.map((item) => item.date).sort() ?? [];
@@ -216,6 +220,7 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
       refresh: { nonce: refreshNonce, status: settledRequest !== requestKey || loading ? "loading" : error ? "error" : "ready", error: error || null },
       loadState: loading ? "loading" : error ? "error" : "ready",
       refreshError: error || null,
+      forecastWritable: canForecast,
       displayingPreviousData: Boolean(snapshot && error),
       ...(snapshot && view ? {
         metrics: snapshot.metrics, series: snapshot.series, observations: snapshot.observations,
@@ -235,17 +240,17 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
         forecastError: forecastError || null,
       } : {}),
     });
-  }, [topicId, view, snapshot, loading, error, running, forecastError, forecastPending, maritimeView, onContextChange, refreshNonce, settledRequest, requestKey]);
+  }, [topicId, view, snapshot, loading, error, running, forecastError, forecastPending, maritimeView, onContextChange, refreshNonce, settledRequest, requestKey, canForecast]);
 
   const runForecast = async () => {
-    if (!view || running || loading) return;
+    if (!view || running || loading || !canForecast) return;
     const controller = new AbortController();
     forecastRequest.current = controller;
     const factors = { ...view.factors };
     setRunning(true);
     setForecastError("");
     try {
-      const response = await fetch(`${endpoint}/forecast`, {
+      const response = await request(`${endpoint}/forecast`, {
         method: "POST", signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ factors }),
@@ -289,7 +294,7 @@ function TopicWorkspace({ topicId, refreshNonce, gatewayBaseUrl = window.locatio
 
       <div className="topic-primary-grid">
         <TopicChart snapshot={snapshot} />
-        <ForecastPanel snapshot={snapshot} factors={view.factors} pending={forecastPending} running={running} loading={loading} error={forecastError} onRun={() => void runForecast()} onFactorChange={(id, value) => setView((current) => current ? { ...current, factors: { ...current.factors, [id]: value } } : current)} />
+        <ForecastPanel snapshot={snapshot} factors={view.factors} pending={forecastPending} running={running} loading={loading} error={forecastError} canForecast={canForecast} onRun={() => void runForecast()} onFactorChange={(id, value) => setView((current) => current ? { ...current, factors: { ...current.factors, [id]: value } } : current)} />
       </div>
 
       <section className="topic-panel topic-transmission">

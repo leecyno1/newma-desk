@@ -1,4 +1,6 @@
 import type { GatewayFetch } from "@newma-desk/mod-sdk";
+import { subscribeGlobalStream } from "./stream";
+import { globalRequest, type GlobalRequestSession } from "./request";
 
 export const GLOBAL_INTELLIGENCE_CONTRACT = "newma-desk.global-intelligence.v1";
 
@@ -3549,8 +3551,10 @@ export function createGlobalIntelDataSource(input: {
   baseUrl: string;
   fetch?: GatewayFetch;
   eventSourceFactory?: (url: string) => EventSource;
+  session?: GlobalRequestSession;
+  requireSession?: boolean;
 }): GlobalIntelDataSource {
-  const fetcher = input.fetch ?? globalThis.fetch.bind(globalThis);
+  const fetcher = globalRequest(input);
   const url = (path: string) => new URL(path, `${input.baseUrl.replace(/\/$/, "")}/`).toString();
   return {
     health: () => jsonRequest(fetcher, url("/api/global-intel/health")),
@@ -3558,6 +3562,9 @@ export function createGlobalIntelDataSource(input: {
     overview: () => jsonRequest(fetcher, url("/api/global-intel/overview")),
     crucixSnapshot: () => jsonRequest(fetcher, url("/api/crucix/snapshot")),
     subscribe(onPayload, onStatus) {
+      if (!input.eventSourceFactory || input.requireSession || input.session) {
+        return subscribeGlobalStream(fetcher, url("/api/global-intel/stream"), onPayload, onStatus);
+      }
       onStatus("connecting");
       const source = (input.eventSourceFactory ?? ((target) => new EventSource(target)))(
         url("/api/global-intel/stream"),

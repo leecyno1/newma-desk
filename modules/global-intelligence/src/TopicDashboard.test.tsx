@@ -35,6 +35,40 @@ const deferred = <T,>() => {
   return { promise, resolve };
 };
 
+describe("topic permission lifecycle", () => {
+  it("keeps read-only data visible but disables forecast persistence", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(snapshot()));
+    const context = vi.fn();
+    render(<GlobalTopicDashboard topicId="fed-rates" refreshNonce={0} request={fetcher} canForecast={false} onContextChange={context} />);
+    await screen.findByText("5.50%");
+    expect(screen.getByRole("button", { name: "重新推演" })).toBeDisabled();
+    expect(screen.getByText(/当前为只读授权/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "重新推演" }));
+    expect(fetcher).toHaveBeenCalledOnce();
+    await waitFor(() => expect(context.mock.calls.at(-1)?.[0].forecastWritable).toBe(false));
+  });
+
+  it("cancels an old forecast on authorization change and rejects the late result", async () => {
+    const oldForecast = deferred<Response>();
+    const first = vi.fn<typeof fetch>().mockResolvedValueOnce(json(snapshot())).mockReturnValueOnce(oldForecast.promise);
+    const nextRead = deferred<Response>();
+    const second = vi.fn<typeof fetch>().mockReturnValue(nextRead.promise);
+    const context = vi.fn();
+    const page = render(<GlobalTopicDashboard topicId="fed-rates" refreshNonce={0} request={first} onContextChange={context} />);
+    await screen.findByText("5.50%");
+    fireEvent.click(screen.getByRole("button", { name: "重新推演" }));
+    await waitFor(() => expect(first).toHaveBeenCalledTimes(2));
+    page.rerender(<GlobalTopicDashboard topicId="fed-rates" refreshNonce={0} request={second} canForecast={false} onContextChange={context} />);
+    expect(first.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
+    expect(context.mock.calls.at(-1)?.[0].refresh.status).toBe("loading");
+    await act(async () => nextRead.resolve(json(snapshot("fed-rates", 31))));
+    await act(async () => oldForecast.resolve(json(snapshot("fed-rates", 99).forecast)));
+    expect(screen.queryByText("示例情景 99")).toBeNull();
+    expect(screen.getByText("示例情景 31")).toBeVisible();
+    expect(screen.getByRole("button", { name: "重新推演" })).toBeDisabled();
+  });
+});
+
 function maritimeEvidence() {
   return {
     status: "stale", reason: "来源缓存已过期", source: "NGA", sourceUrl: "https://msi.nga.mil/",

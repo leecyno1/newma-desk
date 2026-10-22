@@ -10,6 +10,7 @@ import {
 import { GlobalIntelligenceDashboard } from "./Dashboard";
 import { GlobalTopicDashboard, type GlobalTopicId } from "./TopicDashboard";
 import { buildGlobalTopicContext, GLOBAL_TOPICS } from "./topicContext";
+import { globalRequest } from "./request";
 import {
   createGlobalIntelDataSource,
   type GlobalIntelDataSource,
@@ -97,7 +98,9 @@ export function GlobalIntelligenceApp({
   const topicTitle = topicId ? GLOBAL_TOPICS[topicId].title : "全球情报";
   const runtimeModId = topicId ? GLOBAL_TOPICS[topicId].id : "global-situation";
   const [hostConnection, setHostConnection] = useState(providedHostConnection);
-  const [gatewayOrigin, setGatewayOrigin] = useState(gatewayBaseUrl);
+  const [hostConfig, setHostConfig] = useState(providedHostConnection?.config);
+  const [gatewayOrigin, setGatewayOrigin] = useState(providedHostConnection
+    ? new URL(providedHostConnection.config.gateways.data).origin : gatewayBaseUrl);
   const [theme, setTheme] = useState<"light" | "dark">(
     providedHostConnection?.config.environment.theme ?? initialTheme(),
   );
@@ -106,7 +109,7 @@ export function GlobalIntelligenceApp({
         userId: providedHostConnection.config.user.id,
         workspaceId: providedHostConnection.config.workspace.id,
       }
-    : embedded
+    : embedded || window.parent !== window
       ? undefined
       : { userId: "local-user", workspaceId: "local-workspace" });
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -122,9 +125,25 @@ export function GlobalIntelligenceApp({
     () => providedDataSource ?? createGlobalIntelDataSource({
       baseUrl: gatewayOrigin,
       fetch: window.fetch.bind(window),
+      requireSession: embedded || window.parent !== window || Boolean(hostConfig),
+      session: hostConfig?.session ? {
+        accessToken: hostConfig.session.accessToken,
+        instanceId: hostConfig.instanceId,
+        canRead: hostConfig.grants.permissions.includes("market.read"),
+      } : undefined,
     }),
-    [gatewayOrigin, providedDataSource],
+    [gatewayOrigin, providedDataSource, embedded, hostConfig?.session?.accessToken, hostConfig?.instanceId, hostConfig?.grants?.permissions],
   );
+  const requireSession = embedded || window.parent !== window || Boolean(hostConfig);
+  const canForecast = !requireSession || Boolean(hostConfig?.session && hostConfig.grants.permissions.includes("storage.write"));
+  const topicRequest = useMemo(() => globalRequest({
+    requireSession,
+    session: hostConfig?.session ? {
+      accessToken: hostConfig.session.accessToken, instanceId: hostConfig.instanceId,
+      canRead: hostConfig.grants.permissions.includes("market.read"),
+      canWrite: hostConfig.grants.permissions.includes("storage.write"),
+    } : undefined,
+  }), [requireSession, hostConfig?.session?.accessToken, hostConfig?.instanceId, hostConfig?.grants?.permissions]);
 
   useEffect(() => {
     document.title = topicTitle + " · Newma-Desk";
@@ -151,6 +170,7 @@ export function GlobalIntelligenceApp({
       close = connection.close;
       if (!connection.embedded) return;
       setHostConnection(connection);
+      setHostConfig(connection.config);
       setGatewayOrigin(new URL(connection.config.gateways.data).origin);
       setTheme(connection.config.environment.theme);
       setCacheIdentity({
@@ -158,6 +178,7 @@ export function GlobalIntelligenceApp({
         workspaceId: connection.config.workspace.id,
       });
       unsubscribe = connection.subscribe((config) => {
+        setHostConfig(config);
         setGatewayOrigin(new URL(config.gateways.data).origin);
         setTheme(config.environment.theme);
         setCacheIdentity({ userId: config.user.id, workspaceId: config.workspace.id });
@@ -174,12 +195,15 @@ export function GlobalIntelligenceApp({
 
   useEffect(() => {
     if (!providedHostConnection) return;
+    setHostConnection(providedHostConnection);
+    setHostConfig(providedHostConnection.config);
     setTheme(providedHostConnection.config.environment.theme);
     setCacheIdentity({
       userId: providedHostConnection.config.user.id,
       workspaceId: providedHostConnection.config.workspace.id,
     });
     return providedHostConnection.subscribe((config) => {
+      setHostConfig(config);
       setGatewayOrigin(new URL(config.gateways.data).origin);
       setTheme(config.environment.theme);
       setCacheIdentity({ userId: config.user.id, workspaceId: config.workspace.id });
@@ -208,7 +232,7 @@ export function GlobalIntelligenceApp({
   useEffect(() => () => {
     pendingRefresh.current?.reject(new Error("页面或工作区已切换，未确认刷新结果；不会自动重试。"));
     pendingRefresh.current = undefined;
-  }, [runtimeModId, cacheIdentity?.userId, cacheIdentity?.workspaceId]);
+  }, [runtimeModId, cacheIdentity?.userId, cacheIdentity?.workspaceId, hostConfig?.session?.accessToken]);
 
   const refreshPage = useCallback(() => {
     pendingRefresh.current?.reject(new Error("用户已重新刷新，前次动作结果未确认。"));
@@ -255,7 +279,7 @@ export function GlobalIntelligenceApp({
         </header>
       ) : null}
       {topicId ? (
-        <GlobalTopicDashboard topicId={topicId} gatewayBaseUrl={gatewayOrigin} refreshNonce={refreshNonce} cacheIdentity={cacheIdentity} embedded onContextChange={setDashboardState} />
+        <GlobalTopicDashboard topicId={topicId} gatewayBaseUrl={gatewayOrigin} request={topicRequest} canForecast={canForecast} refreshNonce={refreshNonce} cacheIdentity={cacheIdentity} embedded onContextChange={setDashboardState} />
       ) : <GlobalIntelligenceDashboard
         key={cacheIdentity ? `${cacheIdentity.userId}:${cacheIdentity.workspaceId}` : "pending-host"}
         dataSource={dataSource}

@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -43,15 +44,18 @@ class VibeResearchMarketClient:
         api_key: str = "",
         timeout_seconds: float = 15.0,
         client: httpx.AsyncClient | None = None,
+        transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
     ):
         self._base_url = _validated_base_url(base_url)
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
         self._client = client
+        self._transport_factory = transport_factory
 
     async def fetch_snapshot(self) -> dict[str, Any]:
         timeout = httpx.Timeout(self._timeout_seconds)
         client = self._client or httpx.AsyncClient(
+            transport=self._transport_factory() if self._transport_factory else None,
             timeout=timeout,
             follow_redirects=False,
             trust_env=False,

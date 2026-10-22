@@ -127,7 +127,7 @@ async function request<T>(
     headers.set("X-Workspace-Id", identity.workspaceId);
   }
   return responseJson<T>(
-    await fetch(path, { ...init, credentials: "omit", headers }),
+    await fetch(path, { ...init, credentials: "same-origin", headers }),
   );
 }
 

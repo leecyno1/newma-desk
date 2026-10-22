@@ -1,6 +1,7 @@
 // Vibe-Research 后端 API 客户端。/api → vite 代理到本地 FastAPI（默认 8900）。
 // 后端未启动或数据源异常时抛 ApiError，页面据此优雅降级。
-import { getVibeDeskConfig, isVibeDeskEmbedded } from "@/lib/vibedesk";
+import { createGatewayClient, GatewayError } from "@newma-desk/mod-sdk";
+import { getVibeDeskConfig, isVibeDeskEmbedded, waitForVibeDeskConfig } from "@/lib/vibedesk";
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -175,6 +176,57 @@ async function request<T>(path: string, method: "GET" | "POST" | "DELETE" = "GET
 }
 
 const get = <T>(path: string, signal?: AbortSignal) => request<T>(path, "GET", undefined, signal);
+
+// Only explicitly declared public-data Actions use this transport. Private
+// portfolios and files must not be forwarded through a generic proxy.
+export function researchDataScope(): string {
+  const value = getVibeDeskConfig();
+  return JSON.stringify(value && [value.apiOrigin, value.userId, value.workspaceId, value.moduleId,
+    value.instanceId, value.accessToken, value.permissions]);
+}
+
+export function usesDeskResearch(): boolean {
+  return Boolean(getVibeDeskConfig()) || isVibeDeskEmbedded || import.meta.env.VITE_NEWMA_DESK_INTEGRATED === "1";
+}
+
+async function readResearchData<T>(path: string, actionId: string, input: Record<string, unknown>): Promise<T> {
+  const config = getVibeDeskConfig() ?? (isVibeDeskEmbedded ? await waitForVibeDeskConfig() : null);
+  if (!config) {
+    if (isVibeDeskEmbedded || import.meta.env.VITE_NEWMA_DESK_INTEGRATED === "1") {
+      throw new ApiError("Desk 授权尚未就绪，请从 Desk 重新打开页面。", 401);
+    }
+    return get<T>(path);
+  }
+  if (!config.accessToken || !config.instanceId || !config.permissions?.includes("market.read")) {
+    throw new ApiError("当前页面缺少行情读取授权，请重新打开并核对权限。", 403);
+  }
+  const scope = researchDataScope();
+  const assertScope = () => {
+    if (scope !== researchDataScope()) {
+      throw new ApiError("工作区或授权已变化，旧研究结果未采用。", 409);
+    }
+  };
+  const client = createGatewayClient({
+    baseUrl: config.apiOrigin, accessToken: config.accessToken, instanceId: config.instanceId,
+    fetch: (url, init) => fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(60_000) }),
+  });
+  let payload: { data: T };
+  try {
+    payload = await client.invokeModAction<{ data: T }>(config.moduleId, actionId, input);
+  } catch (error) {
+    assertScope();
+    const status = error instanceof GatewayError ? error.status : 0;
+    throw new ApiError(status === 401 || status === 403
+      ? "研究数据授权已失效或不足，请重新打开页面核对权限。"
+      : status === 404 ? "当前 Desk 尚未加载该研究数据动作，请配套更新模组。"
+      : `研究数据暂未就绪${status ? `（HTTP ${status}）` : ""}；未自动重试。`, status);
+  }
+  assertScope();
+  if (!payload || typeof payload !== "object" || !("data" in payload) || payload.data == null) {
+    throw new ApiError("研究数据格式不兼容，未采用本次结果。", 502);
+  }
+  return payload.data;
+}
 
 export interface Quote {
   name: string; price: number; last_close: number; change_pct: number;
@@ -915,7 +967,7 @@ export const api = {
     get<TerminalOhlcv>(
       `/market-terminal/ohlcv?symbol=${encodeURIComponent(symbol)}&market=${market}&timeframe=1d&limit=${limit}&adjust=${market === "CN" && assetType !== "fund" ? "qfq" : "none"}&assetType=${assetType}`,
     ),
-  radar: () => get<RadarData>("/radar"),
+  radar: () => readResearchData<RadarData>("/radar", "research.news-snapshot", {}),
   radarTopics: (params: {
     query?: string; industry?: string; signal?: string; sort?: string; offset?: number; limit?: number;
   }) => {
@@ -927,9 +979,17 @@ export const api = {
       offset: String(params.offset || 0),
       limit: String(params.limit || 80),
     });
-    return get<NewsTopicPage>(`/radar/topics?${query.toString()}`);
+    return readResearchData<NewsTopicPage>(`/radar/topics?${query.toString()}`, "research.news-topics", {
+      q: params.query || "", industry: params.industry || "all", signal: params.signal || "all",
+      sort: params.sort || "attention", offset: params.offset || 0, limit: params.limit || 80,
+    });
   },
-  radarRefresh: () => request<RadarData>("/radar/refresh", "POST"),
+  radarRefresh: () => {
+    if (usesDeskResearch()) return Promise.reject(new ApiError("Desk 仅允许刷新已采集资讯，未授权触发全量采集。", 403));
+    return request<RadarData>("/radar/refresh", "POST");
+  },
+  radarAnnouncements: (code: string) => readResearchData<Announcement[]>(`/announcements?code=${encodeURIComponent(code)}`, "market.announcements", { code }),
+  radarNews: (code: string) => readResearchData<NewsItem[]>(`/news?code=${encodeURIComponent(code)}`, "market.news", { code }),
   portfolio: () => get<PortfolioData>("/portfolio"),
   addHolding: (code: string, shares: number, cost: number) => request<PortfolioData>("/portfolio/holding", "POST", { code, shares, cost }),
   removeHolding: (code: string) => request<PortfolioData>(`/portfolio/holding?code=${code}`, "DELETE"),
@@ -951,10 +1011,11 @@ export const api = {
     concepts: string[] = [],
     includeMacro = true,
   ) =>
-    get<CatalystFeed>(
+    readResearchData<CatalystFeed>(
       `/catalysts?symbols=${encodeURIComponent(symbols.join(","))}&concepts=${encodeURIComponent(concepts.join(","))}&days=${days}&include_cycles=${includeCycles ? "true" : "false"}&include_macro=${includeMacro ? "true" : "false"}`,
+      "research.catalysts", { symbols: symbols.join(","), concepts: concepts.join(","), days, include_cycles: includeCycles, include_macro: includeMacro },
     ),
-  macroMonitor: (days = 7) => get<MacroMonitorFeed>(`/macro-monitor?days=${days}`),
+  macroMonitor: (days = 7) => readResearchData<MacroMonitorFeed>(`/macro-monitor?days=${days}`, "research.macro-monitor", { days }),
   quote: (codes: string) => get<Record<string, Quote>>(`/quote?codes=${codes}`),
   reports: (code: string) => get<Report[]>(`/reports?code=${code}`),
   news: (code: string) => get<NewsItem[]>(`/news?code=${code}`),

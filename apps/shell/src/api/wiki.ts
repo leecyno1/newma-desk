@@ -21,7 +21,7 @@ async function requestJson(url: string, init?: RequestInit): Promise<unknown> {
   if (init?.body !== undefined) headers.set("Content-Type", "application/json");
   const response = await fetch(url, {
     ...init,
-    credentials: "omit",
+    credentials: "same-origin",
     headers,
   });
   let body: unknown;
@@ -128,7 +128,7 @@ export async function deleteWikiHandoff(input: {
     `/api/wiki/handoffs/${encodeURIComponent(input.handoffId)}`,
     {
       method: "DELETE",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: identityHeaders(input.userId, input.workspaceId),
     },
   );

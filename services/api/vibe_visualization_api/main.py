@@ -6,6 +6,8 @@ from threading import Lock
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from vibe_visualization_api.website_auth import install_website_auth, WRITE_ORIGINS
+from vibe_visualization_api.data_services.internal_research import InternalResearch
 from fastapi.responses import JSONResponse
 
 from vibe_visualization_api.artifacts.archify import (
@@ -406,6 +408,7 @@ def create_app(
             market_client=VibeResearchMarketClient(
                 app_settings.research_base_url,
                 api_key=app_settings.research_api_key.get_secret_value(),
+                transport_factory=application.state.research_transport_factory,
             ),
             poll_seconds=app_settings.scheduler_poll_seconds,
             market_enabled=app_settings.enable_scheduler,
@@ -429,9 +432,18 @@ def create_app(
         )
     )
     data_service_registry = DataServiceRegistry(configured_data_services)
+    internal_research = None
+    if (app_settings.website_auth_enabled and app_settings.enable_domain_suites
+            and InternalResearch.supports(app_settings.research_base_url)):
+        research_descriptor = next((s for s in configured_data_services if s.id == "market-data"), None)
+        if research_descriptor is not None:
+            internal_research = InternalResearch(app_settings.research_base_url, research_descriptor.capabilities.values())
+    application.state.internal_research = internal_research
+    application.state.research_transport_factory = internal_research.transport if internal_research else None
     resolved_data_service_client = data_service_client or DataServiceClient(
         public_mode=app_settings.data_service_public_mode,
         response_adapters={"crucix": adapt_crucix_response},
+        transport_factory=application.state.research_transport_factory,
     )
     application.state.data_service_registry = data_service_registry
     application.state.data_service_client = resolved_data_service_client
@@ -483,6 +495,7 @@ def create_app(
             or ResearchPortfolioQuoteProvider(
                 app_settings.research_base_url,
                 api_key=app_settings.research_api_key.get_secret_value(),
+                transport_factory=application.state.research_transport_factory,
                 timeout_seconds=app_settings.portfolio_quote_timeout_seconds,
             )
         ),
@@ -542,10 +555,11 @@ def create_app(
         app_settings.workflow_server_agent_secret.get_secret_value(),
         tolerance_seconds=app_settings.workflow_signature_tolerance_seconds,
     )
+    install_website_auth(application, app_settings)
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=app_settings.origin_list(),
-        allow_credentials=False,
+        allow_origins=sorted(WRITE_ORIGINS) if app_settings.website_auth_enabled else app_settings.origin_list(),
+        allow_credentials=app_settings.website_auth_enabled,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=[
             "Content-Type",

@@ -241,6 +241,7 @@ class Settings(BaseSettings):
     runtime_dir: Path = Path("runtime")
     database_path: Path = Field(default_factory=_default_database_path)
     allowed_origins: str = Field(default_factory=_default_allowed_origins)
+    website_auth_enabled: bool = False
     model_default_adapter: str = "openai-compatible"
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: SecretStr = SecretStr("")

@@ -1,4 +1,5 @@
-import { waitForVibeDeskConfig } from "@/lib/vibedesk";
+import { createGatewayClient, GatewayError } from "@newma-desk/mod-sdk";
+import { getVibeDeskConfig, waitForVibeDeskConfig } from "@/lib/vibedesk";
 
 export interface CrucixNewsItem {
   title: string;
@@ -95,13 +96,29 @@ export function crucixEnergyObservations(energy: CrucixSnapshot["macro"]["energy
 export async function loadCrucixSnapshot(): Promise<CrucixSnapshot | null> {
   const config = await waitForVibeDeskConfig();
   if (!config) return null;
-
-  const headers: Record<string, string> = { "X-User-Id": config.userId };
-  if (config.accessToken) headers.Authorization = `Bearer ${config.accessToken}`;
-  const response = await fetch(`${config.gatewayOrigin}/api/crucix/snapshot`, { headers });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(typeof body?.detail === "string" ? body.detail : "Crucix 数据暂未就绪");
+  if (!config.accessToken || !config.instanceId || !config.permissions?.includes("market.read")) {
+    throw new Error("Crucix 读取授权不完整，请从 Desk 重新打开页面。");
+  }
+  const scopeOf = (value: typeof config | null) => JSON.stringify(value && [
+    value.apiOrigin, value.userId, value.workspaceId, value.moduleId,
+    value.instanceId, value.accessToken, value.permissions,
+  ]);
+  const scope = scopeOf(config);
+  const client = createGatewayClient({
+    baseUrl: config.apiOrigin, accessToken: config.accessToken, instanceId: config.instanceId,
+    fetch: (url, init) => fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(15000) }),
+  });
+  let body: CrucixSnapshot;
+  try {
+    body = await client.invokeModAction<CrucixSnapshot>(config.moduleId, "crucix.snapshot", {});
+  } catch (error) {
+    const status = error instanceof GatewayError ? error.status : undefined;
+    throw new Error(status === 401 || status === 403
+      ? "Crucix 读取授权已失效或不足，请重新打开页面核对权限。"
+      : `Crucix 数据暂未就绪${status ? `（HTTP ${status}）` : ""}；未自动重试。`);
+  }
+  if (scope !== scopeOf(getVibeDeskConfig())) {
+    throw new Error("工作区或授权已变化，旧 Crucix 结果未采用。");
   }
   if (body?.contract !== "newma-desk.crucix-intelligence.v1") {
     throw new Error("Crucix 数据格式不兼容");

@@ -26,6 +26,8 @@ import { SaveNoteButton } from "@/components/ui/SaveNoteButton";
 import {
   api,
   ApiError,
+  researchDataScope,
+  usesDeskResearch,
   type Announcement,
   type NewsItem,
   type NewsMonitorTopic,
@@ -936,19 +938,20 @@ function WatchlistFeed({ kind, onContextChange, onRefreshReady }: {
   const [depNote, setDepNote] = useState<string | null>(null);
 
   const load = useCallback(async (symbols: string[]) => {
+    const scope = researchDataScope();
     if (!symbols.length) { setRows([]); setAsOf(undefined); return { rows: [], asOf: undefined }; }
     setLoading(true); setErr(null); setDepNote(null);
     try {
       const nameOf: Record<string, string> = {};
       try {
-        const quotes = await api.quote(symbols.join(","));
+        const quotes = usesDeskResearch() ? {} : await api.quote(symbols.join(","));
         for (const symbol of symbols) if (quotes[symbol]?.name) nameOf[symbol] = quotes[symbol].name;
       } catch { /* Name enrichment is optional. */ }
 
       const output: FeedRow[] = [];
       let failedSymbols: string[] = [];
       if (kind === "filings") {
-        const responses = await Promise.all(symbols.map((symbol) => api.announcements(symbol)
+        const responses = await Promise.all(symbols.map((symbol) => api.radarAnnouncements(symbol)
           .then((items) => ({ symbol, items, failed: false }))
           .catch(() => ({ symbol, items: [] as Announcement[], failed: true }))));
         failedSymbols = responses.filter((response) => response.failed).map((response) => response.symbol);
@@ -958,7 +961,7 @@ function WatchlistFeed({ kind, onContextChange, onRefreshReady }: {
         });
       } else {
         let dependency: string | null = null;
-        const responses = await Promise.all(symbols.map((symbol) => api.news(symbol)
+        const responses = await Promise.all(symbols.map((symbol) => api.radarNews(symbol)
           .then((items) => ({ symbol, items, failed: false }))
           .catch((reason) => {
             if (reason instanceof ApiError && reason.status === 501) dependency = reason.message;
@@ -974,8 +977,10 @@ function WatchlistFeed({ kind, onContextChange, onRefreshReady }: {
             summary: watchNewsSummary(item.新闻内容, relevance), url: item.新闻链接, relevance,
           });
         }
+        if (scope !== researchDataScope()) return null;
         if (dependency && output.length === 0) setDepNote(dependency);
       }
+      if (scope !== researchDataScope()) return null;
       if (failedSymbols.length === symbols.length) throw new Error("资讯来源暂时不可用");
       if (failedSymbols.length) {
         output.push(...rowsRef.current.flatMap((row) => {
@@ -998,14 +1003,26 @@ function WatchlistFeed({ kind, onContextChange, onRefreshReady }: {
       feedCache.write(nextRows, refreshedAt);
       return { rows: nextRows, asOf: refreshedAt, failedSymbols };
     } catch (reason) {
+      if (scope !== researchDataScope()) return null;
       setErr(rowsRef.current.length ? "更新失败，正在显示上次数据" : reason instanceof Error ? reason.message : "加载失败");
       return null;
     } finally {
-      setLoading(false);
+      if (scope === researchDataScope()) setLoading(false);
     }
   }, [feedCache, kind]);
 
   useEffect(() => { const symbols = loadWatch(); setCodes(symbols); void load(symbols); }, [load]);
+  useEffect(() => {
+    let scope = researchDataScope();
+    return subscribeVibeDeskConfig(() => {
+      const next = researchDataScope();
+      if (next === scope) return;
+      scope = next;
+      rowsRef.current = [];
+      setRows([]); setAsOf(undefined); setErr(null); setDepNote(null);
+      const symbols = loadWatch(); setCodes(symbols); void load(symbols);
+    });
+  }, [load]);
   const refresh = () => { const symbols = loadWatch(); setCodes(symbols); void load(symbols); };
   useEffect(() => {
     onRefreshReady({
@@ -1245,7 +1262,7 @@ export function Intel() {
     const cached = radarCache.read()?.value;
     if (!dataRef.current && cached) setData(cached);
     try {
-      const next = force ? await api.radarRefresh() : await api.radar();
+      const next = force && !usesDeskResearch() ? await api.radarRefresh() : await api.radar();
       setData(next);
       dataRef.current = next;
       radarCache.write(next, next.generated_at_iso || next.generated_at || undefined);
@@ -1303,7 +1320,8 @@ export function Intel() {
     }
     const next = await loadRadar(true);
     if (!next) throw new Error("新闻与舆情刷新失败");
-    return { refreshedAt: next.generated_at_iso || next.generated_at, summary: next.monitor?.summary || null };
+    return { refreshedAt: next.generated_at_iso || next.generated_at, summary: next.monitor?.summary || null,
+      collectionTriggered: !usesDeskResearch(), mode: usesDeskResearch() ? "read-collected" : "collect" };
   }), [loadRadar]);
   useEffect(() => { void publishVibeDeskContext(); }, [crucix, data, panelContext, linkedSubject, loading, refreshing, tab]);
 
@@ -1348,6 +1366,10 @@ export function Intel() {
           </button>
         </div> : null}
       </header>
+
+      {radarTab && usesDeskResearch() ? <p className="text-xs text-muted-foreground px-3 py-2" role="note">
+        刷新仅重读已采集资讯，不启动全量抓取。来源采集未启用或结果过期时，将保留缺失与过期提示。
+      </p> : null}
 
       {summary && tab === "monitor" ? (
         <section className="news-summary-strip" aria-label="舆情监测摘要">

@@ -42,7 +42,7 @@ async function responseJson<T>(response: Response): Promise<T> {
 
 export async function loadModelProviders(): Promise<ModelProviderDescription[]> {
   const response = await fetch("/api/model/providers", {
-    credentials: "omit",
+    credentials: "same-origin",
     headers: { Accept: "application/json" },
   });
   const body = await responseJson<{ providers: ModelProviderDescription[] }>(response);
@@ -60,7 +60,7 @@ export async function createModelResponse(
   if (identity?.userId) headers.set("X-User-Id", identity.userId);
   const response = await fetch("/api/model/responses", {
     method: "POST",
-    credentials: "omit",
+    credentials: "same-origin",
     headers,
     body: JSON.stringify(input),
   });

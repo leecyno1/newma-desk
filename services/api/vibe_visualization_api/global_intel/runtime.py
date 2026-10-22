@@ -20,3 +20,14 @@ def get_settings(request: Request) -> Settings:
     if settings is None:
         raise HTTPException(503, "全球情报运行配置未接入")
     return settings
+
+
+async def authorize_global_read(request: Request) -> None:
+    authorizer = getattr(request.app.state, "global_read_authorizer", None)
+    if authorizer is not None:
+        await authorizer(request)
+
+
+async def global_topic_scope(request: Request) -> tuple[str, str] | None:
+    authorizer = getattr(request.app.state, "global_topic_authorizer", None)
+    return await authorizer(request) if authorizer is not None else None

@@ -1474,12 +1474,13 @@ describe("createGlobalIntelDataSource", () => {
     await expect(source.staticSnapshot()).resolves.toEqual({ status: "ok" });
     expect(fetcher).toHaveBeenCalledWith(
       "https://desk.example/api/global-intel/static",
-      expect.objectContaining({ headers: { Accept: "application/json" } }),
+      expect.objectContaining({ headers: expect.any(Headers), credentials: "omit", redirect: "error" }),
     );
+    expect(new Headers(fetcher.mock.calls[0]![1].headers).get("Accept")).toBe("application/json");
     await expect(source.crucixSnapshot()).resolves.toEqual({ status: "ok" });
     expect(fetcher).toHaveBeenCalledWith(
       "https://desk.example/api/crucix/snapshot",
-      expect.objectContaining({ headers: { Accept: "application/json" } }),
+      expect.objectContaining({ headers: expect.any(Headers), credentials: "omit", redirect: "error" }),
     );
 
     const onPayload = vi.fn();

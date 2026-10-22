@@ -426,6 +426,9 @@ def mount_domain_suites(
             research_app_path,
         )
         research_app = research_module.app
+        internal_research = getattr(application.state, "internal_research", None)
+        if internal_research is not None:
+            internal_research.bind(research_app, getattr(research_module, "_API_KEY", ""))
         application.mount("/api/research", ResearchApiAdapter(
             research_app,
             getattr(application.state, "mod_session_service", None),

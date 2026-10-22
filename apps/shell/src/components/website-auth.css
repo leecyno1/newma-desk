@@ -1,0 +1,8 @@
+.website-session { height: 100%; display: flex; flex-direction: column; }
+.website-session-content { flex: 1; min-height: 0; }
+.website-session-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 12px; border-bottom: 1px solid var(--vibe-border); color: var(--vibe-text); background: var(--vibe-bg); font-size: 12px; }
+.website-auth-state { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+.website-auth-state h1 { font-size: 22px; }
+.website-auth-actions { display: flex; gap: 16px; align-items: center; }
+.website-auth-actions a { color: var(--vibe-accent); }
+.website-session-bar button, .website-auth-actions button { color: var(--vibe-text); background: var(--vibe-bg); border: 1px solid var(--vibe-border); border-radius: 6px; padding: 6px 12px; cursor: pointer; }

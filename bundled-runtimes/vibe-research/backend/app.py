@@ -329,6 +329,15 @@ def radar():
         raise HTTPException(502, f"资讯雷达异常：{e}") from e
 
 
+@app.get("/api/radar/snapshot")
+def radar_snapshot():
+    """Read collected public news only; never starts background collection."""
+    try:
+        return {"data": newsradar.get_radar(allow_background=False)}
+    except Exception as error:
+        raise HTTPException(502, "已采集资讯暂时不可用") from error
+
+
 @app.get("/api/radar/topics")
 def radar_topics(
     q: str = Query("", max_length=200),

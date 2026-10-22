@@ -3,7 +3,7 @@
   "id": "news-radar",
   "name": "新闻与舆情",
   "description": "聚合公开新闻与自选动态，按事件聚类展示热度变化、报道语气、传播范围、来源分歧和待核验线索。",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/simonlin1212/Vibe-Research",
   "tags": ["新闻", "舆情", "资讯", "事件"],
@@ -42,7 +42,7 @@
       "viewSpecVersion": "1.0"
     },
     "permissions": ["investment.read", "market.read"],
-    "dataServices": ["vibe-investment-native", "crucix"],
+    "dataServices": ["market-data", "crucix"],
     "wiki": {
       "contractVersion": "1.0",
       "subjectTypes": ["security", "etf", "fund", "topic", "industry", "concept"],
@@ -58,6 +58,170 @@
       ]
     },
     "actions": {
+      "research.news-snapshot": {
+        "binding": {
+          "type": "data",
+          "service": "market-data",
+          "capability": "research.news-snapshot"
+        },
+        "execution": "request",
+        "permission": "market.read",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "required": [
+            "data"
+          ],
+          "properties": {
+            "data": {
+              "type": "object"
+            }
+          }
+        },
+        "confirmation": "none"
+      },
+      "research.news-topics": {
+        "binding": {
+          "type": "data",
+          "service": "market-data",
+          "capability": "research.news-topics"
+        },
+        "execution": "request",
+        "permission": "market.read",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "q": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "industry": {
+              "type": "string",
+              "maxLength": 48
+            },
+            "signal": {
+              "enum": [
+                "all",
+                "rising",
+                "risk",
+                "opportunity",
+                "verify"
+              ]
+            },
+            "sort": {
+              "enum": [
+                "attention",
+                "latest"
+              ]
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 160
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object",
+          "required": [
+            "data"
+          ],
+          "properties": {
+            "data": {
+              "type": "object"
+            }
+          }
+        },
+        "confirmation": "none"
+      },
+      "market.announcements": {
+        "binding": {
+          "type": "data",
+          "service": "market-data",
+          "capability": "market.announcements"
+        },
+        "execution": "request",
+        "permission": "market.read",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "code"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^[0-9]{6}$"
+            },
+            "assetType": {
+              "enum": [
+                "stock",
+                "etf",
+                "fund"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "required": [
+            "data"
+          ],
+          "properties": {
+            "data": {
+              "type": "array"
+            }
+          }
+        },
+        "confirmation": "none"
+      },
+      "market.news": {
+        "binding": {
+          "type": "data",
+          "service": "market-data",
+          "capability": "market.news"
+        },
+        "execution": "request",
+        "permission": "market.read",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "code"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^[0-9]{6}$"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "required": [
+            "data"
+          ],
+          "properties": {
+            "data": {
+              "type": "array"
+            }
+          }
+        },
+        "confirmation": "none"
+      },
       "news.refresh": {
         "binding": { "type": "local" },
         "execution": "request",

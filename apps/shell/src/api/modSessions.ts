@@ -120,7 +120,7 @@ export async function issueModSession(
     `/api/mods/${encodeURIComponent(input.modId)}/sessions`,
     {
       method: "POST",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
@@ -148,7 +148,7 @@ export async function invokeModSessionAction(
     `/api/mods/${encodeURIComponent(session.moduleId)}/actions/${encodeURIComponent(actionId)}`,
     {
       method: "POST",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${session.accessToken}`,
@@ -176,7 +176,7 @@ export async function saveModContext(
     `/api/mods/${encodeURIComponent(session.moduleId)}/context`,
     {
       method: "PUT",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${session.accessToken}`,
@@ -220,7 +220,7 @@ export async function saveModVisualContext(
     `/api/mods/${encodeURIComponent(session.moduleId)}/visual-context?${query}`,
     {
       method: "POST",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${session.accessToken}`,
@@ -262,7 +262,7 @@ export async function captureModVisualContext(
     `/api/mods/${encodeURIComponent(session.moduleId)}/visual-context/capture`,
     {
       method: "POST",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${session.accessToken}`,

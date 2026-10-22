@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from .runtime import authorize_global_read
 
 from vibe_visualization_api.global_intel.client import (
     GlobalIntelClient,
@@ -7,7 +8,7 @@ from vibe_visualization_api.global_intel.client import (
 )
 
 
-router = APIRouter(prefix="/api/global-intel", tags=["global-intel"])
+router = APIRouter(prefix="/api/global-intel", tags=["global-intel"], dependencies=[Depends(authorize_global_read)])
 
 
 def get_global_intel_client(request: Request) -> GlobalIntelClient:
@@ -57,11 +58,16 @@ async def global_intel_overview(
 
 @router.get("/stream")
 async def global_intel_stream(
+    request: Request,
     client: GlobalIntelClient = Depends(get_global_intel_client),
 ) -> StreamingResponse:
     async def events():
         try:
-            async for chunk in client.stream("/api/stream"):
+            chunks = client.stream("/api/stream")
+            guard = getattr(request.app.state, "global_stream_guard", None)
+            if guard is not None:
+                chunks = guard(request, chunks)
+            async for chunk in chunks:
                 yield chunk
         except GlobalIntelUnavailable:
             # Headers may already be sent. Terminate with an explicit SSE error,

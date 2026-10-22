@@ -3,7 +3,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from .etf_catalog import ETFCatalog
 from .etf_price import ETFPriceService
@@ -265,12 +265,14 @@ async def get_capital_research(
 
 @router.get("/search")
 async def search_capital_flow_security(
+    request: Request,
     query: str = Query(min_length=1, max_length=48),
     limit: int = Query(default=8, ge=1, le=20),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     return await CapitalFlowService(
         settings.research_base_url,
+        transport_factory=getattr(request.app.state, "research_transport_factory", None),
         timeout_seconds=settings.capital_flow_timeout_seconds,
         tushare_token=settings.tushare_token.get_secret_value(),
     ).search_securities(query.strip(), limit)
@@ -278,6 +280,7 @@ async def search_capital_flow_security(
 
 @router.get("")
 async def get_capital_flow(
+    request: Request,
     code: str | None = Query(default=None),
     settings: Settings = Depends(get_settings),
     refresh: bool = False,
@@ -288,6 +291,7 @@ async def get_capital_flow(
     dashboard, turnover = await asyncio.gather(
         CapitalFlowService(
             settings.research_base_url,
+            transport_factory=getattr(request.app.state, "research_transport_factory", None),
             timeout_seconds=settings.capital_flow_timeout_seconds,
             tushare_token=settings.tushare_token.get_secret_value(),
         ).dashboard(normalized, include_legacy_turnover=False),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable
 import math
 from typing import Protocol
 
@@ -45,11 +46,13 @@ class ResearchPortfolioQuoteProvider:
         api_key: str = "",
         timeout_seconds: float = 12,
         client: httpx.AsyncClient | None = None,
+        transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
     ):
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
         self._client = client
+        self._transport_factory = transport_factory
 
     async def get_quotes(
         self,
@@ -64,6 +67,7 @@ class ResearchPortfolioQuoteProvider:
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
         client = self._client or httpx.AsyncClient(
+            transport=self._transport_factory() if self._transport_factory else None,
             timeout=self._timeout_seconds,
             follow_redirects=False,
             trust_env=False,

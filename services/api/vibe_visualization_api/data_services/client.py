@@ -117,11 +117,13 @@ class DataServiceClient:
         secret_resolver: Callable[[str], str | None] | None = None,
         response_adapters: dict[str, Callable[[str, Any], Any]] | None = None,
         client: httpx.AsyncClient | None = None,
+        transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
     ):
         self._public_mode = public_mode
         self._secret_resolver = secret_resolver or os.environ.get
         self._response_adapters = response_adapters or {}
         self._client = client
+        self._transport_factory = transport_factory
 
     async def invoke(
         self,
@@ -167,6 +169,7 @@ class DataServiceClient:
 
         timeout = httpx.Timeout(capability.timeout_seconds or service.timeout_seconds)
         client = self._client or httpx.AsyncClient(
+            transport=self._transport_factory() if self._transport_factory else None,
             timeout=timeout,
             follow_redirects=False,
             trust_env=False,

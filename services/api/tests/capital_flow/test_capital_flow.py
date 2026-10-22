@@ -1,5 +1,6 @@
 import httpx
 import pytest
+from fastapi import FastAPI, Request
 
 from vibe_visualization_api.capital_flow.service import CapitalFlowService
 from vibe_visualization_api.capital_flow.turnover import TurnoverResearchService
@@ -31,8 +32,9 @@ async def test_capital_flow_routes_use_resolved_server_token(monkeypatch):
     monkeypatch.setattr(TurnoverResearchService, "research", turnover)
     settings = Settings(tushare_token="configured-test-token", _env_file=None)
 
-    assert (await get_capital_flow("300308", settings))["code"] == "300308"
-    assert await search_capital_flow_security("中际旭创", 8, settings) == {"items": []}
+    request = Request({"type": "http", "app": FastAPI()})
+    assert (await get_capital_flow(request, "300308", settings))["code"] == "300308"
+    assert await search_capital_flow_security(request, "中际旭创", 8, settings) == {"items": []}
     assert tokens == ["configured-test-token"] * 3
 
 

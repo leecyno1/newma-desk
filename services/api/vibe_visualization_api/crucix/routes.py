@@ -3,9 +3,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from .client import CrucixUnavailable
+from vibe_visualization_api.global_intel.runtime import authorize_global_read
 
 
-router = APIRouter(prefix="/api/crucix", tags=["crucix"])
+router = APIRouter(prefix="/api/crucix", tags=["crucix"], dependencies=[Depends(authorize_global_read)])
 
 
 CrucixReader = Callable[[str], Awaitable[dict]]

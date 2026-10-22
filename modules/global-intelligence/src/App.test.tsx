@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModHostConnection } from "@newma-desk/mod-sdk";
 import { GlobalIntelligenceApp } from "./App";
@@ -26,7 +26,7 @@ function setup(workspaceId = "test") {
   const publishContext = vi.fn();
   const host = {
     embedded: true,
-    config: { environment: { theme: "light" }, user: { id: "reader" }, workspace: { id: workspaceId }, gateways: { data: window.location.origin } },
+    config: { instanceId: "topic-one", session: { accessToken: "synthetic-topic-token" }, grants: { permissions: ["market.read", "storage.write"], actions: [] }, environment: { theme: "light" }, user: { id: "reader" }, workspace: { id: workspaceId }, gateways: { data: window.location.origin } },
     subscribe: () => () => {}, setContextProvider: () => () => {}, publishContext,
     setUiActionHandler: (next: typeof handler) => { handler = next; return () => {}; },
   } as unknown as Extract<ModHostConnection, { embedded: true }>;
@@ -35,6 +35,58 @@ function setup(workspaceId = "test") {
 }
 
 describe("page refresh action receipt", () => {
+  it("signs topic reads and forecast writes without client-chosen ownership", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(json(snapshot("专题数据")))
+      .mockResolvedValueOnce(json(snapshot("结果").forecast)));
+    const page = setup();
+    await screen.findByText("专题数据");
+    fireEvent.click(screen.getByRole("button", { name: "重新推演" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    const [url, options] = vi.mocked(fetch).mock.calls[1]!;
+    expect(String(url)).toMatch(/\/api\/global-topics\/fed-rates\/forecast$/);
+    expect(options).toMatchObject({ method: "POST", credentials: "omit", redirect: "error" });
+    expect(new Headers(options?.headers).get("Authorization")).toBe("Bearer synthetic-topic-token");
+    expect(new Headers(options?.headers).get("X-Newma-Desk-Instance-Id")).toBe("topic-one");
+    expect(JSON.parse(String(options?.body))).toEqual({ factors: {} });
+    await waitFor(() => expect(screen.getByRole("button", { name: "重新推演" })).not.toBeDisabled());
+    page.unmount();
+  });
+
+  it("signs overview requests and replaces the active stream when host authorization changes", async () => {
+    const cancellations: ReturnType<typeof vi.fn>[] = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
+      if (!url.endsWith("/stream")) return json({});
+      const cancel = vi.fn();
+      cancellations.push(cancel);
+      return new Response(new ReadableStream({ cancel }), { headers: { "content-type": "text/event-stream" } });
+    }));
+    type Host = Extract<ModHostConnection, { embedded: true }>;
+    let notify!: (config: Host["config"]) => void;
+    const config = {
+      instanceId: "frame-one", environment: { theme: "light" }, user: { id: "reader" }, workspace: { id: "test" },
+      gateways: { data: "https://desk.example/api/data-services" }, grants: { permissions: ["market.read"], actions: [] },
+      session: { accessToken: "first-token" },
+    } as unknown as Host["config"];
+    const host = { embedded: true, config, subscribe: (callback: typeof notify) => { notify = callback; return () => {}; },
+      setContextProvider: () => () => {}, publishContext: vi.fn(), setUiActionHandler: () => () => {},
+    } as unknown as Host;
+    const page = render(<GlobalIntelligenceApp embedded hostConnection={host} />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    for (const [url, options] of vi.mocked(fetch).mock.calls) {
+      expect(String(url)).toMatch(/^https:\/\/desk.example\/api\//);
+      expect(new Headers(options?.headers).get("Authorization")).toBe("Bearer first-token");
+      expect(new Headers(options?.headers).get("X-Newma-Desk-Instance-Id")).toBe("frame-one");
+    }
+    await act(async () => notify({ ...config, session: { ...config.session!, accessToken: "second-token" } }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(6));
+    expect(cancellations[0]).toHaveBeenCalledOnce();
+    expect(new Headers(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.headers).get("Authorization")).toBe("Bearer second-token");
+    await act(async () => notify({ ...config, grants: { permissions: [], actions: [] } }));
+    expect(cancellations[1]).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledTimes(6);
+    page.unmount();
+  });
+
   it("keeps saved views inside the current user, workspace and page", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => json(snapshot("视图数据"))));
     const first = setup();

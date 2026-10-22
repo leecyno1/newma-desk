@@ -52,7 +52,7 @@ import {
   type SidebarNavigationPreferences,
   type ThemeMode,
 } from "./lib/workspacePreferences";
-import { loadWorkspaceIdentity } from "./lib/workspaceIdentity";
+import { loadWorkspaceIdentity, type WorkspaceIdentity } from "./lib/workspaceIdentity";
 import {
   newmaHostIdentityFromLocation,
   parseNewmaHostContextRequest,
@@ -88,6 +88,7 @@ const DIRECTORY_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
 
 interface AppProps {
   embedded?: boolean;
+  authoritativeIdentity?: WorkspaceIdentity;
 }
 
 export function isEmbeddedShellContext(
@@ -245,8 +246,8 @@ function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
   );
 }
 
-export function App({ embedded = isEmbeddedShellContext() }: AppProps = {}) {
-  const [identity] = useState(loadWorkspaceIdentity);
+export function App({ embedded = isEmbeddedShellContext(), authoritativeIdentity }: AppProps = {}) {
+  const [identity] = useState(() => authoritativeIdentity ?? loadWorkspaceIdentity());
   const [newmaHostIdentity] = useState(newmaHostIdentityFromLocation);
   const [eventBus] = useState(() => new ShellEventBus());
   const [lastEvent, setLastEvent] = useState<ModEvent>();

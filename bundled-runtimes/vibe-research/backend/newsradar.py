@@ -357,13 +357,15 @@ def _with_refresh_state(data: dict) -> dict:
     return output
 
 
-def get_radar(force: bool = False) -> dict:
+def get_radar(force: bool = False, *, allow_background: bool = True) -> dict:
     if force:
         return _with_refresh_state(fetch_radar())
     data = load_cache() or skeleton()
-    if _is_stale(data):
+    if allow_background and _is_stale(data):
         trigger_background_refresh()
-    return _with_refresh_state(data)
+    result = _with_refresh_state(data)
+    result["refresh"]["read_only"] = not allow_background
+    return result
 
 
 def _all_topics(data: dict) -> list[dict]:
