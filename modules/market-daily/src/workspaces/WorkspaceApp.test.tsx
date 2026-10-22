@@ -10,10 +10,11 @@ import { MARKET_WORKSPACES, marketWorkspaceFromSearch } from "./config";
 
 vi.mock("@newma-desk/chart-kit", async () => {
   const actual = await vi.importActual<typeof import("@newma-desk/chart-kit")>("@newma-desk/chart-kit");
+  const { useEffect } = await import("react");
   return {
     ...actual,
     KLineChartPanel: (props: { ariaLabel?: string; variant?: string; loadBars: () => Promise<unknown> }) => {
-      void props.loadBars();
+      useEffect(() => { void props.loadBars().catch(() => undefined); }, [props.loadBars]);
       return <div data-testid="workspace-kline" data-variant={props.variant} aria-label={props.ariaLabel} />;
     },
     RelativeStrengthChart: () => <div data-testid="relative-strength-chart" />,

@@ -12,26 +12,27 @@ export function normalizedStrengthSeries(
   color: string,
   bars: Bar[],
 ): RelativeStrengthSeries {
-  const first = bars.find((bar) => Number.isFinite(bar.close) && bar.close !== 0)?.close;
+  const valid = bars.filter((bar) => Number.isFinite(bar.timestamp) && Number.isFinite(bar.close) && bar.close > 0).sort((a, b) => a.timestamp - b.timestamp);
+  const first = valid[0]?.close;
   if (!first) return { id, label, color, points: [] };
   return {
     id,
     label,
     color,
-    points: bars.map((bar) => ({
+    points: valid.map((bar) => ({
       timestamp: bar.timestamp,
       value: ((bar.close / first) - 1) * 100,
     })),
   };
 }
 
-function pathFor(series: RelativeStrengthSeries, min: number, max: number) {
+export function strengthPath(series: RelativeStrengthSeries, min: number, max: number, start: number, end: number) {
   if (series.points.length < 2) return "";
   const plotWidth = WIDTH - PADDING.left - PADDING.right;
   const plotHeight = HEIGHT - PADDING.top - PADDING.bottom;
   const denominator = Math.max(max - min, 1);
   return series.points.map((point, index) => {
-    const x = PADDING.left + (index / Math.max(series.points.length - 1, 1)) * plotWidth;
+    const x = PADDING.left + ((point.timestamp - start) / Math.max(end - start, 1)) * plotWidth;
     const y = PADDING.top + ((max - point.value) / denominator) * plotHeight;
     return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
   }).join(" ");
@@ -55,6 +56,9 @@ export function RelativeStrengthChart({
   const ticks = Array.from({ length: 5 }, (_, index) =>
     bounds.max - ((bounds.max - bounds.min) * index) / 4,
   );
+  const timestamps = series.flatMap((item) => item.points.map((point) => point.timestamp));
+  const start = timestamps.length ? Math.min(...timestamps) : 0;
+  const end = timestamps.length ? Math.max(...timestamps) : 0;
   const zeroY = PADDING.top + ((bounds.max - 0) / Math.max(bounds.max - bounds.min, 1)) * (HEIGHT - PADDING.top - PADDING.bottom);
 
   return (
@@ -82,7 +86,12 @@ export function RelativeStrengthChart({
         })}
         <line x1={PADDING.left} y1={zeroY} x2={WIDTH - PADDING.right} y2={zeroY} className="relative-zero-line" />
         {series.map((item) => (
-          <path key={item.id} d={pathFor(item, bounds.min, bounds.max)} fill="none" stroke={item.color} strokeWidth="2.4" vectorEffect="non-scaling-stroke" />
+          <path key={item.id} d={strengthPath(item, bounds.min, bounds.max, start, end)} fill="none" stroke={item.color} strokeWidth="2.4" vectorEffect="non-scaling-stroke" />
+        ))}
+        {timestamps.length > 0 && [0, 0.5, 1].map((fraction) => (
+          <text key={fraction} x={PADDING.left + fraction * (WIDTH - PADDING.left - PADDING.right)} y={HEIGHT - 8} textAnchor={fraction === 0 ? "start" : fraction === 1 ? "end" : "middle"} className="relative-axis-label">
+            {new Date(start + fraction * (end - start)).toISOString().slice(0, 10)}
+          </text>
         ))}
       </svg>
     </div>

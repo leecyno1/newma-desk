@@ -290,10 +290,13 @@ export const KLineChartPanel = forwardRef<KLineChartPanelHandle, KLineChartPanel
       });
       if (!chart) return;
       chartRef.current = chart;
+      // StrictMode can recreate the chart without recreating React refs.
+      dataKeyRef.current = "";
       const requestBars = async () => {
         stateRef.current.onLoadState?.({ loading: true });
         try {
           const bars = await loaderRef.current();
+          if (chartRef.current !== chart) return;
           lastGoodBarsRef.current = bars;
           chart.setDataLoader({
             getBars({ callback }) {
@@ -302,6 +305,7 @@ export const KLineChartPanel = forwardRef<KLineChartPanelHandle, KLineChartPanel
           });
           stateRef.current.onLoadState?.({ loading: false });
         } catch (reason) {
+          if (chartRef.current !== chart) return;
           stateRef.current.onLoadState?.({
             loading: false,
             error: lastGoodBarsRef.current.length
@@ -316,10 +320,12 @@ export const KLineChartPanel = forwardRef<KLineChartPanelHandle, KLineChartPanel
           stateRef.current.onLoadState?.({ loading: true });
           try {
             const bars = await loaderRef.current();
+            if (chartRef.current !== chart) return;
             lastGoodBarsRef.current = bars;
             callback(bars as KLineData[], false);
             stateRef.current.onLoadState?.({ loading: false });
           } catch (reason) {
+            if (chartRef.current !== chart) return;
             callback(lastGoodBarsRef.current as KLineData[], false);
             stateRef.current.onLoadState?.({
               loading: false,

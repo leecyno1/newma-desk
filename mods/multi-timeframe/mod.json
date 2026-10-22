@@ -2,7 +2,7 @@
   "schemaVersion": "1.0",
   "id": "multi-timeframe",
   "name": "多周期分析",
-  "description": "日线、60 分钟、15 分钟和 5 分钟 K 线联动，统一指标、复权和 Agent 上下文。",
+  "description": "日线与分钟 K 线联动，统一指标，分别披露实际复权口径和 Agent 上下文。",
   "version": "0.1.1",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-desk",

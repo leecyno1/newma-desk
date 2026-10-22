@@ -1,5 +1,5 @@
 import { CandlestickChart, Check, Columns2, LayoutGrid } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { KLineChartPanel } from "@newma-desk/chart-kit";
 
@@ -14,6 +14,9 @@ import type {
 } from "../types";
 import { formatCompact, formatPrice, movement, signed } from "./shared";
 import type { WorkspaceUiAction } from "./WorkspaceApp";
+import { ADJUSTMENT_LABELS, requestedAdjustment } from "./comparison";
+
+type PanelEvidence = { adjustment: Adjustment | null; source: string | null; asOf: string | null; count: number; status: "loading" | "ready" | "empty" | "error" };
 
 const PANELS: Array<{ timeframe: Timeframe; label: string; hint: string }> = [
   { timeframe: "1d", label: "日线", hint: "中期结构" },
@@ -36,6 +39,7 @@ function TimeframeChart({
   active,
   onActivate,
   crosshairSyncGroup,
+  onEvidence,
 }: {
   dataSource: MarketDataSource;
   security: SecurityRef;
@@ -50,18 +54,40 @@ function TimeframeChart({
   active: boolean;
   onActivate: () => void;
   crosshairSyncGroup: string;
+  onEvidence: (timeframe: Timeframe, evidence: PanelEvidence) => void;
 }) {
   const [loadState, setLoadState] = useState<{ loading: boolean; error?: string }>({ loading: true });
+  const [evidence, setEvidence] = useState<PanelEvidence | null>(null);
+  const request = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const loadBars = useCallback(
-    () => dataSource.ohlcv(security, timeframe, adjustment).then((result) => result.items),
-    [adjustment, dataSource, security, timeframe],
+    async () => {
+      const id = ++request.current;
+      const report = (next: PanelEvidence) => {
+        if (!mounted.current || id !== request.current) return;
+        setEvidence(next);
+        onEvidence(timeframe, next);
+      };
+      report({ adjustment: null, source: null, asOf: null, count: 0, status: "loading" });
+      try {
+        const result = await dataSource.ohlcv(security, timeframe, adjustment);
+        report({ adjustment: result.adjust ?? null, source: result.source, asOf: result.asOf, count: result.items.length, status: result.items.length ? "ready" : "empty" });
+        return result.items;
+      } catch (error) {
+        report({ adjustment: null, source: null, asOf: null, count: 0, status: "error" });
+        throw error;
+      }
+    },
+    [adjustment, dataSource, security, timeframe, onEvidence],
   );
   return (
     <section className="timeframe-panel" data-active={active} onPointerDown={onActivate}>
       <header>
         <span><CandlestickChart size={13} /><strong>{label}</strong><small>{hint}</small></span>
-        <em>{loadState.loading ? "加载中" : loadState.error ? "数据异常" : <><Check size={12} />已同步</>}</em>
+        <em>{loadState.loading ? "加载中" : loadState.error ? "数据异常" : evidence?.count ? <><Check size={12} />已同步</> : "暂无数据"}</em>
       </header>
+      <div className="workspace-help">请求：{ADJUSTMENT_LABELS[adjustment]} · 返回：{evidence?.adjustment ? ADJUSTMENT_LABELS[evidence.adjustment] : "待确认"} · 来源：{evidence?.source ?? "待确认"}{evidence?.adjustment && evidence.adjustment !== adjustment ? " · 口径已降级，请复核" : ""}</div>
       <KLineChartPanel
         security={security}
         timeframe={timeframe}
@@ -102,6 +128,11 @@ export function MultiTimeframeWorkspace({
   const [secondaryIndicator, setSecondaryIndicator] = useState<SecondaryIndicator>("VOL");
   const [compact, setCompact] = useState(false);
   const crosshairSyncGroup = `multi-timeframe:${security.market}:${security.symbol}`;
+  const requestKey = `${crosshairSyncGroup}:${security.assetType ?? ""}:${adjustment}:${refreshNonce}`;
+  const [panelResults, setPanelResults] = useState<{ key: string; values: Partial<Record<Timeframe, PanelEvidence>> }>({ key: "", values: {} });
+  const onEvidence = useCallback((timeframe: Timeframe, evidence: PanelEvidence) => {
+    setPanelResults((previous) => ({ key: requestKey, values: { ...(previous.key === requestKey ? previous.values : {}), [timeframe]: evidence } }));
+  }, [requestKey]);
 
   useEffect(() => {
     if (!action) return;
@@ -122,12 +153,19 @@ export function MultiTimeframeWorkspace({
     onContextChange({
       activeTimeframe,
       synchronizedTimeframes: PANELS.map((item) => item.timeframe),
-      adjustment,
+      adjustment: panelResults.key === requestKey ? panelResults.values[activeTimeframe]?.adjustment ?? null : null,
+      requestedDailyAdjustment: requestedAdjustment(security, "1d", adjustment),
+      panels: PANELS.map((panel) => ({
+        timeframe: panel.timeframe,
+        requestedAdjustment: requestedAdjustment(security, panel.timeframe, adjustment),
+        ...(panelResults.key === requestKey ? panelResults.values[panel.timeframe] : undefined),
+      })),
+      priceComparisonWarning: "分钟线不复权，与复权日线的绝对价格不可直接比较",
       primaryIndicator,
       secondaryIndicator,
       layout: compact ? "focus" : "grid",
     });
-  }, [activeTimeframe, adjustment, compact, onContextChange, primaryIndicator, secondaryIndicator]);
+  }, [activeTimeframe, adjustment, compact, onContextChange, primaryIndicator, secondaryIndicator, panelResults, requestKey, security]);
 
   return (
     <div className="multi-workspace">
@@ -142,9 +180,9 @@ export function MultiTimeframeWorkspace({
             <button type="button" key={indicator} aria-pressed={secondaryIndicator === indicator} onClick={() => setSecondaryIndicator(indicator)}>{indicator}</button>
           ))}
         </div>
-        <select aria-label="复权方式" value={adjustment} onChange={(event) => setAdjustment(event.target.value as Adjustment)} disabled={security.market !== "CN"}>
+        <label>日线复权 <select aria-label="复权方式" value={requestedAdjustment(security, "1d", adjustment)} onChange={(event) => setAdjustment(event.target.value as Adjustment)} disabled={requestedAdjustment(security, "1d", "qfq") === "none"}>
           <option value="none">不复权</option><option value="qfq">前复权</option><option value="hfq">后复权</option>
-        </select>
+        </select></label>
         <button type="button" className="workspace-layout-button" aria-pressed={compact} onClick={() => setCompact((value) => !value)}>
           {compact ? <LayoutGrid size={14} /> : <Columns2 size={14} />}{compact ? "四图布局" : "聚焦当前"}
         </button>
@@ -153,11 +191,12 @@ export function MultiTimeframeWorkspace({
         <div className="timeframe-grid" data-compact={compact}>
           {PANELS.map((panel) => (
             <TimeframeChart
-              key={panel.timeframe}
+              key={`${requestKey}:${panel.timeframe}`}
               {...panel}
               dataSource={dataSource}
               security={security}
-              adjustment={panel.timeframe.endsWith("m") || panel.timeframe === "60m" ? "none" : adjustment}
+              adjustment={requestedAdjustment(security, panel.timeframe, adjustment)}
+              onEvidence={onEvidence}
               primaryIndicator={primaryIndicator}
               secondaryIndicator={secondaryIndicator}
               theme={theme}
@@ -185,6 +224,7 @@ export function MultiTimeframeWorkspace({
           <div className="inspector-note">
             <strong>联动状态</strong>
             <span>证券、指标和主题已同步；当前聚焦周期会进入 Newma Agent Context。</span>
+            <span>复权选择仅适用于A股日线；分钟线固定不复权，不应直接比较两者的绝对价格。每图以返回口径为准。</span>
           </div>
         </aside>
       </div>

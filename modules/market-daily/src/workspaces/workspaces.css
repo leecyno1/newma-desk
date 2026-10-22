@@ -885,9 +885,15 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 27px 1fr;
+  grid-template-rows: 27px auto minmax(160px, 1fr);
   background: var(--vibe-surface);
   outline: 0 solid transparent;
+}
+
+.timeframe-panel > .workspace-help,
+.relative-chart-panel > .workspace-help {
+  margin: 0;
+  padding: 6px 8px;
 }
 
 .timeframe-panel[data-active="true"] {
@@ -1021,7 +1027,7 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 38px 1fr;
+  grid-template-rows: 38px auto minmax(220px, 1fr);
 }
 
 .relative-chart-shell {
