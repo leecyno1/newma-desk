@@ -31,6 +31,21 @@ function signed(b, overrides = {}) {
     grants: {actions: ['analysis.research-book'], permissions: ['analysis.read']}, ...overrides};
 }
 
+test('session cleanup publishes only the fully cleared multi-panel context', async () => {
+  const b = bridge();
+  try {
+    const init = signed(b); b.send(init); await tick();
+    let oldEvidence = 'old account';
+    b.api.setContextProvider(() => ({view: {id: 'page', title: '测试'}, data: {summary: {oldEvidence}}}));
+    b.dom.window.document.addEventListener('instock:session-changed', () => b.api.publishContext());
+    b.dom.window.document.addEventListener('instock:session-changed', () => {oldEvidence = null;});
+    b.messages.length = 0; b.send({...init, instanceId: 'two'}); await tick();
+    const contexts = b.messages.filter(m => m.type === 'vibedesk:context');
+    assert.equal(contexts.length, 1);
+    assert.equal(contexts[0].context.data.summary.oldEvidence, null);
+  } finally {b.dom.window.close();}
+});
+
 test('analysis transport uses current signature and ignores theme-only init', async () => {
   const b = bridge();
   try {

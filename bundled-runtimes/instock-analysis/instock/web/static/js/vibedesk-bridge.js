@@ -13,6 +13,7 @@
     let activeConfig = null;
     let sessionKey = '';
     let sessionRevision = 0;
+    let sessionTransition = false;
     let sessionController = new AbortController();
     let contextProvider = null;
     let uiActionHandler = null;
@@ -334,7 +335,7 @@
     }
 
     async function publishContext(linkedRequestId) {
-        if (!activeConfig) return false;
+        if (!activeConfig || sessionTransition) return false;
         const revision = sessionRevision;
         try {
             const context = typeof contextProvider === 'function'
@@ -477,7 +478,11 @@
             }
             sessionKey = key;
             activeConfig = data;
-            if (changed) document.dispatchEvent(new CustomEvent('instock:session-changed', {detail: {revision: sessionRevision}}));
+            if (changed) {
+                sessionTransition = true;
+                try { document.dispatchEvent(new CustomEvent('instock:session-changed', {detail: {revision: sessionRevision}})); }
+                finally { sessionTransition = false; }
+            }
             if (themeFallbackTimer !== null) {
                 window.clearTimeout(themeFallbackTimer);
                 themeFallbackTimer = null;
@@ -491,6 +496,7 @@
                 modId,
             });
             document.dispatchEvent(new CustomEvent('vibedesk:init', {detail: data}));
+            if (changed) void publishContext();
             return;
         }
         if (activeConfig && validModEvent(data)) {

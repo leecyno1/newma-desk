@@ -19,7 +19,8 @@
         const find = selector => root.querySelector(selector);
         const status = message => { find('[data-journal-status]').textContent = message; };
         async function request(path = '', body) {
-            const response = await fetch('/api/v1/market-workbench/reviews' + path, body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {});
+            const response = await window.InStockNewmaDesk.fetchAnalysis('/api/v1/market-workbench/reviews' + path, body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {});
+            if (response.status === 403) throw new Error('个人复盘记录尚未获得当前工作区授权；未读取或写入本机共享记录');
             const result = await response.json();
             if (!response.ok || result.ok === false) throw new Error(result.error?.message || `复盘操作失败（${response.status}）`);
             return result.data;
@@ -97,7 +98,7 @@
                 showRecord(saved); status(checking ? '复核已追加，原判断未改动。' : '复盘已保存。返回当前可继续编辑草稿。');
                 list(0);
             } catch (error) { if (token === sequence) status(error.message + '；输入内容已保留。'); }
-            finally { button.disabled = false; }
+            finally { if (token === sequence) button.disabled = false; }
         });
         root.addEventListener('click', async event => {
             const button = event.target.closest('button');
@@ -120,6 +121,15 @@
         });
         find('[data-journal-filter]').addEventListener('change', () => list(0));
         find('[data-journal-list]').addEventListener('toggle', event => { if (event.target.open) list(); else publish(); });
+        document.addEventListener('instock:session-changed', () => {
+            sequence++; listSequence++; record = null; queue = null; offset = 0; hasMore = false;
+            find('[data-journal-form]').reset(); find('[data-journal-filter]').value = 'all';
+            for (const selector of ['.journal-list', '[data-journal-counts]', '[data-journal-record]', '[data-journal-list-status]']) find(selector).replaceChildren();
+            find('[data-journal-list]').open = false;
+            find('[data-journal-form] button[type=submit]').disabled = false;
+            find('[data-journal-prev]').disabled = true; find('[data-journal-next]').disabled = true;
+            status('会话授权已变化，已撤下旧记录和草稿；未自动保存或重发操作。'); mode();
+        });
         return {live, context: () => record ? {mode: 'archive', record} : {
             mode: 'live', followUpQueue: find('[data-journal-list]').open ? queue : null,
             note: '未保存草稿不进入 Agent 上下文；跟进列表为摘要，完整原判断和观察条件须打开存档。人工复核不代表自动验证。',

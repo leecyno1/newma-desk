@@ -38,8 +38,8 @@
             data = null; loading = true; error = ''; render(); publish();
             try {
                 const query = new URLSearchParams({code: target.code, asOf: target.asOf, refresh: force ? '1' : '0'});
-                const response = await fetch('/api/v1/market-workbench/evidence?' + query, {signal: request.signal});
-                if (!response.ok) throw new Error(`交叉证据读取失败（${response.status}）`);
+                const response = await window.InStockNewmaDesk.fetchAnalysis('/api/v1/market-workbench/evidence?' + query, {signal: request.signal});
+                if (!response.ok) throw new Error(response.status === 403 ? '交叉证据尚未获得当前工作区授权' : `交叉证据读取失败（${response.status}）`);
                 const payload = await response.json(), value = payload.ok ? payload.data : payload;
                 if (value.schemaVersion !== 'newma-desk.market-evidence.v1' || value.code.split('.')[0] !== target.code || value.requestedDate !== target.asOf) throw new Error('证据对象或日期不匹配');
                 if (!request.signal.aborted) data = value;
@@ -53,6 +53,7 @@
             if (selected) return load(false);
             render(); publish();
         }};
+        document.addEventListener('instock:session-changed', () => api.select(null));
         render();
         return api;
     };

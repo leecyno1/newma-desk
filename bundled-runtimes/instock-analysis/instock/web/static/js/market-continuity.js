@@ -53,14 +53,18 @@
                     const day = reviewDate();
                     if (!day) throw new Error('请先成功刷新市场结构，确认复盘截止日');
                     const query = new URLSearchParams({window: '60', benchmark: '510300', asOf: day, view: 'continuity', refresh: force ? '1' : '0'});
-                    const response = await fetch('/api/v1/rotations/snapshots?' + query, {signal: request.signal});
-                    if (!response.ok) throw new Error(`主线证据读取失败（${response.status}）`);
+                    const response = await window.InStockNewmaDesk.fetchAnalysis('/api/v1/rotations/snapshots?' + query, {signal: request.signal});
+                    if (!response.ok) throw new Error(response.status === 403 ? '主线证据尚未获得当前工作区授权' : `主线证据读取失败（${response.status}）`);
                     const payload = await response.json(), next = payload.ok ? payload.data : payload;
                     if (next.schemaVersion !== 'newma-desk.market-continuity.v1') throw new Error('主线证据格式不匹配');
                     if (!request.signal.aborted) data = next;
                 } catch (reason) { if (!request.signal.aborted) error = reason.message || '主线证据读取失败'; }
                 finally { if (!request.signal.aborted) { loading = false; render(); publish(); } }
             }};
+        document.addEventListener('instock:session-changed', () => {
+            controller?.abort(); data = null; loading = false; historical = false; all = false;
+            error = '会话授权已变化，请重新读取当前工作区数据'; selectEvidence(null); render(); publish();
+        });
         render();
         return api;
     };

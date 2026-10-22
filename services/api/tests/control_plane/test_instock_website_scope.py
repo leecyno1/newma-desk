@@ -139,9 +139,34 @@ def test_market_map_dependency_parameters_and_current_admission(stock_website):
     assert not client.app.state.market_calls
 
 
-def test_other_stock_page_does_not_gain_market_map_dependency(stock_website):
+def test_market_workbench_scan_does_not_gain_cloud_map_rankings(stock_website):
     client, _, headers = stock_website
-    assert client.post(DEPENDENCY, headers=headers, json=SCAN).status_code == 403
+    assert client.post(DEPENDENCY, headers=headers, json=SCAN).status_code == 422
+    assert not client.app.state.market_calls
+
+
+def test_market_workbench_delegates_only_declared_snapshot_dependencies(stock_website):
+    client, _, headers = stock_website
+    for capability, path in [('market.overview', 'market/overview'), ('market.emotion', 'market/emotion'), ('market.turnover-top', 'market/turnover-top')]:
+        result = client.post(DEPENDENCY, headers=headers, json={'capability': capability, 'parameters': {}})
+        assert result.status_code == 200, result.text
+        assert client.app.state.market_calls[-1].url.path.endswith('/' + path)
+        assert client.post(DEPENDENCY, headers=headers, json={'capability': capability, 'parameters': {'url': 'http://other'}}).status_code == 422
+    for limit in (50, 100, 200):
+        result = client.post(DEPENDENCY, headers=headers, json={**SCAN, 'parameters': {**SCAN['parameters'], 'sort': 'changePct', 'limit': limit}})
+        assert result.status_code == 200, result.text
+    assert len(client.app.state.market_calls) == 6
+    # The declared snapshot action does not authorize these separate features or writes.
+    for method, path in [('GET', '/market-workbench/structure'), ('GET', '/rotations/snapshots'),
+                         ('GET', '/market-workbench/evidence'), ('GET', '/market-workbench/reviews'), ('POST', '/market-workbench/reviews')]:
+        assert client.post(ENDPOINT, headers=headers, json={'method': method, 'path': '/api/v1' + path}).status_code == 403
+
+
+@pytest.mark.parametrize('stock_website', ['instock-market-map'], indirect=True)
+def test_workbench_dependencies_do_not_expand_map_access(stock_website):
+    client, _, headers = stock_website
+    for capability in ('market.overview', 'market.emotion', 'market.turnover-top'):
+        assert client.post(DEPENDENCY, headers=headers, json={'capability': capability, 'parameters': {}}).status_code == 403
     assert not client.app.state.market_calls
 
 

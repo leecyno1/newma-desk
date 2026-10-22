@@ -148,7 +148,7 @@ for (const name of ['market_map', 'market_workbench']) {
   test(`${name}: history and scope changes cannot be overwritten by a late refresh`, async () => {
     const p = await page(name);
     try {
-      for (const event of ['instock:history-selected', name === 'market_map' ? 'instock:session-changed' : 'vibedesk:init']) {
+      for (const event of ['instock:history-selected', 'instock:session-changed']) {
         const pending = p.invoke();
         p.window.document.dispatchEvent(new p.window.CustomEvent(event,
           {detail: {payload: payload(name, 'historical'), view_source: 'history'}}));
@@ -159,6 +159,24 @@ for (const name of ['market_map', 'market_workbench']) {
     } finally {p.dom.window.close();}
   });
 }
+test('workbench: session change removes old evidence and a late finally cannot unlock the next run', async () => {
+  const p = await page('market_workbench');
+  try {
+    const old = p.invoke(), oldRequest = p.requests.at(-1);
+    p.window.document.dispatchEvent(new p.window.CustomEvent('instock:session-changed'));
+    assert.equal(p.snapshot(), undefined);
+    assert.equal(p.window.document.getElementById('market-body').textContent, '');
+    assert.equal(p.window.document.getElementById('market-detail').textContent, '');
+    const current = p.invoke(), currentRequest = p.requests.at(-1);
+    oldRequest.resolve({ok: true, data: payload('market_workbench', 'old')});
+    await assert.rejects(old, /本次结果未采用/);
+    assert.equal(p.context().data.queryState.running, true);
+    currentRequest.resolve({ok: true, data: payload('market_workbench', 'current')}); await current;
+    assert.equal(p.snapshot(), 'current');
+    p.window.document.dispatchEvent(new p.window.CustomEvent('vibedesk:init'));
+    assert.equal(p.snapshot(), 'current');
+  } finally {p.dom.window.close();}
+});
 test('market map: industry filter updates the preview and selected Context together', async () => {
   const row = (symbol, industry) => ({symbol, name: symbol, industry, change_pct: 1, market_cap: 1e10});
   const initial = {...payload('market_map'), groups: [

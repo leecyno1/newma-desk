@@ -54,8 +54,8 @@
                 controller?.abort(); const request = new AbortController(); controller = request;
                 historical = false; loading = true; error = ''; render(); publish();
                 try {
-                    const response = await fetch('/api/v1/market-workbench/structure?refresh=' + (force ? '1' : '0'), {signal: request.signal});
-                    if (!response.ok) throw new Error(`市场结构读取失败（${response.status}）`);
+                    const response = await window.InStockNewmaDesk.fetchAnalysis('/api/v1/market-workbench/structure?refresh=' + (force ? '1' : '0'), {signal: request.signal});
+                    if (!response.ok) throw new Error(response.status === 403 ? '市场结构尚未获得当前工作区授权' : `市场结构读取失败（${response.status}）`);
                     const payload = await response.json();
                     const next = payload.ok === true ? payload.data : payload;
                     if (next.schemaVersion !== 'newma-desk.market-structure.v1') throw new Error('市场结构数据格式不匹配');
@@ -63,6 +63,10 @@
                 } catch (reason) { if (!request.signal.aborted) error = reason.message || '市场结构读取失败'; }
                 finally { if (!request.signal.aborted) { loading = false; render(); publish(); } }
             }};
+        document.addEventListener('instock:session-changed', () => {
+            controller?.abort(); data = null; loading = false; historical = false; days = '5';
+            error = '会话授权已变化，请重新读取当前工作区数据'; render(); publish();
+        });
         return api;
     };
 })();

@@ -365,9 +365,7 @@
             }
             throw error;
         } finally {
-            runButton.disabled = false;
-
-            publish();
+            if (generation === requestGeneration) { runButton.disabled = false; publish(); }
         }
     }
     if (deskBridge?.setUiActionHandler) deskBridge.setUiActionHandler((id, input = {}) => {
@@ -376,9 +374,21 @@
         if (journal.context()?.mode === 'archive') throw new Error('当前正在回看存档，请先返回实时复盘');
         return run(true);
     });
-    document.addEventListener('vibedesk:init', () => { requestGeneration += 1; });
-    document.addEventListener('instock:history-selected', () => { requestGeneration += 1; });
-    document.getElementById('market-limit').addEventListener('change', () => { requestGeneration += 1; publish(); });
+    document.addEventListener('instock:session-changed', () => {
+        requestGeneration += 1; state.data = null; state.selected = null; lastError = null;
+        state.sectorChart?.dispose(); state.sectorChart = null;
+        for (const id of ['market-sector-chart', 'market-body', 'market-detail', 'market-review-points',
+            'market-emotion-ladder', 'market-anomalies', 'market-data-gaps', 'market-source-failures']) document.getElementById(id).replaceChildren();
+        for (const id of ['market-breadth', 'market-ratio', 'market-up', 'market-down', 'market-flat', 'market-sector',
+            'market-active', 'market-active-code', 'market-review-asof', 'market-review-emotion', 'market-review-emotion-note',
+            'market-review-risk', 'market-review-risk-note', 'market-emotion-note', 'emotion-limits', 'emotion-break-rate',
+            'emotion-break-count', 'emotion-seal-rate', 'emotion-promotion-rate', 'emotion-max-boards', 'emotion-consecutive',
+            'emotion-leader', 'emotion-leader-code', 'market-sector-note', 'market-board-scope', 'market-board-provenance']) setText(id, '--');
+        runButton.disabled = false; alertBox.style.display = 'none';
+        setText('market-meta', '会话授权已变化，请刷新市场复盘'); publish();
+    });
+    document.addEventListener('instock:history-selected', () => { requestGeneration += 1; runButton.disabled = false; });
+    document.getElementById('market-limit').addEventListener('change', () => { requestGeneration += 1; runButton.disabled = false; publish(); });
 
     document.querySelectorAll('[data-board]').forEach(button => button.addEventListener('click', () => { state.board = button.dataset.board; document.querySelectorAll('[data-board]').forEach(item => item.classList.toggle('is-active', item === button)); state.selected = null; renderBoard(); publish(); }));
     runButton.addEventListener('click', () => run(true).catch(() => {})); window.addEventListener('resize', () => { state.sectorChart && state.sectorChart.resize(); }); document.addEventListener('instock:themechange', () => { if (!state.data) return; renderSectors(state.data.sector_leaders || [], state.data.sector_basis || {}); }); document.addEventListener('instock:history-selected', event => { journal.live(); structure.historical(); continuity.historical(); render(unwrap(event.detail.payload), event.detail.view_source || 'history'); }); run(false).catch(() => {});

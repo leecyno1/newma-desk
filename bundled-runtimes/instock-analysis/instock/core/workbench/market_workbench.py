@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from datetime import date, datetime
 from statistics import median
 from typing import Any
@@ -71,9 +72,11 @@ class MarketWorkbenchEngine:
         with ThreadPoolExecutor(max_workers=len(self.board_specs)) as pool:
             jobs = {
                 pool.submit(
+                    copy_context().run,
                     self.provider.get_market_turnover_top,
                     limit=20,
                 ) if board == "amount" else pool.submit(
+                    copy_context().run,
                     self.provider.get_stock_scan,
                     sort=sort,
                     order=order,
