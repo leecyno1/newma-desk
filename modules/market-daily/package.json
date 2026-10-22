@@ -4,16 +4,19 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "types": "./index.d.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
+      "types": "./src/index.ts",
       "default": "./src/index.ts"
     }
   },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "dev:standalone": "vite --host 127.0.0.1 --base=/",
+    "build:standalone": "tsc --noEmit && vite build --base=/",
+    "preview": "vite preview --host 127.0.0.1",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
   },

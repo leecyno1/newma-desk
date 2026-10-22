@@ -1121,6 +1121,7 @@ class ModStoreService:
         mod_id: str,
         repository: ModuleRepository,
     ) -> StoreInstallResponse:
+        repository.require_admitted(mod_id)
         snapshot = self._snapshot()
         catalog = snapshot.catalog if snapshot is not None else self._catalog()
         entry, suite_page_id, discovered_suite = await self._entry(
@@ -1226,6 +1227,8 @@ class ModStoreService:
         if not selected:
             raise ModStoreNotFoundError()
 
+        for descriptor in selected:
+            repository.require_admitted(descriptor.id)
         installed = {item.module_id: item for item in repository.list_installed()}
         manifests = [self._manifest(descriptor) for descriptor in selected]
         changed = [

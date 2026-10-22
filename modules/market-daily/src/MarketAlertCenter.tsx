@@ -86,11 +86,11 @@ export function MarketAlertCenter({
         <div className="market-alert-list">
           {currentAlerts.slice(0, 12).map((alert) => (
             <div key={alert.id} className="market-alert-row" data-enabled={alert.enabled}>
-              <button type="button" className="market-alert-toggle" onClick={() => void runMutation(() => onToggle(alert))} aria-label={`${alert.enabled ? "停用" : "启用"} ${alert.label}`}>
+              <button type="button" disabled={!available} className="market-alert-toggle" onClick={() => void runMutation(() => onToggle(alert))} aria-label={`${alert.enabled ? "停用" : "启用"} ${alert.label}`}>
                 <i />
               </button>
               <span><strong>{alert.label}</strong><small>{alert.direction === "above" ? "上穿" : "下穿"} {alert.price}</small></span>
-              <button type="button" className="market-alert-delete" onClick={() => void runMutation(() => onDelete(alert))} aria-label={`删除 ${alert.label}`}><Trash2 size={12} /></button>
+              <button type="button" disabled={!available} className="market-alert-delete" onClick={() => void runMutation(() => onDelete(alert))} aria-label={`删除 ${alert.label}`}><Trash2 size={12} /></button>
             </div>
           ))}
           {!currentAlerts.length ? <p>当前标的尚无预警</p> : null}

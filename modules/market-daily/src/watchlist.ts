@@ -1,4 +1,4 @@
-import type { GatewayFetch } from "@newma-desk/mod-sdk";
+import { createStorageRequest, StorageAccessError, type StorageClientOptions } from "./storageAccess";
 
 import type { SecurityRef, WatchGroup } from "./types";
 
@@ -98,56 +98,19 @@ export class WatchlistRequestError extends Error {
   }
 }
 
-function requestMessage(body: unknown, fallback: string) {
-  if (
-    typeof body === "object" &&
-    body !== null &&
-    "detail" in body &&
-    typeof body.detail === "string"
-  ) {
-    return body.detail;
-  }
-  return fallback;
-}
-
-export function createWatchlistClient(input: {
-  baseUrl: string;
-  userId: string;
-  workspaceId: string;
-  fetch?: GatewayFetch;
-}): WatchlistClient {
-  const fetcher = input.fetch ?? globalThis.fetch.bind(globalThis);
-  const baseUrl = input.baseUrl.replace(/\/$/, "");
-  const headers = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    "X-User-Id": input.userId,
-    "X-Workspace-Id": input.workspaceId,
-  };
+export function createWatchlistClient(input: StorageClientOptions): WatchlistClient {
+  const send = createStorageRequest(input);
   const request = async (
     method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
     path: string,
     body?: unknown,
   ): Promise<WatchlistSnapshot> => {
-    const response = await fetcher(`${baseUrl}${path}`, {
-      method,
-      credentials: "omit",
-      headers,
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    let payload: unknown;
     try {
-      payload = await response.json();
-    } catch {
-      payload = undefined;
+      return await send<WatchlistSnapshot>(method, path, body);
+    } catch (error) {
+      if (error instanceof StorageAccessError) throw new WatchlistRequestError(error.status, error.message);
+      throw error;
     }
-    if (!response.ok) {
-      throw new WatchlistRequestError(
-        response.status,
-        requestMessage(payload, `Watchlist API returned ${response.status}`),
-      );
-    }
-    return payload as WatchlistSnapshot;
   };
   const groupPath = (groupId: string) =>
     `/api/watchlists/groups/${encodeURIComponent(groupId)}`;

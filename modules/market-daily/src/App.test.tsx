@@ -1,8 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ModBridge } from "@newma-desk/mod-sdk";
+import type { ModBridge, ModHostConnection } from "@newma-desk/mod-sdk";
 
 import { buildMarketPageContext, MarketTerminalApp } from "./App";
 import type { MarketDataSource, Quote, SecurityRef } from "./types";
@@ -131,9 +131,94 @@ function alertClient(): MarketAlertClient {
   };
 }
 
+function storageHost(user: string) {
+  return {
+    embedded: true,
+    config: {
+      modId: "market-daily", instanceId: user, user: { id: user }, workspace: { id: user },
+      environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+      gateways: { data: "https://desk.example/api/data" },
+      grants: { permissions: ["storage.read", "storage.write"], actions: [] },
+      session: { id: user, accessToken: `${user}-test-token`, expiresAt: new Date(Date.now() + 600000).toISOString() },
+    },
+    subscribe: () => () => {}, publishContext: vi.fn(), setContextProvider: () => () => {},
+    setUiActionHandler: () => () => {}, setHandoffHandler: () => () => {},
+  } as unknown as Extract<ModHostConnection, { embedded: true }>;
+}
+
+function remoteWatchlist(user: string) {
+  return new Response(JSON.stringify({ userId: user, workspaceId: user, revision: 0,
+    groups: [{ id: user, name: `${user}云端自选`, symbols: [] }] }));
+}
+
 describe("MarketTerminalApp", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  it("does not import or overwrite old local watchlists when embedded", async () => {
+    const key = "vibedesk.market-terminal.watch-groups.v1";
+    const local = JSON.stringify([{ id: "legacy", name: "旧账户私有组合", symbols: [] }]);
+    window.localStorage.setItem(key, local);
+    const fetcher = vi.fn(async () => remoteWatchlist("alice"));
+    render(<MarketTerminalApp bridge={bridge()} dataSource={dataSource()} hostConnection={storageHost("alice")} fetch={fetcher} alertClient={null} embedded />);
+    expect(await screen.findByRole("option", { name: /alice云端自选/ })).toBeInTheDocument();
+    expect(screen.queryByText("旧账户私有组合")).not.toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]).toEqual(["https://desk.example/api/watchlists", expect.objectContaining({ method: "GET", credentials: "omit", headers: expect.objectContaining({ Authorization: "Bearer alice-test-token" }) })]);
+    expect(window.localStorage.getItem(key)).toBe(local);
+  });
+
+  it("ignores a late watchlist response after the host account changes", async () => {
+    let finish!: (response: Response) => void;
+    const old = new Promise<Response>(resolve => { finish = resolve; });
+    const fetcher = vi.fn((_url: unknown, init?: RequestInit) =>
+      new Headers(init?.headers).get("Authorization") === "Bearer alice-test-token" ? old : Promise.resolve(remoteWatchlist("bob")));
+    const stableBridge = bridge();
+    const source = dataSource();
+    const view = render(<MarketTerminalApp bridge={stableBridge} dataSource={source} hostConnection={storageHost("alice")} fetch={fetcher} alertClient={null} embedded />);
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    view.rerender(<MarketTerminalApp bridge={stableBridge} dataSource={source} hostConnection={storageHost("bob")} fetch={fetcher} alertClient={null} embedded />);
+    expect(await screen.findByRole("option", { name: /bob云端自选/ })).toBeInTheDocument();
+    await act(async () => { finish(remoteWatchlist("alice")); });
+    expect(screen.queryByRole("option", { name: /alice云端自选/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /bob云端自选/ })).toBeInTheDocument();
+    expect(window.localStorage.getItem("vibedesk.market-terminal.watch-groups.v1")).toBeNull();
+  });
+
+  it("does not fall back to anonymous reads or local edits without an embedded session", async () => {
+    const host = storageHost("alice");
+    host.config.session = undefined;
+    host.config.grants.permissions = ["market.read"];
+    const fetcher = vi.fn();
+    render(<MarketTerminalApp bridge={bridge()} dataSource={dataSource()} hostConnection={host} fetch={fetcher} alertClient={null} embedded />);
+    expect(await screen.findByText(/未同步 · 请核验授权/)).toBeInTheDocument();
+    expect(fetcher).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "新建自选分组" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "自选分组名称" }), "不能保存");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(screen.queryByRole("option", { name: /不能保存/ })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("vibedesk.market-terminal.watch-groups.v1")).toBeNull();
+  });
+
+  it("does not overwrite a saved group with an older initial load", async () => {
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>(resolve => { finish = resolve; });
+    const fetcher = vi.fn((_url: unknown, init?: RequestInit) => {
+      if (init?.method === "GET") return pending;
+      const group = JSON.parse(String(init?.body));
+      return Promise.resolve(new Response(JSON.stringify({ userId: "alice", workspaceId: "alice", revision: 1,
+        groups: [{ ...group, symbols: [] }] })));
+    });
+    render(<MarketTerminalApp bridge={bridge()} dataSource={dataSource()} hostConnection={storageHost("alice")} fetch={fetcher} alertClient={null} embedded />);
+    await userEvent.click(screen.getByRole("button", { name: "新建自选分组" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "自选分组名称" }), "最新保存");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByRole("option", { name: /最新保存/ })).toBeInTheDocument();
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    await act(async () => { finish(remoteWatchlist("alice")); });
+    expect(screen.getByRole("option", { name: /最新保存/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /alice云端自选/ })).not.toBeInTheDocument();
   });
 
   it("renders a KLineChart terminal with quote, order book and market overview", async () => {

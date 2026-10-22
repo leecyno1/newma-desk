@@ -26,6 +26,7 @@ import {
   type MarketAlertClient,
 } from "../alerts";
 import { resolveParentOrigin } from "../lib/runtimeOrigin";
+import { useStorageSession } from "../storageAccess";
 import { MarketAlertCenter } from "../MarketAlertCenter";
 import type { MarketDataSource, Quote, SecurityRef } from "../types";
 import {
@@ -96,6 +97,7 @@ export function buildWorkspacePageContext(input: {
   security: SecurityRef;
   quote?: Quote;
   workspaceState: Record<string, unknown>;
+  alertsAvailable?: boolean;
 }): ModPageContext {
   if (input.config.kind === "sentiment") {
     const state = input.workspaceState;
@@ -138,7 +140,7 @@ export function buildWorkspacePageContext(input: {
       ...(input.config.kind === "multi-timeframe" || input.config.kind === "event-timeline" || input.config.kind === "trading-replay"
         ? [{ id: "chart.set-indicator", label: "设置图表指标", available: true, inputSchema: { type: "object", required: ["position", "indicator"], properties: { position: { enum: ["primary", "secondary"] }, indicator: { enum: ["MA", "EMA", "BOLL", "VOL", "MACD", "RSI", "KDJ"] } }, additionalProperties: false } }]
         : []),
-      { id: "market.set-alert", label: "设置价格预警", available: true, inputSchema: { type: "object", required: ["direction", "price"], properties: { direction: { enum: ["above", "below"] }, price: { type: "number", exclusiveMinimum: 0 }, label: { type: "string", maxLength: 80 } }, additionalProperties: false } },
+      { id: "market.set-alert", label: "设置价格预警", available: input.alertsAvailable ?? true, inputSchema: { type: "object", required: ["direction", "price"], properties: { direction: { enum: ["above", "below"] }, price: { type: "number", exclusiveMinimum: 0 }, label: { type: "string", maxLength: 80 } }, additionalProperties: false } },
       { id: "workspace.save-layout", label: "保存当前布局", available: true, inputSchema: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, additionalProperties: false } },
     ],
     ...(input.config.kind === "event-timeline" || input.config.kind === "technical"
@@ -169,17 +171,17 @@ export function MarketWorkspaceApp({
   const initialSecurity = useStoredSecurity(config.modId);
   const fetcher = useMemo(() => providedFetch ?? globalThis.fetch.bind(globalThis), [providedFetch]);
   const [gatewayOrigin, setGatewayOrigin] = useState(gatewayBaseUrl || configuredOrigin("gateway"));
-  const [hostConnection, setHostConnection] = useState<EmbeddedHost | undefined>(providedHostConnection);
-  const [hostIdentity, setHostIdentity] = useState<{ userId: string; workspaceId: string } | undefined>(() => (
-    providedHostConnection
+  const [connectedHost, setHostConnection] = useState<EmbeddedHost | undefined>(providedHostConnection);
+  const hostConnection = providedHostConnection ?? connectedHost;
+  const storageSession = useStorageSession(hostConnection);
+  const hostIdentity = useMemo(() => hostConnection
       ? {
-          userId: providedHostConnection.config.user.id,
-          workspaceId: providedHostConnection.config.workspace.id,
+          userId: hostConnection.config.user.id,
+          workspaceId: hostConnection.config.workspace.id,
         }
-      : window.self === window.top
+      : !embedded && window.self === window.top
         ? { userId: "local-user", workspaceId: "local-workspace" }
-        : undefined
-  ));
+        : undefined, [hostConnection, storageSession, embedded]);
   const dataSource = useMemo(
     () => providedDataSource ?? createMarketDataSource({
       baseUrl: gatewayOrigin,
@@ -210,6 +212,7 @@ export function MarketWorkspaceApp({
     return createMarketAlertClient({
       baseUrl: gatewayOrigin,
       fetch: fetcher,
+      session: storageSession,
       ...alertIdentity,
     });
   }, [
@@ -219,6 +222,7 @@ export function MarketWorkspaceApp({
     fetcher,
     gatewayOrigin,
     providedAlertClient,
+    storageSession,
   ]);
   const {
     alerts,
@@ -227,6 +231,7 @@ export function MarketWorkspaceApp({
     updateAlert,
     deleteAlert,
   } = useMarketAlerts(sharedAlertClient);
+  const alertsAvailable = alertStatus === "ready" && (!hostConnection || Boolean(storageSession?.config.grants.permissions.includes("storage.write")));
   const [lastSavedLayout, setLastSavedLayout] = useState<{ name: string; savedAt: string }>();
   const [error, setError] = useState("");
   const quoteResourceKeyRef = useRef("");
@@ -249,8 +254,8 @@ export function MarketWorkspaceApp({
     alerts: alerts.slice(0, 8),
     lastSavedLayout: lastSavedLayout ?? null,
   };
-  const contextRef = useRef<ModPageContext>(buildWorkspacePageContext({ config, security, quote, workspaceState: contextualWorkspaceState }));
-  contextRef.current = buildWorkspacePageContext({ config, security, quote, workspaceState: contextualWorkspaceState });
+  const contextRef = useRef<ModPageContext>(buildWorkspacePageContext({ config, security, quote, workspaceState: contextualWorkspaceState, alertsAvailable }));
+  contextRef.current = buildWorkspacePageContext({ config, security, quote, workspaceState: contextualWorkspaceState, alertsAvailable });
 
   useEffect(() => {
     document.title = `${config.title} · Newma-Desk`;
@@ -266,10 +271,6 @@ export function MarketWorkspaceApp({
     let removeContextProvider: () => void = () => undefined;
     const applyHostConfig = (hostConfig: EmbeddedHost["config"]) => {
       setGatewayOrigin(new URL(hostConfig.gateways.data).origin);
-      setHostIdentity({
-        userId: hostConfig.user.id,
-        workspaceId: hostConfig.workspace.id,
-      });
       document.documentElement.dataset.theme = hostConfig.environment.theme;
       document.documentElement.lang = hostConfig.environment.locale;
     };
@@ -295,7 +296,7 @@ export function MarketWorkspaceApp({
       removeContextProvider();
       close();
     };
-  }, [embedded, config.modId, providedBridge]);
+  }, [embedded, config.modId, providedBridge, providedHostConnection]);
 
   useEffect(() => {
     hostConnection?.publishContext(contextRef.current);
@@ -500,10 +501,11 @@ export function MarketWorkspaceApp({
           <CircleCheck size={13} /><span>Agent 上下文已同步</span>
           <Database size={13} /><span>market-data</span>
           <MarketAlertCenter
+            key={hostConnection ? `${hostConnection.config.user.id}:${hostConnection.config.workspace.id}:${hostConnection.config.instanceId}` : "local"}
             alerts={alerts}
             security={security}
             quote={quote}
-            available={alertStatus !== "unavailable"}
+            available={alertsAvailable}
             onCreate={(input) => createAlert({ security, ...input })}
             onToggle={(alert) => updateAlert(alert.id, { enabled: !alert.enabled })}
             onDelete={(alert) => deleteAlert(alert.id)}

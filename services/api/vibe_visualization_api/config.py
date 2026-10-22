@@ -355,6 +355,20 @@ class Settings(BaseSettings):
     data_service_public_mode: bool = False
     mod_session_secret: SecretStr = SecretStr("")
     mod_session_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    # Empty keeps existing local behavior. Candidate deployments pin exact IDs.
+    mod_admission_allowlist: str = ""
+
+    @field_validator("mod_admission_allowlist")
+    @classmethod
+    def validate_mod_admission_allowlist(cls, value: str) -> str:
+        import re
+        if value == "":
+            return value
+        ids = [item.strip() for item in value.split(",")]
+        if any(re.fullmatch(r"[a-z][a-z0-9-]{2,63}", item) is None for item in ids):
+            raise ValueError("mod_admission_allowlist requires comma-separated exact Mod IDs")
+        return ",".join(dict.fromkeys(ids))
+
     trade_confirmation_secret: SecretStr = SecretStr("")
     research_base_url: str = "http://127.0.0.1:8911/api/research"
     research_api_key: SecretStr = SecretStr("")

@@ -157,6 +157,7 @@ from vibe_visualization_api.portfolio_center.store import (
 )
 from vibe_visualization_api.control_plane.repository import (
     InvalidModuleStateError,
+    ModuleAdmissionDeniedError,
     ModuleRepository,
     ModuleNotFoundError,
 )
@@ -342,7 +343,10 @@ def create_app(
         with application.state.module_repository_lock:
             repository = application.state.module_repository
             if repository is None:
-                repository = ModuleRepository(app_settings.database_path)
+                repository = ModuleRepository(app_settings.database_path, allowed_module_ids=(
+                    frozenset(app_settings.mod_admission_allowlist.split(","))
+                    if app_settings.mod_admission_allowlist else None
+                ))
                 application.state.module_repository = repository
         return repository
 
@@ -615,6 +619,11 @@ def create_app(
         prefix="/api/modules",
         include_in_schema=False,
     )
+
+    @application.exception_handler(ModuleAdmissionDeniedError)
+    async def module_not_admitted(request: Request, error: ModuleAdmissionDeniedError) -> JSONResponse:
+        return JSONResponse(status_code=403, content={"detail": "当前部署尚未准入此模组"},
+                            headers={"Cache-Control": "no-store"})
 
     @application.exception_handler(ModuleNotFoundError)
     async def module_not_found(

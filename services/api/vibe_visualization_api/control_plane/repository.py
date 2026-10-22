@@ -18,6 +18,10 @@ class ModuleRepositoryError(Exception):
     """Base error for module registry operations."""
 
 
+class ModuleAdmissionDeniedError(ModuleRepositoryError):
+    """The deployment has not admitted this Mod, regardless of account grants."""
+
+
 class ModuleNotFoundError(ModuleRepositoryError):
     """Raised when a requested module revision does not exist."""
 
@@ -66,10 +70,18 @@ def _stored_module(row: sqlite3.Row) -> StoredModule:
 
 
 class ModuleRepository:
-    def __init__(self, database_path: Path):
+    def __init__(self, database_path: Path, *, allowed_module_ids: frozenset[str] | None = None):
         self._database_path = database_path
+        self._allowed_module_ids = allowed_module_ids
         connection = connect(self._database_path, initialize=True)
         connection.close()
+
+    def is_admitted(self, module_id: str) -> bool:
+        return self._allowed_module_ids is None or module_id in self._allowed_module_ids
+
+    def require_admitted(self, module_id: str) -> None:
+        if not self.is_admitted(module_id):
+            raise ModuleAdmissionDeniedError("Mod is not admitted in this deployment")
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
@@ -115,6 +127,7 @@ class ModuleRepository:
         return _stored_module(stored_row)
 
     def record_export(self, module_id: str, revision: int) -> StoredModule:
+        self.require_admitted(module_id)
         with self._transaction() as connection:
             stored_row = self._get_revision_row(
                 connection,
@@ -144,6 +157,7 @@ class ModuleRepository:
             raise ValueError("manifest['id'] must match ^[a-z][a-z0-9-]{2,63}$")
 
         manifest_json = _json_dumps(manifest)
+        self.require_admitted(module_id)
         created_at = _utc_now()
         row = connection.execute(
             """
@@ -171,6 +185,7 @@ class ModuleRepository:
         return self._get_revision_row(connection, module_id, revision)
 
     def publish(self, module_id: str, revision: int) -> StoredModule:
+        self.require_admitted(module_id)
         with self._transaction() as connection:
             target = self._get_revision_row(connection, module_id, revision)
             from vibe_visualization_api.mod_policy import check_mod_publication
@@ -216,7 +231,7 @@ class ModuleRepository:
                 ORDER BY module_id, revision
                 """
             ).fetchall()
-            return [_stored_module(row) for row in rows]
+            return [_stored_module(row) for row in rows if self.is_admitted(row["module_id"])]
         finally:
             connection.close()
 
@@ -249,7 +264,7 @@ class ModuleRepository:
                 ORDER BY module_id
                 """
             ).fetchall()
-            return [_stored_module(row) for row in rows]
+            return [_stored_module(row) for row in rows if self.is_admitted(row["module_id"])]
         finally:
             connection.close()
 
@@ -260,6 +275,9 @@ class ModuleRepository:
         """Install and publish a group of manifests in one transaction."""
 
         module_ids = [manifest.get("id") for manifest in manifests]
+        for module_id in module_ids:
+            if isinstance(module_id, str):
+                self.require_admitted(module_id)
         if len(module_ids) != len(set(module_ids)):
             raise ValueError("batch manifests must contain unique module IDs")
 
@@ -336,6 +354,7 @@ class ModuleRepository:
         return [_stored_module(row) for row in stored_rows]
 
     def get_revision(self, module_id: str, revision: int) -> StoredModule:
+        self.require_admitted(module_id)
         connection = connect(self._database_path)
         try:
             row = self._get_revision_row(connection, module_id, revision)
@@ -344,6 +363,7 @@ class ModuleRepository:
             connection.close()
 
     def get_published(self, module_id: str) -> StoredModule:
+        self.require_admitted(module_id)
         connection = connect(self._database_path)
         try:
             row = self._get_published_row(connection, module_id)
@@ -378,6 +398,7 @@ class ModuleRepository:
             )
 
     def disable(self, module_id: str) -> StoredModule:
+        self.require_admitted(module_id)
         with self._transaction() as connection:
             current = self._get_published_row(connection, module_id)
             if current is None:
@@ -414,6 +435,7 @@ class ModuleRepository:
         return _stored_module(stored_row)
 
     def rollback(self, module_id: str, revision: int) -> StoredModule:
+        self.require_admitted(module_id)
         with self._transaction() as connection:
             target = self._get_revision_row(connection, module_id, revision)
             from vibe_visualization_api.mod_policy import check_mod_publication

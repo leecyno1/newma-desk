@@ -40,6 +40,7 @@ import {
   type PriceAlert,
 } from "./alerts";
 import { resolveParentOrigin } from "./lib/runtimeOrigin";
+import { useStorageSession } from "./storageAccess";
 import { MarketAlertCenter } from "./MarketAlertCenter";
 import {
   KLineChartPanel,
@@ -186,6 +187,7 @@ export function buildMarketPageContext(input: {
   asOf?: string;
   visibleRange?: { from: number; to: number };
   alerts?: PriceAlert[];
+  alertsAvailable?: boolean;
 }): ModPageContext {
   return {
     view: { id: MOD_ID, title: "行情" },
@@ -225,7 +227,7 @@ export function buildMarketPageContext(input: {
       { id: "market.refresh", label: "刷新行情数据", available: true, inputSchema: { type: "object", additionalProperties: false } },
       { id: "market.set-timeframe", label: "切换 K 线周期", available: true, inputSchema: { type: "object", required: ["timeframe"], properties: { timeframe: { enum: ["1m", "5m", "15m", "30m", "60m", "1d", "1w", "1M"] } }, additionalProperties: false } },
       { id: "chart.set-indicator", label: "设置图表指标", available: true, inputSchema: { type: "object", required: ["position", "indicator"], properties: { position: { enum: ["primary", "secondary"] }, indicator: { enum: ["MA", "EMA", "BOLL", "VOL", "MACD", "RSI", "KDJ"] } }, additionalProperties: false } },
-      { id: "market.set-alert", label: "设置价格预警", available: true, inputSchema: { type: "object", required: ["direction", "price"], properties: { direction: { enum: ["above", "below"] }, price: { type: "number", exclusiveMinimum: 0 }, label: { type: "string", maxLength: 80 } }, additionalProperties: false } },
+      { id: "market.set-alert", label: "设置价格预警", available: input.alertsAvailable ?? true, inputSchema: { type: "object", required: ["direction", "price"], properties: { direction: { enum: ["above", "below"] }, price: { type: "number", exclusiveMinimum: 0 }, label: { type: "string", maxLength: 80 } }, additionalProperties: false } },
       { id: "workspace.save-layout", label: "保存当前布局", available: true, inputSchema: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, additionalProperties: false } },
     ],
     wiki: wikiContextForSecurity({
@@ -263,7 +265,7 @@ export function MarketTerminalApp({
   hostConnection: providedHostConnection,
   embedded: embeddedProp,
 }: MarketTerminalAppProps) {
-  const embedded = embeddedProp ?? window.self !== window.top;
+  const embedded = Boolean(providedHostConnection) || (embeddedProp ?? window.self !== window.top);
   const theme = useDeskTheme();
   const fetcher = useMemo(
     () => providedFetch ?? globalThis.fetch.bind(globalThis),
@@ -272,7 +274,9 @@ export function MarketTerminalApp({
   const [gatewayOrigin, setGatewayOrigin] = useState(
     providedHostConnection ? new URL(providedHostConnection.config.gateways.data).origin : (gatewayBaseUrl || configuredOrigin("gateway")),
   );
-  const [hostConnection, setHostConnection] = useState<EmbeddedHost | undefined>(providedHostConnection);
+  const [connectedHost, setHostConnection] = useState<EmbeddedHost | undefined>(providedHostConnection);
+  const hostConnection = providedHostConnection ?? connectedHost;
+  const storageSession = useStorageSession(hostConnection);
   const dataSource = useMemo(
     () => providedDataSource ?? createMarketDataSource({
       baseUrl: gatewayOrigin,
@@ -287,12 +291,14 @@ export function MarketTerminalApp({
   const ownsBridge = !providedBridge;
   const chartRef = useRef<KLineChartPanelHandle>(null);
   const bridgeCloseTimer = useRef<number | undefined>(undefined);
-  const [hostIdentity, setHostIdentity] = useState<{
-    userId: string;
-    workspaceId: string;
-  }>();
-  const [localWatchlist] = useState(readLocalWatchGroups);
-  const [groups, setGroups] = useState<WatchGroup[]>(localWatchlist.groups);
+  const [localWatchlist] = useState(() => embedded ? { groups: [], hasStoredValue: false } : readLocalWatchGroups());
+  const [storedGroups, setStoredGroups] = useState<WatchGroup[]>(localWatchlist.groups);
+  const [groupsOwner, setGroupsOwner] = useState(storageSession);
+  const groups = groupsOwner === storageSession ? storedGroups : [];
+  const setGroups = useCallback((next: WatchGroup[]) => {
+    setGroupsOwner(storageSession);
+    setStoredGroups(next);
+  }, [storageSession]);
   const [activeGroupId, setActiveGroupId] = useState(
     () => localWatchlist.groups[0]?.id || "sample",
   );
@@ -353,13 +359,11 @@ export function MarketTerminalApp({
     railTab,
   };
 
-  const watchlistIdentity = hostIdentity ?? (
-    hostConnection
+  const watchlistIdentity = hostConnection
       ? { userId: hostConnection.config.user.id, workspaceId: hostConnection.config.workspace.id }
-      : window.self === window.top
+      : !embedded
         ? { userId: "local-user", workspaceId: "local-workspace" }
-        : undefined
-  );
+        : undefined;
   const sharedWatchlistClient = useMemo(() => {
     if (providedWatchlistClient === null) return undefined;
     if (providedWatchlistClient) return providedWatchlistClient;
@@ -367,12 +371,14 @@ export function MarketTerminalApp({
     return createWatchlistClient({
       baseUrl: gatewayOrigin,
       fetch: fetcher,
+      session: storageSession,
       ...watchlistIdentity,
     });
   }, [
     fetcher,
     gatewayOrigin,
     providedWatchlistClient,
+    storageSession,
     watchlistIdentity?.userId,
     watchlistIdentity?.workspaceId,
   ]);
@@ -383,12 +389,14 @@ export function MarketTerminalApp({
     return createMarketAlertClient({
       baseUrl: gatewayOrigin,
       fetch: fetcher,
+      session: storageSession,
       ...watchlistIdentity,
     });
   }, [
     fetcher,
     gatewayOrigin,
     providedAlertClient,
+    storageSession,
     watchlistIdentity?.userId,
     watchlistIdentity?.workspaceId,
   ]);
@@ -399,6 +407,7 @@ export function MarketTerminalApp({
     updateAlert,
     deleteAlert,
   } = useMarketAlerts(sharedAlertClient);
+  const alertsAvailable = alertStatus === "ready" && (!hostConnection || Boolean(storageSession?.config.grants.permissions.includes("storage.write")));
 
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? groups[0];
   const contextRef = useRef<ModPageContext>(
@@ -415,6 +424,7 @@ export function MarketTerminalApp({
       asOf: chartMeta.asOf || quote?.asOf,
       visibleRange,
       alerts,
+      alertsAvailable,
     }),
   );
   contextRef.current = buildMarketPageContext({
@@ -430,9 +440,14 @@ export function MarketTerminalApp({
     asOf: chartMeta.asOf || quote?.asOf,
     visibleRange,
     alerts,
+    alertsAvailable,
   });
 
-  useEffect(() => saveWatchGroups(groups), [groups]);
+  const localStorageMode = !embedded && !hostConnection;
+  useEffect(() => { if (localStorageMode) saveWatchGroups(groups); }, [groups, localStorageMode]);
+  const currentWatchlistClient = useRef({ client: sharedWatchlistClient });
+  if (currentWatchlistClient.current.client !== sharedWatchlistClient) currentWatchlistClient.current = { client: sharedWatchlistClient };
+  const watchlistGeneration = currentWatchlistClient.current;
 
   const applyWatchlistSnapshot = useCallback((snapshot: WatchlistSnapshot) => {
     setGroups(snapshot.groups);
@@ -441,16 +456,25 @@ export function MarketTerminalApp({
         ? current
         : snapshot.groups[0]?.id || "sample",
     );
-    saveWatchGroups(snapshot.groups);
-  }, []);
+  }, [setGroups]);
 
   useEffect(() => {
+    watchlistMutationTokenRef.current++;
+    watchlistMutationRef.current = Promise.resolve();
+    if (!localStorageMode) {
+      setGroups([]);
+      setGroupEditor(undefined);
+      setDeleteConfirmId("");
+      setWatchQuotes({});
+    }
     if (!sharedWatchlistClient) return;
     let active = true;
+    const loadVersion = watchlistMutationTokenRef.current;
     setWatchlistSync("loading");
     void sharedWatchlistClient.load().then(async (remote) => {
       let snapshot = remote;
-      if (remote.revision === 0 && localWatchlist.hasStoredValue) {
+      if (!active || currentWatchlistClient.current !== watchlistGeneration || loadVersion !== watchlistMutationTokenRef.current) return;
+      if (localStorageMode && remote.revision === 0 && localWatchlist.hasStoredValue) {
         try {
           snapshot = await sharedWatchlistClient.replace(
             remote.revision,
@@ -460,16 +484,17 @@ export function MarketTerminalApp({
           snapshot = await sharedWatchlistClient.load();
         }
       }
-      if (!active) return;
+      if (!active || currentWatchlistClient.current !== watchlistGeneration || loadVersion !== watchlistMutationTokenRef.current) return;
       applyWatchlistSnapshot(snapshot);
       setWatchlistSync("synced");
     }).catch(() => {
-      if (active) setWatchlistSync("error");
+      if (active && loadVersion === watchlistMutationTokenRef.current) setWatchlistSync("error");
     });
     return () => {
       active = false;
+      watchlistMutationTokenRef.current++;
     };
-  }, [applyWatchlistSnapshot, localWatchlist, sharedWatchlistClient]);
+  }, [applyWatchlistSnapshot, localStorageMode, localWatchlist, setGroups, sharedWatchlistClient, watchlistGeneration]);
 
   const queueWatchlistMutation = useCallback((
     operation: (client: WatchlistClient) => Promise<WatchlistSnapshot>,
@@ -479,32 +504,34 @@ export function MarketTerminalApp({
     setWatchlistSync("loading");
     watchlistMutationRef.current = watchlistMutationRef.current
       .catch(() => undefined)
-      .then(() => operation(sharedWatchlistClient))
+      .then(() => {
+        if (currentWatchlistClient.current !== watchlistGeneration) throw new Error("账户已切换");
+        return operation(sharedWatchlistClient);
+      })
       .then((snapshot) => {
-        if (token === watchlistMutationTokenRef.current) {
+        if (currentWatchlistClient.current === watchlistGeneration && token === watchlistMutationTokenRef.current) {
           applyWatchlistSnapshot(snapshot);
           setWatchlistSync("synced");
         }
       })
       .catch(async () => {
-        if (token !== watchlistMutationTokenRef.current) return;
+        if (currentWatchlistClient.current !== watchlistGeneration || token !== watchlistMutationTokenRef.current) return;
         try {
-          applyWatchlistSnapshot(await sharedWatchlistClient.load());
+          const snapshot = await sharedWatchlistClient.load();
+          if (currentWatchlistClient.current !== watchlistGeneration || token !== watchlistMutationTokenRef.current) return;
+          applyWatchlistSnapshot(snapshot);
         } catch {
-          // Keep the optimistic local copy available while the Desk API is offline.
+          if (currentWatchlistClient.current !== watchlistGeneration || token !== watchlistMutationTokenRef.current) return;
+          if (!localStorageMode) setGroups([]);
         }
         setWatchlistSync("error");
       });
-  }, [applyWatchlistSnapshot, sharedWatchlistClient]);
+  }, [applyWatchlistSnapshot, localStorageMode, setGroups, sharedWatchlistClient, watchlistGeneration]);
 
   useEffect(() => {
     if (providedHostConnection) {
       setHostConnection(providedHostConnection);
       setGatewayOrigin(new URL(providedHostConnection.config.gateways.data).origin);
-      setHostIdentity({
-        userId: providedHostConnection.config.user.id,
-        workspaceId: providedHostConnection.config.workspace.id,
-      });
       document.documentElement.dataset.theme = providedHostConnection.config.environment.theme;
       document.documentElement.lang = providedHostConnection.config.environment.locale;
       return;
@@ -516,10 +543,6 @@ export function MarketTerminalApp({
     let removeContextProvider: () => void = () => undefined;
     const applyHostConfig = (config: EmbeddedHost["config"]) => {
       setGatewayOrigin(new URL(config.gateways.data).origin);
-      setHostIdentity({
-        userId: config.user.id,
-        workspaceId: config.workspace.id,
-      });
       document.documentElement.dataset.theme = config.environment.theme;
       document.documentElement.lang = config.environment.locale;
     };
@@ -773,7 +796,13 @@ export function MarketTerminalApp({
 
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
 
+  const allowWatchlistEdit = useCallback(() => {
+    if (localStorageMode || (sharedWatchlistClient && storageSession?.config.grants.permissions.includes("storage.write"))) return true;
+    setError("自选股写入尚未授权，请重新打开页面核验连接");
+    return false;
+  }, [localStorageMode, sharedWatchlistClient, storageSession]);
   const addToActiveGroup = useCallback((item: SecurityRef) => {
+    if (!allowWatchlistEdit()) return;
     const groupId = activeGroup?.id;
     if (!groupId) return;
     let changed = false;
@@ -787,9 +816,10 @@ export function MarketTerminalApp({
     if (!changed) return;
     setGroups(next);
     queueWatchlistMutation((client) => client.addSecurity(groupId, item));
-  }, [activeGroup?.id, groups, queueWatchlistMutation]);
+  }, [activeGroup?.id, allowWatchlistEdit, groups, queueWatchlistMutation, setGroups]);
 
   const removeFromActiveGroup = useCallback((item: SecurityRef) => {
+    if (!allowWatchlistEdit()) return;
     const groupId = activeGroup?.id;
     if (!groupId) return;
     const next = groups.map((group) => group.id === groupId
@@ -797,9 +827,10 @@ export function MarketTerminalApp({
       : group);
     setGroups(next);
     queueWatchlistMutation((client) => client.removeSecurity(groupId, item));
-  }, [activeGroup?.id, groups, queueWatchlistMutation]);
+  }, [activeGroup?.id, allowWatchlistEdit, groups, queueWatchlistMutation, setGroups]);
 
   const saveGroupEditor = () => {
+    if (!allowWatchlistEdit()) return;
     const name = groupEditor?.value.trim();
     if (!groupEditor || !name) return;
     if (groupEditor.mode === "rename" && activeGroup) {
@@ -822,6 +853,7 @@ export function MarketTerminalApp({
   };
 
   const deleteGroup = () => {
+    if (!allowWatchlistEdit()) return;
     if (!activeGroup || groups.length <= 1) return;
     if (deleteConfirmId !== activeGroup.id) {
       setDeleteConfirmId(activeGroup.id);
@@ -845,8 +877,8 @@ export function MarketTerminalApp({
     : watchlistSync === "loading"
       ? "同步中"
       : watchlistSync === "error"
-        ? "本地可用"
-        : "本地";
+        ? (localStorageMode ? "本地可用 · 未同步" : "未同步 · 请核验授权")
+        : (localStorageMode ? "本地" : "等待存储授权");
   const currentMovement = movement(quote?.changePct);
   const orderBook = quote?.orderBook ?? { bids: [], asks: [] };
   const displayLevels = [...orderBook.asks].reverse().map((item, index) => ({
@@ -900,7 +932,7 @@ export function MarketTerminalApp({
               </div>
               {searchResults.length ? searchResults.map((item) => (
                 <div className="search-result" key={securityKey(item)}>
-                  <button type="button" className="search-result-main" onClick={() => selectSecurity(item)}>
+                  <button type="button" className="search-result-main" aria-label={`${item.market} ${item.name} ${item.symbol}`} onClick={() => selectSecurity(item)}>
                     <span className="market-badge">{item.market}</span>
                     <span><strong>{item.name}</strong><small>{item.symbol} · {item.exchange}</small></span>
                   </button>
@@ -913,10 +945,11 @@ export function MarketTerminalApp({
 
         <div className="topbar-actions">
           <MarketAlertCenter
+            key={hostConnection ? `${hostConnection.config.user.id}:${hostConnection.config.workspace.id}:${hostConnection.config.instanceId}` : "local"}
             alerts={alerts}
             security={security}
             quote={quote}
-            available={alertStatus !== "unavailable"}
+            available={alertsAvailable}
             onCreate={(input) => createAlert({ security, ...input })}
             onToggle={(alert) => updateAlert(alert.id, { enabled: !alert.enabled })}
             onDelete={(alert) => deleteAlert(alert.id)}

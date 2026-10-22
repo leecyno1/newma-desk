@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-
-import type { GatewayFetch } from "@newma-desk/mod-sdk";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createStorageRequest, StorageAccessError, type StorageClientOptions } from "./storageAccess";
 
 import type { SecurityRef } from "./types";
 
@@ -46,52 +45,19 @@ export class MarketAlertRequestError extends Error {
   }
 }
 
-function requestMessage(body: unknown, fallback: string) {
-  if (
-    typeof body === "object" && body !== null &&
-    "detail" in body && typeof body.detail === "string"
-  ) return body.detail;
-  return fallback;
-}
-
-export function createMarketAlertClient(input: {
-  baseUrl: string;
-  userId: string;
-  workspaceId: string;
-  fetch?: GatewayFetch;
-}): MarketAlertClient {
-  const fetcher = input.fetch ?? globalThis.fetch.bind(globalThis);
-  const baseUrl = input.baseUrl.replace(/\/$/, "");
-  const headers = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    "X-User-Id": input.userId,
-    "X-Workspace-Id": input.workspaceId,
-  };
+export function createMarketAlertClient(input: StorageClientOptions): MarketAlertClient {
+  const send = createStorageRequest(input);
   const request = async <T>(
     method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     body?: unknown,
   ): Promise<T> => {
-    const response = await fetcher(`${baseUrl}${path}`, {
-      method,
-      credentials: "omit",
-      headers,
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    let payload: unknown;
     try {
-      payload = await response.json();
-    } catch {
-      payload = undefined;
+      return await send<T>(method, path, body);
+    } catch (error) {
+      if (error instanceof StorageAccessError) throw new MarketAlertRequestError(error.status, error.message);
+      throw error;
     }
-    if (!response.ok) {
-      throw new MarketAlertRequestError(
-        response.status,
-        requestMessage(payload, `Market alert API returned ${response.status}`),
-      );
-    }
-    return payload as T;
   };
   const path = (alertId: string) =>
     `/api/market-alerts/${encodeURIComponent(alertId)}`;
@@ -110,55 +76,77 @@ export function createMarketAlertClient(input: {
 }
 
 export function useMarketAlerts(client?: MarketAlertClient) {
-  const [alerts, setAlerts] = useState<PriceAlert[]>([]);
-  const [status, setStatus] = useState<"unavailable" | "loading" | "ready" | "error">(
-    client ? "loading" : "unavailable",
-  );
+  type Status = "unavailable" | "loading" | "ready" | "error";
+  const [state, setState] = useState<{ client?: MarketAlertClient; alerts: PriceAlert[]; status: Status }>({
+    client, alerts: [], status: client ? "loading" : "unavailable",
+  });
+  const current = useRef({ client });
+  if (current.current.client !== client) current.current = { client };
+  const generation = current.current;
+  const mounted = useRef(true);
+  const loadVersion = useRef(0);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; loadVersion.current++; };
+  }, []);
+  const isCurrent = useCallback(() => mounted.current && current.current === generation, [generation]);
+  const assertCurrent = useCallback(() => {
+    if (!isCurrent()) throw new Error("账户或页面已切换，旧预警结果未应用");
+  }, [isCurrent]);
 
   const reload = useCallback(async () => {
+    const version = ++loadVersion.current;
     if (!client) {
-      setAlerts([]);
-      setStatus("unavailable");
+      setState({ client, alerts: [], status: "unavailable" });
       return [];
     }
-    setStatus("loading");
+    setState((old) => ({ client, alerts: old.client === client ? old.alerts : [], status: "loading" }));
     try {
       const items = await client.load();
-      setAlerts(items);
-      setStatus("ready");
+      assertCurrent();
+      if (version === loadVersion.current) setState({ client, alerts: items, status: "ready" });
       return items;
     } catch (reason) {
-      setStatus("error");
+      if (isCurrent() && version === loadVersion.current) {
+        setState({ client, alerts: [], status: "error" });
+      }
       throw reason;
     }
-  }, [client]);
+  }, [assertCurrent, client, isCurrent]);
 
   useEffect(() => {
     void reload().catch(() => undefined);
   }, [reload]);
 
   const createAlert = useCallback(async (input: PriceAlertCreate) => {
+    assertCurrent();
     if (!client) throw new Error("共享价格预警服务未连接");
+    loadVersion.current++;
     const alert = await client.create(input);
-    setAlerts((current) => [alert, ...current.filter((item) => item.id !== alert.id)]);
-    setStatus("ready");
+    assertCurrent();
+    setState((old) => ({ client, alerts: [alert, ...(old.client === client ? old.alerts : []).filter((item) => item.id !== alert.id)], status: "ready" }));
     return alert;
-  }, [client]);
+  }, [assertCurrent, client]);
 
   const updateAlert = useCallback(async (alertId: string, update: PriceAlertUpdate) => {
+    assertCurrent();
     if (!client) throw new Error("共享价格预警服务未连接");
+    loadVersion.current++;
     const alert = await client.update(alertId, update);
-    setAlerts((current) => current.map((item) => item.id === alert.id ? alert : item));
-    setStatus("ready");
+    assertCurrent();
+    setState((old) => ({ client, alerts: (old.client === client ? old.alerts : []).map((item) => item.id === alert.id ? alert : item), status: "ready" }));
     return alert;
-  }, [client]);
+  }, [assertCurrent, client]);
 
   const deleteAlert = useCallback(async (alertId: string) => {
+    assertCurrent();
     if (!client) throw new Error("共享价格预警服务未连接");
+    loadVersion.current++;
     await client.delete(alertId);
-    setAlerts((current) => current.filter((item) => item.id !== alertId));
-    setStatus("ready");
-  }, [client]);
+    assertCurrent();
+    setState((old) => ({ client, alerts: (old.client === client ? old.alerts : []).filter((item) => item.id !== alertId), status: "ready" }));
+  }, [assertCurrent, client]);
 
-  return { alerts, status, reload, createAlert, updateAlert, deleteAlert };
+  const visible = state.client === client ? state : { alerts: [], status: client ? "loading" as const : "unavailable" as const };
+  return { ...visible, reload, createAlert, updateAlert, deleteAlert };
 }

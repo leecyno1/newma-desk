@@ -3,7 +3,7 @@
   "id": "market-daily",
   "name": "行情",
   "description": "KLineChart 图表内核、统一 A/H/US 行情协议、自选分组、盘口与市场概览。模块上下文直接接入 Newma-Desk 通用 Agent 侧栏。",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "Newma-Desk",
   "upstream": "https://github.com/leecyno1/newma-desk",
  "tags": ["行情", "K线", "盘口", "A股", "港股", "美股"],
@@ -22,8 +22,8 @@
       "sdkVersion": "^0.1.0",
       "viewSpecVersion": "1.0"
     },
-    "permissions": ["market.read"],
-    "dataServices": [],
+    "permissions": ["market.read", "storage.read", "storage.write"],
+    "dataServices": ["market-data"],
     "wiki": {
       "contractVersion": "1.0",
       "subjectTypes": ["security", "etf"],
@@ -72,7 +72,7 @@
         "confirmation": "none"
       },
       "market.set-alert": {
-        "binding": { "type": "local" }, "execution": "request", "permission": "market.read",
+        "binding": { "type": "local" }, "execution": "request", "permission": "storage.write",
         "inputSchema": { "type": "object", "required": ["direction", "price"], "properties": { "direction": { "enum": ["above", "below"] }, "price": { "type": "number", "exclusiveMinimum": 0 }, "label": { "type": "string", "maxLength": 80 } }, "additionalProperties": false },
         "outputSchema": { "type": "object", "additionalProperties": true },
         "confirmation": "none"

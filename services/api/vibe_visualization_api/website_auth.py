@@ -52,6 +52,10 @@ def check_origin(request, method=None):
 def check_mod_boundary(request, claims):
     """A plugin credential is not an account credential, even with a valid login."""
     path = request.url.path.rstrip("/")
+    from vibe_visualization_api.watchlists.access import storage_permission
+    permission = storage_permission(path, request.method, claims.module_id)
+    if permission and permission in claims.permissions:
+        return  # Storage dependency rechecks revision and derives the owner from claims.
     if path.startswith("/api/global-topics/"):
         from vibe_visualization_api.global_intelligence_adapter import topic_access
         access = topic_access(path, request.method)
