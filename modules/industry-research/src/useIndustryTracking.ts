@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createModStorageClientFromDesk, GatewayError, type ModHostConnection } from "@newma-desk/mod-sdk";
 import { emptyBook, readBook, trackingOverview, type TrackingBook } from "./tracking";
+import { industryScope, hasIndustryGrant, privateIndustryFetch } from './industryAccess';
 
 type Host = Extract<ModHostConnection, {embedded: true}>;
 export function useIndustryTracking(host: Host | undefined, industry: string | undefined) {
   const [config, setConfig] = useState<Host["config"]>();
   useEffect(() => {if (!host) {setConfig(undefined); return;} setConfig(host.config); return host.subscribe(setConfig);}, [host]);
-  const scope = config ? JSON.stringify([config.user.id, config.workspace.id, config.instanceId]) : "";
-  const client = useMemo(() => config?.session && config.gateways.storage ? createModStorageClientFromDesk(config) : null, [config]);
+  const scope = industryScope(config);
+  const readable = hasIndustryGrant(config, 'storage.read');
+  const writable = readable && hasIndustryGrant(config, 'storage.write');
+  const client = useMemo(() => readable && config?.gateways.storage ? createModStorageClientFromDesk(config, privateIndustryFetch) : null, [config, readable]);
   const [state, setState] = useState({scope: "", status: "idle", book: emptyBook(), revision: 0, error: ""});
   const [selection, setSelection] = useState({scope: "", industry: "", id: ""});
   const active = useRef({scope, sequence: 0, busy: false});
@@ -15,10 +18,10 @@ export function useIndustryTracking(host: Host | undefined, industry: string | u
   useEffect(() => () => {active.current.sequence++;}, []);
   const visible = useMemo(() => state.scope === scope ? state : {scope, status: "idle", book: emptyBook(), revision: 0, error: ""}, [state, scope]);
   async function perform(next?: TrackingBook) {
-    if (!client || active.current.busy || next && visible.status !== "ready") return false;
+    if (!client || industryScope(host?.config) !== scope || !hasIndustryGrant(host?.config, next ? 'storage.write' : 'storage.read') || active.current.busy || next && (!writable || visible.status !== "ready")) return false;
     const sequence = ++active.current.sequence; active.current.busy = true;
     setState({...visible, status: next ? "saving" : "loading", error: ""});
-    const current = () => active.current.scope === scope && active.current.sequence === sequence;
+    const current = () => industryScope(host?.config) === scope && active.current.scope === scope && active.current.sequence === sequence;
     try {
       let book: TrackingBook, revision: number;
       if (next) {
@@ -49,5 +52,5 @@ export function useIndustryTracking(host: Host | undefined, industry: string | u
     selectedId: visible.status === "ready" && visible.book.entries.some(row => row.id === selectedId && row.industry === industry) ? selectedId : null,
     entries: visible.status === "ready" ? visible.book.entries.filter(row => row.industry === industry) : [],
     boundary: "用户研究判断，不是官方事实；仅含已保存记录，不自动判定证伪或交易。"}), [visible.status, visible.revision, visible.book, industry, selectedId]);
-  return {...visible, entries, context, scope, selectedId, select: (id: string, targetIndustry = industry ?? "") => setSelection({scope, industry: targetIndustry, id}), available: !!client, busy: visible.status === "loading" || visible.status === "saving", load: () => perform(), save: (book: TrackingBook) => perform(book)};
+  return {...visible, entries, context, scope, writable, selectedId, select: (id: string, targetIndustry = industry ?? "") => setSelection({scope, industry: targetIndustry, id}), available: !!client, busy: visible.status === "loading" || visible.status === "saving", load: () => perform(), save: (book: TrackingBook) => perform(book)};
 }

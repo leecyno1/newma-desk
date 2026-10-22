@@ -67,6 +67,10 @@ def check_mod_boundary(request, claims):
             return  # Endpoint dependency also validates the published revision.
     if path in SCOPE_PATHS:
         return
+    if request.method == "GET" and claims.module_id == "industry-prosperity" and "market.read" in claims.permissions:
+        from vibe_visualization_api.industry_access import INDUSTRY_READ_PATHS
+        if path in INDUSTRY_READ_PATHS:
+            return  # The dependency requires a bound Mod session and current published revision.
     match = re.fullmatch(r"/api/(?:mods|modules)/([^/]+)/(.+)", path)
     if match:
         module_id, resource = match.groups()

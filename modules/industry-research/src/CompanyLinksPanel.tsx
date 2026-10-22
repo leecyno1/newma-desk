@@ -23,7 +23,8 @@ export function CompanyLinksPanel({company}:{company:ReturnType<typeof useCompan
     {ready&&<p role="status">当前行业 {savedLinks.length} 条已存关联 · 工作区共 {links.book.entries.length} / 50 条</p>}
     {!links.available&&<p>需在 Desk 工作区读写，不使用浏览器共享缓存。</p>}
     {links.status==='idle'&&<p>请先读取关联库，再保存当前已核验的业务关联。</p>}
-    <button disabled={!ready||!company.evidence||!company.confirmed||company.data?.workbooks.find(row=>row.id===company.selectedId)?.mode!=='reported'} onClick={()=>void save()}>确认保存 / 更新当前关联</button>
+    {!links.writable && <p>当前会话没有公司关联写入权限。</p>}
+    <button disabled={!links.writable||!ready||!company.evidence||!company.confirmed||company.data?.workbooks.find(row=>row.id===company.selectedId)?.mode!=='reported'} onClick={()=>void save()}>确认保存 / 更新当前关联</button>
     {message&&<p role="status">{message}</p>}
     <div className="company-link-list">{savedLinks.map(link=><article key={link.workbookId}>
       <h4>{link.security.name} · {link.security.symbol} · {link.fiscalPeriod.periodEnd||'期间未确认'}</h4>
@@ -33,13 +34,13 @@ export function CompanyLinksPanel({company}:{company:ReturnType<typeof useCompan
         company.restore(link);setMessage('已载入关联依据；请核对当前底稿并点击“确认业务关联并核验”。');setRemoving('');
       }}>载入待核验</button>
       {removing===link.workbookId?<><p>仅移除这条关联备忘，不删除财报或其他研究记录。</p>
-        <button disabled={!ready} onClick={()=>void (async()=>{
+        <button disabled={!ready||!links.writable} onClick={()=>void (async()=>{
           setMessage('');
           if (await links.save({...links.book,entries:links.book.entries.filter(row=>row.industry!==link.industry||row.workbookId!==link.workbookId)})) {
             setRemoving('');setMessage('已移除关联备忘，财报及其他研究记录未改动。');
           }
         })()}>确认移除关联</button><button disabled={!ready} onClick={()=>setRemoving('')}>保留关联</button>
-      </>:<button disabled={!ready} onClick={()=>{setRemoving(link.workbookId);setMessage('');}}>移除关联</button>}
+      </>:<button disabled={!ready||!links.writable} onClick={()=>{setRemoving(link.workbookId);setMessage('');}}>移除关联</button>}
     </article>)}</div>
   </section>;
 }

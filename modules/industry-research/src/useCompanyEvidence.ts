@@ -5,12 +5,9 @@ import { companyFor, companyRevenueGroups, type CompanyInputs } from "./company"
 import {compareRevenue,sameCompany} from './revenueComparison';
 import {linkState, saveLink, type CompanyLink} from './companyLinks';
 import {useCompanyLinks} from './useCompanyLinks';
+import {industryScope as evidenceScope, hasIndustryGrant} from './industryAccess';
 
 type Host = Extract<ModHostConnection, {embedded: true}>;
-const evidenceScope = (config?: Host['config']) => config ? JSON.stringify([
-  config.user.id, config.workspace.id, config.instanceId, config.modId, config.gateways.data,
-  config.session?.id, config.grants.permissions.includes('storage.read'),
-]) : '';
 export function useCompanyEvidence(host: Host | undefined, report: Snapshot | null, industry: Industry | undefined) {
   const links = useCompanyLinks(host);
   const [config, setConfig] = useState<Host['config']>();
@@ -32,11 +29,11 @@ export function useCompanyEvidence(host: Host | undefined, report: Snapshot | nu
     void (async () => {
       const active = host.config;
       if (!current()) return;
-      if (!active.session?.accessToken || !active.instanceId || !active.grants.permissions.includes('storage.read') || !active.gateways.data) {
+      if (!active.session?.accessToken || !hasIndustryGrant(active, 'storage.read') || !active.gateways.data) {
         throw new Error('当前页面没有财报读取权限，请更新模组并重新打开');
       }
       const response = await fetch(new URL('/api/research-archive/industry-inputs', active.gateways.data), {
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]), cache: 'no-store',
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]), cache: 'no-store', credentials: 'omit', redirect: 'error',
         headers: {Authorization: `Bearer ${active.session.accessToken}`, 'X-Newma-Desk-Instance-Id': active.instanceId},
       });
       if (!response.ok) throw new Error('底稿读取失败，请核对权限和服务后重试');
@@ -73,7 +70,7 @@ export function useCompanyEvidence(host: Host | undefined, report: Snapshot | nu
     .map(row=>({...row,state:linkState(row,visible.data?.workbooks,report)})) : [],[links.status,links.book,industry?.name,visible.data,report]);
   const context = useMemo(() => ({status: visible.status, error: visible.error, evidence,revenueComparison:comparison,
     savedLinks:{status:links.status,revision:links.revision,entries:savedLinks,boundary:'已保存人工关联，仅作待核验线索，不等于当前有效公司证据。'}}), [visible.status, visible.error, evidence,comparison, links.status,links.revision,savedLinks]);
-  return {...visible, available: !!identity, identity, selectedId, reason, confirmed, evidence, context, links, savedLinks, viewKey:key,
+  return {...visible, available: hasIndustryGrant(config, 'storage.read'), identity, selectedId, reason, confirmed, evidence, context, links, savedLinks, viewKey:key,
     comparison,comparisonBooks,priorGroups,comparisonChoice:comparisonChoiceVisible,
     chooseComparison(field:'priorId'|'currentSourceId'|'priorSourceId',value:string) {
       setComparisonChoice({...comparisonChoiceVisible,[field]:value,...(field==='priorSourceId'?{}:{priorSourceId:''}),confirmedAt:''});

@@ -17,7 +17,7 @@ export function TrackingPanel({tracker, report, industry}: {tracker: ReturnType<
   const [message, setMessage] = useState("");
   const source = evidenceRef(report);
   const entry = tracker.entries.find(row => row.id === selected);
-  const ready = tracker.status === "ready" && !tracker.busy && (!selected || !!entry);
+  const ready = tracker.writable && tracker.status === "ready" && !tracker.busy && (!selected || !!entry);
   async function save() {
     setMessage("");
     const now = new Date().toISOString();
@@ -58,7 +58,7 @@ export function TrackingPanel({tracker, report, industry}: {tracker: ReturnType<
       <p>保存将引用当前报告（截至 {source.periodEnd}，发布 {source.publishedAt}）。复核追加记录，不改初始判断；切换行业或报告会清空未保存输入。</p>
       <button disabled={!ready || !validDay(nextReview) || (entry ? !!entry.archivedAt || !note.trim() || entry.reviews.length >= 20 : !statement.trim() || !invalidation.trim() || tracker.book.entries.length >= 30)} onClick={() => void save()}>{entry ? "确认追加复核" : "确认保存研究假设"}</button>
       {entry?.archivedAt && <p>此记录已归档；可在跨行业总览恢复后复核。</p>}
-      {!ready && <p>请先成功读取当前工作区记录，再保存。</p>}
+      {!ready && <p>{tracker.writable ? '请先成功读取当前工作区记录，再保存。' : '当前会话没有跟踪记录写入权限。'}</p>}
       {tracker.book.entries.length >= 30 && <p>已达30条记录上限，请导出留档。</p>}
       {entry && entry.reviews.length >= 20 && <p>已达20次复核上限，请导出后新建跟踪。</p>}
       {message && <p role="status">{message}</p>}

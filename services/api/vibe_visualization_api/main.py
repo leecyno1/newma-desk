@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from threading import Lock
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from vibe_visualization_api.website_auth import install_website_auth, WRITE_ORIGINS
 from vibe_visualization_api.data_services.internal_research import InternalResearch
@@ -125,6 +125,7 @@ from vibe_visualization_api.industry_research import router as industry_research
 from vibe_visualization_api.industry_production import router as industry_production_router
 from vibe_visualization_api.industry_prices import router as industry_prices_router
 from vibe_visualization_api.industry_capacity import router as industry_capacity_router
+from vibe_visualization_api.industry_access import authorize_industry_read
 from vibe_visualization_api.mod_storage.routes import router as mod_storage_router
 from vibe_visualization_api.research_sources import router as research_sources_router
 from vibe_visualization_api.industry_map_inputs import router as industry_map_inputs_router
@@ -608,10 +609,11 @@ def create_app(
     application.include_router(global_topics_router)
     application.include_router(policy_analysis_router)
     application.include_router(capital_flow_router)
-    application.include_router(industry_research_router)
-    application.include_router(industry_production_router)
-    application.include_router(industry_prices_router)
-    application.include_router(industry_capacity_router)
+    industry_dependencies = [Depends(authorize_industry_read)]
+    application.include_router(industry_research_router, dependencies=industry_dependencies)
+    application.include_router(industry_production_router, dependencies=industry_dependencies)
+    application.include_router(industry_prices_router, dependencies=industry_dependencies)
+    application.include_router(industry_capacity_router, dependencies=industry_dependencies)
     application.include_router(wiki_router)
     application.include_router(mod_snapshots_router, prefix="/api/mods")
     application.include_router(

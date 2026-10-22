@@ -1,22 +1,25 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {createModStorageClientFromDesk, GatewayError, type ModHostConnection} from '@newma-desk/mod-sdk';
 import {emptyLinks, readLinks, type CompanyLinks} from './companyLinks';
+import {industryScope, hasIndustryGrant, privateIndustryFetch} from './industryAccess';
 
 type Host = Extract<ModHostConnection, {embedded: true}>;
 export function useCompanyLinks(host: Host | undefined) {
   const [config,setConfig] = useState<Host['config']>();
   useEffect(() => {if (!host) {setConfig(undefined); return;} setConfig(host.config); return host.subscribe(setConfig);},[host]);
-  const scope = config ? JSON.stringify([config.user.id,config.workspace.id,config.instanceId]) : '';
-  const client = useMemo(() => config?.session && config.gateways.storage ? createModStorageClientFromDesk(config) : null,[config]);
+  const scope = industryScope(config);
+  const readable = hasIndustryGrant(config, 'storage.read');
+  const writable = readable && hasIndustryGrant(config, 'storage.write');
+  const client = useMemo(() => readable && config?.gateways.storage ? createModStorageClientFromDesk(config, privateIndustryFetch) : null,[config, readable]);
   const [state,setState] = useState({scope:'',status:'idle',book:emptyLinks(),revision:0,error:''});
   const active = useRef({scope,sequence:0,busy:false});
   if (active.current.scope !== scope) active.current = {scope,sequence:active.current.sequence+1,busy:false};
   useEffect(() => () => {active.current.sequence++;},[]);
   const visible = useMemo(() => state.scope === scope ? state : {scope,status:'idle',book:emptyLinks(),revision:0,error:''},[state,scope]);
   async function perform(next?: CompanyLinks) {
-    if (!client || active.current.busy || next && visible.status !== 'ready') return false;
+    if (!client || industryScope(host?.config) !== scope || !hasIndustryGrant(host?.config, next ? 'storage.write' : 'storage.read') || active.current.busy || next && (!writable || visible.status !== 'ready')) return false;
     const sequence = ++active.current.sequence; active.current.busy = true;
-    const current = () => active.current.scope === scope && active.current.sequence === sequence;
+    const current = () => industryScope(host?.config) === scope && active.current.scope === scope && active.current.sequence === sequence;
     setState({...visible,status:next?'saving':'loading',error:''});
     try {
       let book: CompanyLinks, revision: number;
@@ -41,5 +44,5 @@ export function useCompanyLinks(host: Host | undefined) {
       return false;
     } finally {if (current()) active.current.busy = false;}
   }
-  return {...visible,available:!!client,busy:['loading','saving'].includes(visible.status),load:()=>perform(),save:(book:CompanyLinks)=>perform(book)};
+  return {...visible,writable,available:!!client,busy:['loading','saving'].includes(visible.status),load:()=>perform(),save:(book:CompanyLinks)=>perform(book)};
 }

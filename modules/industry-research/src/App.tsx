@@ -20,6 +20,8 @@ import { TrackingPanel } from "./TrackingPanel";
 import { useIndustryTracking } from "./useIndustryTracking";
 import { TrackingOverview } from "./TrackingOverview";
 import { resolveDeskOrigin } from "./deskOrigin";
+import { useIndustryAccess } from "./useIndustryAccess";
+import type { IndustryAccess } from "./industryAccess";
 
 type Host = Extract<ModHostConnection, {embedded: true}>;
 const DEFAULTS = ["煤炭开采和洗选业", "计算机、通信和其他电子设备制造业"];
@@ -35,6 +37,20 @@ const deskHref = (mod: string) => {
 export function App() {
   const embedded = window.parent !== window;
   const [host, setHost] = useState<Host>();
+  const access = useIndustryAccess(host, !embedded && import.meta.env.MODE === 'standalone');
+  useEffect(() => {
+    const controller = new AbortController(); let close = () => {};
+    void connectModHost({modId: "industry-prosperity", parentOrigin: deskOrigin(), sdkVersion: "0.1.0", capabilities: ["context", "agent", "theme", "storage"], signal: controller.signal})
+      .then(connection => {close = connection.close; if (controller.signal.aborted) return close(); if (connection.embedded) setHost(connection);})
+      .catch(() => undefined);
+    return () => {controller.abort(); close();};
+  }, []);
+  // A new identity/grant set gets fresh data, selection, drafts and Context providers.
+  return access ? <IndustryPage key={`${!!host}:${access.epoch}`} host={host} access={access}/> : <main role="status">正在连接行业工作区…</main>;
+}
+
+function IndustryPage({host, access}: {host?: Host; access: IndustryAccess}) {
+  const embedded = window.parent !== window;
   const [latest, setData] = useState<Snapshot | null>(null);
   const [history, setHistory] = useState<History | null>(null);
   const [historyStatus, setHistoryStatus] = useState("idle");
@@ -59,9 +75,9 @@ export function App() {
   const tracker = useIndustryTracking(host, selected?.name);
   const comparison = useMemo(() => compare.flatMap(name => data?.rows.filter(r => r.name === name) ?? []), [data, compare]);
   const sourceKey = data ? `${data.sourceUrl}|${data.fetchedAt}` : undefined;
-  const production = usePeriodEvidence<Production>("production", data?.periodEnd, sourceKey);
-  const prices = usePeriodEvidence<Prices>("prices", data?.periodEnd, sourceKey);
-  const capacity = usePeriodEvidence<Capacity>("capacity", capacityPeriodEnd(data?.periodEnd), sourceKey);
+  const production = usePeriodEvidence<Production>(access, "production", data?.periodEnd, sourceKey);
+  const prices = usePeriodEvidence<Prices>(access, "prices", data?.periodEnd, sourceKey);
+  const capacity = usePeriodEvidence<Capacity>(access, "capacity", capacityPeriodEnd(data?.periodEnd), sourceKey);
   const capacityEvidence = useMemo(() => capacityFor(data, selected, capacity.data, capacity.status, capacity.error), [data, selected, capacity.data, capacity.status, capacity.error]);
   const productionEvidence = useMemo(() => productionFor(data, selected, production.data, production.status, production.error), [data, selected, production.data, production.status, production.error]);
   const priceEvidence = useMemo(() => pricesFor(data, selected, prices.data, prices.status, prices.error, productionEvidence), [data, selected, prices.data, prices.status, prices.error, productionEvidence]);
@@ -71,31 +87,22 @@ export function App() {
   const ref = useRef(context); ref.current = context;
 
   useEffect(() => {
+    if (!access.ready) {setStatus("blocked"); setError(access.message); return;}
     const controller = new AbortController();
     setData(null); setStatus("loading"); setError("");
-    void fetch(`/api/industry-research${refresh ? "?refresh=true" : ""}`, {signal: controller.signal})
-      .then(async res => {const body = await res.json(); if (!res.ok) throw new Error(body.detail || "行业数据读取失败"); return body as Snapshot;})
+    void access.read<Snapshot>('profits', {refresh: !!refresh, signal: controller.signal})
       .then(body => {if (!controller.signal.aborted) {setData(body); setStatus("ready");}})
       .catch(reason => {if (!controller.signal.aborted) {setError(reason instanceof Error ? reason.message : "读取失败"); setStatus("failed");}});
     return () => controller.abort();
-  }, [refresh]);
+  }, [refresh, access]);
   useEffect(() => {
-    if (!historyRequest) return;
+    if (!historyRequest || !access.ready) return;
     const controller = new AbortController();
-    void fetch(`/api/industry-research/history${historyRequest > 1 ? "?refresh=true" : ""}`, {signal: controller.signal})
-      .then(async res => {const body = await res.json(); if (!res.ok) throw new Error(body.detail || "历史读取失败"); return body as History;})
+    void access.read<History>('history', {refresh: historyRequest > 1, signal: controller.signal})
       .then(body => {if (!controller.signal.aborted) {setHistory(body); setHistoryStatus("ready");}})
       .catch(reason => {if (!controller.signal.aborted) {setHistoryError(reason instanceof Error ? reason.message : "历史读取失败"); setHistoryStatus("failed");}});
     return () => controller.abort();
-  }, [historyRequest]);
-  useEffect(() => {
-    const controller = new AbortController(); let close = () => {};
-    const parentOrigin = deskOrigin();
-    void connectModHost({modId: "industry-prosperity", parentOrigin, sdkVersion: "0.1.0", capabilities: ["context", "agent", "theme", "storage"], signal: controller.signal})
-      .then(connection => {close = connection.close; if (controller.signal.aborted) return close(); if (connection.embedded) setHost(connection);})
-      .catch(() => undefined);
-    return () => {controller.abort(); close();};
-  }, []);
+  }, [historyRequest, access]);
   useEffect(() => host?.setContextProvider(() => ref.current), [host]);
   useEffect(() => {host?.publishContext(context);}, [host, context]);
   function reload() {setData(null); setStatus("loading"); setError(""); setRefresh(v => v + 1);
@@ -110,7 +117,7 @@ export function App() {
   const evidencePrompt = "先核对diagnosis中的规则判断、证据覆盖和原文来源，不把规则诊断当作独立事实。基于当前页面selection、comparison、publication、history、production和prices，比较营收、利润、生产与行业价格，区分事实与推断。prices仅在已加载且行业和期间匹配时使用；环比、同比、年内平均同比必须分开，年内平均同比不是累计涨幅，PPI不是现货/长协或公司售价，不以全国购进价格代替行业成本，不计算未经验证的价格贡献。production中的产量不是销量或需求，不用增速差推算价格，不从集成电路数量推断整个半导体盈利。历史报告不能冒充最新，现时读取的历史网页不是当时存档。说明样本、累计口径和缺口，给出三项验证问题；不把方向一致当作拐点，不补造库存、订单或估值。";
   return <main className="industry-root">
     <header className="toolbar">{!embedded && <h1>行业景气</h1>}<span className="edition">INDUSTRY / FUNDAMENTALS</span>
-      <button onClick={reload} disabled={status === "loading"}>{status === "loading" ? "读取官方原表…" : "刷新原文"}</button>
+      <button onClick={reload} disabled={!access.ready || status === "loading"}>{status === "loading" ? "读取官方原表…" : "刷新原文"}</button>
       <button onClick={exportEvidence} disabled={!data}>导出证据快照</button>
       {host ? <button disabled={!data} onClick={() => host.requestAgent({prompt: evidencePrompt + " 同时核对capacity季度证据及其timingNote：不把滞后季度作为当前月需求，不以利用率确认订单增长。production.nationalSales仅是全国产销背景，不可赋值给所选行业；同比变化是百分点。", mode: "ask"})}>问当前行业</button>
         : !embedded && (deskHref("industry-prosperity")
