@@ -68,9 +68,8 @@ _VINTAGE_CAVEAT = (
     "Two-sided Gaussian and Butterworth historical estimate; "
     "endpoint is not a realtime signal."
 )
-_PROJECT_ROOT = Path(__file__).resolve(strict=True).parents[3]
 _APPROVED_CONFIG_ROOT = (
-    _PROJECT_ROOT / "config" / "seven_cycle" / "approved" / "2026-07-19"
+    Path("config") / "seven_cycle" / "approved" / "2026-07-19"
 )
 _APPROVED_SOURCE_SPECS = {
     "asset_registry": (
@@ -121,16 +120,16 @@ _EXPECTED_SOURCE_PATHS = {
         _APPROVED_CONFIG_ROOT / "evidence_baseline.yaml"
     ),
     "historical_prototype": (
-        _PROJECT_ROOT / "output" / "c4_c5_phase_display_prototype_2026-07-19.json"
+        Path("output") / "c4_c5_phase_display_prototype_2026-07-19.json"
     ),
     "realtime_prototype": (
-        _PROJECT_ROOT / "output" / "c4_pseudo_realtime_prototype_2026-07-19.json"
+        Path("output") / "c4_pseudo_realtime_prototype_2026-07-19.json"
     ),
     "forecast_prototype": (
-        _PROJECT_ROOT / "output" / "c4_forecast_prototype_2026-07-19.json"
+        Path("output") / "c4_forecast_prototype_2026-07-19.json"
     ),
     "asset_prototype": (
-        _PROJECT_ROOT / "output" / "c4_asset_statistics_prototype_2026-07-19.json"
+        Path("output") / "c4_asset_statistics_prototype_2026-07-19.json"
     ),
 }
 _RegistryFileModel = TypeVar("_RegistryFileModel", bound=BaseModel)
@@ -144,6 +143,7 @@ class FoundationSources:
     realtime_path: Path
     forecast_path: Path
     asset_path: Path
+    project_root: Path = Path(".")
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +202,7 @@ def _snapshot_approved_sources(
     sources: FoundationSources,
 ) -> dict[str, _SourceSnapshot]:
     source_paths = _source_paths(sources)
+    project_root = Path(sources.project_root).resolve(strict=True)
     snapshots: dict[str, _SourceSnapshot] = {}
     for role, (expected_filename, expected_checksum) in _APPROVED_SOURCE_SPECS.items():
         source_path = source_paths[role]
@@ -215,7 +216,7 @@ def _snapshot_approved_sources(
             raise ValueError(f"{role} source path must not be a symlink")
         if not stat.S_ISREG(before.st_mode):
             raise ValueError(f"{role} source path must be a regular file")
-        expected_path = _EXPECTED_SOURCE_PATHS[role]
+        expected_path = project_root / _EXPECTED_SOURCE_PATHS[role]
         lexical_path = Path(os.path.abspath(source_path))
         if lexical_path != expected_path:
             raise ValueError(f"{role} must use exact approved path {expected_path}")

@@ -42,19 +42,63 @@ type DeskVisualCaptureProvider = (request: {
 
 let contextProvider: DeskContextProvider | undefined
 let visualCaptureProvider: DeskVisualCaptureProvider | undefined
+let contextRevision = 0
+let visualRevision = 0
 let publishCurrentContext: (() => Promise<boolean>) | undefined
+type DeskUiActionHandler = (actionId: string, input: Record<string, unknown>) => unknown | Promise<unknown>
+let uiActionHandler: DeskUiActionHandler | undefined
+let actionRevision = 0
+
+// Only a validated host init may select the namespace for public UI preferences.
+let pageSessionScope: string | null = null
+const pageSessionListeners = new Set<() => void>()
+export const getPageSessionScope = () => pageSessionScope
+export function subscribePageSession(listener: () => void) {
+  pageSessionListeners.add(listener)
+  return () => { pageSessionListeners.delete(listener) }
+}
+function setPageSessionScope(scope: string | null) {
+  if (scope === pageSessionScope) return
+  pageSessionScope = scope
+  contextProvider = undefined
+  visualCaptureProvider = undefined
+  uiActionHandler = undefined
+  contextRevision += 1
+  visualRevision += 1
+  actionRevision += 1
+  pageSessionListeners.forEach(listener => listener())
+}
+
+export function registerVibeDeskUiActionHandler(handler: DeskUiActionHandler) {
+  uiActionHandler = handler
+  actionRevision += 1
+  return () => {
+    if (uiActionHandler === handler) {
+      uiActionHandler = undefined
+      actionRevision += 1
+    }
+  }
+}
 
 export function registerVibeDeskContextProvider(provider: DeskContextProvider) {
   contextProvider = provider
+  contextRevision += 1
   return () => {
-    if (contextProvider === provider) contextProvider = undefined
+    if (contextProvider === provider) {
+      contextProvider = undefined
+      contextRevision += 1
+    }
   }
 }
 
 export function registerVibeDeskVisualCaptureProvider(provider: DeskVisualCaptureProvider) {
   visualCaptureProvider = provider
+  visualRevision += 1
   return () => {
-    if (visualCaptureProvider === provider) visualCaptureProvider = undefined
+    if (visualCaptureProvider === provider) {
+      visualCaptureProvider = undefined
+      visualRevision += 1
+    }
   }
 }
 
@@ -94,18 +138,6 @@ function configuredParentOrigin(): string | null {
     if (origin === candidate) return origin
   }
   return null
-}
-
-function ancestorParentOrigin(): string | null {
-  const ancestors = window.location.ancestorOrigins
-  return ancestors?.length ? exactHttpOrigin(ancestors[0]) : null
-}
-
-function originFromBootstrapConfig(data: Record<string, unknown>): string | null {
-  if (data.type !== 'vibedesk:config') return null
-  const gatewayOrigin = typeof data.gatewayOrigin === 'string' ? data.gatewayOrigin : ''
-  const origin = exactHttpOrigin(gatewayOrigin)
-  return origin === gatewayOrigin ? origin : null
 }
 
 function applyTheme(environmentTheme: unknown, appearance?: DeskAppearance) {
@@ -256,19 +288,20 @@ function pngDataUrlBytes(dataUrl: string) {
   return Math.floor(payload.length * 3 / 4) - padding
 }
 
-const systemTheme: ThemeMode = window.matchMedia('(prefers-color-scheme: dark)').matches
-  ? 'dark'
-  : 'light'
-applyTheme(systemTheme)
+const explicitTheme = root.dataset.theme
+applyTheme(isThemeMode(explicitTheme) ? explicitTheme : 'light')
+if (!isEmbedded) setPageSessionScope('standalone')
 
 if (isEmbedded) {
   root.dataset.vibedeskEmbedded = 'true'
-  let parentOrigin = configuredParentOrigin()
-    ?? ancestorParentOrigin()
-    ?? exactHttpOrigin(document.referrer)
+  // Cross-origin hosts must be configured at build time. Referrer and messages
+  // describe a sender; neither grants that sender access to page evidence.
+  const parentOrigin = configuredParentOrigin() ?? window.location.origin
   let helloSent = false
   let activeInstanceId: string | null = null
-  let activeModId = 'seven-cycle-research'
+  const activeModId = 'seven-cycle-research'
+  let sessionRevision = 0
+  let grantedActions = new Set<string>()
 
   const post = (message: unknown) => {
     if (parentOrigin) window.parent.postMessage(message, parentOrigin)
@@ -280,8 +313,8 @@ if (isEmbedded) {
       type: 'vibedesk:hello',
       modId: 'seven-cycle-research',
       protocolVersions: ['1.0'],
-      sdkVersion: 'seven-cycle-bridge-1.4.0',
-      capabilities: ['context', 'theme', 'visual-context'],
+      sdkVersion: 'seven-cycle-bridge-1.5.0',
+      capabilities: ['context', 'theme', 'visual-context', 'actions'],
     })
   }
   const respondWithContext = async (request: Record<string, any>) => {
@@ -290,15 +323,21 @@ if (isEmbedded) {
       || request.instanceId !== activeInstanceId
       || request.modId !== activeModId
       || typeof request.requestId !== 'string'
-    ) return
+    ) return false
+
+    const instanceId = activeInstanceId
+    const session = sessionRevision
+    const revision = contextRevision
+    const provider = contextProvider
 
     let context: DeskPageContext | null = null
     let providerError: string | undefined
     try {
-      context = contextProvider ? await contextProvider() : null
+      context = provider ? await provider() : null
     } catch (error) {
       providerError = error instanceof Error ? error.message : '页面结构化上下文生成失败'
     }
+    if (session !== sessionRevision || revision !== contextRevision) return false
     if (!context) context = collectRenderedDomContext()
     if (providerError) {
       context.data.summary = {
@@ -309,19 +348,19 @@ if (isEmbedded) {
     post({
       type: 'vibedesk:context',
       requestId: request.requestId,
-      instanceId: activeInstanceId,
+      instanceId,
       modId: activeModId,
       context,
     })
+    return true
   }
   publishCurrentContext = async () => {
     if (!activeInstanceId) return false
-    await respondWithContext({
+    return respondWithContext({
       requestId: crypto.randomUUID(),
       instanceId: activeInstanceId,
       modId: activeModId,
     })
-    return true
   }
   const respondWithVisualContext = async (request: Record<string, any>) => {
     if (
@@ -330,7 +369,12 @@ if (isEmbedded) {
       || request.modId !== activeModId
       || typeof request.requestId !== 'string'
     ) return
-    if (!visualCaptureProvider) {
+    const instanceId = activeInstanceId
+    const session = sessionRevision
+    const revision = visualRevision
+    const provider = visualCaptureProvider
+    const isCurrent = () => session === sessionRevision && revision === visualRevision
+    if (!provider) {
       post({
         type: 'vibedesk:visual-context',
         requestId: request.requestId,
@@ -346,16 +390,17 @@ if (isEmbedded) {
       if (!Number.isInteger(maxBytes) || maxBytes < 64 * 1024 || maxBytes > 5 * 1024 * 1024) {
         throw new Error('视觉快照大小限制无效')
       }
-      const capture = await visualCaptureProvider({
+      const capture = await provider({
         reason: request.reason === 'refresh' ? 'refresh' : 'agent',
         maxBytes,
       })
+      if (!isCurrent()) return
       if (!capture) throw new Error('当前页面没有可读取的图表')
       if (pngDataUrlBytes(capture.dataUrl) > maxBytes) throw new Error('视觉快照超过大小限制')
       post({
         type: 'vibedesk:visual-context',
         requestId: request.requestId,
-        instanceId: activeInstanceId,
+        instanceId,
         modId: activeModId,
         ok: true,
         capture: {
@@ -364,10 +409,11 @@ if (isEmbedded) {
         },
       })
     } catch (error) {
+      if (!isCurrent()) return
       post({
         type: 'vibedesk:visual-context',
         requestId: request.requestId,
-        instanceId: activeInstanceId,
+        instanceId,
         modId: activeModId,
         ok: false,
         error: {
@@ -378,16 +424,50 @@ if (isEmbedded) {
     }
   }
 
+  const respondWithUiAction = async (request: Record<string, any>) => {
+    if (!activeInstanceId || request.instanceId !== activeInstanceId
+      || request.modId !== activeModId || typeof request.requestId !== 'string'
+      || typeof request.actionId !== 'string') return
+    const identity = {
+      type: 'vibedesk:ui-action-result', requestId: request.requestId,
+      instanceId: activeInstanceId, modId: activeModId, actionId: request.actionId,
+    }
+    const fail = (code: string, message: string) => post({ ...identity, ok: false, error: { code, message } })
+    if (!grantedActions.has(request.actionId)) {
+      fail('action_not_granted', '宿主未授权该页面动作')
+      return
+    }
+    if (!uiActionHandler) {
+      fail('handler_unavailable', '当前页面未注册该操作')
+      return
+    }
+    if (!request.input || typeof request.input !== 'object' || Array.isArray(request.input)) {
+      fail('invalid_input', '页面动作输入必须是对象')
+      return
+    }
+    const session = sessionRevision
+    const revision = actionRevision
+    const isCurrent = () => session === sessionRevision && revision === actionRevision
+    try {
+      const result = await uiActionHandler(request.actionId, request.input)
+      if (!isCurrent()) return
+      await publishCurrentContext?.()
+      if (isCurrent()) post({ ...identity, ok: true, result: result ?? {} })
+    } catch (error) {
+      if (isCurrent()) fail('action_failed', error instanceof Error ? error.message.slice(0, 500) : '页面操作失败')
+    }
+  }
+
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent || !event.data || typeof event.data !== 'object') return
 
     const data = event.data as Record<string, any>
-    if (!parentOrigin) {
-      const bootstrapOrigin = originFromBootstrapConfig(data)
-      if (!bootstrapOrigin || event.origin !== bootstrapOrigin) return
-      parentOrigin = bootstrapOrigin
-    }
     if (event.origin !== parentOrigin) return
+
+    if (data.type === 'vibedesk:ui-action-request') {
+      void respondWithUiAction(data)
+      return
+    }
 
     if (data.type === 'vibedesk:context-request') {
       void respondWithContext(data)
@@ -398,6 +478,12 @@ if (isEmbedded) {
       return
     }
     if (data.type !== 'vibedesk:config' && data.type !== 'vibedesk:init') return
+    if (data.type === 'vibedesk:init' && (
+      data.protocolVersion !== '1.0'
+      || data.modId !== activeModId
+      || typeof data.instanceId !== 'string'
+      || !data.instanceId.trim()
+    )) return
 
     const appearance = data.appearance as DeskAppearance | undefined
     const environmentTheme = data.type === 'vibedesk:init'
@@ -412,7 +498,12 @@ if (isEmbedded) {
       && typeof data.instanceId === 'string'
     ) {
       activeInstanceId = data.instanceId
-      activeModId = typeof data.modId === 'string' ? data.modId : 'seven-cycle-research'
+      sessionRevision += 1
+      setPageSessionScope(typeof data.user?.id === 'string' && typeof data.workspace?.id === 'string'
+        && data.user.id && data.workspace.id
+        ? JSON.stringify([parentOrigin, data.user.id, data.workspace.id, activeModId]) : null)
+      grantedActions = new Set(Array.isArray(data.grants?.actions)
+        ? data.grants.actions.filter((id: unknown): id is string => typeof id === 'string') : [])
       post({
         type: 'vibedesk:ack',
         protocolVersion: '1.0',
@@ -422,16 +513,6 @@ if (isEmbedded) {
     }
   })
 
-  if (parentOrigin) {
-    post({ type: 'vibedesk:ready' })
-    sendHello()
-  } else {
-    // Firefox does not expose ancestorOrigins. This empty legacy signal asks
-    // Desk to resend vibedesk:config; only an exact gatewayOrigin/event.origin
-    // match can lock the channel, and all subsequent messages use that origin.
-    window.parent.postMessage({ type: 'vibedesk:ready' }, '*')
-  }
-} else {
-  const media = window.matchMedia('(prefers-color-scheme: dark)')
-  media.addEventListener('change', (event) => applyTheme(event.matches ? 'dark' : 'light'))
+  post({ type: 'vibedesk:ready' })
+  sendHello()
 }

@@ -33,6 +33,7 @@ def _sources() -> FoundationSources:
         PROJECT_ROOT / "config" / "seven_cycle" / "approved" / "2026-07-19"
     )
     return FoundationSources(
+        project_root=PROJECT_ROOT,
         config_dir=approved_config,
         evidence_path=approved_config / "evidence_baseline.yaml",
         historical_path=(
@@ -48,6 +49,40 @@ def _sources() -> FoundationSources:
             PROJECT_ROOT / "output" / "c4_asset_statistics_prototype_2026-07-19.json"
         ),
     )
+
+
+def test_foundation_cli_builds_from_explicit_relocated_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from seven_cycle_platform.cli import main
+    from seven_cycle_platform.catalog import open_catalog
+
+    project_root = tmp_path / "relocated-project"
+    for source in research_foundation._source_paths(_sources()).values():
+        target = project_root / source.relative_to(PROJECT_ROOT)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+    product_root = tmp_path / "runtime-products"
+    monkeypatch.chdir(tmp_path)
+
+    result = main([
+        "build-foundation", "--as-of", "2026-07-19",
+        "--project-root", str(project_root),
+        "--product-root", str(product_root),
+    ])
+
+    captured = capsys.readouterr()
+    assert result == 0, captured.err
+    payload = json.loads(captured.out)
+    run_dir = product_root / "runs" / payload["run_id"]
+    manifest = load_manifest(run_dir)
+    assert set(manifest.product_checksums) == EXPECTED_PRODUCTS
+    with open_catalog(
+        Path(payload["catalog"]), run_dir=run_dir, expected_manifest=manifest,
+    ) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM cycle_evidence").fetchone()[0] > 0
 
 
 def _replace_snapshot_content(

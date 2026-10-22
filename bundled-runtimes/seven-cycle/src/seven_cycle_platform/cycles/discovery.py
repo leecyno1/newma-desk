@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from numbers import Integral, Real
 from pathlib import Path
 import re
@@ -18,6 +18,8 @@ from scipy.sparse import SparseEfficiencyWarning
 import statsmodels.api as sm
 
 
+# Checkout compatibility exports for legacy scripts. Installed workflows pass
+# their input root explicitly and never resolve runtime data through this path.
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RANDOM_SEED = 20260711
 
@@ -1413,17 +1415,20 @@ def write_report(
     peaks: pd.DataFrame,
     clusters: pd.DataFrame,
     priors: pd.DataFrame,
+    *,
+    output_dir: Path | None = None,
 ) -> None:
+    output_dir = Path.cwd() / "output" if output_dir is None else output_dir
     lines = [
         "# Robust Cycle Discovery Report",
         "",
         "## Executive conclusions",
         "",
-        "- The 100-month prior is supported by a broad annual peak around 8.5-9 years.",
-        "- The 200-month prior is not a universal point estimate: evidence is stronger around 13-15 years, so it should be treated as a wider long-investment band rather than a fixed 200-month constant.",
-        "- The 42-month inventory cycle is visible in macro-only and category-balanced monthly views; it is obscured when the equity-valuation block is allowed to dominate the panel.",
-        "- The 20-month prior is category-specific. Money/credit supports a roughly 18-24 month band, while the full panel also shows a strong 16-17 month market rhythm.",
-        "- The 12-month peak is retained as a seasonality diagnostic, not promoted to a structural business cycle.",
+        "- Results below are computed from this run's input panels; they do not authorize publication or asset forecasts.",
+        *[
+            f"- {row['prior']}: {row['verdict']} (method support {row['method_support']})."
+            for row in priors.to_dict("records")
+        ],
         "",
         "## Method",
         "",
@@ -1458,24 +1463,43 @@ def write_report(
             "1. A spectral peak is evidence of recurring frequency content, not proof of a stable causal economic clock.",
             "2. Two-sided filters revise near endpoints; real-time phase calls require an explicit revision test.",
             "3. Category-balanced results should be preferred for macro interpretation because the monthly panel contains many correlated equity-valuation series.",
-            "4. The next stage should use bands (not exact periods): 8-10y, 12-16y, 36-48m, and 16-24m.",
+            "4. Candidate bands must follow the current evidence and separate out-of-sample validation, not preset period conclusions.",
             "",
-            f"- Full profiles: `{OUT_PROFILE.relative_to(ROOT)}`",
-            f"- Method peaks: `{OUT_PEAKS.relative_to(ROOT)}`",
-            f"- Robust clusters: `{OUT_CLUSTERS.relative_to(ROOT)}`",
-            f"- Prior validation: `{OUT_PRIORS.relative_to(ROOT)}`",
+            f"- Full profiles: `{OUT_PROFILE.name}`",
+            f"- Method peaks: `{OUT_PEAKS.name}`",
+            f"- Robust clusters: `{OUT_CLUSTERS.name}`",
+            f"- Prior validation: `{OUT_PRIORS.name}`",
             "",
         ]
     )
-    OUT_REPORT.write_text("\n".join(lines), encoding="utf-8")
+    (output_dir / OUT_REPORT.name).write_text("\n".join(lines), encoding="utf-8")
 
 
-def main() -> None:
-    """Run the checkout-compatible robust discovery artifact workflow."""
+def main(*, project_root: Path | None = None, output_dir: Path | None = None) -> None:
+    """Run discovery from explicit inputs, defaulting to the working directory."""
+
+    project_root = Path.cwd() if project_root is None else project_root.resolve()
+    output_dir = (
+        project_root / "output" if output_dir is None else output_dir.resolve()
+    )
+    specs = tuple(
+        replace(
+            spec,
+            path=project_root / "data" / spec.path.name,
+            metadata_path=project_root / "output" / spec.metadata_path.name,
+        )
+        for spec in PANEL_SPECS
+    )
+    # Validate all inputs before computation or output creation. No fallback to
+    # the package location when a caller supplies an incomplete input bundle.
+    for spec in specs:
+        for path in (spec.path, spec.metadata_path):
+            if not path.is_file():
+                raise FileNotFoundError(f"Required discovery input is missing: {path}")
 
     profiles = []
     peaks = []
-    for spec in PANEL_SPECS:
+    for spec in specs:
         panel_profile, panel_peaks = discover_panel(spec)
         profiles.append(panel_profile)
         peaks.append(panel_peaks)
@@ -1484,18 +1508,15 @@ def main() -> None:
     clusters = cluster_core_peaks(peak_table)
     priors = validate_priors(profile)
 
-    OUT_PROFILE.parent.mkdir(parents=True, exist_ok=True)
-    profile.to_csv(OUT_PROFILE, index=False)
-    peak_table.to_csv(OUT_PEAKS, index=False)
-    clusters.to_csv(OUT_CLUSTERS, index=False)
-    priors.to_csv(OUT_PRIORS, index=False)
-    write_report(profile, peak_table, clusters, priors)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    profile.to_csv(output_dir / OUT_PROFILE.name, index=False)
+    peak_table.to_csv(output_dir / OUT_PEAKS.name, index=False)
+    clusters.to_csv(output_dir / OUT_CLUSTERS.name, index=False)
+    priors.to_csv(output_dir / OUT_PRIORS.name, index=False)
+    write_report(profile, peak_table, clusters, priors, output_dir=output_dir)
 
-    print("Wrote:", OUT_PROFILE)
-    print("Wrote:", OUT_PEAKS)
-    print("Wrote:", OUT_CLUSTERS)
-    print("Wrote:", OUT_PRIORS)
-    print("Wrote:", OUT_REPORT)
+    for path in (OUT_PROFILE, OUT_PEAKS, OUT_CLUSTERS, OUT_PRIORS, OUT_REPORT):
+        print("Wrote:", output_dir / path.name)
 
 
 __all__ = [

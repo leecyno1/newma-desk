@@ -24,6 +24,9 @@ playwright-report/
 test-results/
 .playwright-cli/
 output/
+# Traverse the cycle source baseline directory; its own ignore file restricts
+# generated research output. Only reviewed fixed build inputs are versioned.
+!bundled-runtimes/seven-cycle/output/
 release-artifacts/
 mods/*.bak-*
 

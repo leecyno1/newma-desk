@@ -8,6 +8,15 @@ import { publishVibeDeskContext, registerVibeDeskContextProvider } from '../lib/
 
 export default function AuditPage() {
   const { data, error } = useResearchData(loadAudit)
+  const longPanelSources = (data?.c2C3Sources ?? []).map(source => ({
+    name: source.name, coverage: source.coverage, role: source.role, url: source.url,
+    caches: (source.caches ?? (source.cache ? [source] : [])).map(cache => ({
+      cache: cache.cache,
+      cacheUpdated: cache.cacheUpdated && Number.isFinite(Date.parse(cache.cacheUpdated))
+        ? cache.cacheUpdated : null,
+      bytes: cache.bytes ?? null,
+    })),
+  }))
   useEffect(() => {
     const unregister = registerVibeDeskContextProvider(() => {
       if (!data) return null
@@ -17,6 +26,7 @@ export default function AuditPage() {
           { id: 'audit-sources', type: 'table', title: '研究结论来源' },
           { id: 'audit-rules', type: 'rules', title: '发布规则' },
           { id: 'audit-calibrations', type: 'timeline', title: '周期校准记录' },
+          ...(longPanelSources.length ? [{ id: 'audit-long-panel-sources', type: 'table', title: '原始数据覆盖与缓存时点' }] : []),
         ],
         selection: {}, filters: {},
         data: {
@@ -26,10 +36,11 @@ export default function AuditPage() {
             auditBaseline: data.meta.asOf,
             generated: data.meta.generated,
             sources: data.sources.map((source) => ({ entity: source.entity, source: source.source, asOf: source.asOf, vintage: source.vintage, status: source.status })),
+            longPanelSources,
             publication: data.governance.cycles.map((cycle) => ({ id: cycle.id, name: cycle.name, ...cycle.publication })),
             proxyCount: data.proxyColumns?.length ?? 0,
             calibrationCount: data.calibrations.length,
-            caveat: '审计基线和生成日期不是每条来源的观测期或原始发布日。',
+            caveat: '审计基线和生成日期不是每条来源的观测期或原始发布日；刷新网页只重读研究快照，不更新研究数据。',
           },
         },
         actions: [], tasks: [],
@@ -53,12 +64,14 @@ export default function AuditPage() {
       <section className="audit-grid">
         <div className="audit-panel source-panel">
           <div className="panel-title"><div><span>数据身份</span><h2>研究结论来源</h2></div><FileClock size={19} /></div>
+          <div className="proxy-audit-table-wrap" role="region" aria-label="研究结论来源表（可横向滚动）" tabIndex={0}>
           <table className="research-table">
             <thead><tr><th>研究实体</th><th>来源</th><th>数据时点</th><th>身份状态</th></tr></thead>
             <tbody>{data.sources.map((source) => (
               <tr key={source.entity}><td><strong>{source.entity}</strong></td><td>{source.source}</td><td>{source.asOf}<small>{source.vintage}</small></td><td><code>{source.status}</code></td></tr>
             ))}</tbody>
           </table>
+          </div>
         </div>
 
         <div className="audit-panel rule-panel">
@@ -84,12 +97,19 @@ export default function AuditPage() {
           <div className="proxy-audit-table-wrap">
             <table className="research-table">
               <thead><tr><th>数据源</th><th>覆盖范围</th><th>研究用途</th><th>本地缓存</th></tr></thead>
-              <tbody>{(data.c2C3Sources ?? []).map((source) => (
+              <tbody>{longPanelSources.map((source) => (
                 <tr key={source.name}>
-                  <td><strong>{source.name}</strong><small>{source.cache}</small></td>
+                  <td><strong>{source.name}</strong></td>
                   <td>{source.coverage}</td>
                   <td>{source.role}</td>
-                  <td>{new Date(source.cacheUpdated).toLocaleString('zh-CN')}</td>
+                  <td>{source.caches.length ? source.caches.map(cache => (
+                    <div key={cache.cache}>
+                      <small>{cache.cache}</small>
+                      <span>{cache.cacheUpdated
+                        ? new Date(cache.cacheUpdated).toLocaleString('zh-CN')
+                        : '未记录缓存时间'}</span>
+                    </div>
+                  )) : '未提供本地缓存记录'}</td>
                 </tr>
               ))}</tbody>
             </table>

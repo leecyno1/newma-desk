@@ -1,0 +1,5309 @@
+{
+  "meta": {
+    "generated": "2026-07-19",
+    "cycle": "C4 inventory cycle",
+    "return_source": "output/monthly_returns_20y.parquet plus direct DXY and China commodity composite returns",
+    "attribution_label": "C4 explainable association contribution; not causal attribution",
+    "features": "one-month lagged retrospective C4 level and three-month slope",
+    "inference": "OLS with HAC(3) 90% intervals",
+    "validation": "expanding 12-month block out-of-sample R2",
+    "phase_gate": "historical phase display reliability >= 55%",
+    "missing_rule": "hierarchical shrinkage may estimate coefficients in production, but no synthetic return history is created"
+  },
+  "summary": {
+    "total_rows": 94,
+    "observed_assets": 91,
+    "unavailable_assets": 3,
+    "categories": [
+      "A股宽基指数",
+      "FF 17行业组合(US)",
+      "各类债券指数",
+      "商品",
+      "外汇",
+      "海外指数/ETF",
+      "申万一级行业",
+      "美股行业ETF",
+      "风格/规模指数"
+    ],
+    "positive_oos_r2": 25,
+    "high_confidence": 16,
+    "medium_confidence": 29,
+    "low_confidence": 46
+  },
+  "assets": [
+    {
+      "asset_id": "各类债券指数||国债指数(上证)",
+      "category": "各类债券指数",
+      "name": "国债指数(上证)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.03708510625288492,
+          "ann_vol": 0.011732409876935678,
+          "positive_rate": 0.8771929824561403
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.022915675454524363,
+          "ann_vol": 0.010015827858808364,
+          "positive_rate": 0.7678571428571429
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.03557845580167317,
+          "ann_vol": 0.011708200629160746,
+          "positive_rate": 0.8870967741935484
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": 0.05575893766964101,
+          "ann_vol": 0.014877871798912937,
+          "positive_rate": 0.9423076923076923
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": -0.01867383141675609,
+      "beta_level": -0.0006494139438350268,
+      "beta_slope3": -0.0007687597315203027,
+      "beta_level_ci90": [
+        -0.0012335153254530618,
+        -6.531256221699192e-05
+      ],
+      "beta_slope3_ci90": [
+        -0.0013299182162475657,
+        -0.00020760124679303985
+      ],
+      "p_level": 0.06743309665575714,
+      "p_slope3": 0.024235881334189555,
+      "impact_bps_per_1sigma": 10.063448689462927,
+      "in_sample_r2": 0.09505633818974446,
+      "oos_r2": 0.14261577999313735,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.043512555774008144,
+      "c4_assoc_contribution_2019": 0.009497797841022669
+    },
+    {
+      "asset_id": "各类债券指数||沪公司债",
+      "category": "各类债券指数",
+      "name": "沪公司债",
+      "start": "2008-12",
+      "end": "2024-10",
+      "n_months": 191,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 51,
+          "ann_return": 0.04591882767035657,
+          "ann_vol": 0.012849777876176034,
+          "positive_rate": 0.9215686274509803
+        },
+        "expansion": {
+          "n": 46,
+          "ann_return": 0.038614447175480175,
+          "ann_vol": 0.014229202037469075,
+          "positive_rate": 0.782608695652174
+        },
+        "downturn": {
+          "n": 51,
+          "ann_return": 0.0449636194199963,
+          "ann_vol": 0.012341460880265253,
+          "positive_rate": 0.9019607843137255
+        },
+        "contraction": {
+          "n": 43,
+          "ann_return": 0.06602548704096639,
+          "ann_vol": 0.014694190718858637,
+          "positive_rate": 0.9767441860465116
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": -0.02010665937060982,
+      "beta_level": -0.00048291367490948444,
+      "beta_slope3": -0.00041246828839852786,
+      "beta_level_ci90": [
+        -0.0012111203145033487,
+        0.0002452929646843798
+      ],
+      "beta_slope3_ci90": [
+        -0.0014031395100197242,
+        0.0005782029332226686
+      ],
+      "p_level": 0.2753642162526191,
+      "p_slope3": 0.4934457315156989,
+      "impact_bps_per_1sigma": 6.3508716437115496,
+      "in_sample_r2": 0.03004159529337913,
+      "oos_r2": 0.09231064984349202,
+      "oos_folds": 8,
+      "confidence": "low",
+      "actual_2019": 0.05465159801210229,
+      "c4_assoc_contribution_2019": 0.006748331095697266
+    },
+    {
+      "asset_id": "各类债券指数||企债指数(深证)",
+      "category": "各类债券指数",
+      "name": "企债指数(深证)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.00093128163194412,
+          "ann_vol": 0.01651816636995189,
+          "positive_rate": 0.543859649122807
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": -0.004847221258182726,
+          "ann_vol": 0.014237284329714918,
+          "positive_rate": 0.4107142857142857
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": -0.013843045146411447,
+          "ann_vol": 0.01911778983494442,
+          "positive_rate": 0.43548387096774194
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": 0.03906394604128319,
+          "ann_vol": 0.033835260775506124,
+          "positive_rate": 0.6730769230769231
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "downturn",
+      "recovery_minus_contraction": -0.038132664409339066,
+      "beta_level": -0.001452940515195512,
+      "beta_slope3": -0.000921060515705188,
+      "beta_level_ci90": [
+        -0.0026474494933046615,
+        -0.0002584315370863623
+      ],
+      "beta_slope3_ci90": [
+        -0.0022910176995892973,
+        0.00044889666817892154
+      ],
+      "p_level": 0.04542289119670407,
+      "p_slope3": 0.26877799500165256,
+      "impact_bps_per_1sigma": 17.202873638691027,
+      "in_sample_r2": 0.08445894710021695,
+      "oos_r2": 0.0869696601532125,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.003141328445080749,
+      "c4_assoc_contribution_2019": 0.01851133033030451
+    },
+    {
+      "asset_id": "海外指数/ETF||德国ETF(EWG)",
+      "category": "海外指数/ETF",
+      "name": "德国ETF(EWG)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.18716887880646277,
+          "ann_vol": 0.2487387913162474,
+          "positive_rate": 0.631578947368421
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.25933411722105976,
+          "ann_vol": 0.1977812670239017,
+          "positive_rate": 0.6428571428571429
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.019658681477005037,
+          "ann_vol": 0.1756313908299857,
+          "positive_rate": 0.532258064516129
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.1686478164532494,
+          "ann_vol": 0.27108853378630154,
+          "positive_rate": 0.4230769230769231
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.35581669525971216,
+      "beta_level": 0.0026684903685535444,
+      "beta_slope3": 0.015100172734085652,
+      "beta_level_ci90": [
+        -0.0046309480260179284,
+        0.009967928763125017
+      ],
+      "beta_slope3_ci90": [
+        0.006945109340095446,
+        0.023255236128075858
+      ],
+      "p_level": 0.5476288994876772,
+      "p_slope3": 0.0023216798654746218,
+      "impact_bps_per_1sigma": 153.34146779207728,
+      "in_sample_r2": 0.05869780530469615,
+      "oos_r2": 0.05202191596045125,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.19154587642136467,
+      "c4_assoc_contribution_2019": -0.07995564989630823
+    },
+    {
+      "asset_id": "申万一级行业||煤炭",
+      "category": "申万一级行业",
+      "name": "煤炭",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": -0.11875180076995276,
+          "ann_vol": 0.23513684099892723,
+          "positive_rate": 0.3333333333333333
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": 0.11333189587140449,
+          "ann_vol": 0.1170636263309271,
+          "positive_rate": 0.23076923076923078
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.10473075042826385,
+          "ann_vol": 0.19656441560893562,
+          "positive_rate": 0.275
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.524593242798942,
+          "ann_vol": 0.5937067180854602,
+          "positive_rate": 0.40625
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.6433450435688948,
+      "beta_level": 0.010047609571815231,
+      "beta_slope3": -0.018769850382066154,
+      "beta_level_ci90": [
+        0.0004959766335478084,
+        0.019599242510082653
+      ],
+      "beta_slope3_ci90": [
+        -0.03618674297318694,
+        -0.0013529577909453631
+      ],
+      "p_level": 0.083583110293375,
+      "p_slope3": 0.07629051168594547,
+      "impact_bps_per_1sigma": 212.89944609434332,
+      "in_sample_r2": 0.040861333739877326,
+      "oos_r2": 0.044538158015691276,
+      "oos_folds": 3,
+      "confidence": "high",
+      "actual_2019": 0.0,
+      "c4_assoc_contribution_2019": -0.08196203969415489
+    },
+    {
+      "asset_id": "海外指数/ETF||印度ETF(INDA)",
+      "category": "海外指数/ETF",
+      "name": "印度ETF(INDA)",
+      "start": "2012-02",
+      "end": "2024-10",
+      "n_months": 153,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 40,
+          "ann_return": 0.01018437887738637,
+          "ann_vol": 0.23005445219231843,
+          "positive_rate": 0.55
+        },
+        "expansion": {
+          "n": 36,
+          "ann_return": 0.22575279518094493,
+          "ann_vol": 0.17694029369305916,
+          "positive_rate": 0.6111111111111112
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.20420039017846395,
+          "ann_vol": 0.14435604856429232,
+          "positive_rate": 0.725
+        },
+        "contraction": {
+          "n": 37,
+          "ann_return": -0.09932198747436466,
+          "ann_vol": 0.18159775666763442,
+          "positive_rate": 0.4594594594594595
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.10950636635175102,
+      "beta_level": 0.00820346022258835,
+      "beta_slope3": 0.005133642590733039,
+      "beta_level_ci90": [
+        0.001711827836018802,
+        0.014695092609157898
+      ],
+      "beta_slope3_ci90": [
+        -0.00201321391542064,
+        0.012280499096886718
+      ],
+      "p_level": 0.03765435457250695,
+      "p_slope3": 0.23739972748759608,
+      "impact_bps_per_1sigma": 96.7734704725306,
+      "in_sample_r2": 0.03780022024085161,
+      "oos_r2": 0.038533479372351076,
+      "oos_folds": 5,
+      "confidence": "high",
+      "actual_2019": 0.0649421319912089,
+      "c4_assoc_contribution_2019": -0.12459730117602703
+    },
+    {
+      "asset_id": "海外指数/ETF||纳指100(QQQ)",
+      "category": "海外指数/ETF",
+      "name": "纳指100(QQQ)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.2244939754672441,
+          "ann_vol": 0.17646979199900617,
+          "positive_rate": 0.6666666666666666
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.27975731289067163,
+          "ann_vol": 0.16317332720434072,
+          "positive_rate": 0.6785714285714286
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.16869616648973768,
+          "ann_vol": 0.13666012347198925,
+          "positive_rate": 0.6290322580645161
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.06745743887947231,
+          "ann_vol": 0.24357047930051298,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.2919514143467164,
+      "beta_level": 0.0031727737526863246,
+      "beta_slope3": 0.009867355509346393,
+      "beta_level_ci90": [
+        -0.00281087592573722,
+        0.009156423431109869
+      ],
+      "beta_slope3_ci90": [
+        0.003139822077413778,
+        0.016594888941279008
+      ],
+      "p_level": 0.3831166754177834,
+      "p_slope3": 0.01584236756095238,
+      "impact_bps_per_1sigma": 103.64902220164159,
+      "in_sample_r2": 0.04298040010212456,
+      "oos_r2": 0.037421064910434954,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.3896003415896754,
+      "c4_assoc_contribution_2019": -0.06734945618511844
+    },
+    {
+      "asset_id": "海外指数/ETF||罗素2000(IWM)",
+      "category": "海外指数/ETF",
+      "name": "罗素2000(IWM)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.13479840943366975,
+          "ann_vol": 0.22164565187595284,
+          "positive_rate": 0.631578947368421
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.26254091245599037,
+          "ann_vol": 0.18325520024353756,
+          "positive_rate": 0.6964285714285714
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.05851350684055258,
+          "ann_vol": 0.14115514393148423,
+          "positive_rate": 0.5967741935483871
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.07957273840257921,
+          "ann_vol": 0.24696308301198497,
+          "positive_rate": 0.5384615384615384
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.21437114783624894,
+      "beta_level": 0.0023919406919661167,
+      "beta_slope3": 0.011511662395414696,
+      "beta_level_ci90": [
+        -0.00408377914654261,
+        0.008867660530474844
+      ],
+      "beta_slope3_ci90": [
+        0.004965348692014568,
+        0.018057976098814824
+      ],
+      "p_level": 0.5434789295823351,
+      "p_slope3": 0.0038222872296882183,
+      "impact_bps_per_1sigma": 117.5754019256954,
+      "in_sample_r2": 0.04452091604425734,
+      "oos_r2": 0.033592667338705584,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.25393047724319007,
+      "c4_assoc_contribution_2019": -0.06473357935835444
+    },
+    {
+      "asset_id": "美股行业ETF||美股原材料(XLB)",
+      "category": "美股行业ETF",
+      "name": "美股原材料(XLB)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.18630804949296054,
+          "ann_vol": 0.22278119150520123,
+          "positive_rate": 0.543859649122807
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.19904343394096163,
+          "ann_vol": 0.16010205761143972,
+          "positive_rate": 0.6964285714285714
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.10571067332314293,
+          "ann_vol": 0.12890498486970078,
+          "positive_rate": 0.6290322580645161
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.13317268685279962,
+          "ann_vol": 0.27013255284883186,
+          "positive_rate": 0.4423076923076923
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.31948073634576013,
+      "beta_level": 0.0038115755310007614,
+      "beta_slope3": 0.012607149805964321,
+      "beta_level_ci90": [
+        -0.0030717122797914802,
+        0.010694863341793003
+      ],
+      "beta_slope3_ci90": [
+        0.004926089791850586,
+        0.020288209820078056
+      ],
+      "p_level": 0.3623865760119924,
+      "p_slope3": 0.006939229585205591,
+      "impact_bps_per_1sigma": 131.70737802361336,
+      "in_sample_r2": 0.05738593838443273,
+      "oos_r2": 0.0321811888252338,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.24133103343614537,
+      "c4_assoc_contribution_2019": -0.08349078575780912
+    },
+    {
+      "asset_id": "外汇||美元指数DXY",
+      "category": "外汇",
+      "name": "美元指数DXY",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": -0.03760883354922858,
+          "ann_vol": 0.07343083998758981,
+          "positive_rate": 0.38596491228070173
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": -0.029313534527074192,
+          "ann_vol": 0.07177443266980801,
+          "positive_rate": 0.48214285714285715
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.01634048036469109,
+          "ann_vol": 0.0678644125899731,
+          "positive_rate": 0.5
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": 0.09514310622328884,
+          "ann_vol": 0.08734457858903552,
+          "positive_rate": 0.6538461538461539
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.13275193977251742,
+      "beta_level": -0.0013462456246218293,
+      "beta_slope3": -0.0033041708223432572,
+      "beta_level_ci90": [
+        -0.003949338491121729,
+        0.0012568472418780707
+      ],
+      "beta_slope3_ci90": [
+        -0.006256915837616004,
+        -0.0003514258070705101
+      ],
+      "p_level": 0.39495184094291924,
+      "p_slope3": 0.06567747181887096,
+      "impact_bps_per_1sigma": 35.67901638924192,
+      "in_sample_r2": 0.030670641620426764,
+      "oos_r2": 0.03071024699287206,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.002287628417301457,
+      "c4_assoc_contribution_2019": 0.02555185791573458
+    },
+    {
+      "asset_id": "美股行业ETF||美股工业(XLI)",
+      "category": "美股行业ETF",
+      "name": "美股工业(XLI)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.1433723883947175,
+          "ann_vol": 0.20990539680441941,
+          "positive_rate": 0.6491228070175439
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.21830085650249065,
+          "ann_vol": 0.16696848855337965,
+          "positive_rate": 0.6607142857142857
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.10691980013850337,
+          "ann_vol": 0.1271038659373156,
+          "positive_rate": 0.6129032258064516
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.05214927019660943,
+          "ann_vol": 0.23951694768578163,
+          "positive_rate": 0.5384615384615384
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.19552165859132692,
+      "beta_level": 0.0036827620645384857,
+      "beta_slope3": 0.011336076301990461,
+      "beta_level_ci90": [
+        -0.0026149888039176967,
+        0.009980512932994668
+      ],
+      "beta_slope3_ci90": [
+        0.004959160234756735,
+        0.017712992369224186
+      ],
+      "p_level": 0.33611595403820516,
+      "p_slope3": 0.003455501862814648,
+      "impact_bps_per_1sigma": 119.19285311987186,
+      "in_sample_r2": 0.05406671433733434,
+      "oos_r2": 0.02826440849629097,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.29079870614580705,
+      "c4_assoc_contribution_2019": -0.07777293063937146
+    },
+    {
+      "asset_id": "海外指数/ETF||标普500(SPY)",
+      "category": "海外指数/ETF",
+      "name": "标普500(SPY)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.16093146691560495,
+          "ann_vol": 0.15950638745116766,
+          "positive_rate": 0.7192982456140351
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.19614643583321742,
+          "ann_vol": 0.1298669558176199,
+          "positive_rate": 0.75
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.1265714040509548,
+          "ann_vol": 0.10422898077630269,
+          "positive_rate": 0.6774193548387096
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.05348516606969918,
+          "ann_vol": 0.2011481764950075,
+          "positive_rate": 0.5384615384615384
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.2144166329853041,
+      "beta_level": 0.0024207609610840918,
+      "beta_slope3": 0.009037408533974436,
+      "beta_level_ci90": [
+        -0.0027696131165911584,
+        0.007611135038759342
+      ],
+      "beta_slope3_ci90": [
+        0.003627287777378237,
+        0.014447529290570634
+      ],
+      "p_level": 0.4429921108571586,
+      "p_slope3": 0.0060020800793780735,
+      "impact_bps_per_1sigma": 93.56005378400695,
+      "in_sample_r2": 0.05049658370085863,
+      "oos_r2": 0.028117295462198433,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.312220211750178,
+      "c4_assoc_contribution_2019": -0.05655769412961724
+    },
+    {
+      "asset_id": "美股行业ETF||美股信息科技(XLK)",
+      "category": "美股行业ETF",
+      "name": "美股信息科技(XLK)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.22413234971371285,
+          "ann_vol": 0.17262939835510174,
+          "positive_rate": 0.6842105263157895
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.25242082723320536,
+          "ann_vol": 0.1672496445083897,
+          "positive_rate": 0.6964285714285714
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.15220772974939245,
+          "ann_vol": 0.14346727262255105,
+          "positive_rate": 0.6612903225806451
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.04545182163106224,
+          "ann_vol": 0.23666488325214874,
+          "positive_rate": 0.4807692307692308
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.2695841713447751,
+      "beta_level": 0.002089799105274201,
+      "beta_slope3": 0.009050895170725912,
+      "beta_level_ci90": [
+        -0.003476719626292073,
+        0.007656317836840475
+      ],
+      "beta_slope3_ci90": [
+        0.002517787747339806,
+        0.01558400259411202
+      ],
+      "p_level": 0.5368945191581255,
+      "p_slope3": 0.02268120955601777,
+      "impact_bps_per_1sigma": 92.89023828792479,
+      "in_sample_r2": 0.03409719740166517,
+      "oos_r2": 0.025473032928924,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.4983953716843139,
+      "c4_assoc_contribution_2019": -0.053106373721639476
+    },
+    {
+      "asset_id": "风格/规模指数||创业板指",
+      "category": "风格/规模指数",
+      "name": "创业板指",
+      "start": "2010-07",
+      "end": "2024-10",
+      "n_months": 172,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 40,
+          "ann_return": 0.12441520195285266,
+          "ann_vol": 0.2750488755453049,
+          "positive_rate": 0.65
+        },
+        "expansion": {
+          "n": 39,
+          "ann_return": 0.21224768608116507,
+          "ann_vol": 0.3009598874308363,
+          "positive_rate": 0.48717948717948717
+        },
+        "downturn": {
+          "n": 51,
+          "ann_return": 0.07465193772886555,
+          "ann_vol": 0.2836913772652488,
+          "positive_rate": 0.47058823529411764
+        },
+        "contraction": {
+          "n": 42,
+          "ann_return": 0.04095032158342504,
+          "ann_vol": 0.4126814673269879,
+          "positive_rate": 0.42857142857142855
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.08346488036942762,
+      "beta_level": -0.00042464868210629865,
+      "beta_slope3": 0.009783231949942846,
+      "beta_level_ci90": [
+        -0.008589974667128589,
+        0.007740677302915992
+      ],
+      "beta_slope3_ci90": [
+        -0.0029580449277304167,
+        0.02252450882761611
+      ],
+      "p_level": 0.931829863145426,
+      "p_slope3": 0.2065961788332673,
+      "impact_bps_per_1sigma": 97.92443713884555,
+      "in_sample_r2": 0.011163432906413417,
+      "oos_r2": 0.020174056392041728,
+      "oos_folds": 7,
+      "confidence": "low",
+      "actual_2019": 0.437890485995881,
+      "c4_assoc_contribution_2019": -0.0247869988309209
+    },
+    {
+      "asset_id": "商品||中国大宗商品价格综合指数",
+      "category": "商品",
+      "name": "中国大宗商品价格综合指数",
+      "start": "2012-01",
+      "end": "2024-10",
+      "n_months": 154,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 40,
+          "ann_return": -0.011438702630598364,
+          "ann_vol": 0.09574277271884098,
+          "positive_rate": 0.5
+        },
+        "expansion": {
+          "n": 36,
+          "ann_return": 0.10617098341653759,
+          "ann_vol": 0.08222426928632048,
+          "positive_rate": 0.6111111111111112
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.026498652769760014,
+          "ann_vol": 0.13252258270854325,
+          "positive_rate": 0.525
+        },
+        "contraction": {
+          "n": 38,
+          "ann_return": -0.12645658234792972,
+          "ann_vol": 0.09370486407979083,
+          "positive_rate": 0.3157894736842105
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.11501787971733136,
+      "beta_level": 0.0038278433974944133,
+      "beta_slope3": 0.0037100708268573103,
+      "beta_level_ci90": [
+        -0.0005748316600929617,
+        0.008230518455081787
+      ],
+      "beta_slope3_ci90": [
+        -0.001461028751101507,
+        0.008881170404816128
+      ],
+      "p_level": 0.15268985222660475,
+      "p_slope3": 0.23795207418686637,
+      "impact_bps_per_1sigma": 53.30760791485514,
+      "in_sample_r2": 0.03783413409657277,
+      "oos_r2": 0.015457325062786409,
+      "oos_folds": 5,
+      "confidence": "medium",
+      "actual_2019": -0.07159090909090915,
+      "c4_assoc_contribution_2019": -0.06311925763081966
+    },
+    {
+      "asset_id": "美股行业ETF||美股医疗保健(XLV)",
+      "category": "美股行业ETF",
+      "name": "美股医疗保健(XLV)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.10166193212463803,
+          "ann_vol": 0.14865464372623838,
+          "positive_rate": 0.5789473684210527
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.16940843851370174,
+          "ann_vol": 0.11048132378741511,
+          "positive_rate": 0.6964285714285714
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.10875007181107146,
+          "ann_vol": 0.11549702368973791,
+          "positive_rate": 0.6451612903225806
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": 0.025922717987857086,
+          "ann_vol": 0.17647301324879186,
+          "positive_rate": 0.5576923076923077
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.07573921413678095,
+      "beta_level": 0.0019006755978478057,
+      "beta_slope3": 0.005138454074991196,
+      "beta_level_ci90": [
+        -0.002208433610085801,
+        0.006009784805781413
+      ],
+      "beta_slope3_ci90": [
+        0.0005644465216023261,
+        0.009712461628380065
+      ],
+      "p_level": 0.4467586724826633,
+      "p_slope3": 0.06462641926429624,
+      "impact_bps_per_1sigma": 54.78711345658552,
+      "in_sample_r2": 0.021458666468067822,
+      "oos_r2": 0.015297966179703026,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.1995631941916629,
+      "c4_assoc_contribution_2019": -0.037697941464897224
+    },
+    {
+      "asset_id": "美股行业ETF||美股金融(XLF)",
+      "category": "美股行业ETF",
+      "name": "美股金融(XLF)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.14170112366830587,
+          "ann_vol": 0.28471526339131353,
+          "positive_rate": 0.6491228070175439
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.17794768282741877,
+          "ann_vol": 0.15733152835086814,
+          "positive_rate": 0.6071428571428571
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.05543821868349646,
+          "ann_vol": 0.1611339856321068,
+          "positive_rate": 0.5483870967741935
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.11469186900864689,
+          "ann_vol": 0.26634064075908565,
+          "positive_rate": 0.46153846153846156
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.25639299267695276,
+      "beta_level": 0.0001474900046825056,
+      "beta_slope3": 0.01554839143540265,
+      "beta_level_ci90": [
+        -0.010147050192735797,
+        0.01044203020210081
+      ],
+      "beta_slope3_ci90": [
+        0.006836321628336663,
+        0.024260461242468636
+      ],
+      "p_level": 0.9811989217072781,
+      "p_slope3": 0.0033294320911545004,
+      "impact_bps_per_1sigma": 155.49090955100357,
+      "in_sample_r2": 0.05837038368141745,
+      "oos_r2": 0.009513514157398095,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.31852036650639626,
+      "c4_assoc_contribution_2019": -0.05485043002123706
+    },
+    {
+      "asset_id": "风格/规模指数||创业板指(ETF累计净值)",
+      "category": "风格/规模指数",
+      "name": "创业板指(ETF累计净值)",
+      "start": "2011-10",
+      "end": "2024-10",
+      "n_months": 157,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 40,
+          "ann_return": 0.12749278248948587,
+          "ann_vol": 0.2721054093860177,
+          "positive_rate": 0.65
+        },
+        "expansion": {
+          "n": 36,
+          "ann_return": 0.213694994904096,
+          "ann_vol": 0.3047723038297271,
+          "positive_rate": 0.4722222222222222
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.08883105261933133,
+          "ann_vol": 0.28363079259532054,
+          "positive_rate": 0.475
+        },
+        "contraction": {
+          "n": 41,
+          "ann_return": 0.05237117313993016,
+          "ann_vol": 0.40938542218235735,
+          "positive_rate": 0.43902439024390244
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.07512160934955571,
+      "beta_level": 0.0005435550054006507,
+      "beta_slope3": 0.008037313710132067,
+      "beta_level_ci90": [
+        -0.007980216617653118,
+        0.009067326628454418
+      ],
+      "beta_slope3_ci90": [
+        -0.007016103072037719,
+        0.023090730492301852
+      ],
+      "p_level": 0.9164621615656978,
+      "p_slope3": 0.37982459556342507,
+      "impact_bps_per_1sigma": 80.55672766378547,
+      "in_sample_r2": 0.007863400213373728,
+      "oos_r2": 0.00905174041674961,
+      "oos_folds": 6,
+      "confidence": "low",
+      "actual_2019": 0.4429320133935073,
+      "c4_assoc_contribution_2019": -0.03713937357592168
+    },
+    {
+      "asset_id": "美股行业ETF||美股可选消费(XLY)",
+      "category": "美股行业ETF",
+      "name": "美股可选消费(XLY)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.18402949359728776,
+          "ann_vol": 0.2149010630632284,
+          "positive_rate": 0.631578947368421
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.22929465710247054,
+          "ann_vol": 0.16523124097245162,
+          "positive_rate": 0.6785714285714286
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.11726721180304601,
+          "ann_vol": 0.12712413992955413,
+          "positive_rate": 0.5483870967741935
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.05993448967020075,
+          "ann_vol": 0.24395034907752333,
+          "positive_rate": 0.5384615384615384
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.24396398326748853,
+      "beta_level": 0.00044675254043102645,
+      "beta_slope3": 0.010748839048914998,
+      "beta_level_ci90": [
+        -0.00551959844736739,
+        0.006413103528229443
+      ],
+      "beta_slope3_ci90": [
+        0.004787675869791975,
+        0.01671000222803802
+      ],
+      "p_level": 0.9019768496253769,
+      "p_slope3": 0.0030178987453444396,
+      "impact_bps_per_1sigma": 107.5811920048581,
+      "in_sample_r2": 0.038566909591708276,
+      "oos_r2": 0.007540117373114219,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.2839466596266931,
+      "c4_assoc_contribution_2019": -0.04156261878271004
+    },
+    {
+      "asset_id": "申万一级行业||电力设备",
+      "category": "申万一级行业",
+      "name": "电力设备",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.006392650415693878,
+          "ann_vol": 0.276914701084139,
+          "positive_rate": 0.5
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": 0.15619469280683257,
+          "ann_vol": 0.28443212986020566,
+          "positive_rate": 0.5384615384615384
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.14163375470063677,
+          "ann_vol": 0.2646978018300208,
+          "positive_rate": 0.475
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.13357585583777642,
+          "ann_vol": 0.414952426504715,
+          "positive_rate": 0.46875
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.12718320542208256,
+      "beta_level": 0.005796107097272685,
+      "beta_slope3": -0.0015327983800939842,
+      "beta_level_ci90": [
+        -0.005637951256416956,
+        0.017230165450962325
+      ],
+      "beta_slope3_ci90": [
+        -0.018304242769452063,
+        0.015238646009264096
+      ],
+      "p_level": 0.40439222024683386,
+      "p_slope3": 0.8805053124558402,
+      "impact_bps_per_1sigma": 59.95358901439807,
+      "in_sample_r2": 0.004143027576016034,
+      "oos_r2": 0.007009352542435732,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.2437355223658919,
+      "c4_assoc_contribution_2019": -0.0817902344328211
+    },
+    {
+      "asset_id": "申万一级行业||国防军工",
+      "category": "申万一级行业",
+      "name": "国防军工",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": -0.05161948384851285,
+          "ann_vol": 0.27104458033136786,
+          "positive_rate": 0.5
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": 0.06135021020763389,
+          "ann_vol": 0.3219822998902996,
+          "positive_rate": 0.5384615384615384
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.21032458189056633,
+          "ann_vol": 0.2815596116139437,
+          "positive_rate": 0.525
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.13216570975896239,
+          "ann_vol": 0.4318502225654828,
+          "positive_rate": 0.46875
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.18378519360747525,
+      "beta_level": 0.006628138600514113,
+      "beta_slope3": -0.005655804916861034,
+      "beta_level_ci90": [
+        -0.005788477571254169,
+        0.019044754772282395
+      ],
+      "beta_slope3_ci90": [
+        -0.02241405892237365,
+        0.011102449088651585
+      ],
+      "p_level": 0.3799206066010622,
+      "p_slope3": 0.5788073079720404,
+      "impact_bps_per_1sigma": 87.1322848117818,
+      "in_sample_r2": 0.007270342909329153,
+      "oos_r2": 0.00612083871071234,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.2718660373523629,
+      "c4_assoc_contribution_2019": -0.07904055679779694
+    },
+    {
+      "asset_id": "申万一级行业||建筑装饰",
+      "category": "申万一级行业",
+      "name": "建筑装饰",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.11439018943016924,
+          "ann_vol": 0.27545595233844467,
+          "positive_rate": 0.5333333333333333
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": -0.16305296316338458,
+          "ann_vol": 0.16307412232734372,
+          "positive_rate": 0.34615384615384615
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.18229547986800465,
+          "ann_vol": 0.28347878447642644,
+          "positive_rate": 0.5
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.07798417202563736,
+          "ann_vol": 0.3438549200118494,
+          "positive_rate": 0.40625
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": 0.03640601740453188,
+      "beta_level": 0.007885531821636475,
+      "beta_slope3": -0.006137490065177719,
+      "beta_level_ci90": [
+        -0.0038731988145038008,
+        0.01964426245777675
+      ],
+      "beta_slope3_ci90": [
+        -0.023543186802152824,
+        0.011268206671797384
+      ],
+      "p_level": 0.2700025797100851,
+      "p_slope3": 0.561915830990995,
+      "impact_bps_per_1sigma": 99.92517020760918,
+      "in_sample_r2": 0.013368495449262108,
+      "oos_r2": 0.005593758173160768,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": -0.021150286986060696,
+      "c4_assoc_contribution_2019": -0.09623012541379117
+    },
+    {
+      "asset_id": "各类债券指数||上证转债",
+      "category": "各类债券指数",
+      "name": "上证转债",
+      "start": "2012-10",
+      "end": "2024-10",
+      "n_months": 145,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 37,
+          "ann_return": 0.04834285835429257,
+          "ann_vol": 0.10009620747531692,
+          "positive_rate": 0.6486486486486487
+        },
+        "expansion": {
+          "n": 36,
+          "ann_return": -0.021234541744862057,
+          "ann_vol": 0.0918873088049462,
+          "positive_rate": 0.4166666666666667
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.17248753047122234,
+          "ann_vol": 0.16908548358557177,
+          "positive_rate": 0.65
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": -0.08904157789278026,
+          "ann_vol": 0.22404027364455772,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.13738443624707283,
+      "beta_level": 0.004826806711447652,
+      "beta_slope3": -0.0011276971947935981,
+      "beta_level_ci90": [
+        -0.001771172775751977,
+        0.011424786198647282
+      ],
+      "beta_slope3_ci90": [
+        -0.010880044954371866,
+        0.00862465056478467
+      ],
+      "p_level": 0.2288577978543429,
+      "p_slope3": 0.8491523888572307,
+      "impact_bps_per_1sigma": 49.56789686159929,
+      "in_sample_r2": 0.011701261669325613,
+      "oos_r2": 0.0035198937232598926,
+      "oos_folds": 5,
+      "confidence": "low",
+      "actual_2019": 0.21714358875872208,
+      "c4_assoc_contribution_2019": -0.06373545512264754
+    },
+    {
+      "asset_id": "申万一级行业||汽车",
+      "category": "申万一级行业",
+      "name": "汽车",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.055282848194195995,
+          "ann_vol": 0.258623734315645,
+          "positive_rate": 0.5333333333333333
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": 0.1923576916941206,
+          "ann_vol": 0.22887072819571927,
+          "positive_rate": 0.6538461538461539
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.12271260668571682,
+          "ann_vol": 0.22059885790231729,
+          "positive_rate": 0.55
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.06746427415300366,
+          "ann_vol": 0.35434115524256976,
+          "positive_rate": 0.53125
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.012181425958807661,
+      "beta_level": 0.004322464898975457,
+      "beta_slope3": 0.001985380758088967,
+      "beta_level_ci90": [
+        -0.005147868330097339,
+        0.013792798128048255
+      ],
+      "beta_slope3_ci90": [
+        -0.011309723487845733,
+        0.015280485004023667
+      ],
+      "p_level": 0.45280507094535527,
+      "p_slope3": 0.805969579014091,
+      "impact_bps_per_1sigma": 47.566206026405794,
+      "in_sample_r2": 0.0042624995019759915,
+      "oos_r2": 0.0027080868100387567,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.1460262893586366,
+      "c4_assoc_contribution_2019": -0.07261047353965924
+    },
+    {
+      "asset_id": "美股行业ETF||美股能源(XLE)",
+      "category": "美股行业ETF",
+      "name": "美股能源(XLE)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.09101392931613768,
+          "ann_vol": 0.2981842721693147,
+          "positive_rate": 0.5964912280701754
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.06468854487143642,
+          "ann_vol": 0.2105960346251345,
+          "positive_rate": 0.5
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.17820429436688623,
+          "ann_vol": 0.208607290411775,
+          "positive_rate": 0.6451612903225806
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.004017880416781775,
+          "ann_vol": 0.3347932867318469,
+          "positive_rate": 0.4807692307692308
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.09503180973291946,
+      "beta_level": 0.008349352621881474,
+      "beta_slope3": 0.0043265779438233865,
+      "beta_level_ci90": [
+        0.0009452812057431405,
+        0.015753424038019808
+      ],
+      "beta_slope3_ci90": [
+        -0.0038580020751823553,
+        0.012511157962829127
+      ],
+      "p_level": 0.06361724308215874,
+      "p_slope3": 0.3845673556805581,
+      "impact_bps_per_1sigma": 94.03774024746558,
+      "in_sample_r2": 0.01791370347478638,
+      "oos_r2": 0.00019586905477708694,
+      "oos_folds": 11,
+      "confidence": "high",
+      "actual_2019": 0.10654867331812756,
+      "c4_assoc_contribution_2019": -0.10306371614293
+    },
+    {
+      "asset_id": "A股宽基指数||中证500(ETF累计净值)",
+      "category": "A股宽基指数",
+      "name": "中证500(ETF累计净值)",
+      "start": "2013-03",
+      "end": "2024-10",
+      "n_months": 140,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 32,
+          "ann_return": 0.015076576156307725,
+          "ann_vol": 0.23037005030101979,
+          "positive_rate": 0.46875
+        },
+        "expansion": {
+          "n": 36,
+          "ann_return": 0.10265731313499818,
+          "ann_vol": 0.22432869882331166,
+          "positive_rate": 0.5555555555555556
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.10976545185036196,
+          "ann_vol": 0.19166848926430444,
+          "positive_rate": 0.475
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.11979935896949587,
+          "ann_vol": 0.34652671539205016,
+          "positive_rate": 0.53125
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.10472278281318814,
+      "beta_level": 0.004229609363682866,
+      "beta_slope3": -0.0007960029616147082,
+      "beta_level_ci90": [
+        -0.004011420489237048,
+        0.01247063921660278
+      ],
+      "beta_slope3_ci90": [
+        -0.013861218626586354,
+        0.012269212703356937
+      ],
+      "p_level": 0.39855691554045525,
+      "p_slope3": 0.9201749884219581,
+      "impact_bps_per_1sigma": 43.03860602325912,
+      "in_sample_r2": 0.00337462408557454,
+      "oos_r2": -0.0005187024285879804,
+      "oos_folds": 4,
+      "confidence": "low",
+      "actual_2019": 0.2790790630745863,
+      "c4_assoc_contribution_2019": -0.06209353617162064
+    },
+    {
+      "asset_id": "各类债券指数||国证转债",
+      "category": "各类债券指数",
+      "name": "国证转债",
+      "start": "2014-09",
+      "end": "2024-10",
+      "n_months": 122,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.03718447528545443,
+          "ann_vol": 0.09484797775905839,
+          "positive_rate": 0.7333333333333333
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": -0.01407043869892185,
+          "ann_vol": 0.10317844104561202,
+          "positive_rate": 0.46153846153846156
+        },
+        "downturn": {
+          "n": 34,
+          "ann_return": 0.1884298413757854,
+          "ann_vol": 0.17600455135132836,
+          "positive_rate": 0.5588235294117647
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": -0.058279414192862394,
+          "ann_vol": 0.2424345411513782,
+          "positive_rate": 0.53125
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.09546388947831683,
+      "beta_level": 0.007059330517323941,
+      "beta_slope3": -0.0017159462782182842,
+      "beta_level_ci90": [
+        -0.0007866400044868769,
+        0.014905301039134757
+      ],
+      "beta_slope3_ci90": [
+        -0.012421448052293409,
+        0.00898955549585684
+      ],
+      "p_level": 0.1388892667160796,
+      "p_slope3": 0.7920514323879142,
+      "impact_bps_per_1sigma": 72.648894680203,
+      "in_sample_r2": 0.02066745456272545,
+      "oos_r2": -0.0012724380231015076,
+      "oos_folds": 3,
+      "confidence": "medium",
+      "actual_2019": 0.2506246709109188,
+      "c4_assoc_contribution_2019": -0.09878809575832645
+    },
+    {
+      "asset_id": "A股宽基指数||中证1000",
+      "category": "A股宽基指数",
+      "name": "中证1000",
+      "start": "2014-11",
+      "end": "2024-10",
+      "n_months": 120,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.011465858075540326,
+          "ann_vol": 0.26046569249609364,
+          "positive_rate": 0.5
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": -0.08154168433485989,
+          "ann_vol": 0.2272107678308257,
+          "positive_rate": 0.46153846153846156
+        },
+        "downturn": {
+          "n": 32,
+          "ann_return": 0.022491536303669693,
+          "ann_vol": 0.23055000005049373,
+          "positive_rate": 0.4375
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.18964992825703086,
+          "ann_vol": 0.4167367757680762,
+          "positive_rate": 0.46875
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": -0.17818407018149054,
+      "beta_level": -0.0029183105771815585,
+      "beta_slope3": -0.003059023154003121,
+      "beta_level_ci90": [
+        -0.012940895682302252,
+        0.007104274527939136
+      ],
+      "beta_slope3_ci90": [
+        -0.02014789762484461,
+        0.014029851316838371
+      ],
+      "p_level": 0.631982958493216,
+      "p_slope3": 0.7684218335303328,
+      "impact_bps_per_1sigma": 42.277842047125546,
+      "in_sample_r2": 0.002929342666019741,
+      "oos_r2": -0.004158015577378604,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.2566597833330029,
+      "c4_assoc_contribution_2019": 0.05458400061313607
+    },
+    {
+      "asset_id": "申万一级行业||机械设备",
+      "category": "申万一级行业",
+      "name": "机械设备",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.03754906474189901,
+          "ann_vol": 0.2715541072543781,
+          "positive_rate": 0.43333333333333335
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": 0.0441993542335667,
+          "ann_vol": 0.22011614618626033,
+          "positive_rate": 0.6153846153846154
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.08922703686558792,
+          "ann_vol": 0.2128279826334763,
+          "positive_rate": 0.5
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.14901934236893782,
+          "ann_vol": 0.4061411118115793,
+          "positive_rate": 0.59375
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.11147027762703882,
+      "beta_level": 0.00312922091787102,
+      "beta_slope3": -0.0019082643538350635,
+      "beta_level_ci90": [
+        -0.007409461462876265,
+        0.013667903298618306
+      ],
+      "beta_slope3_ci90": [
+        -0.0179989943042327,
+        0.01418246559656257
+      ],
+      "p_level": 0.6252653389276082,
+      "p_slope3": 0.8453383010786192,
+      "impact_bps_per_1sigma": 36.651734470498255,
+      "in_sample_r2": 0.0017486560861199596,
+      "oos_r2": -0.0045507503255264314,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.23915754322187932,
+      "c4_assoc_contribution_2019": -0.040144711745876444
+    },
+    {
+      "asset_id": "美股行业ETF||美股必选消费(XLP)",
+      "category": "美股行业ETF",
+      "name": "美股必选消费(XLP)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.09278212912298144,
+          "ann_vol": 0.12048290015876183,
+          "positive_rate": 0.6491228070175439
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.0910715847926114,
+          "ann_vol": 0.10923807662706767,
+          "positive_rate": 0.5714285714285714
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.0995419224925738,
+          "ann_vol": 0.10447974094685261,
+          "positive_rate": 0.6129032258064516
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": 0.07100624069933842,
+          "ann_vol": 0.14749909161180655,
+          "positive_rate": 0.5769230769230769
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.021775888423643017,
+      "beta_level": 0.001000913064851165,
+      "beta_slope3": 0.003130851258839078,
+      "beta_level_ci90": [
+        -0.0029423812345815833,
+        0.004944207364283914
+      ],
+      "beta_slope3_ci90": [
+        -0.0001833519285645716,
+        0.006445054446242727
+      ],
+      "p_level": 0.6763071394432367,
+      "p_slope3": 0.12021894621544647,
+      "impact_bps_per_1sigma": 32.869524743086856,
+      "in_sample_r2": 0.010224678934437903,
+      "oos_r2": -0.0045900058516956665,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.27443667004820327,
+      "c4_assoc_contribution_2019": -0.021308396192229934
+    },
+    {
+      "asset_id": "风格/规模指数||上证小盘",
+      "category": "风格/规模指数",
+      "name": "上证小盘",
+      "start": "2009-09",
+      "end": "2024-10",
+      "n_months": 182,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 43,
+          "ann_return": 0.06671279553136747,
+          "ann_vol": 0.24463613751851224,
+          "positive_rate": 0.46511627906976744
+        },
+        "expansion": {
+          "n": 46,
+          "ann_return": 0.08481501120977887,
+          "ann_vol": 0.22027861705599586,
+          "positive_rate": 0.5652173913043478
+        },
+        "downturn": {
+          "n": 51,
+          "ann_return": 0.08851548597948342,
+          "ann_vol": 0.18893735543573478,
+          "positive_rate": 0.5098039215686274
+        },
+        "contraction": {
+          "n": 42,
+          "ann_return": 0.02609619721986335,
+          "ann_vol": 0.3230359819080768,
+          "positive_rate": 0.5238095238095238
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.04061659831150412,
+      "beta_level": 0.00309481825537927,
+      "beta_slope3": 0.0052817753283054885,
+      "beta_level_ci90": [
+        -0.00447441776429384,
+        0.01066405427505238
+      ],
+      "beta_slope3_ci90": [
+        -0.0050597165890959315,
+        0.01562326724570691
+      ],
+      "p_level": 0.5012476318459207,
+      "p_slope3": 0.4008599128831347,
+      "impact_bps_per_1sigma": 61.21686912324522,
+      "in_sample_r2": 0.008848990714040661,
+      "oos_r2": -0.006012665432254982,
+      "oos_folds": 8,
+      "confidence": "low",
+      "actual_2019": 0.2288960455492448,
+      "c4_assoc_contribution_2019": -0.060753645562534715
+    },
+    {
+      "asset_id": "海外指数/ETF||法国CAC40(^FCHI)",
+      "category": "海外指数/ETF",
+      "name": "法国CAC40(^FCHI)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.09178789738338948,
+          "ann_vol": 0.17136080545967064,
+          "positive_rate": 0.6666666666666666
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.15178711214720217,
+          "ann_vol": 0.15665330206591263,
+          "positive_rate": 0.5892857142857143
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": -0.00762902709251704,
+          "ann_vol": 0.14297097241337703,
+          "positive_rate": 0.5161290322580645
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.08230266854745516,
+          "ann_vol": 0.20250238819451957,
+          "positive_rate": 0.46153846153846156
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.17409056593084465,
+      "beta_level": 0.0005987425402466173,
+      "beta_slope3": 0.009741180754633073,
+      "beta_level_ci90": [
+        -0.004651387836641394,
+        0.005848872917134629
+      ],
+      "beta_slope3_ci90": [
+        0.003929864006596765,
+        0.015552497502669382
+      ],
+      "p_level": 0.8512022646756192,
+      "p_slope3": 0.005830316248107456,
+      "impact_bps_per_1sigma": 97.59564289656313,
+      "in_sample_r2": 0.04112187173208992,
+      "oos_r2": -0.007605943187116049,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.2636761513938295,
+      "c4_assoc_contribution_2019": -0.03971509441181934
+    },
+    {
+      "asset_id": "海外指数/ETF||英国富时100(^FTSE)",
+      "category": "海外指数/ETF",
+      "name": "英国富时100(^FTSE)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.07169742034978073,
+          "ann_vol": 0.14424903619937451,
+          "positive_rate": 0.7192982456140351
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.08888843821432309,
+          "ann_vol": 0.12588253397715027,
+          "positive_rate": 0.5535714285714286
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.016710055067872077,
+          "ann_vol": 0.10253291392449541,
+          "positive_rate": 0.5161290322580645
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.06323459023173933,
+          "ann_vol": 0.15112268655592442,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.13493201058152005,
+      "beta_level": 0.00043125212040467627,
+      "beta_slope3": 0.00670377067877541,
+      "beta_level_ci90": [
+        -0.0034815221613749225,
+        0.0043440264021842746
+      ],
+      "beta_slope3_ci90": [
+        0.0024386949718286045,
+        0.010968846385722215
+      ],
+      "p_level": 0.8561400019944596,
+      "p_slope3": 0.009727965936430345,
+      "impact_bps_per_1sigma": 67.17627535444524,
+      "in_sample_r2": 0.03236156726508621,
+      "oos_r2": -0.007753593092046707,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.12102968042510964,
+      "c4_assoc_contribution_2019": -0.0275344270209638
+    },
+    {
+      "asset_id": "申万一级行业||传媒",
+      "category": "申万一级行业",
+      "name": "传媒",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.15396095652686104,
+          "ann_vol": 0.32231075775053336,
+          "positive_rate": 0.5666666666666667
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": -0.12387055729782533,
+          "ann_vol": 0.24437714491141,
+          "positive_rate": 0.34615384615384615
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": -0.07412453220050633,
+          "ann_vol": 0.2467126971053389,
+          "positive_rate": 0.375
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.1034366302581322,
+          "ann_vol": 0.4256153618540482,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": 0.05052432626872884,
+      "beta_level": -0.0035123483328657907,
+      "beta_slope3": -0.0037833989882755372,
+      "beta_level_ci90": [
+        -0.014031543925588467,
+        0.007006847259856886
+      ],
+      "beta_slope3_ci90": [
+        -0.022087167018815995,
+        0.014520369042264919
+      ],
+      "p_level": 0.5828579842267405,
+      "p_slope3": 0.7338624353617671,
+      "impact_bps_per_1sigma": 51.62431473237147,
+      "in_sample_r2": 0.0037179414046346615,
+      "oos_r2": -0.007871075845031994,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.21199971488648894,
+      "c4_assoc_contribution_2019": 0.06705887036769487
+    },
+    {
+      "asset_id": "申万一级行业||建筑材料",
+      "category": "申万一级行业",
+      "name": "建筑材料",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.21177094692236792,
+          "ann_vol": 0.3040172011083055,
+          "positive_rate": 0.6666666666666666
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": -0.02321045745480406,
+          "ann_vol": 0.22571495263335448,
+          "positive_rate": 0.46153846153846156
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.07100374287594019,
+          "ann_vol": 0.220607454236579,
+          "positive_rate": 0.55
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.0529963012433947,
+          "ann_vol": 0.33046970400931713,
+          "positive_rate": 0.46875
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": 0.1587746456789732,
+      "beta_level": 0.0011803569674053932,
+      "beta_slope3": 0.0036996020161414005,
+      "beta_level_ci90": [
+        -0.007958158778454592,
+        0.01031887271326538
+      ],
+      "beta_slope3_ci90": [
+        -0.009616700156814678,
+        0.01701590418909748
+      ],
+      "p_level": 0.8317528429300255,
+      "p_slope3": 0.6476843399128749,
+      "impact_bps_per_1sigma": 38.83335891773975,
+      "in_sample_r2": 0.002701962157530269,
+      "oos_r2": -0.008366467798030408,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.5102529107080118,
+      "c4_assoc_contribution_2019": -0.03155082823748213
+    },
+    {
+      "asset_id": "风格/规模指数||创业板50",
+      "category": "风格/规模指数",
+      "name": "创业板50",
+      "start": "2014-07",
+      "end": "2024-10",
+      "n_months": 124,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.08186700158329013,
+          "ann_vol": 0.2844331708479145,
+          "positive_rate": 0.6666666666666666
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": 0.0926453704479628,
+          "ann_vol": 0.30655175563568743,
+          "positive_rate": 0.4230769230769231
+        },
+        "downturn": {
+          "n": 36,
+          "ann_return": 0.12726773212683337,
+          "ann_vol": 0.31887449627181125,
+          "positive_rate": 0.4722222222222222
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.09581146970716423,
+          "ann_vol": 0.4517013860064822,
+          "positive_rate": 0.4375
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.013944468123874093,
+      "beta_level": 0.002835604888803265,
+      "beta_slope3": -0.0002978789510032767,
+      "beta_level_ci90": [
+        -0.0079349321339996,
+        0.013606141911606131
+      ],
+      "beta_slope3_ci90": [
+        -0.02026523225739495,
+        0.019669474355388395
+      ],
+      "p_level": 0.6649802044475636,
+      "p_slope3": 0.9804231393537197,
+      "impact_bps_per_1sigma": 28.512079816905306,
+      "in_sample_r2": 0.0008047468751298803,
+      "oos_r2": -0.008728002965992854,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.5092563288769711,
+      "c4_assoc_contribution_2019": -0.04138745203759889
+    },
+    {
+      "asset_id": "风格/规模指数||中小盘(深证)",
+      "category": "风格/规模指数",
+      "name": "中小盘(深证)",
+      "start": "2013-04",
+      "end": "2024-10",
+      "n_months": 139,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 31,
+          "ann_return": 0.012158465704301666,
+          "ann_vol": 0.23698175820895284,
+          "positive_rate": 0.4838709677419355
+        },
+        "expansion": {
+          "n": 36,
+          "ann_return": 0.07448598056497387,
+          "ann_vol": 0.22230784043330037,
+          "positive_rate": 0.5277777777777778
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.09034229552815157,
+          "ann_vol": 0.19102201452682752,
+          "positive_rate": 0.45
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.08764010856858227,
+          "ann_vol": 0.34735527455150983,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.07548164286428061,
+      "beta_level": 0.0038583467440086046,
+      "beta_slope3": -0.0005613063446749839,
+      "beta_level_ci90": [
+        -0.004586391761176367,
+        0.012303085249193577
+      ],
+      "beta_slope3_ci90": [
+        -0.01387169587708617,
+        0.012749083187736201
+      ],
+      "p_level": 0.45233793422263124,
+      "p_slope3": 0.9446995896526094,
+      "impact_bps_per_1sigma": 38.989619656485736,
+      "in_sample_r2": 0.002780010362725127,
+      "oos_r2": -0.009856681183823657,
+      "oos_folds": 4,
+      "confidence": "low",
+      "actual_2019": 0.30598865603172665,
+      "c4_assoc_contribution_2019": -0.057834285828126164
+    },
+    {
+      "asset_id": "风格/规模指数||全指成长",
+      "category": "风格/规模指数",
+      "name": "全指成长",
+      "start": "2010-02",
+      "end": "2024-10",
+      "n_months": 177,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 40,
+          "ann_return": 0.044139883951012454,
+          "ann_vol": 0.2246797036090221,
+          "positive_rate": 0.45
+        },
+        "expansion": {
+          "n": 44,
+          "ann_return": 0.045632261020144796,
+          "ann_vol": 0.20895730634349438,
+          "positive_rate": 0.5681818181818182
+        },
+        "downturn": {
+          "n": 51,
+          "ann_return": 0.0801228819236148,
+          "ann_vol": 0.21614753535951012,
+          "positive_rate": 0.47058823529411764
+        },
+        "contraction": {
+          "n": 42,
+          "ann_return": -0.03166640370701446,
+          "ann_vol": 0.26742568917631154,
+          "positive_rate": 0.5476190476190477
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.07580628765802691,
+      "beta_level": 0.0026642201376101318,
+      "beta_slope3": 0.0017749543307838777,
+      "beta_level_ci90": [
+        -0.0043539598181702,
+        0.009682400093390463
+      ],
+      "beta_slope3_ci90": [
+        -0.007238992102717216,
+        0.010788900764284973
+      ],
+      "p_level": 0.5323555144988499,
+      "p_slope3": 0.746020226684402,
+      "impact_bps_per_1sigma": 32.01332819001454,
+      "in_sample_r2": 0.0028838959090803362,
+      "oos_r2": -0.010744754151483793,
+      "oos_folds": 7,
+      "confidence": "low",
+      "actual_2019": 0.4272531027679465,
+      "c4_assoc_contribution_2019": -0.04045636674546681
+    },
+    {
+      "asset_id": "美股行业ETF||美股公用事业(XLU)",
+      "category": "美股行业ETF",
+      "name": "美股公用事业(XLU)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.07421713443374778,
+          "ann_vol": 0.15250434301819496,
+          "positive_rate": 0.6491228070175439
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.11278730551601777,
+          "ann_vol": 0.12574945342164937,
+          "positive_rate": 0.6607142857142857
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.13509438749443106,
+          "ann_vol": 0.1424610768936124,
+          "positive_rate": 0.6451612903225806
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": 0.009173058437827427,
+          "ann_vol": 0.1643501214647713,
+          "positive_rate": 0.5961538461538461
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.06504407599592035,
+      "beta_level": 0.003172756054398707,
+      "beta_slope3": 0.003057382224942985,
+      "beta_level_ci90": [
+        -0.0012163939223323182,
+        0.007561906031129733
+      ],
+      "beta_slope3_ci90": [
+        -0.0014235747180394213,
+        0.00753833916792539
+      ],
+      "p_level": 0.23443787552502393,
+      "p_slope3": 0.26173791645591693,
+      "impact_bps_per_1sigma": 44.06128351525971,
+      "in_sample_r2": 0.013363531531051631,
+      "oos_r2": -0.011248841261376707,
+      "oos_folds": 11,
+      "confidence": "low",
+      "actual_2019": 0.25929105568303923,
+      "c4_assoc_contribution_2019": -0.044008230061546694
+    },
+    {
+      "asset_id": "风格/规模指数||超大盘",
+      "category": "风格/规模指数",
+      "name": "超大盘",
+      "start": "2009-05",
+      "end": "2024-10",
+      "n_months": 186,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 47,
+          "ann_return": 0.13414056345002892,
+          "ann_vol": 0.29003303508539974,
+          "positive_rate": 0.48936170212765956
+        },
+        "expansion": {
+          "n": 46,
+          "ann_return": -0.06721609528232468,
+          "ann_vol": 0.18927535853894423,
+          "positive_rate": 0.5652173913043478
+        },
+        "downturn": {
+          "n": 51,
+          "ann_return": 0.06618920486100857,
+          "ann_vol": 0.2280265492499192,
+          "positive_rate": 0.49019607843137253
+        },
+        "contraction": {
+          "n": 42,
+          "ann_return": -0.04117500781734394,
+          "ann_vol": 0.2544546423866706,
+          "positive_rate": 0.4523809523809524
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": 0.17531557126737285,
+      "beta_level": -0.001089522338632461,
+      "beta_slope3": 3.794703511883707e-05,
+      "beta_level_ci90": [
+        -0.008844846755252553,
+        0.00666580207798763
+      ],
+      "beta_slope3_ci90": [
+        -0.009127701723691648,
+        0.009203595793929322
+      ],
+      "p_level": 0.8172522111863753,
+      "p_slope3": 0.9945665133998939,
+      "impact_bps_per_1sigma": 10.90182968062452,
+      "in_sample_r2": 0.0002423179791847252,
+      "oos_r2": -0.012868058741105859,
+      "oos_folds": 8,
+      "confidence": "low",
+      "actual_2019": 0.2660225982575639,
+      "c4_assoc_contribution_2019": 0.012677113765186591
+    },
+    {
+      "asset_id": "各类债券指数||深证转债",
+      "category": "各类债券指数",
+      "name": "深证转债",
+      "start": "2014-09",
+      "end": "2024-10",
+      "n_months": 122,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.07700290156650724,
+          "ann_vol": 0.09971758931025525,
+          "positive_rate": 0.6666666666666666
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": -0.05484861218417101,
+          "ann_vol": 0.13530317316059937,
+          "positive_rate": 0.34615384615384615
+        },
+        "downturn": {
+          "n": 34,
+          "ann_return": 0.19650801521448902,
+          "ann_vol": 0.13867224394951236,
+          "positive_rate": 0.6176470588235294
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.11086491186310073,
+          "ann_vol": 0.3554378371814641,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": -0.033862010296593484,
+      "beta_level": 0.003972256457993576,
+      "beta_slope3": -0.007114722940756407,
+      "beta_level_ci90": [
+        -0.0038474659572773316,
+        0.011791978873264483
+      ],
+      "beta_slope3_ci90": [
+        -0.01840460733426756,
+        0.004175161452754745
+      ],
+      "p_level": 0.40340728839112217,
+      "p_slope3": 0.2999395067007441,
+      "impact_bps_per_1sigma": 81.48503168791012,
+      "in_sample_r2": 0.015633240875345678,
+      "oos_r2": -0.01771775683120369,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.32159263159112705,
+      "c4_assoc_contribution_2019": -0.033185184218155764
+    },
+    {
+      "asset_id": "申万一级行业||电子",
+      "category": "申万一级行业",
+      "name": "电子",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.4111300366193352,
+          "ann_vol": 0.3257256817059252,
+          "positive_rate": 0.7017543859649122
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.31190104053847295,
+          "ann_vol": 0.28860912859257154,
+          "positive_rate": 0.6428571428571429
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.1553043208389528,
+          "ann_vol": 0.31533188964161757,
+          "positive_rate": 0.5483870967741935
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.2005508174715356,
+          "ann_vol": 0.44794136828955156,
+          "positive_rate": 0.46153846153846156
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.6116808540908708,
+      "beta_level": -0.0024062272777007794,
+      "beta_slope3": 0.0253958654554772,
+      "beta_level_ci90": [
+        -0.014299087224078025,
+        0.009486632668676467
+      ],
+      "beta_slope3_ci90": [
+        0.014130638107724944,
+        0.03666109280322946
+      ],
+      "p_level": 0.7392885668899833,
+      "p_slope3": 0.00020882810930254598,
+      "impact_bps_per_1sigma": 255.09604307880815,
+      "in_sample_r2": 0.061150240430334124,
+      "oos_r2": -0.018012931074349536,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.73767021026929,
+      "c4_assoc_contribution_2019": -0.06161521199837049
+    },
+    {
+      "asset_id": "申万一级行业||通信",
+      "category": "申万一级行业",
+      "name": "通信",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.1256188376582443,
+          "ann_vol": 0.2731155636487587,
+          "positive_rate": 0.6
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": -0.1178890851836969,
+          "ann_vol": 0.24829846259670632,
+          "positive_rate": 0.4230769230769231
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.10067513820850449,
+          "ann_vol": 0.2347940722794959,
+          "positive_rate": 0.525
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.2631805730248735,
+          "ann_vol": 0.41158575135687053,
+          "positive_rate": 0.5625
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": -0.13756173536662922,
+      "beta_level": -0.0013810260330438377,
+      "beta_slope3": -0.006345257979368717,
+      "beta_level_ci90": [
+        -0.012149201270947398,
+        0.009387149204859724
+      ],
+      "beta_slope3_ci90": [
+        -0.021848636553964382,
+        0.009158120595226946
+      ],
+      "p_level": 0.8329234531742722,
+      "p_slope3": 0.5008140648842637,
+      "impact_bps_per_1sigma": 64.93807182900272,
+      "in_sample_r2": 0.006094065998141773,
+      "oos_r2": -0.019730097776876176,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.19963787344301176,
+      "c4_assoc_contribution_2019": 0.04440213786108299
+    },
+    {
+      "asset_id": "A股宽基指数||沪深300(ETF累计净值)",
+      "category": "A股宽基指数",
+      "name": "沪深300(ETF累计净值)",
+      "start": "2012-06",
+      "end": "2024-10",
+      "n_months": 149,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 40,
+          "ann_return": 0.05715468700303056,
+          "ann_vol": 0.20587858139479842,
+          "positive_rate": 0.5
+        },
+        "expansion": {
+          "n": 36,
+          "ann_return": 0.0757516313051638,
+          "ann_vol": 0.17172533191412861,
+          "positive_rate": 0.5833333333333334
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.12828563949427535,
+          "ann_vol": 0.20879806561604825,
+          "positive_rate": 0.55
+        },
+        "contraction": {
+          "n": 33,
+          "ann_return": -0.004702403741934738,
+          "ann_vol": 0.2532118248015147,
+          "positive_rate": 0.5454545454545454
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.061857090744965294,
+      "beta_level": 0.0055300714796933164,
+      "beta_slope3": -0.00025519419697197046,
+      "beta_level_ci90": [
+        -0.002427922619443878,
+        0.013488065578830512
+      ],
+      "beta_slope3_ci90": [
+        -0.011130411823043754,
+        0.010620023429099814
+      ],
+      "p_level": 0.2530296761117933,
+      "p_slope3": 0.9692112304080228,
+      "impact_bps_per_1sigma": 55.35956525180232,
+      "in_sample_r2": 0.008368782320303247,
+      "oos_r2": -0.02529694073894717,
+      "oos_folds": 5,
+      "confidence": "low",
+      "actual_2019": 0.3428363753836219,
+      "c4_assoc_contribution_2019": -0.07126016702910701
+    },
+    {
+      "asset_id": "申万一级行业||医药生物",
+      "category": "申万一级行业",
+      "name": "医药生物",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.3148989335398592,
+          "ann_vol": 0.23295549757132533,
+          "positive_rate": 0.6666666666666666
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.28777098211169694,
+          "ann_vol": 0.2691386790275905,
+          "positive_rate": 0.6785714285714286
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.14088473174687266,
+          "ann_vol": 0.31141279535241956,
+          "positive_rate": 0.5
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.06700594514701358,
+          "ann_vol": 0.37905710954216637,
+          "positive_rate": 0.5192307692307693
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.3819048786868728,
+      "beta_level": -0.0001668402712031078,
+      "beta_slope3": 0.01935571092114536,
+      "beta_level_ci90": [
+        -0.011136879159906682,
+        0.010803198617500466
+      ],
+      "beta_slope3_ci90": [
+        0.009420659973495065,
+        0.029290761868795652
+      ],
+      "p_level": 0.9800421045708525,
+      "p_slope3": 0.0013527645086062819,
+      "impact_bps_per_1sigma": 193.5642996368496,
+      "in_sample_r2": 0.049167938256796107,
+      "oos_r2": -0.027936255192901438,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.36847448689589957,
+      "c4_assoc_contribution_2019": -0.0645781508463905
+    },
+    {
+      "asset_id": "申万一级行业||社会服务",
+      "category": "申万一级行业",
+      "name": "社会服务",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.29284685089710794,
+          "ann_vol": 0.3046554098072584,
+          "positive_rate": 0.5614035087719298
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.3638779756917059,
+          "ann_vol": 0.35126493310364465,
+          "positive_rate": 0.625
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.13797392483547247,
+          "ann_vol": 0.3181790235119122,
+          "positive_rate": 0.5967741935483871
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.0664445890168756,
+          "ann_vol": 0.4084601827513965,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.35929143991398355,
+      "beta_level": 0.0002742143570493281,
+      "beta_slope3": 0.0205276025912898,
+      "beta_level_ci90": [
+        -0.01233345427787646,
+        0.012881882991975116
+      ],
+      "beta_slope3_ci90": [
+        0.008245342700467192,
+        0.03280986248211241
+      ],
+      "p_level": 0.9714615691810055,
+      "p_slope3": 0.005976299767237853,
+      "impact_bps_per_1sigma": 205.29434031641978,
+      "in_sample_r2": 0.04252179259071709,
+      "oos_r2": -0.02972275991861628,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.27922710520970284,
+      "c4_assoc_contribution_2019": -0.07325577096233091
+    },
+    {
+      "asset_id": "申万一级行业||家用电器",
+      "category": "申万一级行业",
+      "name": "家用电器",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.4060139277610413,
+          "ann_vol": 0.264637241209211,
+          "positive_rate": 0.7368421052631579
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.31726997437168825,
+          "ann_vol": 0.2510467155868937,
+          "positive_rate": 0.6607142857142857
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.20029146863256717,
+          "ann_vol": 0.29104750275362556,
+          "positive_rate": 0.46774193548387094
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.1272992966964408,
+          "ann_vol": 0.3693747336097764,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.5333132244574821,
+      "beta_level": 0.0016392824519848195,
+      "beta_slope3": 0.021218279124110586,
+      "beta_level_ci90": [
+        -0.01050165100084737,
+        0.01378021590481701
+      ],
+      "beta_slope3_ci90": [
+        0.009232685195115898,
+        0.03320387305310527
+      ],
+      "p_level": 0.8242438366780533,
+      "p_slope3": 0.0035922683676006826,
+      "impact_bps_per_1sigma": 212.81508779831668,
+      "in_sample_r2": 0.06300971599173166,
+      "oos_r2": -0.031582413871909853,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.5698534159886346,
+      "c4_assoc_contribution_2019": -0.09004884508762437
+    },
+    {
+      "asset_id": "申万一级行业||银行",
+      "category": "申万一级行业",
+      "name": "银行",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.04738582164041119,
+          "ann_vol": 0.17902066181994541,
+          "positive_rate": 0.5333333333333333
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": 0.10597677308709652,
+          "ann_vol": 0.14396961139731687,
+          "positive_rate": 0.5384615384615384
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.13605136215644825,
+          "ann_vol": 0.2678001731688469,
+          "positive_rate": 0.525
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.006705650823135179,
+          "ann_vol": 0.1985330185962496,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.04068017081727601,
+      "beta_level": 0.006624170949512573,
+      "beta_slope3": -0.0025569153512798844,
+      "beta_level_ci90": [
+        -0.0013284248518573814,
+        0.014576766750882528
+      ],
+      "beta_slope3_ci90": [
+        -0.011866782212825982,
+        0.006752951510266212
+      ],
+      "p_level": 0.17065803858627093,
+      "p_slope3": 0.6514476127523618,
+      "impact_bps_per_1sigma": 71.00525113115017,
+      "in_sample_r2": 0.012693537786393594,
+      "oos_r2": -0.031962085432730714,
+      "oos_folds": 3,
+      "confidence": "medium",
+      "actual_2019": 0.22932665858060686,
+      "c4_assoc_contribution_2019": -0.09048600075522997
+    },
+    {
+      "asset_id": "申万一级行业||计算机",
+      "category": "申万一级行业",
+      "name": "计算机",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.11382053651990671,
+          "ann_vol": 0.31513567528931785,
+          "positive_rate": 0.6333333333333333
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": -0.14966957450199234,
+          "ann_vol": 0.26975363521546347,
+          "positive_rate": 0.3076923076923077
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.15196279421874564,
+          "ann_vol": 0.30192506096958255,
+          "positive_rate": 0.375
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.25652316310105705,
+          "ann_vol": 0.5011465059438756,
+          "positive_rate": 0.5625
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": -0.14270262658115035,
+      "beta_level": -0.0003572760742860436,
+      "beta_slope3": -0.008570679816323081,
+      "beta_level_ci90": [
+        -0.012061491683715342,
+        0.011346939535143253
+      ],
+      "beta_slope3_ci90": [
+        -0.028154362783215564,
+        0.0110130031505694
+      ],
+      "p_level": 0.9599551666147557,
+      "p_slope3": 0.4716110800067542,
+      "impact_bps_per_1sigma": 85.78123262531561,
+      "in_sample_r2": 0.0070412943148493445,
+      "oos_r2": -0.03390425218342208,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.4804495122677803,
+      "c4_assoc_contribution_2019": 0.03721298179517444
+    },
+    {
+      "asset_id": "申万一级行业||钢铁",
+      "category": "申万一级行业",
+      "name": "钢铁",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.20845878755151376,
+          "ann_vol": 0.3290616890000065,
+          "positive_rate": 0.5087719298245614
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.16294159486342144,
+          "ann_vol": 0.2841728885512462,
+          "positive_rate": 0.5535714285714286
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.32178165747348764,
+          "ann_vol": 0.359549263096198,
+          "positive_rate": 0.5806451612903226
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.37744083009807616,
+          "ann_vol": 0.37027422761948936,
+          "positive_rate": 0.4230769230769231
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.5858996176495899,
+      "beta_level": 0.01226449148883536,
+      "beta_slope3": 0.015842058863542487,
+      "beta_level_ci90": [
+        -0.00015043640462125522,
+        0.024679419382291977
+      ],
+      "beta_slope3_ci90": [
+        0.0020652430359885867,
+        0.029618874691096385
+      ],
+      "p_level": 0.10417911384287266,
+      "p_slope3": 0.05856711014116818,
+      "impact_bps_per_1sigma": 200.3468443763615,
+      "in_sample_r2": 0.04969870512764152,
+      "oos_r2": -0.037082642162042934,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": -0.020919311228119852,
+      "c4_assoc_contribution_2019": -0.1839072687029883
+    },
+    {
+      "asset_id": "申万一级行业||食品饮料",
+      "category": "申万一级行业",
+      "name": "食品饮料",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.37581689866456724,
+          "ann_vol": 0.2784582050198239,
+          "positive_rate": 0.6666666666666666
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.32610735263655566,
+          "ann_vol": 0.24769571426332757,
+          "positive_rate": 0.6428571428571429
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.17743885856581565,
+          "ann_vol": 0.3023406302238605,
+          "positive_rate": 0.532258064516129
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.07208745844263324,
+          "ann_vol": 0.36890659561475936,
+          "positive_rate": 0.5384615384615384
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.4479043571072005,
+      "beta_level": 0.0025247466452645952,
+      "beta_slope3": 0.01570451702910472,
+      "beta_level_ci90": [
+        -0.006679852740814373,
+        0.011729346031343563
+      ],
+      "beta_slope3_ci90": [
+        0.005296760362145846,
+        0.026112273696063594
+      ],
+      "p_level": 0.6518670632666705,
+      "p_slope3": 0.013066208066534002,
+      "impact_bps_per_1sigma": 159.06168637991206,
+      "in_sample_r2": 0.03546451932615402,
+      "oos_r2": -0.04076130785006282,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.728673650708276,
+      "c4_assoc_contribution_2019": -0.08050796925542877
+    },
+    {
+      "asset_id": "申万一级行业||基础化工",
+      "category": "申万一级行业",
+      "name": "基础化工",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.2783803902926401,
+          "ann_vol": 0.2909581576882265,
+          "positive_rate": 0.631578947368421
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.1904499485099247,
+          "ann_vol": 0.26878740841868776,
+          "positive_rate": 0.625
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.22243665914647584,
+          "ann_vol": 0.2754659738600861,
+          "positive_rate": 0.532258064516129
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.2140671204322328,
+          "ann_vol": 0.38649603919483916,
+          "positive_rate": 0.4230769230769231
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.4924475107248729,
+      "beta_level": 0.004344798204428931,
+      "beta_slope3": 0.015859238093870597,
+      "beta_level_ci90": [
+        -0.006758223790036402,
+        0.015447820198894263
+      ],
+      "beta_slope3_ci90": [
+        0.0043910821861761085,
+        0.027327394001565086
+      ],
+      "p_level": 0.5197967544296391,
+      "p_slope3": 0.022926491969549725,
+      "impact_bps_per_1sigma": 164.43621996241737,
+      "in_sample_r2": 0.03786315011617436,
+      "oos_r2": -0.047772530551694725,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.24221065351939286,
+      "c4_assoc_contribution_2019": -0.1002722510711761
+    },
+    {
+      "asset_id": "申万一级行业||非银金融",
+      "category": "申万一级行业",
+      "name": "非银金融",
+      "start": "2014-03",
+      "end": "2024-10",
+      "n_months": 128,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.06944505605426543,
+          "ann_vol": 0.2818273499312804,
+          "positive_rate": 0.4
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": 0.0386714211667367,
+          "ann_vol": 0.1888910822166729,
+          "positive_rate": 0.4230769230769231
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.26859296567667235,
+          "ann_vol": 0.4234935880135094,
+          "positive_rate": 0.475
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.017923834193392066,
+          "ann_vol": 0.3362163632740514,
+          "positive_rate": 0.53125
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.051521221860873365,
+      "beta_level": 0.008192126812479763,
+      "beta_slope3": -0.004081411076399746,
+      "beta_level_ci90": [
+        -0.005950595175581049,
+        0.022334848800540576
+      ],
+      "beta_slope3_ci90": [
+        -0.02260480956790329,
+        0.0144419874151038
+      ],
+      "p_level": 0.34070345447003836,
+      "p_slope3": 0.717035222052144,
+      "impact_bps_per_1sigma": 91.52532878187786,
+      "in_sample_r2": 0.008214852927246219,
+      "oos_r2": -0.05400529340522464,
+      "oos_folds": 3,
+      "confidence": "low",
+      "actual_2019": 0.4550750448637779,
+      "c4_assoc_contribution_2019": -0.1084912454667167
+    },
+    {
+      "asset_id": "申万一级行业||有色金属",
+      "category": "申万一级行业",
+      "name": "有色金属",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.4235255840605033,
+          "ann_vol": 0.4129783896319124,
+          "positive_rate": 0.5964912280701754
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.2520014336463944,
+          "ann_vol": 0.32174117680804787,
+          "positive_rate": 0.5714285714285714
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.3043965731313347,
+          "ann_vol": 0.40999259930785,
+          "positive_rate": 0.5
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.31098157283425054,
+          "ann_vol": 0.4386592369946513,
+          "positive_rate": 0.4423076923076923
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.7345071568947539,
+      "beta_level": 0.005005463261697111,
+      "beta_slope3": 0.021710464968132774,
+      "beta_level_ci90": [
+        -0.013342968010931596,
+        0.023353894534325816
+      ],
+      "beta_slope3_ci90": [
+        0.006609960818089181,
+        0.03681096911817637
+      ],
+      "p_level": 0.6536357659348235,
+      "p_slope3": 0.018037020695049644,
+      "impact_bps_per_1sigma": 222.8001237873803,
+      "in_sample_r2": 0.04035707169958758,
+      "oos_r2": -0.060676824326042045,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.24272174293650028,
+      "c4_assoc_contribution_2019": -0.12730899706839532
+    },
+    {
+      "asset_id": "申万一级行业||公用事业",
+      "category": "申万一级行业",
+      "name": "公用事业",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.15218191052723642,
+          "ann_vol": 0.2488543584513162,
+          "positive_rate": 0.5789473684210527
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.1130920572405778,
+          "ann_vol": 0.2116795644024133,
+          "positive_rate": 0.5714285714285714
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.20283492369931844,
+          "ann_vol": 0.3122886128603605,
+          "positive_rate": 0.5
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.10242619563285556,
+          "ann_vol": 0.3235946713771069,
+          "positive_rate": 0.4423076923076923
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.254608106160092,
+      "beta_level": 0.005105641259731515,
+      "beta_slope3": 0.011759291411660908,
+      "beta_level_ci90": [
+        -0.005718453035806896,
+        0.015929735555269928
+      ],
+      "beta_slope3_ci90": [
+        0.0014164532392565155,
+        0.0221021295840653
+      ],
+      "p_level": 0.4378288842825784,
+      "p_slope3": 0.06146763084278952,
+      "impact_bps_per_1sigma": 128.1984817294787,
+      "in_sample_r2": 0.02976037612306892,
+      "oos_r2": -0.06276277377750628,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.051197291833583236,
+      "c4_assoc_contribution_2019": -0.09426022375108986
+    },
+    {
+      "asset_id": "申万一级行业||房地产",
+      "category": "申万一级行业",
+      "name": "房地产",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.3172231730168273,
+          "ann_vol": 0.34870886890064906,
+          "positive_rate": 0.5789473684210527
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.012642319004764138,
+          "ann_vol": 0.2963150969953842,
+          "positive_rate": 0.4107142857142857
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.24803491033742414,
+          "ann_vol": 0.38144202832086427,
+          "positive_rate": 0.5161290322580645
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.09705017553969854,
+          "ann_vol": 0.3589788245870012,
+          "positive_rate": 0.4230769230769231
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.4142733485565258,
+      "beta_level": 0.0005537410526317056,
+      "beta_slope3": 0.012130782094292882,
+      "beta_level_ci90": [
+        -0.015630737358275346,
+        0.016738219463538755
+      ],
+      "beta_slope3_ci90": [
+        -0.0011166505635432505,
+        0.025378214752129015
+      ],
+      "p_level": 0.955120693843789,
+      "p_slope3": 0.13201433121223602,
+      "impact_bps_per_1sigma": 121.43413991649403,
+      "in_sample_r2": 0.014839834504080218,
+      "oos_r2": -0.06752819948632172,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.22752114118047473,
+      "c4_assoc_contribution_2019": -0.04742983469970513
+    },
+    {
+      "asset_id": "风格/规模指数||中证A500",
+      "category": "风格/规模指数",
+      "name": "中证A500",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.29218392925815717,
+          "ann_vol": 0.26837651695472364,
+          "positive_rate": 0.6140350877192983
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.20649628922051905,
+          "ann_vol": 0.23259809919891733,
+          "positive_rate": 0.6428571428571429
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.18636547593074182,
+          "ann_vol": 0.26680342919163763,
+          "positive_rate": 0.5161290322580645
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.2072068046855759,
+          "ann_vol": 0.3231575778562059,
+          "positive_rate": 0.5192307692307693
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.49939073394373307,
+      "beta_level": 0.0039768409601335115,
+      "beta_slope3": 0.01705360212474077,
+      "beta_level_ci90": [
+        -0.007214994103307774,
+        0.015168676023574797
+      ],
+      "beta_slope3_ci90": [
+        0.006019580942167452,
+        0.02808762330731409
+      ],
+      "p_level": 0.5589023741582264,
+      "p_slope3": 0.011015738743632843,
+      "impact_bps_per_1sigma": 175.1115671368281,
+      "in_sample_r2": 0.05287634644227046,
+      "oos_r2": -0.06850942664636195,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.3599876625408882,
+      "c4_assoc_contribution_2019": -0.10047740226785885
+    },
+    {
+      "asset_id": "申万一级行业||轻工制造",
+      "category": "申万一级行业",
+      "name": "轻工制造",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.2789528943585823,
+          "ann_vol": 0.2887245198438882,
+          "positive_rate": 0.631578947368421
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.25034826854539227,
+          "ann_vol": 0.2599957925809406,
+          "positive_rate": 0.6428571428571429
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.09947023829069422,
+          "ann_vol": 0.297122437645156,
+          "positive_rate": 0.4838709677419355
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.15820793250542978,
+          "ann_vol": 0.43180424096655784,
+          "positive_rate": 0.4230769230769231
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.43716082686401203,
+      "beta_level": 0.00236606358693484,
+      "beta_slope3": 0.019970382847307722,
+      "beta_level_ci90": [
+        -0.009635545895814841,
+        0.014367673069684523
+      ],
+      "beta_slope3_ci90": [
+        0.007801135199671339,
+        0.0321396304949441
+      ],
+      "p_level": 0.7457294440404886,
+      "p_slope3": 0.006948711177769359,
+      "impact_bps_per_1sigma": 201.10058377972487,
+      "in_sample_r2": 0.048637618111367575,
+      "oos_r2": -0.06890826643708436,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.19270405595146678,
+      "c4_assoc_contribution_2019": -0.09345219981240187
+    },
+    {
+      "asset_id": "A股宽基指数||沪深300",
+      "category": "A股宽基指数",
+      "name": "沪深300",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.2937623320729879,
+          "ann_vol": 0.27426700206695004,
+          "positive_rate": 0.6140350877192983
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.17281783851402632,
+          "ann_vol": 0.2353295727726588,
+          "positive_rate": 0.625
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.19411878267237537,
+          "ann_vol": 0.28700210897604805,
+          "positive_rate": 0.4838709677419355
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.22098545389416274,
+          "ann_vol": 0.31293191514634217,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.5147477859671507,
+      "beta_level": 0.004125775427570721,
+      "beta_slope3": 0.016069987955482173,
+      "beta_level_ci90": [
+        -0.007580730646477949,
+        0.015832281501619392
+      ],
+      "beta_slope3_ci90": [
+        0.004610434525281579,
+        0.027529541385682768
+      ],
+      "p_level": 0.5621149207745236,
+      "p_slope3": 0.02107629190341909,
+      "impact_bps_per_1sigma": 165.91158361250382,
+      "in_sample_r2": 0.046171683340636815,
+      "oos_r2": -0.06936691251062443,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.36069505163994253,
+      "c4_assoc_contribution_2019": -0.0986799983073656
+    },
+    {
+      "asset_id": "风格/规模指数||红利(ETF累计净值)",
+      "category": "风格/规模指数",
+      "name": "红利(ETF累计净值)",
+      "start": "2006-12",
+      "end": "2024-10",
+      "n_months": 215,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 51,
+          "ann_return": 0.21473427402010625,
+          "ann_vol": 0.2617897164210187,
+          "positive_rate": 0.5490196078431373
+        },
+        "expansion": {
+          "n": 50,
+          "ann_return": 0.0949228672688521,
+          "ann_vol": 0.2009786221492302,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.20907953369922358,
+          "ann_vol": 0.2726428413678925,
+          "positive_rate": 0.5806451612903226
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.16090437670823549,
+          "ann_vol": 0.3030014088437436,
+          "positive_rate": 0.5192307692307693
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.37563865072834174,
+      "beta_level": 0.004954526586386292,
+      "beta_slope3": 0.012300581407764584,
+      "beta_level_ci90": [
+        -0.006387353633493366,
+        0.01629640680626595
+      ],
+      "beta_slope3_ci90": [
+        0.001232246483503464,
+        0.023368916332025702
+      ],
+      "p_level": 0.4724311096898659,
+      "p_slope3": 0.06755308123809776,
+      "impact_bps_per_1sigma": 132.6090632891479,
+      "in_sample_r2": 0.03488853951712356,
+      "oos_r2": -0.07187454297983087,
+      "oos_folds": 10,
+      "confidence": "medium",
+      "actual_2019": 0.13146247750595785,
+      "c4_assoc_contribution_2019": -0.08789688879600267
+    },
+    {
+      "asset_id": "A股宽基指数||中证500",
+      "category": "A股宽基指数",
+      "name": "中证500",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.3194855207661279,
+          "ann_vol": 0.2954990942771977,
+          "positive_rate": 0.6140350877192983
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.2487203308800926,
+          "ann_vol": 0.26053997086598596,
+          "positive_rate": 0.6071428571428571
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.1865848546158626,
+          "ann_vol": 0.28999880750750456,
+          "positive_rate": 0.5
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.17206291109765776,
+          "ann_vol": 0.3920275199456809,
+          "positive_rate": 0.4807692307692308
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.49154843186378566,
+      "beta_level": 0.0021744340602641967,
+      "beta_slope3": 0.01991012735437118,
+      "beta_level_ci90": [
+        -0.010654065936790358,
+        0.015002934057318753
+      ],
+      "beta_slope3_ci90": [
+        0.008406532768208509,
+        0.03141372194053385
+      ],
+      "p_level": 0.7803959243485712,
+      "p_slope3": 0.004415130540827792,
+      "impact_bps_per_1sigma": 200.28513043901103,
+      "in_sample_r2": 0.05149650411607398,
+      "oos_r2": -0.07360673559031228,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.26382353703278905,
+      "c4_assoc_contribution_2019": -0.09122056889791472
+    },
+    {
+      "asset_id": "申万一级行业||商贸零售",
+      "category": "申万一级行业",
+      "name": "商贸零售",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.2331534788480326,
+          "ann_vol": 0.2986019635915889,
+          "positive_rate": 0.543859649122807
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.16837139509028573,
+          "ann_vol": 0.2841375534221553,
+          "positive_rate": 0.5357142857142857
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.1522102587606185,
+          "ann_vol": 0.3111981427251247,
+          "positive_rate": 0.5645161290322581
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.16893048733260863,
+          "ann_vol": 0.36872883986356775,
+          "positive_rate": 0.46153846153846156
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.40208396618064124,
+      "beta_level": 0.0034099678791029778,
+      "beta_slope3": 0.0189206792934966,
+      "beta_level_ci90": [
+        -0.009286046183003554,
+        0.01610598194120951
+      ],
+      "beta_slope3_ci90": [
+        0.007313579367230047,
+        0.030527779219763157
+      ],
+      "p_level": 0.6586453947636535,
+      "p_slope3": 0.007334370678708803,
+      "impact_bps_per_1sigma": 192.25503526926548,
+      "in_sample_r2": 0.04775280922841063,
+      "oos_r2": -0.0826732695724901,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.08798391320111176,
+      "c4_assoc_contribution_2019": -0.10088615657779164
+    },
+    {
+      "asset_id": "申万一级行业||农林牧渔",
+      "category": "申万一级行业",
+      "name": "农林牧渔",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.28554568649335127,
+          "ann_vol": 0.2876551388366612,
+          "positive_rate": 0.631578947368421
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.17349064995964392,
+          "ann_vol": 0.28149958571371164,
+          "positive_rate": 0.5714285714285714
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.16291342481895466,
+          "ann_vol": 0.3235912443122812,
+          "positive_rate": 0.5161290322580645
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.020473543932745836,
+          "ann_vol": 0.40621488598028244,
+          "positive_rate": 0.5384615384615384
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.30601923042609713,
+      "beta_level": 0.003004376988976051,
+      "beta_slope3": 0.01307565031519322,
+      "beta_level_ci90": [
+        -0.008394236316139184,
+        0.014402990294091284
+      ],
+      "beta_slope3_ci90": [
+        0.0015235900533923825,
+        0.024627710576994057
+      ],
+      "p_level": 0.6646221579599577,
+      "p_slope3": 0.06263244550851185,
+      "impact_bps_per_1sigma": 134.16367327153105,
+      "in_sample_r2": 0.022386647383456526,
+      "oos_r2": -0.08305377269012726,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.4544743078485598,
+      "c4_assoc_contribution_2019": -0.0765662318156809
+    },
+    {
+      "asset_id": "申万一级行业||交通运输",
+      "category": "申万一级行业",
+      "name": "交通运输",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.13193974784506735,
+          "ann_vol": 0.27103969725564275,
+          "positive_rate": 0.49122807017543857
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.16504685708533526,
+          "ann_vol": 0.24381533755479678,
+          "positive_rate": 0.5892857142857143
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.15754176062536704,
+          "ann_vol": 0.2794086697090714,
+          "positive_rate": 0.5161290322580645
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.15090289203267773,
+          "ann_vol": 0.3404491910912748,
+          "positive_rate": 0.5192307692307693
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.28284263987774505,
+      "beta_level": 0.006447630438848513,
+      "beta_slope3": 0.014892639081016136,
+      "beta_level_ci90": [
+        -0.00493867532549432,
+        0.017833936203191347
+      ],
+      "beta_slope3_ci90": [
+        0.003661427607089658,
+        0.026123850554942613
+      ],
+      "p_level": 0.35163746648954675,
+      "p_slope3": 0.029177231956707243,
+      "impact_bps_per_1sigma": 162.28451468743867,
+      "in_sample_r2": 0.04534650271467533,
+      "oos_r2": -0.08778137753514081,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.17284564697075666,
+      "c4_assoc_contribution_2019": -0.11918160757748995
+    },
+    {
+      "asset_id": "风格/规模指数||红利指数(上证)",
+      "category": "风格/规模指数",
+      "name": "红利指数(上证)",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.26137518847535446,
+          "ann_vol": 0.27244009810871417,
+          "positive_rate": 0.5614035087719298
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.12801704892291843,
+          "ann_vol": 0.23368168576575044,
+          "positive_rate": 0.6071428571428571
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.1944852867329226,
+          "ann_vol": 0.2942557283322245,
+          "positive_rate": 0.532258064516129
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.18136168590363758,
+          "ann_vol": 0.32207204908517656,
+          "positive_rate": 0.4807692307692308
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.442736874378992,
+      "beta_level": 0.004883205554533889,
+      "beta_slope3": 0.014069787021010444,
+      "beta_level_ci90": [
+        -0.006448501846877086,
+        0.016214912955944863
+      ],
+      "beta_slope3_ci90": [
+        0.0023275268721755452,
+        0.025812047169845344
+      ],
+      "p_level": 0.4784352249238827,
+      "p_slope3": 0.048736097655857485,
+      "impact_bps_per_1sigma": 148.93105898516419,
+      "in_sample_r2": 0.0376374885982369,
+      "oos_r2": -0.0964308938866465,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.10673014537326364,
+      "c4_assoc_contribution_2019": -0.09982873781746174
+    },
+    {
+      "asset_id": "申万一级行业||综合",
+      "category": "申万一级行业",
+      "name": "综合",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.33978006801931393,
+          "ann_vol": 0.3343273598114229,
+          "positive_rate": 0.6140350877192983
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.18902029514342567,
+          "ann_vol": 0.30255213252520635,
+          "positive_rate": 0.6071428571428571
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.1575148008545165,
+          "ann_vol": 0.3572459481779141,
+          "positive_rate": 0.46774193548387094
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.0791741501259356,
+          "ann_vol": 0.42686614775230436,
+          "positive_rate": 0.5
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.4189542181452495,
+      "beta_level": 0.0015282719307126652,
+      "beta_slope3": 0.020487014540088333,
+      "beta_level_ci90": [
+        -0.014179802534968745,
+        0.017236346396394073
+      ],
+      "beta_slope3_ci90": [
+        0.007803587707855194,
+        0.033170441372321474
+      ],
+      "p_level": 0.8728564155638343,
+      "p_slope3": 0.007887125334281904,
+      "impact_bps_per_1sigma": 205.4393778855444,
+      "in_sample_r2": 0.04125848875253557,
+      "oos_r2": -0.09669616640906686,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.2612706380549086,
+      "c4_assoc_contribution_2019": -0.08636931193449503
+    },
+    {
+      "asset_id": "申万一级行业||纺织服饰",
+      "category": "申万一级行业",
+      "name": "纺织服饰",
+      "start": "2005-12",
+      "end": "2024-10",
+      "n_months": 227,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 57,
+          "ann_return": 0.24008045487304625,
+          "ann_vol": 0.3112726601856109,
+          "positive_rate": 0.5789473684210527
+        },
+        "expansion": {
+          "n": 56,
+          "ann_return": 0.1508333366810083,
+          "ann_vol": 0.27040757438895247,
+          "positive_rate": 0.5714285714285714
+        },
+        "downturn": {
+          "n": 62,
+          "ann_return": 0.1473992994903669,
+          "ann_vol": 0.34268526286211526,
+          "positive_rate": 0.4838709677419355
+        },
+        "contraction": {
+          "n": 52,
+          "ann_return": -0.14469048862768893,
+          "ann_vol": 0.39601277103210253,
+          "positive_rate": 0.40384615384615385
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.38477094350073515,
+      "beta_level": 0.004589728092704545,
+      "beta_slope3": 0.0177391514910552,
+      "beta_level_ci90": [
+        -0.0100061485333524,
+        0.01918560471876149
+      ],
+      "beta_slope3_ci90": [
+        0.005359119077077456,
+        0.030119183905032945
+      ],
+      "p_level": 0.6049953429030114,
+      "p_slope3": 0.018428973201160326,
+      "impact_bps_per_1sigma": 183.23293906597888,
+      "in_sample_r2": 0.04052110475524806,
+      "oos_r2": -0.1138724709858343,
+      "oos_folds": 11,
+      "confidence": "medium",
+      "actual_2019": 0.07093401474026018,
+      "c4_assoc_contribution_2019": -0.10930398955156603
+    },
+    {
+      "asset_id": "各类债券指数||深公司债",
+      "category": "各类债券指数",
+      "name": "深公司债",
+      "start": "2013-05",
+      "end": "2024-10",
+      "n_months": 138,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.04947011313360581,
+          "ann_vol": 0.010099542170006236,
+          "positive_rate": 0.9
+        },
+        "expansion": {
+          "n": 36,
+          "ann_return": 0.023087424167210213,
+          "ann_vol": 0.01370958716632652,
+          "positive_rate": 0.75
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.052774518224638974,
+          "ann_vol": 0.01322669998747241,
+          "positive_rate": 0.9
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.057543924506658364,
+          "ann_vol": 0.009795292640617655,
+          "positive_rate": 0.9375
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": -0.008073811373052554,
+      "beta_level": -7.100586021947282e-05,
+      "beta_slope3": -0.0011387451387882782,
+      "beta_level_ci90": [
+        -0.0007197914802424352,
+        0.0005777797598034895
+      ],
+      "beta_slope3_ci90": [
+        -0.0017220952402976315,
+        -0.0005553950372789249
+      ],
+      "p_level": 0.8571370370992086,
+      "p_slope3": 0.001323276831419955,
+      "impact_bps_per_1sigma": 11.409567578569497,
+      "in_sample_r2": 0.10323418345086366,
+      "oos_r2": -0.20087913037389016,
+      "oos_folds": 4,
+      "confidence": "medium",
+      "actual_2019": 0.05894901514612849,
+      "c4_assoc_contribution_2019": 0.0067120079070424055
+    },
+    {
+      "asset_id": "各类债券指数||深信用债",
+      "category": "各类债券指数",
+      "name": "深信用债",
+      "start": "2013-05",
+      "end": "2024-10",
+      "n_months": 138,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 30,
+          "ann_return": 0.04840983521617144,
+          "ann_vol": 0.007848273880673799,
+          "positive_rate": 0.9333333333333333
+        },
+        "expansion": {
+          "n": 36,
+          "ann_return": 0.025529319172672094,
+          "ann_vol": 0.013321098309451794,
+          "positive_rate": 0.7777777777777778
+        },
+        "downturn": {
+          "n": 40,
+          "ann_return": 0.0524015806428377,
+          "ann_vol": 0.012290822044157667,
+          "positive_rate": 0.925
+        },
+        "contraction": {
+          "n": 32,
+          "ann_return": 0.057109692480855415,
+          "ann_vol": 0.009482417834642137,
+          "positive_rate": 0.96875
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": -0.008699857264683974,
+      "beta_level": -5.8096757648588284e-05,
+      "beta_slope3": -0.001133013546051151,
+      "beta_level_ci90": [
+        -0.0006723281825811523,
+        0.0005561346672839757
+      ],
+      "beta_slope3_ci90": [
+        -0.0016889012966547726,
+        -0.0005771257954475292
+      ],
+      "p_level": 0.8763659676483944,
+      "p_slope3": 0.000800707966492615,
+      "impact_bps_per_1sigma": 11.345020620451432,
+      "in_sample_r2": 0.11832567750674428,
+      "oos_r2": -0.3715294086409895,
+      "oos_folds": 4,
+      "confidence": "medium",
+      "actual_2019": 0.056618362156970914,
+      "c4_assoc_contribution_2019": 0.006480649452061417
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Durbl",
+      "category": "FF 17行业组合(US)",
+      "name": "Durbl",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.26960000000000006,
+          "ann_vol": 0.24165287087059406,
+          "positive_rate": 0.4444444444444444
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.32592,
+          "ann_vol": 0.27324710184495404,
+          "positive_rate": 0.7
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": -0.019333333333333334,
+          "ann_vol": 0.1629801672043589,
+          "positive_rate": 0.5
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.5409818181818181,
+          "ann_vol": 0.25880571020818616,
+          "positive_rate": 0.2727272727272727
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.8105818181818182,
+      "beta_level": 0.013991391349314198,
+      "beta_slope3": 0.02638678970151425,
+      "beta_level_ci90": [
+        0.0039445789774221335,
+        0.024038203721206262
+      ],
+      "beta_slope3_ci90": [
+        0.016649735606105776,
+        0.036123843796922725
+      ],
+      "p_level": 0.02198331867145598,
+      "p_slope3": 8.294136878269072e-06,
+      "impact_bps_per_1sigma": 298.66732373020034,
+      "in_sample_r2": 0.21523988664670513,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Cars",
+      "category": "FF 17行业组合(US)",
+      "name": "Cars",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.3212000000000001,
+          "ann_vol": 0.5649537414691578,
+          "positive_rate": 0.5555555555555556
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.54348,
+          "ann_vol": 0.5048349287968625,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.34600000000000003,
+          "ann_vol": 0.3090054482672167,
+          "positive_rate": 0.6111111111111112
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.31592727272727267,
+          "ann_vol": 0.4298861362986926,
+          "positive_rate": 0.18181818181818182
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.6371272727272728,
+      "beta_level": 0.023595842516616856,
+      "beta_slope3": 0.007087008086912634,
+      "beta_level_ci90": [
+        -0.001344142207298265,
+        0.04853582724053197
+      ],
+      "beta_slope3_ci90": [
+        -0.020693350284812402,
+        0.03486736645863767
+      ],
+      "p_level": 0.11965956042592617,
+      "p_slope3": 0.674765785075139,
+      "impact_bps_per_1sigma": 246.37156242004653,
+      "in_sample_r2": 0.043376784565682835,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Machn",
+      "category": "FF 17行业组合(US)",
+      "name": "Machn",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.5282666666666667,
+          "ann_vol": 0.22870094738180105,
+          "positive_rate": 0.7777777777777778
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.55284,
+          "ann_vol": 0.2671476021478264,
+          "positive_rate": 0.7
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.33926666666666666,
+          "ann_vol": 0.15039795706789397,
+          "positive_rate": 0.8333333333333334
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.28461818181818177,
+          "ann_vol": 0.3252927107027817,
+          "positive_rate": 0.45454545454545453
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.8128848484848484,
+      "beta_level": 0.011345457827808355,
+      "beta_slope3": 0.020162593188405662,
+      "beta_level_ci90": [
+        0.002320164633432698,
+        0.02037075102218401
+      ],
+      "beta_slope3_ci90": [
+        0.007749007892433412,
+        0.03257617848437791
+      ],
+      "p_level": 0.038668046766347934,
+      "p_slope3": 0.007548368917343781,
+      "impact_bps_per_1sigma": 231.35461469435188,
+      "in_sample_r2": 0.11902513554504124,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||FabPr",
+      "category": "FF 17行业组合(US)",
+      "name": "FabPr",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.3524,
+          "ann_vol": 0.2549671743577984,
+          "positive_rate": 0.5555555555555556
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.45012,
+          "ann_vol": 0.26824130678675623,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.2094666666666667,
+          "ann_vol": 0.14152102594425225,
+          "positive_rate": 0.6666666666666666
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.18610909090909092,
+          "ann_vol": 0.2717279575404248,
+          "positive_rate": 0.2727272727272727
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.5385090909090909,
+      "beta_level": 0.008303318954965689,
+      "beta_slope3": 0.01987475000191373,
+      "beta_level_ci90": [
+        -0.000727902878333582,
+        0.01733454078826496
+      ],
+      "beta_slope3_ci90": [
+        0.010184767705769626,
+        0.02956473229805783
+      ],
+      "p_level": 0.13046241742270784,
+      "p_slope3": 0.0007416622220639311,
+      "impact_bps_per_1sigma": 215.39517016554998,
+      "in_sample_r2": 0.12011683732332623,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Clths",
+      "category": "FF 17行业组合(US)",
+      "name": "Clths",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.27786666666666665,
+          "ann_vol": 0.306410269627722,
+          "positive_rate": 0.6666666666666666
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.2950799999999999,
+          "ann_vol": 0.25139182962061435,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.05306666666666668,
+          "ann_vol": 0.2228881298574972,
+          "positive_rate": 0.5
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.5157818181818182,
+          "ann_vol": 0.3064648163107205,
+          "positive_rate": 0.18181818181818182
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.7936484848484848,
+      "beta_level": 0.010706195937327865,
+      "beta_slope3": 0.01796664661248716,
+      "beta_level_ci90": [
+        -0.004148050224915243,
+        0.025560442099570972
+      ],
+      "beta_slope3_ci90": [
+        0.005156930024096725,
+        0.030776363200877597
+      ],
+      "p_level": 0.2358087381045728,
+      "p_slope3": 0.02105269783835672,
+      "impact_bps_per_1sigma": 209.14660454964408,
+      "in_sample_r2": 0.08154311361908495,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Finan",
+      "category": "FF 17行业组合(US)",
+      "name": "Finan",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.06306666666666669,
+          "ann_vol": 0.20168302688459763,
+          "positive_rate": 0.5555555555555556
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.41316,
+          "ann_vol": 0.2279602918638829,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.2861333333333333,
+          "ann_vol": 0.1502812996337463,
+          "positive_rate": 0.6666666666666666
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.027381818181818167,
+          "ann_vol": 0.23500705443957134,
+          "positive_rate": 0.36363636363636365
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.09044848484848486,
+      "beta_level": 0.016350886149998037,
+      "beta_slope3": 0.012903001339365193,
+      "beta_level_ci90": [
+        0.006096704036692928,
+        0.026605068263303146
+      ],
+      "beta_slope3_ci90": [
+        0.004088149182994107,
+        0.02171785349573628
+      ],
+      "p_level": 0.008720681770924157,
+      "p_slope3": 0.016053221834213975,
+      "impact_bps_per_1sigma": 208.28800288395334,
+      "in_sample_r2": 0.15485519207128773,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Steel",
+      "category": "FF 17行业组合(US)",
+      "name": "Steel",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.4113333333333334,
+          "ann_vol": 0.432543053733768,
+          "positive_rate": 0.5555555555555556
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.44699999999999995,
+          "ann_vol": 0.2762685770525969,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.3300666666666666,
+          "ann_vol": 0.32517439604485654,
+          "positive_rate": 0.6111111111111112
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": 0.2637818181818182,
+          "ann_vol": 0.5645500258049446,
+          "positive_rate": 0.45454545454545453
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.1475515151515152,
+      "beta_level": 0.01747154631056756,
+      "beta_slope3": 0.009155654913864882,
+      "beta_level_ci90": [
+        -0.0038874885988194087,
+        0.03883058121995453
+      ],
+      "beta_slope3_ci90": [
+        -0.011023575485270831,
+        0.029334885313000596
+      ],
+      "p_level": 0.17847054730215128,
+      "p_slope3": 0.45548763172022655,
+      "impact_bps_per_1sigma": 197.2513491421757,
+      "in_sample_r2": 0.03487883288695881,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Other",
+      "category": "FF 17行业组合(US)",
+      "name": "Other",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.3297333333333333,
+          "ann_vol": 0.1572950836273446,
+          "positive_rate": 0.7777777777777778
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.32688000000000006,
+          "ann_vol": 0.18589812263710462,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.1889333333333333,
+          "ann_vol": 0.12167995952094826,
+          "positive_rate": 0.7222222222222222
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.26705454545454543,
+          "ann_vol": 0.23619226220871994,
+          "positive_rate": 0.36363636363636365
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.5967878787878788,
+      "beta_level": 0.010276950878566043,
+      "beta_slope3": 0.016795261536277934,
+      "beta_level_ci90": [
+        0.003323512574166727,
+        0.017230389182965357
+      ],
+      "beta_slope3_ci90": [
+        0.009088668179124265,
+        0.024501854893431603
+      ],
+      "p_level": 0.01505559254391389,
+      "p_slope3": 0.00033747902770583005,
+      "impact_bps_per_1sigma": 196.90010904832846,
+      "in_sample_r2": 0.16466340226034792,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Oil",
+      "category": "FF 17行业组合(US)",
+      "name": "Oil",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": -0.014133333333333314,
+          "ann_vol": 0.2012867192174718,
+          "positive_rate": 0.5555555555555556
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.47736,
+          "ann_vol": 0.32659045913804646,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.31706666666666666,
+          "ann_vol": 0.2692910576411519,
+          "positive_rate": 0.5
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": 0.7138909090909089,
+          "ann_vol": 0.4140385621039312,
+          "positive_rate": 0.7272727272727273
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.7280242424242422,
+      "beta_level": 0.017435591327189068,
+      "beta_slope3": -0.0031083248458154775,
+      "beta_level_ci90": [
+        -0.0033388274549793276,
+        0.03821001010935746
+      ],
+      "beta_slope3_ci90": [
+        -0.02338385605285004,
+        0.01716720636121908
+      ],
+      "p_level": 0.16743407515717246,
+      "p_slope3": 0.8009150521879487,
+      "impact_bps_per_1sigma": 177.1049203934957,
+      "in_sample_r2": 0.038460627056019936,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Trans",
+      "category": "FF 17行业组合(US)",
+      "name": "Trans",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.2969333333333333,
+          "ann_vol": 0.17309099726251892,
+          "positive_rate": 0.5555555555555556
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.28524,
+          "ann_vol": 0.29226289763384833,
+          "positive_rate": 0.5
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.14333333333333334,
+          "ann_vol": 0.14662803947671232,
+          "positive_rate": 0.6111111111111112
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.05334545454545456,
+          "ann_vol": 0.26369720652155704,
+          "positive_rate": 0.45454545454545453
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.35027878787878786,
+      "beta_level": 0.00867438559055303,
+      "beta_slope3": 0.014624090528912968,
+      "beta_level_ci90": [
+        -0.0015198797654763316,
+        0.01886865094658239
+      ],
+      "beta_slope3_ci90": [
+        0.0038058143451811764,
+        0.02544236671264476
+      ],
+      "p_level": 0.16162723205948026,
+      "p_slope3": 0.026181784283815977,
+      "impact_bps_per_1sigma": 170.03205261698042,
+      "in_sample_r2": 0.08771222839895021,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Rtail",
+      "category": "FF 17行业组合(US)",
+      "name": "Rtail",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.24159999999999995,
+          "ann_vol": 0.2202924192976236,
+          "positive_rate": 0.7777777777777778
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.35124,
+          "ann_vol": 0.1651982284005088,
+          "positive_rate": 0.7
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.14300000000000002,
+          "ann_vol": 0.11727820618963618,
+          "positive_rate": 0.6111111111111112
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.26225454545454546,
+          "ann_vol": 0.2817182577102037,
+          "positive_rate": 0.2727272727272727
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.5038545454545454,
+      "beta_level": 0.007288727655743864,
+      "beta_slope3": 0.015001094217346142,
+      "beta_level_ci90": [
+        -0.0007406519157504617,
+        0.01531810722723819
+      ],
+      "beta_slope3_ci90": [
+        0.00724058803422097,
+        0.022761600400471316
+      ],
+      "p_level": 0.13540372813158993,
+      "p_slope3": 0.0014752446164487166,
+      "impact_bps_per_1sigma": 166.78080781591785,
+      "in_sample_r2": 0.09633617423892493,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Mines",
+      "category": "FF 17行业组合(US)",
+      "name": "Mines",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.4722666666666667,
+          "ann_vol": 0.3197426360892981,
+          "positive_rate": 0.5555555555555556
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.22128000000000003,
+          "ann_vol": 0.22591999763928233,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.24353333333333332,
+          "ann_vol": 0.2324701566341155,
+          "positive_rate": 0.6111111111111112
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.06316363636363645,
+          "ann_vol": 0.3317835537597585,
+          "positive_rate": 0.45454545454545453
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.5354303030303031,
+      "beta_level": 0.009745635129708333,
+      "beta_slope3": 0.013270707553014871,
+      "beta_level_ci90": [
+        -0.006402923713551112,
+        0.02589419397296778
+      ],
+      "beta_slope3_ci90": [
+        -0.003371500920819734,
+        0.02991291602684948
+      ],
+      "p_level": 0.32087220664978566,
+      "p_slope3": 0.18964598845606118,
+      "impact_bps_per_1sigma": 164.64783115457402,
+      "in_sample_r2": 0.05195398057182943,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Cnstr",
+      "category": "FF 17行业组合(US)",
+      "name": "Cnstr",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.38373333333333337,
+          "ann_vol": 0.21423303511207914,
+          "positive_rate": 0.6666666666666666
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.31704,
+          "ann_vol": 0.26127961012422435,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.3095333333333333,
+          "ann_vol": 0.21791324141573803,
+          "positive_rate": 0.6111111111111112
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.22559999999999997,
+          "ann_vol": 0.2760093911445768,
+          "positive_rate": 0.36363636363636365
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.6093333333333333,
+      "beta_level": 0.009328613329012827,
+      "beta_slope3": 0.012754878550140214,
+      "beta_level_ci90": [
+        -0.00031634576573958025,
+        0.018973572423765232
+      ],
+      "beta_slope3_ci90": [
+        -0.0023400691733083748,
+        0.027849826273588802
+      ],
+      "p_level": 0.11163119472173677,
+      "p_slope3": 0.16457050475115353,
+      "impact_bps_per_1sigma": 158.02213562379885,
+      "in_sample_r2": 0.0590228194983784,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "风格/规模指数||科创50",
+      "category": "风格/规模指数",
+      "name": "科创50",
+      "start": "2020-02",
+      "end": "2024-10",
+      "n_months": 57,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 12,
+          "ann_return": -0.04475323472480919,
+          "ann_vol": 0.2432816105988572,
+          "positive_rate": 0.3333333333333333
+        },
+        "expansion": {
+          "n": 16,
+          "ann_return": 0.054319922341968474,
+          "ann_vol": 0.29972258345072667,
+          "positive_rate": 0.375
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.18816437820220466,
+          "ann_vol": 0.30421181823169113,
+          "positive_rate": 0.5555555555555556
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.3668296238621468,
+          "ann_vol": 0.2913054430052132,
+          "positive_rate": 0.36363636363636365
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.3220763891373376,
+      "beta_level": 0.00549208760730893,
+      "beta_slope3": 0.011177376311195851,
+      "beta_level_ci90": [
+        -0.007431936204471473,
+        0.01841611141908933
+      ],
+      "beta_slope3_ci90": [
+        -0.0047054643365908085,
+        0.02706021695898251
+      ],
+      "p_level": 0.484562302720534,
+      "p_slope3": 0.2470486035601004,
+      "impact_bps_per_1sigma": 124.53785267477454,
+      "in_sample_r2": 0.025452641496325867,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Chems",
+      "category": "FF 17行业组合(US)",
+      "name": "Chems",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.14159999999999998,
+          "ann_vol": 0.27118633815146365,
+          "positive_rate": 0.4444444444444444
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.13692,
+          "ann_vol": 0.23632618418900037,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.14433333333333334,
+          "ann_vol": 0.16126433421620565,
+          "positive_rate": 0.6111111111111112
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.04101818181818184,
+          "ann_vol": 0.2798557550531409,
+          "positive_rate": 0.45454545454545453
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.18261818181818182,
+      "beta_level": 0.010998840764899244,
+      "beta_slope3": 0.005647256348697078,
+      "beta_level_ci90": [
+        -0.0008271783811820387,
+        0.022824859910980527
+      ],
+      "beta_slope3_ci90": [
+        -0.004729496424336045,
+        0.0160240091217302
+      ],
+      "p_level": 0.12606542435050289,
+      "p_slope3": 0.37069867554200364,
+      "impact_bps_per_1sigma": 123.63899160034784,
+      "in_sample_r2": 0.04203476422983854,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "风格/规模指数||创业板50(ETF累计净值)",
+      "category": "风格/规模指数",
+      "name": "创业板50(ETF累计净值)",
+      "start": "2016-07",
+      "end": "2024-10",
+      "n_months": 100,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 24,
+          "ann_return": 0.16496862740650725,
+          "ann_vol": 0.20586321047131392,
+          "positive_rate": 0.7083333333333334
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": 0.09272238513795218,
+          "ann_vol": 0.30668462486045933,
+          "positive_rate": 0.4230769230769231
+        },
+        "downturn": {
+          "n": 29,
+          "ann_return": 0.05926448205484807,
+          "ann_vol": 0.3326667168214185,
+          "positive_rate": 0.4482758620689655
+        },
+        "contraction": {
+          "n": 21,
+          "ann_return": -0.20549638755980898,
+          "ann_vol": 0.34950035606628194,
+          "positive_rate": 0.2857142857142857
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.37046501496631623,
+      "beta_level": -0.002257274328599918,
+      "beta_slope3": 0.009677741661725688,
+      "beta_level_ci90": [
+        -0.012912678760077324,
+        0.008398130102877488
+      ],
+      "beta_slope3_ci90": [
+        -0.0058044120293969746,
+        0.02515989535284835
+      ],
+      "p_level": 0.7275015395954576,
+      "p_slope3": 0.30386432332017344,
+      "impact_bps_per_1sigma": 99.3750326116461,
+      "in_sample_r2": 0.012288212362335682,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": 0.5117875944151979,
+      "c4_assoc_contribution_2019": -0.020140082328773658
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Utils",
+      "category": "FF 17行业组合(US)",
+      "name": "Utils",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.05666666666666667,
+          "ann_vol": 0.1462251802301277,
+          "positive_rate": 0.5555555555555556
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": -0.002759999999999996,
+          "ann_vol": 0.11878586335643365,
+          "positive_rate": 0.6
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.2732666666666667,
+          "ann_vol": 0.15746743329660137,
+          "positive_rate": 0.6666666666666666
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": 0.08629090909090913,
+          "ann_vol": 0.22831759220237696,
+          "positive_rate": 0.5454545454545454
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "expansion",
+      "recovery_minus_contraction": -0.029624242424242456,
+      "beta_level": 0.007450740988350789,
+      "beta_slope3": -0.004539749048463439,
+      "beta_level_ci90": [
+        0.0011342304235697947,
+        0.013767251553131785
+      ],
+      "beta_slope3_ci90": [
+        -0.01061521718394657,
+        0.0015357190870196906
+      ],
+      "p_level": 0.052353762614504015,
+      "p_slope3": 0.21904265761724928,
+      "impact_bps_per_1sigma": 87.2484170048461,
+      "in_sample_r2": 0.02959081369606531,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "风格/规模指数||科创50(ETF累计净值)",
+      "category": "风格/规模指数",
+      "name": "科创50(ETF累计净值)",
+      "start": "2020-10",
+      "end": "2024-10",
+      "n_months": 49,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": -0.04229927360360349,
+          "ann_vol": 0.16112256275932998,
+          "positive_rate": 0.3333333333333333
+        },
+        "expansion": {
+          "n": 11,
+          "ann_return": -0.1369500798236685,
+          "ann_vol": 0.2994140313469955,
+          "positive_rate": 0.2727272727272727
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.19631767945374956,
+          "ann_vol": 0.3055529051761697,
+          "positive_rate": 0.5555555555555556
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.36118123282036707,
+          "ann_vol": 0.291610536397847,
+          "positive_rate": 0.36363636363636365
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.3188819592167636,
+      "beta_level": 0.006823430505463695,
+      "beta_slope3": 0.0048164236134289815,
+      "beta_level_ci90": [
+        -0.00629486457738943,
+        0.01994172558831682
+      ],
+      "beta_slope3_ci90": [
+        -0.009525055508701539,
+        0.0191579027355595
+      ],
+      "p_level": 0.3922388463671388,
+      "p_slope3": 0.5806705678016303,
+      "impact_bps_per_1sigma": 83.52074011099808,
+      "in_sample_r2": 0.01290281799119275,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "A股宽基指数||中证1000(ETF累计净值)",
+      "category": "A股宽基指数",
+      "name": "中证1000(ETF累计净值)",
+      "start": "2016-10",
+      "end": "2024-10",
+      "n_months": 97,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 21,
+          "ann_return": 0.11568753899391243,
+          "ann_vol": 0.13611532441417054,
+          "positive_rate": 0.6190476190476191
+        },
+        "expansion": {
+          "n": 26,
+          "ann_return": -0.028584781763923695,
+          "ann_vol": 0.23310847249726072,
+          "positive_rate": 0.46153846153846156
+        },
+        "downturn": {
+          "n": 29,
+          "ann_return": 0.028535883332304342,
+          "ann_vol": 0.22824924197695567,
+          "positive_rate": 0.4482758620689655
+        },
+        "contraction": {
+          "n": 21,
+          "ann_return": -0.05060175854761414,
+          "ann_vol": 0.3225148478490093,
+          "positive_rate": 0.42857142857142855
+        }
+      },
+      "best_phase": "recovery",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.16628929754152658,
+      "beta_level": -0.006395422841567068,
+      "beta_slope3": 0.005181629797190913,
+      "beta_level_ci90": [
+        -0.014837510541140613,
+        0.0020466648580064776
+      ],
+      "beta_slope3_ci90": [
+        -0.006910333592454199,
+        0.017273593186836026
+      ],
+      "p_level": 0.21273425183928196,
+      "p_slope3": 0.48090347711429904,
+      "impact_bps_per_1sigma": 82.3108259450569,
+      "in_sample_r2": 0.012069410402004821,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": 0.34596530920060387,
+      "c4_assoc_contribution_2019": 0.09089194223374401
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Cnsum",
+      "category": "FF 17行业组合(US)",
+      "name": "Cnsum",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.08413333333333334,
+          "ann_vol": 0.14257655253699092,
+          "positive_rate": 0.4444444444444444
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.27732,
+          "ann_vol": 0.12349979217256467,
+          "positive_rate": 0.7
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.11033333333333331,
+          "ann_vol": 0.1230791121317393,
+          "positive_rate": 0.6111111111111112
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": 0.11410909090909091,
+          "ann_vol": 0.17225256720609683,
+          "positive_rate": 0.45454545454545453
+        }
+      },
+      "best_phase": "expansion",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.029975757575757572,
+      "beta_level": 0.006094038723272536,
+      "beta_slope3": 0.004290407716218579,
+      "beta_level_ci90": [
+        5.587584031426212e-05,
+        0.01213220160623081
+      ],
+      "beta_slope3_ci90": [
+        -0.00239363308895057,
+        0.010974448521387728
+      ],
+      "p_level": 0.09689941719108107,
+      "p_slope3": 0.2910539641163672,
+      "impact_bps_per_1sigma": 74.52845519137847,
+      "in_sample_r2": 0.04156457356713683,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "FF 17行业组合(US)||Food",
+      "category": "FF 17行业组合(US)",
+      "name": "Food",
+      "start": "2020-11",
+      "end": "2024-10",
+      "n_months": 48,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 9,
+          "ann_return": 0.06039999999999997,
+          "ann_vol": 0.11174520123924785,
+          "positive_rate": 0.5555555555555556
+        },
+        "expansion": {
+          "n": 10,
+          "ann_return": 0.06215999999999999,
+          "ann_vol": 0.1689415520231775,
+          "positive_rate": 0.5
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.06906666666666667,
+          "ann_vol": 0.11119161345155841,
+          "positive_rate": 0.4444444444444444
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": 0.1704,
+          "ann_vol": 0.1797283283180478,
+          "positive_rate": 0.45454545454545453
+        }
+      },
+      "best_phase": "contraction",
+      "worst_phase": "recovery",
+      "recovery_minus_contraction": -0.11000000000000003,
+      "beta_level": 0.00470066430735234,
+      "beta_slope3": 0.0015609161467266715,
+      "beta_level_ci90": [
+        -0.0015601303998708672,
+        0.010961459014575547
+      ],
+      "beta_slope3_ci90": [
+        -0.006293431695480932,
+        0.009415263988934275
+      ],
+      "p_level": 0.21684100986611154,
+      "p_slope3": 0.743753894924911,
+      "impact_bps_per_1sigma": 49.53049984355931,
+      "in_sample_r2": 0.017094408760716218,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "各类债券指数||深转交债",
+      "category": "各类债券指数",
+      "name": "深转交债",
+      "start": "2019-07",
+      "end": "2024-10",
+      "n_months": 64,
+      "data_identity": "direct",
+      "phase_stats": {
+        "recovery": {
+          "n": 19,
+          "ann_return": 0.15283224452490846,
+          "ann_vol": 0.09721830602833564,
+          "positive_rate": 0.7894736842105263
+        },
+        "expansion": {
+          "n": 16,
+          "ann_return": -0.019395261017640247,
+          "ann_vol": 0.1401113234647762,
+          "positive_rate": 0.4375
+        },
+        "downturn": {
+          "n": 18,
+          "ann_return": 0.16670162065341457,
+          "ann_vol": 0.11177313142225684,
+          "positive_rate": 0.6666666666666666
+        },
+        "contraction": {
+          "n": 11,
+          "ann_return": -0.11344596112456778,
+          "ann_vol": 0.12195111223905977,
+          "positive_rate": 0.36363636363636365
+        }
+      },
+      "best_phase": "downturn",
+      "worst_phase": "contraction",
+      "recovery_minus_contraction": 0.26627820564947624,
+      "beta_level": 0.0005265527231967521,
+      "beta_slope3": 0.00274190267163306,
+      "beta_level_ci90": [
+        -0.006053465847294337,
+        0.007106571293687841
+      ],
+      "beta_slope3_ci90": [
+        -0.005411556684054109,
+        0.010895362027320228
+      ],
+      "p_level": 0.89528004342859,
+      "p_slope3": 0.5801655290228974,
+      "impact_bps_per_1sigma": 27.92004303545112,
+      "in_sample_r2": 0.006846063062175278,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "low",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "商品||黄金",
+      "category": "商品",
+      "name": "黄金",
+      "start": null,
+      "end": null,
+      "n_months": 0,
+      "data_identity": "configured_source_unavailable",
+      "source_symbol": "GC=F",
+      "phase_stats": null,
+      "best_phase": null,
+      "worst_phase": null,
+      "recovery_minus_contraction": null,
+      "beta_level": null,
+      "beta_slope3": null,
+      "beta_level_ci90": null,
+      "beta_slope3_ci90": null,
+      "p_level": null,
+      "p_slope3": null,
+      "impact_bps_per_1sigma": null,
+      "in_sample_r2": null,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "unavailable",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "商品||铜",
+      "category": "商品",
+      "name": "铜",
+      "start": null,
+      "end": null,
+      "n_months": 0,
+      "data_identity": "configured_source_unavailable",
+      "source_symbol": "HG=F",
+      "phase_stats": null,
+      "best_phase": null,
+      "worst_phase": null,
+      "recovery_minus_contraction": null,
+      "beta_level": null,
+      "beta_slope3": null,
+      "beta_level_ci90": null,
+      "beta_slope3_ci90": null,
+      "p_level": null,
+      "p_slope3": null,
+      "impact_bps_per_1sigma": null,
+      "in_sample_r2": null,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "unavailable",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    },
+    {
+      "asset_id": "商品||原油",
+      "category": "商品",
+      "name": "原油",
+      "start": null,
+      "end": null,
+      "n_months": 0,
+      "data_identity": "configured_source_unavailable",
+      "source_symbol": "CL=F",
+      "phase_stats": null,
+      "best_phase": null,
+      "worst_phase": null,
+      "recovery_minus_contraction": null,
+      "beta_level": null,
+      "beta_slope3": null,
+      "beta_level_ci90": null,
+      "beta_slope3_ci90": null,
+      "p_level": null,
+      "p_slope3": null,
+      "impact_bps_per_1sigma": null,
+      "in_sample_r2": null,
+      "oos_r2": null,
+      "oos_folds": 0,
+      "confidence": "unavailable",
+      "actual_2019": null,
+      "c4_assoc_contribution_2019": null
+    }
+  ],
+  "phase_labels": {
+    "recovery": "复苏",
+    "expansion": "扩张",
+    "downturn": "放缓",
+    "contraction": "收缩"
+  }
+}

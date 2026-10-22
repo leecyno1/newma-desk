@@ -114,6 +114,222 @@ def _parse_port(value: str) -> int:
     return port
 
 
+def handle_export_research_inputs(arguments: argparse.Namespace) -> int:
+    from seven_cycle_platform.research_inputs import export_research_inputs
+
+    project_root = arguments.project_root.resolve()
+    output = arguments.research_output_dir or project_root / "output"
+    forecast = arguments.c4_forecast_path or output / "c4_forecast_reproducible_latest.json"
+    try:
+        inputs = export_research_inputs(
+            web_data_dir=arguments.web_data_dir or project_root / "web/public/data",
+            research_output_dir=output,
+            c4_forecast_path=forecast,
+            destination=arguments.destination,
+        )
+    except (OSError, TypeError, ValueError) as error:
+        raise CLIError(f"research input export failed: {error}") from error
+    _print_json({"status": "exported", "path": str(inputs.root)})
+    return 0
+
+
+def handle_discover_cycles(arguments: argparse.Namespace) -> int:
+    from seven_cycle_platform.cycles.discovery import main as discover
+
+    try:
+        discover(
+            project_root=arguments.project_root.resolve(),
+            output_dir=arguments.output_dir,
+        )
+    except (OSError, ValueError) as error:
+        raise CLIError(str(error)) from error
+    return 0
+
+
+def handle_build_cycle_inputs(arguments: argparse.Namespace) -> int:
+    from seven_cycle_platform.legacy.research_cycle_input import (
+        ResearchCycleInputRequest,
+        build_research_cycle_pipeline_input,
+    )
+    from seven_cycle_platform.pipeline.cycles import write_cycle_pipeline_input
+
+    root = arguments.project_root.resolve()
+    try:
+        request = ResearchCycleInputRequest(
+            annual_panel_path=root / "data/research_input_annual_long.parquet",
+            annual_selection_path=root / "output/research_input_annual_long_selection.csv",
+            monthly_panel_path=root / "data/research_input_monthly_macro.parquet",
+            monthly_selection_path=root / "output/research_input_monthly_macro_selection.csv",
+            config_dir=arguments.config_dir or root / "config/seven_cycle",
+            as_of=arguments.as_of,
+            state_start=arguments.state_start,
+            state_end=arguments.state_end,
+            verification_cutoffs=tuple(sorted(set(arguments.verification_cutoffs))),
+            max_members_per_category=arguments.max_members_per_category,
+            minimum_coverage_pct=arguments.minimum_coverage_pct,
+        )
+        pipeline_input = build_research_cycle_pipeline_input(request)
+        path = write_cycle_pipeline_input(arguments.output_dir.resolve(), pipeline_input)
+    except (OSError, TypeError, ValueError, KeyError) as error:
+        raise CLIError(f"research cycle input build failed: {error}") from error
+    _print_json({
+        "annual_members": len(pipeline_input.annual_categories),
+        "monthly_members": len(pipeline_input.monthly_categories),
+        "observations": len(pipeline_input.observations),
+        "path": str(path),
+        "state_dates": len(pipeline_input.state_dates),
+        "vintage": "pseudo_vintage",
+    })
+    return 0
+
+
+def handle_build_research_panels(arguments: argparse.Namespace) -> int:
+    from tempfile import TemporaryDirectory
+    from seven_cycle_platform.legacy.annual_research_panel import build_panel as build_annual
+    from seven_cycle_platform.legacy.monthly_research_panel import build_panel as build_monthly
+
+    root = arguments.project_root.resolve()
+    destination = arguments.destination.absolute()
+    try:
+        if destination.exists() or destination.is_symlink():
+            raise ValueError("destination already exists; research panels are never overwritten")
+        for name in (
+            "data/indicator_panel_annual_very_long_history_year.parquet",
+            "data/indicator_panel_monthly.parquet",
+            "output/cycle_bandpower_scores_monthly.csv",
+        ):
+            if not (root / name).is_file():
+                raise FileNotFoundError(f"required research input is missing: {root / name}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(prefix=".research-panels-", dir=destination.parent) as temporary:
+            staged = Path(temporary) / "prepared"
+            annual = build_annual(
+                input_root=root, output_root=staged,
+                window_start=arguments.annual_start, window_end=arguments.annual_end,
+            )
+            monthly = build_monthly(
+                input_root=root, output_root=staged,
+                window_start=arguments.monthly_start.isoformat(),
+                window_end=arguments.monthly_end.isoformat(),
+            )
+            if destination.exists() or destination.is_symlink():
+                raise ValueError("destination already exists; research panels are never overwritten")
+            staged.rename(destination)
+    except (OSError, TypeError, ValueError, KeyError, RuntimeError) as error:
+        raise CLIError(f"research panel build failed: {error}") from error
+    _print_json({
+        "status": "prepared", "path": str(destination),
+        "annual_selected": annual["selected"], "monthly_selected": monthly["selected"],
+        "annual_window": [arguments.annual_start, arguments.annual_end],
+        "monthly_window": [arguments.monthly_start.isoformat(), arguments.monthly_end.isoformat()],
+    })
+    return 0
+
+
+def handle_build_c4_research(arguments: argparse.Namespace) -> int:
+    from tempfile import TemporaryDirectory
+
+    import pandas as pd
+
+    from seven_cycle_platform.legacy import c4_realtime_bridge
+    from seven_cycle_platform.legacy.c4_asset_statistics import (
+        build_asset_statistics,
+        build_c4_state,
+    )
+
+    source = arguments.project_root.resolve() / "output"
+    destination = arguments.destination.absolute()
+    try:
+        if destination.exists() or destination.is_symlink():
+            raise ValueError("destination already exists; C4 research is never overwritten")
+        inputs = {
+            "realtime": source / "c4_pseudo_realtime_prototype_2026-07-19.json",
+            "historical": source / "c4_c5_phase_display_prototype_2026-07-19.json",
+            "returns": source / "monthly_returns_20y.parquet",
+        }
+        for path in [*inputs.values(), *([arguments.features] if arguments.features else [])]:
+            if not path.is_file():
+                raise FileNotFoundError(f"required C4 input is missing: {path}")
+        realtime = json.loads(inputs["realtime"].read_text(encoding="utf-8"))
+        historical = json.loads(inputs["historical"].read_text(encoding="utf-8"))
+        if not realtime["timeline"]:
+            raise ValueError("C4 baseline timeline is empty")
+        through = pd.Timestamp(arguments.through).to_period("M")
+        if through < pd.Period(realtime["timeline"][-1]["date"], freq="M"):
+            raise ValueError("through month precedes the C4 baseline; historical truncation is not supported")
+        returns = pd.read_parquet(inputs["returns"])
+        returns.index = pd.to_datetime(returns.index)
+        features = (pd.read_parquet(arguments.features) if arguments.features
+                    else c4_realtime_bridge.fetch_c4_features())
+        bridge = c4_realtime_bridge.build_bridge(realtime, features, through=str(through))
+        statistics = build_asset_statistics(returns, build_c4_state(historical, bridge))
+        if not statistics["assets"]:
+            raise ValueError("no asset returns overlap the C4 state")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(prefix=".c4-research-", dir=destination.parent) as temporary:
+            prepared = Path(temporary) / "prepared"
+            prepared.mkdir()
+            for filename, payload in (
+                ("c4_realtime_bridge_latest.json", bridge),
+                ("c4_asset_statistics_current.json", statistics),
+            ):
+                (prepared / filename).write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+                    encoding="utf-8",
+                )
+            features.to_parquet(prepared / "c4_bridge_features.parquet")
+            if destination.exists() or destination.is_symlink():
+                raise ValueError("destination already exists; C4 research is never overwritten")
+            prepared.rename(destination)
+    except (OSError, TypeError, ValueError, KeyError, RuntimeError) as error:
+        raise CLIError(f"C4 research build failed: {error}") from error
+    _print_json({
+        "status": "prepared", "path": str(destination),
+        "latest": bridge["latest"], "assets": len(statistics["assets"]),
+        "validation": bridge["bridge_validation"],
+    })
+    return 0
+
+
+def handle_build_state_research(arguments: argparse.Namespace) -> int:
+    from seven_cycle_platform.legacy.state_research import build_state_research
+
+    root = arguments.project_root.resolve()
+    try:
+        result = build_state_research(
+            panel_path=root / "data/indicator_panel_monthly.parquet",
+            returns_path=root / "output/monthly_returns_20y.parquet",
+            public_signal_dir=arguments.public_signal_dir or root / "data/raw/web_public",
+            destination=arguments.destination,
+            refresh_public=arguments.refresh_public,
+        )
+    except (OSError, TypeError, ValueError, KeyError, IndexError, RuntimeError) as error:
+        raise CLIError(f"state research build failed: {error}") from error
+    _print_json(result)
+    return 0
+
+
+def handle_build_asset_forecast(arguments: argparse.Namespace) -> int:
+    from seven_cycle_platform.legacy.asset_cycle_state_forecast import build_asset_forecast
+
+    output = arguments.project_root.resolve() / "output"
+    try:
+        result = build_asset_forecast(
+            returns_path=output / "monthly_returns_20y.parquet",
+            state_paths={
+                "C4": output / "c4_realtime_bridge_latest.json",
+                "C5": output / "c5_liquidity_state_research.json",
+                "C7": output / "c7_risk_appetite_state_research.json",
+            },
+            destination=arguments.destination,
+            workers=arguments.workers,
+        )
+    except (OSError, TypeError, ValueError, KeyError, IndexError, RuntimeError) as error:
+        raise CLIError(f"asset forecast build failed: {error}") from error
+    _print_json(result)
+    return 0
+
+
 def handle_validate_config(arguments: argparse.Namespace) -> int:
     try:
         bundle = load_registry_bundle(arguments.config_dir)
@@ -135,10 +351,12 @@ def handle_validate_config(arguments: argparse.Namespace) -> int:
 def _foundation_sources(project_root: Path) -> FoundationSources:
     from seven_cycle_platform.pipeline.research_foundation import FoundationSources
 
+    project_root = project_root.resolve()
     approved_config = (
         project_root / "config" / "seven_cycle" / "approved" / "2026-07-19"
     )
     return FoundationSources(
+        project_root=project_root,
         config_dir=approved_config,
         evidence_path=approved_config / "evidence_baseline.yaml",
         historical_path=(
@@ -262,6 +480,30 @@ def handle_build(arguments: argparse.Namespace) -> int:
         load_registry_bundle(arguments.config_dir)
     except (OSError, ValueError) as error:
         raise CLIError(str(error)) from error
+    inputs = None
+    if arguments.research_bundle_dir is not None:
+        from seven_cycle_platform.research_inputs import load_research_inputs
+
+        try:
+            inputs = load_research_inputs(arguments.research_bundle_dir)
+        except (OSError, TypeError, ValueError) as error:
+            raise CLIError(f"research input snapshot is invalid: {error}") from error
+        asset_forecast_path = inputs.asset_forecast_path
+        asset_statistics_path = inputs.asset_statistics_path
+        c4_forecast_path = inputs.c4_forecast_path
+    else:
+        research_output = arguments.research_output_dir or arguments.project_root / "output"
+        asset_forecast_path = research_output / "asset_cycle_state_forecast.json"
+        asset_statistics_path = research_output / "c4_asset_statistics_current.json"
+        c4_forecast_path = research_output / "c4_forecast_reproducible_latest.json"
+        if not c4_forecast_path.exists():
+            c4_forecast_path = arguments.project_root / "output" / "c4_forecast_prototype_2026-07-19.json"
+    missing = [str(path) for path in (asset_forecast_path, asset_statistics_path, c4_forecast_path) if not path.is_file()]
+    if missing:
+        raise CLIError(
+            "research build inputs missing: " + ", ".join(missing)
+            + "; supply --research-output-dir from the matching research snapshot"
+        )
     foundation, _, reused_foundation = _publish_foundation_release(
         project_root=arguments.project_root,
         product_root=arguments.product_root,
@@ -269,30 +511,19 @@ def handle_build(arguments: argparse.Namespace) -> int:
     )
     web_root = _build_web_distribution(arguments.web_project_root)
     try:
+        if inputs is not None:
+            inputs.install_web_data(web_root)
         from seven_cycle_platform.catalog import build_catalog
         from seven_cycle_platform.pipeline.circle_deployment import (
             build_circle_deployment,
         )
 
-        c4_forecast_path = (
-            arguments.project_root / "output" / "c4_forecast_reproducible_latest.json"
-        )
-        if not c4_forecast_path.exists():
-            c4_forecast_path = (
-                arguments.project_root
-                / "output"
-                / "c4_forecast_prototype_2026-07-19.json"
-            )
         deployment = build_circle_deployment(
             product_root=arguments.product_root,
             foundation_run_dir=foundation.run_dir,
             web_data_dir=web_root / "data",
-            asset_forecast_path=(
-                arguments.project_root / "output" / "asset_cycle_state_forecast.json"
-            ),
-            asset_statistics_path=(
-                arguments.project_root / "output" / "c4_asset_statistics_current.json"
-            ),
+            asset_forecast_path=asset_forecast_path,
+            asset_statistics_path=asset_statistics_path,
             c4_forecast_path=c4_forecast_path,
             as_of=arguments.as_of,
         )
@@ -550,6 +781,97 @@ def build_parser() -> argparse.ArgumentParser:
     parser = RedactingArgumentParser(prog="seven-cycle")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    export_parser = subparsers.add_parser(
+        "export-research-inputs", help="export paired browser/API derived research data",
+    )
+    export_parser.add_argument("--project-root", type=Path, default=DEFAULT_PROJECT_ROOT)
+    export_parser.add_argument("--web-data-dir", type=Path)
+    export_parser.add_argument("--research-output-dir", type=Path)
+    export_parser.add_argument("--c4-forecast-path", type=Path)
+    export_parser.add_argument("--destination", type=Path, required=True)
+    export_parser.set_defaults(handler=handle_export_research_inputs)
+
+    discovery_parser = subparsers.add_parser(
+        "discover-cycles", help="run research discovery from local input panels",
+    )
+    discovery_parser.add_argument(
+        "--project-root", type=Path, default=DEFAULT_PROJECT_ROOT,
+        help="input root with data/ panels and output/ selection metadata; defaults to cwd",
+    )
+    discovery_parser.add_argument(
+        "--output-dir", type=Path,
+        help="result directory; defaults to PROJECT_ROOT/output",
+    )
+    discovery_parser.set_defaults(handler=handle_discover_cycles)
+
+    panels_parser = subparsers.add_parser(
+        "build-research-panels", help="prepare governed annual/monthly panels from explicit raw inputs",
+    )
+    panels_parser.add_argument("--project-root", type=Path, default=DEFAULT_PROJECT_ROOT)
+    panels_parser.add_argument("--destination", type=Path, required=True)
+    panels_parser.add_argument("--annual-start", type=int, required=True)
+    panels_parser.add_argument("--annual-end", type=int, required=True)
+    panels_parser.add_argument("--monthly-start", type=_parse_iso_date, required=True)
+    panels_parser.add_argument("--monthly-end", type=_parse_iso_date, required=True)
+    panels_parser.set_defaults(handler=handle_build_research_panels)
+
+    c4_parser = subparsers.add_parser(
+        "build-c4-research", help="build paired validated C4 bridge and asset statistics",
+    )
+    c4_parser.add_argument("--project-root", type=Path, default=DEFAULT_PROJECT_ROOT)
+    c4_parser.add_argument("--destination", type=Path, required=True)
+    c4_parser.add_argument("--through", type=_parse_iso_date, required=True)
+    c4_features = c4_parser.add_mutually_exclusive_group(required=True)
+    c4_features.add_argument("--features", type=Path, help="local monthly C4 feature parquet")
+    c4_features.add_argument(
+        "--fetch-features", action="store_true", help="explicitly fetch PMI/PPI using configured Tushare",
+    )
+    c4_parser.set_defaults(handler=handle_build_c4_research)
+
+    state_parser = subparsers.add_parser(
+        "build-state-research", help="build paired C5/C7 state research and historical asset associations",
+    )
+    state_parser.add_argument("--project-root", type=Path, default=DEFAULT_PROJECT_ROOT)
+    state_parser.add_argument("--destination", type=Path, required=True)
+    state_signals = state_parser.add_mutually_exclusive_group()
+    state_signals.add_argument("--public-signal-dir", type=Path, help="existing four FRED CSV inputs")
+    state_signals.add_argument("--refresh-public", action="store_true", help="explicitly fetch FRED into the new output")
+    state_parser.set_defaults(handler=handle_build_state_research)
+
+    forecast_parser = subparsers.add_parser(
+        "build-asset-forecast", help="build paired asset forecasts and synchronous reference",
+    )
+    forecast_parser.add_argument("--project-root", type=Path, default=DEFAULT_PROJECT_ROOT)
+    forecast_parser.add_argument("--destination", type=Path, required=True)
+    forecast_parser.add_argument("--workers", type=int, default=1)
+    forecast_parser.set_defaults(handler=handle_build_asset_forecast)
+
+    cycle_inputs_parser = subparsers.add_parser(
+        "build-cycle-inputs",
+        help="convert local research panels to an offline pseudo-vintage cycle input bundle",
+    )
+    cycle_inputs_parser.add_argument(
+        "--project-root", type=Path, default=DEFAULT_PROJECT_ROOT,
+        help="input root with data/ panels and output/ selection metadata; defaults to cwd",
+    )
+    cycle_inputs_parser.add_argument(
+        "--config-dir", type=Path,
+        help="registry directory; defaults to PROJECT_ROOT/config/seven_cycle",
+    )
+    cycle_inputs_parser.add_argument(
+        "--output-dir", type=Path, required=True,
+        help="destination directory; an existing cycle input file is never overwritten",
+    )
+    for option in ("--as-of", "--state-start", "--state-end"):
+        cycle_inputs_parser.add_argument(option, type=_parse_iso_date, required=True)
+    cycle_inputs_parser.add_argument(
+        "--verification-cutoff", type=_parse_iso_date, action="append",
+        dest="verification_cutoffs", required=True,
+    )
+    cycle_inputs_parser.add_argument("--max-members-per-category", type=int, default=5)
+    cycle_inputs_parser.add_argument("--minimum-coverage-pct", type=float, default=0.0)
+    cycle_inputs_parser.set_defaults(handler=handle_build_cycle_inputs)
+
     validate_parser = subparsers.add_parser("validate-config")
     validate_parser.add_argument(
         "--config-dir",
@@ -576,6 +898,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PROJECT_ROOT,
     )
     build_command.add_argument("--catalog-root", type=Path)
+    research_inputs_group = build_command.add_mutually_exclusive_group()
+    research_inputs_group.add_argument(
+        "--research-output-dir",
+        type=Path,
+        help="directory of research output JSON inputs; defaults to PROJECT_ROOT/output",
+    )
+    research_inputs_group.add_argument(
+        "--research-bundle-dir", type=Path,
+        help="exported paired research snapshot; replaces all five built browser data files",
+    )
     build_command.add_argument(
         "--web-project-root",
         type=Path,

@@ -21,7 +21,7 @@ from seven_cycle_platform.registry.models import CycleSpec
 REGISTRY_DIR = Path(__file__).resolve().parents[3] / "config" / "seven_cycle"
 EXPECTED_CYCLE_IDS = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]
 EXPECTED_CENTERS = [50.0, 16.6666667, 8.3333333, 42.0, 20.0, 12.0, 6.0]
-EXPECTED_BANDWIDTHS = [16.5, 15.0, 8.0, 24.0, 18.0, 1.0, 6.0]
+EXPECTED_BANDWIDTHS = [35.0, 15.0, 8.0, 24.0, 18.0, 1.0, 6.0]
 REQUIRED_COLUMNS = {
     "cycle_id",
     "as_of",

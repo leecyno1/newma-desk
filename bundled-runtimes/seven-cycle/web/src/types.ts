@@ -1012,9 +1012,10 @@ export interface AuditData {
     coverage: string
     role: string
     url: string
-    cache: string
-    cacheUpdated: string
-    bytes: number
+    cache?: string
+    cacheUpdated?: string | null
+    bytes?: number
+    caches?: Array<{ cache: string; cacheUpdated?: string | null; bytes?: number }>
   }>
   proxyColumns?: Array<{
     column: string

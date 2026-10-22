@@ -329,6 +329,16 @@ def create_app(
             payload["deployment"] = "invalid"
             payload["status"] = "degraded"
             return payload
+        if web_deployment_path is not None and not web_deployment_exists:
+            # Serving files is not proof that the SPA belongs to this API run.
+            # Keep reads available, but never report an incomplete pair as ready.
+            payload.update(
+                status="degraded",
+                deployment="inconsistent",
+                deployment_verification="product-only",
+                deployment_reason="web_manifest_missing",
+            )
+            return payload
         web_deployment_matches = True
         if web_deployment_path is not None and web_deployment_exists:
             try:
@@ -347,12 +357,6 @@ def create_app(
             payload["deployment"] = "available"
             payload["deployment_as_of"] = deployment.get("deployment_as_of")
             payload["deployment_id"] = deployment["deployment_id"]
-            if web_deployment_path is not None and not web_deployment_exists:
-                # A direct Vite build replaces web/dist and may omit the paired
-                # audit copy. The API identity is still verified by the product
-                # manifest; report the reduced verification scope without
-                # making the otherwise usable local Mod fail its health probe.
-                payload["deployment_verification"] = "product-only"
         else:
             payload["deployment"] = "inconsistent"
             payload["status"] = "degraded"

@@ -99,7 +99,7 @@ export default function CycleForecastExtension() {
           <h2>虚线延伸与资产条件风险—收益</h2>
           <p>上方周期图保留原预测虚线；这里展开该 vintage 的模型门槛、阶段概率和资产条件分布。</p>
         </div>
-        <div className="integrated-forecast-status"><AlertCircle size={16} /><span>{data.meta.data_as_of} vintage · 已滞后 {data.meta.stale_months_at_build} 个月</span></div>
+        <div className="integrated-forecast-status"><AlertCircle size={16} /><span>{data.meta.data_as_of} vintage · 构建时滞后 {data.meta.stale_months_at_build} 个月（非距今）</span></div>
       </div>
 
       <div className="forecast-summary-grid">

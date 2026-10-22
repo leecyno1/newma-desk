@@ -4,10 +4,11 @@ import AssetsPage from './pages/AssetsPage'
 import AuditPage from './pages/AuditPage'
 import CyclesPage from './pages/CyclesPage'
 import MarketSurfacePage from './pages/MarketSurfacePage'
+import { PageSessionBoundary } from './hooks/usePageSession'
 
 export default function App() {
   return (
-    <Routes>
+    <PageSessionBoundary><Routes>
       <Route element={<AppShell />}>
         <Route index element={<MarketSurfacePage />} />
         <Route path="cycles" element={<CyclesPage />} />
@@ -16,6 +17,6 @@ export default function App() {
         <Route path="audit" element={<AuditPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
-    </Routes>
+    </Routes></PageSessionBoundary>
   )
 }

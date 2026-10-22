@@ -17,6 +17,7 @@ import {
   runtimeEnvironment,
 } from "./lib/external-mod-runtimes.mjs";
 import { createRuntimeServiceGroups } from "./lib/runtime-descriptor-services.mjs";
+import { sevenCycleLaunch, sevenCyclePreparation } from "./lib/seven-cycle-runtime.mjs";
 import {
   createCompositeProbe,
   createHttpProbe,
@@ -373,15 +374,12 @@ async function ensureSevenCycleRuntime(runtime) {
   if (!workspace) {
     throw new Error("未找到 Seven Cycle 源码目录。");
   }
-  const venvPython = path.join(workspace, ".venv", "bin", "python");
-  const usesLocalPython = existsSync(venvPython)
-    && existsSync(path.join(workspace, ".venv", "bin", "seven-cycle"));
+  const preparation = sevenCyclePreparation({ workspace });
+  if (!preparation) return;
   await runSetupCommand(
     "校验 Seven Cycle 本地数据索引",
-    usesLocalPython ? venvPython : "uv",
-    usesLocalPython
-      ? ["scripts/build_seed_catalog.py"]
-      : ["run", "python", "scripts/build_seed_catalog.py"],
+    preparation.command,
+    preparation.commandArgs,
     workspace,
   );
 }
@@ -401,23 +399,6 @@ function openChatCutLaunch({ endpoint }) {
       "--host", "127.0.0.1",
       "--port", String(endpoint.port),
       "--strictPort",
-    ],
-  };
-}
-
-function sevenCycleLaunch({ workspace, endpoint }) {
-  const localCommand = workspace
-    ? path.join(workspace, ".venv", "bin", "seven-cycle")
-    : undefined;
-  const usesLocalCommand = localCommand ? existsSync(localCommand) : false;
-  return {
-    command: usesLocalCommand ? localCommand : "uv",
-    commandArgs: [
-      ...(usesLocalCommand ? [] : ["run", "seven-cycle"]),
-      "serve", "--host", "127.0.0.1", "--port", String(endpoint.port),
-      ...(repairSevenCycleCatalogOnStart
-        ? ["--repair-catalog-on-start"]
-        : []),
     ],
   };
 }
@@ -468,7 +449,9 @@ const runtimeServiceGroups = createRuntimeServiceGroups(externalRuntimes, {
   env: process.env,
   launchAdapters: {
     openchatcut: openChatCutLaunch,
-    "seven-cycle": sevenCycleLaunch,
+    "seven-cycle": (options) => sevenCycleLaunch({
+      ...options, repairCatalogOnStart: repairSevenCycleCatalogOnStart,
+    }),
   },
   prepareAdapters: {
     "world-intel": ({ runtime }) => ensureWorldIntelRuntime(runtime),

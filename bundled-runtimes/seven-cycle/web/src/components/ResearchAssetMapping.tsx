@@ -1,6 +1,7 @@
 import { ArrowDownUp, ChevronDown, ChevronRight, ChevronsDownUp, FlaskConical, Search, X } from 'lucide-react'
 import { Fragment, useMemo, useState } from 'react'
 import PlotlyCanvas from './PlotlyCanvas'
+import type { AssetHistoryState, assetHistoryView } from '../lib/assetHistoryView'
 
 const phases = ['recovery', 'expansion', 'slowdown', 'contraction'] as const
 const chartColors = ['#58c9ed', '#f1aa4b', '#69ce9f', '#9b83ef', '#ef6d7c', '#7195ff']
@@ -20,7 +21,7 @@ function average(values: Array<number | null | undefined>) {
   return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null
 }
 
-export default function ResearchAssetMapping({ cycleId, mapping, currentDirection, assetValidation, jointMapping, phaseLabels }: { cycleId: string; mapping: any; currentDirection?: any; assetValidation?: any; jointMapping?: any; phaseLabels: Record<string, string> }) {
+export default function ResearchAssetMapping({ cycleId, mapping, currentDirection, assetValidation, jointMapping, phaseLabels, viewState, view, onViewChange }: { cycleId: string; mapping: any; currentDirection?: any; assetValidation?: any; jointMapping?: any; phaseLabels: Record<string, string>; viewState: AssetHistoryState; view: ReturnType<typeof assetHistoryView>; onViewChange: (state: AssetHistoryState) => void }) {
   const isStateAssociation = mapping.kind === 'state_association'
   const stateAssetValidation = isStateAssociation ? mapping.assetValidation : null
   const legacyMappingAudit = mapping.status === 'legacy_mapping_rebuild_required'
@@ -28,28 +29,17 @@ export default function ResearchAssetMapping({ cycleId, mapping, currentDirectio
     sampleLabel: '年度样本', observationUnit: '年', returnLabel: '年度实际收益', volatilityLabel: '年度波动',
     sectionTitle: '长样本资产收益—风险表现', description: '相位因子已剔除资产收益家族；JST直接历史序列与Ken French研究组合均显示数据身份。',
   }
-  const [query, setQuery] = useState('')
-  const [category, setCategory] = useState('全部')
-  const [confidence, setConfidence] = useState('全部')
-  const [sortKey, setSortKey] = useState<'spread' | 'oos' | 'name'>('oos')
-  const [phase, setPhase] = useState<(typeof phases)[number]>('recovery')
-  const [selected, setSelected] = useState<any | null>(null)
+  const { query, category, confidence, sortKey, phase } = viewState
+  const { rows, categories, selected } = view
+  const patch = (value: Partial<AssetHistoryState>) => onViewChange({ ...viewState, ...value })
+  const setQuery = (query: string) => patch({ query, selectedId: null })
+  const setCategory = (category: string) => patch({ category, selectedId: null })
+  const setConfidence = (confidence: string) => patch({ confidence, selectedId: null })
+  const setSortKey = (sortKey: AssetHistoryState['sortKey']) => patch({ sortKey })
+  const setPhase = (phase: string) => patch({ phase })
+  const setSelected = (asset: any | null) => patch({ selectedId: asset?.assetId ?? null })
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(() => new Set())
 
-  const eligibleAssets = useMemo(() => mapping.assets.filter((asset: any) => asset.eligible), [mapping])
-  const categories = useMemo(() => ['全部', ...Array.from(new Set(eligibleAssets.map((asset: any) => asset.category))) as string[]], [eligibleAssets])
-  const rows = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
-    return eligibleAssets
-      .filter((asset: any) => category === '全部' || asset.category === category)
-      .filter((asset: any) => confidence === '全部' || asset.confidence === confidence)
-      .filter((asset: any) => !normalized || `${asset.name} ${asset.category}`.toLowerCase().includes(normalized))
-      .sort((left: any, right: any) => {
-        if (sortKey === 'name') return left.name.localeCompare(right.name, 'zh-CN')
-        if (sortKey === 'oos') return (right.oosR2 ?? -Infinity) - (left.oosR2 ?? -Infinity)
-        return (right.phaseSpread ?? -Infinity) - (left.phaseSpread ?? -Infinity)
-      })
-  }, [category, confidence, eligibleAssets, query, sortKey])
   const groupedRows = useMemo(() => {
     const groups = new Map<string, any[]>()
     rows.forEach((asset: any) => groups.set(asset.category, [...(groups.get(asset.category) ?? []), asset]))
@@ -581,7 +571,7 @@ export default function ResearchAssetMapping({ cycleId, mapping, currentDirectio
           <div className="segmented small">{phases.map((item) => <button key={item} className={phase === item ? 'active' : ''} onClick={() => setPhase(item)}>{phaseLabels[item]}</button>)}</div>
         </div>
         <div className="historical-risk-return-grid">
-          <PlotlyCanvas className="historical-risk-return-chart" data={chart.data} layout={chart.layout} onClick={(point) => setSelected(rows.find((asset: any) => asset.assetId === point?.customdata?.[0]) ?? null)} />
+          {rows.length ? <PlotlyCanvas className="historical-risk-return-chart" data={chart.data} layout={chart.layout} onClick={(point) => setSelected(rows.find((asset: any) => asset.assetId === point?.customdata?.[0]) ?? null)} /> : <p role="status">没有符合当前筛选的历史资产；请调整筛选，不代表资产风险为零。</p>}
           <aside className="phase-leader-panel">
             <span>{phaseLabels[phase]} · 历史收益风险比</span>
             <p>仅描述历史条件分布，不是资产排序、因果归因或配置建议。</p>

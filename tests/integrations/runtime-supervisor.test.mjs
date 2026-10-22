@@ -114,6 +114,104 @@ test("supports plain-text health endpoints", async () => {
   });
 });
 
+test("honors degraded JSON health even when HTTP and the envelope succeed", async () => {
+  const release = { projectId: "example", sourceCommit: "a".repeat(40) };
+  for (const enveloped of [false, true]) {
+    const health = {
+      service: "example", status: "degraded", freshness: "unknown",
+      caveats: ["deployment inputs do not match"], release,
+      runtime: { instance: { id: "process-one", started_at: "2026-10-22T00:00:00Z" } },
+    };
+    const probe = createHttpProbe("http://example.test/healthz", {
+      expectedService: "example",
+      fetchImpl: async () => Response.json(enveloped ? { ok: true, data: health } : health),
+    });
+    assert.deepEqual(await probe(), {
+      state: SERVICE_STATE.DEGRADED, httpStatus: 200,
+      reason: "deployment inputs do not match", dataFreshness: "unknown",
+      reportedRelease: release,
+      runtimeInstance: { id: "process-one", startedAt: "2026-10-22T00:00:00Z" },
+    });
+  }
+});
+
+test("gives degraded JSON health a reason without masking identity or HTTP failures", async () => {
+  for (const [serviceId, httpStatus, expectedState] of [
+    ["example", 200, SERVICE_STATE.DEGRADED],
+    ["other", 200, SERVICE_STATE.UNAVAILABLE],
+    ["example", 500, SERVICE_STATE.UNAVAILABLE],
+  ]) {
+    const probe = createHttpProbe("http://example.test/healthz", {
+      expectedService: "example",
+      fetchImpl: async () => Response.json(
+        { service: serviceId, status: "degraded" }, { status: httpStatus },
+      ),
+    });
+    const result = await probe();
+    assert.equal(result.state, expectedState);
+    if (expectedState === SERVICE_STATE.DEGRADED) {
+      assert.equal(result.reason, "health status: degraded");
+    }
+  }
+});
+
+test("reuses degraded HTTP health and monitors recovery without spawning or preparing", async () => {
+  let status = "degraded";
+  const supervisor = new RuntimeSupervisor({
+    monitorIntervalMs: -1,
+    monitorFailureThreshold: 1,
+    spawnImpl: () => assert.fail("degraded service must not be restarted"),
+    logger: quietLogger(),
+  });
+  const probe = createHttpProbe("http://example.test/healthz", {
+    expectedService: "example",
+    fetchImpl: async () => Response.json({ service: "example", status }),
+  });
+  const result = await supervisor.start(service({
+    probe, prepare: async () => assert.fail("degraded service must not be prepared"),
+  }));
+  assert.equal(result.launch, "reused");
+  assert.equal(result.state, SERVICE_STATE.DEGRADED);
+  for (let index = 0; index < 3; index += 1) {
+    assert.equal((await supervisor.monitorNow("example")).state, SERVICE_STATE.DEGRADED);
+  }
+  assert.equal(supervisor.records.get("example").consecutiveFailures, 0);
+  status = "ok";
+  assert.equal((await supervisor.monitorNow("example")).state, SERVICE_STATE.READY);
+  await supervisor.stopAll({ graceMs: 0 });
+});
+
+test("rejects a different explicit service even if its health says ok", async () => {
+  const probe = createHttpProbe("http://example.test/healthz", {
+    expectedService: "instock-analysis",
+    fetchImpl: async () => Response.json({ service: "other-project", ok: true, status: "ok" }),
+  });
+  assert.equal((await probe()).state, SERVICE_STATE.UNAVAILABLE);
+});
+
+test("reads the running instance and release from an enveloped health response", async () => {
+  const release = { projectId: "instock-analysis", sourceCommit: "a".repeat(40), sourceDirty: false };
+  const probe = createHttpProbe("http://example.test/healthz", {
+    expectedService: "instock-analysis",
+    fetchImpl: async () => Response.json({ ok: true, data: {
+      service: "instock-analysis", release,
+      runtime: { instance: { id: "process-one", started_at: "2026-10-21T00:00:00Z" } },
+    } }),
+  });
+  const result = await probe();
+  assert.equal(result.state, SERVICE_STATE.READY);
+  assert.deepEqual(result.reportedRelease, release);
+  assert.deepEqual(result.runtimeInstance, { id: "process-one", startedAt: "2026-10-21T00:00:00Z" });
+});
+
+test("the successful envelope cannot hide a different service identity", async () => {
+  const probe = createHttpProbe("http://example.test/healthz", {
+    expectedService: "instock-analysis",
+    fetchImpl: async () => Response.json({ ok: true, data: { service: "other-project", ok: true } }),
+  });
+  assert.equal((await probe()).state, SERVICE_STATE.UNAVAILABLE);
+});
+
 test("requires every composite readiness check even when API health is green", async () => {
   const calls = [];
   const probe = createCompositeProbe([
@@ -141,6 +239,21 @@ test("requires every composite readiness check even when API health is green", a
   assert.deepEqual(calls.sort(), ["domains", "health"]);
   assert.equal(result.state, SERVICE_STATE.UNAVAILABLE);
   assert.match(result.reason, /domain suites.*incomplete/i);
+});
+
+test("composite readiness preserves only the designated process release", async () => {
+  const release = { projects: { research: { sourceCommit: "a".repeat(40), sourceDirty: false } } };
+  for (const domainState of [SERVICE_STATE.READY, SERVICE_STATE.UNAVAILABLE]) {
+    const probe = createCompositeProbe([
+      { runtimeIdentity: true, probe: async () => ({ state: SERVICE_STATE.READY,
+        runtimeInstance: { id: "host-one" }, reportedRelease: release }) },
+      { probe: async () => ({ state: domainState, reportedRelease: { projectId: "wrong" } }) },
+    ]);
+    const result = await probe();
+    assert.equal(result.state, domainState);
+    assert.deepEqual(result.reportedRelease, release);
+    assert.deepEqual(result.runtimeInstance, { id: "host-one" });
+  }
 });
 
 test("refuses an initial duplicate when composite readiness fails on an occupied port", async () => {

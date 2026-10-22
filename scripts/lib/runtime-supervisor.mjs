@@ -40,15 +40,16 @@ export function createCompositeProbe(checks) {
     return {
       label: String(entry.label || `check ${index + 1}`),
       probe: entry.probe,
+      runtimeIdentity: entry.runtimeIdentity === true,
     };
   });
 
   return async () => {
     // Run independent checks together so a composed readiness check costs no
     // more than its slowest bounded component.
-    const results = await Promise.all(entries.map(async ({ label, probe }) => {
+    const results = await Promise.all(entries.map(async ({ label, probe, runtimeIdentity }) => {
       try {
-        return { label, result: normalizeProbeResult(await probe()) };
+        return { label, runtimeIdentity, result: normalizeProbeResult(await probe()) };
       } catch (error) {
         return {
           label,
@@ -61,13 +62,20 @@ export function createCompositeProbe(checks) {
       : results.some(({ result }) => result.state === SERVICE_STATE.DEGRADED)
         ? SERVICE_STATE.DEGRADED
         : SERVICE_STATE.READY;
-    if (state === SERVICE_STATE.READY) return { state };
+    // Only the designated process health endpoint supplies version identity;
+    // domain readiness checks must not overwrite it.
+    const identity = results.find((entry) => entry.runtimeIdentity)?.result;
+    const metadata = {
+      ...(identity?.runtimeInstance ? { runtimeInstance: identity.runtimeInstance } : {}),
+      ...(identity?.reportedRelease ? { reportedRelease: identity.reportedRelease } : {}),
+    };
+    if (state === SERVICE_STATE.READY) return { state, ...metadata };
 
     const reason = results
       .filter(({ result }) => result.state === state)
       .map(({ label, result }) => `${label}: ${result.reason || result.state}`)
       .join("; ");
-    return { state, reason };
+    return { state, reason, ...metadata };
   };
 }
 
@@ -130,22 +138,40 @@ export function createHttpProbe(
           httpStatus: response.status,
         });
       }
+      // InStock uses the common { ok, data } envelope. Inspect the actual
+      // health payload, not just the envelope's successful HTTP response.
+      const health = body?.data?.service ? body.data : body;
       const identityMatches = expectedService
-        ? body?.service === expectedService || body?.status === "ok" || body?.ok === true
+        ? health?.service
+          ? health.service === expectedService
+          : health?.status === "ok" || health?.ok === true
         : true;
       if (state === SERVICE_STATE.READY && !identityMatches) {
         return unavailable("health response did not match the expected service", {
           httpStatus: response.status,
         });
       }
+      // HTTP success only proves reachability; the service may still report
+      // degraded readiness. Keep identity and non-success HTTP checks above it.
+      const healthState = state === SERVICE_STATE.READY && health?.status === "degraded"
+        ? SERVICE_STATE.DEGRADED
+        : state;
       return {
-        state,
+        state: healthState,
         httpStatus: response.status,
         reason:
-          state === SERVICE_STATE.DEGRADED
-            ? body?.caveats?.[0] || body?.detail || `HTTP ${response.status}`
+          healthState === SERVICE_STATE.DEGRADED
+            ? health?.caveats?.[0] || body?.detail
+              || (state === SERVICE_STATE.READY ? "health status: degraded" : `HTTP ${response.status}`)
             : undefined,
-        dataFreshness: body?.freshness,
+        dataFreshness: health?.freshness,
+        ...(health?.runtime?.instance?.id ? {
+          runtimeInstance: {
+            id: health.runtime.instance.id,
+            startedAt: health.runtime.instance.started_at,
+          },
+        } : {}),
+        ...(health?.release ? { reportedRelease: health.release } : {}),
       };
     } catch (error) {
       return unavailable(error instanceof Error ? error.message : String(error));

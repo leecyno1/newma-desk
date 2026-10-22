@@ -447,6 +447,13 @@ def test_build_creates_one_deployment_manifest(
 
     product_root = tmp_path / "products"
     product_root.mkdir()
+    research_output = tmp_path / "research-output"
+    research_output.mkdir()
+    for filename in (
+        "asset_cycle_state_forecast.json", "c4_asset_statistics_current.json",
+        "c4_forecast_reproducible_latest.json",
+    ):
+        (research_output / filename).write_text("{}", encoding="utf-8")
     run_id = VALID_RUN_ID
     run_dir = product_root / "runs" / run_id
     catalog_path = product_root / "catalogs" / f"{run_id}.duckdb"
@@ -467,10 +474,16 @@ def test_build_creates_one_deployment_manifest(
         ),
     )
     monkeypatch.setattr(cli, "_build_web_distribution", lambda _: web_root)
+    def build_deployment(**kwargs):
+        assert kwargs["asset_forecast_path"] == research_output / "asset_cycle_state_forecast.json"
+        assert kwargs["asset_statistics_path"] == research_output / "c4_asset_statistics_current.json"
+        assert kwargs["c4_forecast_path"] == research_output / "c4_forecast_reproducible_latest.json"
+        return SimpleNamespace(run_id=run_id, run_dir=run_dir, reused=False)
+
     monkeypatch.setattr(
         deployment_module,
         "build_circle_deployment",
-        lambda **_: SimpleNamespace(run_id=run_id, run_dir=run_dir, reused=False),
+        build_deployment,
     )
     monkeypatch.setattr(cli, "load_manifest", lambda _: SimpleNamespace())
     monkeypatch.setattr(
@@ -491,6 +504,8 @@ def test_build_creates_one_deployment_manifest(
             str(REGISTRY_DIR),
             "--product-root",
             str(product_root),
+            "--research-output-dir",
+            str(research_output),
         ]
     )
 
@@ -507,6 +522,24 @@ def test_build_creates_one_deployment_manifest(
     assert deployment["deployment_id"] == payload["deployment_id"]
     assert json.loads((web_root / "data" / "deployment.json").read_text()) == deployment
     assert captured.err == ""
+
+
+def test_build_missing_research_inputs_does_not_publish(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    product_root = tmp_path / "products"
+    result = _cli().main([
+        "build", "--as-of", "2026-07-21",
+        "--config-dir", str(REGISTRY_DIR),
+        "--product-root", str(product_root),
+        "--research-output-dir", str(tmp_path / "missing-inputs"),
+    ])
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "research build inputs missing" in captured.err
+    assert "asset_cycle_state_forecast.json" in captured.err
+    assert not product_root.exists()
 
 
 def test_build_reports_config_failure_before_deployment(

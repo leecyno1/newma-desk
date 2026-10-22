@@ -1,5 +1,5 @@
 import { AlertTriangle, BarChart3, BookOpenCheck, CalendarDays, ChevronDown, FlaskConical, ShieldCheck } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import CycleForecastExtension from '../components/CycleForecastExtension'
 import IndicatorContributionStudy from '../components/IndicatorContributionStudy'
@@ -8,7 +8,10 @@ import LoadingState from '../components/LoadingState'
 import StatusBadge from '../components/StatusBadge'
 import { useResearchData } from '../hooks/useResearchData'
 import { loadCycleResearch } from '../lib/data'
-import { publishVibeDeskContext, registerVibeDeskContextProvider } from '../lib/vibedesk'
+import { publishVibeDeskContext, registerVibeDeskContextProvider, registerVibeDeskUiActionHandler } from '../lib/vibedesk'
+import { createCycleControls, cycleControlAction } from '../lib/cycleControls'
+import { usePageState } from '../hooks/usePageSession'
+import { pageChoice, pageFlag } from '../lib/pageSession'
 
 const statusIcon = {
   formal: ShieldCheck,
@@ -33,9 +36,29 @@ export default function CyclesPage() {
   const { data, error } = useResearchData(loadCycleResearch)
   const [params, setParams] = useSearchParams()
   const requested = params.get('cycle')
-  const [selected, setSelected] = useState(requested && /^C[1-7]$/.test(requested) ? requested : 'C4')
-  const [showEvidenceDetails, setShowEvidenceDetails] = useState(false)
+  const defaultCycle = requested && /^C[1-7]$/.test(requested) ? requested : 'C4'
+  const [selected, setSelected] = usePageState('cycles.id', defaultCycle,
+    value => requested && /^C[1-7]$/.test(requested) ? requested : pageChoice(value, ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7'], 'C4'))
+  const [showEvidenceDetails, setShowEvidenceDetails] = usePageState('cycles.details', false, value => pageFlag(value, false))
   const cycle = useMemo(() => data?.governance.cycles.find((item) => item.id === selected), [data, selected])
+  const controls = useRef<ReturnType<typeof createCycleControls> | null>(null)
+  const paramsWriter = useRef(setParams)
+  useLayoutEffect(() => { paramsWriter.current = setParams }, [setParams])
+
+  useEffect(() => {
+    const controller = createCycleControls((cycleId, expanded) => {
+      setSelected(cycleId)
+      setShowEvidenceDetails(expanded)
+      paramsWriter.current({ cycle: cycleId })
+    })
+    controls.current = controller
+    const unregister = registerVibeDeskUiActionHandler(controller.perform)
+    return () => {
+      unregister()
+      controller.cancel()
+      controls.current = null
+    }
+  }, [])
 
   useEffect(() => {
     if (requested && /^C[1-7]$/.test(requested) && requested !== selected) {
@@ -68,12 +91,15 @@ export default function CyclesPage() {
             publication: cycle.publication,
             directionPublication: diagnostic?.directionPublication ?? null,
             currentEvidenceAsOf: cycle.id === 'C4' ? data.C4Realtime?.latest?.date : diagnostic?.regimeRefactor?.meta?.asOfPeriod ?? null,
-            caveat: '治理基线和生成日期不等于最新观测期；被阻断的相位、预测或资产统计不得当作已发布结论。',
+            caveat: '治理基线和生成日期不等于最新观测期；刷新网页只重读研究快照，不更新研究数据。被阻断的相位、预测或资产统计不得当作已发布结论。',
           },
         },
-        actions: [], tasks: [],
+        actions: [cycleControlAction], tasks: [],
       }
     })
+    controls.current?.commit(cycle ? {
+      cycleId: cycle.id, cycleName: cycle.name, evidenceDetailsExpanded: showEvidenceDetails,
+    } : null)
     void publishVibeDeskContext()
     return unregister
   }, [cycle, data, showEvidenceDetails])
@@ -159,6 +185,7 @@ export default function CyclesPage() {
   const expandedPeriodDiagnostic = currentPhaseCandidate?.periodIdentification?.expandedSearch
   const hasChart = ['C1', 'C4', 'C6'].includes(cycle.id) || Boolean(diagnostic)
   const selectCycle = (cycleId: string) => {
+    controls.current?.cancel()
     setSelected(cycleId)
     setShowEvidenceDetails(false)
     setParams({ cycle: cycleId })
@@ -178,8 +205,8 @@ export default function CyclesPage() {
         {data.governance.cycles.map((item) => {
           const publication = data.diagnostics?.[item.id]?.directionPublication
           return (
-            <button key={item.id} className={selected === item.id ? 'active' : ''} onClick={() => selectCycle(item.id)}>
-              <span>{item.id}</span>
+            <button key={item.id} aria-pressed={selected === item.id} className={selected === item.id ? 'active' : ''} onClick={() => selectCycle(item.id)}>
+              <span className="cycle-id">{item.id}</span>
               <strong>{item.name}</strong>
               <small>{periodLabel(item.centerPriorMonths)}</small>
               {publication?.status === 'limited' ? <span className="status-badge status-research">{publication.badgeLabel}</span> : <StatusBadge status={item.publication.historical} />}
@@ -269,7 +296,7 @@ export default function CyclesPage() {
           )}
           <div className="chart-method-note">
             {cycle.id === 'C1' && data.C1.caveat}
-            {cycle.id === 'C4' && `历史：双边 Gaussian + Butterworth 集成；实时：PMI/PPI 指标桥接至 ${data.C4Realtime.latest.date}；预测：样本外验证通过的 Ridge，输入滞后 ${data.C4Forecast.meta.stale_months_at_build} 个月。`}
+            {cycle.id === 'C4' && `历史：双边 Gaussian + Butterworth 集成；单边估计：PMI/PPI 指标桥接至 ${data.C4Realtime.latest.date}；预测：样本外验证通过的 Ridge，输入在构建时滞后 ${data.C4Forecast.meta.stale_months_at_build} 个月（非距今）。`}
             {cycle.id === 'C6' && data.C6.caveat}
             {diagnostic && diagnostic.caveat}
             {!hasChart && '触及搜索边界、红噪声不显著或口径敏感时，系统拒绝自动给出单一最佳周期。'}
@@ -308,7 +335,7 @@ export default function CyclesPage() {
           </dl>
           <div className="cycle-evidence-actions">
             <Link to={`/assets?cycle=${cycle.id}`}><BarChart3 size={14} />查看 {cycle.id} 资产统计</Link>
-            <button onClick={() => setShowEvidenceDetails((current) => !current)}>
+            <button onClick={() => { controls.current?.cancel(); setShowEvidenceDetails((current) => !current) }}>
               <ChevronDown size={14} />{showEvidenceDetails ? '收起模型细节' : '展开模型细节'}
             </button>
           </div>

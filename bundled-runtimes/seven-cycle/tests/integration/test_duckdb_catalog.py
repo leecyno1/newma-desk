@@ -357,6 +357,7 @@ def _foundation_sources() -> FoundationSources:
         PROJECT_ROOT / "config" / "seven_cycle" / "approved" / "2026-07-19"
     )
     return FoundationSources(
+        project_root=PROJECT_ROOT,
         config_dir=approved_config,
         evidence_path=approved_config / "evidence_baseline.yaml",
         historical_path=(

@@ -306,7 +306,7 @@ def test_health_release_verification_is_cached_and_single_flight(
     assert {context.manifest.run_id for context in contexts} == {manifest.run_id}
 
 
-def test_health_verifies_product_identity_and_reports_web_copy_scope(
+def test_health_requires_the_served_web_copy_to_match_the_product(
     tmp_path: Path,
 ) -> None:
     from seven_cycle_platform.api.app import create_app
@@ -350,11 +350,19 @@ def test_health_verifies_product_identity_and_reports_web_copy_scope(
     product_content = product_deployment.read_bytes()
     web_content = web_deployment.read_bytes()
     web_deployment.unlink()
+    # API-only serving needs no web copy. A mounted SPA does need its pair.
+    api_only = TestClient(create_app(product_root=product_root, catalog_root=catalog_root))
+    assert api_only.get("/healthz").json()["status"] == "ok"
+    assert api_only.get("/healthz").json()["deployment"] == "available"
     missing_web = client.get("/healthz").json()
-    assert missing_web["status"] == "ok"
-    assert missing_web["deployment"] == "available"
+    assert missing_web["status"] == "degraded"
+    assert missing_web["deployment"] == "inconsistent"
     assert missing_web["deployment_verification"] == "product-only"
+    assert missing_web["deployment_reason"] == "web_manifest_missing"
+    assert client.get("/v1/assets").status_code == 200
+    assert client.get("/").status_code == 200
     web_deployment.write_bytes(web_content)
+    assert client.get("/healthz").json()["status"] == "ok"
 
     product_deployment.unlink()
     missing_product = client.get("/healthz").json()

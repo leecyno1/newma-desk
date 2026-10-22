@@ -1,5 +1,5 @@
 import { BarChart3, ChevronDown, Compass, FlaskConical, Layers3, LineChart, Maximize2, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import MarketSurfacePlot, { type SurfaceCameraPreset, type SurfaceMode, type SurfaceView, type TimeRange } from '../components/MarketSurfacePlot'
 import IndicatorContributionHistory from '../components/IndicatorContributionHistory'
@@ -8,8 +8,11 @@ import StatusBadge from '../components/StatusBadge'
 import { useResearchData } from '../hooks/useResearchData'
 import { loadCycleResearch, loadMarketSurface } from '../lib/data'
 import { marketTrackRole, sortMarketTracks } from '../lib/marketTracks'
-import { publishVibeDeskContext, registerVibeDeskContextProvider, registerVibeDeskVisualCaptureProvider } from '../lib/vibedesk'
+import { publishVibeDeskContext, registerVibeDeskContextProvider, registerVibeDeskUiActionHandler, registerVibeDeskVisualCaptureProvider } from '../lib/vibedesk'
+import { createMarketControls, marketComparison, marketControlAction } from '../lib/marketControls'
 import type { MarketTrack } from '../types'
+import { usePageState } from '../hooks/usePageSession'
+import { pageChoice, pageFlag, pageText } from '../lib/pageSession'
 
 function formatValue(value: number | null | undefined, unit = '') {
   if (value == null || !Number.isFinite(value)) return '不可用'
@@ -39,18 +42,35 @@ function pngDataUrlBytes(dataUrl: string) {
 export default function MarketSurfacePage() {
   const marketState = useResearchData(loadMarketSurface)
   const cycleState = useResearchData(loadCycleResearch)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [expanded, setExpanded] = useState(false)
-  const [query, setQuery] = useState('')
-  const [group, setGroup] = useState<'all' | 'market' | 'economic'>('all')
+  const [selectedIds, setSelectedIds] = usePageState<string[]>('market.tracks', [], value => Array.isArray(value)
+    ? [...new Set(value.filter((item): item is string => typeof item === 'string' && item.length <= 120))].slice(0, 24) : [])
+  const [expanded, setExpanded] = usePageState('market.drawer', false, value => pageFlag(value, false))
+  const [query, setQuery] = usePageState('market.query', '', value => pageText(value))
+  const [group, setGroup] = usePageState<'all' | 'market' | 'economic'>('market.group', 'all', value => pageChoice(value, ['all', 'market', 'economic'], 'all'))
   const mode: SurfaceMode = 'governed'
-  const [view, setView] = useState<SurfaceView>('heatmap')
-  const [range, setRange] = useState<TimeRange>('5y')
-  const [showForecast, setShowForecast] = useState(true)
+  const [view, setView] = usePageState<SurfaceView>('market.view', 'heatmap', value => pageChoice(value, ['heatmap', '2d', '3d'], 'heatmap'))
+  const [range, setRange] = usePageState<TimeRange>('market.range', '5y', value => pageChoice(value, ['5y', '20y', '50y', 'all'], '5y'))
+  const [showForecast, setShowForecast] = usePageState('market.forecast', true, value => pageFlag(value, true))
   const [cameraRevision, setCameraRevision] = useState(0)
-  const [cameraPreset, setCameraPreset] = useState<SurfaceCameraPreset>('overview')
+  const [cameraPreset, setCameraPreset] = usePageState<SurfaceCameraPreset>('market.camera', 'overview', value => pageChoice(value, ['overview', 'top', 'along-track', 'along-time'], 'overview'))
   const [selectedPoint, setSelectedPoint] = useState<{ trackId: string; index: number; forecast?: boolean } | null>(null)
-  const [comparisonDate, setComparisonDate] = useState<string | null>(null)
+  const [comparisonDate, setComparisonDate] = usePageState<string | null>('market.comparison', null,
+    value => typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : null)
+  const controls = useRef<ReturnType<typeof createMarketControls> | null>(null)
+
+  useEffect(() => {
+    const controller = createMarketControls(state => {
+      setSelectedIds(state.selectedTrackIds)
+      setView(state.view)
+      setRange(state.timeRange)
+      setShowForecast(state.forecastLayer === 'history-and-forecast')
+      setComparisonDate(state.comparisonDate)
+      setSelectedPoint(null)
+    })
+    controls.current = controller
+    const unregister = registerVibeDeskUiActionHandler(controller.perform)
+    return () => { unregister(); controller.cancel(); controls.current = null }
+  }, [])
 
   const market = marketState.data
   const cycleResearch = cycleState.data
@@ -68,18 +88,9 @@ export default function MarketSurfacePage() {
       return groupMatch && queryMatch
     })
   }, [group, market, query])
-  const comparisonDates = useMemo(() => [...new Set(selectedTracks.flatMap((track) => track.dates))].sort(), [selectedTracks])
-  const newestComparisonDate = comparisonDates.at(-1) ?? ''
-  const rangeMonths = range === '5y' ? 60 : range === '20y' ? 240 : range === '50y' ? 600 : Infinity
-  const visibleComparisonDates = comparisonDates.filter((date) => monthIndex(date) > monthIndex(newestComparisonDate) - rangeMonths)
-  const latestCompleteDate = [...visibleComparisonDates].reverse().find((date) =>
-    monthIndex(newestComparisonDate) - monthIndex(date) <= 12 && selectedTracks.every((track) => {
-      const index = track.dates.indexOf(date)
-      return index >= 0 && Number.isFinite(track.governedStack[index])
-    }),
+  const { visible: visibleComparisonDates, newest: newestComparisonDate, effective: effectiveComparisonDate } = useMemo(
+    () => marketComparison(selectedTracks, range, comparisonDate), [selectedTracks, range, comparisonDate],
   )
-  const effectiveComparisonDate = comparisonDate && visibleComparisonDates.includes(comparisonDate)
-    ? comparisonDate : latestCompleteDate ?? newestComparisonDate
   const comparisonRows = selectedTracks.flatMap((track) => {
     const index = track.dates.indexOf(effectiveComparisonDate)
     const value = index >= 0 ? track.governedStack[index] : null
@@ -107,7 +118,7 @@ export default function MarketSurfacePage() {
         .filter(Boolean) as MarketTrack[])
       const focusedTrack = tracks.find((track) => track.id === (selectedPoint?.trackId ?? selectedTrackIds[0])) ?? tracks[0]
       const focusedIndex = selectedPoint?.index ?? Math.max(0, (focusedTrack?.dates.length ?? 1) - 1)
-      const forecastPoint = view !== 'heatmap' && Boolean(selectedPoint?.forecast)
+      const forecastPoint = view !== 'heatmap' && showForecast && Boolean(selectedPoint?.forecast)
       const focusedDate = forecastPoint
         ? focusedTrack?.forecast.dates[focusedIndex]
         : focusedTrack?.dates[focusedIndex]
@@ -206,6 +217,7 @@ export default function MarketSurfacePage() {
               proxyStatus: track.proxyStatus,
               forecastStatus: track.forecast.status,
             })),
+            availableTracks: market.tracks.map(({ id, label, group }) => ({ id, label, group })),
             crossSection: view === 'heatmap' ? {
               date: effectiveComparisonDate,
               observed: comparisonRows.length,
@@ -220,10 +232,15 @@ export default function MarketSurfacePage() {
             limitedCycleDirections: limitedDirections,
           },
         },
-        actions: [],
+        actions: [marketControlAction],
         tasks: [],
       }
     })
+    controls.current?.commit(market && cycleResearch ? {
+      view, timeRange: range, selectedTrackIds: activeIds,
+      forecastLayer: view !== 'heatmap' && showForecast ? 'history-and-forecast' : 'history-only',
+      comparisonDate: view === 'heatmap' ? effectiveComparisonDate : null,
+    } : null, market?.tracks ?? [])
     void publishVibeDeskContext()
     return unregister
   }, [cameraPreset, comparisonHigh?.id, comparisonHigh?.value, comparisonLow?.id, comparisonLow?.value, comparisonNegative, comparisonPositive, comparisonRows.length, cycleResearch, effectiveComparisonDate, expanded, forecastLagMonths, group, market, marketFreshness, marketLagMonths, newestObservation, oldestObservation, query, range, selectedIds, selectedPoint, selectedTracks.length, showForecast, staleSelectedTracks, view])
@@ -260,7 +277,7 @@ export default function MarketSurfacePage() {
 
   const pointTrack = selectedTracks.find((track) => track.id === (selectedPoint?.trackId ?? activeIds[0])) ?? selectedTracks[0]
   const pointIndex = selectedPoint?.index ?? Math.max(0, (pointTrack?.dates.length ?? 1) - 1)
-  const isForecast = view !== 'heatmap' && Boolean(selectedPoint?.forecast)
+  const isForecast = view !== 'heatmap' && showForecast && Boolean(selectedPoint?.forecast)
   const pointDate = isForecast ? pointTrack?.forecast.dates[pointIndex] : pointTrack?.dates[pointIndex]
   const pointTrackLag = pointTrack ? trackLagMonths(market.meta.asOf, pointTrack) : 0
   const pointForecastGap = pointTrack ? forecastBridgeGapMonths(pointTrack) : 0
@@ -287,6 +304,7 @@ export default function MarketSurfacePage() {
 
   const toggleTrack = (trackId: string) => {
     const current = activeIds
+    setSelectedPoint(null)
     if (current.includes(trackId)) {
       const next = current.filter((id) => id !== trackId)
       setSelectedIds(next.length ? next : [market.meta.defaultTrackIds[0]])
@@ -315,7 +333,7 @@ export default function MarketSurfacePage() {
   }
 
   return (
-    <div className="page market-page">
+    <div className="page market-page" onClickCapture={() => controls.current?.cancel()} onChangeCapture={() => controls.current?.cancel()}>
       <section className="page-heading market-heading">
         <div>
           <h1>全球周期—市场曲面</h1>
@@ -333,20 +351,20 @@ export default function MarketSurfacePage() {
       <section className="surface-toolbar">
         <span className="surface-track-mode">周期识别轨道 · 默认10条</span>
         <div className="segmented">
-          <button className={view === 'heatmap' ? 'active' : ''} onClick={() => { setView('heatmap'); setSelectedPoint(null) }}>同期热图</button>
-          <button className={view === '3d' ? 'active' : ''} onClick={() => setView('3d')}>3D 曲面</button>
-          <button className={view === '2d' ? 'active' : ''} onClick={() => setView('2d')}>2D 轨道</button>
+          <button aria-pressed={view === 'heatmap'} className={view === 'heatmap' ? 'active' : ''} onClick={() => { setView('heatmap'); setSelectedPoint(null) }}>同期热图</button>
+          <button aria-pressed={view === '3d'} className={view === '3d' ? 'active' : ''} onClick={() => { setView('3d'); setSelectedPoint(null) }}>3D 曲面</button>
+          <button aria-pressed={view === '2d'} className={view === '2d' ? 'active' : ''} onClick={() => { setView('2d'); setSelectedPoint(null) }}>2D 轨道</button>
         </div>
         <div className="segmented">
           {(['5y', '20y', '50y', 'all'] as TimeRange[]).map((item) => (
-            <button key={item} className={range === item ? 'active' : ''} onClick={() => setRange(item)}>
+            <button key={item} aria-pressed={range === item} className={range === item ? 'active' : ''} onClick={() => setRange(item)}>
               {item === '5y' ? '5年' : item === '20y' ? '20年' : item === '50y' ? '50年' : '全历史'}
             </button>
           ))}
         </div>
         {view !== 'heatmap' && <div className="segmented forecast-layer-toggle">
-          <button className={showForecast ? 'active' : ''} onClick={() => setShowForecast(true)}><LineChart size={13} />含预测</button>
-          <button className={!showForecast ? 'active' : ''} onClick={() => setShowForecast(false)}>仅历史</button>
+          <button aria-pressed={showForecast} className={showForecast ? 'active' : ''} onClick={() => setShowForecast(true)}><LineChart size={13} />含预测</button>
+          <button aria-pressed={!showForecast} className={!showForecast ? 'active' : ''} onClick={() => { setShowForecast(false); setSelectedPoint(null) }}>仅历史</button>
         </div>}
         <button className="toolbar-button" onClick={() => setExpanded((value) => !value)}>
           <Layers3 size={15} />展开全部轨道 {market.meta.trackCount}<ChevronDown size={14} />
@@ -399,6 +417,7 @@ export default function MarketSurfacePage() {
             </div>
           )}
           <MarketSurfacePlot tracks={selectedTracks} mode={mode} view={view} range={range} showForecast={showForecast} focusTrackId={view === 'heatmap' ? undefined : pointTrack?.id} cameraRevision={cameraRevision} cameraPreset={cameraPreset} onPoint={(point) => {
+            controls.current?.cancel()
             setSelectedPoint(point)
             if (view === 'heatmap') setComparisonDate(selectedTracks.find((track) => track.id === point.trackId)?.dates[point.index] ?? null)
           }} />
@@ -418,7 +437,7 @@ export default function MarketSurfacePage() {
             {pointTrack && <small className={`track-freshness ${pointTrackLag >= 12 ? 'stale' : pointTrackLag >= 3 ? 'delayed' : ''}`}>轨道数据截至 {pointTrack.coverage.end} · {pointTrackLag ? `比曲面基线早 ${pointTrackLag} 个月` : '与曲面基线一致'}</small>}
             {pointTrack?.forecast.status === 'limited' && pointTrack.forecast.bridge && pointForecastGap > 1 && <small className="forecast-gap-warning">历史末点与预测桥接相隔 {pointForecastGap} 个月，虚线不代表中间月份实测值</small>}
           </div>
-          {view !== 'heatmap' && pointTrack?.forecast.status === 'limited' && (
+          {view !== 'heatmap' && showForecast && pointTrack?.forecast.status === 'limited' && (
             <div className="forecast-inspector-actions">
               <button className={!isForecast ? 'active' : ''} onClick={() => setSelectedPoint({ trackId: pointTrack.id, index: Math.max(0, pointTrack.dates.length - 1) })}>最新历史</button>
               <button className={isForecast ? 'active' : ''} onClick={() => setSelectedPoint({ trackId: pointTrack.id, index: Math.max(0, pointTrack.forecast.dates.length - 1), forecast: true })}>预测终点</button>

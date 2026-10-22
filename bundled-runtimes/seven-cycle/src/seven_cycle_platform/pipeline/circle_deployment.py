@@ -408,18 +408,17 @@ def build_circle_deployment(
     cycle_research = json.loads((web_data_dir / "cycle-research.json").read_bytes())
     data_vintage = _month_end(asset_forecast["meta"]["asOf"])
     web_paths = [web_data_dir / filename for filename in RESEARCH_DATA_FILENAMES]
-    input_paths = [
-        foundation_run_dir / "manifest.json",
-        asset_forecast_path,
-        asset_statistics_path,
-        c4_forecast_path,
-        *web_paths,
-    ]
+    # Stable logical identities: relocating an unchanged input snapshot must not
+    # create a different research run merely because its parent folder changed.
+    input_paths = {
+        "foundation/manifest.json": foundation_run_dir / "manifest.json",
+        "research/asset_cycle_state_forecast.json": asset_forecast_path,
+        "research/c4_asset_statistics_current.json": asset_statistics_path,
+        "research/c4_forecast.json": c4_forecast_path,
+        **{f"web-data/{path.name}": path for path in web_paths},
+    }
     input_checksums = {
-        path.relative_to(path.parents[2]).as_posix()
-        if len(path.parents) > 2
-        else path.name: sha256_file(path)
-        for path in input_paths
+        logical_name: sha256_file(path) for logical_name, path in input_paths.items()
     }
     context = RunContext.create(
         as_of=as_of,

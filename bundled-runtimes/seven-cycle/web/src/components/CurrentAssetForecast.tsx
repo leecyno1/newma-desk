@@ -1,5 +1,6 @@
 import { AlertTriangle, ArrowDownUp, ChevronDown, Search, ShieldCheck } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, type Dispatch, type SetStateAction } from 'react'
+import type { AssetForecastViewState, assetForecastView } from '../lib/assetForecastView'
 import type { AssetCycleStateForecastData, AssetCycleStateForecastEstimate, AssetCycleStateForecastRow } from '../types'
 import PlotlyCanvas from './PlotlyCanvas'
 import StatusBadge from './StatusBadge'
@@ -52,14 +53,6 @@ function attributionStabilityLabel(value: string) {
   return '历史表现不稳定'
 }
 
-function attributionStabilityRank(value: string | null | undefined) {
-  if (value === 'stable') return 4
-  if (value === 'mixed') return 3
-  if (value === 'low_impact') return 2
-  if (value === 'unstable') return 1
-  return 0
-}
-
 function median(values: number[]) {
   if (values.length === 0) return null
   const sorted = [...values].sort((left, right) => left - right)
@@ -92,8 +85,8 @@ function reasonCodeLabel(reason: string) {
     positive_oos_r2: '样本外 R² 不为正',
     insufficient_recursive_observations: '递归样本不足',
     current_forecast_unavailable: '当前截点无法形成预测分布',
-    source_reporting_lag: '官方数据源正常滞后1个月',
-    stale_asset_data: '资产数据未刷新到当前截点',
+    source_reporting_lag: '相对快照截点，官方数据源滞后1个月',
+    stale_asset_data: '资产数据未刷新到快照截点',
     recent_window_instability: '最近48次递归检验稳定性不足',
     non_overlapping_instability: '非重叠独立路径稳定性不足',
     nested_selection_insufficient: '嵌套外层验证样本不足',
@@ -124,17 +117,23 @@ function forecastConclusion(
 
 interface Props {
   data: AssetCycleStateForecastData
+  viewState: AssetForecastViewState
+  onViewChange: Dispatch<SetStateAction<AssetForecastViewState>>
+  view: ReturnType<typeof assetForecastView>
 }
 
-export default function CurrentAssetForecast({ data }: Props) {
-  const [horizon, setHorizon] = useState<HorizonKey>('6')
-  const [query, setQuery] = useState('')
-  const [majorCategory, setMajorCategory] = useState('全部大类')
-  const [category, setCategory] = useState('全部')
-  const [onlyQualified, setOnlyQualified] = useState(true)
-  const [attributionFilter, setAttributionFilter] = useState<AttributionFilter>('all')
-  const [sortKey, setSortKey] = useState<SortKey>('status')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+export default function CurrentAssetForecast({ data, viewState, onViewChange, view }: Props) {
+  const { horizon, query, majorCategory, category, onlyQualified, attributionFilter, sortKey, selectedId } = viewState
+  const setField = <K extends keyof AssetForecastViewState>(key: K, value: AssetForecastViewState[K]) => onViewChange(current => ({ ...current, [key]: value }))
+  const setHorizon = (value: HorizonKey) => setField('horizon', value)
+  const setQuery = (value: string) => setField('query', value)
+  const setMajorCategory = (value: string) => setField('majorCategory', value)
+  const setCategory = (value: string) => setField('category', value)
+  const setOnlyQualified = (value: boolean) => setField('onlyQualified', value)
+  const setAttributionFilter = (value: AttributionFilter) => setField('attributionFilter', value)
+  const setSortKey = (value: SortKey) => setField('sortKey', value)
+  const setSelectedId = (value: string | null) => setField('selectedId', value)
+  const { visibleAssets, selected } = view
 
   const categories = useMemo(
     () => ['全部', ...Array.from(new Set(data.assets.map((asset) => asset.category)))],
@@ -175,28 +174,6 @@ export default function CurrentAssetForecast({ data }: Props) {
     ...counts,
     [row.asset.majorCategory]: (counts[row.asset.majorCategory] ?? 0) + 1,
   }), {} as Record<string, number>), [qualifiedAssetRows])
-  const visibleAssets = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
-    return data.assets
-      .filter((asset) => asset.horizons[horizon])
-      .filter((asset) => majorCategory === '全部大类' || asset.majorCategory === majorCategory)
-      .filter((asset) => category === '全部' || asset.category === category)
-      .filter((asset) => !onlyQualified || asset.horizons[horizon].publicationQualified)
-      .filter((asset) => attributionFilter === 'all' || asset.horizons[horizon].cycleAttributionStability?.status === attributionFilter)
-      .filter((asset) => !normalized || `${asset.name} ${asset.category}`.toLowerCase().includes(normalized))
-      .sort((left, right) => {
-        const leftHorizon = left.horizons[horizon]
-        const rightHorizon = right.horizons[horizon]
-        if (sortKey === 'probability') return (rightHorizon.forecast?.probabilityUp ?? -Infinity) - (leftHorizon.forecast?.probabilityUp ?? -Infinity)
-        if (sortKey === 'return') return (rightHorizon.forecast?.medianReturn ?? -Infinity) - (leftHorizon.forecast?.medianReturn ?? -Infinity)
-        if (sortKey === 'volatility') return (leftHorizon.forecast?.conditionalVol ?? Infinity) - (rightHorizon.forecast?.conditionalVol ?? Infinity)
-        if (sortKey === 'attribution') return attributionStabilityRank(rightHorizon.cycleAttributionStability?.status) - attributionStabilityRank(leftHorizon.cycleAttributionStability?.status)
-        return Number(rightHorizon.publicationQualified) - Number(leftHorizon.publicationQualified)
-          || Number(Boolean(rightHorizon.forecast)) - Number(Boolean(leftHorizon.forecast))
-          || (rightHorizon.forecast?.probabilityUp ?? -Infinity) - (leftHorizon.forecast?.probabilityUp ?? -Infinity)
-      })
-  }, [attributionFilter, category, data.assets, horizon, majorCategory, onlyQualified, query, sortKey])
-
   const chart = useMemo(() => {
     const chartAssets = visibleAssets.filter((asset) => asset.horizons[horizon].forecast)
     const chartCategories = Array.from(new Set(chartAssets.map((asset) => asset.category)))
@@ -250,8 +227,6 @@ export default function CurrentAssetForecast({ data }: Props) {
     }
   }, [horizon, visibleAssets])
 
-  const selected = data.assets.find((asset) => asset.assetId === selectedId && visibleAssets.some((visible) => visible.assetId === asset.assetId))
-    ?? visibleAssets[0]
   const selectedHorizon = selected?.horizons[horizon]
   const selectedForecast = selectedHorizon?.forecast
   const selectedAttribution = selectedHorizon?.cycleAttribution
@@ -328,7 +303,7 @@ export default function CurrentAssetForecast({ data }: Props) {
   }
 
   return (
-    <section className="current-asset-forecast">
+    <section className="current-asset-forecast" aria-label="联合资产预测">
       <div className="current-forecast-heading">
         <div>
           <span>联合周期预测 · {data.meta.includedCycles.join(' + ')} · 截至 {data.meta.assetDataThrough}</span>
@@ -342,7 +317,7 @@ export default function CurrentAssetForecast({ data }: Props) {
         {horizonKeys.map((item) => {
           const summary = data.summary.horizons[item]
           return (
-            <button key={item} className={horizon === item ? 'active' : ''} onClick={() => setHorizon(item)}>
+            <button key={item} aria-pressed={horizon === item} className={horizon === item ? 'active' : ''} onClick={() => setHorizon(item)}>
               <span>{horizonLabels[item]}</span>
               <strong>{summary.qualifiedAssets}<small> / {summary.validatedAssets} 通过</small></strong>
               <small>{horizonDescriptions[item]}</small>
@@ -350,7 +325,7 @@ export default function CurrentAssetForecast({ data }: Props) {
           )
         })}
         <div className="current-forecast-summary-note">
-          <span>数据更新</span><strong>{data.summary.refreshedAssets} / {data.summary.assets}</strong><small>滞后 {data.summary.sourceLagAssets} · 过期 {data.summary.staleAssets}</small>
+          <span>快照数据对齐</span><strong>{data.summary.refreshedAssets} / {data.summary.assets}</strong><small>相对快照截点：滞后 {data.summary.sourceLagAssets} · 过期 {data.summary.staleAssets}</small>
         </div>
       </div>
 
@@ -358,7 +333,7 @@ export default function CurrentAssetForecast({ data }: Props) {
         <div className="current-forecast-signal-heading">
           <div>
             <span>跨期限通过结果</span>
-            <h3>当前可发布资产信号</h3>
+            <h3>快照内通过检验的资产信号</h3>
             <p>只展示通过完整历史检验的结果；点击任一格进入对应期限的风险收益图。</p>
           </div>
           <div className="current-forecast-signal-counts">
@@ -391,7 +366,7 @@ export default function CurrentAssetForecast({ data }: Props) {
                       </td>
                     )
                   })}
-                  <td>{asset.dataEnd ?? '—'}<small>{asset.freshnessStatus === 'current' ? '已更新' : asset.freshnessStatus === 'source_lag' ? '源端滞后' : '过期'}</small></td>
+                  <td>{asset.dataEnd ?? '—'}<small>{asset.freshnessStatus === 'current' ? '快照截点已对齐' : asset.freshnessStatus === 'source_lag' ? '相对快照滞后' : '相对快照过期'}</small></td>
                 </tr>
               ))}
             </tbody>
@@ -418,8 +393,8 @@ export default function CurrentAssetForecast({ data }: Props) {
 
       <div className="current-forecast-toolbar">
         <label className="search-control"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索预测资产" /></label>
-        <select value={majorCategory} onChange={(event) => selectMajorCategory(event.target.value)}>{majorCategories.map((item) => <option key={item}>{item}</option>)}</select>
-        <select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select>
+        <select aria-label="预测资产大类" value={majorCategory} onChange={(event) => selectMajorCategory(event.target.value)}>{majorCategories.map((item) => <option key={item}>{item}</option>)}</select>
+        <select aria-label="预测资产类别" value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select>
         <select value={attributionFilter} onChange={(event) => setAttributionFilter(event.target.value as AttributionFilter)} aria-label="贡献稳定性筛选">
           <option value="all">全部贡献状态</option>
           <option value="stable">历史表现稳定</option>
@@ -453,7 +428,7 @@ export default function CurrentAssetForecast({ data }: Props) {
                 <div><span>{selected.category}</span><h3>{selected.name}</h3></div>
                 <span className={`forecast-simple-status ${selectedHorizon.publicationQualified ? 'passed' : 'blocked'}`}>{selectedHorizon.publicationQualified ? '通过' : '未通过'}</span>
               </div>
-              <div className="forecast-point-date">{horizonLabels[horizon]} · {selected.dataEnd ?? '无数据'}{selected.freshnessStatus === 'source_lag' ? ' · 官方源端滞后1个月' : selected.freshnessStatus === 'stale' ? ` · 过期${selected.lagMonths ?? '—'}个月` : ''}</div>
+              <div className="forecast-point-date">{horizonLabels[horizon]} · {selected.dataEnd ?? '无数据'}{selected.freshnessStatus === 'source_lag' ? ' · 相对快照截点源端滞后1个月' : selected.freshnessStatus === 'stale' ? ` · 相对快照截点过期${selected.lagMonths ?? '—'}个月` : ' · 快照截点已对齐'}</div>
               <dl className="current-forecast-primary-metrics">
                 <div><dt>上涨概率</dt><dd>{percent(selectedForecast?.probabilityUp, 0)}</dd></div>
                 <div><dt>预期收益</dt><dd className={(selectedForecast?.medianReturn ?? 0) >= 0 ? 'positive' : 'negative'}>{percent(selectedForecast?.medianReturn)}</dd></div>

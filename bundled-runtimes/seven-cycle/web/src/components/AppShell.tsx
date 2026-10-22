@@ -29,10 +29,11 @@ export default function AppShell() {
         </nav>
         <div className="version-mark">
           <span className="live-dot" />
-          研究版 2026.08
+          研究快照 · 非实时
         </div>
       </header>
       <main className="app-main">
+        <p className="snapshot-freshness-note">研究快照（非实时）。生成或构建日期不等于观测期；刷新页面不会更新研究数据，请以各图表的数据截至期为准。</p>
         <Outlet />
       </main>
     </div>

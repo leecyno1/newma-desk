@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Checkout-safe wrapper for the package robust-discovery workflow."""
+
+from __future__ import annotations
 
 from importlib import import_module
 from pathlib import Path
@@ -20,4 +20,4 @@ __all__ = list(_discovery.__all__)
 
 
 if __name__ == "__main__":
-    main()
+    _discovery.main(project_root=_ROOT)

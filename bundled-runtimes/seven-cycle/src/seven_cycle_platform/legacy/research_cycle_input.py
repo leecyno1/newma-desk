@@ -167,6 +167,8 @@ def _observations(
 
 
 def _quarter_end_on_or_before(value: date) -> date:
+    if value < date(value.year, 3, 31):
+        return date(value.year - 1, 12, 31)
     candidates = (
         date(value.year, 3, 31),
         date(value.year, 6, 30),

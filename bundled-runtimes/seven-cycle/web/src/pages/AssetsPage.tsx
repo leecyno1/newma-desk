@@ -1,5 +1,5 @@
 import { ArrowDownUp, ChevronDown, ChevronRight, ChevronsDownUp, Search, X } from 'lucide-react'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import CurrentAssetForecast from '../components/CurrentAssetForecast'
 import LoadingState from '../components/LoadingState'
@@ -8,8 +8,12 @@ import ResearchAssetMapping from '../components/ResearchAssetMapping'
 import StatusBadge from '../components/StatusBadge'
 import { useResearchData } from '../hooks/useResearchData'
 import { loadAssetStatistics } from '../lib/data'
-import { publishVibeDeskContext, registerVibeDeskContextProvider } from '../lib/vibedesk'
+import { publishVibeDeskContext, registerVibeDeskContextProvider, registerVibeDeskUiActionHandler } from '../lib/vibedesk'
+import { assetForecastAction, assetForecastView, createAssetForecastControls, initialForecastView } from '../lib/assetForecastView'
+import { assetHistoryAction, assetHistoryView, createAssetHistoryControls, initialAssetHistory, type AssetHistoryState } from '../lib/assetHistoryView'
 import type { AssetRow } from '../types'
+import { usePageState } from '../hooks/usePageSession'
+import { pageChoice, pageFlag, pageRecord, pageText } from '../lib/pageSession'
 
 const phases = ['recovery', 'expansion', 'downturn', 'contraction'] as const
 const chartColors = ['#58c9ed', '#f1aa4b', '#69ce9f', '#9b83ef', '#ef6d7c', '#7195ff', '#c4d36b', '#d98bd5', '#94a9ba']
@@ -45,37 +49,70 @@ export default function AssetsPage() {
   const { data, error } = useResearchData(loadAssetStatistics)
   const [params, setParams] = useSearchParams()
   const requested = params.get('cycle')
-  const [cycleId, setCycleId] = useState(requested && /^C[1-7]$/.test(requested) ? requested : 'C4')
-  const [query, setQuery] = useState('')
-  const [category, setCategory] = useState('全部')
-  const [confidence, setConfidence] = useState('全部')
-  const [sortKey, setSortKey] = useState<'impact' | 'oos' | 'name'>('impact')
-  const [selected, setSelected] = useState<AssetRow | null>(null)
-  const [phase, setPhase] = useState<(typeof phases)[number]>('recovery')
+  const [historyState, setHistoryState] = usePageState('assets.history', initialAssetHistory(requested && /^C[1-7]$/.test(requested) ? requested : 'C4'), value => {
+    const saved = pageRecord(value)
+    const cycle = requested && /^C[1-7]$/.test(requested) ? requested
+      : pageChoice(saved.cycleId, ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7'], 'C4')
+    const defaults = initialAssetHistory(cycle)
+    if (requested && cycle !== saved.cycleId) return defaults
+    return { cycleId: cycle,
+      phase: pageChoice(saved.phase, cycle === 'C4' ? ['recovery', 'expansion', 'downturn', 'contraction'] : ['recovery', 'expansion', 'slowdown', 'contraction'], 'recovery'),
+      query: pageText(saved.query), category: pageText(saved.category, '全部'),
+      confidence: pageChoice(saved.confidence, ['全部', 'high', 'medium', 'low'], '全部'),
+      sortKey: pageChoice(saved.sortKey, cycle === 'C4' ? ['impact', 'oos', 'name'] : ['spread', 'oos', 'name'], defaults.sortKey),
+      selectedId: pageText(saved.selectedId) || null }
+  })
+  const { cycleId, query, category, confidence, sortKey, phase } = historyState
+  const historyView = useMemo(() => data ? assetHistoryView(data, historyState) : null, [data, historyState])
+  const patchHistory = (patch: Partial<AssetHistoryState>) => setHistoryState(current => ({ ...current, ...patch }))
+  const setQuery = (query: string) => patchHistory({ query, selectedId: null })
+  const setCategory = (category: string) => patchHistory({ category, selectedId: null })
+  const setConfidence = (confidence: string) => patchHistory({ confidence, selectedId: null })
+  const setSortKey = (sortKey: AssetHistoryState['sortKey']) => patchHistory({ sortKey })
+  const setPhase = (phase: string) => patchHistory({ phase })
+  const selected: AssetRow | null = cycleId === 'C4' ? historyView?.selected ?? null : null
+  const setSelected = (asset: AssetRow | null) => patchHistory({ selectedId: asset?.asset_id ?? null })
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(() => new Set())
-  const [attributionRows, setAttributionRows] = useState<AttributionRow[]>([])
-  const [attributionLoading, setAttributionLoading] = useState(false)
+  const [attributionResult, setAttributionResult] = useState<{ assetId: string | null; rows: AttributionRow[]; loading: boolean; error: string | null }>({ assetId: null, rows: [], loading: false, error: null })
+  const attributionMatches = Boolean(selected && attributionResult.assetId === selected.asset_id)
+  const attributionRows = useMemo(() => attributionMatches ? attributionResult.rows : [], [attributionMatches, attributionResult.rows])
+  const attributionLoading = Boolean(selected && (!attributionMatches || attributionResult.loading))
+  const attributionError = attributionMatches ? attributionResult.error : null
+  const [forecastState, setForecastState] = usePageState('assets.forecast', initialForecastView, value => {
+    const saved = pageRecord(value)
+    return { horizon: pageChoice(saved.horizon, ['1', '3', '6'], '6'),
+      query: pageText(saved.query), majorCategory: pageText(saved.majorCategory, '全部大类'), category: pageText(saved.category, '全部'),
+      onlyQualified: pageFlag(saved.onlyQualified, true),
+      attributionFilter: pageChoice(saved.attributionFilter, ['all', 'stable', 'mixed', 'low_impact', 'unstable'], 'all'),
+      sortKey: pageChoice(saved.sortKey, ['status', 'probability', 'return', 'volatility', 'attribution'], 'status'),
+      selectedId: pageText(saved.selectedId) || null }
+  })
+  const forecastView = useMemo(() => data?.currentCycleForecast ? assetForecastView(data.currentCycleForecast, forecastState) : null, [data, forecastState])
+  const activeMapping = cycleId !== 'C4' ? historyView?.context ?? null : null
+  const forecastControls = useRef<ReturnType<typeof createAssetForecastControls> | null>(null)
+  const historyControls = useRef<ReturnType<typeof createAssetHistoryControls> | null>(null)
+  const applyHistory = useRef((state: AssetHistoryState) => { setHistoryState(state); setParams({ cycle: state.cycleId }) })
+  applyHistory.current = (state) => { setHistoryState(state); setParams({ cycle: state.cycleId }) }
+  const cancelControls = () => { forecastControls.current?.cancel(); historyControls.current?.cancel() }
 
   useEffect(() => {
-    if (requested && /^C[1-7]$/.test(requested) && requested !== cycleId) setCycleId(requested)
+    const controls = createAssetForecastControls(setForecastState)
+    const historical = createAssetHistoryControls(state => applyHistory.current(state))
+    forecastControls.current = controls
+    historyControls.current = historical
+    const unregister = registerVibeDeskUiActionHandler((id, input) => id === assetHistoryAction.id ? historical.perform(id, input) : controls.perform(id, input))
+    return () => { unregister(); controls.cancel(); historical.cancel(); forecastControls.current = null; historyControls.current = null }
+  }, [])
+
+  useEffect(() => {
+    if (requested && /^C[1-7]$/.test(requested) && requested !== cycleId) {
+      historyControls.current?.cancel()
+      setHistoryState(initialAssetHistory(requested))
+    }
   }, [cycleId, requested])
 
-  const categories = useMemo(() => data ? ['全部', ...Array.from(new Set(data.assets.map((asset) => asset.category)))] : [], [data])
-  const rows = useMemo(() => {
-    if (!data || cycleId !== 'C4') return []
-    const normalized = query.trim().toLowerCase()
-    return data.assets
-      .filter((asset) => category === '全部' || asset.category === category)
-      .filter((asset) => confidence === '全部' || asset.confidence === confidence)
-      .filter((asset) => !normalized || `${asset.name} ${asset.category}`.toLowerCase().includes(normalized))
-      .sort((a, b) => {
-        if (sortKey === 'name') return a.name.localeCompare(b.name, 'zh-CN')
-        if (sortKey === 'oos') return (b.oos_r2 ?? -Infinity) - (a.oos_r2 ?? -Infinity)
-        const rightImpact = b.impact_bps_per_1sigma == null ? -Infinity : Math.abs(b.impact_bps_per_1sigma)
-        const leftImpact = a.impact_bps_per_1sigma == null ? -Infinity : Math.abs(a.impact_bps_per_1sigma)
-        return rightImpact - leftImpact
-      })
-  }, [category, confidence, cycleId, data, query, sortKey])
+  const categories = historyView?.categories ?? []
+  const rows: AssetRow[] = useMemo(() => cycleId === 'C4' ? historyView?.rows ?? [] : [], [cycleId, historyView])
   const groupedRows = useMemo(() => {
     const groups = new Map<string, AssetRow[]>()
     rows.forEach((asset) => groups.set(asset.category, [...(groups.get(asset.category) ?? []), asset]))
@@ -124,12 +161,18 @@ export default function AssetsPage() {
       return {
         view: { id: 'assets', title: '资产统计与客观归因' },
         visibleBlocks: [
+          ...(forecastView ? [{ id: 'joint-asset-forecast', type: 'forecast', title: 'C4+C5+C7 联合资产预测' }] : []),
           { id: 'asset-filters', type: 'controls', title: '周期与资产筛选' },
-          { id: 'asset-statistics', type: 'statistics', title: '资产统计' },
-          { id: 'asset-inspector', type: 'evidence', title: visibleSelected?.name ?? '未选资产' },
+          { id: 'asset-statistics', type: 'statistics', title: cycleId === 'C4' ? 'C4 历史统计' : `${cycleId} 研究映射或阻断结果` },
+          { id: 'asset-inspector', type: 'evidence', title: visibleSelected?.name ?? activeMapping?.selectedAsset?.name ?? '未选单周期资产' },
         ],
-        selection: { cycleId, phase, assetId: visibleSelected?.asset_id ?? null, assetName: visibleSelected?.name ?? null },
-        filters: { query, category, confidence, sortKey },
+        selection: { cycleId, phase: cycleId === 'C4' ? phase : activeMapping?.phase ?? null,
+          phaseLabel: cycleId === 'C4' ? data.phase_labels[phase] ?? phase : activeMapping?.phaseLabel ?? null,
+          assetId: visibleSelected?.asset_id ?? activeMapping?.selectedAsset?.id ?? null,
+          assetName: visibleSelected?.name ?? activeMapping?.selectedAsset?.name ?? null,
+          forecast: { horizonMonths: forecastView?.context.horizonMonths ?? null, assetId: forecastView?.selected?.assetId ?? null, assetName: forecastView?.selected?.name ?? null },
+        },
+        filters: { ...(cycleId === 'C4' ? { query, category, confidence, sortKey } : activeMapping?.filters ?? {}), forecast: forecastView?.context.filters ?? null },
         data: {
           source: 'Circle Seven Cycle Research', freshness: 'unknown',
           summary: {
@@ -139,7 +182,15 @@ export default function AssetsPage() {
             forecastAsOf: data.meta.forecastAsOf ?? null,
             forecastAssetDataThrough: data.meta.forecastAssetDataThrough ?? null,
             publication: data.publication[cycleId] ?? 'blocked',
-            visibleAssetCount: rows.length,
+            visibleAssetCount: cycleId === 'C4' ? rows.length : activeMapping?.visibleAssetCount ?? null,
+            jointForecast: forecastView?.context ?? null,
+            singleCycleMapping: historyView?.context ?? null,
+            availableHistoryCycles: Object.keys(data.publication).map(id => {
+              const view = assetHistoryView(data, initialAssetHistory(id))
+              return { cycleId: id, available: view.available, phaseLabels: view.available ? view.phaseLabels : {}, categories: view.categories, assets: view.context.visibleAssets }
+            }),
+            availableForecastAssets: data.currentCycleForecast?.assets.map(asset => ({ id: asset.assetId, name: asset.name, majorCategory: asset.majorCategory, category: asset.category, qualifiedHorizons: asset.qualifiedHorizons })) ?? [],
+            attribution: visibleSelected ? { loading: attributionLoading, error: attributionError, rowCount: attributionRows.length, rows: attributionRows } : null,
             selectedAsset: visibleSelected ? {
               id: visibleSelected.asset_id, name: visibleSelected.name, category: visibleSelected.category,
               dataIdentity: visibleSelected.data_identity, coverage: { start: visibleSelected.start, end: visibleSelected.end },
@@ -150,21 +201,22 @@ export default function AssetsPage() {
             caveat: '历史统计、预测输入和资产收益各有独立时点；历史关联不等于因果归因或投资建议。',
           },
         },
-        actions: [], tasks: [],
+        actions: [assetHistoryAction, ...(forecastView ? [assetForecastAction] : [])], tasks: [],
       }
     })
+    forecastControls.current?.commit(forecastState, data?.currentCycleForecast ?? null)
+    historyControls.current?.commit(historyState, data ?? null)
     void publishVibeDeskContext()
     return unregister
-  }, [category, confidence, cycleId, data, phase, query, rows, selected, sortKey])
+  }, [activeMapping, attributionError, attributionLoading, attributionRows, category, confidence, cycleId, data, forecastState, forecastView, historyState, historyView, phase, query, rows, selected, sortKey])
 
   useEffect(() => {
     if (!selected || cycleId !== 'C4') {
-      setAttributionRows([])
-      setAttributionLoading(false)
+      setAttributionResult({ assetId: null, rows: [], loading: false, error: null })
       return
     }
     const controller = new AbortController()
-    setAttributionLoading(true)
+    setAttributionResult({ assetId: selected.asset_id, rows: [], loading: true, error: null })
     const assetId = `${selected.category}::${selected.name}`
     fetch(`/v1/assets/${encodeURIComponent(assetId)}/attribution?horizon=12`, {
       cache: 'no-store', signal: controller.signal,
@@ -173,11 +225,12 @@ export default function AssetsPage() {
         if (!response.ok) throw new Error('attribution unavailable')
         return response.json()
       })
-      .then((payload) => setAttributionRows(payload.data ?? []))
+      .then((payload) => { if (!controller.signal.aborted) setAttributionResult({ assetId: selected.asset_id, rows: payload.data ?? [], loading: false, error: null }) })
       .catch((error) => {
-        if (error.name !== 'AbortError') setAttributionRows([])
+        if (!controller.signal.aborted && error.name !== 'AbortError') {
+          setAttributionResult({ assetId: selected.asset_id, rows: [], loading: false, error: '已发布归因产品读取失败，不能视为没有归因数据。' })
+        }
       })
-      .finally(() => setAttributionLoading(false))
     return () => controller.abort()
   }, [cycleId, selected])
 
@@ -200,7 +253,7 @@ export default function AssetsPage() {
   const setAllCategories = (expanded: boolean) => setExpandedCategories(expanded ? new Set(groupedRows.map((group) => group.name)) : new Set())
 
   return (
-    <div className="page assets-page">
+    <div className="page assets-page" onClickCapture={cancelControls} onChangeCapture={cancelControls}>
       <section className="page-heading">
         <div>
           <h1>资产统计与客观归因</h1>
@@ -214,7 +267,7 @@ export default function AssetsPage() {
         </div>
       </section>
 
-      {data.currentCycleForecast && <CurrentAssetForecast data={data.currentCycleForecast} />}
+      {data.currentCycleForecast && forecastView && <CurrentAssetForecast data={data.currentCycleForecast} viewState={forecastState} view={forecastView} onViewChange={setForecastState} />}
 
       <section className="asset-layer-heading">
         <div>
@@ -230,14 +283,14 @@ export default function AssetsPage() {
 
       <section className="asset-cycle-tabs">
         {Object.entries(data.publication).map(([id, status]) => (
-          <button key={id} className={cycleId === id ? 'active' : ''} onClick={() => { setCycleId(id); setParams({ cycle: id }) }}>
-            <strong>{id}</strong>{data.researchMappings?.[id]?.assetMapping ? <span className="status-badge status-research">研究映射</span> : data.stateMappings?.[id] ? <span className="status-badge status-research">历史关联</span> : <StatusBadge status={status} />}
+          <button key={id} aria-pressed={cycleId === id} className={cycleId === id ? 'active' : ''} onClick={() => applyHistory.current(initialAssetHistory(id))}>
+            <strong>{id}</strong>{data.researchMappings?.[id]?.assetMapping?.status === 'legacy_mapping_rebuild_required' ? <span className="status-badge status-blocked">旧口径暂停</span> : data.researchMappings?.[id]?.assetMapping ? <span className="status-badge status-research">研究映射</span> : data.stateMappings?.[id] ? <span className="status-badge status-research">历史关联</span> : <StatusBadge status={status} />}
           </button>
         ))}
       </section>
 
       {researchMapping || stateMapping ? (
-        <ResearchAssetMapping cycleId={cycleId} mapping={researchMapping ?? stateMapping} currentDirection={researchCycle?.currentDirection} assetValidation={researchCycle?.assetValidation} jointMapping={researchCycle?.regimeRefactor?.jointAssetMapping} phaseLabels={stateMapping?.phaseLabels ?? data.researchPhaseLabels ?? { recovery: '复苏', expansion: '扩张', slowdown: '放缓', contraction: '收缩' }} />
+        <ResearchAssetMapping key={cycleId} viewState={historyState} view={historyView!} onViewChange={setHistoryState} cycleId={cycleId} mapping={researchMapping ?? stateMapping} currentDirection={researchCycle?.currentDirection} assetValidation={researchCycle?.assetValidation} jointMapping={researchCycle?.regimeRefactor?.jointAssetMapping} phaseLabels={historyView!.phaseLabels} />
       ) : cycleId !== 'C4' ? (
         <section className="asset-blocked-state">
           <StatusBadge status={publication} />
@@ -274,12 +327,12 @@ export default function AssetsPage() {
                 <div className="segmented small">{phases.map((item) => <button key={item} className={phase === item ? 'active' : ''} onClick={() => setPhase(item)}>{data.phase_labels[item]}</button>)}</div>
               </div>
               <div className="historical-risk-return-grid">
-                <PlotlyCanvas
+                {rows.length ? <PlotlyCanvas
                   className="historical-risk-return-chart"
                   data={riskReturnChart.data}
                   layout={riskReturnChart.layout}
                   onClick={(point) => setSelected(data.assets.find((asset) => asset.asset_id === point?.customdata?.[0]) ?? null)}
-                />
+                /> : <p role="status">没有符合当前筛选的历史资产；请调整筛选，不代表资产风险为零。</p>}
                 <aside className="phase-leader-panel">
                   <span>{data.phase_labels[phase]} · 收益风险比</span>
                   <p>仅用于描述该相位下的历史统计分布，不代表投资排序或配置建议。</p>
@@ -351,7 +404,7 @@ export default function AssetsPage() {
         </>
       )}
 
-      {selected && (
+      {cycleId === 'C4' && selected && (
         <div className="asset-detail-backdrop" onClick={() => setSelected(null)}>
           <aside className="asset-detail-drawer" onClick={(event) => event.stopPropagation()}>
             <button className="drawer-close" onClick={() => setSelected(null)}><X size={17} /></button>
@@ -375,7 +428,7 @@ export default function AssetsPage() {
             </dl>
             <div className="attribution-example">
               <strong>2019 年统计关联守恒检查</strong>
-              {attributionLoading ? <p>正在读取已发布归因产品…</p> : attributionRows.length ? (
+              {attributionLoading ? <p>正在读取已发布归因产品…</p> : attributionError ? <p role="alert">{attributionError}</p> : attributionRows.length ? (
                 <>
                   <div><span>资产实际收益</span><b>{percent(attributionRows[0].observed_return)}</b></div>
                   <div><span>C4 统计关联分量</span><b>{percent(attributionRows.find((row) => row.component_type === 'cycle')?.point_contribution)}</b></div>
