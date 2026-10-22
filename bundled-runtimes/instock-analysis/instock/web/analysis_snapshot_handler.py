@@ -10,7 +10,7 @@ from instock.web.api_contract import AnalysisApiHandler
 
 
 class AnalysisSnapshotResourceHandler(AnalysisApiHandler):
-    """Return one volatile, process-local Analysis Snapshot resource."""
+    """Return a same-scope snapshot from memory or retained analysis history."""
 
     def get(self, snapshot_id: str) -> None:
         registry = get_analysis_snapshot_registry()
@@ -19,7 +19,9 @@ class AnalysisSnapshotResourceHandler(AnalysisApiHandler):
             self.write_error(
                 404,
                 "analysis_snapshot_not_found",
-                "分析快照不存在、已过期，或服务进程已重启",
+                "当前范围没有可用快照或保留历史，请返回来源模块重新分析",
             )
             return
-        self.write_success(snapshot, meta={"registry": registry.stats()})
+        self.write_success(snapshot, meta={"registry": registry.stats(),
+            "reference_policy": "same_scope_memory_or_retained_history",
+            "freshness_basis": "original_analysis_time_not_retrieval_time"})

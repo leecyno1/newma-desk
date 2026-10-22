@@ -15,7 +15,7 @@ import tornado.web
 cpath_current = os.path.dirname(os.path.dirname(__file__))
 cpath = os.path.abspath(os.path.join(cpath_current, os.pardir))
 sys.path.append(cpath)
-log_path = os.path.join(cpath_current, 'log')
+log_path = os.environ.get("INSTOCK_LOG_DIR") or os.path.join(cpath_current, 'log')
 if not os.path.exists(log_path):
     os.makedirs(log_path)
 logging.basicConfig(format='%(asctime)s %(message)s', filename=os.path.join(log_path, 'stock_web.log'))
@@ -39,7 +39,7 @@ from instock.web.rotation_handler import RotationExperimentHandler, RotationSnap
 from instock.web.industry_chain_handler import IndustryChainResearchHandler
 from instock.web.supply_chain_handler import SupplyChainResearchHandler
 from instock.web.stock_candidates_handler import StockCandidateSnapshotHandler
-from instock.web.stock_research_handler import StockResearchDossierHandler
+from instock.web.stock_research_handler import StockResearchDossierHandler, StockStatementEvidenceHandler, StockStatementAnnouncementsHandler
 from instock.web.strategy_validation_handler import StrategyValidationHandler
 from instock.web.event_flow_handler import EventFlowHandler
 from instock.web.research_book_handler import ResearchBookHandler
@@ -125,6 +125,8 @@ def application_handlers(attached_runtime):
         (r"/api/v1/industry-chain/research", IndustryChainResearchHandler),
         (r"/api/v1/stock-candidates/snapshots", StockCandidateSnapshotHandler),
         (r"/api/v1/stock-research/dossiers", StockResearchDossierHandler),
+        (r"/api/v1/stock-research/statement-evidence", StockStatementEvidenceHandler),
+        (r"/api/v1/stock-research/statement-announcements", StockStatementAnnouncementsHandler),
         (r"/api/v1/strategy-validations", StrategyValidationHandler),
         (r"/api/v1/event-flows", EventFlowHandler),
         (r"/api/v1/research-books", ResearchBookHandler),

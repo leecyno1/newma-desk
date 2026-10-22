@@ -163,6 +163,9 @@ if (window.location.protocol === 'file:') {
     .rotation-experiment-card h3 { display: flex; min-height: 40px; margin: 0; padding: 0 13px; border-bottom: 1px solid var(--rotation-border); align-items: center; justify-content: space-between; color: var(--rotation-text-soft); font-size: 12px; font-weight: 700; }
     .rotation-experiment-card h3 span { color: var(--rotation-muted); font-size: 9px; font-weight: 500; }
     #rotation-experiment-chart { height: 286px; }
+    .rotation-daily-risk { margin-bottom: 14px; }
+    .rotation-daily-risk .rotation-experiment-metrics { padding: 12px 12px 0; margin-bottom: 0; }
+    #rotation-daily-risk-chart { height: 240px; }
     .rotation-stress-list { display: grid; gap: 9px; padding: 13px; }
     .rotation-stress-row { display: grid; grid-template-columns: 54px minmax(0, 1fr) 68px; gap: 9px; align-items: center; }
     .rotation-stress-row span { color: var(--rotation-muted); font-family: var(--instock-font-mono); font-size: 10px; }
@@ -270,6 +273,8 @@ if (window.location.protocol === 'file:') {
 
     <div id="rotation-error" class="rotation-message error" role="alert"></div>
     <div id="rotation-warning" class="rotation-message warning"></div>
+    <p id="rotation-calendar" class="rotation-experiment-method"></p>
+    <p id="rotation-breadth-source" class="rotation-experiment-method"></p>
 
     <section id="rotation-stats" class="rotation-stats" aria-label="轮动摘要">
         <div class="rotation-panel rotation-stat"><span>市场风格</span><strong id="stat-style">--</strong></div>
@@ -301,6 +306,7 @@ if (window.location.protocol === 'file:') {
                     <span id="rotation-persistence-tag" data-tone="neutral">持续 --</span>
                     <span id="rotation-risk-tag" data-tone="neutral">风险 --</span>
                     <span id="rotation-flow-tag" data-tone="neutral">资金确认 --</span>
+                    <span id="rotation-breadth-tag" data-tone="neutral">行业广度 --</span>
                     <span id="rotation-consensus-tag" data-tone="neutral">模型票 --</span>
                     <span id="rotation-shadow-tag" data-tone="neutral">影子持仓 --</span>
                 </div>
@@ -369,7 +375,7 @@ if (window.location.protocol === 'file:') {
             <div>
                 <div class="rotation-experiment-kicker">Robustness docket</div>
                 <h2 id="rotation-experiment-title" class="rotation-experiment-title">轮动稳健性实验</h2>
-                <p class="rotation-experiment-copy">用当日收盘前可见的七因子排名、下一交易日开盘执行对应 ETF，按时间切分训练与样本外区间；同时检查 Rank IC、Top3 收益差和 5/10/20 日信号衰减。</p>
+                <p class="rotation-experiment-copy">用当日收盘前可见的七因子排名、下一交易日开盘执行对应 ETF，按时间切分训练与样本外区间；同时检查 Rank IC、Top3 收益差和 5/10/20 日信号衰减。新增每日收盘＋执行开盘回撤，与期末回撤对照，不代表盘中极值；“--”表示缺失或无有效样本。</p>
             </div>
             <form id="rotation-experiment-form" class="rotation-experiment-form">
                 <div class="rotation-experiment-field">
@@ -410,6 +416,25 @@ if (window.location.protocol === 'file:') {
                 </div>
             </div>
             <div id="rotation-experiment-metrics" class="rotation-experiment-metrics"></div>
+            <p id="rotation-execution-audit" class="rotation-experiment-method" role="status"></p>
+            <p id="rotation-trade-evidence" class="rotation-experiment-method" role="status"></p>
+            <details class="rotation-experiment-card"><summary>实际计划买卖 · 原始价格与限价依据</summary>
+                <details><summary>数据来源与接收时间（含其他参数组合）</summary>
+                    <p id="rotation-trade-sources" class="rotation-experiment-method"></p>
+                </details>
+                <div class="rotation-parameter-wrap"><table class="rotation-parameter-table">
+                    <thead><tr><th>日期</th><th>区间</th><th>标的/方向</th><th>原始开盘</th><th>跌停价</th><th>涨停价</th><th>核验结果</th></tr></thead>
+                    <tbody id="rotation-trade-checks"></tbody>
+                </table></div>
+                <p class="rotation-experiment-method">首次只买入；换仓先核验卖出旧标的、再核验买入新标的。继续持有、现金不动及期末估值不虚构订单。成交未知向后传递，不换股、不补零。费用仍是换仓时预扣双边成本的简化模型，不是逐订单实费；未模拟排队、部分成交、整手和开盘容量。</p>
+            </details>
+            <p id="rotation-experiment-calendar" class="rotation-experiment-method"></p>
+            <article class="rotation-experiment-card rotation-daily-risk">
+                <h3>持有过程风险 <span id="rotation-daily-risk-state">等待每日盯市</span></h3>
+                <div id="rotation-daily-risk-metrics" class="rotation-experiment-metrics"></div>
+                <div id="rotation-daily-risk-chart" role="img" aria-label="每日收盘及执行开盘采样的策略与基准回撤"></div>
+                <p id="rotation-daily-risk-note" class="rotation-experiment-method"></p>
+            </article>
             <div class="rotation-experiment-grid">
                 <article class="rotation-experiment-card">
                     <h3>样本外权益曲线 <span>策略 / 基准 / ETF 等权</span></h3>
@@ -418,13 +443,13 @@ if (window.location.protocol === 'file:') {
                 <article class="rotation-experiment-card">
                     <h3>摩擦压力 <span>相对基准超额收益</span></h3>
                     <div id="rotation-stress-list" class="rotation-stress-list"></div>
-                    <p class="rotation-experiment-method">仅在实际更换 ETF 时收取买入与卖出双边成本；当前持仓仍在前三且落后不足 5 分时继续持有。</p>
+                    <p class="rotation-experiment-method">仅在计划更换 ETF 时预扣简化双边成本，不等于逐订单实费；当前持仓仍在前三且落后不足 5 分时继续持有。</p>
                 </article>
                 <article class="rotation-experiment-card rotation-parameter-card">
                     <h3>参数平台 <span>训练段选择，样本外只负责检验</span></h3>
                     <div class="rotation-parameter-wrap">
                         <table class="rotation-parameter-table">
-                            <thead><tr><th>组合</th><th>训练评分</th><th>样本外交易</th><th>样本外收益</th><th>基准收益</th><th>超额</th><th>最大回撤</th><th>Sharpe</th><th>IR</th></tr></thead>
+<thead><tr><th>组合</th><th>训练评分</th><th>样本外持有期</th><th>样本外收益</th><th>基准收益</th><th>超额</th><th>期末回撤</th><th>Sharpe</th><th>IR</th></tr></thead>
                             <tbody id="rotation-parameter-rows"></tbody>
                         </table>
                     </div>
@@ -433,7 +458,7 @@ if (window.location.protocol === 'file:') {
                     <h3>确认层对照 <span>训练段选执行方式，样本外只验证</span></h3>
                     <div class="rotation-parameter-wrap">
                         <table class="rotation-parameter-table">
-                            <thead><tr><th>执行方式</th><th>训练评分</th><th>样本外收益</th><th>超额</th><th>相对原始</th><th>最大回撤</th><th>换手率</th><th>在场率</th><th>50bps超额</th></tr></thead>
+                            <thead><tr><th>执行方式</th><th>训练评分</th><th>样本外收益</th><th>超额</th><th>相对原始</th><th>期末回撤</th><th>换手率</th><th>在场率</th><th>50bps超额</th></tr></thead>
                             <tbody id="rotation-confirmation-rows"></tbody>
                         </table>
                     </div>
@@ -453,7 +478,7 @@ if (window.location.protocol === 'file:') {
                     <h3>七因子有效性 <span>固定10日主周期 · 单因子与去除因子对照</span></h3>
                     <div class="rotation-parameter-wrap">
                         <table class="rotation-parameter-table">
-                            <thead><tr><th>因子</th><th>有效权重</th><th>训练 IC</th><th>样本外 IC</th><th>样本外命中（含重叠）</th><th>加入后命中变化</th><th>结论</th></tr></thead>
+                            <thead><tr><th>因子</th><th>有效权重</th><th>训练 IC</th><th>样本外 IC</th><th>样本外命中（含重叠）</th><th>命中变化（百分点）</th><th>结论</th></tr></thead>
                             <tbody id="rotation-factor-effect-rows"></tbody>
                         </table>
                     </div>
@@ -463,7 +488,7 @@ if (window.location.protocol === 'file:') {
                     <h3>参数一致性验证 <span>3组权重 × 3组窗口 · 区分状态化与当日静态口径</span></h3>
                     <div class="rotation-parameter-wrap">
                         <table class="rotation-parameter-table">
-                            <thead><tr><th>口径</th><th>训练样本</th><th>训练命中</th><th>样本外样本</th><th>样本外命中</th><th>命中变化</th><th>样本外超额</th><th>最大回撤</th></tr></thead>
+                            <thead><tr><th>口径</th><th>训练样本</th><th>训练命中</th><th>样本外样本</th><th>样本外命中</th><th>命中变化</th><th>样本外超额</th><th>期末回撤</th></tr></thead>
                             <tbody id="rotation-ensemble-rows"></tbody>
                         </table>
                     </div>
@@ -496,13 +521,61 @@ if (window.location.protocol === 'file:') {
     let chart = null;
     let historyChart = null;
     let experimentChart = null;
+    let dailyRiskChart = null;
     let analysisRunning = false;
     let experimentRunning = false;
+    let analysisVersion = 0;
+    let experimentVersion = 0;
+    const workspaceScope = () => JSON.stringify([deskBridge?.config?.user?.id || '', deskBridge?.config?.workspace?.id || '']);
+    let knownWorkspace = workspaceScope();
+    function syncWorkspace() {
+        const next = workspaceScope(), previous = knownWorkspace;
+        knownWorkspace = next;
+        if (previous === next || previous === '["",""]') return;
+        invalidateAnalysis('工作区已切换，请更新轮动');
+        invalidateExperiment('工作区已切换，请重新运行实验。');
+    }
+
+    function analysisParameters() {
+        const windowValue = document.getElementById('rotation-window').value;
+        return {window: windowValue ? Number(windowValue) : null,
+            benchmark: document.getElementById('rotation-benchmark').value.trim(),
+            asOf: document.getElementById('rotation-as-of').value || null};
+    }
+    function experimentParameters() {
+        const {benchmark, asOf} = analysisParameters();
+        return {benchmark, asOf,
+            rebalanceDays: Number(document.getElementById('rotation-rebalance-days').value) || null,
+            costBps: Number(document.getElementById('rotation-cost-bps').value) || null};
+    }
+    function updateUrl() {
+        const query = new URLSearchParams(window.location.search);
+        Object.entries(analysisParameters()).forEach(([key, value]) => {
+            if (value == null || value === '') query.delete(key); else query.set(key, String(value));
+        });
+        query.delete('as_of'); query.delete('refresh');
+        window.history.replaceState(null, '', window.location.pathname + '?' + query.toString());
+    }
+    function invalidateAnalysis(message) {
+        ++analysisVersion; analysisRunning = false;
+        submit.disabled = false; submit.innerHTML = '<i class="fa fa-refresh" aria-hidden="true"></i> 更新轮动';
+        clearMessages(); renderAnalysisFailure(message, '旧排名、图表与跳转依据已撤下；请按当前参数重新计算。');
+        meta.textContent = message;
+        setText('rotation-calendar', '');
+        setText('rotation-breadth-source', '');
+    }
+    function invalidateExperiment(message) {
+        ++experimentVersion; experimentRunning = false;
+        experimentRun.disabled = false;
+        experimentRun.innerHTML = '<i class="fa fa-flask" aria-hidden="true"></i> 运行实验';
+        resetExperiment(message);
+    }
 
     function selectedRow() {
         return ((state.data && state.data.etfs) || []).find(row => row.code === state.selectedCode) || null;
     }
     function buildContext() {
+        syncWorkspace();
         const payload = state.data || {};
         const summary = payload.summary || {};
         const snapshot = payload.snapshot || null;
@@ -510,7 +583,7 @@ if (window.location.protocol === 'file:') {
         const experiment = state.experiment || null;
         const experimentSummary = experiment ? experiment.summary || {} : {};
         const experimentQuality = experiment ? experiment.data_quality || {} : {};
-        const experimentVerdict = experiment ? experiment.verdict || {} : {};
+        const experimentVerdict = experiment ? executionVerdict(experiment) : {};
         const confirmationComparison = experiment ? experiment.confirmation_comparison || {} : {};
         const confirmationVerdict = confirmationComparison.verdict || {};
         return {
@@ -522,30 +595,34 @@ if (window.location.protocol === 'file:') {
                 ...(experiment ? [{id: 'rotation-robustness', type: 'research-evidence', title: '轮动稳健性实验'}] : []),
             ],
             selection: selected ? {symbol: selected.code, market: 'CN', name: selected.name, industry: selected.industry} : {},
-            filters: {
-                window: Number(document.getElementById('rotation-window').value),
-                benchmark: document.getElementById('rotation-benchmark').value.trim(),
-                asOf: document.getElementById('rotation-as-of').value || null,
-            },
+            filters: {...analysisParameters(), experiment: experimentParameters()},
             data: {
                 asOf: payload.as_of,
                 source: payload.data_source || 'newma-desk',
                 freshness: snapshot ? snapshot.freshness.state : 'unknown',
                 snapshot,
+                analysisParameters: snapshot?.input?.parameters || null,
                 summary: {
                     dataState: payload.data_state || 'unknown',
                     leadingIndustry: summary.leading_industry || null,
                     leadingEtf: summary.leading_etf || null,
                     marketStyle: summary.market_style || null,
                     marketBreadth: summary.market_breadth || null,
-                    marketUpRatio: summary.market_up_ratio || 0,
+                    marketUpRatio: summary.market_up_ratio ?? null,
                     riskTemperature: summary.risk_temperature || null,
                     rotationEnvironment: summary.rotation_environment || null,
                     leaderSignal: summary.leader_signal || null,
-                    leaderPersistenceScore: summary.leader_persistence_score || 0,
+                    leaderPersistenceScore: summary.leader_persistence_score ?? null,
                     signalDistribution: summary.signal_distribution || {},
-                    candidateCount: payload.successful_count || 0,
-                    staleCount: payload.stale_count || 0,
+                    candidateCount: payload.successful_count ?? null,
+                    staleCount: payload.stale_count ?? null,
+                    calendarPolicy: payload.calendar_policy || 'legacy_calendar_requires_rerun',
+                    calendar: payload.calendar || null,
+                    priceCutoff: payload.price_cutoff || null,
+                    factorModel: payload.factor_model || null,
+                    industryBreadth: payload.industry_breadth || null,
+                    marketBreadthEvidence: payload.market_breadth || null,
+                    historyMissingDays: summary.history_missing_days ?? null,
                     signalState: payload.signal_state || 'unknown',
                     indexSignalCount: payload.index_signal_count || 0,
                     signalFallbackCount: payload.signal_fallback_count || 0,
@@ -561,10 +638,14 @@ if (window.location.protocol === 'file:') {
                     persistenceScore: selected.persistence_score,
                     top3Days20d: selected.top3_days_20d,
                     rankChange5d: selected.rank_change_5d,
+                    factorScores: Object.fromEntries(Object.entries(selected.factor_scores || {}).map(([key, value]) => [key,
+                        selected.factor_availability?.[key] === false || (['valuation', 'fundamental_quality'].includes(key) && selected.factor_availability?.[key] !== true) ? null : numeric(value)])),
+                    factorEffectiveWeights: selected.factor_effective_weights || null,
                     trendState: selected.trend_state,
                     riskState: selected.risk_state,
                     overheated: selected.overheated,
                     sectorFundFlow: selected.sector_fund_flow || null,
+                    industryBreadth: selected.industry_breadth || null,
                     signalCode: selected.signal_code,
                     signalName: selected.signal_name,
                     signalMode: selected.signal_mode,
@@ -574,22 +655,33 @@ if (window.location.protocol === 'file:') {
                 } : null,
                 robustnessExperiment: experiment ? {
                     asOf: experiment.as_of,
-                    snapshot: experiment.snapshot || null,
+                    snapshot: metricSnapshotReference(experiment.snapshot),
                     verdict: experimentVerdict.state || null,
                     verdictLabel: experimentVerdict.label || null,
-                    coverageYears: experimentQuality.coverage_years || 0,
+                    coverageYears: numeric(experimentQuality.coverage_years),
                     selectedVariant: experimentSummary.selected_variant_id || null,
-                    outOfSampleTrades: experimentSummary.oos_trades || 0,
-                    outOfSampleReturnPct: experimentSummary.oos_return_pct || 0,
-                    outOfSampleBenchmarkReturnPct: experimentSummary.oos_benchmark_return_pct || 0,
-                    outOfSampleExcessReturnPct: experimentSummary.oos_excess_return_pct || 0,
-                    outOfSampleMaxDrawdownPct: experimentSummary.oos_max_drawdown_pct || 0,
-                    positiveVariantSharePct: experimentSummary.positive_variant_share_pct || 0,
+                    outOfSampleTrades: numeric(experimentSummary.oos_trades),
+                    outOfSampleReturnPct: sampleValue(experimentSummary, 'oos_return_pct', 'oos_trades'),
+                    outOfSampleBenchmarkReturnPct: sampleValue(experimentSummary, 'oos_benchmark_return_pct', 'oos_trades'),
+                    outOfSampleExcessReturnPct: sampleValue(experimentSummary, 'oos_excess_return_pct', 'oos_trades'),
+                    outOfSampleMaxDrawdownPct: sampleValue(experimentSummary, 'oos_max_drawdown_pct', 'oos_trades'),
+                    positiveVariantSharePct: numeric(experimentSummary.positive_variant_share_pct),
+                    scorableVariantCount: numeric(experimentSummary.scorable_variant_count),
+                    totalVariantCount: numeric(experimentSummary.total_variant_count),
                     selectedConfirmationPolicy: experimentSummary.selected_confirmation_policy || null,
                     selectedConfirmationLabel: experimentSummary.selected_confirmation_label || null,
-                    confirmationOutOfSampleExcessReturnPct: experimentSummary.confirmation_oos_excess_return_pct || 0,
-                    confirmationExcessDeltaPct: experimentSummary.confirmation_oos_excess_delta_pct || 0,
-                    confirmationVerdict: confirmationVerdict.state || null,
+                    confirmationOutOfSampleExcessReturnPct: sampleValue(experimentSummary, 'confirmation_oos_excess_return_pct', 'oos_trades'),
+                    confirmationExcessDeltaPct: sampleValue(experimentSummary, 'confirmation_oos_excess_delta_pct', 'oos_trades'),
+                    confirmationVerdict: executionState(experiment) === 'legacy' ? 'legacy_execution_requires_rerun' : confirmationVerdict.state || null,
+                    dailyRisk: dailyRiskContext(experiment),
+                    executionAudit: experiment.execution_audit || null,
+                    executionEvidenceState: executionState(experiment),
+                    executionEvidenceNote: document.getElementById('rotation-trade-evidence').textContent,
+                    calendarState: experiment.execution_audit?.calendar_policy === 'independent_exchange_calendar_exact_dates' ? 'independent_calendar_verified' : 'legacy_calendar_requires_rerun',
+                    predictionStatisticsState: experiment.prediction_diagnostics?.statistics_policy?.version === 1 ? 'metric_specific_samples' : 'legacy_statistics_requires_rerun',
+                    predictionDiagnostics: predictionContext(experiment.prediction_diagnostics),
+                    metricPolicy: 'Missing or zero-sample statistics are null, not zero. Risk ratios require at least two samples and nonzero dispersion (tolerance 1e-12); Sharpe assumes zero risk-free rate and population dispersion. Legacy drawdown uses holding-period endpoints; dailyRisk samples closes and execution opens, never intraday extremes. Incomplete daily coverage cannot confirm full-period drawdown.',
+                    engineVersion: experiment.engine?.version || null,
                     limitations: experiment.limitations || [],
                 } : null,
             },
@@ -597,31 +689,14 @@ if (window.location.protocol === 'file:') {
                 {
                     id: analysisActionId,
                     label: '更新行业与 ETF 轮动',
-                    available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(analysisActionId)),
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            window: {enum: [40, 60, 120]},
-                            benchmark: {type: 'string'},
-                            refresh: {enum: ['0', '1']},
-                            asOf: {type: ['string', 'null'], format: 'date'},
-                        },
-                    },
+                    available: !analysisRunning,
+                    inputSchema: {type: 'object', properties: {}, additionalProperties: false},
                 },
                 {
                     id: experimentActionId,
                     label: '运行轮动稳健性实验',
-                    available: Boolean(deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(experimentActionId)),
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            benchmark: {type: 'string'},
-                            rebalanceDays: {enum: [5, 10, 20]},
-                            costBps: {enum: [10, 25, 50]},
-                            refresh: {enum: ['0', '1']},
-                            asOf: {type: ['string', 'null'], format: 'date'},
-                        },
-                    },
+                    available: !experimentRunning,
+                    inputSchema: {type: 'object', properties: {}, additionalProperties: false},
                 },
             ],
             tasks: [
@@ -653,7 +728,7 @@ if (window.location.protocol === 'file:') {
         Object.entries(input).forEach(([key, value]) => {
             if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
         });
-        const response = await fetch('/api/v1/rotations/snapshots?' + query.toString());
+        const response = await window.InStockNewmaDesk.fetchAnalysis('/api/v1/rotations/snapshots?' + query.toString());
         const body = await response.json();
         if (!response.ok) throw responseError(body, '轮动分析请求失败');
         return body;
@@ -668,7 +743,7 @@ if (window.location.protocol === 'file:') {
         Object.entries(input).forEach(([key, value]) => {
             if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
         });
-        const response = await fetch('/api/v1/rotations/experiments?' + query.toString());
+        const response = await window.InStockNewmaDesk.fetchAnalysis('/api/v1/rotations/experiments?' + query.toString());
         const body = await response.json();
         if (!response.ok) throw new Error(errorMessage(body, '稳健性实验请求失败'));
         return body;
@@ -677,11 +752,45 @@ if (window.location.protocol === 'file:') {
     function setText(id, value) {
         document.getElementById(id).textContent = value == null || value === '' ? '--' : String(value);
     }
+    function numeric(value) {
+        if (typeof value !== 'number' && typeof value !== 'string') return null;
+        if (typeof value === 'string' && !value.trim()) return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    }
+    function metricText(value, digits = 2, suffix = '') {
+        const number = numeric(value);
+        return number === null ? '--' : `${number.toFixed(digits)}${suffix}`;
+    }
+    // A zero sample count is known; a hit rate or return on that empty set is not.
+    function sampleValue(row, key, countKey = 'trades') {
+        return numeric(row[countKey]) > 0 ? numeric(row[key]) : null;
+    }
+    function riskRatioValue(row, key, version) {
+        if (!(numeric(row.trades) >= 2)) return null;
+        const value = numeric(row[key]);
+        const [major, minor] = String(version || '').split('.').map(Number);
+        const corrected = major > 2 || (major === 2 && minor >= 5);
+        // Legacy zero may mean either zero mean or division by zero.
+        return value === 0 && !corrected ? null : value;
+    }
+    function metricSnapshotReference(snapshot) {
+        if (!snapshot) return null;
+        const {result, ...reference} = snapshot;
+        if (result) reference.result = {digest: result.digest};
+        return reference;
+    }
+    function intervalText(values, samples) {
+        if (!(numeric(samples) > 0) || !Array.isArray(values)
+            || numeric(values[0]) === null || numeric(values[1]) === null) return '--';
+        return `${metricText(values[0], 1, '%')}–${metricText(values[1], 1, '%')}`;
+    }
     function signed(value, suffix) {
-        const number = Number(value || 0);
+        const number = numeric(value);
+        if (number === null) return '--';
         return `${number > 0 ? '+' : ''}${number.toFixed(2)}${suffix || ''}`;
     }
-    function movementClass(value) { return Number(value) >= 0 ? 'rotation-up' : 'rotation-down'; }
+    function movementClass(value) { return numeric(value) === null ? '' : numeric(value) >= 0 ? 'rotation-up' : 'rotation-down'; }
     function regimeClass(value) {
         if (['leading', 'strong', 'hot', 'neutral', 'avoid'].includes(value)) return value;
         return { '领先': 'leading', '转强': 'strong', '中性': 'neutral', '回避': 'avoid' }[value] || 'neutral';
@@ -699,6 +808,8 @@ if (window.location.protocol === 'file:') {
             rebalanced: '再平衡',
             reinitialized_after_gap: '断档重置',
             historical_disabled: '历史不回填',
+            future_state_isolated: '未来账本已隔离',
+            incomplete_models: '参数待核验',
             unavailable: '不可用',
         }[value] || '不可用';
     }
@@ -739,7 +850,7 @@ if (window.location.protocol === 'file:') {
             capability.textContent = '数据能力 market.ohlcv';
             const retry = document.createElement('button');
             retry.type = 'button'; retry.className = 'rotation-error-retry'; retry.textContent = '重新提取数据';
-            retry.addEventListener('click', () => load(true));
+            retry.addEventListener('click', () => load(true).catch(() => {}));
             actions.append(capability, retry);
             const detail = document.createElement('details');
             detail.className = 'rotation-error-detail';
@@ -753,27 +864,29 @@ if (window.location.protocol === 'file:') {
     function clearMessages() {
         errorBox.style.display = 'none'; warningBox.style.display = 'none';
     }
-    function renderAnalysisFailure() {
+    function renderAnalysisFailure(message = '等待 Desk 市场数据恢复', reason = 'market.ohlcv 未返回有效日线，本次没有使用本地或第三方数据兜底。') {
         state.data = null;
         state.selectedCode = null;
-        ['stat-style', 'stat-industry', 'stat-etf', 'stat-risk'].forEach(id => setText(id, null));
+        ['stat-style', 'stat-industry', 'stat-etf', 'stat-risk', 'stat-shadow', 'stat-shadow-note'].forEach(id => {
+            setText(id, null); document.getElementById(id).removeAttribute('title');
+        });
         setText('rotation-confirmed-count', '强确认 --');
         setText('rotation-overheated-count', '过热 --');
         setText('rotation-avoid-count', '弱势回避 --');
         setText('rotation-neutral-count', '其他 --');
-        setText('rotation-count', '等待 Desk 数据');
+        setText('rotation-count', message);
         if (chart) chart.clear();
         if (historyChart) historyChart.clear();
         renderSelected(null, false);
-        setText('rotation-headline', '等待 Desk 市场数据恢复');
-        replaceList('rotation-evidence', ['market.ohlcv 未返回有效日线，本次没有使用本地或第三方数据兜底。']);
+        setText('rotation-headline', message);
+        replaceList('rotation-evidence', [reason]);
         replaceList('rotation-risks', ['当前页面未生成任何行业强弱、ETF 排名或交易结论。']);
         const tbody = document.getElementById('rotation-rows'); tbody.replaceChildren();
         const row = document.createElement('tr');
-        const item = document.createElement('td'); item.colSpan = 10; item.className = 'rotation-empty'; item.textContent = 'Desk 数据恢复后重新提取';
+        const item = document.createElement('td'); item.colSpan = 11; item.className = 'rotation-empty'; item.textContent = message;
         row.appendChild(item); tbody.appendChild(row);
         const mobile = document.getElementById('rotation-mobile-list'); mobile.replaceChildren();
-        const mobileItem = document.createElement('div'); mobileItem.className = 'rotation-empty'; mobileItem.textContent = 'Desk 数据恢复后重新提取';
+        const mobileItem = document.createElement('div'); mobileItem.className = 'rotation-empty'; mobileItem.textContent = message;
         mobile.appendChild(mobileItem);
     }
     function cssToken(name) {
@@ -803,8 +916,9 @@ if (window.location.protocol === 'file:') {
         const row = document.createElement('div'); row.className = `rotation-factor${risk ? ' risk' : ''}`;
         const name = document.createElement('span'); name.textContent = label;
         const track = document.createElement('span'); track.className = 'rotation-factor-track';
-        const fill = document.createElement('span'); fill.className = 'rotation-factor-fill'; fill.style.width = `${Math.max(0, Math.min(100, Number(value || 0)))}%`;
-        const score = document.createElement('b'); score.textContent = Number(value || 0).toFixed(1);
+        const measured = numeric(value);
+        const fill = document.createElement('span'); fill.className = 'rotation-factor-fill'; fill.style.width = `${measured === null ? 0 : Math.max(0, Math.min(100, measured))}%`;
+        const score = document.createElement('b'); score.textContent = metricText(measured, 1);
         track.appendChild(fill); row.append(name, track, score); return row;
     }
     function renderSelected(row, emitSelection) {
@@ -822,6 +936,7 @@ if (window.location.protocol === 'file:') {
             setConfirmationTag('rotation-persistence-tag', '持续', null, 'neutral');
             setConfirmationTag('rotation-risk-tag', '风险', null, 'neutral');
             setConfirmationTag('rotation-flow-tag', '资金确认', null, 'neutral');
+            setConfirmationTag('rotation-breadth-tag', '行业广度', null, 'neutral');
             setConfirmationTag('rotation-consensus-tag', '模型票', null, 'neutral');
             setConfirmationTag('rotation-shadow-tag', '影子持仓', null, 'neutral');
             czscLink.removeAttribute('href');
@@ -837,7 +952,6 @@ if (window.location.protocol === 'file:') {
             empty.textContent = '当前筛选条件下暂无可用候选';
             root.replaceChildren(empty);
             renderRows();
-            publishContext();
             return;
         }
         state.selectedCode = row.code;
@@ -855,10 +969,15 @@ if (window.location.protocol === 'file:') {
             row.trend_state === '多头' ? 'leading' : row.trend_state === '修复' ? 'strong' : row.trend_state === '空头' ? 'avoid' : 'neutral'
         );
         setConfirmationTag(
-            'rotation-persistence-tag', '持续', `${Number(row.persistence_score || 0).toFixed(0)}分`,
+            'rotation-persistence-tag', '持续', metricText(row.persistence_score, 0, '分'),
             Number(row.persistence_score || 0) >= 70 ? 'leading' : Number(row.persistence_score || 0) >= 40 ? 'strong' : 'neutral'
         );
         setConfirmationTag('rotation-risk-tag', '风险', row.risk_state, row.overheated ? 'hot' : row.risk_state === '偏热' ? 'strong' : 'neutral');
+        const industryBreadth = row.industry_breadth || {};
+        setConfirmationTag('rotation-breadth-tag', '行业广度', industryBreadth.state === 'available'
+            ? `上涨 ${metricText(industryBreadth.up_ratio, 1, '%')} · ${industryBreadth.as_of || '日期未提供'}`
+            : industryBreadth.reason === 'missing_date' ? '日期缺失'
+            : industryBreadth.reason === 'date_mismatch' ? '日期不匹配' : '未取得', 'neutral');
         const fundFlow = row.sector_fund_flow || {};
         const flowPersistence = fundFlow.persistence || {};
         setConfirmationTag(
@@ -891,7 +1010,7 @@ if (window.location.protocol === 'file:') {
             isShadowWinner ? 'leading' : shadowCount > 0 ? 'strong' : 'neutral',
         );
         const czscParams = new URLSearchParams({code: row.code, period: 'daily', bars: '480', assetType: 'etf', sourceModule: 'instock-rotation', ...(state.data && state.data.snapshot ? {sourceSnapshotId: state.data.snapshot.snapshot_id} : {})});
-        const asOf = document.getElementById('rotation-as-of').value;
+        const asOf = state.data && state.data.as_of;
         if (asOf) czscParams.set('asOf', asOf);
         czscLink.href = `/mods/czsc?${czscParams.toString()}`;
         czscLink.removeAttribute('aria-disabled');
@@ -915,11 +1034,16 @@ if (window.location.protocol === 'file:') {
         }
         const factors = row.factor_scores || {};
         const availability = row.factor_availability || {};
+        const activeFactors = state.data?.factor_model?.active_factors || [];
+        const slowFactor = (key, label) => [
+            !availability[key] ? label + '（待数据）' : activeFactors.includes(key) ? label : label + '（未参与）',
+            availability[key] ? factors[key] : null,
+        ];
         [
             ['动量', factors.momentum], ['相对强弱', factors.relative_strength], ['趋势', factors.trend],
             ['成交连续性', factors.volume_continuity], ['拥挤/条件反转', factors.crowding_reversal],
-            [availability.valuation ? '估值分位' : '估值分位（待数据）', factors.valuation],
-            [availability.fundamental_quality ? '基本面质量' : '基本面（待数据）', factors.fundamental_quality],
+            slowFactor('valuation', '估值分位'),
+            slowFactor('fundamental_quality', '基本面质量'),
         ].forEach(item => root.appendChild(factorRow(item[0], item[1], item[2])));
         renderRows();
         publishContext();
@@ -984,7 +1108,7 @@ if (window.location.protocol === 'file:') {
             tr.appendChild(cell(`${Number(row.parameter_vote_count || 0)}/${Number((state.data.parameter_consensus || {}).model_count || 9)}`, row.parameter_consensus_winner ? 'rotation-up' : ''));
             tr.appendChild(cell(signed(row.momentum_20d, '%'), movementClass(row.momentum_20d)));
             tr.appendChild(cell(signed(row.relative_20d, '%'), movementClass(row.relative_20d)));
-            tr.appendChild(cell(Number(row.persistence_score || 0).toFixed(0)));
+            tr.appendChild(cell(metricText(row.persistence_score, 0)));
             tr.appendChild(cell(`${Number(row.volume_ratio).toFixed(2)}x`));
             tr.appendChild(cell(Number(row.factor_scores.crowding_reversal || 0).toFixed(1)));
             tr.appendChild(cell(row.rotation_signal || row.regime, `rotation-state ${regimeClass(row.signal_tone || row.regime)}`));
@@ -1000,7 +1124,7 @@ if (window.location.protocol === 'file:') {
             const detail = document.createElement('div'); detail.className = 'rotation-mobile-detail';
             const fundFlow = row.sector_fund_flow || {};
             const fundFlowText = fundFlowConfirmationText(fundFlow);
-            [[`${row.industry}${row.proxy_type !== 'direct' ? '（代理）' : ''}`, row.rotation_signal || row.regime], ['模型票', `${Number(row.parameter_vote_count || 0)}/${Number((state.data.parameter_consensus || {}).model_count || 9)} · ${row.parameter_consensus_label || '参数分歧'}`], ['价格信号', row.signal_mode === 'etf_fallback' ? 'ETF回退' : (row.signal_name || row.signal_code)], ['20日动量', signed(row.momentum_20d, '%')], ['持续度', `${Number(row.persistence_score || 0).toFixed(0)}分`], ['资金确认', fundFlowText]].forEach(item => {
+            [[`${row.industry}${row.proxy_type !== 'direct' ? '（代理）' : ''}`, row.rotation_signal || row.regime], ['模型票', `${Number(row.parameter_vote_count || 0)}/${Number((state.data.parameter_consensus || {}).model_count || 9)} · ${row.parameter_consensus_label || '参数分歧'}`], ['价格信号', row.signal_mode === 'etf_fallback' ? 'ETF回退' : (row.signal_name || row.signal_code)], ['20日动量', signed(row.momentum_20d, '%')], ['持续度', metricText(row.persistence_score, 0, '分')], ['资金确认', fundFlowText]].forEach(item => {
                 const part = document.createElement('span'); part.textContent = item[0]; const strong = document.createElement('b'); strong.textContent = item[1]; part.appendChild(strong); detail.appendChild(part);
             });
             mobileRow.append(head, detail); mobileRow.addEventListener('click', () => renderSelected(row, true)); mobile.appendChild(mobileRow);
@@ -1027,7 +1151,8 @@ if (window.location.protocol === 'file:') {
                     const item = ordered[params[0].dataIndex];
                     const proxy = item.proxy_type !== 'direct' ? `<br>口径：${item.proxy_note || '交易代理'}` : '';
                     const signal = item.signal_mode === 'etf_fallback' ? 'ETF信号回退' : `${item.signal_name} ${item.signal_code}`;
-                    return `${item.industry}<br>信号：${signal}<br>执行：${item.etf_name} ${item.etf_code}<br>综合分：${Number(item.score).toFixed(2)}<br>模型票：${Number(item.parameter_vote_count || 0)}/${Number((state.data.parameter_consensus || {}).model_count || 9)}<br>20日动量：${signed(item.momentum_20d, '%')}<br>当日行业：${signed(item.industry_day_change, '%')}${proxy}`;
+                    const basis = item.industry_breadth?.change_method === 'equal_weight_member_daily_pct' ? '成员等权涨跌' : '行业来源涨跌';
+                    return `${item.industry}<br>信号：${signal}<br>执行：${item.etf_name} ${item.etf_code}<br>综合分：${Number(item.score).toFixed(2)}<br>模型票：${Number(item.parameter_vote_count || 0)}/${Number((state.data.parameter_consensus || {}).model_count || 9)}<br>20日动量：${signed(item.momentum_20d, '%')}<br>${basis}：${signed(item.industry_day_change, '%')}${proxy}`;
                 },
             },
             xAxis: {
@@ -1061,7 +1186,8 @@ if (window.location.protocol === 'file:') {
         const series = topRows.map((row, index) => ({
             name: row.industry,
             type: 'line',
-            smooth: 0.2,
+            smooth: false,
+            connectNulls: false,
             showSymbol: history.length <= 12,
             symbolSize: 5,
             lineStyle: { width: index === 0 ? 2.5 : 1.8, color: palette[index] },
@@ -1085,13 +1211,88 @@ if (window.location.protocol === 'file:') {
             series,
         }, true);
         const summary = payload.summary || {};
-        setText('rotation-history-note', `近${summary.history_days || 0}日切换 ${summary.rotation_changes_20d || 0} 次 · 当前领先 ${summary.leader_streak_days || 0} 日`);
+        setText('rotation-history-note', `近${metricText(summary.history_days, 0)}个交易日 · 缺口 ${metricText(summary.history_missing_days, 0)} 日 · 切换 ${metricText(summary.rotation_changes_20d, 0)} 次 · 当前连续已核验领先 ${metricText(summary.leader_streak_days, 0)} 日`);
     }
     function experimentMetric(label, value, tone) {
         const item = document.createElement('div'); item.className = 'rotation-experiment-metric';
         const caption = document.createElement('span'); caption.textContent = label;
         const number = document.createElement('strong'); number.textContent = value; if (tone) number.className = tone;
         item.append(caption, number); return item;
+    }
+    function dailyRiskContext(payload) {
+        const risk = payload.daily_risk;
+        if (!risk) return null;
+        const compact = item => {
+            const row = item || {};
+            const complete = row.state === 'complete';
+            return {
+                state: row.state || 'unavailable', coverage: row.coverage || {},
+                startDate: row.start_date || null, endDate: row.end_date || null,
+                maxDrawdownPct: complete ? numeric(row.max_drawdown_pct) : null,
+                observedDrawdownLowerBoundPct: numeric(row.observed_max_drawdown_pct),
+                currentDrawdownPct: complete ? numeric(row.current_drawdown_pct) : null,
+                peakDate: complete ? row.peak_date || null : null,
+                troughDate: complete ? row.trough_date || null : null,
+                recoveryDate: complete ? row.recovery_date || null : null,
+                issues: (row.issues || []).slice(0, 5), issueCount: (row.issues || []).length,
+            };
+        };
+        return {sampling: risk.sampling, costPolicy: risk.cost_policy,
+            selectionPolicy: risk.selection_policy, strategy: compact(risk.strategy), benchmark: compact(risk.benchmark)};
+    }
+    function renderDailyRisk(payload) {
+        const risk = dailyRiskContext(payload);
+        const strategy = risk?.strategy || {};
+        const coverage = strategy.coverage || {};
+        const daily = numeric(strategy.maxDrawdownPct);
+        const period = sampleValue(payload.selected_variant?.out_of_sample || {}, 'max_drawdown_pct');
+        const difference = daily === null || period === null ? null : Math.max(0, daily - period);
+        setText('rotation-daily-risk-state', strategy.state === 'complete' ? '持仓每日覆盖完整 · 仅诊断，不参与选参' : risk ? '覆盖不完整 · 不确认完整区间风险' : '旧记录无每日路径 · 请重新运行');
+        const metrics = document.getElementById('rotation-daily-risk-metrics'); metrics.replaceChildren();
+        [
+            ['每日采样最大回撤', metricText(daily, 2, '%')],
+            ['原期末最大回撤', metricText(period, 2, '%')],
+            ['期末采样少计', metricText(difference, 2, ' 个百分点')],
+            ['末次距历史高点', metricText(strategy.currentDrawdownPct, 2, '%')],
+            ['基准每日采样回撤', metricText(risk?.benchmark?.maxDrawdownPct, 2, '%')],
+            ['持仓收盘价覆盖', `${metricText(coverage.observed_closes, 0)} / ${metricText(coverage.expected_closes, 0)}`],
+        ].forEach(row => metrics.appendChild(experimentMetric(row[0], row[1])));
+        const method = '采样为每日收盘＋执行开盘，不是盘中最大回撤。双边成本沿用原模型，按段初本金在换仓入场时一次确认；不改变训练选参。';
+        let note = '此记录未保存每日行情路径；重新运行实验后才能判断持有期间风险。';
+        if (risk && strategy.state === 'complete') {
+            note = daily > 0 ? `最大回撤：峰值 ${strategy.peakDate || '--'} → 谷底 ${strategy.troughDate || '--'}；${strategy.recoveryDate ? '恢复于 ' + strategy.recoveryDate : '截至样本末未恢复至该峰值'}。` : '当前完整采样路径未出现回撤，不代表盘中没有风险。';
+        } else if (risk) {
+            const labels = {missing_holding_period: '持仓周期缺失', insufficient_signal_coverage: '信号截面不足', missing_benchmark_signal: '基准信号窗口缺价', ambiguous_holding_state: '前期持仓未确定', uncertain_turnover: '换仓成本未确定', unresolved_decision: '持仓决策未确定', missing_entry_open: '入场开盘缺价', missing_exit_open: '退出开盘缺价', missing_close: '收盘缺价', execution_return_mismatch: '成交收益对账不一致', invalid_equity: '净值异常'};
+            const details = (strategy.issues || []).slice(0, 3).map(item => `${item.date} ${labels[item.reason] || item.reason}`).join('；');
+            note = `完整区间回撤不可确认；已观测回撤下界 ${metricText(strategy.observedDrawdownLowerBoundPct, 2, '%')}。持仓区间 ${metricText(coverage.observed_periods, 0)}/${metricText(coverage.expected_periods, 0)}，缺口不填零、不连线。${details ? details + '。' : ''}`;
+        }
+        const interval = strategy.startDate && strategy.endDate ? `盯市区间 ${strategy.startDate} 至 ${strategy.endDate}，仅含已结束持有期。` : '';
+        const benchmarkNote = risk?.benchmark?.state === 'incomplete' ? `基准每日行情不完整（收盘 ${metricText(risk.benchmark.coverage.observed_closes, 0)}/${metricText(risk.benchmark.coverage.expected_closes, 0)}），不确认完整基准回撤。` : '';
+        setText('rotation-daily-risk-note', interval + note + benchmarkNote + method);
+        if (!dailyRiskChart) dailyRiskChart = echarts.init(document.getElementById('rotation-daily-risk-chart'));
+        const curve = payload.daily_risk?.curve || [];
+        const colors = chartColors();
+        const phases = {initial: '初始本金', entry_open: '入场开盘', exit_open: '退出开盘', close: '收盘'};
+        dailyRiskChart.setOption({
+            backgroundColor: 'transparent', animation: false,
+            color: [colors.negative, colors.accent],
+            grid: {left: 52, right: 20, top: 40, bottom: 45},
+            legend: {top: 10, textStyle: {color: colors.textSoft, fontSize: 10}},
+            tooltip: {trigger: 'axis', confine: true, backgroundColor: colors.surfaceRaised,
+                borderColor: colors.borderStrong, textStyle: {color: colors.text},
+                valueFormatter: value => value == null ? '--' : `${Number(value).toFixed(2)}%`},
+            xAxis: {type: 'category', boundaryGap: false,
+                data: curve.map(point => `${point.date} ${phases[point.phase] || point.phase}`),
+                axisLine: {lineStyle: {color: colors.borderStrong}},
+                axisLabel: {color: colors.faint, fontSize: 9, hideOverlap: true, formatter: value => value.slice(5, 10)}},
+            yAxis: {type: 'value', max: 0, axisLabel: {color: colors.faint, fontSize: 9, formatter: '{value}%'},
+                splitLine: {lineStyle: {color: colors.grid}}},
+            series: [
+                {name: strategy.state === 'complete' ? '策略回撤' : '策略已观测回撤', key: 'strategy_drawdown_pct'},
+                {name: risk?.benchmark?.state === 'complete' ? '基准回撤' : '基准已观测回撤', key: 'benchmark_drawdown_pct'},
+            ].map(item => ({name: item.name, type: 'line', smooth: false, connectNulls: false, showSymbol: false,
+                lineStyle: {width: 1.8}, data: curve.map(point => numeric(point[item.key]) === null ? null : -Number(point[item.key]))})),
+        }, true);
     }
     function renderExperimentChart(payload) {
         if (!experimentChart) experimentChart = echarts.init(document.getElementById('rotation-experiment-chart'));
@@ -1130,9 +1331,9 @@ if (window.location.protocol === 'file:') {
     }
     function renderStressTests(rows) {
         const root = document.getElementById('rotation-stress-list'); root.replaceChildren();
-        const maximum = Math.max(1, ...(rows || []).map(row => Math.abs(Number(row.excess_return_pct || 0))));
+        const maximum = Math.max(1, ...(rows || []).map(row => Math.abs(sampleValue(row, 'excess_return_pct') ?? 0)));
         (rows || []).forEach(row => {
-            const excess = Number(row.excess_return_pct || 0);
+            const excess = sampleValue(row, 'excess_return_pct');
             const item = document.createElement('div'); item.className = 'rotation-stress-row';
             const cost = document.createElement('span'); cost.textContent = `${row.cost_bps} bps`;
             const track = document.createElement('div'); track.className = 'rotation-stress-track';
@@ -1150,15 +1351,15 @@ if (window.location.protocol === 'file:') {
             const oos = row.out_of_sample || {};
             const tr = document.createElement('tr'); if (row.id === selectedId) tr.className = 'selected';
             [
-                `${profileLabels[row.profile] || row.profile} · ${row.window}日${row.id === selectedId ? ' ★' : ''}`,
-                Number(row.selection_score || 0).toFixed(2),
-                String(oos.trades || 0),
-                signed(oos.total_return_pct, '%'),
-                signed(oos.benchmark_return_pct, '%'),
-                signed(oos.excess_return_pct, '%'),
-                `-${Number(oos.max_drawdown_pct || 0).toFixed(2)}%`,
-                Number(oos.sharpe || 0).toFixed(2),
-                Number(oos.information_ratio || 0).toFixed(2),
+                `${profileLabels[row.profile] || row.profile} · ${row.window}日${row.id === selectedId ? ' ★' : ''}${oos.execution_evidence?.state === 'checked' ? '' : oos.execution_evidence?.state === 'unresolved' ? ' · 成交待核验' : ' · 理论测算'}`,
+                metricText(row.selection_score, 2),
+                oos.execution_state === 'incomplete' ? `${metricText(oos.trades, 0)} / 缺${metricText(oos.unresolved_periods, 0)}期` : metricText(oos.trades, 0),
+                signed(sampleValue(oos, 'total_return_pct'), '%'),
+                signed(sampleValue(oos, 'benchmark_return_pct'), '%'),
+                signed(sampleValue(oos, 'excess_return_pct'), '%'),
+                metricText(sampleValue(oos, 'max_drawdown_pct'), 2, '%'),
+                metricText(riskRatioValue(oos, 'sharpe', payload.engine?.version), 2),
+                metricText(riskRatioValue(oos, 'information_ratio', payload.engine?.version), 2),
             ].forEach(value => { const td = document.createElement('td'); td.textContent = value; tr.appendChild(td); });
             root.appendChild(tr);
         });
@@ -1175,32 +1376,54 @@ if (window.location.protocol === 'file:') {
             const stressed = (row.cost_sensitivity || []).find(item => Number(item.cost_bps) === 50) || {};
             const tr = document.createElement('tr'); if (row.id === selected.id) tr.className = 'selected';
             [
-                `${row.label || row.id}${row.id === selected.id ? ' ★' : ''}`,
-                Number(row.selection_score || 0).toFixed(2),
-                signed(oos.total_return_pct, '%'),
-                signed(oos.excess_return_pct, '%'),
+                `${row.label || row.id}${row.id === selected.id ? ' ★' : ''}${oos.execution_state === 'incomplete' ? ' · 成交待核验' : oos.execution_evidence?.state !== 'checked' ? ' · 理论测算' : ''}`,
+                metricText(row.selection_score, 2),
+                signed(sampleValue(oos, 'total_return_pct'), '%'),
+                signed(sampleValue(oos, 'excess_return_pct'), '%'),
                 signed(delta.excess_return_pct, '%'),
-                `-${Number(oos.max_drawdown_pct || 0).toFixed(2)}%`,
-                `${Number(oos.turnover_rate_pct || 0).toFixed(0)}%`,
-                `${Number(oos.invested_rate_pct || 0).toFixed(0)}%`,
-                signed(stressed.excess_return_pct, '%'),
+                metricText(sampleValue(oos, 'max_drawdown_pct'), 2, '%'),
+                metricText(sampleValue(oos, 'turnover_rate_pct'), 0, '%'),
+                metricText(sampleValue(oos, 'invested_rate_pct'), 0, '%'),
+                signed(sampleValue(stressed, 'excess_return_pct'), '%'),
             ].forEach(value => { const td = document.createElement('td'); td.textContent = value; tr.appendChild(td); });
             root.appendChild(tr);
         });
-        const delta = Number(verdict.oos_excess_delta_pct || 0);
-        const drawdown = Number(verdict.oos_drawdown_improvement_pct || 0);
+        const delta = numeric(verdict.oos_excess_delta_pct);
+        const drawdown = numeric(verdict.oos_drawdown_improvement_pct);
         const observationText = observation.policy_id && observation.policy_id !== selected.id
             ? ` 样本外 ${observation.policy_label} 相对原始 ${signed(observation.excess_delta_vs_raw_pct, '%')}，仅作事后观察，不据此切换策略。`
             : '';
         setText(
             'rotation-confirmation-verdict',
-            `${verdict.label || '等待确认层结论'}；样本外相对原始超额 ${signed(delta, '%')}，回撤改善 ${signed(drawdown, '%')}。${observationText}`,
+            `${executionState(payload) === 'legacy' ? '旧确认层结果须重跑成交核验，不追认改善结论' : verdict.label || '等待确认层结论'}；样本外相对原始超额 ${signed(delta, '%')}，回撤改善 ${signed(drawdown, '%')}。${observationText}`,
         );
+    }
+    function predictionContext(diagnostics) {
+        if (diagnostics?.statistics_policy?.version !== 1) return null;
+        return {
+            statisticsPolicy: diagnostics.statistics_policy,
+            verdict: diagnostics.verdict || null,
+            primaryHorizon: diagnostics.primary_horizon_sessions,
+            outOfSampleHorizons: diagnostics.out_of_sample?.horizons || [],
+            factors: (diagnostics.factor_effectiveness?.factors || []).map(row => ({
+                factor: row.factor, active: row.active, state: row.state, label: row.label,
+                trainRankIc: row.train?.rank_ic_mean ?? null,
+                trainIcSamples: row.train?.rank_ic_samples ?? null,
+                oosRankIc: row.out_of_sample?.rank_ic_mean ?? null,
+                oosIcSamples: row.out_of_sample?.rank_ic_samples ?? null,
+                top3HitRatePct: row.out_of_sample?.top3_beat_benchmark_rate_pct ?? null,
+                top3HitSamples: row.out_of_sample?.top3_hit_samples ?? null,
+                pairedHitDeltaPercentagePoints: row.leave_one_out?.top3_hit_contribution_oos_pct ?? null,
+                pairedHitSamples: row.leave_one_out?.paired_samples?.top3_hit_oos ?? null,
+            })),
+            confidenceVerdict: diagnostics.confidence_diagnostics?.verdict || null,
+        };
     }
     function renderPredictionDiagnostics(payload) {
         const diagnostics = payload.prediction_diagnostics || {};
         const verdict = diagnostics.verdict || {};
         const confidence = diagnostics.confidence_diagnostics || {};
+        const currentPolicy = diagnostics.statistics_policy?.version === 1;
         const root = document.getElementById('rotation-prediction-rows');
         root.replaceChildren();
         (((diagnostics.out_of_sample || {}).horizons) || []).forEach(row => {
@@ -1210,12 +1433,12 @@ if (window.location.protocol === 'file:') {
             const isObservedBest = Number(row.horizon_sessions) === Number(diagnostics.best_observed_horizon_sessions);
             [
                 `${row.horizon_sessions}日${isPrimary ? ' 主' : ''}${isObservedBest ? ' ★' : ''}`,
-                `${row.samples || 0} / 有效${row.effective_non_overlapping_samples || 0}`,
-                Number(row.rank_ic_mean || 0).toFixed(3),
-                `${Number(row.rank_ic_positive_rate_pct || 0).toFixed(0)}%`,
-                signed(row.top3_minus_bottom3_mean_pct, '%'),
-                `${Number(row.top3_beat_benchmark_rate_pct || 0).toFixed(0)}%`,
-                `${Number(row.leader_beat_benchmark_rate_pct || 0).toFixed(0)}%`,
+                `${metricText(row.samples, 0)} 完整 / Top3不重叠${metricText(row.effective_non_overlapping_samples, 0)}${numeric(row.missing_samples) > 0 ? ' / 缺信号或标签' + metricText(row.missing_samples, 0) : ''}`,
+                `${metricText(sampleValue(row, 'rank_ic_mean', 'samples'), 3)}${currentPolicy ? '（' + metricText(row.rank_ic_samples, 0) + '）' : ''}`,
+                metricText(sampleValue(row, 'rank_ic_positive_rate_pct', 'samples'), 0, '%'),
+                `${signed(sampleValue(row, 'top3_minus_bottom3_mean_pct', 'samples'), '%')}${currentPolicy ? '（' + metricText(row.spread_samples, 0) + '）' : ''}`,
+                `${metricText(sampleValue(row, 'top3_beat_benchmark_rate_pct', 'samples'), 0, '%')}${currentPolicy ? '（' + metricText(row.top3_hit_samples, 0) + '）' : ''}`,
+                `${metricText(sampleValue(row, 'leader_beat_benchmark_rate_pct', 'samples'), 0, '%')}${currentPolicy ? '（' + metricText(row.leader_beat_benchmark_samples, 0) + '）' : ''}`,
             ].forEach(value => { const td = document.createElement('td'); td.textContent = value; tr.appendChild(td); });
             root.appendChild(tr);
         });
@@ -1223,11 +1446,18 @@ if (window.location.protocol === 'file:') {
         const primary = (((diagnostics.out_of_sample || {}).horizons) || []).find(
             row => Number(row.horizon_sessions) === Number(diagnostics.primary_horizon_sessions)
         ) || {};
-        const phaseRange = primary.non_overlapping_top3_beat_benchmark_rate_range_pct || [0, 0];
-        const wilson = primary.top3_beat_benchmark_wilson_95_pct || [0, 0];
+        const phaseRange = intervalText(primary.non_overlapping_top3_beat_benchmark_rate_range_pct, primary.effective_non_overlapping_samples);
+        const wilson = intervalText(primary.top3_beat_benchmark_wilson_95_pct, primary.effective_non_overlapping_samples);
+        const issueLabels = {constant_scores: '分数无差异', constant_returns: '收益无差异',
+            top3_boundary_tie: 'Top3边界并列', bottom3_boundary_tie: '后3边界并列',
+            leader_tie: '榜首并列', fewer_than_six_assets: '不足6只标的'};
+        const issues = Object.entries(primary.metric_issue_counts || {}).map(([key, count]) => `${issueLabels[key] || key} ${count}次`).join('；');
+        const policyNote = currentPolicy
+            ? `括号为各指标有效截面数；常数截面IC不可计算，并列边界不强行选取，前三减后三要求至少6只且互不重叠。${issues ? '主周期：' + issues + '。同一截面可有多项原因。' : ''}`
+            : '旧记录未核验常数截面、并列排名及逐指标样本数，请重跑后再判断预测效果。';
         setText(
             'rotation-prediction-verdict',
-            `${verdict.label || '等待预测诊断'}。${reasons} 主周期不重叠采样相位命中 ${Number(phaseRange[0] || 0).toFixed(1)}%–${Number(phaseRange[1] || 0).toFixed(1)}%，95%保守区间 ${Number(wilson[0] || 0).toFixed(1)}%–${Number(wilson[1] || 0).toFixed(1)}%。${diagnostics.note ? ` ${diagnostics.note}` : ''}${confidence.verdict ? ` 因子共识过滤：${confidence.verdict.label}，未通过前不进入正式信号。` : ''}`,
+            `${verdict.label || '等待预测诊断'}。${reasons} ${policyNote} 主周期不重叠采样相位命中 ${phaseRange}，95%保守区间 ${wilson}。${diagnostics.note ? ` ${diagnostics.note}` : ''}${confidence.verdict ? ` 因子共识过滤：${confidence.verdict.label}，未通过前不进入正式信号。` : ''}`,
         );
     }
     function renderFactorEffectiveness(payload) {
@@ -1244,13 +1474,14 @@ if (window.location.protocol === 'file:') {
             const tr = document.createElement('tr');
             const oos = row.out_of_sample || {};
             const leaveOneOut = row.leave_one_out || {};
+            const currentPolicy = diagnostics.statistics_policy?.version === 1;
             [
                 labels[row.factor] || row.factor,
-                row.active ? `${(Number(row.effective_weight || 0) * 100).toFixed(1)}%` : '--',
-                row.active ? Number((row.train || {}).rank_ic_mean || 0).toFixed(3) : '--',
-                row.active ? Number(oos.rank_ic_mean || 0).toFixed(3) : '--',
-                row.active ? `${Number(oos.top3_beat_benchmark_rate_pct || 0).toFixed(1)}%` : '--',
-                row.active ? signed(leaveOneOut.top3_hit_contribution_oos_pct, '%') : '--',
+                row.active && numeric(row.effective_weight) !== null ? metricText(numeric(row.effective_weight) * 100, 1, '%') : '--',
+                row.active ? metricText(sampleValue(row.train || {}, 'rank_ic_mean', 'samples'), 3) + (currentPolicy ? `（${metricText(row.train?.rank_ic_samples, 0)}）` : '') : '--',
+                row.active ? metricText(sampleValue(oos, 'rank_ic_mean', 'samples'), 3) + (currentPolicy ? `（${metricText(oos.rank_ic_samples, 0)}）` : '') : '--',
+                row.active ? metricText(sampleValue(oos, 'top3_beat_benchmark_rate_pct', 'samples'), 1, '%') + (currentPolicy ? `（${metricText(oos.top3_hit_samples, 0)}）` : '') : '--',
+                row.active && numeric(oos.samples) > 0 ? signed(leaveOneOut.top3_hit_contribution_oos_pct, '') + (currentPolicy ? `（配对${metricText(leaveOneOut.paired_samples?.top3_hit_oos, 0)}）` : '') : '--',
                 row.label || '--',
             ].forEach(value => { const td = document.createElement('td'); td.textContent = value; tr.appendChild(td); });
             root.appendChild(tr);
@@ -1259,7 +1490,7 @@ if (window.location.protocol === 'file:') {
         const stable = active.filter(row => row.state === 'stable_positive').length;
         setText(
             'rotation-factor-effect-verdict',
-            `当前历史实测 ${active.length}/7 个因子，跨训练与样本外稳定为正 ${stable} 个。估值和基本面缺少行业级点时历史，不参与回测；本表只诊断，不按样本外结果重新调权。`,
+            effectiveness.factors ? `当前历史实测 ${active.length}/7 个因子，跨训练与样本外稳定为正 ${stable} 个。${diagnostics.statistics_policy?.version === 1 ? '括号为有效样本数；加入后变化只比较同一批两侧均可计算的截面，不代表因果贡献。' : '旧统计口径，请重跑核验。'}估值和基本面缺少行业级点时历史，不参与回测；本表只诊断，不按样本外结果重新调权。` : '未提供因子有效性诊断。',
         );
     }
     function renderParameterEnsemble(payload) {
@@ -1284,33 +1515,33 @@ if (window.location.protocol === 'file:') {
         [
             [
                 `单模型 ${selected.id || '--'}`,
-                String(trainBase.samples || 0),
-                `${Number(trainBase.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
-                String(oosBase.samples || 0),
-                `${Number(oosBase.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
+                metricText(trainBase.samples, 0),
+                metricText(sampleValue(trainBase, 'gross_beat_benchmark_rate_pct', 'samples'), 1, '%'),
+                metricText(oosBase.samples, 0),
+                metricText(sampleValue(oosBase, 'gross_beat_benchmark_rate_pct', 'samples'), 1, '%'),
                 '--',
-                signed(selectedOos.excess_return_pct, '%'),
-                `-${Number(selectedOos.max_drawdown_pct || 0).toFixed(2)}%`,
+                signed(sampleValue(selectedOos, 'excess_return_pct'), '%'),
+                metricText(sampleValue(selectedOos, 'max_drawdown_pct'), 2, '%'),
             ],
             [
-                `持仓缓冲集成 ≥${ensemble.majority_threshold || 5}/${ensemble.variant_count || 9}`,
-                String(trainHigh.samples || 0),
-                `${Number(trainHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
-                String(oosHigh.samples || 0),
-                `${Number(oosHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
-                signed(oos.high_confidence_hit_delta_pct, '%'),
-                signed(strategy.excess_return_pct, '%'),
-                `-${Number(strategy.max_drawdown_pct || 0).toFixed(2)}%`,
+                `持仓缓冲集成 ≥${metricText(ensemble.majority_threshold, 0)}/${metricText(ensemble.variant_count, 0)}`,
+                metricText(trainHigh.samples, 0),
+                metricText(sampleValue(trainHigh, 'gross_beat_benchmark_rate_pct', 'samples'), 1, '%'),
+                metricText(oosHigh.samples, 0),
+                metricText(sampleValue(oosHigh, 'gross_beat_benchmark_rate_pct', 'samples'), 1, '%'),
+                numeric(oosHigh.samples) > 0 && numeric(oosBase.samples) > 0 ? signed(oos.high_confidence_hit_delta_pct, '%') : '--',
+                signed(sampleValue(strategy, 'excess_return_pct'), '%'),
+                metricText(sampleValue(strategy, 'max_drawdown_pct'), 2, '%'),
             ],
             [
-                `当日静态投票 ≥${ensemble.majority_threshold || 5}/${ensemble.variant_count || 9}`,
-                String(onlineTrainHigh.samples || 0),
-                `${Number(onlineTrainHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
-                String(onlineOosHigh.samples || 0),
-                `${Number(onlineOosHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%`,
-                signed(onlineOos.high_consensus_hit_delta_pct, '%'),
-                signed(onlineStrategy.excess_return_pct, '%'),
-                `-${Number(onlineStrategy.max_drawdown_pct || 0).toFixed(2)}%`,
+                `当日静态投票 ≥${metricText(ensemble.majority_threshold, 0)}/${metricText(ensemble.variant_count, 0)}`,
+                metricText(onlineTrainHigh.samples, 0),
+                metricText(sampleValue(onlineTrainHigh, 'gross_beat_benchmark_rate_pct', 'samples'), 1, '%'),
+                metricText(onlineOosHigh.samples, 0),
+                metricText(sampleValue(onlineOosHigh, 'gross_beat_benchmark_rate_pct', 'samples'), 1, '%'),
+                numeric(onlineOosHigh.samples) > 0 && numeric(onlineOos.all_signals?.samples) > 0 ? signed(onlineOos.high_consensus_hit_delta_pct, '%') : '--',
+                signed(sampleValue(onlineStrategy, 'excess_return_pct'), '%'),
+                metricText(sampleValue(onlineStrategy, 'max_drawdown_pct'), 2, '%'),
             ],
         ].forEach((values, index) => {
             const tr = document.createElement('tr');
@@ -1319,19 +1550,52 @@ if (window.location.protocol === 'file:') {
             root.appendChild(tr);
         });
         const verdict = ensemble.verdict || {};
-        const interval = oosHigh.gross_beat_benchmark_wilson_95_pct || [0, 0];
-        const onlineInterval = onlineOosHigh.gross_beat_benchmark_wilson_95_pct || [0, 0];
+        const interval = intervalText(oosHigh.gross_beat_benchmark_wilson_95_pct, oosHigh.samples);
+        const onlineInterval = intervalText(onlineOosHigh.gross_beat_benchmark_wilson_95_pct, onlineOosHigh.samples);
         setText(
             'rotation-ensemble-verdict',
-            `${verdict.label || '等待参数集成结论'}。持仓缓冲影子信号 ${oosHigh.samples || 0} 次、命中 ${Number(oosHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%（95%区间 ${Number(interval[0] || 0).toFixed(1)}%–${Number(interval[1] || 0).toFixed(1)}%）；与当前页面一致的当日静态投票为 ${Number(onlineOosHigh.gross_beat_benchmark_rate_pct || 0).toFixed(1)}%（${onlineOosHigh.samples || 0} 次，95%区间 ${Number(onlineInterval[0] || 0).toFixed(1)}%–${Number(onlineInterval[1] || 0).toFixed(1)}%），因此页面只显示参数一致性，不称预测强信号。`,
+            `${executionState(payload) === 'legacy' ? '旧集成结果须重跑成交核验，不追认改善结论' : verdict.label || '等待参数集成结论'}。持仓缓冲影子信号 ${metricText(oosHigh.samples, 0)} 次、命中 ${metricText(sampleValue(oosHigh, 'gross_beat_benchmark_rate_pct', 'samples'), 1, '%')}（95%区间 ${interval}）；与当前页面一致的当日静态投票为 ${metricText(sampleValue(onlineOosHigh, 'gross_beat_benchmark_rate_pct', 'samples'), 1, '%')}（${metricText(onlineOosHigh.samples, 0)} 次，95%区间 ${onlineInterval}），因此页面只显示参数一致性，不称预测强信号。`,
         );
+    }
+    function executionState(payload) {
+        return payload?.execution_audit?.trade_evidence?.out_of_sample?.state || 'legacy';
+    }
+    function executionVerdict(payload) {
+        const verdict = payload.verdict || {};
+        const state = executionState(payload);
+        return state === 'checked' ? verdict : {...verdict,
+            state: state === 'legacy' ? 'legacy_execution_requires_rerun' : 'insufficient_evidence',
+            label: state === 'legacy' ? '旧结果须重跑成交核验' : state === 'unresolved' ? '成交依据有缺口，完整收益不可确认' : '限价资料不全，仅作理论测算'};
+    }
+    function renderTradeEvidence(payload) {
+        const evidence = payload.execution_audit?.trade_evidence;
+        const states = {checked: '量价及限价已核验（不保证成交）', theoretical: '限价不完整，仅理论测算', unresolved: '成交或前置持仓未知', unavailable: '无有效区间'};
+        setText('rotation-trade-evidence', evidence ? ['train', 'out_of_sample'].map(key => {
+            const row = evidence[key] || {};
+            return `${key === 'train' ? '训练' : '样本外'}：${states[row.state] || '未核验'}；计划买卖${metricText(row.planned_legs, 0)}项，量价${metricText(row.price_volume_verified_legs, 0)}项、限价配对${metricText(row.paired_limit_legs, 0)}项，不利方向触限${metricText(row.adverse_limit_legs, 0)}项，缺限价${metricText(row.missing_limit_legs, 0)}项`;
+        }).join('。') + '。样本外承接此前持仓证据，不因新一期无买卖就自动恢复为已核验。预测IC、基准与等权篮子仍是价格标签/理论对照，不表示真实成交。'
+            : '旧结果未核验换仓量价与历史限价，请重跑；保留历史数值，不按新规则追认为可成交收益。');
+        setText('rotation-trade-sources', (evidence?.feeds || []).map(feed => `${feed.symbol}：${['price', 'limits'].map(key => {
+            const source = feed.feeds?.[key];
+            return source ? `${source.source} · ${source.status === 'ready' && !source.usingSaved ? '取数已确认' : source.reason || source.status} · ${source.receivedAt || '--'}${source.usingSaved ? '（旧缓存未采纳）' : ''}` : feed.reason || '来源未取得';
+        }).join(' / ')}`).join('；'));
+        const root = document.getElementById('rotation-trade-checks'); root.replaceChildren();
+        const reasons = {buy_at_upper_limit: '涨停买入，不确认成交', sell_at_lower_limit: '跌停卖出，不确认成交', missing_open: '缺开盘价', zero_volume: '日成交量为零', missing_volume: '缺成交量', prior_execution_unresolved: '前期成交未知'};
+        (evidence?.checks || []).forEach(check => {
+            const tr = document.createElement('tr');
+            [check.date, {train: '训练', out_of_sample: '样本外', purged: '跨界'}[check.partition] || '--', `${check.symbol} ${check.side === 'buy' ? '买入' : '卖出'}`,
+                ...['rawOpen', 'lowerLimit', 'upperLimit'].map(key => metricText(check[key], 3)),
+                reasons[check.execution_issue] || (check.state === 'unverified' ? '限价缺配对，仅理论测算' : '未触及不利方向限价')
+            ].forEach(value => { const cell = document.createElement('td'); cell.textContent = value; tr.appendChild(cell); });
+            root.appendChild(tr);
+        });
     }
     function renderExperiment(payload, source) {
         state.experiment = payload;
         experimentError.style.display = 'none';
         experimentPlaceholder.style.display = 'none';
         experimentResults.style.display = 'block';
-        const verdict = payload.verdict || {};
+        const verdict = executionVerdict(payload);
         const quality = payload.data_quality || {};
         const summary = payload.summary || {};
         const selected = payload.selected_variant || {};
@@ -1342,30 +1606,47 @@ if (window.location.protocol === 'file:') {
         replaceList('rotation-verdict-reasons', verdict.reasons || []);
         const facts = document.getElementById('rotation-experiment-facts'); facts.replaceChildren();
         [
-            `覆盖 ${Number(quality.coverage_years || 0).toFixed(1)} 年`,
-            `样本外 ${summary.oos_trades || 0} 笔`,
-            summary.candidate_state === 'qualified' ? '训练门槛通过' : '仅诊断候选',
-            `参数平台 ${Number(summary.positive_variant_share_pct || 0).toFixed(0)}%`,
-            `样本外分段正超额 ${Number(summary.oos_positive_block_share_pct || 0).toFixed(0)}%`,
+            `覆盖 ${metricText(quality.coverage_years, 1)} 年`,
+            `样本外 ${metricText(summary.oos_trades, 0)} 期`,
+            summary.candidate_state === 'qualified' && payload.execution_audit?.trade_evidence?.train?.state === 'checked' ? '训练门槛通过' : '仅诊断候选',
+            `参数平台 ${metricText(summary.positive_variant_share_pct, 0, '%')} · 训练可评分 ${metricText(summary.scorable_variant_count, 0)}/${metricText(summary.total_variant_count, 0)}组`,
+            `样本外分段正超额 ${metricText(summary.oos_positive_block_share_pct, 0, '%')}`,
             `确认执行 ${summary.selected_confirmation_label || '--'}`,
             `预测诊断 ${summary.prediction_label || '--'}`,
-            `线上同口径 ${Number(summary.online_consensus_oos_hit_rate_pct || 0).toFixed(1)}% · ${summary.online_consensus_oos_samples || 0}次`,
-            `状态化影子 ${Number(summary.ensemble_high_confidence_oos_hit_rate_pct || 0).toFixed(1)}% · ${summary.ensemble_high_confidence_oos_samples || 0}次`,
-            `历史实测 ${quality.active_factor_count || 0}/${quality.configured_factor_count || 7} 因子`,
-            `${quality.successful_symbols || 0}/${quality.universe_size || 0} 标的 · ETF覆盖 ${Number(quality.universe_coverage_pct || 0).toFixed(1)}%`,
-            `指数信号 ${quality.index_signal_count || 0} / ETF代理 ${quality.signal_fallback_count || 0} · 有效信号覆盖 ${Number(quality.effective_signal_coverage_pct || 0).toFixed(1)}%`,
-            payload.cache_hit ? '15分钟缓存' : '实时重算',
+            `线上同口径 ${metricText(sampleValue(summary, 'online_consensus_oos_hit_rate_pct', 'online_consensus_oos_samples'), 1, '%')} · ${metricText(summary.online_consensus_oos_samples, 0)}次`,
+            `状态化影子 ${metricText(sampleValue(summary, 'ensemble_high_confidence_oos_hit_rate_pct', 'ensemble_high_confidence_oos_samples'), 1, '%')} · ${metricText(summary.ensemble_high_confidence_oos_samples, 0)}次`,
+            `历史实测 ${metricText(quality.active_factor_count, 0)}/${metricText(quality.configured_factor_count, 0)} 因子`,
+            `${metricText(quality.successful_symbols, 0)}/${metricText(quality.universe_size, 0)} 标的 · ETF覆盖 ${metricText(quality.universe_coverage_pct, 1, '%')}`,
+            `指数信号 ${metricText(quality.index_signal_count, 0)} / ETF代理 ${metricText(quality.signal_fallback_count, 0)} · 有效信号覆盖 ${metricText(quality.effective_signal_coverage_pct, 1, '%')}`,
+            source === 'history' ? '历史记录，未重新计算' : payload.cache_hit ? '15分钟缓存' : '实时重算',
+            `计算版本 ${payload.engine?.version || '--'}`,
         ].forEach(value => { const item = document.createElement('span'); item.className = 'rotation-experiment-fact'; item.textContent = value; facts.appendChild(item); });
         const metrics = document.getElementById('rotation-experiment-metrics'); metrics.replaceChildren();
         [
-            ['样本外策略收益', signed(oos.total_return_pct, '%'), Number(oos.total_return_pct) >= 0 ? 'up' : 'down'],
-            ['同期基准收益', signed(oos.benchmark_return_pct, '%'), Number(oos.benchmark_return_pct) >= 0 ? 'up' : 'down'],
-            ['相对基准超额', signed(oos.excess_return_pct, '%'), Number(oos.excess_return_pct) >= 0 ? 'up' : 'down'],
-            ['最大回撤', `-${Number(oos.max_drawdown_pct || 0).toFixed(2)}%`, 'down'],
-            ['Sharpe', Number(oos.sharpe || 0).toFixed(2), ''],
-            ['Information Ratio', Number(oos.information_ratio || 0).toFixed(2), ''],
+            ['样本外策略收益', signed(sampleValue(oos, 'total_return_pct'), '%'), movementClass(sampleValue(oos, 'total_return_pct')).replace('rotation-', '')],
+            ['同期基准收益', signed(sampleValue(oos, 'benchmark_return_pct'), '%'), movementClass(sampleValue(oos, 'benchmark_return_pct')).replace('rotation-', '')],
+            ['相对基准超额', signed(sampleValue(oos, 'excess_return_pct'), '%'), movementClass(sampleValue(oos, 'excess_return_pct')).replace('rotation-', '')],
+            ['期末最大回撤', metricText(sampleValue(oos, 'max_drawdown_pct'), 2, '%'), sampleValue(oos, 'max_drawdown_pct') > 0 ? 'down' : ''],
+            ['Sharpe', metricText(riskRatioValue(oos, 'sharpe', payload.engine?.version), 2), ''],
+            ['Information Ratio', metricText(riskRatioValue(oos, 'information_ratio', payload.engine?.version), 2), ''],
         ].forEach(row => metrics.appendChild(experimentMetric(row[0], row[1], row[2])));
+        const audit = payload.execution_audit;
+        renderTradeEvidence(payload);
+        if (audit) {
+            const reasons = {insufficient_signal_coverage: '信号截面不足', missing_benchmark_signal: '基准信号窗口缺价', ambiguous_holding_state: '前期持仓未确定', uncertain_turnover: '换仓成本未确定', buy_at_upper_limit: '涨停买入待核验', sell_at_lower_limit: '跌停卖出待核验', zero_volume: '日成交量为零', missing_volume: '缺成交量', missing_open: '缺开盘价', prior_execution_unresolved: '前期成交缺口延续'};
+            const missing = (audit.unresolved_decisions || []).slice(0, 3).map(row => `${row.signal_date} ${row.symbol ? '选择' + (row.name || row.symbol) : '持仓待核验'}${reasons[row.reason] ? ' · ' + reasons[row.reason] : ''}（${row.entry_date} → ${row.exit_date}）`).join('；');
+            const calendar = audit.missing_signal_periods == null ? '旧记录未核验完整决策日历，需重跑。' : `信号不足 ${metricText(audit.missing_signal_periods, 0)} 期；持仓或成本待定 ${metricText(audit.uncertain_holding_periods, 0)} 期。`;
+            setText('rotation-execution-audit', `时点核验：先按信号日信息选定标的，再核验未来成交；缺价不替补、不当现金。样本外成交与基准证据 ${metricText(audit.resolved_oos_periods, 0)}/${metricText(audit.planned_oos_periods, 0)} 期；${calendar}等权篮子证据缺口 ${metricText(audit.equal_weight_missing_periods, 0)} 期；预测信号或标签缺口 ${metricText(audit.prediction_label_coverage?.missing_periods, 0)}/${metricText(audit.prediction_label_coverage?.expected_periods, 0)} 个期限截面。${missing ? '未核验：' + missing + '。完整收益与回撤不作结论。' : ''}`);
+        } else {
+            setText('rotation-execution-audit', '旧记录未保存时点与成交核验；请重新运行，不按新规则追认历史结果。');
+        }
+        const independentCalendar = audit?.calendar_policy === 'independent_exchange_calendar_exact_dates';
+        const cal = audit?.calendar || {};
+        setText('rotation-experiment-calendar', independentCalendar
+            ? `独立交易日历：${cal.source || '--'}（交易所 ${cal.exchange || '--'}）；实验 ${cal.session_start || '--'} 至 ${cal.session_end || '--'}，${metricText(cal.session_count, 0)} 个交易日。基准缺整行 ${metricText(cal.missing_benchmark_dates?.length, 0)} 日；调仓与每日采样不随缺行情顺延。日历接收：${cal.receivedAt || '--'}。`
+            : '旧记录未使用独立交易日历；日期与持有期可能受基准缺行情影响，请重新运行，不按新口径追认。');
         renderExperimentChart(payload);
+        renderDailyRisk(payload);
         renderStressTests(payload.stress_tests || []);
         renderParameterSurface(payload);
         renderConfirmationComparison(payload);
@@ -1383,15 +1664,32 @@ if (window.location.protocol === 'file:') {
             signals_use_close_and_execute_at_next_session_open: '收盘产生信号，下一交易日开盘执行',
             industry_index_signals_use_close_and_etfs_execute_at_next_session_open: '申万行业指数收盘产生信号，下一交易日开盘执行 ETF',
             same_industry_etf_proxy_used_when_index_unavailable: 'Desk 暂无行业指数历史行情，使用已配置的同行业 ETF 价格代理',
-            round_trip_cost_is_charged_when_selected_etf_changes: '仅在实际更换 ETF 时收取完整双边成本',
+            round_trip_cost_is_charged_when_selected_etf_changes: '仅在计划更换持仓时预扣简化双边成本，不代表实际订单费用',
+            actual_switch_legs_only_hold_and_terminal_prices_are_marks_not_orders: '只核验首次买入与换仓买卖，继续持有和期末估值不虚构订单',
+            separate_raw_open_limit_pairs_positive_volume_not_fill_guarantee: '原始开盘与同日限价独立配对，正日成交量不保证开盘成交',
+            missing_limit_pairs_are_theoretical_known_execution_failures_propagate_unknown_capital: '缺限价只作理论测算；已知触限、缺量与成交缺口向后传播资金未知',
+            round_trip_fee_reservation_is_not_actual_order_cost_or_terminal_liquidation: '预扣双边费不是逐订单实费，也不代表期末强制平仓',
+            daily_risk_uses_close_and_execution_open_not_intraday_extremes: '每日风险按收盘及执行开盘采样，不含盘中极值',
+            execution_price_availability_filters_historical_candidates: '历史候选池仍以入场及未来退出日有有效价格为条件，存在未来可得性筛选偏差',
+            missing_execution_prices_do_not_rewrite_signal_decisions: '信号日冻结候选与持仓计划，未来缺价只标为不可核验，不替换标的或改为空仓',
+            scheduled_decision_gaps_retained_and_holding_uncertainty_propagated: '保留完整决策日历；信号不足不算现金，后续计划即使重新一致，也不能恢复此前未知的成交与本金，净值不跨缺口续算',
+            empty_statistics_are_null_ratios_require_two_samples_and_nonzero_dispersion: '无样本不报告收益或风险；风险比率至少需要两个样本且波动分母非零（数值容差1e-12），缺失比率不按零分参与选参',
+            sharpe_assumes_zero_risk_free_rate_and_population_dispersion: 'Sharpe暂按零无风险利率、总体标准差计算；零波动仅描述已观察样本，不代表未来无风险',
+            sse_calendar_only_not_overseas_underlying_market_calendar: '采用上交所交易日历，不代表跨境ETF底层市场日历',
+            calendar_is_current_source_history_not_point_in_time_announcements: '日历是当前源的历史记录，不是历史公告版本库',
+            calendar_window_bounded_by_loaded_history_not_full_inception_history: '实验取已载入历史区间内最近800个交易日，不代表成立以来完整历史',
+            prediction_statistics_use_complete_frozen_cross_sections_only: '预测指标仅统计该期限标签完整的冻结截面，缺失数量单列；仍需防范完整样本选择偏差',
             results_are_research_evidence_not_live_trading_advice: '结果仅是研究证据，不构成实盘建议',
         };
-        document.getElementById('rotation-experiment-footnote').textContent = (payload.limitations || []).map(item => limitationLabels[item] || item).join('；') + '。';
+        const metricNote = '“--”表示缺失或无有效样本，不代表零收益、零风险。风险比率至少需要两个样本且波动非零，Sharpe暂按零无风险利率。参数表与原权益曲线按持有期期末采样，每日风险仅诊断。2.1.2起计入初始本金，2.2.0起新增每日盯市，2.3.0起移除未来价格候选过滤，2.4.0起保留决策缺口，2.5.0起统一空样本与风险比率口径；旧记录需重跑。';
+        document.getElementById('rotation-experiment-footnote').textContent = metricNote + (payload.limitations || []).map(item => limitationLabels[item] || item).join('；');
         publishContext();
         window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source);
     }
     function resetExperiment(message) {
         state.experiment = null;
+        if (experimentChart) experimentChart.clear();
+        if (dailyRiskChart) dailyRiskChart.clear();
         experimentError.style.display = 'none';
         experimentResults.style.display = 'none';
         experimentPlaceholder.style.display = 'grid';
@@ -1399,7 +1697,6 @@ if (window.location.protocol === 'file:') {
         const detail = experimentPlaceholder.querySelector('span');
         title.textContent = message ? '轮动条件已变化' : '等待手动验证';
         detail.textContent = message || '将测试 9 组参数，并对入选组合追加 3 组确认层过滤对照。';
-        publishContext();
     }
     function render(payload, source) {
         state.data = payload;
@@ -1423,8 +1720,8 @@ if (window.location.protocol === 'file:') {
         );
         setText(
             'stat-shadow-note',
-            ['historical_disabled', 'unavailable'].includes(shadow.lifecycle_state)
-                ? '仅最新交易日推进'
+            ['historical_disabled', 'future_state_isolated', 'unavailable', 'incomplete_models'].includes(shadow.lifecycle_state)
+                ? '证据完整的新交易日才推进'
                 : `距下次再平衡 ${Number(shadow.next_rebalance_in_sessions || 0)} 个交易日`,
         );
         document.getElementById('stat-shadow').title = shadowWinner.code
@@ -1443,6 +1740,11 @@ if (window.location.protocol === 'file:') {
         replaceList('rotation-evidence', (payload.insight || {}).evidence);
         replaceList('rotation-risks', (payload.insight || {}).risks);
         const factorModel = payload.factor_model || {};
+        const breadthEvidence = payload.industry_breadth || {};
+        const breadthCoverage = breadthEvidence.coverage || {};
+        setText('rotation-breadth-source', breadthEvidence.source
+            ? `行业广度：${breadthEvidence.as_of || '--'} · ${breadthCoverage.industryCount ?? '--'} 个行业 · 已报价 ${breadthCoverage.quoteCount ?? '--'}/${breadthCoverage.listedCount ?? '--'} 只，缺报价 ${breadthCoverage.missingQuoteCount ?? '--'}、缺分类 ${breadthCoverage.missingClassificationCount ?? '--'}。成员等权涨跌非指数涨幅；当前申万归属非历史点时。仅作确认，不改变量价排名。${factorModel.slow_factor_reason || ''}`
+            : `行业广度未取得，缺失不补0或50分。${factorModel.slow_factor_reason || ''}`);
         setText('rotation-count', `${payload.successful_count}/${payload.universe_size} 个候选 · 因子 ${factorModel.active_factor_count || 0}/${factorModel.configured_factor_count || 7} · 参数一致 ${consensusWinner.votes || 0}/${consensus.model_count || 0} · 影子持仓 ${shadowWinner.votes || 0}/${shadow.model_count || 0} · 指数信号 ${payload.index_signal_count || 0} · ETF信号代理 ${payload.signal_fallback_count || 0} · 代理口径 ${payload.proxy_count || 0} · 更新至 ${payload.as_of}`);
         const snapshot = payload.snapshot || {};
         const provenance = snapshot.provenance || {};
@@ -1466,7 +1768,12 @@ if (window.location.protocol === 'file:') {
             : payload.signal_state === 'partial' ? '部分使用ETF信号代理'
             : payload.signal_state === 'fallback' ? 'ETF信号代理模式' : '信号状态未知';
         const factorLabel = ` · 七因子启用 ${factorModel.active_factor_count || 0}/${factorModel.configured_factor_count || 7}`;
-        meta.textContent = `${source === 'history' ? '历史版本 · ' : ''}${sourceLabel} · 日线 · ETF${adjustLabel} · ${signalStateLabel}${factorLabel}${breadthLabel} · ${payload.cache_hit ? '缓存' : '实时计算'} · 更新至 ${payload.as_of}${replay}${coverage}`;
+        const cutoffLabel = payload.price_cutoff?.mode === 'completed_daily_snapshot' ? ' · 已完成交易日对齐' : '';
+        meta.textContent = `${source === 'history' ? '历史版本 · ' : ''}${sourceLabel} · 日线 · ETF${adjustLabel} · ${signalStateLabel}${factorLabel}${breadthLabel}${cutoffLabel} · ${payload.cache_hit ? '缓存' : '实时计算'} · 更新至 ${payload.as_of}${replay}${coverage}`;
+        const cal = payload.calendar || {};
+        setText('rotation-calendar', payload.calendar_policy === 'independent_exchange_calendar_exact_dates'
+            ? `独立交易日历：${cal.source || '--'}；${cal.session_start || '--'} 至 ${cal.session_end || '--'}，${metricText(cal.session_count, 0)} 个交易日。排名、行情滞后、轨迹与影子调仓共用该日历；缺数据不填50分。`
+            : '旧排名未核验独立交易日历；请重新计算，历史持续性和调仓日期不按新口径追认。');
         meta.title = [
             `统一数据边界：${providerLabel}`,
             upstreamLabel ? `实际上游：${upstreamLabel}` : '',
@@ -1490,44 +1797,51 @@ if (window.location.protocol === 'file:') {
         window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source);
     }
     async function load(refresh) {
+        syncWorkspace();
+        if (analysisRunning) throw new Error('当前轮动正在计算，请等待完成');
+        if (!form.checkValidity()) throw new Error('请先检查页面上的轮动参数');
+        const input = analysisParameters();
+        invalidateAnalysis('正在重新计算，旧结果已撤下');
+        const version = analysisVersion, key = JSON.stringify(input);
         analysisRunning = true; publishContext();
         clearMessages(); submit.disabled = true; submit.innerHTML = '<i class="fa fa-circle-o-notch fa-spin" aria-hidden="true"></i> 正在计算';
         meta.textContent = '数据源 Newma-Desk · 正在提取日线与行业广度…';
         try {
-            const query = new URLSearchParams({
-                window: document.getElementById('rotation-window').value,
-                benchmark: document.getElementById('rotation-benchmark').value.trim(),
-                refresh: refresh ? '1' : '0',
-            });
-            const asOf = document.getElementById('rotation-as-of').value;
-            if (asOf) query.set('asOf', asOf);
-            window.history.replaceState(null, '', window.location.pathname + '?' + query.toString());
-            const body = await requestAnalysis({
-                window: Number(query.get('window')),
-                benchmark: query.get('benchmark'),
-                refresh: query.get('refresh'),
-                asOf: query.get('asOf') || undefined,
-            });
+            updateUrl();
+            const body = await requestAnalysis({...input, asOf: input.asOf || undefined, refresh: refresh ? '1' : '0'});
+            syncWorkspace();
+            if (version !== analysisVersion || key !== JSON.stringify(analysisParameters())) throw new Error('页面条件或查看范围已变化，本次轮动结果未采用');
             if (!body || !body.ok) throw new Error(errorMessage(body, '轮动分析请求失败'));
             if (state.experiment) {
                 const parameters = ((((state.experiment || {}).snapshot || {}).input || {}).parameters || {});
                 const experimentAsOf = parameters.asOf || null;
-                const requestedAsOf = query.get('asOf') || null;
-                if (parameters.benchmark !== query.get('benchmark') || experimentAsOf !== requestedAsOf) {
-                    resetExperiment('基准或历史截止日已变化，请重新运行稳健性实验。');
+                if (parameters.benchmark !== input.benchmark || experimentAsOf !== input.asOf || state.experiment.as_of !== body.data.as_of) {
+                    invalidateExperiment('基准或结果截止日已变化，请重新运行稳健性实验。');
                 }
             }
             render(body.data);
+            const context = buildContext().data;
+            return {asOf: context.asOf, summary: context.summary, snapshot: context.snapshot};
         } catch (error) {
+            if (version !== analysisVersion || key !== JSON.stringify(analysisParameters())) throw new Error('页面条件或查看范围已变化，本次轮动结果未采用');
             showError(error);
             renderAnalysisFailure();
             meta.textContent = 'Desk 数据不可用 · market.ohlcv';
+            throw error;
         } finally {
-            analysisRunning = false; publishContext();
-            submit.disabled = false; submit.innerHTML = '<i class="fa fa-refresh" aria-hidden="true"></i> 更新轮动';
+            if (version === analysisVersion) {
+                analysisRunning = false; publishContext();
+                submit.disabled = false; submit.innerHTML = '<i class="fa fa-refresh" aria-hidden="true"></i> 更新轮动';
+            }
         }
     }
     async function loadExperiment() {
+        syncWorkspace();
+        if (experimentRunning) throw new Error('当前实验正在运行，请等待完成');
+        if (!form.checkValidity() || !experimentForm.checkValidity()) throw new Error('请先检查页面上的实验参数');
+        const input = experimentParameters();
+        invalidateExperiment('正在重新验证，旧实验结论已撤下。');
+        const version = experimentVersion, key = JSON.stringify(input);
         experimentRunning = true; publishContext();
         experimentError.style.display = 'none';
         experimentRun.disabled = true;
@@ -1538,18 +1852,14 @@ if (window.location.protocol === 'file:') {
             experimentPlaceholder.querySelector('span').textContent = '首次运行通常需要约半分钟；完成后结果在服务端缓存 15 分钟。';
         }
         try {
-            const benchmark = document.getElementById('rotation-benchmark').value.trim();
-            const asOf = document.getElementById('rotation-as-of').value || undefined;
-            const body = await requestExperiment({
-                benchmark,
-                rebalanceDays: Number(document.getElementById('rotation-rebalance-days').value),
-                costBps: Number(document.getElementById('rotation-cost-bps').value),
-                refresh: '0',
-                asOf,
-            });
+            const body = await requestExperiment({...input, asOf: input.asOf || undefined, refresh: '0'});
+            syncWorkspace();
+            if (version !== experimentVersion || key !== JSON.stringify(experimentParameters())) throw new Error('页面条件或查看范围已变化，本次实验结果未采用');
             if (!body || !body.ok) throw new Error(errorMessage(body, '稳健性实验请求失败'));
             renderExperiment(body.data);
+            return buildContext().data.robustnessExperiment;
         } catch (error) {
+            if (version !== experimentVersion || key !== JSON.stringify(experimentParameters())) throw new Error('页面条件或查看范围已变化，本次实验结果未采用');
             experimentError.textContent = error.message || String(error);
             experimentError.style.display = 'block';
             if (!state.experiment) {
@@ -1557,10 +1867,13 @@ if (window.location.protocol === 'file:') {
                 experimentPlaceholder.querySelector('strong').textContent = '实验未完成';
                 experimentPlaceholder.querySelector('span').textContent = '请检查 Desk 数据服务与参数后重试；普通轮动排名不受影响。';
             }
+            throw error;
         } finally {
-            experimentRunning = false; publishContext();
-            experimentRun.disabled = false;
-            experimentRun.innerHTML = '<i class="fa fa-flask" aria-hidden="true"></i> 运行实验';
+            if (version === experimentVersion) {
+                experimentRunning = false; publishContext();
+                experimentRun.disabled = false;
+                experimentRun.innerHTML = '<i class="fa fa-flask" aria-hidden="true"></i> 运行实验';
+            }
         }
     }
 
@@ -1570,14 +1883,42 @@ if (window.location.protocol === 'file:') {
         document.querySelectorAll('.rotation-sort').forEach(item => { item.classList.remove('active'); item.textContent = item.textContent.replace(/ [↑↓]$/, ''); });
         button.classList.add('active'); button.textContent += state.sortDirection === 1 ? ' ↑' : ' ↓'; renderRows();
     }));
-    form.addEventListener('submit', event => { event.preventDefault(); load(true); });
-    experimentForm.addEventListener('submit', event => { event.preventDefault(); loadExperiment(); });
+    form.addEventListener('submit', event => { event.preventDefault(); load(true).catch(() => {}); });
+    experimentForm.addEventListener('submit', event => { event.preventDefault(); loadExperiment().catch(() => {}); });
+    document.addEventListener('vibedesk:init', () => {syncWorkspace(); publishContext();});
+    form.addEventListener('input', event => {
+        invalidateAnalysis('参数已变化，请更新轮动');
+        if (event.target.id !== 'rotation-window') invalidateExperiment('基准或历史截止日已变化，请重新运行实验。');
+        updateUrl(); publishContext();
+    });
+    experimentForm.addEventListener('input', () => {
+        invalidateExperiment('实验参数已变化，请重新运行实验。'); publishContext();
+    });
     document.addEventListener('instock:history-selected', event => {
         const source = event.detail.view_source || 'history';
-        if (event.detail.record_type === 'experiment') renderExperiment(event.detail.payload, source);
-        else render(event.detail.payload, source);
+        const payload = event.detail.payload;
+        const parameters = payload?.snapshot?.input?.parameters || event.detail.parameters || {};
+        invalidateAnalysis('正在查看历史版本，当前排名已撤下');
+        invalidateExperiment('已切换历史版本，其他实验结果已撤下。');
+        document.getElementById('rotation-benchmark').value = parameters.benchmark || payload.benchmark?.code || '';
+        document.getElementById('rotation-as-of').value = Object.hasOwn(parameters, 'asOf')
+            ? parameters.asOf || '' : payload.requested_as_of ?? payload.as_of ?? '';
+        if (event.detail.record_type === 'experiment') {
+            document.getElementById('rotation-rebalance-days').value = parameters.rebalanceDays ?? '';
+            document.getElementById('rotation-cost-bps').value = parameters.costBps ?? '';
+            renderExperiment(payload, source);
+        } else {
+            document.getElementById('rotation-window').value = parameters.window ?? payload.window ?? '';
+            render(payload, source);
+        }
+        updateUrl(); publishContext();
     });
     if (deskBridge) deskBridge.setContextProvider(buildContext);
+    if (deskBridge?.setUiActionHandler) deskBridge.setUiActionHandler((id, input = {}) => {
+        if (![analysisActionId, experimentActionId].includes(id)) throw new Error('当前页面不支持该操作');
+        if (Object.keys(input).length) throw new Error('请先修改页面条件，不接受隐藏输入覆盖');
+        return id === analysisActionId ? load(true) : loadExperiment();
+    });
     const pageParams = new URLSearchParams(window.location.search);
     const pageWindow = (pageParams.get('window') || '').trim();
     const pageBenchmark = (pageParams.get('benchmark') || '').trim();
@@ -1591,14 +1932,15 @@ if (window.location.protocol === 'file:') {
             renderChart(state.data.industry_rankings || []);
             renderHistory(state.data);
         }
-        if (state.experiment) renderExperimentChart(state.experiment);
+        if (state.experiment) { renderExperimentChart(state.experiment); renderDailyRisk(state.experiment); }
     });
     window.addEventListener('resize', () => {
         if (chart) { chart.resize(); renderChart((state.data && state.data.industry_rankings) || []); }
         if (historyChart && state.data) { historyChart.resize(); renderHistory(state.data); }
         if (experimentChart && state.experiment) { experimentChart.resize(); renderExperimentChart(state.experiment); }
+        if (dailyRiskChart && state.experiment) { dailyRiskChart.resize(); renderDailyRisk(state.experiment); }
     });
-    load(false);
+    load(false).catch(() => {});
 })();
 </script>
 {% end %}

@@ -19,6 +19,20 @@ from vibe_visualization_api.data_services.models import (
 )
 
 
+@pytest.mark.asyncio
+async def test_mod_session_is_forwarded_only_to_instock(market_service):
+    calls = []
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: (calls.append(request) or httpx.Response(200, json={})))) as http:
+        client = DataServiceClient(public_mode=False, client=http, secret_resolver=lambda _: "service-secret")
+        await client.invoke(market_service, "market.indices", {}, mod_session=("synthetic-session", "instance-a"))
+        instock = market_service.model_copy(update={"id": "instock-analysis"})
+        await client.invoke(instock, "market.indices", {}, mod_session=("synthetic-session", "instance-a"))
+    assert "X-Newma-Desk-Session" not in calls[0].headers
+    assert calls[1].headers["X-Newma-Desk-Session"] == "synthetic-session"
+    assert calls[1].headers["X-Newma-Desk-Instance-Id"] == "instance-a"
+    assert calls[1].headers["Authorization"] == "Bearer service-secret"
+
+
 @pytest.fixture
 def market_service() -> DataServiceDescriptor:
     return DataServiceDescriptor(

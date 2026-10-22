@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from instock.core.analysis_snapshot import get_analysis_snapshot_registry
 from instock.core.market_data_provider import MarketDataError, get_market_data_provider
@@ -17,12 +18,65 @@ from instock.web.result_cache import AsyncTaskCoalescer, BoundedTTLCache
 
 _RESULT_CACHE = BoundedTTLCache(max_entries=64, ttl_seconds=300)
 _INFLIGHT = AsyncTaskCoalescer()
+_STATEMENT_INFLIGHT = AsyncTaskCoalescer()
 
 
 def stock_research_runtime_stats():
     stats = _RESULT_CACHE.stats()
-    stats["inflight"] = len(_INFLIGHT)
+    stats["inflight"] = len(_INFLIGHT) + len(_STATEMENT_INFLIGHT)
     return stats
+
+
+class StockStatementAnnouncementsHandler(AnalysisApiHandler):
+    async def get(self) -> None:
+        symbol = self.get_argument("symbol", "").strip().split(".")[0]
+        if not re.fullmatch(r"\d{6}", symbol):
+            self.write_error(400, "invalid_statement_request", "请输入六位证券代码")
+            return
+        key = ("list", symbol)
+        task = _STATEMENT_INFLIGHT.get(key)
+        owns_task = task is None
+        if task is None:
+            task = asyncio.create_task(asyncio.to_thread(get_market_data_provider().get_statement_announcements, symbol))
+            _STATEMENT_INFLIGHT.set(key, task)
+        try:
+            self.write_success(await task)
+        except MarketDataError as error:
+            self.write_error(502, "statement_announcements_unavailable", str(error))
+        except Exception:
+            logging.exception("财报原件列表读取异常")
+            self.write_error(500, "statement_announcements_failed", "财报列表读取失败，可直接粘贴已知公告链接")
+        finally:
+            if owns_task:
+                _STATEMENT_INFLIGHT.discard(key, task)
+
+
+class StockStatementEvidenceHandler(AnalysisApiHandler):
+    async def get(self) -> None:
+        symbol = self.get_argument("symbol", "").strip().split(".")[0]
+        announcement = self.get_argument("announcementId", "").strip()
+        source = self.get_argument("source", "eastmoney").strip()
+        pattern = r"\d{10,20}" if source == "cninfo" else r"AN\d{10,30}"
+        if source not in {"eastmoney", "cninfo"} or not re.fullmatch(r"\d{6}", symbol) or not re.fullmatch(pattern, announcement):
+            self.write_error(400, "invalid_statement_request", "请输入六位证券代码及有效公告编号")
+            return
+        key = (source, symbol, announcement)
+        task = _STATEMENT_INFLIGHT.get(key)
+        owns_task = task is None
+        if task is None:
+            kwargs = {"source": source} if source != "eastmoney" else {}
+            task = asyncio.create_task(asyncio.to_thread(get_market_data_provider().get_statement_evidence, symbol, announcement, **kwargs))
+            _STATEMENT_INFLIGHT.set(key, task)
+        try:
+            self.write_success(await task)
+        except MarketDataError as error:
+            self.write_error(502, "statement_evidence_unavailable", str(error))
+        except Exception:
+            logging.exception("财报原件读取异常")
+            self.write_error(500, "statement_evidence_failed", "财报原件读取失败，未完成核对")
+        finally:
+            if owns_task:
+                _STATEMENT_INFLIGHT.discard(key, task)
 
 
 class StockResearchDossierHandler(AnalysisApiHandler):
@@ -103,8 +157,9 @@ class StockResearchDossierHandler(AnalysisApiHandler):
                 )
         except StockResearchError as exc:
             self.write_error(400, "invalid_stock_research_request", str(exc))
-        except MarketDataError as exc:
-            self.write_error(502, "market_data_unavailable", str(exc))
+        except MarketDataError:
+            logging.exception("公司档案市场数据读取失败")
+            self.write_error(502, "market_data_unavailable", "行情或财务数据暂不可用，本次档案未生成。请检查数据服务连接后重试。")
         except Exception:  # noqa: BLE001
             logging.exception("公司档案接口异常")
             self.write_error(500, "internal_error", "公司档案生成异常")

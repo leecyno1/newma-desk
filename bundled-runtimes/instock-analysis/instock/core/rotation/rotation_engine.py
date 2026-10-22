@@ -22,6 +22,8 @@ from instock.core.analysis_snapshot import build_analysis_snapshot, normalize_as
 from instock.core.industry_taxonomy import resolve_sw_l1_industry
 from instock.core.market_data_provider import MarketDataError, MarketDataProvider
 from instock.core.rotation.etf_universe import DEFAULT_SECTOR_ETFS, SectorETF
+from instock.core.rotation.calendar import align_benchmark_calendar
+from instock.core.validation.execution import valid_execution_price
 
 
 ROTATION_WEIGHT_PROFILES: Dict[str, Dict[str, float]] = {
@@ -101,7 +103,7 @@ class RotationEngine:
     """Build a reproducible rotation snapshot from daily ETF bars."""
 
     engine_name = "instock-rotation"
-    engine_version = "2.1.1"
+    engine_version = "2.3.3"
     max_stale_sessions = 2
     slow_factor_min_coverage = 0.75
     shadow_strategy_id = "rotation-stateful-ensemble-v1"
@@ -174,6 +176,8 @@ class RotationEngine:
         if window not in {40, 60, 120}:
             raise ValueError("分析窗口仅支持 40、60、120 个交易日")
         normalized_as_of = normalize_as_of(as_of)
+        price_as_of = normalized_as_of
+        price_cutoff_mode = "requested_history" if normalized_as_of else "latest"
 
         # Keep enough leading bars to replay the last 20 ranking dates without
         # introducing extra network requests or look-ahead data.
@@ -209,15 +213,29 @@ class RotationEngine:
                 # analysis fail.
                 market_overview = {"sentiment": {}, "sectors": [], "updated": ""}
             try:
-                industry_snapshot = self.provider.get_industry_ranking(top=50)
+                if isinstance(market_overview.get("industryBreadth"), dict):
+                    industry_snapshot = market_overview["industryBreadth"]
+                else:
+                    industry_snapshot = self.provider.get_industry_ranking(top=50)
                 if not industry_snapshot.get("top") and not industry_snapshot.get("bottom"):
                     warnings.append("行业广度暂不可用，不影响七因子价格排名")
             except Exception as exc:  # industry data is an optional contribution
                 warnings.append(f"行业广度暂不可用，不影响七因子价格排名：{exc}")
 
+            # A completed daily cross-section cannot confirm intraday prices.
+            # Keep user-requested history separate from this default cutoff.
+            coverage = industry_snapshot.get("coverage") or {}
+            day = industry_snapshot.get("as_of")
+            if (coverage.get("frequency") == "daily" and coverage.get("realtime") is False
+                    and coverage.get("scope") == "all_returned_daily_quotes"
+                    and day and day == coverage.get("tradeDate")):
+                price_as_of = normalize_as_of(day)
+                price_cutoff_mode = "completed_daily_snapshot"
+                warnings.append(f"日频模式统一截至 {price_as_of} 已完成交易日；不混入之后的盘中日线")
+
         try:
             benchmark_frame = self._get_kline(
-                benchmark, "daily", request_limit, normalized_as_of
+                benchmark, "daily", request_limit, price_as_of
             )
         except Exception as exc:
             raise MarketDataError(f"基准 {benchmark} 行情不可用: {exc}") from exc
@@ -230,7 +248,7 @@ class RotationEngine:
                     item.code,
                     "daily",
                     request_limit,
-                    normalized_as_of,
+                    price_as_of,
                 ): item
                 for item in self.universe
             }
@@ -247,6 +265,13 @@ class RotationEngine:
         if not trade_frames:
             raise MarketDataError("ETF 候选池没有可用于轮动分析的行情")
 
+        benchmark_frame, calendar_audit = align_benchmark_calendar(
+            self.provider, benchmark_frame, trade_frames, price_as_of,
+            limit=request_limit, minimum_sessions=window + 1,
+        )
+        benchmark_metrics = self._decision_benchmark_metrics(benchmark_frame, window)
+        if benchmark_metrics is None:
+            raise MarketDataError(f"基准截至 {calendar_audit['session_end']} 的{window}日信号窗口缺少收盘价，不能确认当前排名；未回退到旧日期")
         benchmark_as_of = pd.Timestamp(benchmark_frame["date"].iloc[-1])
         benchmark_dates = benchmark_frame["date"]
         aligned_frames: Dict[str, pd.DataFrame] = {}
@@ -272,6 +297,9 @@ class RotationEngine:
                 continue
             frame.attrs.update(source.attrs)
             frame.attrs["data_lag_sessions"] = lag_sessions
+            if not self._complete_price_window(frame, benchmark_dates, window):
+                failures.append({"code": item.code, "name": item.name, "error": "交易日窗口行情不完整，未压缩缺日计算指标"})
+                continue
             aligned_frames[item.code] = frame
         trade_frames = aligned_frames
         if not trade_frames:
@@ -306,7 +334,7 @@ class RotationEngine:
                         item.resolved_signal_code,
                         "daily",
                         request_limit,
-                        normalized_as_of,
+                        price_as_of,
                     ): item
                     for item in signal_candidates
                 }
@@ -348,6 +376,8 @@ class RotationEngine:
                             f"指数行情滞后 {signal_lag} 个交易日，超过允许的 {self.max_stale_sessions} 日"
                             if signal_lag > self.max_stale_sessions else ""
                         )
+                        if not signal_error and not self._complete_price_window(signal_frame, benchmark_dates, window):
+                            signal_error = "指数交易日窗口行情不完整"
                     if signal_error:
                         if item.code not in failed_signal_codes:
                             signal_failures.append({
@@ -375,7 +405,6 @@ class RotationEngine:
             signal_frames[item.code] = signal_frame
             signal_modes[item.code] = signal_mode
 
-        benchmark_metrics = self._benchmark_metrics(benchmark_frame, window)
         industry_rows = self._industry_rows(industry_snapshot)
         raw_rows = [
             self._raw_metrics(
@@ -400,6 +429,12 @@ class RotationEngine:
         factor_model["slow_factor_as_of"] = str(
             (resolved_slow_factors.get("as_of") or "")
             if isinstance(resolved_slow_factors, Mapping) else ""
+        )
+        factor_model["slow_factor_status"] = (
+            resolved_slow_factors.get("state", "provided") if isinstance(resolved_slow_factors, Mapping) else "unavailable"
+        )
+        factor_model["slow_factor_reason"] = (
+            resolved_slow_factors.get("reason", "") if isinstance(resolved_slow_factors, Mapping) else ""
         )
         scored = self._score_factor_frame(factor_frame, factor_model=factor_model)
         parameter_consensus = self._parameter_consensus(
@@ -476,6 +511,10 @@ class RotationEngine:
             window,
             history_days=20,
         )
+        if any(point.get("state") == "unavailable" for point in history):
+            warnings.append("近20交易日轨迹存在缺口，缺日保留断点，不跨缺口计算持续性或确认领先")
+        if parameter_consensus.get("state") == "incomplete_models":
+            warnings.append("九组参数未全部完成核验，不确认多数一致，不更新影子持仓")
 
         if failures:
             warnings.append(f"{len(failures)} 个 ETF 行情失败，已用其余 {len(scored)} 个候选完成排名")
@@ -521,7 +560,7 @@ class RotationEngine:
         if compatibility_codes:
             warnings.append(f"{len(compatibility_codes)} 个 ETF 使用 /api/kline 兼容回退，需留意复权断点")
 
-        market_breadth = self._market_breadth(market_overview)
+        market_breadth = self._market_breadth(market_overview, str(benchmark_metrics["date"]))
         summary = self._summary(scored, benchmark_metrics, industry_rows)
         summary.update(self._history_summary(history, scored[0]["code"]))
         self._attach_rotation_confirmation(scored, history)
@@ -557,8 +596,8 @@ class RotationEngine:
             row["insight"] = self._row_insight(row, scored, summary, warnings)
             row["insight"]["evidence"].append(
                 f"固定9组参数中有 {row['parameter_vote_count']} 组选择该标的；"
-                f"至少 {parameter_consensus.get('majority_threshold', 0)} 票只表示当日参数一致，"
-                "不直接升级为预测强信号。"
+                + (f"当前仅{model_count}/9组可核验，不判定参数一致或预测强信号。"
+                   if model_count < 9 else "至少5票只表示当日参数一致，不直接升级为预测强信号。")
             )
             if shadow_model_count:
                 row["insight"]["evidence"].append(
@@ -593,6 +632,7 @@ class RotationEngine:
             "engine": {"name": self.engine_name, "version": self.engine_version},
             "as_of": resolved_as_of,
             "requested_as_of": normalized_as_of,
+            "price_cutoff": {"as_of": price_as_of, "mode": price_cutoff_mode},
             "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "window": window,
             "benchmark": {
@@ -604,6 +644,8 @@ class RotationEngine:
             "data_endpoint": benchmark_frame.attrs.get("data_endpoint", ""),
             "adjust": benchmark_frame.attrs.get("adjust", "unknown"),
             "data_state": data_state,
+            "calendar_policy": "independent_exchange_calendar_exact_dates",
+            "calendar": calendar_audit,
             "universe_size": len(self.universe),
             "universe_standard": "申万行业分类标准（2021版）一级行业",
             "proxy_count": sum(item.proxy_type != "direct" for item in self.universe),
@@ -614,6 +656,8 @@ class RotationEngine:
             "parameter_consensus": parameter_consensus,
             "summary": summary,
             "market_breadth": market_breadth,
+            "industry_breadth": {key: industry_snapshot.get(key) for key in
+                ("as_of", "source", "coverage", "point_in_time", "data_state", "note")},
             "industry_rankings": [
                 {
                     "rank": index + 1,
@@ -628,6 +672,7 @@ class RotationEngine:
                     "score": row["total_score"],
                     "momentum_20d": row["momentum_20d"],
                     "industry_day_change": row["industry_day_change"],
+                    "industry_breadth": row["industry_breadth"],
                     "sector_fund_flow": row["sector_fund_flow"],
                     "regime": row["regime"],
                     "rotation_signal": row["rotation_signal"],
@@ -675,11 +720,15 @@ class RotationEngine:
                 "period": "daily",
                 "window": window,
                 "asOf": normalized_as_of,
+                "effectivePriceAsOf": price_as_of,
+                "priceCutoffMode": price_cutoff_mode,
             },
             frame=benchmark_frame,
             requested_bars=request_limit,
             provider_name=self.provider.name,
             input_summary={
+                "calendar_policy": "independent_exchange_calendar_exact_dates",
+                "calendar": calendar_audit,
                 "universe_size": len(self.universe),
                 "index_signal_count": index_signal_count,
                 "signal_fallback_count": signal_fallback_count,
@@ -718,22 +767,29 @@ class RotationEngine:
         return payload
 
     @staticmethod
-    def _market_breadth(overview: Mapping[str, Any]) -> Dict[str, Any]:
+    def _market_breadth(overview: Mapping[str, Any], reference_date: str = "") -> Dict[str, Any]:
         sentiment = overview.get("sentiment") if isinstance(overview, Mapping) else {}
         sentiment = sentiment if isinstance(sentiment, Mapping) else {}
-        up = max(int(sentiment.get("up") or 0), 0)
-        down = max(int(sentiment.get("down") or 0), 0)
-        flat = max(int(sentiment.get("flat") or 0), 0)
-        total = up + down + flat
-        available = total > 0 or bool(sentiment.get("breadth"))
+        counts = [_optional_number(sentiment.get(key)) for key in ("up", "down", "flat")]
+        up, down, flat = [int(value) if not math.isnan(value) and value >= 0 and value.is_integer()
+                          else None for value in counts]
+        total = up + down + flat if all(value is not None for value in (up, down, flat)) else 0
+        day = str(sentiment.get("date") or "")[:10]
+        mismatch = bool(reference_date and day and day != reference_date)
+        available = total > 0 and bool(day) and not mismatch
         return {
             "state": "available" if available else "unavailable",
-            "breadth": str(sentiment.get("breadth") or "暂无"),
+            "breadth": str(sentiment.get("breadth") or "暂无") if available else "暂无",
             "speculation": str(sentiment.get("speculation") or ""),
             "up": up,
             "down": down,
             "flat": flat,
-            "up_ratio": _round(up / total * 100) if total else 0.0,
+            "up_ratio": _round(up / total * 100) if available else None,
+            "reason": "missing_date" if not day else "date_mismatch" if mismatch else "" if available else "missing_counts",
+            "source": sentiment.get("source"),
+            "coverage": sentiment.get("coverage"),
+            "scope": sentiment.get("scope"),
+            "realtime": sentiment.get("realtime"),
             "date": str(sentiment.get("date") or ""),
             "updated": str(overview.get("updated") or "") if isinstance(overview, Mapping) else "",
         }
@@ -889,6 +945,21 @@ class RotationEngine:
         return max(matches, key=lambda item: abs(_round(item.get("net"))), default=None)
 
     @staticmethod
+    def _complete_price_window(frame, reference_dates, window):
+        required_count = max(window, 60) + 1
+        dates = pd.DatetimeIndex(pd.to_datetime(reference_dates))
+        dates = dates[dates <= pd.Timestamp(frame["date"].iloc[-1])][-required_count:]
+        prices = frame.assign(date=pd.to_datetime(frame["date"])).drop_duplicates("date", keep="last").set_index("date")["close"].reindex(dates)
+        return len(prices) == required_count and all(valid_execution_price(value) is not None for value in prices)
+
+    @staticmethod
+    def _decision_benchmark_metrics(frame, window):
+        close = frame["close"].tail(max(window, 20) + 1)
+        if len(close) < max(window, 20) + 1 or not all(valid_execution_price(value) is not None for value in close):
+            return None
+        return RotationEngine._benchmark_metrics(frame.tail(max(window, 20) + 1), window)
+
+    @staticmethod
     def _benchmark_metrics(frame: pd.DataFrame, window: int) -> Dict[str, float | str]:
         close = frame["close"].astype(float)
         returns = close.pct_change().dropna()
@@ -919,6 +990,8 @@ class RotationEngine:
         total = int(snapshot.get("total") or len(merged) or 0)
         rows = list(merged.values())
         for row in rows:
+            for key in ("as_of", "source", "point_in_time"):
+                row.setdefault(key, snapshot.get(key))
             rank = float(row.get("rank") or total or 1)
             row["rank_score"] = 100 - ((rank - 1) / max(total - 1, 1) * 100)
         return rows
@@ -1024,7 +1097,7 @@ class RotationEngine:
             or (slow_factors.get("source") if isinstance(slow_factors, Mapping) else "")
             or ""
         )
-        if slow_factor_as_of:
+        if slow_factor_as_of and slow_factor_source:
             try:
                 if pd.Timestamp(slow_factor_as_of) > pd.Timestamp(frame["date"].iloc[-1]):
                     valuation_percentile = float("nan")
@@ -1034,20 +1107,44 @@ class RotationEngine:
                 valuation_percentile = float("nan")
                 valuation_score = float("nan")
                 fundamental_quality_score = float("nan")
+        else:
+            valuation_percentile = valuation_score = fundamental_quality_score = float("nan")
+        if not math.isnan(valuation_score) and not 0 <= valuation_score <= 100:
+            valuation_score = float("nan")
+        if not math.isnan(fundamental_quality_score) and not 0 <= fundamental_quality_score <= 100:
+            fundamental_quality_score = float("nan")
 
         matched = self._match_industry(item, industry_rows)
-        industry_score = 50.0
-        industry_day_change = 0.0
+        industry_score = float("nan")
+        industry_day_change = float("nan")
         industry_rank = None
         industry_name = ""
+        industry_breadth = {"state": "unavailable", "reason": "missing_counts", "up_ratio": None}
         if matched:
-            up_count = float(matched.get("up_count") or 0)
-            down_count = float(matched.get("down_count") or 0)
-            breadth = up_count / max(up_count + down_count, 1) * 100
-            industry_day_change = float(matched.get("change_pct") or 0)
-            change_score = min(100.0, max(0.0, 50 + industry_day_change * 12))
-            industry_score = float(matched.get("rank_score") or 50) * 0.50 + breadth * 0.30 + change_score * 0.20
-            industry_rank = int(matched.get("rank") or 0) or None
+            counts = [_optional_number(matched.get(key)) for key in ("up_count", "down_count", "flat_count")]
+            up_count, down_count, flat_count = counts
+            flat_provided = matched.get("flat_count") is not None
+            flat_valid = not math.isnan(flat_count) and flat_count >= 0 and flat_count.is_integer()
+            valid = (all(not math.isnan(value) and value >= 0 and value.is_integer() for value in counts[:2])
+                     and (not flat_provided or flat_valid))
+            total = up_count + down_count + (flat_count if flat_valid else 0)
+            day = str(matched.get("as_of") or "")[:10]
+            mismatch = bool(day and day != trade_frame["date"].iloc[-1].strftime("%Y-%m-%d"))
+            available = valid and total > 0 and bool(day) and not mismatch
+            industry_breadth = {"state": "available" if available else "unavailable",
+                "reason": "missing_date" if not day else "date_mismatch" if mismatch else "" if available else "missing_counts",
+                "as_of": day, "source": matched.get("source"), "point_in_time": matched.get("point_in_time"),
+                "up_count": int(up_count) if valid else None, "down_count": int(down_count) if valid else None,
+                "flat_count": int(flat_count) if flat_valid else None,
+                "up_ratio": _round(up_count / total * 100) if available else None,
+                "denominator": "up+down+flat" if flat_provided else "up+down",
+                "change_method": matched.get("change_method"), "score_effect": "confirmation_only"}
+            if day and not mismatch:
+                industry_day_change = _optional_number(matched.get("change_pct"))
+                industry_rank = int(matched.get("rank") or 0) or None
+            if industry_breadth["state"] == "available" and not math.isnan(industry_day_change):
+                change_score = min(100.0, max(0.0, 50 + industry_day_change * 12))
+                industry_score = float(matched["rank_score"]) * .50 + industry_breadth["up_ratio"] * .30 + change_score * .20
             industry_name = str(matched.get("name") or "")
 
         return {
@@ -1096,6 +1193,7 @@ class RotationEngine:
             "industry_day_change": industry_day_change,
             "industry_rank": industry_rank,
             "industry_match": industry_name,
+            "industry_breadth": industry_breadth,
             "data_lag_sessions": int(trade_frame.attrs.get("data_lag_sessions", 0) or 0),
         }
 
@@ -1158,6 +1256,7 @@ class RotationEngine:
             "slow_factor_min_coverage_pct": _round(self.slow_factor_min_coverage * 100, 1),
             "industry_breadth_role": "confirmation_only",
             "missing_slow_factor_policy": "exclude_and_renormalize_without_lookahead",
+            "per_asset_missing_factor_policy": "exclude_missing_active_factor_and_renormalize_no_neutral_imputation",
         }
 
     def _score_factor_frame(
@@ -1171,12 +1270,13 @@ class RotationEngine:
         frame = factors.copy()
         model = dict(factor_model or self._factor_model(frame))
         effective_weights = model["effective_weights"]
-        frame["valuation_score"] = frame["valuation_score"].fillna(50.0)
-        frame["fundamental_quality_score"] = frame["fundamental_quality_score"].fillna(50.0)
-        frame["total_score"] = sum(
-            frame[f"{key}_score"] * float(effective_weights[key])
-            for key in self.factor_keys
-        ).clip(0, 100)
+        available_weight = sum(frame[f"{key}_score"].notna() * float(effective_weights[key]) for key in self.factor_keys)
+        weighted_score = sum(frame[f"{key}_score"].fillna(0) * float(effective_weights[key]) for key in self.factor_keys)
+        # Preserve complete-row scores, including the existing displayed weight
+        # rounding. Only redistribute an actually missing active factor's weight.
+        total_weight = sum(float(value) for value in effective_weights.values())
+        frame["total_score"] = (weighted_score * total_weight / available_weight).clip(0, 100)
+        frame["available_weight"] = available_weight
         frame = frame.sort_values(["total_score", "momentum_20d"], ascending=False).reset_index(drop=True)
 
         output = []
@@ -1236,7 +1336,8 @@ class RotationEngine:
                 ),
                 "slow_factor_as_of": row["slow_factor_as_of"],
                 "slow_factor_source": row["slow_factor_source"],
-                "industry_day_change": _round(row["industry_day_change"]),
+                "industry_day_change": None if pd.isna(row["industry_day_change"]) else _round(row["industry_day_change"]),
+                "industry_breadth": row["industry_breadth"],
                 "industry_rank": None if pd.isna(row["industry_rank"]) else int(row["industry_rank"]),
                 "industry_match": row["industry_match"],
                 "data_date": row["date"],
@@ -1248,10 +1349,10 @@ class RotationEngine:
                     "trend": _round(row["trend_score"]),
                     "volume_continuity": _round(row["volume_continuity_score"]),
                     "crowding_reversal": _round(row["crowding_reversal_score"]),
-                    "valuation": _round(row["valuation_score"]),
-                    "fundamental_quality": _round(row["fundamental_quality_score"]),
+                    "valuation": None if pd.isna(row["valuation_score"]) else _round(row["valuation_score"]),
+                    "fundamental_quality": None if pd.isna(row["fundamental_quality_score"]) else _round(row["fundamental_quality_score"]),
                     # Compatibility evidence retained for confirmation/UI consumers.
-                    "industry": _round(row["industry_score"]),
+                    "industry": None if pd.isna(row["industry_score"]) else _round(row["industry_score"]),
                     "risk_penalty": _round(row["risk_score"]),
                 },
                 "factor_availability": {
@@ -1259,6 +1360,10 @@ class RotationEngine:
                     "fundamental_quality": not pd.isna(
                         row["fundamental_quality_score_raw"]
                     ),
+                },
+                "factor_effective_weights": {
+                    key: _round(float(effective_weights[key]) * total_weight / row["available_weight"], 6)
+                    if not pd.isna(row[f"{key}_score"]) else 0.0 for key in self.factor_keys
                 },
                 "regime": regime,
                 "signal": signal,
@@ -1451,9 +1556,17 @@ class RotationEngine:
     ) -> Dict[str, Any]:
         """Vote fixed parameters and maintain a separate forward shadow state."""
 
+        current_date = pd.Timestamp(benchmark_frame["date"].iloc[-1]).strftime("%Y-%m-%d")
+        future_shadow_date = str((shadow_state or {}).get("as_of") or "")
+        future_shadow = bool(shadow_enabled and future_shadow_date > current_date)
+        if future_shadow:
+            shadow_enabled = False
+            shadow_state = None
         schedule = self._shadow_schedule(
             benchmark_frame, shadow_state, enabled=shadow_enabled
         )
+        if future_shadow:
+            schedule.update(lifecycle_state="future_state_isolated", previous_as_of=future_shadow_date)
         previous_models = {
             str(row.get("id")): row
             for row in ((shadow_state or {}).get("models") or ())
@@ -1464,7 +1577,9 @@ class RotationEngine:
         for window in (40, 60, 120):
             if len(benchmark_frame) < window + 1:
                 continue
-            benchmark_metrics = self._benchmark_metrics(benchmark_frame, window)
+            benchmark_metrics = self._decision_benchmark_metrics(benchmark_frame, window)
+            if benchmark_metrics is None:
+                continue
             raw_rows = []
             for item in self.universe:
                 trade_frame = trade_frames.get(item.code)
@@ -1475,6 +1590,8 @@ class RotationEngine:
                     or len(trade_frame) < window + 1
                     or len(signal_frame) < window + 1
                 ):
+                    continue
+                if not self._complete_price_window(trade_frame, benchmark_frame["date"], window) or not self._complete_price_window(signal_frame, benchmark_frame["date"], window):
                     continue
                 raw_rows.append(self._raw_metrics(
                     item,
@@ -1542,6 +1659,17 @@ class RotationEngine:
                 })
 
         static_vote = self._parameter_vote_summary(models)
+        if models and len(models) < 9:
+            return {
+                "method": "equal_vote_3_profiles_x_3_windows", **static_vote,
+                "state": "incomplete_models", "signal": "参数待核验",
+                "majority_threshold": 5,
+                "expected_model_count": 9, "prediction_state": "unavailable", "models": models,
+                "shadow_state": {"strategy_id": self.shadow_strategy_id, **schedule,
+                    "lifecycle_state": "incomplete_models", "new_signal": False,
+                    "state": "unavailable", "models": [], "deployment": "shadow_only"},
+                "score_effect": "confirmation_only",
+            }
         if not models:
             return {
                 "method": "equal_vote_3_profiles_x_3_windows",
@@ -1552,6 +1680,8 @@ class RotationEngine:
                 "shadow_state": {
                     "strategy_id": self.shadow_strategy_id,
                     **schedule,
+                    "lifecycle_state": "unavailable",
+                    "new_signal": False,
                     "state": "unavailable",
                     "models": [],
                     "deployment": "shadow_only",
@@ -1564,6 +1694,8 @@ class RotationEngine:
         lifecycle = schedule["lifecycle_state"]
         if lifecycle == "historical_disabled":
             shadow_label = "历史状态不回填"
+        elif lifecycle == "future_state_isolated":
+            shadow_label = "未来账本已隔离"
         elif lifecycle == "bootstrap":
             shadow_label = "影子初始化"
         elif lifecycle == "reinitialized_after_gap":
@@ -1620,9 +1752,11 @@ class RotationEngine:
         candidate_dates = list(benchmark_frame["date"].tail(history_days))
         for target_date in candidate_dates:
             benchmark_slice = benchmark_frame[benchmark_frame["date"] <= target_date]
-            if len(benchmark_slice) < 25:
+            benchmark_metrics = self._decision_benchmark_metrics(benchmark_slice, window)
+            if benchmark_metrics is None:
+                points.append({"date": pd.Timestamp(target_date).strftime("%Y-%m-%d"),
+                    "state": "unavailable", "reason": "missing_benchmark_signal", "leader": {}, "rankings": []})
                 continue
-            benchmark_metrics = self._benchmark_metrics(benchmark_slice, window)
             raw_rows = []
             for item in self.universe:
                 trade_source = trade_frames.get(item.code)
@@ -1636,6 +1770,8 @@ class RotationEngine:
                     benchmark_slice["date"], trade_slice["date"].iloc[-1]
                 )
                 if trade_lag > self.max_stale_sessions:
+                    continue
+                if not self._complete_price_window(trade_slice, benchmark_slice["date"], window):
                     continue
                 trade_slice = trade_slice.copy()
                 trade_slice.attrs.update(trade_source.attrs)
@@ -1651,7 +1787,7 @@ class RotationEngine:
                     )
                     if not signal_slice.empty else self.max_stale_sessions + 1
                 )
-                if len(signal_slice) < 25 or signal_lag > self.max_stale_sessions:
+                if len(signal_slice) < 25 or signal_lag > self.max_stale_sessions or not self._complete_price_window(signal_slice, benchmark_slice["date"], window):
                     signal_slice = trade_slice.copy()
                     signal_mode = "etf_fallback" if item.has_industry_index_signal else "trade_asset"
                 else:
@@ -1680,10 +1816,13 @@ class RotationEngine:
                     signal_mode=signal_mode,
                 ))
             if not raw_rows:
+                points.append({"date": pd.Timestamp(target_date).strftime("%Y-%m-%d"),
+                    "state": "unavailable", "reason": "missing_signal_coverage", "leader": {}, "rankings": []})
                 continue
             rankings = self._score_rows(raw_rows)
             points.append({
                 "date": pd.Timestamp(target_date).strftime("%Y-%m-%d"),
+                "state": "available",
                 "leader": {
                     "code": rankings[0]["code"],
                     "name": rankings[0]["name"],
@@ -1710,7 +1849,7 @@ class RotationEngine:
     @staticmethod
     def _history_summary(history: Sequence[Mapping[str, Any]], current_leader_code: str) -> Dict[str, Any]:
         leaders = [str(point.get("leader", {}).get("code") or "") for point in history]
-        changes = sum(left != right for left, right in zip(leaders, leaders[1:]))
+        observed_changes = sum(bool(left and right) and left != right for left, right in zip(leaders, leaders[1:]))
         streak = 0
         for code in reversed(leaders):
             if code != current_leader_code:
@@ -1719,7 +1858,9 @@ class RotationEngine:
         unique_leaders = len({code for code in leaders if code})
         return {
             "leader_streak_days": streak,
-            "rotation_changes_20d": changes,
+            "rotation_changes_20d": observed_changes if all(leaders) else None,
+            "observed_rotation_changes": observed_changes,
+            "history_missing_days": sum(not code for code in leaders),
             "unique_leaders_20d": unique_leaders,
             "history_days": len(history),
         }
@@ -1731,31 +1872,32 @@ class RotationEngine:
     ) -> None:
         """Add a confirmation layer without changing the cross-sectional score."""
 
-        rank_history: Dict[str, List[int]] = {str(row["code"]): [] for row in rows}
+        rank_history = {str(row["code"]): [] for row in rows}
         for point in history:
-            for item in point.get("rankings") or []:
-                code = str(item.get("code") or "")
-                if code in rank_history:
-                    rank_history[code].append(int(item.get("rank") or len(rows)))
+            day_ranks = {str(item["code"]): int(item["rank"]) for item in point.get("rankings") or []}
+            for code in rank_history:
+                rank_history[code].append(day_ranks.get(code))
 
         top3_limit = min(3, len(rows))
         top5_limit = min(5, len(rows))
         for row in rows:
-            ranks = rank_history.get(str(row["code"]), [])
+            scheduled_ranks = rank_history.get(str(row["code"]), [])
+            ranks = [rank for rank in scheduled_ranks if rank is not None]
             sample_days = len(ranks)
+            history_complete = sample_days == len(history) and sample_days >= 6
             top3_days = sum(rank <= top3_limit for rank in ranks)
             top5_days = sum(rank <= top5_limit for rank in ranks)
             leader_days = sum(rank == 1 for rank in ranks)
             top3_rate = top3_days / sample_days * 100 if sample_days else 0.0
             top5_rate = top5_days / sample_days * 100 if sample_days else 0.0
-            persistence_score = top3_rate * 0.65 + top5_rate * 0.35
+            persistence_score = top3_rate * 0.65 + top5_rate * 0.35 if history_complete else None
             if ranks:
-                previous_rank = ranks[-6] if len(ranks) >= 6 else ranks[0]
-                rank_change_5d = previous_rank - ranks[-1]
+                rank_change_5d = (scheduled_ranks[-6] - scheduled_ranks[-1]
+                    if len(scheduled_ranks) >= 6 and scheduled_ranks[-6] is not None and scheduled_ranks[-1] is not None else None)
                 average_rank = sum(ranks) / len(ranks)
             else:
-                rank_change_5d = 0
-                average_rank = float(row["rank"])
+                rank_change_5d = None
+                average_rank = None
 
             trend_confirmed = (
                 row.get("trend_state") == "多头"
@@ -1783,9 +1925,9 @@ class RotationEngine:
                     rotation_signal, signal_tone = "相对防御", "neutral"
                 elif overheated:
                     rotation_signal, signal_tone = "领先过热", "hot"
-                elif trend_confirmed and top3_rate >= 60:
+                elif trend_confirmed and history_complete and top3_rate >= 60:
                     rotation_signal, signal_tone = "确认领先", "leading"
-                elif rank_change_5d >= 3:
+                elif rank_change_5d is not None and rank_change_5d >= 3:
                     rotation_signal, signal_tone = "加速上行", "strong"
                 else:
                     rotation_signal, signal_tone = "新晋观察", "neutral"
@@ -1794,7 +1936,7 @@ class RotationEngine:
                     rotation_signal, signal_tone = "过热观察", "hot"
                 elif row.get("trend_state") == "空头" or float(row.get("momentum_20d") or 0) < 0:
                     rotation_signal, signal_tone = "弱势回避", "avoid"
-                elif trend_confirmed and rank_change_5d >= 2:
+                elif trend_confirmed and rank_change_5d is not None and rank_change_5d >= 2:
                     rotation_signal, signal_tone = "转强观察", "strong"
                 elif trend_confirmed:
                     rotation_signal, signal_tone = "趋势跟随", "strong"
@@ -1814,13 +1956,15 @@ class RotationEngine:
 
             row.update({
                 "history_sample_days": sample_days,
+                "history_expected_days": len(history),
+                "history_missing_days": len(history) - sample_days,
                 "leader_days_20d": leader_days,
                 "top3_days_20d": top3_days,
                 "top5_days_20d": top5_days,
-                "top3_rate_20d": _round(top3_rate),
-                "average_rank_20d": _round(average_rank),
+                "top3_rate_20d": _round(top3_rate) if sample_days else None,
+                "average_rank_20d": _round(average_rank) if average_rank is not None else None,
                 "rank_change_5d": rank_change_5d,
-                "persistence_score": _round(persistence_score),
+                "persistence_score": _round(persistence_score) if persistence_score is not None else None,
                 "trend_confirmed": trend_confirmed,
                 "overheated": overheated,
                 "risk_state": risk_state,
@@ -1839,7 +1983,9 @@ class RotationEngine:
             max(float(leader["total_score"]) - float(rows[1]["total_score"]), 0.0)
             if len(rows) > 1 else 0.0
         )
-        if leader.get("overheated"):
+        if summary.get("history_missing_days"):
+            environment = "历史证据不完整"
+        elif leader.get("overheated"):
             environment = "高位拥挤"
         elif int(summary.get("rotation_changes_20d") or 0) >= 8:
             environment = "快速轮动"
@@ -1935,21 +2081,31 @@ class RotationEngine:
             f"候选池中 {summary['positive_share']:.1f}% 的行业价格信号近20日上涨。",
         ]
         availability = row.get("factor_availability") or {}
+        breadth = row.get("industry_breadth") or {}
+        if breadth.get("state") == "available":
+            evidence.append(f"行业广度 {breadth.get('as_of') or '日期未提供'}：上涨 {breadth['up_count']} / 下跌 {breadth['down_count']} / 平盘 {breadth.get('flat_count') if breadth.get('flat_count') is not None else '未提供'}，上涨占比 {breadth['up_ratio']:.1f}%；仅作确认，不参与量价排名。")
         if availability.get("valuation") or availability.get("fundamental_quality"):
+            slow_evidence = []
+            for key, label in (("valuation", "估值分位"), ("fundamental_quality", "基本面质量")):
+                score = row["factor_scores"][key]
+                value = f"{score:.1f}" if score is not None else "缺数据"
+                participation = "参与" if row["factor_effective_weights"].get(key, 0) > 0 else "未参与"
+                slow_evidence.append(f"{label} {value}（{participation}）")
             evidence.append(
-                f"慢因子确认：估值分位得分 {row['factor_scores']['valuation']:.1f}，"
-                f"基本面质量得分 {row['factor_scores']['fundamental_quality']:.1f}；"
+                "慢因子确认：" + "，".join(slow_evidence) + "；"
                 f"证据日期 {row.get('slow_factor_as_of') or '未标注'}。"
             )
         if int(row.get("history_sample_days") or 0) > 0:
+            persistence = f"{row['persistence_score']:.1f}" if row["persistence_score"] is not None else "待核验"
+            change = f"{row['rank_change_5d']:+d}" if row["rank_change_5d"] is not None else "待核验"
             evidence.append(
-                f"近{row['history_sample_days']}日有 {row['top3_days_20d']} 日位列前三，"
-                f"排名持续度 {row['persistence_score']:.1f}，5日排名变化 {int(row['rank_change_5d']):+d}。"
+                f"近{row['history_expected_days']}个交易日已核验{row['history_sample_days']}日，其中 {row['top3_days_20d']} 日位列前三，"
+                f"排名持续度 {persistence}，5日排名变化 {change}。"
             )
         if rank == 1:
             evidence.append(
                 f"近{summary.get('history_days', 0)}个交易日领先方向切换 "
-                f"{summary.get('rotation_changes_20d', 0)} 次，当前领先已持续 "
+                f"{summary['rotation_changes_20d'] if summary['rotation_changes_20d'] is not None else '待核验'} 次，当前连续已核验领先 "
                 f"{summary.get('leader_streak_days', 0)} 日。"
             )
             if len(rows) > 1:
@@ -1968,8 +2124,8 @@ class RotationEngine:
             risks.append(f"{row['name']}短线涨幅与拥挤度同时偏高，轮动状态标记为领先过热。")
         elif float(row["factor_scores"]["risk_penalty"]) >= 70:
             risks.append(f"{row['name']}的波动/拥挤惩罚偏高，追涨时需控制仓位。")
-        if not availability.get("valuation") or not availability.get("fundamental_quality"):
-            risks.append("估值分位或基本面缺少足够点时覆盖，本次排名仅启用可回放的量价因子。")
+        if any(row["factor_effective_weights"].get(key, 0) == 0 for key in ("valuation", "fundamental_quality")):
+            risks.append("缺失或未达覆盖门槛的慢因子不参与该标的评分；仅在实际可用因子之间分配权重，不填50分。")
         if float(row["max_drawdown"]) >= 12:
             risks.append(f"{row['name']}窗口内最大回撤约 {row['max_drawdown']:.1f}%，并非低风险趋势。")
         if int(row.get("data_lag_sessions") or 0) > 0:

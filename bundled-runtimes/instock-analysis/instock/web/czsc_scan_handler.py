@@ -17,6 +17,7 @@ from threading import Event, RLock
 from typing import Any, Optional
 
 from instock.core.analysis_snapshot import normalize_as_of
+from instock.core.analysis_scope import analysis_scope
 from instock.core.czsc_analysis import CZSC_BAR_LIMITS, CZSC_PERIODS, CZSC_SYMBOL_PATTERN
 from instock.core.czsc_batch_scanner import CZSCBatchScanner
 from instock.core.market_data_provider import get_market_data_provider
@@ -93,6 +94,7 @@ class CZSCScanTaskRegistry:
             scan_id = f"czsc-scan-{uuid.uuid4().hex}"
             now = datetime.now().astimezone().isoformat(timespec="seconds")
             record = {
+                "_scope": analysis_scope.get(),
                 "scan_id": scan_id,
                 "status": "queued",
                 "created_at": now,
@@ -175,13 +177,13 @@ class CZSCScanTaskRegistry:
         with self._lock:
             self._cleanup()
             record = self._records.get(scan_id)
-            return self._public(record) if record is not None else None
+            return self._public(record) if record is not None and record["_scope"] == analysis_scope.get() else None
 
     def cancel(self, scan_id: str) -> Optional[dict[str, Any]]:
         with self._lock:
             self._cleanup()
             record = self._records.get(scan_id)
-            if record is None:
+            if record is None or record["_scope"] != analysis_scope.get():
                 return None
             if record["status"] not in _TERMINAL_STATUSES:
                 self._cancel_events[scan_id].set()
@@ -204,6 +206,8 @@ class CZSCScanTaskRegistry:
             self._cleanup()
             status_counts: dict[str, int] = {}
             for record in self._records.values():
+                if record["_scope"] != analysis_scope.get():
+                    continue
                 status = str(record["status"])
                 status_counts[status] = status_counts.get(status, 0) + 1
             active = sum(
@@ -213,11 +217,11 @@ class CZSCScanTaskRegistry:
             return {
                 "storage": "process_memory",
                 "volatile": True,
-                "entries": len(self._records),
+                "entries": sum(status_counts.values()),
                 "max_entries": self.max_entries,
                 "active": active,
                 "max_active": self.max_active,
-                "terminal": len(self._records) - active,
+                "terminal": sum(status_counts.values()) - active,
                 "retention_seconds": self.retention_seconds,
                 "status_counts": dict(sorted(status_counts.items())),
             }

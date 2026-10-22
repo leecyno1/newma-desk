@@ -35,7 +35,7 @@ class SupplyChainResearchError(ValueError):
 
 class IndustryChainResearchEngine:
     engine_name = "instock-industry-chain-research"
-    engine_version = "2.0.0"
+    engine_version = "2.3.1"
     methodology = "industry-chain-topology-bottleneck-evidence-ranking-v1"
     packet_schema_version = "2.0"
     legacy_packet_schema_version = "1.0"
@@ -128,6 +128,10 @@ class IndustryChainResearchEngine:
         chain = self._score_chain(chain, layers)
 
         limitations = sorted(set(layer_limitations + candidate_limitations))
+        if not layers:
+            limitations.append("no_supported_bottleneck_layers")
+        if not candidates:
+            limitations.append("no_supported_company_candidates")
         if schema_version == self.legacy_packet_schema_version:
             limitations.append("legacy_packet_without_explicit_chain_topology")
         data_state = "partial" if limitations else "complete"
@@ -141,15 +145,17 @@ class IndustryChainResearchEngine:
             "evidence_count": len(evidence),
             "chain_node_count": len(chain["nodes"]),
             "chain_link_count": len(chain["links"]),
-            "top_chain_node": chain["critical_nodes"][0]["name"],
-            "top_layer": layers[0]["name"],
-            "top_candidate": candidates[0]["symbol"],
+            "top_chain_node": chain["critical_nodes"][0]["name"] if chain["critical_nodes"] else None,
+            "top_layer": layers[0]["name"] if layers else None,
+            "top_candidate": candidates[0]["symbol"] if candidates else None,
+            "notes": str(payload.get("notes") or ""),
             "limitations": limitations,
         }
         stable_result = {
             "chain": chain,
             "layers": layers,
             "candidates": candidates,
+            "evidence": list(evidence.values()),
             "summary": result_summary,
         }
         snapshot = self._build_snapshot(payload, stable_result, result_summary, as_of)
@@ -172,6 +178,12 @@ class IndustryChainResearchEngine:
             "chain": chain,
             "layers": layers,
             "candidates": candidates,
+            "evidence": list(evidence.values()),
+            "verification": {
+                "scope": "structure_references_dates",
+                "sources_verified": False,
+                "ratings_origin": "input_packet",
+            },
             "evidence_summary": self._evidence_summary(evidence.values()),
             "limitations": limitations,
             "snapshot": snapshot,
@@ -286,6 +298,8 @@ class IndustryChainResearchEngine:
             if not math.isfinite(criticality) or not 0 <= criticality <= 5:
                 raise SupplyChainResearchError(f"{context}.criticality 必须在 0..5 之间")
             refs = self._evidence_refs(item["evidence_ids"], evidence, f"{context}.evidence_ids")
+            if any(evidence[ref]["source_type"] == "user-adopted-filing-row" for ref in refs):
+                raise SupplyChainResearchError(f"{context} 主营收入材料不能作为供需关系证据，请补充直接来源")
             links.append({
                 "source": source,
                 "target": target,
@@ -304,7 +318,7 @@ class IndustryChainResearchEngine:
         chain_nodes: Mapping[str, Mapping[str, Any]],
         require_node_id: bool,
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        items = self._list(values, "layers", minimum=1, maximum=20)
+        items = self._list(values, "layers", minimum=0 if require_node_id else 1, maximum=20)
         parsed = []
         seen = set()
         limitations = []
@@ -331,6 +345,8 @@ class IndustryChainResearchEngine:
                 raise SupplyChainResearchError(f"{context}.node_id 不存在: {node_id}")
             ratings = self._ratings(item["ratings"], self._layer_weights, f"{context}.ratings")
             refs = self._evidence_refs(item["evidence_ids"], evidence, f"{context}.evidence_ids")
+            if any(evidence[ref]["source_type"] == "user-adopted-filing-row" for ref in refs):
+                raise SupplyChainResearchError(f"{context} 主营收入材料不能证明供应瓶颈，请补充直接来源")
             summary = self._evidence_summary(evidence[ref] for ref in refs)
             base_score = self._weighted_rating(ratings, self._layer_weights)
             priority_score = round(base_score * 0.85 + summary["score"] * 0.15, 2)
@@ -383,27 +399,27 @@ class IndustryChainResearchEngine:
             node = dict(raw)
             node_layer_scores = layer_scores.get(str(node["id"]), [])
             node_link_scores = link_scores.get(str(node["id"]), [])
-            bottleneck_score = max(node_layer_scores, default=0.0)
+            bottleneck_score = max(node_layer_scores) if node_layer_scores else None
             relationship_score = sum(node_link_scores) / len(node_link_scores) if node_link_scores else 0.0
             evidence_score = float(node["evidence_summary"]["score"])
-            node["bottleneck_score"] = round(bottleneck_score, 2)
+            node["bottleneck_score"] = round(bottleneck_score, 2) if bottleneck_score is not None else None
             node["relationship_score"] = round(relationship_score, 2)
             node["criticality_score"] = round(
                 bottleneck_score * 0.55 + relationship_score * 0.25 + evidence_score * 0.20,
                 2,
-            )
+            ) if bottleneck_score is not None else None
             node["layer_count"] = len(node_layer_scores)
             nodes.append(node)
 
         nodes.sort(
             key=lambda item: (
                 self._stage_order.get(str(item["stage"]), 99),
-                -float(item["criticality_score"]),
+                -float(item["criticality_score"] or 0),
                 str(item["name"]),
             )
         )
         critical_nodes = sorted(
-            (dict(item) for item in nodes),
+            (dict(item) for item in nodes if item["criticality_score"] is not None),
             key=lambda item: (-float(item["criticality_score"]), str(item["name"])),
         )
         for rank, node in enumerate(critical_nodes, start=1):
@@ -421,7 +437,7 @@ class IndustryChainResearchEngine:
         evidence: Mapping[str, Mapping[str, Any]],
         layers: Mapping[str, Mapping[str, Any]],
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        items = self._list(values, "candidates", minimum=1, maximum=100)
+        items = self._list(values, "candidates", minimum=0, maximum=100)
         parsed = []
         seen = set()
         limitations = []
@@ -557,6 +573,8 @@ class IndustryChainResearchEngine:
                 "digest": result_digest,
                 "summary": dict(summary),
                 "evidence": {
+                    "chain": dict(stable_result["chain"]),
+                    "sources": [dict(item) for item in stable_result["evidence"]],
                     "layers": [dict(item) for item in stable_result["layers"]],
                     "candidates": [dict(item) for item in stable_result["candidates"]],
                 },
@@ -733,14 +751,17 @@ def resolve_industry_chain_snapshot(
     evidence = result.get("evidence") or {}
     if not evidence:
         return None, ["industry_chain_snapshot_evidence_unavailable"]
-    code = str(symbol or "").strip().upper().split(".")[0]
-    candidate = next(
-        (
-            dict(item) for item in evidence.get("candidates") or []
-            if str(item.get("symbol") or "").upper().split(".")[0] == code
-        ),
-        None,
-    )
+    requested = str(symbol or "").strip().upper()
+    code, _, exchange = requested.partition(".")
+    # This resolver serves the A-share dossier. Never match another market by
+    # stripping its suffix, nor guess the market of a legacy unqualified row.
+    candidates = []
+    for item in evidence.get("candidates") or []:
+        candidate_symbol = str(item.get("symbol") or "").strip().upper()
+        candidate_code, _, candidate_exchange = candidate_symbol.partition(".")
+        if (item.get("market") == "CN" and re.fullmatch(r"\d{6}(?:\.(?:SH|SZ|BJ))?", candidate_symbol)
+                and candidate_code == code and (not exchange or not candidate_exchange or exchange == candidate_exchange)):
+            candidates.append(dict(item))
     response = {
         "snapshot_id": snapshot_id,
         "as_of": snapshot_as_of,
@@ -748,8 +769,11 @@ def resolve_industry_chain_snapshot(
         "freshness": dict(snapshot.get("freshness") or {}),
         "exposure": None,
     }
-    if candidate is None:
+    if not candidates:
         return response, ["industry_chain_security_exposure_not_found"]
+    if len(candidates) != 1:
+        return response, ["industry_chain_security_exposure_ambiguous"]
+    candidate = candidates[0]
     layer = next(
         (
             dict(item) for item in evidence.get("layers") or []
@@ -758,7 +782,29 @@ def resolve_industry_chain_snapshot(
         None,
     )
     response["exposure"] = {**candidate, "layer": layer}
-    return response, []
+    chain = evidence.get("chain") or {}
+    node_id = (layer or {}).get("node_id")
+    links = [dict(link) for link in chain.get("links") or []
+             if node_id and node_id in (link.get("source"), link.get("target"))]
+    node_ids = {node_id} | {link.get(side) for link in links for side in ("source", "target")}
+    nodes = [dict(node) for node in chain.get("nodes") or [] if node.get("id") in node_ids]
+    source_ids = set(candidate.get("evidence_ids") or []) | set((layer or {}).get("evidence_ids") or [])
+    for row in [*links, *nodes]:
+        source_ids.update(row.get("evidence_ids") or [])
+    sources = [dict(source) for source in evidence.get("sources") or [] if source.get("id") in source_ids]
+    missing = sorted(source_ids - {source.get("id") for source in sources})
+    response["research_context"] = {
+        "theme": (snapshot.get("parameters") or {}).get("theme") or response["summary"].get("theme"),
+        "market": (snapshot.get("parameters") or {}).get("market") or response["summary"].get("market"),
+        "as_of": snapshot_as_of, "chain": {"nodes": nodes, "links": links},
+        "evidence": sources, "missing_evidence_ids": missing,
+        "claim_verified": False,
+        "boundary": "快照评级与来源标注来自输入，不是独立核验；仅列所属节点直接关联关系，人工复核须按当前运行模式另行读取。",
+    }
+    limitations = ["industry_chain_claims_unverified"]
+    if missing or not sources:
+        limitations.append("industry_chain_source_catalogue_incomplete")
+    return response, limitations
 
 
 # Compatibility aliases for callers migrating from the former rotation-owned

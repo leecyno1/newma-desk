@@ -15,7 +15,7 @@ def test_level_two_manifests_declare_connected_analysis_actions():
         }),
         "industry-chain": ("instock-industry-chain", {"analysis.industry-chain"}),
         "stock-candidates": ("instock-stock-candidates", {"analysis.stock-candidates"}),
-        "stock-research": ("instock-stock-research", {"analysis.stock-research"}),
+        "stock-research": ("instock-stock-research", {"analysis.stock-research", "analysis.stock-statement-announcements", "analysis.stock-statement-evidence"}),
         "strategy-validation": ("instock-strategy-validation", {"analysis.strategy-validation"}),
         "event-flow": ("instock-event-flow", {"analysis.event-flow"}),
         "research-book": ("instock-research-book", {"analysis.research-book"}),
@@ -102,7 +102,7 @@ def test_newma_suite_is_the_canonical_eleven_page_descriptor():
         "analysis.stock-candidates",
     }
     assert set(pages["instock-stock-research"]["manifest"]["actions"]) == {
-        "analysis.stock-research",
+        "analysis.stock-research", "analysis.stock-statement-announcements", "analysis.stock-statement-evidence",
     }
     assert set(pages["instock-strategy-validation"]["manifest"]["actions"]) == {
         "analysis.strategy-validation",
@@ -124,6 +124,11 @@ def test_newma_suite_is_the_canonical_eleven_page_descriptor():
     }
     for page in suite["pages"]:
         for action_id, action in page["manifest"]["actions"].items():
+            if action_id in {"analysis.stock-statement-announcements", "analysis.stock-statement-evidence"}:
+                assert action["binding"]["service"] == "instock-analysis"
+                assert "instock-analysis" in page["manifest"]["dataServices"]
+                assert "asOf" not in action["inputSchema"]["properties"]
+                continue  # Current source inspection must not imply historical point-in-time evidence.
             if action_id == "analysis.industry-chain":
                 assert action["inputSchema"]["properties"]["schema_version"]["const"] == "2.0"
                 assert action["inputSchema"]["properties"]["chain"]["properties"]["nodes"]["maxItems"] == 60
@@ -155,7 +160,7 @@ def test_newma_suite_is_the_canonical_eleven_page_descriptor():
     }
 
 
-def test_project_delivery_is_newma_attached_runtime_without_docker_assets():
+def test_project_delivery_supports_standalone_and_desk_without_docker_assets():
     assert not (ROOT / "docker").exists()
     assert not (ROOT / ".github" / "workflows" / "docker-image.yml").exists()
     assert not (ROOT / ".github" / "workflows" / "azure-container-webapp.yml").exists()
@@ -164,7 +169,9 @@ def test_project_delivery_is_newma_attached_runtime_without_docker_assets():
     integration_readme = (NEWMA_ROOT / "README.md").read_text("utf-8")
     evolution = (ROOT / "docs" / "newma-desk-evolution.md").read_text("utf-8")
 
-    assert "Newma-Desk 附属模组" in readme
+    assert "独立股票研究项目 / Newma-Desk 组件" in readme
+    assert "instock-research --data-url" in readme
+    assert (ROOT / "pyproject.toml").is_file()
     assert "npm run dev:stack" in readme
     assert "Desk 托管运行时" in integration_readme
     assert "不提供 Dockerfile、Compose、容器镜像" in evolution
@@ -199,6 +206,7 @@ def test_data_service_contract_uses_versioned_endpoints_and_inline_schemas():
     assert descriptor["baseUrl"].endswith("/api/v1")
     assert descriptor["healthPath"] == "/health"
     assert set(descriptor["capabilities"]) == {
+        "analysis.stock-statement-announcements", "analysis.stock-statement-evidence",
         "analysis.czsc", "analysis.czsc.scan", "analysis.rotation",
         "analysis.rotation.experiment", "analysis.industry-chain",
         "analysis.rotation.supply-chain", "analysis.stock-candidates",
@@ -229,6 +237,10 @@ def test_data_service_contract_uses_versioned_endpoints_and_inline_schemas():
         assert "$ref" not in capability["inputSchema"]
         assert capability["outputSchema"]["$schema"].endswith("2020-12/schema")
         assert "meta" in capability["outputSchema"]["required"]
+        if action_id in {"analysis.stock-statement-announcements", "analysis.stock-statement-evidence"}:
+            assert capability["path"].startswith("/stock-research/statement-")
+            assert "snapshot" not in capability["outputSchema"]["properties"]["data"]["required"]
+            continue  # Read-only source evidence, not a new analysis snapshot.
         if action_id == "analysis.industry-chain":
             assert capability["inputSchema"]["properties"]["schema_version"]["const"] == "2.0"
             assert capability["inputSchema"]["properties"]["chain"]["properties"]["links"]["maxItems"] == 120
@@ -371,7 +383,7 @@ def test_embed_pages_use_versioned_api_and_publish_semantic_context():
     assert "officialSignals" in czsc
     assert "官方信号适配降级" in czsc
     assert "snapshot" in czsc
-    context_builder = czsc.split("function buildContext()", 1)[1].split("function publishContext()", 1)[0]
+    context_builder = czsc.split("function resultContext()", 1)[1].split("function publishContext()", 1)[0]
     context_data_fields = context_builder.split("data: {", 1)[1].split("summary: {", 1)[0]
     assert "snapshot," not in context_data_fields
     assert "snapshotId: snapshot ? snapshot.snapshot_id : null" in context_builder
@@ -428,7 +440,8 @@ def test_embed_pages_use_versioned_api_and_publish_semantic_context():
     assert "不是买卖信号" in stock_candidates
     assert "analysis.stock-research" in stock_research
     assert "/api/v1/stock-research/dossiers" in stock_research
-    assert "setContextProvider(buildContext)" in stock_research
+    assert "setContextProvider(() =>" in stock_research
+    assert "context.data.statementReview = statementReview.context()" in stock_research
     assert "handleSecuritySelected" in stock_research
     assert "不是评级或买卖建议" in stock_research
     assert "analysis.market-map" in market_map
@@ -473,8 +486,12 @@ def test_research_handoff_links_keep_source_and_evidence_snapshots_distinct():
     assert "未解析，未进入本次计算" in stock_research
     assert "加入研究组合" in stock_research
     assert "researchBookUrl" in stock_research
-    assert "snapshotIds" in stock_research
+    handoff = stock_research.split("function researchBookUrl(data)", 1)[1].split("function ", 1)[0]
+    assert "sourceSnapshotId: data.snapshot.snapshot_id" in handoff
+    assert "sourceModule: 'instock-stock-research'" in handoff
     research_book = (ROOT / "instock" / "web" / "templates" / "research_book.html").read_text("utf-8")
+    assert "js/research-book.js" in research_book
+    research_book += (ROOT / "instock" / "web" / "static" / "js" / "research-book.js").read_text("utf-8")
     assert "applyUrlPrefill" in research_book
     assert "query.get('thesis')" in research_book
     assert "query.get('snapshotIds')" in research_book

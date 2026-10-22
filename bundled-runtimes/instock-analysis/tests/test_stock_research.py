@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -41,7 +42,7 @@ class ResearchFixtureProvider:
             "workflow": {"dataQuality": {"score": 72, "level": "usable", "limitations": ["缺少 ROIC"]}},
             "evidenceLedger": [
                 {"id": "valuation.pe_ttm", "dimension": "valuation", "label": "PE(TTM)", "value": 53.92, "unit": "x", "source": "fixture", "asOf": "2026-08-11", "confidence": "high"},
-                {"id": "growth.revenue_yoy", "dimension": "growth", "label": "营收同比", "value": 105.76, "unit": "%", "source": "fixture", "asOf": "2026-03-31", "confidence": "high"},
+                {"id": "growth.revenue_yoy", "dimension": "growth", "label": "营收同比", "value": 105.76, "unit": "%", "source": "fixture", "asOf": "2026-03-31", "publishedAt": "2026-04-20", "confidence": "high"},
             ],
             "gaps": ["标准 ROA/ROIC 证据尚不完整"],
             "generatedAt": "2026-08-11T18:00:00+08:00",
@@ -116,9 +117,9 @@ def _event_packet():
     }
 
 
-def _register_industry_chain_snapshot():
+def _register_industry_chain_snapshot(*, market="CN", symbol="300502.SZ", catalogue=False, duplicate=False):
     snapshot_id = "instock-industry-chain-research:fixture"
-    get_analysis_snapshot_registry().register({
+    snapshot = {
         "schema_version": "1.0",
         "snapshot_id": snapshot_id,
         "generated_at": "2026-08-11T10:00:00+08:00",
@@ -133,7 +134,9 @@ def _register_industry_chain_snapshot():
             "summary": {"theme": "AI 光通信扩产瓶颈", "top_candidate": "300502.SZ"},
             "evidence": {
                 "candidates": [{
-                    "symbol": "300502.SZ",
+                    "symbol": symbol,
+                    "market": market,
+                    "evidence_ids": ["company"],
                     "name": "新易盛",
                     "layer_id": "optical-engine",
                     "priority_score": 82.5,
@@ -141,10 +144,24 @@ def _register_industry_chain_snapshot():
                     "confidence": "high",
                     "invalidation": ["替代供应商完成批量认证"],
                 }],
-                "layers": [{"id": "optical-engine", "name": "光引擎与关键器件", "rank": 1}],
+                "layers": [{"id": "optical-engine", "name": "光引擎与关键器件", "rank": 1, "node_id": "optics"}],
             },
         },
-    })
+    }
+    evidence = snapshot["result"]["evidence"]
+    if duplicate:
+        evidence["candidates"].append(dict(evidence["candidates"][0]))
+    if catalogue:
+        evidence["chain"] = {"nodes": [{"id": "optics"}, {"id": "source"}, {"id": "other"}], "links": [
+            {"source": "source", "target": "optics", "relation": "直接供给", "evidence_ids": ["supply"]},
+            {"source": "other", "target": "source", "relation": "不应递归带入", "evidence_ids": ["other"]},
+        ]}
+        evidence["sources"] = [
+            {"id": "company", "claim": "公司暴露待核对", "source_ref": "https://example.com/company", "observed_at": "2026-08-10"},
+            {"id": "supply", "claim": "直接供应关系待核对", "source_ref": "https://example.com/supply", "observed_at": "2026-08-09"},
+            {"id": "other", "claim": "其他关系"},
+        ]
+    get_analysis_snapshot_registry().register(snapshot)
     return snapshot_id
 
 
@@ -158,8 +175,8 @@ def test_stock_research_dossier_combines_technical_financial_and_disclosure_evid
 
     assert result["engine"] == {
         "name": "instock-stock-research-dossier",
-        "version": "1.2.0",
-        "model": "instock-stock-research-dossier-v1.2",
+        "version": "1.4.3",
+        "model": "instock-stock-research-dossier-v1.4",
     }
     assert result["identity"]["name"] == "新易盛"
     assert result["technical"]["insight"]["headline"] == "结构偏强"
@@ -183,13 +200,43 @@ def test_stock_research_dossier_combines_technical_financial_and_disclosure_evid
     assert result["assessment"]["evidence_balance"] == {
         "strength_count": 2,
         "tension_count": 1,
-        "gap_count": 1,
+        "gap_count": 3,
         "event_count": 0,
         "industry_chain_attached": False,
     }
-    assert result["data_state"] == "complete"
+    assert result["data_state"] == "partial"
+    assert result["snapshot"]["data_window"]["coverage"] == "partial"
     assert result["snapshot"]["snapshot_id"].startswith("instock-stock-research-dossier:")
     assert registry.get(result["snapshot"]["snapshot_id"])["analysis"]["name"] == "instock-stock-research-dossier"
+
+
+@pytest.mark.parametrize("gap", ["coverage", "quality", "source", "scorecard", "unknown", None])
+def test_dossier_completeness_includes_financial_evidence_gaps(gap):
+    class Provider(ResearchFixtureProvider):
+        def get_equity_snapshot(self, symbol, *, refresh=False):
+            result = super().get_equity_snapshot(symbol, refresh=refresh)
+            result["coverage"] = {"coveredDimensions": 6, "totalDimensions": 6, "ratio": 1}
+            result["workflow"]["dataQuality"]["limitations"] = []
+            result["gaps"] = []
+            if gap == "coverage":
+                result["coverage"] = {"coveredDimensions": 5, "totalDimensions": 6, "ratio": 0.8333}
+            elif gap == "quality":
+                result["workflow"]["dataQuality"]["limitations"] = ["缺少同口径财务证据"]
+            elif gap == "source":
+                result["gaps"] = ["财务数据源不可用"]
+            elif gap == "scorecard":
+                result["scorecard"].append({"id": "resilience", "title": "财务韧性", "score": None, "status": "unavailable"})
+            elif gap == "unknown":
+                result.pop("coverage")
+            return result
+
+    result = StockResearchDossier(Provider(), czsc_runner=fake_czsc_runner).analyze(symbol="300502")
+    expected = "partial" if gap else "complete"
+    assert result["data_state"] == expected
+    assert result["snapshot"]["data_window"]["coverage"] == expected
+    assert result["snapshot"]["result"]["summary"]["data_state"] == expected
+    assert bool(result["assessment"]["gaps"]) == bool(gap)
+    assert result["fundamentals"]["metrics"]["revenueGrowthPct"] == 105.76
 
 
 def test_stock_research_dossier_keeps_partial_result_when_optional_news_fails():
@@ -267,6 +314,8 @@ def test_stock_research_historical_mode_removes_forward_looking_evidence():
     assert "pe" not in result["fundamentals"]["metrics"]
     assert result["fundamentals"]["metrics"]["revenueGrowthPct"] == 105.76
     assert result["fundamentals"]["scorecard"] == []
+    assert result["assessment"]["directional_evidence_domains"] == ["technical"]
+    assert "暂不形成多维综合判断" in result["assessment"]["conclusion"]
     assert result["disclosures"]["announcements"] == []
     assert result["disclosures"]["reports"] == []
     assert result["disclosures"]["news"] == []
@@ -279,6 +328,93 @@ def test_stock_research_historical_mode_removes_forward_looking_evidence():
     assert "historical_disclosures_client_filtered_from_latest_desk_window" in result["limitations"]
     assert result["snapshot"]["freshness"]["state"] == "historical"
     assert result["snapshot"]["freshness"]["resolution"] == "partial_point_in_time"
+
+
+@pytest.mark.parametrize("published_at, expected", [
+    ("2026-04-20", True), ("2026-06-30", True),
+    ("2026-08-20", False), (None, False), ("invalid", False),
+])
+def test_historical_financial_evidence_uses_publication_not_period_end(published_at, expected):
+    equity = ResearchFixtureProvider().get_equity_snapshot("300502")
+    equity["evidenceLedger"][1]["publishedAt"] = published_at
+    result = StockResearchDossier._fundamentals(equity, as_of="2026-06-30")
+    assert ("revenueGrowthPct" in result["metrics"]) is expected
+    if not expected:
+        assert not result["evidence"]
+
+
+def test_historical_derived_metric_cannot_hide_a_future_or_missing_dependency():
+    equity = ResearchFixtureProvider().get_equity_snapshot("300502")
+    equity["evidenceLedger"] = [
+        {"id": "cash", "value": 12, "asOf": "2026-03-31", "publishedAt": "2026-04-20"},
+        {"id": "profit", "value": 10, "asOf": "2026-03-31", "publishedAt": "2026-08-20"},
+        {"id": "derived.cash_conversion", "dimension": "cash_flow", "value": 120,
+         "asOf": "2026-03-31", "publishedAt": "2026-04-20", "sourceType": "derived", "dependsOn": ["cash", "profit"]},
+    ]
+    result = StockResearchDossier._fundamentals(equity, as_of="2026-06-30")
+    assert "cashConversionPct" not in result["metrics"]
+    assert [item["id"] for item in result["evidence"]] == ["cash"]
+    equity["evidenceLedger"][1]["publishedAt"] = "2026-04-21"
+    result = StockResearchDossier._fundamentals(equity, as_of="2026-06-30")
+    assert result["metrics"]["cashConversionPct"] == 120
+    equity["evidenceLedger"].pop(1)
+    assert "cashConversionPct" not in StockResearchDossier._fundamentals(equity, as_of="2026-06-30")["metrics"]
+
+
+def test_historical_snapshot_observed_before_cutoff_remains_usable_without_publication_date():
+    equity = ResearchFixtureProvider().get_equity_snapshot("300502")
+    equity["generatedAt"] = "2026-06-01T12:00:00+08:00"
+    equity["evidenceLedger"][0]["asOf"] = "2026-05-31"
+    equity["evidenceLedger"][1].pop("publishedAt")
+    result = StockResearchDossier._fundamentals(equity, as_of="2026-06-30")
+    assert result["point_in_time"] is True
+    assert result["metrics"]["revenueGrowthPct"] == 105.76
+
+
+@pytest.mark.parametrize("days_ago", [0, 120])
+def test_cutoff_excludes_later_publication_even_in_a_retained_snapshot(days_ago):
+    cutoff = date.today() - timedelta(days=days_ago)
+    equity = ResearchFixtureProvider().get_equity_snapshot("300502")
+    equity["generatedAt"] = cutoff.isoformat() + "T10:00:00+08:00"
+    equity["evidenceLedger"] = [
+        {"id": "growth.revenue_yoy", "dimension": "growth", "value": 105.76,
+         "asOf": (cutoff - timedelta(days=30)).isoformat(),
+         "publishedAt": (cutoff + timedelta(days=1)).isoformat()},
+    ]
+    result = StockResearchDossier._fundamentals(equity, as_of=cutoff.isoformat())
+    assert result["evidence"] == []
+    assert result["metrics"] == {}
+    assert result["scorecard"] == []
+    assert result["excluded_future_evidence_count"] == 1
+    assert result["point_in_time"] is False
+    assert result["mode"] == "historical_evidence_only"
+    provider = ResearchFixtureProvider()
+    with patch.object(provider, "get_equity_snapshot", return_value=equity):
+        dossier = StockResearchDossier(provider, czsc_runner=fake_czsc_runner).analyze(
+            symbol="300502", as_of=cutoff.isoformat())
+    assert dossier["data_state"] == "partial"
+    assert dossier["snapshot"]["freshness"]["resolution"] == "partial_point_in_time"
+    assert dossier["assessment"]["directional_evidence_domains"] == ["technical"]
+
+
+@pytest.mark.parametrize("missing_input", [False, True])
+def test_retained_snapshot_derived_metric_requires_its_declared_inputs(missing_input):
+    equity = ResearchFixtureProvider().get_equity_snapshot("300502")
+    equity["generatedAt"] = "2026-06-01T12:00:00+08:00"
+    equity["evidenceLedger"] = [
+        {"id": "cash", "value": 12, "asOf": "2026-03-31"},
+        {"id": "profit", "value": 10, "asOf": "2026-03-31", "publishedAt": "2026-07-01"},
+        {"id": "derived.cash_conversion", "dimension": "cash_flow", "value": 120,
+         "asOf": "2026-03-31", "sourceType": "derived", "dependsOn": ["cash", "profit"]},
+    ]
+    if missing_input:
+        equity["evidenceLedger"].pop(1)
+    result = StockResearchDossier._fundamentals(equity, as_of="2026-06-30")
+    assert [item["id"] for item in result["evidence"]] == ["cash"]
+    assert "cashConversionPct" not in result["metrics"]
+    assert result["excluded_dependency_evidence_count"] == 1
+    assert result["scorecard"] == []
+    assert result["point_in_time"] is False
 
 
 def test_stock_research_historical_event_snapshot_replays_to_requested_date():
@@ -300,7 +436,23 @@ def test_stock_research_historical_event_snapshot_replays_to_requested_date():
     assert result["event_flow"]["alerts"][0]["age_days"] == 0
     assert result["event_flow"]["summary"]["deduplicated_events"] == 1
     assert result["event_flow"]["summary"]["top_event_id"] == "risk-1"
-    assert result["event_flow"]["freshness"]["resolution"] == "point_in_time_replay"
+    assert result["event_flow"]["freshness"]["resolution"] == "declared_event_dates_replay"
+    assert any("披露时间尚未核验" in item for item in result["assessment"]["gaps"])
+
+
+def test_company_dossier_retains_event_source_failures_as_research_gaps():
+    event_result = EventFlowEngine().analyze(
+        _event_packet(), coverage={"failed_sources": 1, "empty_sources": 0},
+        failures=[{"source": "margin", "label": "融资融券", "message": "读取失败"}],
+    )
+    result = StockResearchDossier(ResearchFixtureProvider(), czsc_runner=fake_czsc_runner).analyze(
+        symbol="300502", event_flow_snapshot_id=event_result["snapshot"]["snapshot_id"])
+    assert result["event_flow"]["failures"][0]["source"] == "margin"
+    assert result["event_flow"]["coverage"]["failed_sources"] == 1
+    assert result["event_flow"]["coverage_scope"] == "source_snapshot"
+    assert any("读取失败" in gap for gap in result["assessment"]["gaps"])
+    assert any("未覆盖部分不代表没有风险" in gap for gap in result["limitations"])
+    assert result["data_state"] == "partial"
 
 
 def test_stock_research_rejects_industry_chain_snapshot_after_historical_cutoff():
@@ -333,8 +485,41 @@ def test_stock_research_dossier_resolves_security_industry_chain_exposure():
     assert result["industry_chain"]["snapshot_id"] == snapshot_id
     assert result["industry_chain"]["exposure"]["symbol"] == "300502.SZ"
     assert result["industry_chain"]["exposure"]["layer"]["name"] == "光引擎与关键器件"
-    assert "产业链：光引擎与关键器件暴露已核验（high 置信）" in result["assessment"]["strengths"]
+    assert not any("产业链" in item for item in result["assessment"]["strengths"])
+    assert any("尚未独立核实" in item for item in result["assessment"]["gaps"])
+    assert "industry_chain_source_catalogue_incomplete" in result["limitations"]
     assert "产业链证伪：替代供应商完成批量认证" in result["assessment"]["tensions"]
+
+
+@pytest.mark.parametrize("market,symbol,requested,duplicate,reason", [
+    ("HK", "300502", "300502", False, "not_found"),
+    (None, "300502.SZ", "300502", False, "not_found"),
+    ("CN", "300502.SH", "300502.SZ", False, "not_found"),
+    ("CN", "300502.SZ", "300502", True, "ambiguous"),
+])
+def test_chain_handoff_does_not_guess_market_or_exchange(market, symbol, requested, duplicate, reason):
+    get_analysis_snapshot_registry().clear()
+    snapshot_id = _register_industry_chain_snapshot(market=market, symbol=symbol, duplicate=duplicate)
+    result = StockResearchDossier(ResearchFixtureProvider(), czsc_runner=fake_czsc_runner).analyze(
+        symbol=requested, industry_chain_snapshot_id=snapshot_id)
+    assert result["industry_chain"]["exposure"] is None
+    assert f"industry_chain_security_exposure_{reason}" in result["limitations"]
+
+
+def test_chain_handoff_preserves_only_direct_claims_and_original_sources():
+    get_analysis_snapshot_registry().clear()
+    snapshot_id = _register_industry_chain_snapshot(catalogue=True)
+    result = StockResearchDossier(ResearchFixtureProvider(), czsc_runner=fake_czsc_runner).analyze(
+        symbol="300502.SZ", industry_chain_snapshot_id=snapshot_id)
+    context = result["industry_chain"]["research_context"]
+    assert context["claim_verified"] is False
+    assert context["missing_evidence_ids"] == []
+    assert {row["id"] for row in context["evidence"]} == {"company", "supply"}
+    assert context["evidence"][0]["source_ref"] == "https://example.com/company"
+    assert context["evidence"][0]["observed_at"] == "2026-08-10"
+    assert len(context["chain"]["links"]) == 1
+    assert {row["id"] for row in context["chain"]["nodes"]} == {"optics", "source"}
+    assert "industry_chain_claims_unverified" in result["limitations"]
 
 
 class FixtureHandlerDossier:

@@ -152,7 +152,7 @@ def test_engine_ranks_layers_and_candidates_with_traceable_evidence():
 
     assert result["engine"] == {
         "name": "instock-industry-chain-research",
-        "version": "2.0.0",
+        "version": "2.3.1",
         "methodology": "industry-chain-topology-bottleneck-evidence-ranking-v1",
         "calibrated_backtest": False,
     }
@@ -172,6 +172,50 @@ def test_engine_ranks_layers_and_candidates_with_traceable_evidence():
     assert result["snapshot"]["provenance"]["provider"] == "newma-desk-agent"
     assert result["snapshot"]["result"]["summary"]["candidate_count"] == 1
     assert result["snapshot"]["result"]["evidence"]["candidates"][0]["symbol"] == "300502.SZ"
+
+
+def test_chain_without_company_candidates_preserves_relationship_evidence():
+    packet = industry_chain_packet()
+    packet["candidates"] = []
+    result = IndustryChainResearchEngine().analyze(packet)
+    assert result["candidates"] == []
+    assert result["summary"]["top_candidate"] is None
+    assert result["summary"]["candidate_count"] == 0
+    assert result["summary"]["chain_link_count"] == 1
+    assert result["data_state"] == "partial"
+    assert "no_supported_company_candidates" in result["limitations"]
+    assert result["snapshot"]["result"]["evidence"]["candidates"] == []
+    assert result["verification"]["sources_verified"] is False
+
+
+def test_relationships_without_bottleneck_ratings_remain_partial_and_unranked():
+    packet = industry_chain_packet()
+    packet.update(layers=[], candidates=[], notes="联网未获准，来源与关系仍待原文核验。")
+    result = IndustryChainResearchEngine().analyze(packet)
+    assert result["summary"]["chain_link_count"] == 1
+    assert result["summary"]["top_layer"] is None
+    assert result["summary"]["top_chain_node"] is None
+    assert result["chain"]["critical_nodes"] == []
+    assert all(row["bottleneck_score"] is None and row["criticality_score"] is None
+               for row in result["chain"]["nodes"])
+    assert result["summary"]["notes"] == packet["notes"]
+    assert result["snapshot"]["result"]["summary"]["notes"] == packet["notes"]
+    assert result["data_state"] == "partial"
+    assert "no_supported_bottleneck_layers" in result["limitations"]
+    assert result["verification"]["sources_verified"] is False
+    schema = json.loads((ROOT / "integrations/newma-desk/schemas/industry-chain-research-packet.schema.json").read_text())
+    assert schema["properties"]["layers"]["minItems"] == 0
+
+
+def test_missing_layers_do_not_allow_dangling_candidates_or_empty_legacy_topology():
+    packet = industry_chain_packet()
+    packet["layers"] = []
+    with pytest.raises(IndustryChainResearchError, match="layer_id 不存在"):
+        IndustryChainResearchEngine().analyze(packet)
+    legacy = research_packet()
+    legacy.update(layers=[], candidates=[])
+    with pytest.raises(IndustryChainResearchError, match="layers"):
+        IndustryChainResearchEngine().analyze(legacy)
 
 
 def test_engine_caps_priority_when_candidate_has_no_strong_evidence():
@@ -233,6 +277,36 @@ def test_legacy_schema_remains_available_through_compatibility_alias():
     assert "legacy_packet_without_explicit_chain_topology" in result["limitations"]
     assert result["chain"]["links"] == []
     assert SupplyChainResearchError is IndustryChainResearchError
+
+
+def test_evidence_catalogue_and_directed_links_survive_result_and_snapshot():
+    packet = industry_chain_packet()
+    result = IndustryChainResearchEngine().analyze(packet)
+    assert result["evidence"] == packet["evidence"]
+    assert result["verification"] == {
+        "scope": "structure_references_dates",
+        "sources_verified": False,
+        "ratings_origin": "input_packet",
+    }
+    archive = result["snapshot"]["result"]["evidence"]
+    assert archive["sources"] == result["evidence"]
+    assert archive["chain"]["links"] == result["chain"]["links"]
+    for link in archive["chain"]["links"]:
+        assert set(link["evidence_ids"]) <= {item["id"] for item in archive["sources"]}
+
+
+def test_adopted_revenue_can_support_company_facts_but_not_relationships_or_bottlenecks():
+    packet = industry_chain_packet()
+    packet["evidence"][-1]["source_type"] = "user-adopted-filing-row"
+    packet["evidence"][-1]["strength"] = "unverified"
+    result = IndustryChainResearchEngine().analyze(packet)
+    assert result["evidence"][-1]["strength"] == "unverified"
+    for target in ("link", "layer"):
+        invalid = copy.deepcopy(packet)
+        row = invalid["chain"]["links"][0] if target == "link" else invalid["layers"][0]
+        row["evidence_ids"].append(packet["evidence"][-1]["id"])
+        with pytest.raises(IndustryChainResearchError, match="主营收入材料不能"):
+            IndustryChainResearchEngine().analyze(invalid)
 
 
 def test_published_packet_schema_and_non_research_example_match_engine_contract():

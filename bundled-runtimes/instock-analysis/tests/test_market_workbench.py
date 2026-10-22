@@ -267,3 +267,68 @@ def test_market_workbench_limit_watch_respects_board_rules_and_skips_new_listing
     ]
     states = {item["symbol"]: item["threshold_state"] for item in anomalies["limit_watch"]}
     assert states == {"000002": "above", "000001": "below", "300001": "below"}
+
+
+def test_workbench_keeps_board_dates_separate_from_newer_overview_and_emotion():
+    class MixedProvider(FixtureProvider):
+        def get_market_overview(self):
+            return {**super().get_market_overview(), "updated": "2026-08-12 10:00:00"}
+
+        def get_market_emotion(self):
+            return {"state": "available", "date": "2026-08-12"}
+
+    result = MarketWorkbenchEngine(MixedProvider()).analyze(scan_limit=50)
+    assert result["as_of"] == "2026-08-11"
+    assert result["snapshot"]["data_window"]["end_date"] == "2026-08-11"
+    assert result["source_dates"]["emotion"] == "2026-08-12"
+    assert result["source_dates"]["overview_updated"] == "2026-08-12 10:00:00"
+    assert result["source_dates"]["leaderboards"]["gainers"] == "2026-08-11"
+    assert result["leaderboards"]["gainers"][0]["scan_as_of"] == "2026-08-11T15:00:00+08:00"
+    assert result["market_anomalies"]["volume_spikes"][0]["scan_as_of"] == "2026-08-11T15:00:00+08:00"
+    assert "mixed_source_dates" in result["limitations"]
+    assert result["data_state"] == "partial"
+
+
+def test_workbench_does_not_invent_common_date_for_mixed_or_undated_boards():
+    class MixedBoards(FixtureProvider):
+        def get_stock_scan(self, **kwargs):
+            return {**super().get_stock_scan(**kwargs), "as_of": "2026-08-10"}
+
+    result = MarketWorkbenchEngine(MixedBoards()).analyze(scan_limit=50)
+    assert result["as_of"] is None
+    assert result["source_dates"]["leaderboards"]["amount"] == "2026-08-11"
+    assert result["snapshot"]["freshness"]["state"] == "unknown"
+    assert result["snapshot"]["data_window"]["end_date"] is None
+
+    class Undated(FixtureProvider):
+        def get_stock_scan(self, **kwargs):
+            return {**super().get_stock_scan(**kwargs), "as_of": ""}
+
+        def get_market_turnover_top(self, **kwargs):
+            return {**super().get_market_turnover_top(**kwargs), "as_of": "NaT"}
+
+    undated = MarketWorkbenchEngine(Undated()).analyze(scan_limit=50)
+    assert undated["as_of"] is None
+    assert "leaderboard_date_unavailable" in undated["limitations"]
+
+
+def test_workbench_preserves_daily_coverage_and_labels_union_sector_sample():
+    class Daily(FixtureProvider):
+        def get_stock_scan(self, **kwargs):
+            scan = super().get_stock_scan(**kwargs)
+            scan["coverage"].update(frequency="daily", realtime=False,
+                listedCount=100, quoteCount=97, missingQuoteCount=3)
+            return scan
+
+        def get_market_turnover_top(self, **kwargs):
+            raise MarketDataError("amount unavailable")
+
+        def get_market_overview(self):
+            return {**super().get_market_overview(), "sectors": []}
+
+    result = MarketWorkbenchEngine(Daily()).analyze(scan_limit=50)
+    coverage = result["coverage"]["leaderboard_provenance"]["gainers"]["coverage"]
+    assert coverage["frequency"] == "daily" and coverage["realtime"] is False
+    assert coverage["missingQuoteCount"] == 3
+    assert result["sector_basis"]["sample_sort"] == "ranked_boards_union"
+    assert "daily_scan_not_realtime" in result["limitations"]

@@ -53,6 +53,7 @@ class ExperimentProvider(MarketDataProvider):
 
     def __init__(self, size=620, future_shock_at=None):
         self.calls = []
+        self.sessions = pd.bdate_range("2023-01-02", periods=size)
         self.frames = {
             "510300": _bars(0.0004, size),
             "100001": _bars(0.0018, size),
@@ -60,6 +61,16 @@ class ExperimentProvider(MarketDataProvider):
             "100003": _bars(0.0002, size),
             "100004": _bars(-0.0004, size),
         }
+
+    def get_trading_calendar(self, start, end):
+        sessions = self.sessions[(self.sessions >= pd.Timestamp(start)) & (self.sessions <= pd.Timestamp(end))]
+        return {"status": "ready", "exchange": "SSE", "start": start, "end": end,
+                "source": "synthetic_test_calendar", "sessions": sessions.strftime("%Y-%m-%d").tolist()}
+
+    def get_execution_prices(self, symbol, start, end):
+        return {"status": "ready", "rows": [{"date": day.strftime("%Y-%m-%d"), "status": "paired",
+            "priceBasis": "unadjusted", "rawOpen": 10, "upperLimit": 11, "lowerLimit": 9}
+            for day in self.sessions if pd.Timestamp(start) <= day <= pd.Timestamp(end)]}
 
     def get_kline(self, symbol, period="daily", limit=480, as_of=None):
         self.calls.append((symbol, period, limit, as_of))
@@ -117,8 +128,6 @@ def _reference_variant_trades(
                 continue
             entry_price = experiment._execution_price(trade_source, entry_date)
             exit_price = experiment._execution_price(trade_source, exit_date)
-            if entry_price is None or exit_price is None:
-                continue
             trade_slice = trade_slice.copy()
             trade_slice.attrs.update(trade_source.attrs)
             trade_slice.attrs["data_lag_sessions"] = trade_lag
@@ -134,8 +143,8 @@ def _reference_variant_trades(
                 trade_frame=trade_slice,
                 signal_mode=signal_source.attrs.get("rotation_signal_mode", "trade_asset"),
             ))
-            executable[item.code] = (entry_price, exit_price)
-            period_returns.append(exit_price / entry_price - 1)
+            executable[item.code] = exit_price / entry_price - 1 if entry_price is not None and exit_price is not None else None
+            period_returns.append(executable[item.code])
         if len(raw_rows) < experiment._minimum_cross_section_size(len(experiment.universe)):
             continue
         rankings = engine._score_rows(raw_rows)
@@ -143,13 +152,9 @@ def _reference_variant_trades(
         selected = experiment._select_with_buffer(rankings, held_symbol)
         switched = held_symbol != selected["code"]
         transaction_cost = 2 * cost_bps / 10_000 if switched else 0.0
-        entry_price, exit_price = executable[selected["code"]]
-        leader_entry_price, leader_exit_price = executable[leader["code"]]
         benchmark_entry = experiment._execution_price(benchmark_frame, entry_date)
         benchmark_exit = experiment._execution_price(benchmark_frame, exit_date)
-        if benchmark_entry is None or benchmark_exit is None:
-            continue
-        gross_return = exit_price / entry_price - 1
+        gross_return = executable[selected["code"]]
         trades.append({
             "signal_date": signal_date.strftime("%Y-%m-%d"),
             "entry_date": entry_date.strftime("%Y-%m-%d"),
@@ -168,15 +173,13 @@ def _reference_variant_trades(
             "current_leader_signal_name": leader["signal_name"],
             "current_leader_signal_mode": leader["signal_mode"],
             "current_leader_score": leader["total_score"],
-            "current_leader_gross_return": (
-                leader_exit_price / leader_entry_price - 1
-            ),
+            "current_leader_gross_return": executable[leader["code"]],
             "switched": switched,
             "transaction_cost": transaction_cost,
             "gross_return": gross_return,
-            "net_return": gross_return - transaction_cost,
-            "benchmark_return": benchmark_exit / benchmark_entry - 1,
-            "equal_weight_return": float(np.mean(period_returns)),
+            "net_return": gross_return - transaction_cost if gross_return is not None else None,
+            "benchmark_return": benchmark_exit / benchmark_entry - 1 if benchmark_entry is not None and benchmark_exit is not None else None,
+            "equal_weight_return": float(np.mean(period_returns)) if all(value is not None for value in period_returns) else None,
         })
         held_symbol = selected["code"]
     return trades
@@ -191,7 +194,12 @@ def test_rotation_experiment_returns_oos_parameter_surface_and_stress_tests():
     )
 
     assert result["engine"]["name"] == "instock-rotation-experiment"
-    assert result["engine"]["version"] == "2.1.1"
+    assert result["engine"]["version"] == "2.9.0"
+    daily = result["daily_risk"]["strategy"]
+    assert daily["state"] == "complete"
+    assert daily["coverage"]["expected_periods"] == result["summary"]["oos_trades"]
+    assert daily["ending_nav"] == pytest.approx(result["equity_curve"][-1]["strategy"], abs=0.0001)
+    assert daily["max_drawdown_pct"] >= result["summary"]["oos_max_drawdown_pct"] - 0.0001
     assert len(result["parameter_surface"]) == len(ROTATION_WEIGHT_PROFILES) * 3
     comparison = result["confirmation_comparison"]
     assert comparison["base_variant_id"] == result["selected_variant"]["id"]
@@ -209,6 +217,10 @@ def test_rotation_experiment_returns_oos_parameter_surface_and_stress_tests():
     assert result["rules"]["hold_rank_limit"] == 3
     assert result["rules"]["transaction_cost"] == "charged_when_selected_etf_changes"
     assert result["selected_variant"]["qualification"]["state"] == "qualified"
+    assert result["summary"]["scorable_variant_count"] == result["summary"]["total_variant_count"] == 9
+    evidence = result["execution_audit"]["trade_evidence"]
+    assert evidence["train"]["state"] == evidence["out_of_sample"]["state"] == "checked"
+    assert result["execution_audit"]["transition_policy"].endswith("terminal_mark_only")
     assert result["data_quality"]["state"] == "complete"
     assert result["data_quality"]["signal_state"] == "complete"
     assert result["data_quality"]["universe_coverage_pct"] == 100.0
@@ -228,6 +240,7 @@ def test_rotation_experiment_returns_oos_parameter_surface_and_stress_tests():
     assert online_consensus["alignment"] == "same_as_online_snapshot_parameter_consensus"
     assert online_consensus["verdict"]["deployment"] == "observation_only_until_forward_validated"
     assert "development_holdout_has_been_reused_not_blind" in result["limitations"]
+    assert "missing_execution_prices_do_not_rewrite_signal_decisions" in result["limitations"]
     assert result["snapshot"]["snapshot_id"].startswith("instock-rotation-experiment:")
     assert result["verdict"]["state"] == "insufficient_evidence"
     assert any("低于五年" in reason for reason in result["verdict"]["reasons"])
@@ -235,6 +248,19 @@ def test_rotation_experiment_returns_oos_parameter_surface_and_stress_tests():
 
     stress_returns = [row["total_return_pct"] for row in result["stress_tests"]]
     assert stress_returns == sorted(stress_returns, reverse=True)
+
+
+def test_missing_limits_remain_theoretical_across_selected_confirmation_and_ensembles():
+    provider = ExperimentProvider()
+    provider.get_execution_prices = lambda *args: {"status": "unavailable", "rows": [], "reason": "fixture unavailable"}
+    result = RotationExperiment(provider, universe=UNIVERSE, max_workers=2).run()
+    assert result["selected_variant"]["qualification"]["state"] == "diagnostic_only"
+    assert result["summary"]["oos_return_pct"] is not None
+    evidence = result["execution_audit"]["trade_evidence"]
+    assert evidence["train"]["state"] == evidence["out_of_sample"]["state"] == "theoretical"
+    assert result["confirmation_comparison"]["verdict"]["state"] == "theoretical_only"
+    assert result["parameter_ensemble"]["verdict"]["state"] == "execution_unverified"
+    assert any("历史限价" in reason for reason in result["verdict"]["reasons"])
 
 
 def test_rotation_experiment_requires_broad_cross_section_for_31_industries():

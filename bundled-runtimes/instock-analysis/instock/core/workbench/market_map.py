@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from typing import Any
@@ -16,6 +17,7 @@ import pandas as pd
 from instock.core.analysis_snapshot import SNAPSHOT_SCHEMA_VERSION
 from instock.core.industry_taxonomy import (
     SW_2021_L1_INDUSTRIES,
+    SW_2021_L1_INDEX_CODES,
     SW_2021_L2_DIRECTORY,
     UNCLASSIFIED_INDUSTRY,
     resolve_sw_l1_industry,
@@ -30,7 +32,7 @@ class MarketMapError(ValueError):
 
 class MarketMapEngine:
     engine_name = "instock-market-map"
-    engine_version = "1.1.0"
+    engine_version = "1.2.0"
     supported_capacities = (100, 500)
     per_ranking_limit = 100
     ranking_specs = (
@@ -98,6 +100,9 @@ class MarketMapEngine:
                 "scope": str(coverage.get("scope") or "returned_scan_pool"),
                 "sort_basis": str(coverage.get("sort_basis") or sort),
                 "source": str(scan.get("source") or self.provider.name),
+                "as_of": scan.get("as_of"),
+                "received_at": scan.get("received_at"),
+                "coverage": dict(coverage),
             })
 
         displayed = sum(group["stock_count"] for group in groups)
@@ -123,8 +128,23 @@ class MarketMapEngine:
             limitations.append("market_map_uses_amount_fallback")
         if map_coverage["l1_only_securities"]:
             limitations.append("desk_scan_missing_verified_sw2021_l2_for_some_securities")
+        if map_coverage["unverified_classification_securities"]:
+            limitations.append("industry_label_matches_are_not_verified_memberships")
+        if map_coverage["verified_l2_securities"]:
+            limitations.append("current_industry_membership_not_point_in_time")
         if failures:
             limitations.append("partial_ranking_coverage")
+        if map_coverage["unclassified_securities"]:
+            limitations.append("market_map_has_unclassified_securities")
+        if map_coverage["missing_change_securities"]:
+            limitations.append("market_map_missing_price_changes")
+        if any(item["coverage"].get("frequency") == "daily" for item in contributing_rankings):
+            limitations.append("daily_scan_not_realtime")
+        missing_quotes = any(
+            item["coverage"].get("missingQuoteCount") for item in contributing_rankings
+        )
+        if missing_quotes:
+            limitations.append("scan_missing_quotes")
 
         as_of = self._as_of(scans)
         data_source = "+".join(dict.fromkeys(
@@ -135,7 +155,11 @@ class MarketMapEngine:
         stable = {
             "as_of": as_of,
             "data_source": data_source,
-            "data_state": "partial" if failures else "complete",
+            "data_state": "partial" if (
+                failures or missing_quotes or map_coverage["unclassified_securities"]
+                or map_coverage["unverified_classification_securities"]
+                or map_coverage["missing_change_securities"]
+            ) else "complete",
             "size_basis": size_basis,
             "color_basis": "change_pct",
             "groups": groups,
@@ -178,13 +202,15 @@ class MarketMapEngine:
                 if not symbol:
                     continue
                 row = merged.setdefault(symbol, {"symbol": symbol, "rank_sources": []})
+                if isinstance(item.get("industry_classification"), dict) and not row.get("industry_classification"):
+                    row["industry_classification"] = dict(item["industry_classification"])
                 for field in text_fields:
                     value = str(item.get(field) or "").strip()
                     if value and not row.get(field):
                         row[field] = value
                 for field in numeric_fields:
-                    value = cls._number(item.get(field))
-                    if value and not cls._number(row.get(field)):
+                    value = cls._optional_number(item.get(field))
+                    if value is not None and cls._optional_number(row.get(field)) is None:
                         row[field] = value
                 row["rank_sources"].append({"id": ranking_id, "label": label, "rank": rank})
                 symbols.append(symbol)
@@ -250,12 +276,25 @@ class MarketMapEngine:
             raw_industry = str(row.get("industry") or "").strip()
             explicit_l1 = str(row.get("industry_l1") or "").strip()
             explicit_l2 = str(row.get("industry_l2") or "").strip()
+            evidence = row.get("industry_classification") or {}
+            taxonomy = evidence.get("taxonomy")
             secondary_industry = resolve_sw_l2_industry(explicit_l2 or raw_industry)
             industry = resolve_sw_l1_industry(
                 explicit_l1 or secondary_industry or raw_industry
             )
             if secondary_industry and resolve_sw_l1_industry(secondary_industry) != industry:
                 secondary_industry = ""
+            membership_verified = (
+                taxonomy == "sw2021" and evidence.get("source") == "tushare.index_member_all"
+                and SW_2021_L1_INDEX_CODES.get(industry) == evidence.get("l1Code")
+                and any(name == secondary_industry and parent == industry and code == evidence.get("l2Code")
+                        for name, parent, code in SW_2021_L2_DIRECTORY)
+            )
+            # Explicitly foreign or inconsistent metadata must not be upgraded
+            # by a coincidentally matching directory label. Legacy labels remain
+            # usable but are disclosed separately from verified memberships.
+            if taxonomy and not membership_verified:
+                industry, secondary_industry = UNCLASSIFIED_INDUSTRY, ""
             market_cap = cls._number(row.get("market_cap"))
             float_market_cap = cls._number(row.get("float_market_cap"))
             amount = cls._number(row.get("amount"))
@@ -273,29 +312,28 @@ class MarketMapEngine:
                 "industry_l2": secondary_industry,
                 "secondary_industry": secondary_industry,
                 "raw_industry": raw_industry or UNCLASSIFIED_INDUSTRY,
+                "industry_classification": dict(evidence),
+                "classification_verified": membership_verified,
                 "classification_depth": (
                     "l2" if secondary_industry
                     else "l1" if industry != UNCLASSIFIED_INDUSTRY
                     else "none"
                 ),
                 "classification_source": (
-                    "desk_explicit_l2"
-                    if secondary_industry and explicit_l2
-                    else "desk_industry_verified_l2"
-                    if secondary_industry
-                    else "desk_l1_only"
+                    "tushare.index_member_all" if membership_verified
+                    else "directory_label_match"
                     if industry != UNCLASSIFIED_INDUSTRY
                     else "unclassified"
                 ),
-                "price": round(cls._number(row.get("price")), 3),
-                "change_pct": round(cls._number(row.get("change_pct")), 3),
-                "amount": round(amount, 2),
-                "turnover_pct": round(cls._number(row.get("turnover_pct")), 3),
-                "volume_ratio": round(cls._number(row.get("volume_ratio")), 3),
-                "market_cap": round(market_cap, 2),
-                "float_market_cap": round(float_market_cap, 2),
-                "pe": round(cls._number(row.get("pe")), 3),
-                "pb": round(cls._number(row.get("pb")), 3),
+                "price": cls._rounded_number(row.get("price"), 3),
+                "change_pct": cls._rounded_number(row.get("change_pct"), 3),
+                "amount": cls._rounded_number(row.get("amount"), 2),
+                "turnover_pct": cls._rounded_number(row.get("turnover_pct"), 3),
+                "volume_ratio": cls._rounded_number(row.get("volume_ratio"), 3),
+                "market_cap": cls._rounded_number(row.get("market_cap"), 2),
+                "float_market_cap": cls._rounded_number(row.get("float_market_cap"), 2),
+                "pe": cls._rounded_number(row.get("pe"), 3),
+                "pb": cls._rounded_number(row.get("pb"), 3),
                 "size_value": round(size_value, 2),
                 "size_basis": size_source,
                 "rank_sources": list(row.get("rank_sources") or []),
@@ -305,10 +343,7 @@ class MarketMapEngine:
         for industry, items in grouped.items():
             items.sort(key=lambda item: item["size_value"], reverse=True)
             total_size = sum(item["size_value"] for item in items)
-            weighted_change = (
-                sum(item["change_pct"] * item["size_value"] for item in items) / total_size
-                if total_size else 0.0
-            )
+            weighted_change = cls._weighted_change(items)
             grouped_secondary: dict[str, list[dict[str, Any]]] = {}
             direct_items = []
             for item in items:
@@ -319,15 +354,11 @@ class MarketMapEngine:
             secondary_groups = []
             for secondary_name, secondary_items in grouped_secondary.items():
                 secondary_size = sum(item["size_value"] for item in secondary_items)
-                secondary_change = (
-                    sum(item["change_pct"] * item["size_value"] for item in secondary_items)
-                    / secondary_size
-                    if secondary_size else 0.0
-                )
+                secondary_change = cls._weighted_change(secondary_items)
                 secondary_groups.append({
                     "name": secondary_name,
                     "industry_l1": industry,
-                    "change_pct": round(secondary_change, 3),
+                    "change_pct": secondary_change,
                     "size_value": round(secondary_size, 2),
                     "stock_count": len(secondary_items),
                     "items": secondary_items,
@@ -335,7 +366,7 @@ class MarketMapEngine:
             secondary_groups.sort(key=lambda item: item["size_value"], reverse=True)
             groups.append({
                 "name": industry,
-                "change_pct": round(weighted_change, 3),
+                "change_pct": weighted_change,
                 "size_value": round(total_size, 2),
                 "stock_count": len(items),
                 "secondary_count": len(secondary_groups),
@@ -355,7 +386,7 @@ class MarketMapEngine:
             if group["name"] == UNCLASSIFIED_INDUSTRY
         )
         all_items = [item for group in groups for item in group["items"]]
-        verified_l2 = sum(bool(item["industry_l2"]) for item in all_items)
+        verified_l2 = sum(bool(item["industry_l2"]) and item["classification_verified"] for item in all_items)
         l1_only = sum(
             not item["industry_l2"] and item["industry"] != UNCLASSIFIED_INDUSTRY
             for item in all_items
@@ -368,6 +399,10 @@ class MarketMapEngine:
             "classified_securities": classified,
             "unclassified_securities": unclassified,
             "verified_l2_securities": verified_l2,
+            "label_matched_l2_securities": sum(bool(item["industry_l2"]) and not item["classification_verified"] for item in all_items),
+            "unverified_classification_securities": sum(
+                item["industry"] != UNCLASSIFIED_INDUSTRY and not item["classification_verified"]
+                for item in all_items),
             "l1_only_securities": l1_only,
             "represented_l1_industries": sum(
                 group["name"] in SW_2021_L1_INDUSTRIES for group in groups
@@ -381,25 +416,29 @@ class MarketMapEngine:
             "float_market_cap_fallback_count": float_market_cap_fallback_count,
             "amount_fallback_count": amount_fallback_count,
             "excluded_without_size": len(source_rows) - len(valid_rows),
+            "missing_change_securities": sum(item["change_pct"] is None for item in all_items),
         }
         return groups, coverage, size_basis
 
     @classmethod
     def _summary(cls, groups: list[dict[str, Any]]) -> dict[str, Any]:
         rows = [item for group in groups for item in group["items"]]
-        ranked_industries = [group for group in groups if group["name"] != UNCLASSIFIED_INDUSTRY]
+        known_rows = [item for item in rows if item["change_pct"] is not None]
+        ranked_industries = [group for group in groups
+            if group["name"] != UNCLASSIFIED_INDUSTRY and group["change_pct"] is not None]
         strongest = max(ranked_industries, key=lambda item: item["change_pct"], default={})
         weakest = min(ranked_industries, key=lambda item: item["change_pct"], default={})
         largest = max(rows, key=lambda item: item["size_value"], default={})
         return {
             "securities": len(rows),
-            "advancers": sum(item["change_pct"] > 0.05 for item in rows),
-            "decliners": sum(item["change_pct"] < -0.05 for item in rows),
-            "flat": sum(abs(item["change_pct"]) <= 0.05 for item in rows),
+            "advancers": sum(item["change_pct"] > 0.05 for item in known_rows),
+            "decliners": sum(item["change_pct"] < -0.05 for item in known_rows),
+            "flat": sum(abs(item["change_pct"]) <= 0.05 for item in known_rows),
+            "unknown_change": len(rows) - len(known_rows),
             "strongest_industry": str(strongest.get("name") or "--"),
-            "strongest_industry_change_pct": round(cls._number(strongest.get("change_pct")), 3),
+            "strongest_industry_change_pct": strongest.get("change_pct"),
             "weakest_industry": str(weakest.get("name") or "--"),
-            "weakest_industry_change_pct": round(cls._number(weakest.get("change_pct")), 3),
+            "weakest_industry_change_pct": weakest.get("change_pct"),
             "largest_symbol": str(largest.get("symbol") or ""),
             "largest_name": str(largest.get("name") or "--"),
         }
@@ -472,9 +511,24 @@ class MarketMapEngine:
         }
 
     @staticmethod
-    def _number(value: Any) -> float:
+    def _weighted_change(items: list[dict[str, Any]]) -> float | None:
+        known = [item for item in items if item["change_pct"] is not None]
+        total = sum(item["size_value"] for item in known)
+        return round(sum(item["change_pct"] * item["size_value"] for item in known) / total, 3) if total else None
+
+    @staticmethod
+    def _optional_number(value: Any) -> float | None:
         try:
             number = float(value)
         except (TypeError, ValueError):
-            return 0.0
-        return number if pd.notna(number) else 0.0
+            return None
+        return number if math.isfinite(number) else None
+
+    @classmethod
+    def _rounded_number(cls, value: Any, precision: int) -> float | None:
+        number = cls._optional_number(value)
+        return round(number, precision) if number is not None else None
+
+    @classmethod
+    def _number(cls, value: Any) -> float:
+        return cls._optional_number(value) or 0.0

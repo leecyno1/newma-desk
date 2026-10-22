@@ -311,7 +311,8 @@ def tool_trade_date_hist_sina() -> pd.DataFrame:
     :rtype: pandas.DataFrame
     """
     url = "https://finance.sina.com.cn/realstock/company/klc_td_sh.txt"
-    r = requests.get(url, proxies = proxys().get_proxies())
+    r = requests.get(url, proxies = proxys().get_proxies(), timeout=15)
+    r.raise_for_status()
     js_code = MiniRacer()
     js_code.eval(hk_js_decode)
     dict_list = js_code.call(

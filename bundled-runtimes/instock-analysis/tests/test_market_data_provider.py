@@ -5,12 +5,172 @@ import requests
 from instock.core.market_data_provider import (
     HistoricalWindowUnavailable,
     MarketDataError,
+    MarketScanUnavailable,
     NewmaDeskMarketDataProvider,
     VibeDeskMarketDataProvider,
     _normalize_kline,
     get_market_data_provider,
 )
 import pytest
+
+
+@pytest.mark.parametrize("method", ["get_security_announcements", "get_security_reports", "get_security_news"])
+@pytest.mark.parametrize("rows", [[None], [{"title": "valid record"}, "invalid record"]])
+def test_event_list_rejects_malformed_rows_instead_of_silently_dropping_them(monkeypatch, method, rows):
+    from types import SimpleNamespace
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", lambda *a, **k:
+        SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": rows}))
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8991/api")
+    with pytest.raises(MarketDataError, match="格式无效"):
+        getattr(provider, method)("300502")
+
+
+@pytest.mark.parametrize("method", ["get_security_announcements", "get_security_reports", "get_security_news"])
+def test_event_list_preserves_explicit_empty_response(monkeypatch, method):
+    from types import SimpleNamespace
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", lambda *a, **k:
+        SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": []}))
+    assert getattr(NewmaDeskMarketDataProvider("http://127.0.0.1:8991/api"), method)("300502") == []
+
+
+@pytest.mark.parametrize("base", ["http://127.0.0.1:8991", "http://127.0.0.1:8991/api", "http://127.0.0.1:8991/api/"])
+def test_standalone_research_root_and_api_prefix_use_one_api_segment(monkeypatch, base):
+    from types import SimpleNamespace
+    calls = []
+    def get(url, **kwargs):
+        calls.append(url)
+        if url.endswith('/health'):
+            payload = {'ok': True, 'service': 'vibe-research-api'}
+        elif url.endswith('/statement-announcements'):
+            payload = {'data': {'symbol': '300502', 'source': 'cninfo', 'items': []}}
+        else:
+            payload = {'data': {'items': [{'date': '2026-10-19', 'open': 10, 'high': 12, 'low': 9, 'close': 11, 'volume': 100}]}}
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+    monkeypatch.setattr('instock.core.market_data_provider.requests.get', get)
+    provider = NewmaDeskMarketDataProvider(base)
+    assert provider.health()['status'] == 'ready'
+    assert len(provider.get_kline('300502', limit=1)) == 1
+    assert provider.get_statement_announcements('300502')['source'] == 'cninfo'
+    assert calls == [
+        'http://127.0.0.1:8991/api/health',
+        'http://127.0.0.1:8991/api/market-terminal/ohlcv',
+        'http://127.0.0.1:8991/api/equity-research/statement-announcements',
+    ]
+
+
+def test_native_calendar_uses_source_boundaries_not_observed_quotes(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import pandas as pd
+    from instock.core.market_data_provider import InStockMarketDataProvider
+    dates = pd.to_datetime(["2026-01-02", "2026-01-05", "2026-01-06"])
+    monkeypatch.setitem(sys.modules, "instock.core.crawling.trade_date_hist", SimpleNamespace(
+        tool_trade_date_hist_sina=lambda: pd.DataFrame({"trade_date": dates})))
+    provider = InStockMarketDataProvider()
+    assert provider.get_trading_calendar("2026-01-03", "2026-01-05")["sessions"] == ["2026-01-05"]
+    with pytest.raises(MarketDataError, match="未覆盖"):
+        provider.get_trading_calendar("2026-01-03", "2026-01-07")
+    monkeypatch.setitem(sys.modules, "instock.core.crawling.trade_date_hist", None)
+    with pytest.raises(MarketDataError, match="解码依赖未安装"):
+        provider.get_trading_calendar("2026-01-03", "2026-01-05")
+
+
+def test_independent_calendar_uses_desk_and_preserves_exact_range(monkeypatch):
+    calls = []
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {"schemaVersion": "newma-desk.trading-calendar.v1", "status": "ready", "sessions": []}
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs)); return Response()
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", fake_get)
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
+    assert provider.get_trading_calendar("2025-01-01", "2026-10-19")["sessions"] == []
+    assert calls[0][0] == "http://127.0.0.1:8911/api/capital-flow/trading-calendar"
+    assert calls[0][1]["params"] == {"start": "2025-01-01", "end": "2026-10-19"}
+
+
+def test_separate_market_services_do_not_reuse_research_origin_or_credentials(monkeypatch):
+    calls = []
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"schemaVersion": "newma-desk.trading-calendar.v1", "status": "ready", "sessions": []}
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get",
+                        lambda url, **kwargs: calls.append((url, kwargs)) or Response())
+    provider = NewmaDeskMarketDataProvider("https://research.example/api", token="research-test",
+        market_services_url="http://127.0.0.1:8994", market_services_token="calendar-test")
+    provider.get_trading_calendar("2026-01-01", "2026-01-05")
+    url, options = calls[0]
+    assert url == "http://127.0.0.1:8994/api/capital-flow/trading-calendar"
+    assert options["headers"]["Authorization"] == "Bearer calendar-test"
+    assert options["proxies"] == {"http": None, "https": None}
+    provider = NewmaDeskMarketDataProvider("https://research.example/api", token="research-test",
+        market_services_url="https://calendar.example")
+    provider.get_trading_calendar("2026-01-01", "2026-01-05")
+    assert "Authorization" not in calls[-1][1]["headers"]
+
+
+def test_direct_research_without_calendar_configuration_fails_before_network(monkeypatch):
+    def unexpected(*args, **kwargs):
+        pytest.fail("未配置基础服务时不应猜测 Research 上的交易日历路由")
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", unexpected)
+    provider = NewmaDeskMarketDataProvider("https://research.example/api")
+    with pytest.raises(MarketDataError, match="INSTOCK_MARKET_SERVICES_URL"):
+        provider.get_trading_calendar("2026-01-01", "2026-01-05")
+
+
+def test_factory_reads_separate_market_service_configuration(monkeypatch):
+    monkeypatch.setenv("INSTOCK_MARKET_DATA_PROVIDER", "http")
+    monkeypatch.setenv("INSTOCK_DATA_URL", "https://research.example/api")
+    monkeypatch.setenv("INSTOCK_DATA_TOKEN", "research-test")
+    monkeypatch.setenv("INSTOCK_MARKET_SERVICES_URL", "https://market.example/")
+    monkeypatch.setenv("INSTOCK_MARKET_SERVICES_TOKEN", "market-test")
+    get_market_data_provider.cache_clear()
+    try:
+        provider = get_market_data_provider()
+        assert provider.market_services_url == "https://market.example"
+        assert provider.market_services_token == "market-test"
+        assert provider.token == "research-test"
+    finally:
+        get_market_data_provider.cache_clear()
+
+
+def test_integrated_gateway_preserves_legacy_service_credentials(monkeypatch):
+    calls = []
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {"data": {}}
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get",
+                        lambda url, **kwargs: calls.append((url, kwargs)) or Response())
+    provider = NewmaDeskMarketDataProvider("https://desk.example/api/research", token="desk-test")
+    for route in ("trading-calendar", "execution-prices", "market-structure", "market-evidence"):
+        provider._invoke_research_http("/api/capital-flow/" + route, {}, desk_native=True)
+        assert calls[-1][0] == "https://desk.example/api/capital-flow/" + route
+        assert calls[-1][1]["headers"]["Authorization"] == "Bearer desk-test"
+    provider = NewmaDeskMarketDataProvider("https://desk.example/api/research", token="desk-test",
+                                         market_services_url="https://desk.example")
+    provider._invoke_research_http("/api/capital-flow/trading-calendar", {}, desk_native=True)
+    assert "Authorization" not in calls[-1][1]["headers"]
+
+
+def test_execution_prices_require_same_symbol_dates_and_unadjusted_basis(monkeypatch):
+    payload = {"schemaVersion": "newma-desk.execution-prices.v1", "symbol": "510300", "start": "2026-01-02", "end": "2026-01-05", "priceBasis": "unadjusted", "rows": []}
+    calls = []
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return payload
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs)); return Response()
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", fake_get)
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
+    assert provider.get_execution_prices("510300", "2026-01-02", "2026-01-05")["rows"] == []
+    assert calls[0][0] == "http://127.0.0.1:8911/api/capital-flow/execution-prices"
+    assert calls[0][1]["params"] == {"symbol": "510300", "start": "2026-01-02", "end": "2026-01-05"}
+    for key, wrong in (("priceBasis", "qfq"), ("symbol", "000001"), ("end", "2026-01-06")):
+        original = payload[key]; payload[key] = wrong
+        with pytest.raises(MarketDataError, match="不匹配"):
+            provider.get_execution_prices("510300", "2026-01-02", "2026-01-05")
+        payload[key] = original
 
 
 def test_market_structure_uses_desk_origin_not_research_proxy(monkeypatch):
@@ -62,7 +222,7 @@ def _bars(size=30):
     ]
 
 
-def test_newma_desk_health_uses_existing_research_health_route(monkeypatch):
+def test_standalone_health_uses_existing_research_health_route(monkeypatch):
     captured = {}
 
     class Response:
@@ -72,7 +232,7 @@ def test_newma_desk_health_uses_existing_research_health_route(monkeypatch):
         def json(self):
             return {"ok": True, "service": "vibe-research-api"}
 
-    def fake_get(url, headers, timeout, proxies=None):
+    def fake_get(url, headers, timeout, proxies=None, params=None):
         captured.update({
             "url": url,
             "headers": headers,
@@ -83,7 +243,7 @@ def test_newma_desk_health_uses_existing_research_health_route(monkeypatch):
 
     monkeypatch.setattr("instock.core.market_data_provider.requests.get", fake_get)
     provider = NewmaDeskMarketDataProvider(
-        "http://127.0.0.1:8911/api/research", token="secret", timeout=20
+        "http://127.0.0.1:8991/api", token="secret", timeout=20
     )
 
     result = provider.health()
@@ -94,24 +254,64 @@ def test_newma_desk_health_uses_existing_research_health_route(monkeypatch):
         "reason": None,
         "service": "vibe-research-api",
     }
-    assert captured["url"] == "http://127.0.0.1:8911/api/research/health"
+    assert captured["url"] == "http://127.0.0.1:8991/api/health"
     assert captured["headers"]["Authorization"] == "Bearer secret"
     assert captured["timeout"] == 2.0
     assert captured["proxies"] == {"http": None, "https": None}
 
 
-def test_newma_desk_health_returns_unavailable_without_raising(monkeypatch):
-    def fake_get(url, headers, timeout, proxies=None):
+def test_desk_health_uses_registered_capability_not_old_embedded_route(monkeypatch):
+    from types import SimpleNamespace
+    calls = []
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", lambda *a, **k: pytest.fail("不能探测旧内嵌Research路径"))
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"ok": True, "service": "vibe-research-api"})
+    monkeypatch.setattr("instock.core.market_data_provider.requests.post", post)
+    result = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research").health()
+    assert result["status"] == "ready"
+    assert calls[0][0] == "http://127.0.0.1:8911/api/data-services/market-data/invoke/market.health"
+    assert calls[0][1]["json"] == {}
+    assert calls[0][1]["timeout"] == 2
+
+
+@pytest.mark.parametrize("gateway", [False, True])
+def test_newma_desk_health_returns_unavailable_without_raising(monkeypatch, gateway):
+    def fake_get(url, headers, timeout, proxies=None, params=None):
         raise requests.ConnectionError("desk stopped")
 
     monkeypatch.setattr("instock.core.market_data_provider.requests.get", fake_get)
-    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
+    monkeypatch.setattr("instock.core.market_data_provider.requests.post", lambda *a, **k: (_ for _ in ()).throw(requests.ConnectionError("desk stopped")))
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research" if gateway else "http://127.0.0.1:8991/api")
 
     result = provider.health()
 
     assert result["status"] == "unavailable"
     assert result["reason"] == "desk_health_unreachable"
     assert result["provider"] == "newma-desk"
+
+
+@pytest.mark.parametrize("gateway", [False, True])
+def test_health_distinguishes_missing_desk_capability_from_connection_failure(monkeypatch, gateway):
+    calls = []
+    def unavailable(url, **kwargs):
+        calls.append(url)
+        response = requests.Response()
+        response.status_code = 404
+        response.url = url
+        response._content = b'{"detail":"data service capability not found"}'
+        return response
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", unavailable)
+    monkeypatch.setattr("instock.core.market_data_provider.requests.post", unavailable)
+    base = "http://127.0.0.1:8911/api/research" if gateway else "http://127.0.0.1:8991/api"
+    result = NewmaDeskMarketDataProvider(base).health()
+    assert result["status"] == "unavailable"
+    assert result["reason"] == ("desk_health_capability_unavailable" if gateway else "desk_health_unreachable")
+    assert len(calls) == 1
+    if gateway:
+        assert "market.health" in result["detail"]
+        assert "配套" in result["detail"]
+        assert "http://" not in result["detail"]
 
 
 def test_newma_desk_json_capability_retries_one_transient_gateway_failure(monkeypatch):
@@ -143,7 +343,7 @@ def test_newma_desk_json_capability_retries_one_transient_gateway_failure(monkey
     assert len(calls) == 2
 
 
-def test_newma_desk_equity_snapshot_falls_back_to_existing_research_http(monkeypatch):
+def test_newma_desk_equity_snapshot_does_not_bypass_failed_gateway(monkeypatch):
     provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
     calls = []
 
@@ -157,10 +357,9 @@ def test_newma_desk_equity_snapshot_falls_back_to_existing_research_http(monkeyp
     monkeypatch.setattr(provider, "_invoke_json_capability", unavailable)
     monkeypatch.setattr(provider, "_invoke_research_http", direct)
 
-    result = provider.get_equity_snapshot("300502")
-
-    assert result["identity"]["name"] == "新易盛"
-    assert calls == [("/equity-research/snapshot", {"symbol": "300502"})]
+    with pytest.raises(MarketDataError, match="gateway unavailable"):
+        provider.get_equity_snapshot("300502")
+    assert calls == []
 
 
 def test_newma_desk_equity_comparison_uses_longer_batch_timeout(monkeypatch):
@@ -169,16 +368,17 @@ def test_newma_desk_equity_comparison_uses_longer_batch_timeout(monkeypatch):
     )
     calls = []
 
-    def direct(path, parameters, *, timeout=None):
-        calls.append((path, parameters, timeout))
+    def invoke(capability, path, parameters, *, timeout=None):
+        calls.append((capability, path, parameters, timeout))
         return {"rows": [], "errors": []}
 
-    monkeypatch.setattr(provider, "_invoke_research_http", direct)
+    monkeypatch.setattr(provider, "_invoke_json_capability", invoke)
 
     result = provider.get_equity_comparison(["300502", "300308"])
 
     assert result == {"rows": [], "errors": []}
     assert calls == [(
+        "research.equity-comparison",
         "/equity-research/comparison",
         {"symbols": "300502,300308"},
         60.0,
@@ -189,14 +389,14 @@ def test_newma_desk_equity_comparison_cache_reuses_and_copy_isolates_packet(monk
     provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
     calls = []
 
-    def direct(path, parameters, *, timeout=None):
+    def direct(capability, path, parameters, *, timeout=None):
         calls.append((path, parameters, timeout))
         return {
             "rows": [{"identity": {"symbol": "300502", "name": "新易盛"}}],
             "errors": [],
         }
 
-    monkeypatch.setattr(provider, "_invoke_research_http", direct)
+    monkeypatch.setattr(provider, "_invoke_json_capability", direct)
     first = provider.get_equity_comparison(["300502"])
     first["rows"][0]["identity"]["name"] = "被修改"
     second = provider.get_equity_comparison(["300502"])
@@ -209,15 +409,46 @@ def test_newma_desk_equity_comparison_refresh_bypasses_cache(monkeypatch):
     provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
     calls = []
 
-    def direct(path, parameters, *, timeout=None):
+    def direct(capability, path, parameters, *, timeout=None):
         calls.append(1)
         return {"rows": [], "errors": []}
 
-    monkeypatch.setattr(provider, "_invoke_research_http", direct)
+    monkeypatch.setattr(provider, "_invoke_json_capability", direct)
     provider.get_equity_comparison(["300502"])
     provider.get_equity_comparison(["300502"], refresh=True)
 
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize("status,code", [(401, "UPSTREAM_AUTH_REQUIRED"), (403, "UPSTREAM_FORBIDDEN"), (502, "UPSTREAM_TIMEOUT")])
+def test_financial_gateway_errors_are_safe_and_not_retried(monkeypatch, status, code):
+    calls = []
+    class Response:
+        status_code = status
+        def raise_for_status(self):
+            raise requests.HTTPError("private-url?token=secret", response=self)
+        def json(self):
+            return {"error": {"code": code, "message": "private-url?token=secret"}}
+    monkeypatch.setattr("instock.core.market_data_provider.requests.post", lambda *a, **k: calls.append(k) or Response())
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
+    with pytest.raises(MarketDataError) as caught:
+        provider.get_equity_snapshot("300502")
+    assert caught.value.code == code
+    assert "private-url" not in str(caught.value)
+    assert "secret" not in str(caught.value)
+    assert len(calls) == 1
+
+
+def test_standalone_comparison_uses_configured_auth_and_batch_budget(monkeypatch):
+    from types import SimpleNamespace
+    calls = []
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", lambda url, **k:
+        calls.append((url, k)) or SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": {"rows": []}}))
+    provider = NewmaDeskMarketDataProvider("https://research.example/api", token="synthetic-key")
+    provider.get_equity_comparison(["300502", "300308"])
+    assert calls[0][0] == "https://research.example/api/equity-research/comparison"
+    assert calls[0][1]["headers"]["Authorization"] == "Bearer synthetic-key"
+    assert calls[0][1]["timeout"] == 60
 
 
 def test_normalize_kline_keeps_actual_week_end_date():
@@ -290,6 +521,32 @@ def test_newma_desk_adapter_uses_unified_kline_api(monkeypatch):
     assert frame.attrs["upstream_timeframe"] == "1w"
     assert frame.attrs["upstream_has_more"] is False
     assert len(frame) == 25
+
+
+@pytest.mark.parametrize("method,symbol", [("get_kline", "300502"), ("get_signal_kline", "881001")])
+@pytest.mark.parametrize("metadata,expected", [
+    ({}, "unknown"), ({"adjust": None}, "unknown"), ({"adjust": ""}, "unknown"),
+    ({"adjust": "unexpected"}, "unknown"), ({"adjust": "qfq"}, "qfq"),
+    ({"adjust": "hfq"}, "hfq"), ({"adjust": "none"}, "none"),
+])
+def test_kline_reports_returned_adjustment_not_requested_adjustment(monkeypatch, method, symbol, metadata, expected):
+    from types import SimpleNamespace
+    response = SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": {"items": _bars(40), **metadata}})
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", lambda *a, **k: response)
+    monkeypatch.setattr("instock.core.market_data_provider.requests.post", lambda *a, **k: response)
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
+    frame = getattr(provider, method)(symbol, limit=40)
+    assert len(frame) == 40
+    assert frame.attrs["adjust"] == expected
+
+
+@pytest.mark.parametrize("method", ["get_kline", "get_signal_kline"])
+def test_bare_kline_rows_keep_unknown_adjustment(monkeypatch, method):
+    from types import SimpleNamespace
+    monkeypatch.setattr("instock.core.market_data_provider.requests.get", lambda *a, **k:
+        SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": _bars(40)}))
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8991/api")
+    assert getattr(provider, method)("300502", limit=40).attrs["adjust"] == "unknown"
 
 
 def test_newma_desk_adapter_preserves_sw_index_code_and_uses_no_adjust(monkeypatch):
@@ -397,6 +654,9 @@ def test_newma_desk_adapter_normalizes_stock_scan(monkeypatch):
                         "floatMarketCap": 520_887_183_517, "pe": 52.07,
                         "pb": 29.83, "industry": "通信设备",
                         "industryL1": "通信", "industryL2": "通信设备",
+                        "industryClassification": {"taxonomy": "sw2021",
+                            "source": "tushare.index_member_all", "l1Code": "801770.SI",
+                            "l2Code": "801102.SI", "pointInTime": False},
                     }],
                     "market": "CN", "sort": "amount", "order": "desc",
                     "source": "tushare", "asOf": "2026-08-11T09:34:14+00:00",
@@ -425,6 +685,7 @@ def test_newma_desk_adapter_normalizes_stock_scan(monkeypatch):
     assert result["items"][0]["float_market_cap"] == 520_887_183_517
     assert result["items"][0]["industry_l1"] == "通信"
     assert result["items"][0]["industry_l2"] == "通信设备"
+    assert result["items"][0]["industry_classification"]["source"] == "tushare.index_member_all"
 
 
 def test_newma_desk_adapter_enriches_identity_only_scan_with_batch_quotes(monkeypatch):
@@ -613,6 +874,8 @@ def test_newma_desk_adapter_normalizes_full_market_turnover_top(monkeypatch):
 
     assert result["items"][0]["symbol"] == "300502"
     assert result["items"][0]["amount"] == 18_751_550_000
+    for field in ("pe", "pb", "turnover_pct", "volume_ratio"):
+        assert result["items"][0][field] is None
     assert result["coverage"] == {
         "requested": 20,
         "returned": 1,
@@ -728,6 +991,29 @@ def test_newma_desk_adapter_reads_existing_research_event_interfaces(monkeypatch
     assert result["sources"]["lockup"]["units"]["able_shares"] == "万股"
 
 
+def test_event_source_failure_keeps_http_status_without_exposing_internal_url(monkeypatch):
+    provider = NewmaDeskMarketDataProvider('http://127.0.0.1:18913/api')
+    def invoke(path, params):
+        if path == '/api/dragon-tiger':
+            response = requests.Response()
+            response.status_code = 502
+            response.url = 'http://internal.test/private?token=test-only'
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                raise MarketDataError(str(exc)) from exc
+        return []
+    monkeypatch.setattr(provider, '_invoke_research_http', invoke)
+    result = provider.get_security_event_flow('300502')
+    failure = result['failures'][0]
+    assert failure['source'] == 'dragon_tiger'
+    assert '502' in failure['message']
+    assert '不等于' in failure['message']
+    assert 'internal.test' not in failure['message']
+    assert 'token=' not in failure['message']
+    assert result['sources']['dragon_tiger']['state'] == 'failed'
+
+
 def test_newma_desk_adapter_retries_transient_gateway_error(monkeypatch):
     calls = []
 
@@ -779,6 +1065,7 @@ def test_newma_desk_adapter_filters_latest_window_for_historical_as_of(monkeypat
     frame = provider.get_kline("300502", period="daily", limit=10, as_of="2026-01-20")
 
     assert captured["params"]["limit"] == 800
+    assert captured["params"]["asOf"] == "2026-01-20"
     assert len(frame) == 10
     assert frame["date"].iloc[-1].strftime("%Y-%m-%d") == "2026-01-20"
     assert frame.attrs["as_of_mode"] == "client_filter"
@@ -981,11 +1268,22 @@ def test_newma_desk_adapter_falls_back_to_overview_sectors_for_industry(monkeypa
     )]
 
 
+def test_industry_ranking_prefers_daily_membership_breadth_and_preserves_scope(monkeypatch):
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
+    daily = {"top": [{"name": "银行", "change_pct": 0, "up_count": 2, "down_count": 3}],
+             "bottom": [], "total": 1, "as_of": "2026-10-21", "source": "tushare-daily",
+             "coverage": {"quoteCount": 5568}, "point_in_time": False}
+    monkeypatch.setattr(provider, "get_market_overview", lambda: {"industryBreadth": daily,
+        "sectors": [{"name": "错误旧板块", "pct": 1}]})
+    result = provider.get_industry_ranking()
+    assert result == daily
+
+
 def test_newma_desk_security_master_status_keeps_summary_only_semantics(monkeypatch):
     provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8911/api/research")
     calls = []
 
-    def invoke(capability, path, parameters):
+    def invoke(capability, path, parameters, **kwargs):
         calls.append((capability, path, parameters))
         return {
             "count": 5558,
@@ -1007,6 +1305,70 @@ def test_newma_desk_security_master_status_keeps_summary_only_semantics(monkeypa
         "updated_at": "2026-08-17T07:48:17+0800",
     }
     assert calls == [("market.security-master", "/api/market-terminal/security-master", {})]
+
+
+def test_stock_scan_failure_keeps_cause_without_exposing_transport_details(monkeypatch):
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8992/api")
+    error = requests.ConnectionError("private transport detail")
+    def fail(*args, **kwargs):
+        raise error
+    monkeypatch.setattr(provider, "_request_capability", fail)
+    with pytest.raises(MarketDataError, match="行情扫描暂不可用") as caught:
+        provider.get_stock_scan()
+    assert caught.value.__cause__ is error
+    assert "private transport detail" not in str(caught.value)
+
+
+def test_daily_scan_preserves_missing_metrics_and_observation_through_union(monkeypatch):
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8992/api")
+    data = {
+        "items": [
+            {"symbol": "000001", "name": "缺估值", "price": 10, "amount": 100, "pe": None},
+            {"symbol": "600000", "name": "真实零", "price": 10, "amount": 0, "pe": 0},
+        ],
+        "source": "tushare-daily", "asOf": "2026-10-19T15:00:00+08:00",
+        "receivedAt": "2026-10-20T10:00:00+08:00",
+        "coverage": {"frequency": "daily", "realtime": False, "listedCount": 3,
+                     "quoteCount": 2, "missingQuoteCount": 1, "basicCount": 1,
+                     "scope": "daily_a_share_ranked_top", "rankableCount": 1, "missingSortCount": 1},
+    }
+    class Response:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return data
+    monkeypatch.setattr(provider, "_request_capability", lambda *a, **k: Response())
+    monkeypatch.setattr(provider, "_enrich_scan_quotes", lambda *a, **k: pytest.fail("daily scan must not fetch live quotes"))
+    monkeypatch.setattr(provider, "get_security_master_status", lambda: {})
+    scan = provider.get_stock_scan(sort="pe", order="asc")
+    assert [row["symbol"] for row in scan["items"]] == ["600000", "000001"]
+    assert scan["items"][0]["pe"] == 0
+    assert scan["items"][1]["pe"] is None
+    assert scan["items"][1]["market_cap"] is None
+    assert scan["items"][1]["scan_as_of"] == data["asOf"]
+    assert scan["as_of"] == data["asOf"]
+    assert scan["coverage"]["missingSortCount"] == 1
+    universe = provider.get_candidate_universe()
+    observations = universe["coverage"]["observations"]
+    assert len(observations) == 1  # not repeated once per scan axis
+    assert observations[0]["missing_quote_count"] == 1
+    assert observations[0]["realtime"] is False
+    assert universe["coverage"]["scans"][0]["coverage"]["rankableCount"] == 1
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_candidate_universe_distinguishes_empty_from_unavailable(monkeypatch, failed):
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8992/api")
+    def scan(**kwargs):
+        if failed:
+            raise MarketDataError("transport failure")
+        return {"items": []}
+    monkeypatch.setattr(provider, "get_stock_scan", scan)
+    with pytest.raises(MarketDataError) as caught:
+        provider.get_candidate_universe()
+    message = str(caught.value)
+    assert ("11 项查询失败" in message) is failed
+    assert ("没有返回候选" in message) is not failed
 
 
 def test_candidate_universe_covers_small_cap_and_low_activity_tails():
@@ -1044,6 +1406,51 @@ def test_candidate_universe_covers_small_cap_and_low_activity_tails():
     assert result["coverage"]["sort_basis"] == "eleven_scan_axes"
     assert result["coverage"]["full_security_master"] is False
     assert result["items"][0]["scan_membership_scores"]
+
+
+def test_unavailable_scan_stops_sibling_axes_but_preserves_other_market(monkeypatch):
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8992/api")
+    calls = []
+    def scan(**kwargs):
+        calls.append(kwargs)
+        if kwargs["market"] == "CN":
+            raise MarketScanUnavailable("source unavailable")
+        return {"items": [{"symbol": "00700", "name": "腾讯控股", "market": "HK"}]}
+    monkeypatch.setattr(provider, "get_stock_scan", scan)
+    monkeypatch.setattr(provider, "get_security_master_status", lambda: {})
+    result = provider.get_candidate_universe(markets=("CN", "HK"))
+    assert len(calls) == 12
+    assert len([call for call in calls if call["market"] == "CN"]) == 1
+    assert result["items"][0]["symbol"] == "00700"
+    assert result["coverage"]["scan_failures"][0]["skipped_axes"] == 10
+    assert result["coverage"]["scan_count"] == 11
+
+
+def test_all_unavailable_scans_report_skipped_axes_without_retry_fanout(monkeypatch):
+    provider = NewmaDeskMarketDataProvider("http://127.0.0.1:8992/api")
+    calls = []
+    def scan(**kwargs):
+        calls.append(kwargs)
+        raise MarketScanUnavailable("source unavailable")
+    monkeypatch.setattr(provider, "get_stock_scan", scan)
+    with pytest.raises(MarketDataError, match="1 项查询失败、10 项未执行"):
+        provider.get_candidate_universe()
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("provider_name", [None, "http", "newma-desk", "newma", "vibedesk"])
+def test_http_provider_requires_explicit_data_endpoint(monkeypatch, provider_name):
+    for name in ["INSTOCK_DATA_URL", "NEWMA_DESK_DATA_URL", "NEWMA_DOCK_DATA_URL", "VIBEDESK_DATA_URL",
+                 "INSTOCK_MARKET_DATA_PROVIDER"]:
+        monkeypatch.delenv(name, raising=False)
+    if provider_name is not None:
+        monkeypatch.setenv("INSTOCK_MARKET_DATA_PROVIDER", provider_name)
+    get_market_data_provider.cache_clear()
+    try:
+        with pytest.raises(MarketDataError, match="INSTOCK_DATA_URL"):
+            get_market_data_provider()
+    finally:
+        get_market_data_provider.cache_clear()
 
 
 def test_legacy_provider_name_uses_newma_environment_precedence(monkeypatch):

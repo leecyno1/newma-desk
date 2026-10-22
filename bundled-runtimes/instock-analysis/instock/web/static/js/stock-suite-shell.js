@@ -34,6 +34,53 @@
         });
     }
 
+    function navigateWithinWorkspace(url) {
+        const bridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+        if (!(bridge?.embedded ?? (window.parent !== window)) || url.origin !== window.location.origin) return false;
+        const route = url.pathname.match(/^\/mods\/([^/]+)\/?$/)?.[1];
+        if (!Object.hasOwn(pages, route || '')) return false;
+        let notice = document.getElementById('stock-suite-navigation-error');
+        if (bridge?.navigate?.('instock-' + route, url.search)) {
+            if (notice) notice.remove();
+        } else {
+            if (!notice) {
+                notice = document.createElement('div');
+                notice.id = 'stock-suite-navigation-error';
+                notice.className = 'alert alert-warning';
+                notice.setAttribute('role', 'alert');
+                document.body.prepend(notice);
+            }
+            notice.textContent = 'Desk 工作区导航尚未就绪，请刷新后重试；未切换到独立页面。';
+        }
+        return true;
+    }
+
+    function setupWorkspaceNavigation() {
+        const follow = event => {
+            if (event.defaultPrevented || (event.type === 'auxclick' && event.button !== 1)) return;
+            const link = event.target.closest?.('a[href]');
+            if (!link || link.hasAttribute('download')) return;
+            const url = new URL(link.href, window.location.href);
+            if (url.hash && url.pathname === window.location.pathname && url.search === window.location.search) return;
+            if (navigateWithinWorkspace(url)) event.preventDefault();
+        };
+        document.addEventListener('click', follow);
+        document.addEventListener('auxclick', follow);
+    }
+
+    function setupTheme() {
+        const bridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+        const control = document.getElementById('stock-suite-theme-control');
+        const select = document.getElementById('stock-suite-theme');
+        if (!control || !select || !bridge) return;
+        control.hidden = bridge.embedded;
+        if (bridge.embedded) return;
+        const sync = () => { select.value = bridge.themePreference; };
+        sync();
+        select.addEventListener('change', () => bridge.setStandaloneTheme(select.value));
+        document.addEventListener('instock:themechange', sync);
+    }
+
     function setupDirectory() {
         const button = document.getElementById('stock-suite-menu-button');
         const close = document.getElementById('stock-suite-directory-close');
@@ -70,6 +117,10 @@
         let selectedHistoryId = '';
         let selectedRecordType = 'analysis';
         let previousFocus = null;
+        let scopeVersion = 0;
+        let restoreVersion = 0;
+        const bridge = window.InStockNewmaDesk || window.InStockVibeDesk;
+        const request = (url) => bridge.fetchAnalysis(url);
         if (moduleLabel) moduleLabel.textContent = pages[moduleId].title;
 
         function setOpen(open) {
@@ -108,7 +159,7 @@
             });
             if (!records.length) {
                 const empty = document.createElement('p');
-                empty.textContent = '尚无历史记录。刷新或运行一次分析后会自动保留。';
+                empty.textContent = '当前范围尚无历史记录。运行分析后会保留；旧版无工作区归属的记录仍在原库中，未自动认领或显示。';
                 list.appendChild(empty);
                 return;
             }
@@ -133,14 +184,17 @@
         }
 
         async function loadList() {
+            const version = scopeVersion;
             try {
-                const response = await fetch(`/api/v1/analysis-history?${new URLSearchParams({moduleId, limit: '50'})}`);
+                const response = await request(`/api/v1/analysis-history?${new URLSearchParams({moduleId, limit: '50'})}`);
                 const body = await response.json();
+                if (version !== scopeVersion) return [];
                 if (!response.ok) throw new Error(errorMessage(body, '历史记录加载失败'));
                 const records = body.data || [];
                 renderList(records);
                 return records;
             } catch (error) {
+                if (version !== scopeVersion) return [];
                 list.replaceChildren();
                 const message = document.createElement('p');
                 message.textContent = error.message || String(error);
@@ -150,9 +204,13 @@
         }
 
         async function restore(historyId, viewSource) {
+            const version = scopeVersion;
+            const selection = ++restoreVersion;
+            document.dispatchEvent(new CustomEvent('instock:history-loading', {detail: {moduleId}}));
             try {
-                const response = await fetch(`/api/v1/analysis-history/${encodeURIComponent(historyId)}`);
+                const response = await request(`/api/v1/analysis-history/${encodeURIComponent(historyId)}`);
                 const body = await response.json();
+                if (version !== scopeVersion || selection !== restoreVersion) return;
                 if (!response.ok) throw new Error(errorMessage(body, '历史记录读取失败'));
                 const record = body.data;
                 selectedHistoryId = record.history_id;
@@ -165,22 +223,35 @@
                     detail: {...record, view_source: isHistory ? 'history' : 'latest'},
                 }));
                 await loadList();
-                setOpen(false);
+                if (version === scopeVersion && selection === restoreVersion) setOpen(false);
             } catch (error) {
+                if (version !== scopeVersion || selection !== restoreVersion) return;
+                document.dispatchEvent(new CustomEvent('instock:history-error', {detail: {moduleId}}));
                 window.alert(error.message || String(error));
             }
         }
 
         async function returnLatest() {
+            const selection = ++restoreVersion;
+            const version = scopeVersion;
             selectedHistoryId = '';
             if (banner) banner.hidden = true;
             delete document.documentElement.dataset.instockHistory;
             const records = await loadList();
+            if (version !== scopeVersion || selection !== restoreVersion) return;
             const latestRecord = records.find(record => (record.record_type || 'analysis') === selectedRecordType);
             if (latestRecord) await restore(latestRecord.history_id, 'latest');
         }
 
         buttons.forEach(item => item.addEventListener('click', () => setOpen(!drawer.classList.contains('is-open'))));
+        document.addEventListener('vibedesk:init', () => {
+            scopeVersion += 1;
+            selectedHistoryId = '';
+            if (banner) banner.hidden = true;
+            delete document.documentElement.dataset.instockHistory;
+            renderList([]);
+            void loadList();
+        });
         close && close.addEventListener('click', () => setOpen(false));
         latest && latest.addEventListener('click', returnLatest);
         document.addEventListener('keydown', event => { if (event.key === 'Escape' && drawer.classList.contains('is-open')) setOpen(false); });
@@ -190,6 +261,14 @@
             if (banner) banner.hidden = true;
             delete document.documentElement.dataset.instockHistory;
             loadList();
+        });
+        document.addEventListener('instock:analysis-invalidated', event => {
+            if (event.detail?.moduleId !== moduleId) return;
+            restoreVersion += 1;
+            selectedHistoryId = '';
+            if (banner) banner.hidden = true;
+            delete document.documentElement.dataset.instockHistory;
+            list.querySelectorAll('.is-active').forEach(item => item.classList.remove('is-active'));
         });
         loadList();
     }
@@ -213,29 +292,44 @@
             url.searchParams.set('symbol', symbol);
             url.searchParams.set('period', 'daily');
             url.searchParams.set('bars', '240');
+            if (navigateWithinWorkspace(url)) return;
             window.location.assign(url.pathname + url.search);
         });
         input.addEventListener('input', () => input.setCustomValidity(''));
     }
 
-    async function setupRuntime() {
+    function setupRuntime() {
         const root = document.querySelector('.stock-suite-runtime');
         const state = document.getElementById('stock-suite-runtime-state');
         if (!root || !state) return;
-        try {
-            const response = await fetch('/api/v1/health', {headers: {'Accept': 'application/json'}});
-            const payload = await response.json();
-            const health = payload && payload.ok === true ? payload.data : null;
-            const analysisReady = response.ok && health && health.readiness && health.readiness.status === 'ready';
-            const dataReady = analysisReady && health.readiness.market_data === true;
-            root.classList.toggle('is-ready', dataReady);
-            root.classList.toggle('is-degraded', analysisReady && !dataReady);
-            root.classList.toggle('is-error', !analysisReady);
-            state.textContent = dataReady ? '正常' : analysisReady ? '数据不可用' : '服务异常';
-        } catch (error) {
-            root.classList.add('is-error');
-            state.textContent = '不可用';
+        let pending = false;
+        async function refresh() {
+            if (pending) return;
+            pending = true;
+            try {
+                const response = await fetch('/api/v1/health', {headers: {'Accept': 'application/json'}});
+                const payload = await response.json();
+                const health = payload && payload.ok === true ? payload.data : null;
+                const analysisReady = response.ok && health && health.readiness && health.readiness.status === 'ready';
+                const dataReady = analysisReady && health.readiness.market_data === true;
+                root.classList.toggle('is-ready', dataReady);
+                root.classList.toggle('is-degraded', analysisReady && !dataReady);
+                root.classList.toggle('is-error', !analysisReady);
+                state.textContent = dataReady ? '正常' : analysisReady ? '数据不可用' : '服务异常';
+            } catch (error) {
+                root.classList.remove('is-ready', 'is-degraded');
+                root.classList.add('is-error');
+                state.textContent = '不可用';
+            } finally {
+                pending = false;
+            }
         }
+        document.addEventListener('instock:analysis-rendered', refresh);
+        window.addEventListener('focus', refresh);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') refresh();
+        });
+        refresh();
     }
 
     window.InStockAnalysisHistory = Object.freeze({
@@ -248,6 +342,8 @@
     });
 
     setupNavigation();
+    setupWorkspaceNavigation();
+    setupTheme();
     setupDirectory();
     setupHistory();
     setupSearch();

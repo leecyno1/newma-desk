@@ -24,6 +24,8 @@ from typing import Any, Callable, Mapping, Optional
 import numpy as np
 import pandas as pd
 
+from instock.core.analysis_scope import analysis_scope
+
 
 SNAPSHOT_SCHEMA_VERSION = "1.0"
 
@@ -33,8 +35,9 @@ class AnalysisSnapshotRegistry:
 
     The registry intentionally stores only the metadata returned by
     :func:`build_analysis_snapshot`; full K-line frames and chart payloads stay
-    outside this module.  Entries are copy-isolated, TTL-bound, and evicted in
-    least-recently-used order.
+    outside this module. Entries are copy-isolated, TTL-bound, and evicted in
+    least-recently-used order. The runtime can recover misses from its retained
+    scoped history; recovery never refreshes the saved snapshot or its lifetime.
     """
 
     def __init__(
@@ -43,12 +46,14 @@ class AnalysisSnapshotRegistry:
         max_entries: int = 512,
         ttl_seconds: float = 86_400,
         clock: Callable[[], float] = time.monotonic,
+        history_lookup: Optional[Callable[[str], Optional[dict[str, Any]]]] = None,
     ):
         self.max_entries = max(1, int(max_entries))
         self.ttl_seconds = max(1.0, float(ttl_seconds))
         self._clock = clock
+        self._history_lookup = history_lookup
         self._lock = RLock()
-        self._entries: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
+        self._entries: OrderedDict[tuple[str, str], tuple[float, dict[str, Any]]] = OrderedDict()
 
     def _purge_expired(self, now: float) -> None:
         expired = [
@@ -66,29 +71,33 @@ class AnalysisSnapshotRegistry:
         if not snapshot_id or snapshot.get("schema_version") != SNAPSHOT_SCHEMA_VERSION:
             raise ValueError("分析快照缺少有效 snapshot_id 或 schema_version")
         stored = deepcopy(dict(snapshot))
+        key = (analysis_scope.get(), snapshot_id)
         now = self._clock()
         with self._lock:
             self._purge_expired(now)
-            self._entries.pop(snapshot_id, None)
-            self._entries[snapshot_id] = (now, stored)
+            self._entries.pop(key, None)
+            self._entries[key] = (now, stored)
             while len(self._entries) > self.max_entries:
                 self._entries.popitem(last=False)
         return deepcopy(stored)
 
     def get(self, snapshot_id: str) -> Optional[dict[str, Any]]:
-        """Return an isolated snapshot, or ``None`` when absent or expired."""
+        """Read memory first, then exact retained history without renewing its TTL."""
 
-        key = str(snapshot_id or "").strip()
-        if not key:
+        snapshot_id = str(snapshot_id or "").strip()
+        if not snapshot_id:
             return None
+        key = (analysis_scope.get(), snapshot_id)
         now = self._clock()
         with self._lock:
             self._purge_expired(now)
             entry = self._entries.pop(key, None)
-            if entry is None:
-                return None
-            self._entries[key] = entry
-            return deepcopy(entry[1])
+            if entry is not None:
+                self._entries[key] = entry
+                return deepcopy(entry[1])
+        # Do not promote recovered history into a fresh memory entry: repeated
+        # reads must not extend retention beyond the saved record's lifetime.
+        return self._history_lookup(snapshot_id) if self._history_lookup else None
 
     def clear(self) -> None:
         with self._lock:
@@ -101,10 +110,17 @@ class AnalysisSnapshotRegistry:
             return {
                 "storage": "process_memory",
                 "volatile": True,
-                "entries": len(self._entries),
+                "entries": sum(key[0] == analysis_scope.get() for key in self._entries),
                 "max_entries": self.max_entries,
                 "ttl_seconds": self.ttl_seconds,
+                "reference_recovery": "same_scope_retained_history" if self._history_lookup else "none",
             }
+
+
+def _retained_history_snapshot(snapshot_id: str) -> Optional[dict[str, Any]]:
+    from instock.core.analysis_history import get_analysis_history_registry
+
+    return get_analysis_history_registry().get_snapshot(snapshot_id)
 
 
 def _registry_setting(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -118,11 +134,12 @@ def _registry_setting(name: str, default: int, minimum: int, maximum: int) -> in
 _ANALYSIS_SNAPSHOT_REGISTRY = AnalysisSnapshotRegistry(
     max_entries=_registry_setting("INSTOCK_SNAPSHOT_REGISTRY_MAX_ENTRIES", 512, 16, 10_000),
     ttl_seconds=_registry_setting("INSTOCK_SNAPSHOT_REGISTRY_TTL_SECONDS", 86_400, 60, 604_800),
+    history_lookup=_retained_history_snapshot,
 )
 
 
 def get_analysis_snapshot_registry() -> AnalysisSnapshotRegistry:
-    """Return the process-local snapshot registry used by HTTP handlers."""
+    """Return memory snapshots with same-scope retained-history recovery."""
 
     return _ANALYSIS_SNAPSHOT_REGISTRY
 

@@ -1,10 +1,13 @@
 import json
 import math
+import os
+import time
 import warnings
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 import instock.core.indicator.czsc_analyzer as czsc_analyzer_module
 from instock.core.czsc_analysis import run_czsc_analysis
@@ -34,6 +37,44 @@ def _sample_bars(size=360):
     return pd.DataFrame(rows)
 
 
+@pytest.mark.parametrize("local_timezone", ["UTC", "Asia/Shanghai", "America/New_York"])
+@pytest.mark.parametrize("period,frequency", [("daily", "B"), ("weekly", "W-FRI"), ("monthly", "BME")])
+@pytest.mark.parametrize("source_timezone", [None, "Asia/Shanghai"])
+def test_structure_dates_keep_source_period_labels_across_host_timezones(local_timezone, period, frequency, source_timezone):
+    previous_timezone = os.environ.get("TZ")
+    try:
+        os.environ["TZ"] = local_timezone
+        time.tzset()
+        frame = _sample_bars()
+        frame["date"] = pd.date_range("1990-01-01", periods=len(frame), freq=frequency, tz=source_timezone)
+        analyzer = CZSCAnalyzer()
+        result = analyzer.analyze_kline(frame, symbol="TEST", freq=period)
+        assert result["success"], result
+        dates = frame["date"].dt.strftime("%Y-%m-%d").tolist()
+        assert result["fx_list"] and result["bi_list"] and result["zs_list"]
+        for key in ("fx_list", "buy_points", "sell_points"):
+            assert all(item["date"] in dates for item in result[key])
+        for key in ("bi_list", "zs_list"):
+            assert all(item["start_date"] in dates and item["end_date"] in dates for item in result[key])
+        evidence = result["evidence"]
+        assert evidence["structure_stability"]["bars_since_last_confirmed_stroke"] == (
+            len(dates) - 1 - dates.index(result["bi_list"][-1]["end_date"])
+        )
+        change = evidence["latest_structure_change"]
+        assert change["bars_ago"] == len(dates) - 1 - dates.index(change["date"])
+        chart = analyzer.get_echarts_option()
+        assert chart["xAxis"][0]["data"] == dates
+        for series in chart["series"]:
+            if series["name"] in {"笔", "顶分型", "底分型", "买点", "卖点"}:
+                assert all(point[0] in dates for point in series["data"])
+    finally:
+        if previous_timezone is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous_timezone
+        time.tzset()
+
+
 def test_czsc_analysis_and_echarts_are_complete_and_serializable():
     analyzer = CZSCAnalyzer()
     result = analyzer.analyze_kline(_sample_bars(), symbol="TEST", freq="daily")
@@ -51,7 +92,7 @@ def test_czsc_analysis_and_echarts_are_complete_and_serializable():
     assert payload["engine"]["name"] == "czsc"
     assert payload["engine"]["version"] == "0.10.12"
     assert payload["engine"]["analysis_model"] == "instock-czsc"
-    assert payload["engine"]["analysis_version"] == "2.2.0"
+    assert payload["engine"]["analysis_version"] == "2.2.1"
     assert payload["engine"]["compatibility"] == {
         "production_version": "0.10.12",
         "tested_versions": ["0.10.12", "1.0.0rc8"],

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools==80.9.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "newma-instock"
+version = "0.1.0.dev20261019"
+description = "Standalone InStock research runtime with optional Newma Desk attachment"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dynamic = ["dependencies"]
+
+[project.scripts]
+instock-research = "instock.runtime:main"
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements-attached.txt"]}
+
+[tool.setuptools.packages.find]
+include = ["instock", "instock.*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"instock" = ["_release.json"]
+"instock.web" = ["templates/*.html", "templates/**/*.html", "static/**/*", "_suite.json"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["*.pyc", "*.db", "*.sqlite3", "*.log"]

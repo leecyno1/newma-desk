@@ -17,6 +17,7 @@ from vibe_visualization_api.data_services.models import (
 from vibe_visualization_api.data_services.preferences import (
     DataServicePreferenceStore,
 )
+from vibe_visualization_api.control_plane.sessions import ModSessionError, bearer_token
 
 
 router = APIRouter(prefix="/api/data-services", tags=["data-services"])
@@ -115,6 +116,8 @@ async def invoke_data_service(
     service_id: str,
     capability_id: str,
     input_data: dict[str, Any] = Body(default_factory=dict),
+    authorization: str | None = Header(default=None),
+    instance_id: str | None = Header(default=None, alias="X-Newma-Desk-Instance-Id"),
     registry: DataServiceRegistry = Depends(get_data_service_registry),
     client: DataServiceClient = Depends(get_data_service_client),
 ) -> Any:
@@ -123,4 +126,12 @@ async def invoke_data_service(
         raise UnknownServiceCapability(
             f"capability {capability_id!r} is not registered"
         )
+    if service.id == "instock-analysis" and (authorization is not None or instance_id is not None):
+        try:
+            token = bearer_token(authorization)
+        except ModSessionError as exc:
+            raise HTTPException(401, "valid Mod session token is required") from exc
+        if not instance_id:
+            raise HTTPException(401, "Mod instance is required")
+        return await client.invoke(service, capability_id, input_data, mod_session=(token, instance_id))
     return await client.invoke(service, capability_id, input_data)

@@ -62,7 +62,7 @@
       "id": "instock-stock-research",
       "name": "公司档案",
       "description": "统一 CZSC 技术结构、财务估值、公告、研报、新闻和产业链引用，输出一份可审计公司研究快照。",
-      "version": "0.18.0",
+      "version": "0.26.0",
       "tags": [],
       "route": "/mods/stock-research",
       "navigation": {
@@ -77,7 +77,7 @@
         "permissions": [
           "analysis.read"
         ],
-        "dataServices": [],
+        "dataServices": ["instock-analysis"],
         "wiki": {
           "contractVersion": "1.0",
           "subjectTypes": [
@@ -100,6 +100,8 @@
           ]
         },
         "actions": {
+          "analysis.stock-statement-announcements": {"binding":{"type":"data","service":"instock-analysis","capability":"analysis.stock-statement-announcements"},"execution":"request","permission":"analysis.read","inputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["symbol"],"properties":{"symbol":{"type":"string","pattern":"^[0-9]{6}(\\.(SH|SZ|BJ))?$"}},"additionalProperties":false},"outputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["ok","data","meta"],"properties":{"ok":{"const":true},"meta":{"type":"object"},"data":{"type":"object","required":["symbol","source","items","begin","end","hasMore","boundary"],"properties":{"symbol":{"type":"string"},"source":{"const":"cninfo"},"items":{"type":"array"},"begin":{"type":"string","format":"date"},"end":{"type":"string","format":"date"},"hasMore":{"type":"boolean"},"boundary":{"type":"string"}}}}},"confirmation":"none","timeoutSeconds":120},
+          "analysis.stock-statement-evidence": {"binding":{"type":"data","service":"instock-analysis","capability":"analysis.stock-statement-evidence"},"execution":"request","permission":"analysis.read","inputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["symbol","announcementId"],"properties":{"symbol":{"type":"string","pattern":"^[0-9]{6}(\\.(SH|SZ|BJ))?$"},"announcementId":{"type":"string","pattern":"^(AN[0-9]{10,30}|[0-9]{10,20})$"},"source":{"enum":["eastmoney","cninfo"],"default":"eastmoney"}},"additionalProperties":false},"outputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["ok","data","meta"],"properties":{"ok":{"const":true},"meta":{"type":"object"},"data":{"type":"object","required":["symbol","announcementId","announcementSource","periodEnd","facts","pdfUrl","contentOrigin"],"properties":{"symbol":{"type":"string"},"announcementId":{"type":"string"},"announcementSource":{"enum":["eastmoney","cninfo"]},"periodEnd":{"type":"string","format":"date"},"facts":{"type":"array"},"pdfUrl":{"type":"string","format":"uri"},"contentOrigin":{"const":"pdf-text"}}}}},"confirmation":"none","timeoutSeconds":120},
           "analysis.stock-research": {
             "binding": {
               "type": "data",

@@ -128,6 +128,8 @@ class DataServiceClient:
         service: DataServiceDescriptor,
         capability_id: str,
         input_data: dict[str, Any],
+        *,
+        mod_session: tuple[str, str] | None = None,
     ) -> Any:
         if service.transport != "rest":
             raise UnsupportedServiceTransport(
@@ -154,6 +156,9 @@ class DataServiceClient:
             allowed_hosts=service.allowed_hosts,
         )
         headers: dict[str, str] = {}
+        if service.id == "instock-analysis" and mod_session:
+            headers["X-Newma-Desk-Session"] = mod_session[0]
+            headers["X-Newma-Desk-Instance-Id"] = mod_session[1]
         if service.auth_secret:
             secret = self._secret_resolver(service.auth_secret)
             if not secret:

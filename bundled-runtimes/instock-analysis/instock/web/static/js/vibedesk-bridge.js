@@ -12,10 +12,15 @@
         : null;
     let activeConfig = null;
     let contextProvider = null;
+    let uiActionHandler = null;
     let handoffHandler = null;
     let themeFallbackTimer = null;
+    let standaloneTheme = 'system';
+    const systemTheme = !embedded && window.matchMedia
+        ? window.matchMedia('(prefers-color-scheme: dark)') : null;
     const queuedHandoffs = [];
     const pendingActions = new Map();
+    const pendingAgents = new Map();
     const eventListeners = new Set();
     const eventTraceIds = new Set();
     const appliedAppearanceVariables = new Set();
@@ -92,6 +97,12 @@
         window.dispatchEvent(new CustomEvent('newma:themechange', {
             detail: {mode: theme, appearance: appearance || null},
         }));
+    }
+
+    function applyStandaloneTheme() {
+        const theme = standaloneTheme === 'system'
+            ? (systemTheme?.matches ? 'dark' : 'light') : standaloneTheme;
+        applyTheme(theme, 'standalone');
     }
 
     function applyEnvironment(environment, appearance) {
@@ -351,11 +362,12 @@
         }
         const id = requestId();
         return new Promise((resolve, reject) => {
-            const timer = window.setTimeout(() => {
+            const expire = () => {
                 pendingActions.delete(id);
-                reject(new Error(`Newma-Desk Action 超时: ${actionId}`));
-            }, 35000);
-            pendingActions.set(id, {actionId, resolve, reject, timer});
+                reject(new Error(`动作 ${actionId} 的结果尚未确认；操作可能仍在运行，请查看状态，勿直接重复执行。`));
+            };
+            const timer = window.setTimeout(expire, 35000);
+            pendingActions.set(id, {actionId, instanceId: activeConfig.instanceId, resolve, reject, timer, expire, deadlineReceived: false});
             if (!post({
                 type: 'vibedesk:action-request',
                 requestId: id,
@@ -404,10 +416,40 @@
         );
     }
 
+    async function deliverUiAction(data) {
+        const config = activeConfig;
+        const sameScope = () => activeConfig?.instanceId === config.instanceId
+            && activeConfig?.workspace?.id === config.workspace?.id
+            && activeConfig?.user?.id === config.user?.id;
+        const envelope = {type: 'vibedesk:ui-action-result', requestId: data.requestId,
+            instanceId: data.instanceId, modId, actionId: data.actionId};
+        if (!grantedActions().includes(data.actionId)) {
+            post({...envelope, ok: false, error: {code: 'action_not_granted', message: '当前宿主未授权该页面动作'}});
+            return;
+        }
+        if (!uiActionHandler) {
+            post({...envelope, ok: false, error: {code: 'handler_unavailable', message: '此页面尚未接入该操作'}});
+            return;
+        }
+        try {
+            const result = await uiActionHandler(data.actionId, data.input || {});
+            if (!sameScope()) return;
+            post({...envelope, ok: true, result: result ?? {}});
+        } catch (error) {
+            if (!sameScope()) return;
+            post({...envelope, ok: false, error: {code: 'action_failed',
+                message: String(error?.message || '页面操作失败').slice(0, 500)}});
+        }
+        if (sameScope()) await publishContext();
+    }
+
     function handleMessage(event) {
         if (event.source !== window.parent || event.origin !== parentOrigin) return;
         const data = event.data;
         if (validInit(data)) {
+            if (activeConfig && (data.instanceId !== activeConfig.instanceId || data.workspace?.id !== activeConfig.workspace?.id || data.user?.id !== activeConfig.user?.id)) {
+                for (const pending of pendingAgents.values()) pending.reject(new Error('工作区已变化，已停止等待；宿主任务未被取消。'));
+            }
             activeConfig = data;
             if (themeFallbackTimer !== null) {
                 window.clearTimeout(themeFallbackTimer);
@@ -428,10 +470,40 @@
             deliverModEvent(data);
             return;
         }
+        if (activeConfig && data && data.type === 'vibedesk:agent-result') {
+            if (data.modId !== modId || data.instanceId !== activeConfig.instanceId) return;
+            const pending = pendingAgents.get(data.requestId);
+            if (!pending) return;
+            const value = data.outcome;
+            const valid = value && (value.status === 'completed'
+                ? typeof value.answer === 'string' && value.answer.trim().length > 0 && value.answer.length <= 60000
+                : ['failed', 'cancelled'].includes(value.status) && typeof value.error?.message === 'string' && value.error.message.length <= 1000);
+            if (valid) pending.resolve(value);
+            else pending.reject(new Error('宿主回传格式无效，未采用。'));
+            return;
+        }
+        if (activeConfig && data && data.type === 'vibedesk:ui-action-request') {
+            if (data.modId !== modId || data.instanceId !== activeConfig.instanceId
+                || typeof data.requestId !== 'string' || typeof data.actionId !== 'string'
+                || (data.input !== undefined && !isRecord(data.input))) return;
+            void deliverUiAction(data);
+            return;
+        }
+        if (activeConfig && data && data.type === 'vibedesk:action-pending') {
+            if (data.modId !== modId || data.instanceId !== activeConfig.instanceId) return;
+            const pending = pendingActions.get(data.requestId);
+            if (!pending || pending.deadlineReceived || pending.instanceId !== data.instanceId
+                || data.actionId !== pending.actionId || !Number.isInteger(data.timeoutSeconds)
+                || data.timeoutSeconds < 1 || data.timeoutSeconds > 300) return;
+            pending.deadlineReceived = true;
+            window.clearTimeout(pending.timer);
+            pending.timer = window.setTimeout(pending.expire, data.timeoutSeconds * 1000);
+            return;
+        }
         if (activeConfig && data && data.type === 'vibedesk:action-result') {
             if (data.modId !== modId || data.instanceId !== activeConfig.instanceId) return;
             const pending = pendingActions.get(data.requestId);
-            if (!pending || data.actionId !== pending.actionId) return;
+            if (!pending || pending.instanceId !== data.instanceId || data.actionId !== pending.actionId) return;
             pendingActions.delete(data.requestId);
             window.clearTimeout(pending.timer);
             if (data.ok === true) pending.resolve(data.result);
@@ -452,19 +524,88 @@
     }
 
     const bridge = {
+        navigate(targetModId, search) {
+            if (!embedded || !activeConfig || !/^[a-z][a-z0-9-]{2,63}$/.test(targetModId)
+                || typeof search !== 'string' || search.length > 4096) return false;
+            post({type: 'vibedesk:navigate', modId, instanceId: activeConfig.instanceId, targetModId, search});
+            return true;
+        },
         embedded,
         get connected() { return Boolean(activeConfig); },
         get config() { return activeConfig; },
         get theme() { return document.documentElement.dataset.vibedeskTheme || 'light'; },
+        get themePreference() { return standaloneTheme; },
+        setStandaloneTheme(preference) {
+            if (embedded || !['system', 'light', 'dark'].includes(preference)) return false;
+            standaloneTheme = preference;
+            try { window.localStorage.setItem('instock.theme', preference); } catch (_) { /* Optional preference storage. */ }
+            applyStandaloneTheme();
+            return true;
+        },
         whenReady() { return ready; },
+        async fetchAnalysis(path, options = {}) {
+            await ready;
+            const url = new URL(path, location.href);
+            if (url.origin !== location.origin || !url.pathname.startsWith('/api/v1/')) {
+                throw new Error('研究请求只能发送到当前分析服务');
+            }
+            const config = activeConfig;
+            const headers = new Headers(options.headers);
+            if (embedded) {
+                if (!config?.session?.accessToken || !config.instanceId) {
+                    throw new Error('Desk 工作区会话尚未就绪，请刷新；未读取独立模式数据');
+                }
+                headers.set('X-Newma-Desk-Session', config.session.accessToken);
+                headers.set('X-Newma-Desk-Instance-Id', config.instanceId);
+            }
+            const response = await fetch(url.href, {...options, headers, redirect: 'error'});
+            if (embedded && (activeConfig?.user?.id !== config.user?.id || activeConfig?.workspace?.id !== config.workspace?.id)) {
+                throw new Error('工作区已切换，已丢弃旧研究响应');
+            }
+            return response;
+        },
         canInvokeAction,
         invokeAction,
+        requestAgent({prompt, mode = 'ask'} = {}) {
+            if (!activeConfig) throw new Error('Newma-Desk 宿主尚未连接');
+            if (typeof prompt !== 'string' || !prompt.trim() || prompt.trim().length > 8000) throw new Error('Agent 请求须为 1 至 8000 字符，材料过长请缩小范围；不会截断来源。');
+            if (!['ask', 'edit'].includes(mode)) throw new Error('不支持的 Agent 请求模式');
+            publishContext();
+            if (!post({type: 'vibedesk:copilot-open', instanceId: activeConfig.instanceId, modId, mode, prompt: prompt.trim()})) {
+                throw new Error('Newma-Desk 宿主不可用');
+            }
+        },
+        requestAgentResult({prompt, mode = 'ask'} = {}, {signal} = {}) {
+            if (activeConfig?.runtime?.resultMessage !== 'vibedesk:agent-result') return Promise.reject(new Error('宿主尚未支持自动回传，未启动任务。'));
+            if (typeof prompt !== 'string' || !prompt.trim() || prompt.trim().length > 8000 || !['ask', 'edit'].includes(mode)) return Promise.reject(new Error('Agent 请求无效或超过 8000 字符；不会截断来源。'));
+            if (signal?.aborted) return Promise.reject(new Error('已停止等待；宿主任务未被取消。'));
+            const id = requestId();
+            return new Promise((resolve, reject) => {
+                const finish = (callback, value) => {
+                    if (!pendingAgents.delete(id)) return;
+                    window.clearTimeout(timer); signal?.removeEventListener('abort', abort); callback(value);
+                };
+                const abort = () => finish(reject, new Error('已停止等待；宿主任务未被取消。'));
+                const timer = window.setTimeout(() => finish(reject, new Error('等待回传超时，任务状态未知；请查看宿主原任务，不要重复启动。')), 190000);
+                pendingAgents.set(id, {resolve: value => finish(resolve, value), reject: error => finish(reject, error)});
+                signal?.addEventListener('abort', abort, {once: true});
+                publishContext();
+                if (!post({type: 'vibedesk:copilot-open', requestId: id, instanceId: activeConfig.instanceId, modId, mode, prompt: prompt.trim()})) {
+                    finish(reject, new Error('宿主请求未发出。'));
+                }
+            });
+        },
         emit: emitEvent,
         subscribe: subscribeEvent,
         setContextProvider(provider) {
             if (typeof provider !== 'function') throw new TypeError('context provider must be a function');
             contextProvider = provider;
             return function () { if (contextProvider === provider) contextProvider = null; };
+        },
+        setUiActionHandler(handler) {
+            if (typeof handler !== 'function') throw new TypeError('UI action handler must be a function');
+            uiActionHandler = handler;
+            return function () { if (uiActionHandler === handler) uiActionHandler = null; };
         },
         setHandoffHandler(handler) {
             if (typeof handler !== 'function') throw new TypeError('handoff handler must be a function');
@@ -482,7 +623,19 @@
     }
 
     if (!embedded) {
-        applyTheme('light', 'standalone');
+        try {
+            const saved = window.localStorage.getItem('instock.theme');
+            if (['system', 'light', 'dark'].includes(saved)) standaloneTheme = saved;
+        } catch (_) { /* Theme remains usable when storage is unavailable. */ }
+        applyStandaloneTheme();
+        systemTheme?.addEventListener('change', () => {
+            if (standaloneTheme === 'system') applyStandaloneTheme();
+        });
+        window.addEventListener('storage', event => {
+            if (event.key !== 'instock.theme' && event.key !== null) return;
+            standaloneTheme = ['light', 'dark'].includes(event.newValue) ? event.newValue : 'system';
+            applyStandaloneTheme();
+        });
         settleReady();
         return;
     }
@@ -509,6 +662,6 @@
         modId,
         protocolVersions: ['1.0'],
         sdkVersion: 'instock-bridge-1.0.0',
-        capabilities: ['actions', 'data', 'context', 'theme', 'handoff'],
+        capabilities: ['actions', 'agent', 'agent-result', 'data', 'context', 'theme', 'handoff'],
     });
 })();

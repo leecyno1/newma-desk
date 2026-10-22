@@ -148,10 +148,10 @@
                 "properties": {
                   "state": {"enum": ["available", "unavailable"]},
                   "breadth": {"type": "string"},
-                  "up": {"type": "integer", "minimum": 0},
-                  "down": {"type": "integer", "minimum": 0},
-                  "flat": {"type": "integer", "minimum": 0},
-                  "up_ratio": {"type": "number", "minimum": 0, "maximum": 100}
+                  "up": {"type": ["integer", "null"], "minimum": 0},
+                  "down": {"type": ["integer", "null"], "minimum": 0},
+                  "flat": {"type": ["integer", "null"], "minimum": 0},
+                  "up_ratio": {"type": ["number", "null"], "minimum": 0, "maximum": 100}
                 },
                 "additionalProperties": true
               },
@@ -242,8 +242,8 @@
             },
             "additionalProperties": false
           },
-          "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
-          "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+          "layers": {"type": "array", "minItems": 0, "maxItems": 20, "items": {"type": "object"}},
+          "candidates": {"type": "array", "minItems": 0, "maxItems": 100, "items": {"type": "object"}}
         },
         "additionalProperties": false
       },
@@ -335,6 +335,8 @@
       },
       "permission": "analysis.read"
     },
+    "analysis.stock-statement-announcements": {"method":"GET","path":"/stock-research/statement-announcements","inputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["symbol"],"properties":{"symbol":{"type":"string","pattern":"^[0-9]{6}(\\.(SH|SZ|BJ))?$"}},"additionalProperties":false},"outputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["ok","data","meta"],"properties":{"ok":{"const":true},"meta":{"type":"object"},"data":{"type":"object","required":["symbol","source","items","begin","end","hasMore","boundary"],"properties":{"symbol":{"type":"string"},"source":{"const":"cninfo"},"items":{"type":"array"},"begin":{"type":"string","format":"date"},"end":{"type":"string","format":"date"},"hasMore":{"type":"boolean"},"boundary":{"type":"string"}}}}},"permission":"analysis.read"},
+    "analysis.stock-statement-evidence": {"method":"GET","path":"/stock-research/statement-evidence","inputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["symbol","announcementId"],"properties":{"symbol":{"type":"string","pattern":"^[0-9]{6}(\\.(SH|SZ|BJ))?$"},"announcementId":{"type":"string","pattern":"^(AN[0-9]{10,30}|[0-9]{10,20})$"},"source":{"enum":["eastmoney","cninfo"],"default":"eastmoney"}},"additionalProperties":false},"outputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["ok","data","meta"],"properties":{"ok":{"const":true},"meta":{"type":"object"},"data":{"type":"object","required":["symbol","announcementId","announcementSource","periodEnd","facts","pdfUrl","contentOrigin"],"properties":{"symbol":{"type":"string"},"announcementId":{"type":"string"},"announcementSource":{"enum":["eastmoney","cninfo"]},"periodEnd":{"type":"string","format":"date"},"facts":{"type":"array"},"pdfUrl":{"type":"string","format":"uri"},"contentOrigin":{"const":"pdf-text"}}}}},"permission":"analysis.read"},
     "analysis.stock-research": {
       "method": "GET",
       "path": "/stock-research/dossiers",
@@ -409,6 +411,7 @@
           "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
           "holding_period_sessions": {"type": "integer", "minimum": 1, "maximum": 60},
           "cost_bps_per_side": {"type": "integer", "minimum": 0, "maximum": 100},
+          "capital_model": {"type": "object", "required": ["mode", "slots"], "properties": {"mode": {"const": "fixed_sleeves"}, "slots": {"type": "integer", "minimum": 1, "maximum": 20}}, "additionalProperties": false},
           "signals": {
             "type": "array", "minItems": 2, "maxItems": 200,
             "items": {
@@ -437,7 +440,7 @@
               "rules": {"type": "object"}, "coverage": {"type": "object"},
               "train": {"type": "object"}, "out_of_sample": {"type": "object"},
               "trades": {"type": "array"}, "failures": {"type": "array"},
-              "limitations": {"type": "array"}, "verdict": {"enum": ["evidence_sufficient", "insufficient_evidence"]},
+              "limitations": {"type": "array"}, "verdict": {"enum": ["diagnostic_ready", "insufficient_evidence"]},
               "data_source": {"type": "string"},
               "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}
             },
@@ -479,7 +482,7 @@
     },
     "analysis.research-book": {
       "method": "POST", "path": "/research-books",
-      "inputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["schema_version", "name", "as_of", "items"], "properties": {"schema_version": {"const": "instock-research-book-packet-v1"}, "name": {"type": "string", "minLength": 1, "maxLength": 160}, "as_of": {"type": "string", "format": "date"}, "items": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object", "required": ["symbol", "name", "market", "sector", "target_weight_pct", "thesis", "invalidation", "risk_tags", "snapshot_ids"], "properties": {"symbol": {"type": "string"}, "name": {"type": "string"}, "market": {"enum": ["CN", "HK", "US", "GLOBAL"]}, "sector": {"type": "string"}, "target_weight_pct": {"type": "number", "minimum": 0, "maximum": 100}, "thesis": {"type": "string", "minLength": 1}, "invalidation": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string"}}, "risk_tags": {"type": "array", "maxItems": 20, "items": {"type": "string"}}, "snapshot_ids": {"type": "array", "maxItems": 10, "items": {"type": "string"}}}, "additionalProperties": false}}}, "additionalProperties": false},
+      "inputSchema": {"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["schema_version","name","as_of","items"],"properties":{"schema_version":{"const":"instock-research-book-packet-v1"},"name":{"type":"string","minLength":1,"maxLength":160},"as_of":{"type":"string","format":"date"},"items":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"object","required":["symbol","name","market","sector","target_weight_pct","thesis","invalidation","risk_tags","snapshot_ids"],"properties":{"symbol":{"type":"string"},"name":{"type":"string"},"market":{"enum":["CN","HK","US","GLOBAL"]},"sector":{"type":"string"},"target_weight_pct":{"type":"number","minimum":0,"maximum":100},"thesis":{"type":"string","minLength":1},"invalidation":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string"}},"risk_tags":{"type":"array","maxItems":20,"items":{"type":"string"}},"snapshot_ids":{"type":"array","maxItems":10,"items":{"type":"string"}},"research_origin":{"type":"object","required":["researchOriginId","originUserId","originWorkspaceId","snapshotId"],"properties":{"researchOriginId":{"type":"string","pattern":"^[a-f0-9]{32}$"},"originUserId":{"type":"string","minLength":1,"maxLength":128},"originWorkspaceId":{"type":"string","minLength":1,"maxLength":128},"snapshotId":{"type":"string","minLength":1,"maxLength":128}},"additionalProperties":false}},"additionalProperties":false}}},"additionalProperties":false},
       "outputSchema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"], "properties": {"ok": {"const": true}, "data": {"type": "object", "required": ["engine", "schema_version", "name", "as_of", "data_source", "data_state", "summary", "items", "exposures", "warnings", "limitations", "snapshot"], "properties": {"engine": {"type": "object"}, "schema_version": {"type": "string"}, "name": {"type": "string"}, "as_of": {"type": "string", "format": "date"}, "data_source": {"type": "string"}, "data_state": {"enum": ["complete", "partial"]}, "summary": {"type": "object"}, "items": {"type": "array"}, "exposures": {"type": "object"}, "warnings": {"type": "array"}, "limitations": {"type": "array"}, "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}}, "additionalProperties": true}, "meta": {"type": "object", "required": ["api_version", "request_id"]}}, "additionalProperties": false},
       "permission": "analysis.read"
     },
@@ -653,7 +656,7 @@
           "notes": {"type": "string"},
           "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
           "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
-          "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+          "candidates": {"type": "array", "minItems": 0, "maxItems": 100, "items": {"type": "object"}}
         },
         "additionalProperties": false
       },

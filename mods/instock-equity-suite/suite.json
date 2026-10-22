@@ -425,6 +425,7 @@
     },
     {
       "id": "instock-strategy-validation",
+      "version": "0.25.0",
       "name": "筛选策略验证",
       "description": "统一选股、CZSC 与轮动研究信号的点时验证语义，固定下一交易日开盘执行、成本和样本外切分。",
       "tags": [
@@ -510,6 +511,7 @@
                   "minimum": 0,
                   "maximum": 100
                 },
+                "capital_model": {"type": "object", "required": ["mode", "slots"], "properties": {"mode": {"const": "fixed_sleeves"}, "slots": {"type": "integer", "minimum": 1, "maximum": 20}}, "additionalProperties": false},
                 "signals": {
                   "type": "array",
                   "minItems": 2,
@@ -551,7 +553,8 @@
     {
       "id": "instock-research-book",
       "name": "选股观察组合",
-      "description": "汇总观察理由、证伪条件、Snapshot 引用、行业暴露与风险，不包含持久化和交易。",
+      "version": "0.24.0",
+      "description": "承接公司风险与证伪条件，核对引用范围并读取当前工作区的直接关系人工复核；隔离研究草稿，不记录真实持仓或下单。",
       "tags": [
         "研究组合",
         "观察列表",

@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 from typing import Annotated
 
@@ -106,6 +107,51 @@ def _instance_id_header(
     ):
         raise HTTPException(400, "conflicting Mod instance headers")
     return instance_id or legacy_instance_id
+
+
+@router.post("/runtime/instock-scope")
+async def instock_request_scope(
+    request: Request,
+    target: dict[str, str] = Body(),
+    authorization: str | None = Header(default=None),
+    instance_id: str | None = Header(default=None, alias="X-Newma-Desk-Instance-Id"),
+    repository: ModuleRepository = Depends(get_repository),
+):
+    """Validate a runtime request against the existing local Mod session.
+
+    Session issuance is still Desk's trusted-local workspace selection, not
+    authenticated multi-tenant identity. The runtime cannot pick a scope itself.
+    """
+    claims = _validate_session(request, authorization, instance_id)
+    module = await run_in_threadpool(repository.get_published, claims.module_id)
+    if claims.revision != module.revision:
+        raise HTTPException(403, "模组版本变化，请刷新后重试")
+    try:
+        service = request.app.state.data_service_registry.get("instock-analysis")
+    except DataServiceNotFoundError as exc:
+        raise HTTPException(503, "InStock 数据服务尚未配置") from exc
+    actions = module.manifest.get("actions", {})
+    granted = []
+    for action_id in claims.actions:
+        action = actions.get(action_id, {})
+        binding = action.get("binding", {})
+        capability = service.capabilities.get(binding.get("capability"))
+        if (binding.get("type") == "data" and binding.get("service") in (None, service.id)
+                and capability and capability.permission == action.get("permission")
+                and capability.permission in claims.permissions):
+            granted.append(capability)
+    method, path = target.get("method"), target.get("path", "")
+    allowed = any(method == cap.method and path == "/api/v1" + cap.path for cap in granted)
+    if method == "GET" and granted and "analysis.read" in claims.permissions:
+        allowed = allowed or bool(re.fullmatch(
+            r"/api/v1/(?:analysis-history(?:/[^/]{1,160})?|analysis-snapshots/[^/]{1,160})", path))
+        if path == "/api/v1/research-books":
+            allowed = any(cap.path == "/research-books" for cap in granted)
+    if method in {"GET", "DELETE"} and re.fullmatch(r"/api/v1/czsc/scans/[^/]{1,160}", path):
+        allowed = any(cap.path == "/czsc/scans" for cap in granted)
+    if not allowed:
+        raise HTTPException(403, "当前 Mod 会话未授权此分析入口")
+    return {"userId": claims.user_id, "workspaceId": claims.workspace_id}
 
 
 @router.get(
@@ -789,6 +835,8 @@ async def invoke_module_action(
                 data_service,
                 capability,
                 input_data,
+                **({"mod_session": (bearer_token(authorization), claims.instance_id)}
+                   if data_service.id == "instock-analysis" else {}),
             )
             validate_json_contract(
                 action.get("outputSchema"),

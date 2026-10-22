@@ -148,10 +148,10 @@
                 "properties": {
                   "state": {"enum": ["available", "unavailable"]},
                   "breadth": {"type": "string"},
-                  "up": {"type": "integer", "minimum": 0},
-                  "down": {"type": "integer", "minimum": 0},
-                  "flat": {"type": "integer", "minimum": 0},
-                  "up_ratio": {"type": "number", "minimum": 0, "maximum": 100}
+                  "up": {"type": ["integer", "null"], "minimum": 0},
+                  "down": {"type": ["integer", "null"], "minimum": 0},
+                  "flat": {"type": ["integer", "null"], "minimum": 0},
+                  "up_ratio": {"type": ["number", "null"], "minimum": 0, "maximum": 100}
                 },
                 "additionalProperties": true
               },
@@ -234,8 +234,8 @@
           "notes": {"type": "string"},
           "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
           "chain": {"type": "object", "required": ["nodes", "links"], "properties": {"nodes": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"type": "object"}}, "links": {"type": "array", "maxItems": 120, "items": {"type": "object"}}}, "additionalProperties": false},
-          "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
-          "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+          "layers": {"type": "array", "minItems": 0, "maxItems": 20, "items": {"type": "object"}},
+          "candidates": {"type": "array", "minItems": 0, "maxItems": 100, "items": {"type": "object"}}
         },
         "additionalProperties": false
       },
@@ -339,6 +339,8 @@
       },
       "permission": "analysis.read"
     },
+    "analysis.stock-statement-announcements": {"method":"GET","path":"/stock-research/statement-announcements","inputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["symbol"],"properties":{"symbol":{"type":"string","pattern":"^[0-9]{6}(\\.(SH|SZ|BJ))?$"}},"additionalProperties":false},"outputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["ok","data","meta"],"properties":{"ok":{"const":true},"meta":{"type":"object"},"data":{"type":"object","required":["symbol","source","items","begin","end","hasMore","boundary"],"properties":{"symbol":{"type":"string"},"source":{"const":"cninfo"},"items":{"type":"array"},"begin":{"type":"string","format":"date"},"end":{"type":"string","format":"date"},"hasMore":{"type":"boolean"},"boundary":{"type":"string"}}}}},"permission":"analysis.read"},
+    "analysis.stock-statement-evidence": {"method":"GET","path":"/stock-research/statement-evidence","inputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["symbol","announcementId"],"properties":{"symbol":{"type":"string","pattern":"^[0-9]{6}(\\.(SH|SZ|BJ))?$"},"announcementId":{"type":"string","pattern":"^(AN[0-9]{10,30}|[0-9]{10,20})$"},"source":{"enum":["eastmoney","cninfo"],"default":"eastmoney"}},"additionalProperties":false},"outputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["ok","data","meta"],"properties":{"ok":{"const":true},"meta":{"type":"object"},"data":{"type":"object","required":["symbol","announcementId","announcementSource","periodEnd","facts","pdfUrl","contentOrigin"],"properties":{"symbol":{"type":"string"},"announcementId":{"type":"string"},"announcementSource":{"enum":["eastmoney","cninfo"]},"periodEnd":{"type":"string","format":"date"},"facts":{"type":"array"},"pdfUrl":{"type":"string","format":"uri"},"contentOrigin":{"const":"pdf-text"}}}}},"permission":"analysis.read"},
     "analysis.stock-research": {
       "method": "GET",
       "path": "/stock-research/dossiers",
@@ -384,13 +386,14 @@
           "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
           "holding_period_sessions": {"type": "integer", "minimum": 1, "maximum": 60},
           "cost_bps_per_side": {"type": "integer", "minimum": 0, "maximum": 100},
+          "capital_model": {"type": "object", "required": ["mode", "slots"], "properties": {"mode": {"const": "fixed_sleeves"}, "slots": {"type": "integer", "minimum": 1, "maximum": 20}}, "additionalProperties": false},
           "signals": {"type": "array", "minItems": 2, "maxItems": 200, "items": {"type": "object", "required": ["decision_date", "symbols"], "properties": {"decision_date": {"type": "string", "format": "date"}, "symbols": {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9]{6}(\\.(SH|SZ|BJ))?$"}}}, "additionalProperties": false}}
         },
         "additionalProperties": false
       },
       "outputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": ["ok", "data", "meta"],
-        "properties": {"ok": {"const": true}, "data": {"type": "object", "required": ["engine", "strategy", "as_of", "benchmark", "rules", "coverage", "train", "out_of_sample", "trades", "failures", "limitations", "verdict", "data_source", "snapshot"], "properties": {"engine": {"type": "object"}, "strategy": {"type": "object"}, "as_of": {"type": "string", "format": "date"}, "benchmark": {"type": "string"}, "rules": {"type": "object"}, "coverage": {"type": "object"}, "train": {"type": "object"}, "out_of_sample": {"type": "object"}, "trades": {"type": "array"}, "failures": {"type": "array"}, "limitations": {"type": "array"}, "verdict": {"enum": ["evidence_sufficient", "insufficient_evidence"]}, "data_source": {"type": "string"}, "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}}, "additionalProperties": true}, "meta": {"type": "object", "required": ["api_version", "request_id"]}},
+        "properties": {"ok": {"const": true}, "data": {"type": "object", "required": ["engine", "strategy", "as_of", "benchmark", "rules", "coverage", "train", "out_of_sample", "trades", "failures", "limitations", "verdict", "data_source", "snapshot"], "properties": {"engine": {"type": "object"}, "strategy": {"type": "object"}, "as_of": {"type": "string", "format": "date"}, "benchmark": {"type": "string"}, "rules": {"type": "object"}, "coverage": {"type": "object"}, "train": {"type": "object"}, "out_of_sample": {"type": "object"}, "trades": {"type": "array"}, "failures": {"type": "array"}, "limitations": {"type": "array"}, "verdict": {"enum": ["diagnostic_ready", "insufficient_evidence"]}, "data_source": {"type": "string"}, "snapshot": {"type": "object", "required": ["schema_version", "snapshot_id", "analysis", "data_window", "provenance", "freshness", "input", "result"]}}, "additionalProperties": true}, "meta": {"type": "object", "required": ["api_version", "request_id"]}},
         "additionalProperties": false
       },
       "permission": "analysis.read"
@@ -577,7 +580,7 @@
           "notes": {"type": "string"},
           "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
           "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
-          "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+          "candidates": {"type": "array", "minItems": 0, "maxItems": 100, "items": {"type": "object"}}
         },
         "additionalProperties": false
       },

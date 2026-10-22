@@ -24,6 +24,9 @@ from instock.core.rotation.rotation_engine import (
 )
 from instock.core.validation.metrics import calculate_rotation_metrics
 from instock.core.validation.execution import round_trip_cost, valid_execution_price
+from instock.core.rotation.rotation_risk import daily_rotation_risk
+from instock.core.rotation.calendar import align_benchmark_calendar
+from instock.core.rotation.execution_audit import RotationExecutionAudit, execution_summary
 
 
 ROTATION_CONFIRMATION_POLICIES: Dict[str, Dict[str, Any]] = {
@@ -43,14 +46,46 @@ ROTATION_CONFIRMATION_POLICIES: Dict[str, Dict[str, Any]] = {
 
 
 def _metrics(trades: Sequence[Mapping[str, Any]], rebalance_days: int) -> Dict[str, Any]:
-    return calculate_rotation_metrics(trades, period_sessions=rebalance_days)
+    resolved = sum(row.get("net_return") is not None and row.get("benchmark_return") is not None for row in trades)
+    if resolved < len(trades):
+        # Never compound around unresolved executions as though those periods
+        # were cash. The planned decisions remain in the ledger for inspection.
+        result = {key: None for key in calculate_rotation_metrics([], period_sessions=rebalance_days)}
+        result["trades"] = len(trades)
+    else:
+        result = calculate_rotation_metrics(trades, period_sessions=rebalance_days)
+    return {**result, "execution_state": "unavailable" if not trades else "complete" if resolved == len(trades) else "incomplete",
+            "execution_evidence": execution_summary(trades),
+            "resolved_periods": resolved, "unresolved_periods": len(trades) - resolved}
+
+
+def _difference(left, right, digits=2):
+    return _round(left - right, digits) if left is not None and right is not None else None
+
+
+def _unresolved_period(signal_date, entry_date, exit_date, benchmark_return, reason):
+    """Keep the scheduled period; an unknown decision is not a cash decision."""
+    return {
+        "signal_date": pd.Timestamp(signal_date).strftime("%Y-%m-%d"),
+        "entry_date": pd.Timestamp(entry_date).strftime("%Y-%m-%d"),
+        "exit_date": pd.Timestamp(exit_date).strftime("%Y-%m-%d"),
+        "symbol": None, "name": "持仓待核验", "industry": None,
+        "signal_code": None, "signal_name": None, "signal_mode": "unresolved",
+        "score": None, "switched": None, "transaction_cost": None,
+        "gross_return": None, "net_return": None,
+        "benchmark_return": benchmark_return, "equal_weight_return": None,
+        "decision_issue": reason,
+        **{"current_leader_" + key: None for key in (
+            "symbol", "name", "industry", "signal_code", "signal_name",
+            "signal_mode", "score", "gross_return")},
+    }
 
 
 class RotationExperiment:
     """Stress-test rotation parameters using only data available at each signal date."""
 
     engine_name = "instock-rotation-experiment"
-    engine_version = "2.1.1"
+    engine_version = "2.9.0"
     request_limit = 800
     windows = (40, 60, 120)
     supported_rebalances = (5, 10, 20)
@@ -105,6 +140,21 @@ class RotationExperiment:
         return valid_execution_price(value)
 
     @classmethod
+    def _forward_return(cls, prepared, entry_date, exit_date) -> Optional[float]:
+        """Label an already-frozen candidate; missing labels never alter selection."""
+        _, dates, opens = prepared
+        values = []
+        for date in (entry_date, exit_date):
+            position = int(dates.searchsorted(date, side="left"))
+            if position >= len(dates) or dates[position] != date:
+                return None
+            value = cls._valid_execution_price(opens[position])
+            if value is None:
+                return None
+            values.append(value)
+        return values[1] / values[0] - 1
+
+    @classmethod
     def _select_with_buffer(
         cls,
         rankings: Sequence[Mapping[str, Any]],
@@ -139,6 +189,17 @@ class RotationExperiment:
             item["rank"] = index
             reranked.append(item)
         return cls._select_with_buffer(reranked, held_symbol)
+
+    @classmethod
+    def _decision_from_possible_holdings(cls, rankings, held_symbols, policy="raw"):
+        """Rejoin after a data gap only when every possible prior holding agrees."""
+        choices = [(held, cls._select_confirmation_policy(rankings, held, policy))
+                   for held in held_symbols]
+        symbols = {row["code"] if row else None for _, row in choices}
+        switches = {held != (row["code"] if row else None) for held, row in choices}
+        selected = choices[0][1] if len(symbols) == 1 else None
+        switched = next(iter(switches)) if len(switches) == 1 else None
+        return selected, symbols, switched
 
     def _load_frames(
         self,
@@ -237,6 +298,12 @@ class RotationExperiment:
             signal_frames[item.code] = signal_frame
         return benchmark_frame, trade_frames, signal_frames, failures, signal_failures
 
+    def _calendar_frame(self, benchmark_frame, trade_frames, as_of):
+        return align_benchmark_calendar(self.provider, benchmark_frame, trade_frames, as_of,
+                                        limit=self.request_limit, minimum_sessions=260)
+
+    _decision_benchmark_metrics = staticmethod(RotationEngine._decision_benchmark_metrics)
+
     def _variant_trades(
         self,
         *,
@@ -296,27 +363,26 @@ class RotationExperiment:
 
         warmup = max(window + 5, 125)
         trade_sets: Dict[str, list[Dict[str, Any]]] = {profile: [] for profile in engines}
-        held_symbols: Dict[str, Optional[str]] = {profile: None for profile in engines}
+        held_symbols = {profile: {None} for profile in engines}
         for position in range(warmup, len(benchmark_dates) - rebalance_days - 1, rebalance_days):
             signal_date = benchmark_dates[position]
             entry_date = benchmark_dates[position + 1]
             exit_date = benchmark_dates[position + 1 + rebalance_days]
             benchmark_slice = benchmark_frame.iloc[:position + 1]
-            benchmark_metrics = metric_engine._benchmark_metrics(benchmark_slice, window)
+            benchmark_metrics = self._decision_benchmark_metrics(benchmark_slice, window)
             benchmark_entry = self._valid_execution_price(benchmark_opens[position + 1])
             benchmark_exit = self._valid_execution_price(benchmark_opens[position + 1 + rebalance_days])
-            if benchmark_entry is None or benchmark_exit is None:
-                continue
-
             raw_rows = []
-            executable: Dict[str, tuple[float, float]] = {}
+            forward_returns: Dict[str, Optional[float]] = {}
             period_returns = []
             for item in self.universe:
+                if benchmark_metrics is None:
+                    break
                 prepared_trade = prepared_trades.get(item.code)
                 prepared_signal = prepared_signals.get(item.code)
                 if prepared_trade is None or prepared_signal is None:
                     continue
-                trade_source, trade_dates, trade_opens = prepared_trade
+                trade_source, trade_dates, _ = prepared_trade
                 signal_source, signal_dates = prepared_signal
                 trade_slice_end = int(trade_dates.searchsorted(signal_date, side="right"))
                 signal_slice_end = int(signal_dates.searchsorted(signal_date, side="right"))
@@ -337,16 +403,6 @@ class RotationExperiment:
                     or signal_lag > metric_engine.max_stale_sessions
                 ):
                     continue
-                entry_position = int(trade_dates.searchsorted(entry_date, side="left"))
-                exit_position = int(trade_dates.searchsorted(exit_date, side="left"))
-                if entry_position >= len(trade_dates) or trade_dates[entry_position] != entry_date:
-                    continue
-                if exit_position >= len(trade_dates) or trade_dates[exit_position] != exit_date:
-                    continue
-                entry_price = self._valid_execution_price(trade_opens[entry_position])
-                exit_price = self._valid_execution_price(trade_opens[exit_position])
-                if entry_price is None or exit_price is None:
-                    continue
                 trade_slice = trade_source.iloc[:trade_slice_end].copy()
                 trade_slice.attrs.update(trade_source.attrs)
                 trade_slice.attrs["data_lag_sessions"] = trade_lag
@@ -364,24 +420,39 @@ class RotationExperiment:
                         signal_source.attrs.get("rotation_signal_mode") or "trade_asset"
                     ),
                 ))
-                executable[item.code] = (entry_price, exit_price)
-                period_returns.append(exit_price / entry_price - 1)
+                forward_returns[item.code] = self._forward_return(prepared_trade, entry_date, exit_date)
+                period_returns.append(forward_returns[item.code])
+            benchmark_return = benchmark_exit / benchmark_entry - 1 if benchmark_entry is not None and benchmark_exit is not None else None
             if len(raw_rows) < self._minimum_cross_section_size(len(self.universe)):
+                for profile in engines:
+                    trade_sets[profile].append(_unresolved_period(
+                        signal_date, entry_date, exit_date, benchmark_return,
+                        "missing_benchmark_signal" if benchmark_metrics is None else "insufficient_signal_coverage"))
+                    held_symbols[profile] = {None, *(item.code for item in self.universe)}
                 continue
 
             factor_frame = metric_engine._factor_frame(raw_rows)
-            benchmark_return = benchmark_exit / benchmark_entry - 1
-            equal_weight_return = float(np.mean(period_returns))
+            benchmark_return = benchmark_exit / benchmark_entry - 1 if benchmark_entry is not None and benchmark_exit is not None else None
+            equal_weight_return = float(np.mean(period_returns)) if all(value is not None for value in period_returns) else None
             for profile, engine in engines.items():
                 rankings = engine._score_factor_frame(factor_frame)
                 leader = rankings[0]
-                selected = self._select_with_buffer(rankings, held_symbols[profile])
-                switched = held_symbols[profile] != selected["code"]
-                transaction_cost = round_trip_cost(cost_bps, executed=switched)
-                entry_price, exit_price = executable[selected["code"]]
-                leader_entry_price, leader_exit_price = executable[leader["code"]]
-                gross_return = exit_price / entry_price - 1
-                net_return = gross_return - transaction_cost
+                selected, possible, switched = self._decision_from_possible_holdings(rankings, held_symbols[profile])
+                held_symbols[profile] = possible
+                if len(possible) > 1:
+                    pending = _unresolved_period(signal_date, entry_date, exit_date,
+                                                 benchmark_return, "ambiguous_holding_state")
+                    pending.update({"current_leader_" + key: leader[source] for key, source in (
+                        ("symbol", "code"), ("name", "name"), ("industry", "industry"),
+                        ("signal_code", "signal_code"), ("signal_name", "signal_name"),
+                        ("signal_mode", "signal_mode"), ("score", "total_score"))})
+                    pending["current_leader_gross_return"] = forward_returns[leader["code"]]
+                    pending["equal_weight_return"] = equal_weight_return
+                    trade_sets[profile].append(pending)
+                    continue
+                transaction_cost = round_trip_cost(cost_bps, executed=switched) if switched is not None else None
+                gross_return = forward_returns[selected["code"]]
+                net_return = gross_return - transaction_cost if gross_return is not None and transaction_cost is not None else None
                 trade_sets[profile].append({
                     "signal_date": signal_date.strftime("%Y-%m-%d"),
                     "entry_date": entry_date.strftime("%Y-%m-%d"),
@@ -400,17 +471,15 @@ class RotationExperiment:
                     "current_leader_signal_name": leader["signal_name"],
                     "current_leader_signal_mode": leader["signal_mode"],
                     "current_leader_score": leader["total_score"],
-                    "current_leader_gross_return": (
-                        leader_exit_price / leader_entry_price - 1
-                    ),
+                    "current_leader_gross_return": forward_returns[leader["code"]],
                     "switched": switched,
                     "transaction_cost": transaction_cost,
                     "gross_return": gross_return,
                     "net_return": net_return,
                     "benchmark_return": benchmark_return,
                     "equal_weight_return": equal_weight_return,
+                    **({"decision_issue": "uncertain_turnover"} if switched is None else {}),
                 })
-                held_symbols[profile] = selected["code"]
         return trade_sets
 
     @classmethod
@@ -436,10 +505,19 @@ class RotationExperiment:
                 by_date[str(row["signal_date"])].append((variant_id, row))
 
         held_symbol: Optional[str] = None
+        holding_known = True
         output: list[Dict[str, Any]] = []
         for signal_date in sorted(by_date):
             options = by_date[signal_date]
-            if len(options) != variant_count:
+            symbol_key = "current_leader_symbol" if vote_source == "current_leader" else "symbol"
+            if len(options) != variant_count or any(row.get(symbol_key) is None for _, row in options):
+                reference = options[0][1]
+                pending = _unresolved_period(signal_date, reference["entry_date"], reference["exit_date"],
+                                             reference["benchmark_return"], "incomplete_parameter_votes")
+                pending.update(variant_count=variant_count, vote_count=None, vote_share_pct=None,
+                               high_confidence=None, vote_source=vote_source)
+                output.append(pending)
+                holding_known = False
                 continue
             normalized_options = []
             for variant_id, row in options:
@@ -452,7 +530,7 @@ class RotationExperiment:
                         "signal_name": row["current_leader_signal_name"],
                         "signal_mode": row["current_leader_signal_mode"],
                         "score": float(row["current_leader_score"]),
-                        "gross_return": float(row["current_leader_gross_return"]),
+                        "gross_return": row["current_leader_gross_return"],
                     }
                 else:
                     candidate = {
@@ -463,7 +541,7 @@ class RotationExperiment:
                         "signal_name": row["signal_name"],
                         "signal_mode": row["signal_mode"],
                         "score": float(row["score"]),
-                        "gross_return": float(row["gross_return"]),
+                        "gross_return": row["gross_return"],
                     }
                 normalized_options.append((variant_id, row, candidate))
             votes = Counter(candidate["symbol"] for _, _, candidate in normalized_options)
@@ -484,8 +562,8 @@ class RotationExperiment:
                 for variant_id, row, candidate in normalized_options
                 if candidate["symbol"] == selected_symbol
             )
-            switched = held_symbol != selected_symbol
-            transaction_cost = round_trip_cost(cost_bps, executed=switched)
+            switched = held_symbol != selected_symbol if holding_known else None
+            transaction_cost = round_trip_cost(cost_bps, executed=switched) if switched is not None else None
             vote_count = int(votes[selected_symbol])
             item = dict(selected_row)
             item.update({
@@ -514,10 +592,15 @@ class RotationExperiment:
                 ),
                 "switched": switched,
                 "transaction_cost": transaction_cost,
-                "net_return": selected_candidate["gross_return"] - transaction_cost,
+                "net_return": selected_candidate["gross_return"] - transaction_cost if selected_candidate["gross_return"] is not None and transaction_cost is not None else None,
             })
+            # A leader vote is independent of the buffered path copied above.
+            item.pop("decision_issue", None)
+            if not holding_known:
+                item["decision_issue"] = "uncertain_turnover"
             output.append(item)
             held_symbol = selected_symbol
+            holding_known = True
         return output
 
     @classmethod
@@ -531,6 +614,19 @@ class RotationExperiment:
             row for row in trades
             if not high_confidence_only or bool(row.get("high_confidence"))
         ]
+        unclassified = sum("high_confidence" in row and row["high_confidence"] is None for row in trades) if high_confidence_only else 0
+        unresolved = unclassified + sum(row.get("gross_return") is None or row.get("net_return") is None or row.get("benchmark_return") is None for row in rows)
+        if unresolved:
+            return {"samples": len(rows), "unresolved_samples": unresolved,
+                    "gross_beat_benchmark_rate_pct": None, "gross_beat_benchmark_wilson_95_pct": None,
+                    "net_beat_benchmark_rate_pct": None, "mean_gross_excess_pct": None,
+                    "unclassified_periods": unclassified,
+                    "selection_rate_pct": None if unclassified else _round(len(rows) / len(trades) * 100)}
+        if not rows:
+            return {"samples": 0, "gross_beat_benchmark_rate_pct": None,
+                    "gross_beat_benchmark_wilson_95_pct": None,
+                    "net_beat_benchmark_rate_pct": None, "mean_gross_excess_pct": None,
+                    "selection_rate_pct": 0.0 if trades else None}
         gross_hits = sum(
             float(row["gross_return"]) > float(row["benchmark_return"])
             for row in rows
@@ -597,7 +693,10 @@ class RotationExperiment:
                 return cached
             target_date = benchmark_dates[position]
             benchmark_slice = benchmark_frame.iloc[:position + 1]
-            benchmark_metrics = engine._benchmark_metrics(benchmark_slice, window)
+            benchmark_metrics = self._decision_benchmark_metrics(benchmark_slice, window)
+            if benchmark_metrics is None:
+                ranking_cache[position] = []
+                return []
             raw_rows = []
             for item in self.universe:
                 prepared_trade = prepared_trades.get(item.code)
@@ -650,69 +749,53 @@ class RotationExperiment:
         trade_sets: Dict[str, list[Dict[str, Any]]] = {
             policy: [] for policy in ROTATION_CONFIRMATION_POLICIES
         }
-        held_symbols: Dict[str, Optional[str]] = {
-            policy: None for policy in ROTATION_CONFIRMATION_POLICIES
-        }
+        held_symbols = {policy: {None} for policy in ROTATION_CONFIRMATION_POLICIES}
         for position in range(warmup, len(benchmark_dates) - rebalance_days - 1, rebalance_days):
             signal_date = benchmark_dates[position]
             entry_date = benchmark_dates[position + 1]
             exit_date = benchmark_dates[position + 1 + rebalance_days]
             benchmark_entry = self._valid_execution_price(benchmark_opens[position + 1])
             benchmark_exit = self._valid_execution_price(benchmark_opens[position + 1 + rebalance_days])
-            if benchmark_entry is None or benchmark_exit is None:
-                continue
-
-            executable: Dict[str, tuple[float, float]] = {}
-            period_returns = []
-            executable_codes = set()
-            for item in self.universe:
-                prepared = prepared_trades.get(item.code)
-                if prepared is None:
-                    continue
-                _, source_dates, source_opens = prepared
-                entry_position = int(source_dates.searchsorted(entry_date, side="left"))
-                exit_position = int(source_dates.searchsorted(exit_date, side="left"))
-                if entry_position >= len(source_dates) or source_dates[entry_position] != entry_date:
-                    continue
-                if exit_position >= len(source_dates) or source_dates[exit_position] != exit_date:
-                    continue
-                entry_price = self._valid_execution_price(source_opens[entry_position])
-                exit_price = self._valid_execution_price(source_opens[exit_position])
-                if entry_price is None or exit_price is None:
-                    continue
-                executable[item.code] = (entry_price, exit_price)
-                executable_codes.add(item.code)
-                period_returns.append(exit_price / entry_price - 1)
-            current_rankings = [
-                dict(row) for row in rankings_at(position)
-                if row["code"] in executable_codes
-            ]
-            for index, row in enumerate(current_rankings, start=1):
-                row["rank"] = index
+            current_rankings = [dict(row) for row in rankings_at(position)]
+            benchmark_return = benchmark_exit / benchmark_entry - 1 if benchmark_entry is not None and benchmark_exit is not None else None
             if len(current_rankings) < self._minimum_cross_section_size(len(self.universe)):
+                for policy in ROTATION_CONFIRMATION_POLICIES:
+                    pending = _unresolved_period(signal_date, entry_date, exit_date,
+                                                 benchmark_return, "missing_benchmark_signal" if self._decision_benchmark_metrics(benchmark_frame.iloc[:position + 1], window) is None else "insufficient_signal_coverage")
+                    pending["selection_policy"] = policy
+                    trade_sets[policy].append(pending)
+                    held_symbols[policy] = {None, *(item.code for item in self.universe)}
                 continue
+            forward_returns = {
+                row["code"]: self._forward_return(prepared_trades[row["code"]], entry_date, exit_date)
+                for row in current_rankings
+            }
 
             history = []
             for history_position in range(max(0, position - 19), position + 1):
                 historical_rankings = rankings_at(history_position)
-                if historical_rankings:
-                    history.append({"rankings": historical_rankings})
+                history.append({"rankings": historical_rankings})
             engine._attach_rotation_confirmation(current_rankings, history)
-            benchmark_return = benchmark_exit / benchmark_entry - 1
-            equal_weight_return = float(np.mean(period_returns))
+            benchmark_return = benchmark_exit / benchmark_entry - 1 if benchmark_entry is not None and benchmark_exit is not None else None
+            equal_weight_return = float(np.mean(list(forward_returns.values()))) if all(value is not None for value in forward_returns.values()) else None
 
             for policy in ROTATION_CONFIRMATION_POLICIES:
-                selected = self._select_confirmation_policy(
+                selected, possible, switched = self._decision_from_possible_holdings(
                     current_rankings,
                     held_symbols[policy],
                     policy,
                 )
+                held_symbols[policy] = possible
+                if len(possible) > 1:
+                    pending = _unresolved_period(signal_date, entry_date, exit_date,
+                                                 benchmark_return, "ambiguous_holding_state")
+                    pending.update(selection_policy=policy, equal_weight_return=equal_weight_return)
+                    trade_sets[policy].append(pending)
+                    continue
                 selected_symbol = str(selected["code"]) if selected else None
-                switched = held_symbols[policy] != selected_symbol
-                transaction_cost = round_trip_cost(cost_bps, executed=switched)
+                transaction_cost = round_trip_cost(cost_bps, executed=switched) if switched is not None else None
                 if selected:
-                    entry_price, exit_price = executable[selected_symbol]
-                    gross_return = exit_price / entry_price - 1
+                    gross_return = forward_returns[selected_symbol]
                     name = selected["name"]
                     industry = selected["industry"]
                     score = selected["total_score"]
@@ -749,16 +832,23 @@ class RotationExperiment:
                     "switched": switched,
                     "transaction_cost": transaction_cost,
                     "gross_return": gross_return,
-                    "net_return": gross_return - transaction_cost,
+                    "net_return": gross_return - transaction_cost if gross_return is not None and transaction_cost is not None else None,
                     "benchmark_return": benchmark_return,
                     "equal_weight_return": equal_weight_return,
+                    **({"decision_issue": "uncertain_turnover"} if switched is None else {}),
                 })
-                held_symbols[policy] = selected_symbol
         return trade_sets
 
     @staticmethod
+    def _can_score(metrics: Mapping[str, Any]) -> bool:
+        return (int(metrics.get("trades") or 0) >= 8
+                and metrics.get("execution_state") == "complete"
+                and metrics.get("sharpe") is not None
+                and metrics.get("information_ratio") is not None)
+
+    @staticmethod
     def _selection_score(metrics: Mapping[str, Any]) -> float:
-        if int(metrics.get("trades") or 0) < 8:
+        if not RotationExperiment._can_score(metrics):
             return -1_000.0
         return (
             float(metrics.get("excess_return_pct") or 0)
@@ -777,9 +867,9 @@ class RotationExperiment:
             return {
                 "blocks": [],
                 "positive_excess_blocks": 0,
-                "positive_excess_share_pct": 0.0,
-                "latest_block_excess_return_pct": 0.0,
-                "worst_block_excess_return_pct": 0.0,
+                "positive_excess_share_pct": None,
+                "latest_block_excess_return_pct": None,
+                "worst_block_excess_return_pct": None,
             }
         size = len(trades)
         metrics = []
@@ -796,17 +886,18 @@ class RotationExperiment:
                 "end": block[-1]["exit_date"],
                 **result,
             })
-        positive = sum(float(row["excess_return_pct"]) > 0 for row in metrics)
+        positive = sum(row["excess_return_pct"] is not None and row["excess_return_pct"] > 0 for row in metrics)
+        complete = all(row["execution_state"] == "complete" for row in metrics)
         return {
             "blocks": metrics,
             "positive_excess_blocks": positive,
-            "positive_excess_share_pct": _round(positive / max(len(metrics), 1) * 100),
+            "positive_excess_share_pct": _round(positive / max(len(metrics), 1) * 100) if complete else None,
             "latest_block_excess_return_pct": _round(
                 metrics[-1]["excess_return_pct"] if metrics else 0.0
-            ),
+            ) if complete else None,
             "worst_block_excess_return_pct": _round(
                 min((row["excess_return_pct"] for row in metrics), default=0.0)
-            ),
+            ) if complete else None,
         }
 
     @classmethod
@@ -830,6 +921,9 @@ class RotationExperiment:
         stability = stability or {}
         block_count = len(stability.get("blocks") or [])
         checks = {
+            "complete_execution_evidence": metrics.get("execution_state") == "complete",
+            "price_volume_limit_evidence": metrics.get("execution_evidence", {}).get("state") == "checked",
+            "defined_risk_ratios": metrics.get("sharpe") is not None and metrics.get("information_ratio") is not None,
             "positive_total_return": float(metrics.get("total_return_pct") or 0) > 0,
             "positive_excess_return": float(metrics.get("excess_return_pct") or 0) > 0,
             "majority_positive_training_blocks": (
@@ -859,9 +953,9 @@ class RotationExperiment:
             item = dict(row)
             transaction_cost = round_trip_cost(
                 cost_bps, executed=row.get("switched", True)
-            )
+            ) if row.get("switched", True) is not None else None
             item["transaction_cost"] = transaction_cost
-            item["net_return"] = float(row["gross_return"]) - transaction_cost
+            item["net_return"] = float(row["gross_return"]) - transaction_cost if row["gross_return"] is not None and transaction_cost is not None else None
             stressed.append(item)
         return {"cost_bps": cost_bps, **_metrics(stressed, rebalance_days)}
 
@@ -870,16 +964,22 @@ class RotationExperiment:
         strategy_equity = 1.0
         benchmark_equity = 1.0
         equal_weight_equity = 1.0
-        points = []
+        points = [{
+            "date": trades[0]["entry_date"],
+            "strategy": 1.0,
+            "benchmark": 1.0,
+            "equal_weight": 1.0,
+            "symbol": None,
+        }] if trades else []
         for row in trades:
-            strategy_equity *= 1 + float(row["net_return"])
-            benchmark_equity *= 1 + float(row["benchmark_return"])
-            equal_weight_equity *= 1 + float(row["equal_weight_return"])
+            strategy_equity = strategy_equity * (1 + row["net_return"]) if strategy_equity is not None and row["net_return"] is not None else None
+            benchmark_equity = benchmark_equity * (1 + row["benchmark_return"]) if benchmark_equity is not None and row["benchmark_return"] is not None else None
+            equal_weight_equity = equal_weight_equity * (1 + row["equal_weight_return"]) if equal_weight_equity is not None and row["equal_weight_return"] is not None else None
             points.append({
                 "date": row["exit_date"],
-                "strategy": _round(strategy_equity, 4),
-                "benchmark": _round(benchmark_equity, 4),
-                "equal_weight": _round(equal_weight_equity, 4),
+                "strategy": _round(strategy_equity, 4) if strategy_equity is not None else None,
+                "benchmark": _round(benchmark_equity, 4) if benchmark_equity is not None else None,
+                "equal_weight": _round(equal_weight_equity, 4) if equal_weight_equity is not None else None,
                 "symbol": row["symbol"],
             })
         return points
@@ -887,42 +987,64 @@ class RotationExperiment:
     @staticmethod
     def _ranking_effect(
         scores: Sequence[float],
-        returns: Sequence[float],
-        benchmark_return: float,
+        returns: Sequence[Optional[float]],
+        benchmark_return: Optional[float],
     ) -> Dict[str, Any]:
         """Measure one cross-sectional score without using future data in it."""
 
         frame = pd.DataFrame({"score": scores, "return": returns}).replace(
             [np.inf, -np.inf], np.nan
-        ).dropna()
-        if len(frame) < 4:
-            return {"available": False}
+        )
+        if len(frame) < 4 or frame.isna().any().any() or benchmark_return is None:
+            # Evaluate only a complete frozen cross-section. Dropping missing
+            # labels before top/bottom selection would promote replacement ETFs.
+            return {"available": False, "rank_ic": None, "top3_minus_bottom3": None,
+                    "leader_beat_median": None, "leader_beat_benchmark": None,
+                    "top3_beat_median": None, "top3_beat_benchmark": None}
         rank_ic = (
             frame["score"].rank().corr(frame["return"].rank())
             if frame["score"].nunique() > 1 and frame["return"].nunique() > 1
-            else 0.0
+            else None
         )
         ordered = frame.sort_values("score", ascending=False)
-        top3 = float(ordered["return"].head(3).mean())
-        bottom3 = float(ordered["return"].tail(3).mean())
-        leader_return = float(ordered["return"].iloc[0])
+        # No diagnostic tie-break may depend on input order or future returns.
+        top_clear = ordered["score"].iloc[2] > ordered["score"].iloc[3]
+        bottom_clear = ordered["score"].iloc[-3] < ordered["score"].iloc[-4]
+        leader_clear = ordered["score"].iloc[0] > ordered["score"].iloc[1]
+        top3 = float(ordered["return"].head(3).mean()) if top_clear else None
+        bottom3 = float(ordered["return"].tail(3).mean()) if bottom_clear else None
+        leader_return = float(ordered["return"].iloc[0]) if leader_clear else None
         median_return = float(frame["return"].median())
+        issues = []
+        if frame["score"].nunique() == 1:
+            issues.append("constant_scores")
+        if frame["return"].nunique() == 1:
+            issues.append("constant_returns")
+        if not top_clear:
+            issues.append("top3_boundary_tie")
+        if not bottom_clear:
+            issues.append("bottom3_boundary_tie")
+        if not leader_clear:
+            issues.append("leader_tie")
+        if len(frame) < 6:
+            issues.append("fewer_than_six_assets")
         return {
             "available": True,
-            "rank_ic": float(rank_ic) if math.isfinite(float(rank_ic)) else 0.0,
-            "top3_minus_bottom3": top3 - bottom3,
-            "leader_beat_median": leader_return > median_return,
-            "leader_beat_benchmark": leader_return > benchmark_return,
-            "top3_beat_median": top3 > median_return,
-            "top3_beat_benchmark": top3 > benchmark_return,
+            "metric_issues": issues,
+            "rank_ic": float(rank_ic) if rank_ic is not None and math.isfinite(float(rank_ic)) else None,
+            "top3_minus_bottom3": top3 - bottom3 if len(frame) >= 6 and top3 is not None and bottom3 is not None else None,
+            "leader_beat_median": leader_return > median_return + 1e-12 if leader_return is not None else None,
+            "leader_beat_benchmark": leader_return > benchmark_return + 1e-12 if leader_return is not None else None,
+            "top3_beat_median": top3 > median_return + 1e-12 if top3 is not None else None,
+            "top3_beat_benchmark": top3 > benchmark_return + 1e-12 if top3 is not None else None,
         }
 
     @staticmethod
-    def _wilson_interval_pct(successes: int, samples: int) -> tuple[float, float]:
+    def _wilson_interval_pct(successes: int, samples: int) -> tuple[Optional[float], Optional[float]]:
         """Return a compact 95% Wilson interval for a hit rate."""
 
         if samples <= 0:
-            return 0.0, 0.0
+            return None, None
         z = 1.96
         rate = successes / samples
         denominator = 1 + z * z / samples
@@ -984,10 +1106,12 @@ class RotationExperiment:
         horizon: int,
     ) -> Dict[str, Any]:
         available = [row for row in effects if row.get("available")]
-        rank_ics = [float(row["rank_ic"]) for row in available]
-        hits = sum(bool(row["top3_beat_benchmark"]) for row in available)
+        rank_ics = [float(row["rank_ic"]) for row in available if row.get("rank_ic") is not None]
+        spreads = [float(row["top3_minus_bottom3"]) for row in available if row.get("top3_minus_bottom3") is not None]
+        hit_rows = [row for row in available if row.get("top3_beat_benchmark") is not None]
+        hits = sum(bool(row["top3_beat_benchmark"]) for row in hit_rows)
         non_overlapping_groups = cls._non_overlapping_effect_groups(
-            available, horizon=horizon
+            hit_rows, horizon=horizon
         )
         group_hits = [
             sum(bool(row["top3_beat_benchmark"]) for row in group)
@@ -1010,26 +1134,31 @@ class RotationExperiment:
         )
         return {
             "samples": len(available),
+            "expected_samples": len(effects),
+            "missing_samples": len(effects) - len(available),
+            "rank_ic_samples": len(rank_ics),
+            "spread_samples": len(spreads),
+            "top3_hit_samples": len(hit_rows),
+            "metric_issue_counts": dict(Counter(issue for row in available for issue in row.get("metric_issues", []))),
             "effective_non_overlapping_samples": effective_samples,
-            "rank_ic_mean": _round(np.mean(rank_ics) if rank_ics else 0.0, 4),
+            "rank_ic_mean": _round(np.mean(rank_ics), 4) if rank_ics else None,
             "rank_ic_positive_rate_pct": _round(
-                np.mean([value > 0 for value in rank_ics]) * 100 if rank_ics else 0.0
-            ),
+                np.mean([value > 0 for value in rank_ics]) * 100
+            ) if rank_ics else None,
             "top3_minus_bottom3_mean_pct": _round(
-                np.mean([float(row["top3_minus_bottom3"]) for row in available]) * 100
-                if available else 0.0
-            ),
+                np.mean(spreads) * 100
+            ) if spreads else None,
             "top3_beat_benchmark_rate_pct": _round(
-                hits / len(available) * 100 if available else 0.0
-            ),
+                hits / len(hit_rows) * 100
+            ) if hit_rows else None,
             "non_overlapping_top3_beat_benchmark_rate_pct": _round(
-                np.mean(group_rates) if group_rates else 0.0
-            ),
+                np.mean(group_rates)
+            ) if group_rates else None,
             "non_overlapping_top3_beat_benchmark_rate_range_pct": [
                 _round(min(group_rates), 2) if group_rates else 0.0,
                 _round(max(group_rates), 2) if group_rates else 0.0,
-            ],
-            "top3_beat_benchmark_wilson_95_pct": [low, high],
+            ] if group_rates else None,
+            "top3_beat_benchmark_wilson_95_pct": [low, high] if group_intervals else None,
             "wilson_sample_policy": "all_non_overlapping_phase_cohorts_conservative_envelope",
         }
 
@@ -1040,92 +1169,33 @@ class RotationExperiment:
     ) -> Dict[str, Any]:
         horizons = []
         for horizon in (5, 10, 20):
-            rows = [row for row in records if int(row["horizon"]) == horizon]
-            rank_ics = [
-                float(row["rank_ic"])
-                for row in rows
-                if math.isfinite(float(row["rank_ic"]))
-            ]
-            benchmark_hits = sum(bool(row["top3_beat_benchmark"]) for row in rows)
-            non_overlapping_groups = cls._non_overlapping_effect_groups(
-                [cls._record_effect(row) for row in rows], horizon=horizon
+            scheduled = [row for row in records if int(row["horizon"]) == horizon]
+            effects = [cls._record_effect(row) for row in scheduled]
+            summary = cls._effect_summary(effects, horizon=horizon)
+            summary["horizon_sessions"] = horizon
+            spreads = [row["top3_minus_bottom3"] for row in effects
+                       if row["available"] and row.get("top3_minus_bottom3") is not None]
+            summary["top3_spread_positive_rate_pct"] = (
+                _round(np.mean([value > 0 for value in spreads]) * 100) if spreads else None
             )
-            group_hits = [
-                sum(bool(row["top3_beat_benchmark"]) for row in group)
-                for group in non_overlapping_groups
-            ]
-            group_rates = [
-                successes / len(group) * 100
-                for successes, group in zip(group_hits, non_overlapping_groups)
-                if group
-            ]
-            group_intervals = [
-                cls._wilson_interval_pct(successes, len(group))
-                for successes, group in zip(group_hits, non_overlapping_groups)
-                if group
-            ]
-            wilson_low = min(
-                (interval[0] for interval in group_intervals), default=0.0
-            )
-            wilson_high = max(
-                (interval[1] for interval in group_intervals), default=0.0
-            )
-            effective_samples = max(
-                (len(group) for group in non_overlapping_groups), default=0
-            )
-            horizons.append({
-                "horizon_sessions": horizon,
-                "samples": len(rows),
-                "effective_non_overlapping_samples": effective_samples,
-                "rank_ic_mean": _round(np.mean(rank_ics) if rank_ics else 0.0, 4),
-                "rank_ic_positive_rate_pct": _round(
-                    np.mean([value > 0 for value in rank_ics]) * 100
-                    if rank_ics else 0.0
-                ),
-                "top3_minus_bottom3_mean_pct": _round(
-                    np.mean([float(row["top3_minus_bottom3"]) for row in rows]) * 100
-                    if rows else 0.0
-                ),
-                "top3_spread_positive_rate_pct": _round(
-                    np.mean([float(row["top3_minus_bottom3"]) > 0 for row in rows]) * 100
-                    if rows else 0.0
-                ),
-                "leader_beat_median_rate_pct": _round(
-                    np.mean([bool(row["leader_beat_median"]) for row in rows]) * 100
-                    if rows else 0.0
-                ),
-                "leader_beat_benchmark_rate_pct": _round(
-                    np.mean([bool(row["leader_beat_benchmark"]) for row in rows]) * 100
-                    if rows else 0.0
-                ),
-                "top3_beat_median_rate_pct": _round(
-                    np.mean([bool(row["top3_beat_median"]) for row in rows]) * 100
-                    if rows else 0.0
-                ),
-                "top3_beat_benchmark_rate_pct": _round(
-                    benchmark_hits / len(rows) * 100 if rows else 0.0
-                ),
-                "non_overlapping_top3_beat_benchmark_rate_pct": _round(
-                    np.mean(group_rates) if group_rates else 0.0
-                ),
-                "non_overlapping_top3_beat_benchmark_rate_range_pct": [
-                    _round(min(group_rates), 2) if group_rates else 0.0,
-                    _round(max(group_rates), 2) if group_rates else 0.0,
-                ],
-                "top3_beat_benchmark_wilson_95_pct": [wilson_low, wilson_high],
-                "wilson_sample_policy": "all_non_overlapping_phase_cohorts_conservative_envelope",
-            })
+            for metric in ("leader_beat_median", "leader_beat_benchmark", "top3_beat_median"):
+                values = [row[metric] for row in effects
+                          if row["available"] and row.get(metric) is not None]
+                summary[f"{metric}_samples"] = len(values)
+                summary[f"{metric}_rate_pct"] = _round(np.mean(values) * 100) if values else None
+            horizons.append(summary)
         return {"horizons": horizons}
 
     @staticmethod
     def _record_effect(row: Mapping[str, Any]) -> Dict[str, Any]:
         return {
-            "available": True,
-            "entry_date": row.get("entry_date"),
-            "exit_date": row.get("exit_date"),
-            "rank_ic": row["rank_ic"],
-            "top3_minus_bottom3": row["top3_minus_bottom3"],
-            "top3_beat_benchmark": row["top3_beat_benchmark"],
+            **{key: row.get(key) for key in (
+                "entry_date", "exit_date", "rank_ic", "top3_minus_bottom3",
+                "leader_beat_median", "leader_beat_benchmark",
+                "top3_beat_median", "top3_beat_benchmark",
+            )},
+            "available": row.get("available", True),
+            "metric_issues": row.get("metric_issues", []),
         }
 
     @staticmethod
@@ -1140,6 +1210,19 @@ class RotationExperiment:
         effect["entry_date"] = row.get("entry_date")
         effect["exit_date"] = row.get("exit_date")
         return effect
+
+    @classmethod
+    def _paired_ablation_delta(cls, rows, factor, metric, *, scale=1, digits=4):
+        pairs = []
+        for row in rows:
+            combined = cls._record_effect(row)
+            without = cls._factor_record_effect(row, "ablation_effects", factor)
+            if combined["available"] and without.get("available"):
+                left, right = combined.get(metric), without.get(metric)
+                if left is not None and right is not None:
+                    pairs.append(float(left) - float(right))
+        return {"samples": len(pairs),
+                "delta": _round(np.mean(pairs) * scale, digits) if pairs else None}
 
     @classmethod
     def _factor_effectiveness(
@@ -1194,24 +1277,26 @@ class RotationExperiment:
                 horizon=horizon,
             )
             is_active = factor in active
-            train_rank_delta = _round(
-                combined_train["rank_ic_mean"] - train_without["rank_ic_mean"], 4
-            ) if train_without["samples"] else 0.0
-            oos_rank_delta = _round(
-                combined_oos["rank_ic_mean"] - oos_without["rank_ic_mean"], 4
-            ) if oos_without["samples"] else 0.0
-            train_hit_delta = _round(
-                combined_train["top3_beat_benchmark_rate_pct"]
-                - train_without["top3_beat_benchmark_rate_pct"]
-            ) if train_without["samples"] else 0.0
-            oos_hit_delta = _round(
-                combined_oos["top3_beat_benchmark_rate_pct"]
-                - oos_without["top3_beat_benchmark_rate_pct"]
-            ) if oos_without["samples"] else 0.0
+            train_rank = cls._paired_ablation_delta(train_rows, factor, "rank_ic")
+            oos_rank = cls._paired_ablation_delta(oos_rows, factor, "rank_ic")
+            train_hit = cls._paired_ablation_delta(train_rows, factor, "top3_beat_benchmark", scale=100, digits=2)
+            oos_hit = cls._paired_ablation_delta(oos_rows, factor, "top3_beat_benchmark", scale=100, digits=2)
+            train_rank_delta, oos_rank_delta = train_rank["delta"], oos_rank["delta"]
+            train_hit_delta, oos_hit_delta = train_hit["delta"], oos_hit["delta"]
             if not is_active:
                 state, label = "unavailable", "缺少点时历史"
+            elif train["missing_samples"] or oos["missing_samples"]:
+                state, label = "incomplete_labels", "未来标签覆盖不完整"
+            elif not train["samples"] or not oos["samples"]:
+                state, label = "insufficient_samples", "缺少训练或样本外有效样本"
+            elif train["rank_ic_mean"] is None or oos["rank_ic_mean"] is None:
+                state, label = "undefined_ic", "分数或收益无差异，IC不可计算"
+            elif train["rank_ic_samples"] < train["samples"] or oos["rank_ic_samples"] < oos["samples"]:
+                state, label = "partial_ic", "部分截面IC不可计算，需核验覆盖"
+            elif train_rank["samples"] < combined_train["samples"] or oos_rank["samples"] < combined_oos["samples"]:
+                state, label = "partial_comparison", "去除因子后部分IC不可计算，仅作配对观察"
             elif train["rank_ic_mean"] > 0 and oos["rank_ic_mean"] > 0:
-                if train_rank_delta >= 0 and oos_rank_delta >= 0:
+                if train_rank_delta is not None and oos_rank_delta is not None and train_rank_delta >= 0 and oos_rank_delta >= 0:
                     state, label = "stable_positive", "跨区间有效"
                 else:
                     state, label = "positive_redundant", "方向有效但存在冗余"
@@ -1237,12 +1322,17 @@ class RotationExperiment:
                     "rank_ic_contribution_oos": oos_rank_delta,
                     "top3_hit_contribution_train_pct": train_hit_delta,
                     "top3_hit_contribution_oos_pct": oos_hit_delta,
+                    "paired_samples": {"rank_ic_train": train_rank["samples"],
+                                       "rank_ic_oos": oos_rank["samples"],
+                                       "top3_hit_train": train_hit["samples"],
+                                       "top3_hit_oos": oos_hit["samples"]},
                 },
             })
         return {
             "method": "standalone_rank_ic_and_leave_one_out_composite",
             "primary_horizon_sessions": horizon,
             "selection_use": "diagnostic_only_no_oos_reweighting",
+            "comparison_policy": "paired_valid_sections_per_metric",
             "combined": {"train": combined_train, "out_of_sample": combined_oos},
             "factors": factors,
         }
@@ -1260,8 +1350,9 @@ class RotationExperiment:
         train_rows = [row for row in train_records if int(row["horizon"]) == horizon]
         oos_rows = [row for row in oos_records if int(row["horizon"]) == horizon]
         train_scores = [
-            float((row.get("confidence") or {}).get("score") or 0)
+            float(row["confidence"]["score"])
             for row in train_rows
+            if (row.get("confidence") or {}).get("score") is not None
         ]
         threshold = float(
             np.quantile(train_scores, cls.high_confidence_train_quantile)
@@ -1270,7 +1361,8 @@ class RotationExperiment:
         def summarize(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
             selected = [
                 row for row in rows
-                if float((row.get("confidence") or {}).get("score") or 0) >= threshold
+                if (row.get("confidence") or {}).get("score") is not None
+                and float(row["confidence"]["score"]) >= threshold
             ]
             all_summary = cls._effect_summary(
                 [cls._record_effect(row) for row in rows], horizon=horizon
@@ -1278,16 +1370,11 @@ class RotationExperiment:
             selected_summary = cls._effect_summary(
                 [cls._record_effect(row) for row in selected], horizon=horizon
             )
-            selected_summary["selection_rate_pct"] = _round(
-                len(selected) / len(rows) * 100 if rows else 0.0
-            )
-            selected_summary["top3_hit_delta_pct"] = _round(
-                selected_summary["top3_beat_benchmark_rate_pct"]
-                - all_summary["top3_beat_benchmark_rate_pct"]
-            )
-            selected_summary["rank_ic_delta"] = _round(
-                selected_summary["rank_ic_mean"] - all_summary["rank_ic_mean"], 4
-            )
+            selected_summary["selection_rate_pct"] = _round(len(selected) / len(rows) * 100) if rows else None
+            selected_summary["top3_hit_delta_pct"] = _difference(
+                selected_summary["top3_beat_benchmark_rate_pct"], all_summary["top3_beat_benchmark_rate_pct"])
+            selected_summary["rank_ic_delta"] = _difference(
+                selected_summary["rank_ic_mean"], all_summary["rank_ic_mean"], 4)
             return {"all": all_summary, "high_confidence": selected_summary}
 
         train = summarize(train_rows)
@@ -1295,8 +1382,11 @@ class RotationExperiment:
         train_delta = train["high_confidence"]["top3_hit_delta_pct"]
         oos_delta = oos["high_confidence"]["top3_hit_delta_pct"]
         oos_effective = oos["high_confidence"]["effective_non_overlapping_samples"]
-        wilson_low = oos["high_confidence"]["top3_beat_benchmark_wilson_95_pct"][0]
-        if train_delta >= 0 and oos_delta >= 3 and oos_effective >= 10:
+        interval = oos["high_confidence"]["top3_beat_benchmark_wilson_95_pct"]
+        wilson_low = interval[0] if interval else None
+        if train_delta is None or oos_delta is None:
+            state, label = "insufficient_samples", "缺少有效样本，无法比较过滤效果"
+        elif train_delta >= 0 and oos_delta >= 3 and oos_effective >= 10:
             if wilson_low >= 50:
                 state, label = "precision_improved", "高共识信号提高命中且通过区间下界"
             else:
@@ -1305,12 +1395,16 @@ class RotationExperiment:
             state, label = "oos_only", "样本外有改善，训练段未确认"
         else:
             state, label = "not_improved", "高共识过滤暂未提高命中"
+        if any(part["all"]["top3_hit_samples"] < part["all"]["samples"] for part in (train, oos)):
+            state, label = "ambiguous_top3", "部分Top3边界并列，过滤效果仅覆盖可判定截面"
+        if any(not row.get("available", True) for row in train_rows + oos_rows):
+            state, label = "incomplete_labels", "缺少未来标签，不能确认过滤提升"
         return {
             "method": "training_distribution_calibrated_abstention",
             "primary_horizon_sessions": horizon,
             "feature_formula": "70pct_active_factor_consensus_plus_30pct_score_separation",
             "threshold_train_quantile": cls.high_confidence_train_quantile,
-            "threshold": _round(threshold, 2),
+            "threshold": _round(threshold, 2) if train_scores else None,
             "train": train,
             "out_of_sample": oos,
             "verdict": {
@@ -1359,15 +1453,17 @@ class RotationExperiment:
             signal_date = benchmark_dates[position]
             entry_date = benchmark_dates[position + 1]
             benchmark_slice = benchmark_frame.iloc[:position + 1]
-            benchmark_metrics = engine._benchmark_metrics(benchmark_slice, window)
+            benchmark_metrics = self._decision_benchmark_metrics(benchmark_slice, window)
             raw_rows = []
-            future_returns: Dict[str, Dict[int, float]] = {}
+            future_returns: Dict[str, Dict[int, Optional[float]]] = {}
             for item in self.universe:
+                if benchmark_metrics is None:
+                    break
                 prepared_trade = prepared_trades.get(item.code)
                 prepared_signal = prepared_signals.get(item.code)
                 if prepared_trade is None or prepared_signal is None:
                     continue
-                trade_source, trade_dates, trade_opens = prepared_trade
+                trade_source, trade_dates, _ = prepared_trade
                 signal_source, signal_dates = prepared_signal
                 trade_end = int(trade_dates.searchsorted(signal_date, side="right"))
                 signal_end = int(signal_dates.searchsorted(signal_date, side="right"))
@@ -1384,25 +1480,6 @@ class RotationExperiment:
                     )
                 )
                 if trade_lag > engine.max_stale_sessions or signal_lag > engine.max_stale_sessions:
-                    continue
-                entry_position = int(trade_dates.searchsorted(entry_date, side="left"))
-                if (
-                    entry_position >= len(trade_dates)
-                    or trade_dates[entry_position] != entry_date
-                    or self._valid_execution_price(trade_opens[entry_position]) is None
-                ):
-                    continue
-                returns: Dict[int, float] = {}
-                for horizon in (5, 10, 20):
-                    exit_date = benchmark_dates[position + 1 + horizon]
-                    exit_position = int(trade_dates.searchsorted(exit_date, side="left"))
-                    if exit_position >= len(trade_dates) or trade_dates[exit_position] != exit_date:
-                        break
-                    exit_price = self._valid_execution_price(trade_opens[exit_position])
-                    if exit_price is None:
-                        break
-                    returns[horizon] = exit_price / float(trade_opens[entry_position]) - 1
-                if len(returns) != 3:
                     continue
                 trade_slice = trade_source.iloc[:trade_end].copy()
                 trade_slice.attrs.update(trade_source.attrs)
@@ -1421,8 +1498,21 @@ class RotationExperiment:
                         signal_source.attrs.get("rotation_signal_mode") or "trade_asset"
                     ),
                 ))
-                future_returns[item.code] = returns
+                future_returns[item.code] = {
+                    horizon: self._forward_return(prepared_trade, entry_date, benchmark_dates[position + 1 + horizon])
+                    for horizon in (5, 10, 20)
+                }
             if len(raw_rows) < self._minimum_cross_section_size(len(self.universe)):
+                for horizon in (5, 10, 20):
+                    records.append({
+                        **self._ranking_effect([], [], None),
+                        "signal_date": signal_date.strftime("%Y-%m-%d"),
+                        "entry_date": entry_date.strftime("%Y-%m-%d"),
+                        "exit_date": benchmark_dates[position + 1 + horizon].strftime("%Y-%m-%d"),
+                        "horizon": horizon,
+                        "decision_issue": "missing_benchmark_signal" if benchmark_metrics is None else "insufficient_signal_coverage",
+                        "factor_effects": {}, "ablation_effects": {}, "confidence": {},
+                    })
                 continue
             factors = engine._factor_frame(raw_rows)
             current_factor_model = engine._factor_model(factors)
@@ -1438,25 +1528,18 @@ class RotationExperiment:
                 pairs = [
                     (row, future_returns[row["code"]][horizon])
                     for row in rankings
-                    if row["code"] in future_returns
                 ]
-                if len(pairs) < self._minimum_cross_section_size(len(self.universe)):
-                    continue
                 benchmark_entry = self._valid_execution_price(benchmark_opens[position + 1])
                 benchmark_exit = self._valid_execution_price(
                     benchmark_opens[position + 1 + horizon]
                 )
-                if benchmark_entry is None or benchmark_exit is None:
-                    continue
-                benchmark_return = benchmark_exit / benchmark_entry - 1
+                benchmark_return = benchmark_exit / benchmark_entry - 1 if benchmark_entry is not None and benchmark_exit is not None else None
                 codes = [str(row["code"]) for row, _ in pairs]
-                returns = [float(value) for _, value in pairs]
+                returns = [value for _, value in pairs]
                 composite_scores = [float(row["total_score"]) for row, _ in pairs]
                 composite = self._ranking_effect(
                     composite_scores, returns, benchmark_return
                 )
-                if not composite.get("available"):
-                    continue
                 factor_effects: Dict[str, Dict[str, Any]] = {}
                 ablation_effects: Dict[str, Dict[str, Any]] = {}
                 for factor in engine.factor_keys:
@@ -1519,23 +1602,20 @@ class RotationExperiment:
                 )
                 separation_pct = min(score_edge / 15.0 * 100, 100.0)
                 confidence_score = consensus_pct * 0.70 + separation_pct * 0.30
+                top3_clear = len(ordered) > 3 and ordered[2][0]["total_score"] > ordered[3][0]["total_score"]
                 records.append({
+                    **composite,
                     "signal_date": signal_date.strftime("%Y-%m-%d"),
                     "entry_date": entry_date.strftime("%Y-%m-%d"),
                     "exit_date": benchmark_dates[position + 1 + horizon].strftime("%Y-%m-%d"),
                     "horizon": horizon,
-                    "rank_ic": composite["rank_ic"],
-                    "top3_minus_bottom3": composite["top3_minus_bottom3"],
-                    "leader_beat_median": composite["leader_beat_median"],
-                    "leader_beat_benchmark": composite["leader_beat_benchmark"],
-                    "top3_beat_median": composite["top3_beat_median"],
-                    "top3_beat_benchmark": composite["top3_beat_benchmark"],
                     "factor_effects": factor_effects,
                     "ablation_effects": ablation_effects,
                     "confidence": {
-                        "score": _round(confidence_score, 4),
-                        "active_factor_consensus_pct": _round(consensus_pct),
-                        "top3_score_edge": _round(score_edge, 4),
+                        "score": _round(confidence_score, 4) if top3_clear else None,
+                        "active_factor_consensus_pct": _round(consensus_pct) if top3_clear else None,
+                        "top3_score_edge": _round(score_edge, 4) if top3_clear else None,
+                        "issue": None if top3_clear else "top3_boundary_tie",
                     },
                 })
 
@@ -1558,10 +1638,10 @@ class RotationExperiment:
         )
         oos_horizons = oos_summary["horizons"]
         best = max(
-            oos_horizons,
+            [row for row in oos_horizons if row["rank_ic_mean"] is not None],
             key=lambda row: (
                 float(row["rank_ic_mean"]),
-                float(row["top3_beat_benchmark_rate_pct"]),
+                float(row["top3_beat_benchmark_rate_pct"] or 0),
             ),
             default={"horizon_sessions": 0},
         )
@@ -1576,7 +1656,13 @@ class RotationExperiment:
             {},
         )
         primary_train = train_by_horizon.get(primary_horizon, {})
-        if (
+        if not primary_oos.get("samples") or not primary_train.get("samples"):
+            state, label = "insufficient_samples", "缺少训练或样本外有效样本"
+            reasons = ["无法确认10日主周期跨区间指示效应"]
+        elif primary_oos.get("rank_ic_mean") is None or primary_train.get("rank_ic_mean") is None:
+            state, label = "undefined_ic", "主周期IC不可计算，不作为零相关或失效证据"
+            reasons = ["分数或收益横截面无差异，相关系数未定义"]
+        elif (
             float(primary_oos.get("rank_ic_mean") or 0) > 0
             and float(primary_train.get("rank_ic_mean") or 0) > 0
             and float(primary_oos.get("top3_beat_benchmark_rate_pct") or 0) >= 55
@@ -1592,8 +1678,30 @@ class RotationExperiment:
             state = "weak"
             label = "尚无正向预测证据"
             reasons = ["10日主周期样本外 Rank IC 未形成稳定正值"]
+        missing_labels = [row for row in records if not row["available"]]
+        if any(row.get("rank_ic_samples", 0) < row.get("samples", 0)
+               or row.get("top3_hit_samples", 0) < row.get("samples", 0)
+               for row in (primary_train, primary_oos)) and state != "undefined_ic":
+            state, label = "partial_statistics", "部分截面统计不可定义，仅作局部观察"
+            reasons.append("常数截面或Top3边界并列已按指标单独剔除，不计为零或失败")
+        if missing_labels:
+            state, label = "incomplete_labels", "信号或未来标签不完整，仅展示完整截面统计"
+            reasons.append(f"{len(missing_labels)}/{len(records)} 个期限截面缺信号或未来价格，未补位、未算作零收益")
         return {
             "method": "cross_sectional_rank_ic_top3_minus_bottom3_next_open",
+            "statistics_policy": {
+                "version": 1,
+                "rank_ic": "average_ranks_constant_scores_or_returns_undefined",
+                "ties": "ambiguous_membership_metric_unavailable_no_order_tiebreak",
+                "spread": "at_least_six_assets_disjoint_top3_bottom3",
+                "denominators": "valid_sections_per_metric",
+                "ablation": "paired_valid_sections_per_metric",
+                "beat_return_tolerance": 1e-12,
+            },
+            "label_coverage": {
+                "expected_periods": len(records), "missing_periods": len(missing_labels),
+                "policy": "frozen_signal_cross_section_complete_labels_per_horizon_no_replacement",
+            },
             "sampling_sessions": self.prediction_sampling_sessions,
             "horizons": [5, 10, 20],
             "primary_horizon_sessions": primary_horizon,
@@ -1628,11 +1736,15 @@ class RotationExperiment:
             failures,
             signal_failures,
         ) = self._load_frames(benchmark, normalized_as_of)
+        benchmark_frame, calendar_audit = self._calendar_frame(benchmark_frame, trade_frames, normalized_as_of)
         dates = pd.to_datetime(benchmark_frame["date"])
+        execution = RotationExecutionAudit(self.provider, trade_frames,
+            dates.iloc[0].strftime("%Y-%m-%d"), dates.iloc[-1].strftime("%Y-%m-%d"))
         split_position = max(180, min(len(dates) - 40, int(len(dates) * 0.65)))
         split_date = pd.Timestamp(dates.iloc[split_position])
         variants = []
         trade_sets: Dict[str, list[Dict[str, Any]]] = {}
+        frozen_trade_sets: Dict[str, list[Dict[str, Any]]] = {}
         for window in self.windows:
             window_trade_sets = self._window_trade_sets(
                 benchmark_frame=benchmark_frame,
@@ -1645,7 +1757,8 @@ class RotationExperiment:
             )
             for profile, weights in ROTATION_WEIGHT_PROFILES.items():
                 variant_id = f"{profile}-w{window}"
-                trades = window_trade_sets[profile]
+                frozen_trade_sets[variant_id] = window_trade_sets[profile]
+                trades = execution.apply(window_trade_sets[profile])
                 train = [row for row in trades if pd.Timestamp(row["exit_date"]) <= split_date]
                 out_of_sample = [row for row in trades if pd.Timestamp(row["entry_date"]) > split_date]
                 train_metrics = _metrics(train, rebalance_days)
@@ -1665,35 +1778,48 @@ class RotationExperiment:
                     "out_of_sample_stability": oos_stability,
                     "selection_score": _round(
                         self._robust_selection_score(train_metrics, train_stability)
-                    ),
+                    ) if self._can_score(train_metrics) else None,
                 })
                 trade_sets[variant_id] = trades
         profile_order = {profile: index for index, profile in enumerate(ROTATION_WEIGHT_PROFILES)}
         window_order = {window: index for index, window in enumerate(self.windows)}
         variants.sort(key=lambda row: (profile_order[row["profile"]], window_order[row["window"]]))
-        eligible = [row for row in variants if row["train"]["trades"] >= 8 and row["out_of_sample"]["trades"] >= 4]
+        eligible = [row for row in variants if self._can_score(row["train"])]
         if not eligible:
-            raise MarketDataError("历史样本不足以形成训练段和样本外段")
+            raise MarketDataError("训练段缺少至少8个可完整核验的持仓期，或风险比率因零波动无法计算；未使用样本外表现反向选择参数")
         selected = dict(max(eligible, key=lambda row: (row["selection_score"], row["id"])))
         selected["qualification"] = self._training_qualification(
             selected["train"], selected["train_stability"]
         )
         selected_trades = trade_sets[selected["id"]]
         selected_oos_trades = [row for row in selected_trades if pd.Timestamp(row["entry_date"]) > split_date]
+        expected_oos_periods = [
+            (dates.iloc[position + 1].strftime("%Y-%m-%d"),
+             dates.iloc[position + 1 + rebalance_days].strftime("%Y-%m-%d"))
+            for position in range(max(selected["window"] + 5, 125), len(dates) - rebalance_days - 1, rebalance_days)
+            if dates.iloc[position + 1] > split_date
+        ]
+        daily_risk = daily_rotation_risk(
+            selected_oos_trades, trade_frames=trade_frames,
+            benchmark_frame=benchmark_frame, expected_periods=expected_oos_periods,
+            sessions=dates,
+        )
         selected_train_trades = [
             row for row in selected_trades
             if pd.Timestamp(row["exit_date"]) <= split_date
         ]
         ensemble_trades = self._parameter_ensemble_trades(
-            trade_sets,
+            frozen_trade_sets,
             cost_bps=cost_bps,
             vote_source="buffered_selection",
         )
         online_consensus_trades = self._parameter_ensemble_trades(
-            trade_sets,
+            frozen_trade_sets,
             cost_bps=cost_bps,
             vote_source="current_leader",
         )
+        ensemble_trades = execution.apply(ensemble_trades)
+        online_consensus_trades = execution.apply(online_consensus_trades)
         ensemble_train_trades = [
             row for row in ensemble_trades
             if pd.Timestamp(row["exit_date"]) <= split_date
@@ -1742,21 +1868,23 @@ class RotationExperiment:
         online_consensus_oos_signal = self._ensemble_signal_summary(
             online_consensus_oos_trades, high_confidence_only=True
         )
-        ensemble_train_hit_delta = _round(
-            ensemble_train_signal["gross_beat_benchmark_rate_pct"]
-            - selected_train_signal["gross_beat_benchmark_rate_pct"]
+        ensemble_train_hit_delta = _difference(
+            ensemble_train_signal["gross_beat_benchmark_rate_pct"],
+            selected_train_signal["gross_beat_benchmark_rate_pct"],
         )
-        ensemble_oos_hit_delta = _round(
-            ensemble_oos_signal["gross_beat_benchmark_rate_pct"]
-            - selected_oos_signal["gross_beat_benchmark_rate_pct"]
+        ensemble_oos_hit_delta = _difference(
+            ensemble_oos_signal["gross_beat_benchmark_rate_pct"],
+            selected_oos_signal["gross_beat_benchmark_rate_pct"],
         )
         ensemble_training_qualified = (
-            ensemble_train_metrics["excess_return_pct"] > 0
+            ensemble_train_metrics["execution_evidence"]["state"] == "checked"
+            and
+            (ensemble_train_metrics["excess_return_pct"] or 0) > 0
             and ensemble_train_signal["samples"] >= 20
-            and ensemble_train_signal["gross_beat_benchmark_rate_pct"] >= 55
-            and ensemble_train_hit_delta >= 0
+            and (ensemble_train_signal["gross_beat_benchmark_rate_pct"] or 0) >= 55
+            and ensemble_train_hit_delta is not None and ensemble_train_hit_delta >= 0
         )
-        if ensemble_training_qualified and ensemble_oos_hit_delta >= 3:
+        if ensemble_training_qualified and ensemble_oos_metrics["execution_evidence"]["state"] == "checked" and ensemble_oos_hit_delta is not None and ensemble_oos_hit_delta >= 3:
             ensemble_state = "observed_improvement"
             ensemble_label = "严格多数集成历史命中改善，仍需前向验证"
         elif ensemble_training_qualified:
@@ -1766,18 +1894,21 @@ class RotationExperiment:
             ensemble_state = "diagnostic_only"
             ensemble_label = "严格多数集成未通过训练门槛"
         online_consensus_training_qualified = (
-            online_consensus_train_metrics["excess_return_pct"] > 0
+            online_consensus_train_metrics["execution_evidence"]["state"] == "checked"
+            and
+            (online_consensus_train_metrics["excess_return_pct"] or 0) > 0
             and online_consensus_train_signal["samples"] >= 20
-            and online_consensus_train_signal["gross_beat_benchmark_rate_pct"] >= 55
+            and (online_consensus_train_signal["gross_beat_benchmark_rate_pct"] or 0) >= 55
         )
-        online_consensus_oos_hit_delta = _round(
-            online_consensus_oos_signal["gross_beat_benchmark_rate_pct"]
-            - online_consensus_oos_all["gross_beat_benchmark_rate_pct"]
+        online_consensus_oos_hit_delta = _difference(
+            online_consensus_oos_signal["gross_beat_benchmark_rate_pct"],
+            online_consensus_oos_all["gross_beat_benchmark_rate_pct"],
         )
         if (
             online_consensus_training_qualified
-            and online_consensus_oos_signal["gross_beat_benchmark_rate_pct"] >= 55
-            and online_consensus_oos_hit_delta >= 0
+            and online_consensus_oos_metrics["execution_evidence"]["state"] == "checked"
+            and (online_consensus_oos_signal["gross_beat_benchmark_rate_pct"] or 0) >= 55
+            and online_consensus_oos_hit_delta is not None and online_consensus_oos_hit_delta >= 0
         ):
             online_consensus_state = "observed_improvement"
             online_consensus_label = "当日静态投票历史命中改善，仍需前向验证"
@@ -1793,6 +1924,8 @@ class RotationExperiment:
         else:
             ensemble_verdict_state = "diagnostic_only"
             ensemble_verdict_label = "参数集成未形成可部署提升"
+        if any(metrics["execution_evidence"]["state"] != "checked" for metrics in (ensemble_train_metrics, ensemble_oos_metrics, online_consensus_train_metrics, online_consensus_oos_metrics)):
+            ensemble_verdict_state, ensemble_verdict_label = "execution_unverified", "集成成交依据不完整，仅保留诊断，不确认改善"
         parameter_ensemble = {
             "method": "equal_vote_3_profiles_x_3_windows",
             "variant_count": len(trade_sets),
@@ -1864,7 +1997,7 @@ class RotationExperiment:
         )
         confirmation_policies = []
         for policy, config in ROTATION_CONFIRMATION_POLICIES.items():
-            trades = confirmation_trade_sets[policy]
+            trades = execution.apply(confirmation_trade_sets[policy])
             train = [row for row in trades if pd.Timestamp(row["exit_date"]) <= split_date]
             out_of_sample = [row for row in trades if pd.Timestamp(row["entry_date"]) > split_date]
             train_metrics = _metrics(train, rebalance_days)
@@ -1883,7 +2016,7 @@ class RotationExperiment:
                 "out_of_sample_stability": oos_stability,
                 "selection_score": _round(
                     self._robust_selection_score(train_metrics, train_stability)
-                ),
+                ) if self._can_score(train_metrics) else None,
                 "qualification": self._training_qualification(
                     train_metrics, train_stability
                 ),
@@ -1897,19 +2030,18 @@ class RotationExperiment:
         for policy in confirmation_policies:
             oos_metrics = policy["out_of_sample"]
             policy["delta_vs_raw"] = {
-                "excess_return_pct": _round(oos_metrics["excess_return_pct"] - raw_oos["excess_return_pct"]),
-                "max_drawdown_improvement_pct": _round(raw_oos["max_drawdown_pct"] - oos_metrics["max_drawdown_pct"]),
-                "turnover_rate_pct": _round(oos_metrics["turnover_rate_pct"] - raw_oos["turnover_rate_pct"]),
+                "excess_return_pct": _difference(oos_metrics["excess_return_pct"], raw_oos["excess_return_pct"]),
+                "max_drawdown_improvement_pct": _difference(raw_oos["max_drawdown_pct"], oos_metrics["max_drawdown_pct"]),
+                "turnover_rate_pct": _difference(oos_metrics["turnover_rate_pct"], raw_oos["turnover_rate_pct"]),
             }
         best_oos_confirmation = max(
             confirmation_policies,
-            key=lambda row: (row["out_of_sample"]["excess_return_pct"], row["id"]),
+            key=lambda row: (row["out_of_sample"]["excess_return_pct"] if row["out_of_sample"]["excess_return_pct"] is not None else -math.inf, row["id"]),
         )
         qualified_confirmation = [
             row for row in confirmation_policies
             if row["qualification"]["state"] == "qualified"
             and row["train"]["trades"] >= 8
-            and row["out_of_sample"]["trades"] >= 4
         ]
         selected_confirmation = dict(max(
             qualified_confirmation or [raw_policy],
@@ -1917,18 +2049,24 @@ class RotationExperiment:
         ))
         selected_confirmation_oos = selected_confirmation["out_of_sample"]
         confirmation_delta = selected_confirmation["delta_vs_raw"]
-        if selected_confirmation["id"] == "raw":
+        if selected_confirmation_oos["execution_state"] == "incomplete":
+            confirmation_state, confirmation_label = "incomplete_execution", "所选确认策略缺成交证据，无法验证改善"
+        elif selected_confirmation_oos["execution_evidence"]["state"] != "checked":
+            confirmation_state, confirmation_label = "theoretical_only", "确认策略限价依据不完整，仅作理论对照"
+        elif raw_oos["execution_state"] != "complete" or raw_oos["execution_evidence"]["state"] != "checked":
+            confirmation_state, confirmation_label = "baseline_unverified", "原始对照策略成交依据不完整，不能确认改善"
+        elif selected_confirmation["id"] == "raw":
             confirmation_state = "baseline_retained"
             confirmation_label = "训练段继续选择原始排序"
         elif (
-            confirmation_delta["excess_return_pct"] > 0
-            and confirmation_delta["max_drawdown_improvement_pct"] >= 0
+            (confirmation_delta["excess_return_pct"] or 0) > 0
+            and confirmation_delta["max_drawdown_improvement_pct"] is not None and confirmation_delta["max_drawdown_improvement_pct"] >= 0
         ):
             confirmation_state = "improved"
             confirmation_label = "确认层同时改善收益与回撤"
         elif (
-            confirmation_delta["excess_return_pct"] > 0
-            or confirmation_delta["max_drawdown_improvement_pct"] > 0
+            (confirmation_delta["excess_return_pct"] or 0) > 0
+            or (confirmation_delta["max_drawdown_improvement_pct"] or 0) > 0
         ):
             confirmation_state = "mixed"
             confirmation_label = "确认层部分改善"
@@ -1958,7 +2096,11 @@ class RotationExperiment:
             ),
             {},
         )
-        positive_share = sum(row["out_of_sample"]["excess_return_pct"] > 0 for row in eligible) / len(eligible)
+        positive_share = (
+            sum(row["out_of_sample"]["excess_return_pct"] > 0 for row in eligible) / len(eligible)
+            if all(row["out_of_sample"]["execution_state"] == "complete" for row in eligible) else None
+        )
+        positive_share_pct = _round(positive_share * 100) if positive_share is not None else None
         start_date = pd.Timestamp(dates.iloc[0])
         end_date = pd.Timestamp(dates.iloc[-1])
         coverage_years = max((end_date - start_date).days / 365.25, 0)
@@ -2025,6 +2167,19 @@ class RotationExperiment:
             "prediction_samples_overlap_by_horizon_effective_count_reported",
             "stateful_buffered_ensemble_is_not_the_same_as_online_current_leader_vote",
             "round_trip_cost_is_charged_when_selected_etf_changes",
+            "daily_risk_uses_close_and_execution_open_not_intraday_extremes",
+            "missing_execution_prices_do_not_rewrite_signal_decisions",
+            "actual_switch_legs_only_hold_and_terminal_prices_are_marks_not_orders",
+            "separate_raw_open_limit_pairs_positive_volume_not_fill_guarantee",
+            "missing_limit_pairs_are_theoretical_known_execution_failures_propagate_unknown_capital",
+            "round_trip_fee_reservation_is_not_actual_order_cost_or_terminal_liquidation",
+            "prediction_statistics_use_complete_frozen_cross_sections_only",
+            "scheduled_decision_gaps_retained_and_holding_uncertainty_propagated",
+            "empty_statistics_are_null_ratios_require_two_samples_and_nonzero_dispersion",
+            "sharpe_assumes_zero_risk_free_rate_and_population_dispersion",
+            "sse_calendar_only_not_overseas_underlying_market_calendar",
+            "calendar_is_current_source_history_not_point_in_time_announcements",
+            "calendar_window_bounded_by_loaded_history_not_full_inception_history",
             "results_are_research_evidence_not_live_trading_advice",
         ]
         if index_signal_count:
@@ -2034,6 +2189,12 @@ class RotationExperiment:
         if signal_fallback_count:
             limitations.append("same_industry_etf_proxy_used_when_index_unavailable")
         reasons = []
+        if selected["train"]["execution_evidence"]["state"] != "checked" or selected_oos["execution_evidence"]["state"] != "checked":
+            reasons.append("买卖量价或历史限价证据不完整；缺配对仅为理论测算，已知触限或缺量不确认收益")
+        if daily_risk["strategy"]["state"] != "complete":
+            reasons.append("每日盯市存在行情或持仓区间缺口，无法确认完整样本外回撤")
+        if daily_risk["benchmark"]["state"] != "complete":
+            reasons.append("基准每日盯市存在行情缺口，无法确认完整基准回撤")
         if universe_coverage < self.evidence_coverage_threshold:
             reasons.append(
                 f"有效 ETF 覆盖 {len(trade_frames)}/{len(self.universe)}（{universe_coverage * 100:.1f}%），"
@@ -2047,9 +2208,13 @@ class RotationExperiment:
         if coverage_years < 5:
             reasons.append(f"历史覆盖仅 {coverage_years:.1f} 年，低于五年稳健性门槛")
         if selected_oos["trades"] < 30:
-            reasons.append(f"样本外交易仅 {selected_oos['trades']} 次，低于 30 次最低观察门槛")
-        if positive_share < 0.6:
-            reasons.append(f"仅 {positive_share * 100:.0f}% 参数组合在样本外跑赢基准，参数平台不足")
+            reasons.append(f"样本外持有期仅 {selected_oos['trades']} 期，低于 30 期最低观察门槛")
+        if len(eligible) < len(variants):
+            reasons.append(f"训练可评分参数仅 {len(eligible)}/{len(variants)} 组，其余存在成交缺口或统计不足；参数平台比例只覆盖可评分组")
+        if positive_share is None:
+            reasons.append("部分参数样本外成交证据不完整，不能确认参数平台胜率")
+        elif positive_share < 0.6:
+            reasons.append(f"训练可评分的 {len(eligible)}/{len(variants)} 组参数中，仅 {positive_share * 100:.0f}% 在样本外跑赢基准，参数平台不足")
         if selected["qualification"]["state"] != "qualified":
             reasons.append(
                 "入选候选训练段收益 "
@@ -2068,15 +2233,16 @@ class RotationExperiment:
         if reasons:
             verdict = "insufficient_evidence"
             verdict_label = "证据不足"
-        elif stress_tests[-1]["excess_return_pct"] > 0 and positive_share >= 0.6:
+        elif (stress_tests[-1]["excess_return_pct"] or 0) > 0 and positive_share is not None and positive_share >= 0.6:
             verdict = "promising"
             verdict_label = "具备继续验证价值"
         else:
             verdict = "fragile"
             verdict_label = "稳健性偏弱"
         data_quality = {
-            "state": "complete" if not failures and not signal_failures else "partial",
-            "benchmark_rows": len(benchmark_frame),
+            "state": "complete" if not failures and not signal_failures and not calendar_audit["missing_benchmark_dates"] else "partial",
+            "benchmark_rows": len(benchmark_frame) - len(calendar_audit["missing_benchmark_dates"]),
+            "calendar_sessions": len(benchmark_frame),
             "coverage_start": start_date.strftime("%Y-%m-%d"),
             "coverage_end": end_date.strftime("%Y-%m-%d"),
             "coverage_years": _round(coverage_years, 1),
@@ -2110,6 +2276,32 @@ class RotationExperiment:
                 "configured_factor_count", 7
             ),
         }
+        unresolved_decisions = [
+            {**{key: row[key] for key in ("signal_date", "entry_date", "exit_date", "symbol", "name")},
+             "reason": row.get("decision_issue", "missing_execution_price")}
+            for row in selected_oos_trades
+            if row["net_return"] is None or row["benchmark_return"] is None
+        ]
+        execution_audit = {
+            "calendar_policy": "independent_exchange_calendar_exact_dates",
+            "calendar": calendar_audit,
+            "selection_policy": "signal_close_only_no_future_price_filter",
+            "planned_oos_periods": len(selected_oos_trades),
+            "resolved_oos_periods": selected_oos["resolved_periods"],
+            "unresolved_oos_periods": selected_oos["unresolved_periods"],
+            "unresolved_decisions": unresolved_decisions,
+            "missing_signal_periods": sum(row.get("decision_issue") in {"insufficient_signal_coverage", "missing_benchmark_signal"} for row in selected_oos_trades),
+            "uncertain_holding_periods": sum(row.get("decision_issue") in {"ambiguous_holding_state", "uncertain_turnover"} for row in selected_oos_trades),
+            "equal_weight_missing_periods": sum(row["equal_weight_return"] is None for row in selected_oos_trades),
+            "prediction_label_coverage": prediction_diagnostics["label_coverage"],
+            "transition_policy": "initial_buy_switch_sell_old_buy_new_hold_and_terminal_mark_only",
+            "trade_evidence": {"train": selected["train"]["execution_evidence"],
+                               "out_of_sample": selected_oos["execution_evidence"],
+                               "feeds": list(execution.feeds.values()),
+                               "checks": [{**check, "partition": "train" if pd.Timestamp(row["exit_date"]) <= split_date
+                                           else "out_of_sample" if pd.Timestamp(row["entry_date"]) > split_date else "purged"}
+                                          for row in selected_trades for check in row["execution_checks"]]},
+        }
         payload = {
             "engine": {"name": self.engine_name, "version": self.engine_version},
             "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -2119,6 +2311,7 @@ class RotationExperiment:
             "hypothesis": "基于当日收盘可见的动量、相对强弱、趋势质量、成交连续性与拥挤/条件反转排名，在下一交易日开盘执行对应 ETF 后能取得相对基准收益；估值与基本面仅在具备点时证据时启用。",
             "rules": {
                 "signal_timing": "signal_at_close_t_execute_next_session_open",
+                "execution_calendar": "independent_exchange_calendar_exact_dates",
                 "holding_period_sessions": rebalance_days,
                 "portfolio": "top_1_equal_notional",
                 "cost_bps_per_side": cost_bps,
@@ -2127,6 +2320,9 @@ class RotationExperiment:
                 "minimum_cross_section_coverage_pct": _round(self.minimum_cross_section_coverage * 100, 1),
                 "evidence_coverage_threshold_pct": _round(self.evidence_coverage_threshold * 100, 1),
                 "transaction_cost": "charged_when_selected_etf_changes",
+                "candidate_selection": "signal_date_information_only_before_execution_labels",
+                "missing_execution": "retain_planned_decision_no_replacement_no_cash_imputation",
+                "missing_decision": "retain_full_calendar_propagate_possible_holdings_until_unambiguous",
                 "training_gate": "positive_return_excess_and_training_block_stability",
                 "primary_prediction_horizon_sessions": self.primary_prediction_horizon,
                 "factor_effectiveness": "standalone_and_leave_one_out_diagnostic_only",
@@ -2148,6 +2344,7 @@ class RotationExperiment:
                 "split": {"method": "chronological_holdout", "train_share": 0.65, "split_date": split_date.strftime("%Y-%m-%d")},
             },
             "data_quality": data_quality,
+            "execution_audit": execution_audit,
             "selected_variant": selected,
             "baseline_variant_id": "balanced-w60",
             "parameter_surface": variants,
@@ -2174,6 +2371,7 @@ class RotationExperiment:
             "prediction_diagnostics": prediction_diagnostics,
             "stress_tests": stress_tests,
             "equity_curve": self._equity_curve(selected_oos_trades),
+            "daily_risk": daily_risk,
             "verdict": {
                 "state": verdict,
                 "label": verdict_label,
@@ -2192,7 +2390,9 @@ class RotationExperiment:
                 "oos_positive_block_share_pct": selected[
                     "out_of_sample_stability"
                 ]["positive_excess_share_pct"],
-                "positive_variant_share_pct": _round(positive_share * 100),
+                "positive_variant_share_pct": positive_share_pct,
+                "scorable_variant_count": len(eligible),
+                "total_variant_count": len(variants),
                 "selected_confirmation_policy": selected_confirmation["id"],
                 "selected_confirmation_label": selected_confirmation["label"],
                 "confirmation_oos_return_pct": selected_confirmation_oos["total_return_pct"],
@@ -2227,9 +2427,9 @@ class RotationExperiment:
                 "online_consensus_oos_hit_rate_pct": online_consensus_oos_signal["gross_beat_benchmark_rate_pct"],
                 "online_consensus_oos_hit_delta_pct": online_consensus_oos_hit_delta,
                 "best_observed_horizon_sessions": best_prediction_horizon,
-                "best_oos_rank_ic": best_prediction_row.get("rank_ic_mean", 0.0),
+                "best_oos_rank_ic": best_prediction_row.get("rank_ic_mean"),
                 "best_oos_top3_beat_benchmark_rate_pct": best_prediction_row.get(
-                    "top3_beat_benchmark_rate_pct", 0.0
+                    "top3_beat_benchmark_rate_pct"
                 ),
             },
             "failures": failures,
@@ -2265,7 +2465,9 @@ class RotationExperiment:
                 "verdict": verdict,
                 "selected_variant": selected["id"],
                 "out_of_sample": selected_oos,
-                "positive_variant_share_pct": _round(positive_share * 100),
+                "execution_audit": execution_audit,
+                "daily_risk": {key: daily_risk[key] for key in ("sampling", "strategy", "benchmark")},
+                "positive_variant_share_pct": positive_share_pct,
                 "selected_confirmation_policy": selected_confirmation["id"],
                 "confirmation_verdict": confirmation_state,
                 "prediction_verdict": prediction_diagnostics["verdict"]["state"],

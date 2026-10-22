@@ -9,6 +9,7 @@ from unittest.mock import patch
 from tornado.testing import AsyncHTTPTestCase
 
 import instock.web.integration_api as integration_api
+from instock.release import process_release
 from instock.web.web_service import Application, application_handlers
 
 
@@ -44,6 +45,8 @@ def test_attached_route_interface_excludes_upstream_and_legacy_aliases():
         r"/api/v1/industry-chain/research",
         r"/api/v1/stock-candidates/snapshots",
         r"/api/v1/stock-research/dossiers",
+        r"/api/v1/stock-research/statement-evidence",
+        r"/api/v1/stock-research/statement-announcements",
         r"/api/v1/strategy-validations",
         r"/api/v1/event-flows",
         r"/api/v1/research-books",
@@ -171,6 +174,11 @@ class AttachedApplicationRouteTest(AsyncHTTPTestCase):
         for path in ("/mods/czsc", "/mods/rotation", "/mods/industry-chain", "/mods/stock-candidates", "/mods/stock-research", "/mods/strategy-validation", "/mods/event-flow", "/mods/research-book", "/mods/market-workbench", "/mods/market-map", "/mods/technical-signals"):
             response = self.fetch(path)
             assert response.code == 200
+            release = process_release()
+            commit = release["sourceCommit"] or "unknown"
+            dirty = "true" if release["sourceDirty"] is True else "false" if release["sourceDirty"] is False else "unknown"
+            assert f'name="instock-source-commit" content="{commit}"'.encode() in response.body
+            assert f'name="instock-source-dirty" content="{dirty}"'.encode() in response.body
             assert b'id="sidebar"' not in response.body
             assert b'href="/czsc_chart' not in response.body
             assert b'href="/rotation' not in response.body
@@ -207,7 +215,8 @@ class AttachedApplicationRouteTest(AsyncHTTPTestCase):
 
         research_book = self.fetch("/mods/research-book")
         assert "研究组合".encode("utf-8") in research_book.body
-        assert b"analysis.research-book" in research_book.body
+        assert b"js/research-book.js" in research_book.body
+        assert b"analysis.research-book" in self.fetch("/static/js/research-book.js").body
 
         market_workbench = self.fetch("/mods/market-workbench")
         assert b"MARKET OVERVIEW" in market_workbench.body
@@ -252,6 +261,8 @@ class AttachedApplicationRouteTest(AsyncHTTPTestCase):
             health_response = self.fetch("/api/v1/health")
         health = json.loads(health_response.body)["data"]
         assert health["runtime"]["mode"] == "newma-desk-attached"
+        assert health["release"]["projectId"] == "instock-analysis"
+        assert health["release"] == process_release()
 
         suite_response = self.fetch("/.well-known/newma-desk-suite.json")
         suite = json.loads(suite_response.body)

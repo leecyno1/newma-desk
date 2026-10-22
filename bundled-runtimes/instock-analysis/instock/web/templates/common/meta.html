@@ -1,4 +1,9 @@
 {% block meta %}
+{% from instock.release import process_release %}
+{% set release = process_release() %}
+<meta name="instock-source-commit" content="{{ release['sourceCommit'] or 'unknown' }}" />
+<meta name="instock-source-dirty" content="{{ 'true' if release['sourceDirty'] is True else 'false' if release['sourceDirty'] is False else 'unknown' }}" />
+<meta name="instock-package-version" content="{{ release['packageVersion'] or 'unknown' }}" />
 <meta name="spreadjs culture" content="zh-cn" />
 <link rel="icon" href="/static/img/favicon.ico">
 <link rel="stylesheet" href="/static/css/bootstrap.min-3.4.1.css" />

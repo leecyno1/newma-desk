@@ -39,13 +39,27 @@
     .book-stat span { color: var(--instock-text-muted); font-size: 9px; }
     .book-stat strong { display: block; margin-top: 7px; font-family: var(--instock-font-mono); font-size: 16px; }
     .book-list { display: grid; gap: 8px; margin-top: 13px; }
-    .book-item { padding: 12px; border: 1px solid var(--instock-border); border-radius: 8px; background: var(--instock-surface-raised); cursor: pointer; }
+    .book-item { min-width: 0; padding: 12px; border: 1px solid var(--instock-border); border-radius: 8px; background: var(--instock-surface-raised); overflow-wrap: anywhere; }
+    .book-reference { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--instock-border); font-size: 11px; }
+    .book-reference summary { cursor: pointer; line-height: 1.6; }
+    .book-workspace-reviews { margin-top: 12px; border-top: 1px solid var(--instock-border); padding-top: 10px; }
+    .book-workspace-reviews h3 { font-size: 12px; line-height: 1.6; }
+    .book-workspace-reviews .dossier-review-load, #book-review-refresh { border: 1px solid var(--instock-border-strong); border-radius: 6px; padding: 7px 10px; color: var(--instock-text); background: var(--instock-surface-raised); font-size: 11px; }
+    .book-workspace-reviews .dossier-review-record { margin-top: 9px; padding: 10px; border-left: 3px solid var(--instock-border-strong); background: var(--instock-surface-muted); font-size: 11px; }
+    .book-workspace-reviews [data-status="contradicted"] { border-color: var(--instock-error-text); }
+    .book-workspace-reviews blockquote { margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--instock-border-strong); font-size: 12px; line-height: 1.6; }
     .book-head { display: flex; justify-content: space-between; gap: 10px; }
     .book-head b { font-size: 12px; }
     .book-head strong { color: var(--book-accent); font-family: var(--instock-font-mono); }
     .book-item p { margin: 8px 0 0; color: var(--instock-text-muted); font-size: 10px; line-height: 1.55; }
     .book-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
     .book-tags span { padding: 3px 6px; border-radius: 99px; background: var(--book-soft); color: var(--book-accent); font-size: 8px; }
+    .book-thesis-review { margin-top: 12px; padding: 12px; border-left: 3px solid var(--book-accent); background: var(--instock-surface-muted); }
+    .book-thesis-review h3 { margin: 0; font-size: 12px; }
+    .book-thesis-review ul { padding-left: 18px; font-size: 11px; line-height: 1.7; }
+    .book-review-agenda { display: grid; gap: 6px; margin: 10px 0; }
+    .book-review-agenda button { padding: 9px 10px; text-align: left; color: var(--instock-text); background: var(--instock-surface-raised); border: 1px solid var(--instock-border); border-radius: 7px; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+    .book-review-agenda button:focus-visible { outline: 2px solid var(--book-accent); outline-offset: 2px; }
     .book-meta { margin-top: 11px; color: var(--instock-text-muted); font-size: 9px; line-height: 1.6; }
     .book-empty { padding: 42px 12px; color: var(--instock-text-muted); text-align: center; font-size: 10px; }
     @media (max-width: 900px) { .book-grid { grid-template-columns: 1fr; } }
@@ -69,12 +83,12 @@
                 <h3 class="book-editor-title">添加观察标的</h3>
                 <div class="book-fields">
                     <div class="book-field"><label for="book-symbol">股票代码</label><input id="book-symbol" maxlength="13" placeholder="例如：300502"></div>
-                    <div class="book-field"><label for="book-weight-input">研究权重</label><input id="book-weight-input" type="number" min="0" max="100" step="1" value="10"></div>
+                    <div class="book-field"><label for="book-weight-input">研究权重</label><input id="book-weight-input" type="number" min="0" max="100" step="1" value="0"></div>
                     <div class="book-field"><label for="book-stock-name">股票名称</label><input id="book-stock-name" placeholder="例如：新易盛"></div>
                     <div class="book-field"><label for="book-sector">行业</label><input id="book-sector" placeholder="例如：通信"></div>
                     <div class="book-field book-field-wide"><label for="book-thesis">为什么跟踪</label><textarea id="book-thesis" placeholder="写下核心研究理由"></textarea></div>
                     <div class="book-field book-field-wide"><label for="book-invalidation">什么情况说明判断错了</label><textarea id="book-invalidation" placeholder="每行一个证伪条件"></textarea></div>
-                    <div class="book-field"><label for="book-risks">风险标签</label><input id="book-risks" placeholder="例如：高估值,客户集中"></div>
+                    <div class="book-field book-field-wide"><label for="book-risks">风险与证据缺口</label><textarea id="book-risks" placeholder="每行一条，保留具体问题和限定条件"></textarea></div>
                     <div class="book-field"><label for="book-snapshots">关联证据 ID（可选）</label><input id="book-snapshots" placeholder="由股票研究自动带入"></div>
                 </div>
                 <div class="book-editor-actions"><button id="book-add" class="book-add" type="button">加入组合</button><button id="book-cancel" class="book-cancel" type="button" hidden>取消编辑</button></div>
@@ -82,14 +96,22 @@
             <div id="book-draft" class="book-draft"></div>
             <button id="book-run" class="book-run" type="button">检查组合</button>
             <div id="book-alert" class="book-alert" role="alert"></div>
+            <p id="book-handoff" class="book-meta" role="status"></p>
         </article>
         <article class="book-panel book-results">
             <div class="book-stats">
                 <div class="book-stat"><span>观察标的</span><strong id="book-items">--</strong></div>
                 <div class="book-stat"><span>研究权重</span><strong id="book-weight">--</strong></div>
-                <div class="book-stat"><span>现金余量</span><strong id="book-cash">--</strong></div>
+                <div class="book-stat"><span>未分配研究权重</span><strong id="book-cash">--</strong></div>
                 <div class="book-stat"><span>证据缺口</span><strong id="book-missing">--</strong></div>
             </div>
+            <section class="book-thesis-review" aria-label="研究复核清单">
+                <h3>先复核什么</h3>
+                <p id="book-thesis-summary" class="book-meta" role="status">检查后按研究暴露列出来源差异与证据缺口；不会自动判定证伪。</p>
+                <div id="book-review-agenda" class="book-review-agenda"></div>
+            </section>
+            <p id="book-review-summary" class="book-meta" role="status">人工复核尚未读取，不代表没有风险。</p>
+            <button id="book-review-refresh" type="button" hidden>刷新已保存人工复核</button>
             <div id="book-list" class="book-list"><div class="book-empty">检查组合后显示集中度与证据状态</div></div>
             <p id="book-meta" class="book-meta">等待检查。</p>
         </article>
@@ -97,48 +119,9 @@
 </main>
 
 <script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
-<script>
-(function () {
-    const bridge = window.InStockNewmaDesk || window.InStockVibeDesk;
-    const actionId = 'analysis.research-book';
-    const button = document.getElementById('book-run');
-    const addButton = document.getElementById('book-add');
-    const cancelButton = document.getElementById('book-cancel');
-    const alertBox = document.getElementById('book-alert');
-    const draft = [];
-    const draftStorageKey = 'instock.research-book.draft.v1';
-    let editingIndex = -1;
-    let result = null;
-    document.getElementById('book-date').value = new Date().toISOString().slice(0, 10);
-
-    function lines(value) { return String(value || '').split(/[\n,，]+/).map(item => item.trim()).filter(Boolean); }
-    function cleanParam(value, maximum) { return String(value || '').trim().slice(0, maximum); }
-    function saveDraft() { try { const payload = {name: document.getElementById('book-name').value.trim(), asOf: document.getElementById('book-date').value, items: draft.slice(0, 100)}; localStorage.setItem(draftStorageKey, JSON.stringify(payload)); document.getElementById('book-draft-state').textContent = '已自动保存'; } catch (error) { document.getElementById('book-draft-state').textContent = '本机保存不可用'; } }
-    function restoreDraft() { try { const payload = JSON.parse(localStorage.getItem(draftStorageKey) || 'null'); if (!payload || !Array.isArray(payload.items)) return; payload.items.slice(0, 100).forEach(item => { if (item && /^\d{6}$/.test(String(item.symbol || '')) && item.name && item.sector && item.thesis && Array.isArray(item.invalidation)) draft.push(item); }); if (payload.name) document.getElementById('book-name').value = cleanParam(payload.name, 160); if (/^\d{4}-\d{2}-\d{2}$/.test(String(payload.asOf || ''))) document.getElementById('book-date').value = payload.asOf; document.getElementById('book-draft-state').textContent = draft.length ? '已恢复本机草稿' : '本机草稿'; } catch (error) { document.getElementById('book-draft-state').textContent = '草稿恢复失败'; } }
-    function applyUrlPrefill() { const query = new URLSearchParams(window.location.search); const symbol = cleanParam(query.get('symbol'), 13).toUpperCase().split('.')[0]; if (/^\d{6}$/.test(symbol)) document.getElementById('book-symbol').value = symbol; document.getElementById('book-stock-name').value = cleanParam(query.get('name'), 120); document.getElementById('book-sector').value = cleanParam(query.get('sector') || query.get('industry'), 120); document.getElementById('book-thesis').value = cleanParam(query.get('thesis'), 800); document.getElementById('book-invalidation').value = cleanParam(query.get('invalidation'), 1800); document.getElementById('book-risks').value = cleanParam(query.get('risks'), 600); document.getElementById('book-snapshots').value = cleanParam(query.get('snapshotIds'), 1800); const asOf = cleanParam(query.get('asOf'), 10); if (/^\d{4}-\d{2}-\d{2}$/.test(asOf)) document.getElementById('book-date').value = asOf; }
-    function inputItem() { const symbol = document.getElementById('book-symbol').value.trim().toUpperCase().split('.')[0]; const name = document.getElementById('book-stock-name').value.trim(); const sector = document.getElementById('book-sector').value.trim(); const weight = Number(document.getElementById('book-weight-input').value); const thesis = document.getElementById('book-thesis').value.trim(); const invalidation = lines(document.getElementById('book-invalidation').value); if (!/^\d{6}$/.test(symbol)) throw new Error('请输入 6 位 A 股代码'); if (!name) throw new Error('请输入股票名称'); if (!sector) throw new Error('请输入行业'); if (!Number.isFinite(weight) || weight < 0 || weight > 100) throw new Error('研究权重必须在 0% 到 100% 之间'); if (!thesis) throw new Error('请填写跟踪理由'); if (!invalidation.length) throw new Error('至少填写一个证伪条件'); return {symbol, name, market: 'CN', sector, target_weight_pct: weight, thesis, invalidation, risk_tags: lines(document.getElementById('book-risks').value), snapshot_ids: lines(document.getElementById('book-snapshots').value)}; }
-    function packet() { const name = document.getElementById('book-name').value.trim(); const asOf = document.getElementById('book-date').value; if (!name) throw new Error('请输入组合名称'); if (!asOf) throw new Error('请选择截止日'); if (!draft.length) throw new Error('至少加入一个观察标的'); return {schema_version: 'instock-research-book-packet-v1', name, as_of: asOf, items: draft}; }
-    function resetEditor() { editingIndex = -1; document.getElementById('book-symbol').value = ''; document.getElementById('book-stock-name').value = ''; document.getElementById('book-sector').value = ''; document.getElementById('book-weight-input').value = '10'; document.getElementById('book-thesis').value = ''; document.getElementById('book-invalidation').value = ''; document.getElementById('book-risks').value = ''; document.getElementById('book-snapshots').value = ''; addButton.textContent = '加入组合'; cancelButton.hidden = true; }
-    function editItem(index) { const item = draft[index]; editingIndex = index; document.getElementById('book-symbol').value = item.symbol; document.getElementById('book-stock-name').value = item.name; document.getElementById('book-sector').value = item.sector; document.getElementById('book-weight-input').value = String(item.target_weight_pct); document.getElementById('book-thesis').value = item.thesis; document.getElementById('book-invalidation').value = item.invalidation.join('\n'); document.getElementById('book-risks').value = item.risk_tags.join(','); document.getElementById('book-snapshots').value = item.snapshot_ids.join(','); addButton.textContent = '保存修改'; cancelButton.hidden = false; document.getElementById('book-symbol').focus(); }
-    function invalidateResult() { result = null; ['book-items', 'book-weight', 'book-cash', 'book-missing'].forEach(id => setText(id, '--')); const root = document.getElementById('book-list'); root.replaceChildren(); const empty = document.createElement('div'); empty.className = 'book-empty'; empty.textContent = draft.length ? '组合已修改，请重新检查' : '检查组合后显示集中度与证据状态'; root.appendChild(empty); setText('book-meta', draft.length ? '等待重新检查。' : '等待检查。'); }
-    function renderDraft() { const root = document.getElementById('book-draft'); root.replaceChildren(); document.getElementById('book-draft-count').textContent = `${draft.length} 个观察标的`; draft.forEach((item, index) => { const row = document.createElement('div'); row.className = 'book-draft-item'; const body = document.createElement('div'); const title = document.createElement('b'); title.textContent = `${item.name} · ${item.symbol} · ${item.target_weight_pct}%`; const copy = document.createElement('p'); copy.textContent = `${item.sector} · ${item.thesis}`; body.append(title, copy); const actions = document.createElement('div'); const edit = document.createElement('button'); edit.className = 'book-add'; edit.type = 'button'; edit.textContent = '编辑'; edit.addEventListener('click', () => editItem(index)); const remove = document.createElement('button'); remove.className = 'book-remove'; remove.type = 'button'; remove.textContent = '移除'; remove.addEventListener('click', () => { draft.splice(index, 1); if (editingIndex === index) resetEditor(); else if (editingIndex > index) editingIndex -= 1; invalidateResult(); saveDraft(); renderDraft(); publish(); }); actions.append(edit, remove); row.append(body, actions); root.appendChild(row); }); }
-    function prefillSelected(envelope) { if (!envelope || envelope.event !== 'security.selected' || envelope.source === 'instock-research-book') return; const payload = envelope.payload || {}; const symbol = String(payload.symbol || payload.code || '').trim().toUpperCase().split('.')[0]; if ((payload.market && payload.market !== 'CN') || !/^\d{6}$/.test(symbol)) return; document.getElementById('book-symbol').value = symbol; document.getElementById('book-stock-name').value = String(payload.name || '').trim(); document.getElementById('book-sector').value = String(payload.industry || payload.sector || '').trim(); const snapshotId = String(payload.snapshotId || '').trim(); if (snapshotId) document.getElementById('book-snapshots').value = snapshotId; }
-    async function request(input) { if (bridge && bridge.whenReady) await bridge.whenReady(); if (bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)) return bridge.invokeAction(actionId, input); const response = await fetch('/api/v1/research-books', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input)}); const body = await response.json(); if (!response.ok) throw new Error(body && body.error && body.error.message || '研究组合检查失败'); return body; }
-    function setText(id, value) { document.getElementById(id).textContent = value; }
-    function coverageLabel(value) { return ({complete: '完整', missing: '缺失', none: '未关联'})[value] || '未知'; }
-    function render(payload, source) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-research-book') throw new Error('返回结果缺少研究组合引擎标识'); result = data; const items = data.items || []; setText('book-items', data.summary.items); setText('book-weight', `${Number(data.summary.total_target_weight_pct).toFixed(1)}%`); setText('book-cash', `${Number(data.summary.cash_weight_pct).toFixed(1)}%`); setText('book-missing', items.filter(item => item.snapshot_coverage !== 'complete').length); const root = document.getElementById('book-list'); root.replaceChildren(); items.forEach(item => { const card = document.createElement('div'); card.className = 'book-item'; const head = document.createElement('div'); head.className = 'book-head'; const title = document.createElement('b'); title.textContent = `${item.name} · ${item.symbol}`; const weight = document.createElement('strong'); weight.textContent = `${Number(item.target_weight_pct).toFixed(1)}%`; head.append(title, weight); const thesis = document.createElement('p'); thesis.textContent = item.thesis; const invalidation = document.createElement('p'); invalidation.textContent = `证伪：${item.invalidation.join('；')}`; const tags = document.createElement('div'); tags.className = 'book-tags'; [item.sector, ...item.risk_tags, `证据 ${coverageLabel(item.snapshot_coverage)}`].forEach(text => { const tag = document.createElement('span'); tag.textContent = text; tags.appendChild(tag); }); card.append(head, thesis, invalidation, tags); card.addEventListener('click', () => { if (bridge && bridge.emit) bridge.emit('security.selected', {market: item.market, symbol: item.symbol, name: item.name, source: 'instock-research-book', snapshotId: data.snapshot.snapshot_id}); }); root.appendChild(card); }); const warnings = (data.warnings || []).map(item => { if (item.startsWith('position_concentration:')) return `单一标的权重偏高：${item.split(':')[1]}`; if (item.startsWith('sector_concentration:')) return `行业集中度偏高：${item.split(':')[1]}`; if (item.startsWith('snapshot_coverage:')) { const [, symbol, state] = item.split(':'); return `证据未完整：${symbol}（${coverageLabel(state)}）`; } return item; }); setText('book-meta', `${source === 'history' ? '历史版本 · ' : ''}${data.data_state === 'complete' ? '证据完整' : '证据部分缺失'} · ${warnings.join('；') || '未发现集中度警告'}`); publish(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
-    function context() { return {view: {id: 'research-book', title: '研究组合'}, visibleBlocks: [{id: 'positions', type: 'research-book', title: '研究观察项'}, {id: 'exposures', type: 'risk-exposure', title: '暴露与风险'}], data: result ? {name: result.name, asOf: result.as_of, summary: result.summary, exposures: result.exposures, warnings: result.warnings, snapshot: result.snapshot} : {draftItems: draft.length}, actions: [{id: actionId, label: '检查研究组合', available: Boolean(bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId))}]}; }
-    function publish() { if (!bridge) return; bridge.setContextProvider && bridge.setContextProvider(context); bridge.publishContext && bridge.publishContext(); }
-    addButton.addEventListener('click', () => { alertBox.style.display = 'none'; try { const item = inputItem(); if (editingIndex >= 0) draft[editingIndex] = item; else draft.push(item); resetEditor(); invalidateResult(); saveDraft(); renderDraft(); publish(); } catch (error) { alertBox.textContent = error.message || String(error); alertBox.style.display = 'block'; } });
-    cancelButton.addEventListener('click', resetEditor);
-    button.addEventListener('click', async () => { alertBox.style.display = 'none'; button.disabled = true; button.textContent = '检查中…'; try { render(await request(packet())); } catch (error) { alertBox.textContent = error && error.message ? error.message : String(error); alertBox.style.display = 'block'; } finally { button.disabled = false; button.textContent = '检查组合'; } });
-    ['book-name', 'book-date'].forEach(id => document.getElementById(id).addEventListener('change', () => { saveDraft(); if (result) { invalidateResult(); publish(); } }));
-    restoreDraft();
-    applyUrlPrefill();
-    if (bridge && bridge.subscribe) bridge.subscribe(prefillSelected);
-    document.addEventListener('instock:history-selected', event => render(event.detail.payload, event.detail.view_source || 'history'));
-    renderDraft();
-    publish();
-})();
-</script>
+<script src="{{ static_url('js/industry-chain-review-contract.js') }}"></script>
+<script src="{{ static_url('js/industry-chain-review-storage.js') }}"></script>
+<script src="{{ static_url('js/stock-chain-reviews.js') }}"></script>
+<script src="{{ static_url('js/industry-chain-origin.js') }}"></script>
+<script src="{{ static_url('js/research-book.js') }}"></script>
 {% end %}

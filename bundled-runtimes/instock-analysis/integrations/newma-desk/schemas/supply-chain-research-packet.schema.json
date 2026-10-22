@@ -25,7 +25,7 @@
     },
     "candidates": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "maxItems": 100,
       "items": {"$ref": "#/$defs/candidate"}
     }

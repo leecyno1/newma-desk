@@ -1,0 +1,8 @@
+include requirements-attached.txt
+include build_release.py
+include requirements-attached.constraints.txt
+include integrations/newma-desk/instock-suite/suite.json
+include docs/standalone-runtime.md
+recursive-exclude instock/cache *
+recursive-exclude instock/log *
+global-exclude *.pyc *.sqlite3 *.db *.log

@@ -69,6 +69,11 @@ if (window.location.protocol === 'file:') {
     .event-source-link { display: inline-block; margin-top: 8px; color: var(--event-accent); font-size: 8px; text-decoration: none; }
     .event-source-link:hover { text-decoration: underline; }
     .event-empty { display: grid; min-height: 230px; padding: 26px; place-items: center; color: var(--instock-text-muted); text-align: center; font-size: 10px; line-height: 1.7; }
+    .event-related { min-width: 0; padding: 10px; border: 1px solid var(--instock-border-strong); border-radius: 9px; background: var(--instock-surface); }
+    .event-related h3 { margin: 0 0 6px; font-size: 11px; line-height: 1.6; }
+    .event-related p, .event-related summary { color: var(--instock-text-muted); font-size: 9px; line-height: 1.7; overflow-wrap: anywhere; }
+    .event-related summary { cursor: pointer; padding: 8px 0; }
+    .event-related details .event-item { margin-top: 8px; }
     .event-side { display: grid; align-content: start; gap: 12px; min-width: 0; }
     .event-coverage { padding: 9px 11px 11px; }
     .event-source { display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; gap: 8px; padding: 9px 2px; align-items: start; border-bottom: 1px solid var(--instock-border); }
@@ -112,9 +117,9 @@ if (window.location.protocol === 'file:') {
     </section>
 
     <section class="event-stats" aria-label="事件资金摘要">
-        <div class="event-stat"><span>有效事件</span><strong id="event-count">--</strong><small>统一去重后的证据条目</small></div>
+        <div class="event-stat"><span>证据条目</span><strong id="event-count">--</strong><small>记录去重后数量，不等于独立事件数</small></div>
         <div class="event-stat"><span>30 日内</span><strong id="event-fresh">--</strong><small>新鲜事件，不等于有效信号</small></div>
-        <div class="event-stat"><span>数据源响应</span><strong id="event-sources">--</strong><small>空结果与失败分开计算</small></div>
+        <div class="event-stat"><span>数据源响应</span><strong id="event-sources">--</strong><small id="event-source-status">覆盖状态未提供</small></div>
         <div class="event-stat"><span>原始记录</span><strong id="event-records">--</strong><small>Desk 返回的原始覆盖数量</small></div>
     </section>
 
@@ -132,7 +137,7 @@ if (window.location.protocol === 'file:') {
 
         <aside class="event-side">
             <section class="event-panel">
-                <header class="event-section-head"><div><h2>数据覆盖</h2><p>来源、最新日期、记录数与字段单位</p></div></header>
+                <header class="event-section-head"><div><h2>数据覆盖</h2><p>来源记录数与最新日期属于上游窗口，不等于截止日内证据</p></div></header>
                 <div id="event-coverage" class="event-coverage"></div>
                 <div id="event-failures" class="event-failures"></div>
             </section>
@@ -158,7 +163,8 @@ if (window.location.protocol === 'file:') {
 (function () {
     const bridge = window.InStockNewmaDesk || window.InStockVibeDesk;
     const actionId = 'analysis.event-flow';
-    const state = {data: null, running: false};
+    const state = {data: null, running: false, viewSource: 'current'};
+    let revision = 0, activeRequest = null, inputMode = 'symbol', resultInput = null, lastError = null;
     const typeLabels = {announcement: '公司公告', report: '机构研报', news: '市场新闻', fund_flow: '主力资金', margin: '融资融券', dragon_tiger: '龙虎榜', block_trade: '大宗交易', holder_change: '股东户数', dividend: '分红送转', lockup: '限售解禁', limit_up: '涨停原因', northbound: '北向资金', institutional_flow: '机构资金'};
     const directionLabels = {positive: '观察正向', negative: '观察负向', neutral: '中性记录'};
     const detailLabels = {main_net_5d_cny: '5日主力净额', main_net_20d_cny: '20日主力净额', latest_main_net_cny: '最新主力净额', five_day_abs_percentile_pct: '绝对值分位', financing_balance_cny: '融资余额', financing_net_5d_cny: '5日融资净额', securities_lending_balance_cny: '融券余额', net_buy_cny_10k: '榜单净买', institution_net_cny_10k: '机构席位净额', turnover_pct: '换手率', trade_count: '交易笔数', amount_cny: '成交额', weighted_premium_pct: '加权折溢价', holder_count: '股东户数', holder_change_pct: '户数环比', average_shares_per_holder: '户均持股', cash_dividend_cny_per_10_shares: '每10股派息', transfer_shares_per_10: '每10股转增', bonus_shares_per_10: '每10股送股', effective_at: '生效日期', able_shares_10k: '可流通万股', unlock_ratio: '解禁占比', category: '公告类型', organization: '研究机构', rating: '原始评级', publisher: '来源', plan: '实施进度', share_type: '股份类型'};
@@ -170,39 +176,222 @@ if (window.location.protocol === 'file:') {
     const queryMeta = document.getElementById('event-query-meta');
     const packetInput = document.getElementById('event-packet');
     const researchLink = document.getElementById('event-research-link');
+    function scopeKey() { const config = bridge?.config || {}; return JSON.stringify([config.user?.id, config.workspace?.id, config.instanceId]); }
+    let currentScope = scopeKey();
 
     const params = new URLSearchParams(window.location.search);
+    Object.assign(detailLabels, {observation_date: '统计期', published_at: '披露日',
+        average_shares_basis: '户均口径', premium_valid_trade_count: '折溢价有效笔数', data_quality_note: '数据缺口',
+        main_net_5d_cny: '5条日记录主力净额', main_net_20d_cny: '20条日记录主力净额', financing_net_5d_cny: '5条日记录融资净额',
+        percentile_sample_count: '此前完整窗口数', window_basis: '窗口口径',
+        plan: '方案进度', plan_published_at: '预案披露日', record_date: '股权登记日',
+        plan_description: '原始方案', event_date_basis: '事件日期口径', risk_basis: '风险口径',
+        unlock_ratio: '占流通股本'});
+    for (const size of [5, 20]) Object.assign(detailLabels, {
+        [`window_${size}d_records`]: `${size}条窗口返回记录`, [`window_${size}d_valid_records`]: `${size}条窗口有效记录`,
+        [`window_${size}d_start`]: `${size}条窗口起始日`, [`window_${size}d_end`]: `${size}条窗口截止日`,
+    });
     symbolInput.value = (params.get('symbol') || params.get('code') || '300502').toUpperCase();
     dateInput.value = params.get('asOf') || '';
-    packetInput.value = JSON.stringify({schema_version: 'instock-event-flow-packet-v1', as_of: new Date().toISOString().slice(0, 10), market: 'CN', events: [{id: 'newma-event-1', type: 'announcement', symbol: symbolInput.value.split('.')[0], occurred_at: new Date().toISOString().slice(0, 10), title: '由 Newma Agent 替换为已核验事件', direction: 'neutral', magnitude_score: 50, evidence_strength: 'medium', source_ref: 'newma://agent/event-1'}]}, null, 2);
+    packetInput.value = JSON.stringify({schema_version: 'instock-event-flow-packet-v1', as_of: new Date().toISOString().slice(0, 10), market: 'CN', events: []}, null, 2);
 
     function setText(id, value) { document.getElementById(id).textContent = value == null || value === '' ? '--' : String(value); }
     function unwrap(payload) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-event-flow') throw new Error('事件资金返回格式不受支持'); return data; }
     function errorMessage(body, fallback) { return body && body.error && typeof body.error === 'object' ? body.error.message || fallback : fallback; }
-    async function request(input) { if (bridge && bridge.whenReady) await bridge.whenReady(); if (bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)) return bridge.invokeAction(actionId, input); const response = await fetch('/api/v1/event-flows', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input)}); const body = await response.json(); if (!response.ok) throw new Error(errorMessage(body, '事件与资金读取失败')); return body; }
+    async function request(input) { if (bridge && bridge.whenReady) await bridge.whenReady(); if (bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)) return bridge.invokeAction(actionId, input); const response = await bridge.fetchAnalysis('/api/v1/event-flows', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input)}); const body = await response.json(); if (!response.ok) throw new Error(errorMessage(body, '事件与资金读取失败')); return body; }
     function formatMoney(value) { const number = Number(value) || 0; const sign = number > 0 ? '+' : number < 0 ? '-' : ''; const amount = Math.abs(number); if (amount >= 1e8) return `${sign}${(amount / 1e8).toFixed(2)}亿`; if (amount >= 1e4) return `${sign}${(amount / 1e4).toFixed(0)}万`; return `${sign}${amount.toFixed(0)}元`; }
-    function formatDetail(key, value) { if (value == null || value === '') return '--'; if (key.endsWith('_cny')) return formatMoney(value); if (key.endsWith('_cny_10k')) return `${Number(value).toLocaleString('zh-CN', {maximumFractionDigits: 1})}万元`; if (key.endsWith('_pct') || key.includes('percentile')) return `${Number(value).toFixed(2)}%`; if (key === 'unlock_ratio') return `${(Number(value) * 100).toFixed(2)}%`; if (typeof value === 'number') return Number(value).toLocaleString('zh-CN', {maximumFractionDigits: 2}); return String(value); }
+    function formatDetail(key, value) { if (value == null || value === '') return '--'; if (key.endsWith('_cny')) return formatMoney(value); if (key.endsWith('_cny_10k')) return `${Number(value).toLocaleString('zh-CN', {maximumFractionDigits: 1})}万元`; if (key.endsWith('_pct')) return `${Number(value).toFixed(2)}%`; if (key === 'unlock_ratio') return `${(Number(value) * 100).toFixed(2)}%`; if (typeof value === 'number') return Number(value).toLocaleString('zh-CN', {maximumFractionDigits: 2}); return String(value); }
     function groupFor(type) { if (['announcement', 'report', 'news'].includes(type)) return 'disclosure'; if (['fund_flow', 'margin', 'dragon_tiger', 'block_trade', 'northbound', 'institutional_flow'].includes(type)) return 'capital'; return 'ownership'; }
     function badge(text, className) { const node = document.createElement('span'); node.className = `event-badge ${className || ''}`; node.textContent = text; return node; }
-    function emitSelection(item) { if (!bridge || !bridge.emit || !state.data) return; const snapshotId = state.data.snapshot && state.data.snapshot.snapshot_id; bridge.emit('security.selected', {market: state.data.market || 'CN', symbol: item.symbol, source: 'instock-event-flow', snapshotId, eventFlowSnapshotId: snapshotId}); }
-    function renderEvents() { const data = state.data; const typeFilter = document.getElementById('event-type-filter').value; const directionFilter = document.getElementById('event-direction-filter').value; const rows = (data && data.alerts || []).filter(item => (typeFilter === 'all' || groupFor(item.type) === typeFilter) && (directionFilter === 'all' || item.direction === directionFilter)); const root = document.getElementById('event-list'); root.replaceChildren(); if (!rows.length) { const empty = document.createElement('div'); empty.className = 'event-empty'; empty.textContent = data && data.alerts && data.alerts.length ? '当前筛选条件下没有证据。' : 'Desk 数据源已返回，但没有形成可展示的事件记录。请查看右侧覆盖与失败项。'; root.appendChild(empty); return; } rows.forEach(item => { const card = document.createElement('article'); card.className = `event-item is-${item.direction}`; const head = document.createElement('div'); head.className = 'event-item-head'; const content = document.createElement('div'); const badges = document.createElement('div'); badges.className = 'event-badges'; badges.append(badge(typeLabels[item.type] || item.type), badge(directionLabels[item.direction] || item.direction, `is-${item.direction}`), badge(item.freshness === 'fresh' ? '30日内' : `距今${item.age_days}日`)); const title = document.createElement('h3'); title.textContent = item.title; const meta = document.createElement('p'); meta.className = 'event-item-meta'; meta.textContent = `${item.occurred_at} · ${item.symbol} · 证据强度 ${item.evidence_strength}`; content.append(badges, title, meta); const score = document.createElement('div'); score.className = 'event-score'; score.textContent = Number(item.intensity_score).toFixed(1); const scoreLabel = document.createElement('small'); scoreLabel.textContent = '研究优先级'; score.appendChild(scoreLabel); head.append(content, score); card.appendChild(head); const detailEntries = Object.entries(item.details || {}).filter(([key, value]) => key !== 'url' && value != null && value !== '').slice(0, 5); if (detailEntries.length) { const details = document.createElement('div'); details.className = 'event-details'; detailEntries.forEach(([key, value]) => { const line = document.createElement('span'); line.textContent = `${detailLabels[key] || key} ${formatDetail(key, value)}`; details.appendChild(line); }); card.appendChild(details); } const sourceUrl = item.details && item.details.url || (/^https?:\/\//.test(item.source_ref || '') ? item.source_ref : ''); if (sourceUrl) { const link = document.createElement('a'); link.className = 'event-source-link'; link.href = sourceUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = '打开原始证据 ↗'; link.addEventListener('click', event => event.stopPropagation()); card.appendChild(link); } card.addEventListener('click', () => emitSelection(item)); root.appendChild(card); }); }
-    function renderCoverage(data) { const root = document.getElementById('event-coverage'); root.replaceChildren(); (data.coverage && data.coverage.sources || []).forEach(item => { const row = document.createElement('div'); row.className = 'event-source'; const dot = document.createElement('span'); dot.className = `event-source-dot ${item.state}`; const body = document.createElement('div'); const label = document.createElement('b'); label.textContent = item.label; const endpoint = document.createElement('small'); const unitValues = [...new Set(Object.values(item.units || {}))].join(' / '); endpoint.textContent = `${item.endpoint}${unitValues ? ` · ${unitValues}` : ''}`; body.append(label, endpoint); const count = document.createElement('strong'); count.textContent = item.state === 'failed' ? '失败' : item.state === 'empty' ? '空' : `${item.records} 条`; const latest = document.createElement('small'); latest.textContent = item.latest_date || '--'; count.appendChild(latest); row.append(dot, body, count); root.appendChild(row); }); const failures = document.getElementById('event-failures'); const failureRows = data.failures || []; failures.style.display = failureRows.length ? 'block' : 'none'; failures.textContent = failureRows.map(item => `${item.label || item.source}：${item.message}`).join('；'); }
-    function render(payload, source) { const data = unwrap(payload); state.data = data; alertBox.style.display = 'none'; setText('event-count', data.summary.deduplicated_events); setText('event-fresh', data.summary.fresh_events); const coverage = data.coverage || {}; setText('event-sources', `${Math.max(0, Number(coverage.requested_sources || 0) - Number(coverage.failed_sources || 0))}/${coverage.requested_sources || 0}`); setText('event-records', Number(coverage.records || 0).toLocaleString('zh-CN')); const stateLabel = data.data_state === 'complete' ? '完整' : '部分'; queryMeta.textContent = `${source === 'history' ? '历史版本 · ' : ''}${data.query && data.query.symbol || data.market} · ${data.as_of} · ${stateLabel}覆盖 · ${data.snapshot.snapshot_id}`; renderEvents(); renderCoverage(data); const symbol = data.query && data.query.symbol; if (data.input_mode === 'desk_symbol' && symbol) { if (source !== 'history') { const next = new URL(window.location.href); next.searchParams.set('symbol', symbol); if (dateInput.value) next.searchParams.set('asOf', dateInput.value); else next.searchParams.delete('asOf'); window.history.replaceState(null, '', next); } const researchParams = new URLSearchParams({symbol, period: 'daily', bars: '240', sourceModule: 'instock-event-flow', sourceSnapshotId: data.snapshot.snapshot_id, eventFlowSnapshotId: data.snapshot.snapshot_id, ...(data.as_of ? {asOf: data.as_of} : {})}); researchLink.href = `/mods/stock-research?${researchParams.toString()}`; researchLink.style.display = 'inline-flex'; } else researchLink.style.display = 'none'; publish(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
-    function buildContext() { const data = state.data || {}; const selected = data.query && data.query.symbol ? {market: data.market || 'CN', symbol: data.query.symbol} : null; return {view: {id: 'event-flow', title: '公司事件'}, visibleBlocks: [{id: 'event-timeline', type: 'event-radar', title: '公司事件时间线'}, {id: 'source-coverage', type: 'coverage-ledger', title: '数据覆盖'}], selectedSecurity: selected, data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, summary: data.summary, coverage: data.coverage, topAlerts: data.alerts.slice(0, 12), failures: data.failures, snapshot: data.snapshot, limitations: data.limitations} : {}, actions: [{id: actionId, label: '读取公司事件', available: Boolean(bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)), inputSchema: {oneOf: [{type: 'object', required: ['symbol'], properties: {symbol: {type: 'string'}, asOf: {type: 'string', format: 'date'}}}, {type: 'object', required: ['schema_version', 'as_of', 'market', 'events']}]}}]}; }
+    function emitSelection(item) { if (!bridge || !bridge.emit || !state.data || state.running || resultInput !== inputKey(inputMode)) return; const snapshotId = state.data.snapshot && state.data.snapshot.snapshot_id; bridge.emit('security.selected', {market: state.data.market || 'CN', symbol: item.symbol, ...(state.data.input_mode === 'desk_symbol' ? {assetType: 'stock'} : {}), asOf: state.data.as_of, source: 'instock-event-flow', snapshotId, eventFlowSnapshotId: snapshotId}); }
+    function visibleEvents() { const typeFilter = document.getElementById('event-type-filter').value; const directionFilter = document.getElementById('event-direction-filter').value; return (state.data?.alerts || []).filter(item => (typeFilter === 'all' || groupFor(item.type) === typeFilter) && (directionFilter === 'all' || item.direction === directionFilter)); }
+    function detailLabel(item, key) {
+        if (key === 'effective_at' && state.data?.input_mode === 'desk_symbol') {
+            if (item.type === 'dividend') return '除权除息日';
+            if (item.type === 'lockup') return '解禁日';
+        }
+        return detailLabels[key] || key;
+    }
+    function relatedGroups() {
+        const visible = new Set(visibleEvents().map(item => item.id));
+        return (state.data?.related_groups || []).map(group => {
+            const ids = group.event_ids.filter(id => visible.has(id));
+            return {...group, visible_event_ids: ids, hidden_by_filter: group.event_ids.length - ids.length};
+        }).filter(group => group.visible_event_ids.length);
+    }
+    function groupRelatedCards(root, rows) {
+        const cards = new Map(rows.map((item, index) => [item.id, root.children[index]]));
+        relatedGroups().forEach(group => {
+            const ids = group.visible_event_ids;
+            const first = cards.get(ids[0]);
+            if (!first) return;
+            const primaryId = ids.includes(group.primary_event_id) ? group.primary_event_id : ids[0];
+            const primary = rows.find(item => item.id === primaryId);
+            const wrapper = document.createElement('section'); wrapper.className = 'event-related';
+            const heading = document.createElement('h3');
+            heading.textContent = `${group.label} · ${ids.length} 条筛选内证据 · 关联待核验`;
+            const note = document.createElement('p');
+            note.textContent = `${group.note || '关联待核验，不代表多源独立确认。'}${group.direction_conflict ? ' 存在方向相反的记录，不自动相抵。' : ''}${group.hidden_by_filter ? ` 另有 ${group.hidden_by_filter} 条被当前筛选隐藏。` : ''}`;
+            first.before(wrapper); wrapper.append(heading, note);
+            if (primary?.type === 'announcement') wrapper.append(badge('公司公告优先展示，不代表已核实其他报道'));
+            wrapper.append(cards.get(primaryId));
+            if (ids.length > 1) {
+                const more = document.createElement('details');
+                const summary = document.createElement('summary'); summary.textContent = `展开其余 ${ids.length - 1} 条原始证据`;
+                more.append(summary);
+                ids.filter(id => id !== primaryId).forEach(id => more.append(cards.get(id)));
+                wrapper.append(more);
+            }
+        });
+    }
+    function renderEvents() { const data = state.data; const rows = visibleEvents(); const root = document.getElementById('event-list'); root.replaceChildren(); if (!rows.length) { const empty = document.createElement('div'); empty.className = 'event-empty'; empty.textContent = data && data.alerts && data.alerts.length ? '当前筛选条件下没有证据。' : 'Desk 数据源已返回，但没有形成可展示的事件记录。请查看右侧覆盖与失败项。'; root.appendChild(empty); return; } rows.forEach(item => { const card = document.createElement('article'); card.className = `event-item is-${item.direction}`; const head = document.createElement('div'); head.className = 'event-item-head'; const content = document.createElement('div'); const badges = document.createElement('div'); badges.className = 'event-badges'; badges.append(badge(typeLabels[item.type] || item.type), badge(directionLabels[item.direction] || item.direction, `is-${item.direction}`), badge(item.freshness === 'fresh' ? '30日内' : `距今${item.age_days}日`)); const title = document.createElement('h3'); title.textContent = item.title; const meta = document.createElement('p'); meta.className = 'event-item-meta'; meta.textContent = `${item.occurred_at} · ${item.symbol} · 证据强度 ${item.evidence_strength}`; content.append(badges, title, meta); const score = document.createElement('div'); score.className = 'event-score'; score.textContent = Number(item.intensity_score).toFixed(1); const scoreLabel = document.createElement('small'); scoreLabel.textContent = '研究优先级'; score.appendChild(scoreLabel); head.append(content, score); card.appendChild(head); const detailEntries = Object.entries(item.details || {}).filter(([key, value]) => key !== 'url' && (value != null && value !== '' || ['holder_count', 'holder_change_pct', 'average_shares_per_holder', 'published_at', 'amount_cny', 'weighted_premium_pct', 'main_net_5d_cny', 'main_net_20d_cny', 'latest_main_net_cny', 'financing_balance_cny', 'financing_net_5d_cny', 'securities_lending_balance_cny', 'five_day_abs_percentile_pct', 'cash_dividend_cny_per_10_shares', 'transfer_shares_per_10', 'bonus_shares_per_10', 'effective_at', 'able_shares_10k', 'unlock_ratio'].includes(key))); if (detailEntries.length) { const details = document.createElement('div'); details.className = 'event-details'; detailEntries.forEach(([key, value]) => { const line = document.createElement('span'); line.textContent = `${detailLabel(item, key)} ${formatDetail(key, value)}`; details.appendChild(line); }); card.appendChild(details); } const sourceUrl = item.details && item.details.url || (/^https?:\/\//.test(item.source_ref || '') ? item.source_ref : ''); if (sourceUrl) { const link = document.createElement('a'); link.className = 'event-source-link'; link.href = sourceUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = '打开原始证据 ↗'; link.addEventListener('click', event => event.stopPropagation()); card.appendChild(link); } card.addEventListener('click', () => emitSelection(item)); root.appendChild(card); }); groupRelatedCards(root, rows); }
+    function renderCoverage(data) { const sources = data.coverage?.sources; setText('event-source-status', Array.isArray(sources) ? `有记录 ${sources.filter(item => item.state === 'available').length} · 空 ${sources.filter(item => item.state === 'empty').length} · 失败 ${sources.filter(item => item.state === 'failed').length}` : '覆盖状态未提供'); const root = document.getElementById('event-coverage'); root.replaceChildren(); (data.coverage && data.coverage.sources || []).forEach(item => { const row = document.createElement('div'); row.className = 'event-source'; const dot = document.createElement('span'); dot.className = `event-source-dot ${item.state}`; const body = document.createElement('div'); const label = document.createElement('b'); label.textContent = item.label; const endpoint = document.createElement('small'); const unitValues = [...new Set(Object.values(item.units || {}))].join(' / '); endpoint.textContent = `${item.endpoint}${unitValues ? ` · ${unitValues}` : ''}`; body.append(label, endpoint); const count = document.createElement('strong'); count.textContent = item.state === 'failed' ? '失败' : item.state === 'empty' ? '空' : `${item.records} 条`; const latest = document.createElement('small'); latest.textContent = item.latest_date || '--'; count.appendChild(latest); row.append(dot, body, count); root.appendChild(row); }); const failures = document.getElementById('event-failures'); const failureRows = data.failures || []; const messages = failureRows.map(item => `${item.label || item.source}：${item.message}`); if ((data.limitations || []).includes('corporate_action_rows_excluded_without_timely_disclosure')) messages.push('部分分红/解禁记录的披露日晚于截止日或未核验，已排除；不代表没有相关事件'); failures.style.display = messages.length ? 'block' : 'none'; failures.textContent = messages.join('；'); }
+    function render(payload, source = 'current') { const data = unwrap(payload); state.data = data; state.viewSource = source; lastError = null; alertBox.style.display = 'none'; setText('event-count', data.summary.deduplicated_events); setText('event-fresh', data.summary.fresh_events); const coverage = data.coverage || {}; setText('event-sources', `${Math.max(0, Number(coverage.requested_sources || 0) - Number(coverage.failed_sources || 0))}/${coverage.requested_sources || 0}`); setText('event-records', Number(coverage.records || 0).toLocaleString('zh-CN')); const stateLabel = data.data_state === 'complete' ? '完整' : '部分'; queryMeta.textContent = `${source === 'history' ? '历史版本 · ' : ''}${data.query && data.query.symbol || data.market} · ${data.as_of} · ${stateLabel}覆盖 · ${data.snapshot.snapshot_id}`; renderEvents(); renderCoverage(data); const symbol = data.query && data.query.symbol; if (data.input_mode === 'desk_symbol' && symbol) { if (source !== 'history') { const next = new URL(window.location.href); next.searchParams.set('symbol', symbol); if (dateInput.value) next.searchParams.set('asOf', dateInput.value); else next.searchParams.delete('asOf'); window.history.replaceState(null, '', next); } const researchParams = new URLSearchParams({symbol, period: 'daily', bars: '240', sourceModule: 'instock-event-flow', sourceSnapshotId: data.snapshot.snapshot_id, eventFlowSnapshotId: data.snapshot.snapshot_id, ...(data.as_of ? {asOf: data.as_of} : {})}); researchLink.href = `/mods/stock-research?${researchParams.toString()}`; researchLink.style.display = 'inline-flex'; } else researchLink.style.display = 'none'; publish(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
+    function resultContext() { const data = state.data || {}; const selected = data.query && data.query.symbol ? {market: data.market || 'CN', symbol: data.query.symbol} : null; return {view: {id: 'event-flow', title: '公司事件'}, visibleBlocks: [{id: 'event-timeline', type: 'event-radar', title: '公司事件时间线'}, {id: 'source-coverage', type: 'coverage-ledger', title: '数据覆盖'}], selectedSecurity: selected, data: data.snapshot ? {asOf: data.as_of, dataState: data.data_state, summary: data.summary, coverage: data.coverage, topAlerts: data.alerts.slice(0, 12), failures: data.failures, snapshot: data.snapshot, limitations: data.limitations} : {}, actions: [{id: actionId, label: '读取公司事件', available: Boolean(bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)), inputSchema: {oneOf: [{type: 'object', required: ['symbol'], properties: {symbol: {type: 'string'}, asOf: {type: 'string', format: 'date'}}}, {type: 'object', required: ['schema_version', 'as_of', 'market', 'events']}]}}]}; }
     function publish() { if (!bridge) return; bridge.setContextProvider && bridge.setContextProvider(buildContext); bridge.publishContext && bridge.publishContext(); }
-    async function run(input, button) { if (state.running) return; state.running = true; button.disabled = true; alertBox.style.display = 'none'; queryMeta.textContent = '正在读取 Desk 公告、资金与筹码证据…'; try { render(await request(input)); } catch (error) { alertBox.textContent = error && error.message ? error.message : String(error); alertBox.style.display = 'block'; queryMeta.textContent = '事件与资金读取失败'; } finally { state.running = false; button.disabled = false; } }
-    function symbolParameters() { const symbol = symbolInput.value.trim().toUpperCase(); if (!/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol)) throw new Error('请输入 6 位 A 股代码'); return {symbol, ...(dateInput.value ? {asOf: dateInput.value} : {})}; }
-    function handleSecuritySelected(envelope) { const payload = envelope && envelope.payload || {}; const symbol = String(payload.symbol || payload.code || '').toUpperCase(); if (!/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol) || envelope.source === 'instock-event-flow') return; symbolInput.value = symbol; run(symbolParameters(), runButton); }
+    function inputKey(mode) {
+        return mode === 'packet' ? packetInput.value : JSON.stringify([symbolInput.value.trim().toUpperCase(), dateInput.value]);
+    }
+    function buildContext() {
+        const context = resultContext();
+        context.filters = {inputMode, symbol: symbolInput.value.trim().toUpperCase(), asOf: dateInput.value,
+            type: document.getElementById('event-type-filter').value,
+            direction: document.getElementById('event-direction-filter').value};
+        context.data.queryState = {running: state.running, error: lastError,
+            resultMatchesCurrentInput: resultInput !== null && resultInput === inputKey(inputMode)};
+        context.data.viewSource = state.viewSource;
+        context.data.relatedGroups = relatedGroups();
+        context.data.topAlerts = visibleEvents().slice(0, 12).map(item => ({...item,
+            detailLabels: Object.fromEntries(Object.keys(item.details || {}).map(key => [key, detailLabel(item, key)]))}));
+        context.actions = [{id: actionId, label: '按当前页面输入读取公司事件',
+            available: !state.running && (!bridge?.embedded || Boolean(bridge.canInvokeAction?.(actionId))),
+            inputSchema: {type: 'object', properties: {mode: {enum: ['symbol', 'packet']}}, additionalProperties: false}}];
+        return context;
+    }
+    function showError(error) {
+        lastError = error?.message || String(error);
+        alertBox.textContent = lastError; alertBox.style.display = 'block'; publish();
+    }
+    researchLink.addEventListener('click', event => {
+        if (researchLink.style.display === 'none') { event.preventDefault(); return; }
+        if (!bridge?.embedded) return;
+        event.preventDefault();
+        const search = new URL(researchLink.href, window.location.href).search;
+        if (!bridge.navigate?.('instock-stock-research', search)) {
+            showError(new Error('Desk 工作区导航尚未就绪，请刷新后重试；未切换到独立页面。'));
+        }
+    });
+    function packetParameters() {
+        const value = JSON.parse(packetInput.value);
+        if (!value || !Array.isArray(value.events) || !value.events.length) throw new Error('请先在事件包中填写真实证据，空模板不能作为分析结果');
+        return value;
+    }
+    function setRunning(value) {
+        state.running = value; runButton.disabled = value; packetButton.disabled = value;
+    }
+    function clearResult(message) {
+        state.data = null; resultInput = null; lastError = null; state.viewSource = 'current';
+        researchLink.style.display = 'none'; alertBox.style.display = 'none';
+        for (const id of ['count', 'fresh', 'sources', 'records']) setText('event-' + id, null);
+        setText('event-source-status', '尚未读取');
+        document.getElementById('event-coverage').replaceChildren();
+        const failures = document.getElementById('event-failures');
+        failures.textContent = ''; failures.style.display = 'none';
+        const empty = document.createElement('div'); empty.className = 'event-empty'; empty.textContent = message;
+        document.getElementById('event-list').replaceChildren(empty);
+        queryMeta.textContent = message;
+    }
+    function invalidateResult(message) {
+        revision += 1; activeRequest = null; setRunning(false);
+        clearResult(message); publish();
+    }
+    async function run(mode = 'symbol') {
+        if (bridge?.whenReady) await bridge.whenReady();
+        if (state.running) throw new Error('公司事件正在读取，请等待当前任务完成');
+        let input;
+        try { input = mode === 'packet' ? packetParameters() : symbolParameters(); }
+        catch (error) { showError(error); throw error; }
+        inputMode = mode;
+        const token = ++revision, key = inputKey(inputMode);
+        if (resultInput !== key) clearResult('正在读取当前条件的公司事件…');
+        activeRequest = token; setRunning(true);
+        alertBox.style.display = 'none'; lastError = null;
+        queryMeta.textContent = inputMode === 'packet' ? '正在分析页面事件包…' : '正在读取 Desk 公告、资金与筹码证据…'; publish();
+        try {
+            const data = unwrap(await request(input));
+            if (token !== revision || key !== inputKey(inputMode)) throw new Error('页面输入或查看范围已变化，本次事件结果未采用');
+            resultInput = key; render(data);
+            return {asOf: data.as_of, summary: data.summary, coverage: data.coverage, snapshot: data.snapshot};
+        } catch (error) {
+            if (token === revision) { showError(error); queryMeta.textContent = '事件与资金读取失败'; }
+            throw error;
+        } finally { if (activeRequest === token) { activeRequest = null; setRunning(false); publish(); } }
+    }
+    if (bridge?.setUiActionHandler) bridge.setUiActionHandler((id, input = {}) => {
+        if (id !== actionId) throw new Error('当前页面不支持该操作');
+        if (Object.keys(input).some(key => key !== 'mode') || (input.mode !== undefined && !['symbol', 'packet'].includes(input.mode))) {
+            throw new Error('仅可选择当前页面的代码或事件包模式，不接受隐藏输入覆盖');
+        }
+        const mode = input.mode || inputMode;
+        if (mode === 'packet') packetParameters();
+        else symbolParameters();
+        return run(mode);
+    });
+    [symbolInput, dateInput, packetInput].forEach(control => control.addEventListener('input', () => {
+        invalidateResult('页面输入已修改，请重新读取公司事件。');
+    }));
+    document.addEventListener('vibedesk:init', () => {
+        const next = scopeKey(); if (next === currentScope) return;
+        currentScope = next; invalidateResult('工作区已更新，请重新读取公司事件。');
+    });
 
-    document.getElementById('event-query').addEventListener('submit', event => { event.preventDefault(); try { run(symbolParameters(), runButton); } catch (error) { alertBox.textContent = error.message; alertBox.style.display = 'block'; } });
-    packetButton.addEventListener('click', () => { try { run(JSON.parse(packetInput.value), packetButton); } catch (error) { alertBox.textContent = error.message || String(error); alertBox.style.display = 'block'; } });
-    document.getElementById('event-type-filter').addEventListener('change', renderEvents);
-    document.getElementById('event-direction-filter').addEventListener('change', renderEvents);
-    document.addEventListener('instock:history-selected', event => render(event.detail.payload, event.detail.view_source || 'history'));
+
+    function symbolParameters() { const symbol = symbolInput.value.trim().toUpperCase(); if (!/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol)) throw new Error('请输入 6 位 A 股代码'); return {symbol, ...(dateInput.value ? {asOf: dateInput.value} : {})}; }
+    function handleSecuritySelected(envelope) {
+        const payload = envelope?.payload || {};
+        const symbol = String(payload.symbol || payload.code || '').trim().toUpperCase();
+        const market = String(payload.market || 'CN').trim().toUpperCase();
+        const assetType = String(payload.assetType || '').trim().toLowerCase();
+        if (envelope?.source === 'instock-event-flow' || payload.source === 'instock-event-flow'
+            || market !== 'CN' || (assetType && !['stock', 'equity'].includes(assetType))
+            || !/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol)) return;
+        invalidateResult('证券已切换，正在读取新的公司事件…');
+        symbolInput.value = symbol;
+        const asOf = String(payload.asOf || '').trim();
+        dateInput.value = /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : '';
+        run().catch(() => {});
+    }
+
+    document.getElementById('event-query').addEventListener('submit', event => { event.preventDefault(); run().catch(() => {}); });
+    packetButton.addEventListener('click', () => { run('packet').catch(() => {}); });
+    document.getElementById('event-type-filter').addEventListener('change', () => { renderEvents(); publish(); });
+    document.getElementById('event-direction-filter').addEventListener('change', () => { renderEvents(); publish(); });
+    function restoreResult(payload, source = 'history') {
+        const data = unwrap(payload);
+        invalidateResult('正在恢复已保存的公司事件…');
+        inputMode = data.input_mode === 'desk_symbol' ? 'symbol' : 'packet';
+        const symbol = String(data.query?.symbol || '').toUpperCase();
+        const restorable = inputMode === 'symbol' && /^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol)
+            && /^\d{4}-\d{2}-\d{2}$/.test(data.as_of || '');
+        if (restorable) {
+            symbolInput.value = symbol; dateInput.value = data.as_of;
+            resultInput = inputKey(inputMode);
+            const next = new URL(window.location.href);
+            next.searchParams.set('symbol', symbol); next.searchParams.set('asOf', data.as_of);
+            window.history.replaceState(null, '', next);
+        }
+        render(data, source);
+        if (!restorable) {
+            alertBox.textContent = '正在查看已保存结果；原始输入未完整保存，当前事件包/查询草稿未被覆盖，不能视为该结果的输入。';
+            alertBox.style.display = 'block';
+            researchLink.style.display = 'none';
+        }
+    }
+    document.addEventListener('instock:history-selected', event => restoreResult(event.detail.payload, event.detail.view_source || 'history'));
     if (bridge && bridge.subscribe) bridge.subscribe(envelope => { if (envelope.event === 'security.selected') handleSecuritySelected(envelope); });
-    window.InStockEventFlow = Object.freeze({load: () => run(symbolParameters(), runButton), acceptActionResult: render});
+    window.InStockEventFlow = Object.freeze({load: () => run(), acceptActionResult: payload => restoreResult(payload, 'action-result')});
     publish();
-    run(symbolParameters(), runButton);
+    run().catch(() => {});
 })();
 </script>
 {% end %}

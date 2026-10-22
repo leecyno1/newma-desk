@@ -18,6 +18,8 @@ from urllib.parse import urlparse
 import tornado.web
 
 from instock.web.runtime_metrics import get_api_metrics_registry
+from instock.core.analysis_scope import analysis_scope
+from instock.web.analysis_scope import AnalysisScopeError, resolve_request_scope
 
 
 API_VERSION = "1.0"
@@ -93,7 +95,7 @@ def apply_cors_headers(handler: tornado.web.RequestHandler) -> None:
     if selected:
         handler.set_header("Access-Control-Allow-Origin", selected)
         handler.set_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        handler.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        handler.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Newma-Desk-Session, X-Newma-Desk-Instance-Id")
         handler.set_header("Vary", "Origin")
 
 
@@ -118,11 +120,24 @@ class AnalysisApiHandler(tornado.web.RequestHandler):
         apply_security_headers(self, api=True)
         apply_cors_headers(self)
 
-    def prepare(self) -> None:
+    async def prepare(self) -> None:
         if self.is_v1:
             self._metrics_started_at = get_api_metrics_registry().start()
+        if self.request.method == "OPTIONS":
+            return
+        try:
+            scope = await resolve_request_scope(self.request.headers, method=self.request.method, path=self.request.path)
+        except AnalysisScopeError as exc:
+            self.write_error(exc.status, "analysis_scope_unavailable", str(exc))
+            self.finish()
+            return
+        self._analysis_scope_token = analysis_scope.set(scope)
 
     def on_finish(self) -> None:
+        token = getattr(self, "_analysis_scope_token", None)
+        if token is not None:
+            analysis_scope.reset(token)
+            self._analysis_scope_token = None
         started_at = getattr(self, "_metrics_started_at", None)
         if started_at is not None:
             get_api_metrics_registry().record(

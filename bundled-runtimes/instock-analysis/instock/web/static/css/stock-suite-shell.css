@@ -86,6 +86,9 @@
 .stock-suite-directory-head strong { font-size: 12px; }
 .stock-suite-directory-head span { margin-left: 6px; color: var(--suite-muted); font-size: 12px; }
 .stock-suite-directory-head button { display: none; width: 29px; height: 29px; border: 1px solid var(--suite-border); border-radius: 50%; color: var(--suite-ink); background: var(--suite-raised); font-size: 18px; line-height: 1; }
+.stock-suite-theme { display: flex; margin: 10px 7px 4px; gap: 10px; align-items: center; color: var(--suite-muted); font-size: 12px; }
+.stock-suite-theme[hidden] { display: none; }
+.stock-suite-theme select { flex: 1; min-width: 0; min-height: 34px; padding: 0 8px; border: 1px solid var(--suite-border); border-radius: 5px; color: var(--suite-ink); background: var(--suite-raised); }
 .stock-suite-directory nav { padding-top: 6px; }
 .stock-suite-directory section { padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--suite-border) 65%, transparent); }
 .stock-suite-directory section:last-child { border-bottom: 0; }
@@ -107,6 +110,7 @@
 .stock-suite-history-head button { width: 29px; height: 29px; border: 1px solid var(--suite-border); border-radius: 50%; color: var(--suite-ink); background: var(--suite-raised); font-size: 18px; line-height: 1; }
 .stock-suite-history-banner { display: flex; margin: 10px 0; padding: 9px; align-items: center; justify-content: space-between; border: 1px solid color-mix(in srgb, #d59b2d 45%, var(--suite-border)); border-radius: 7px; color: #8a5a08; background: color-mix(in srgb, #d59b2d 10%, var(--suite-raised)); font-size: 12px; font-weight: 900; }
 .stock-suite-history-banner button { padding: 5px 8px; border: 1px solid currentColor; border-radius: 5px; color: inherit; background: transparent; font-size: 12px; }
+.stock-suite-history-banner[hidden] { display: none; }
 .stock-suite-history-list { display: grid; padding-top: 9px; gap: 7px; }
 .stock-suite-history-list > p { margin: 18px 4px; color: var(--suite-muted); font-size: 12px; line-height: 1.7; }
 .stock-suite-history-item { display: grid; width: 100%; padding: 10px; gap: 4px; border: 1px solid var(--suite-border); border-radius: 7px; color: var(--suite-ink); background: var(--suite-raised); text-align: left; cursor: pointer; }

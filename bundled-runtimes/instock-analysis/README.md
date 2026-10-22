@@ -1,8 +1,10 @@
 [对应IMA知识库](https://ima.qq.com/wiki/?shareId=8b0da768c77bc863f1cad8eb9482e37a6eeb26ad7171523b687d48c1a67c8e2c)：股票量化因子 AI 决策引擎，2200 + 维专业因子池，AI 深度解析多维数据，精准挖掘高确定性个股，赋能专业投资高效稳健决策。 https://ima.qq.com/wiki/?shareId=8b0da768c77bc863f1cad8eb9482e37a6eeb26ad7171523b687d48c1a67c8e2c 。
 
-**InStock Analysis · Newma-Desk 附属模组**
+**InStock Analysis · 独立股票研究项目 / Newma-Desk 组件**
 
-本分支把 InStock 上游仍有研究价值的能力整理为 11 个 Newma-Desk 原生工作台：市场概览、大盘云图、A/H 股候选、选股中心、CZSC 结构、行业/ETF 轮动、产业链研究、股票研究档案、策略验证、事件与资金、研究组合。Newma-Desk 负责模组发现、进程生命周期、数据路由、权限、Action Gateway、Agent 与页面容器；本项目不再作为独立 Web 产品或独立部署单元发布。
+本项目统一管理 11 个研究工作台：市场概览、大盘云图、A/H 股候选、选股中心、CZSC 结构、行业/ETF 轮动、产业链研究、股票研究档案、策略验证、事件与资金、研究组合。这些页面属于一个项目，不分别拆仓。支持独立 Python 安装包与 Desk 托管两种入口；独立构建、数据配置及接入边界见 [独立运行说明](docs/standalone-runtime.md)。独立工程及多项本地双入口业务已验收；完整业务、真实 newma 联调与远端发布仍分别验收，不能仅凭源码同步认定已发布。
+
+独立启动：`instock-research --data-url <兼容研究数据接口 URL>`。嵌入 Desk 时继续使用既有 Bridge、权限与 Agent Gateway，不复制宿主内核。下面的托管启动说明仍适用于既有 Desk 环境。
 
 项目保留上游分析实现供兼容与演进，但模组运行时默认不连接 MySQL、不启动交易服务、不执行原项目定时抓取任务，行情统一通过 Newma-Desk Data Service Interface 获取。
 
@@ -30,7 +32,7 @@ npm run dev:stack
 npm run dev:status -- --strict
 ```
 
-Desk 的 `instock` Runtime Adapter 会注入 `INSTOCK_SKIP_DB=1`、统一数据接口、精确嵌入 Origin 与本地监听地址，并直接启动 `.venv/bin/python instock/web/web_service.py`。`9988` 是附属运行时端口，不是面向用户独立发布的产品入口；生产环境通过 `NEWMA_DESK_INSTOCK_WORKSPACE` 与 `NEWMA_DESK_INSTOCK_WEB_URL` 由 Desk Runtime Descriptor 解析。
+Desk 的 `instock` Runtime Adapter 注入统一数据接口、精确嵌入 Origin 与本地监听地址；新版通过 `.venv/bin/python -I -m instock.runtime --mode desk` 加载已安装包，不依赖源码目录。`9988` 是默认端口；独立候选验收应另选空闲端口，不能覆盖正在运行的 Desk 实例。生产环境通过 `NEWMA_DESK_INSTOCK_WORKSPACE` 与 `NEWMA_DESK_INSTOCK_WEB_URL` 由 Desk Runtime Descriptor 解析。
 
 模组运行时页面（通常由 Desk iframe 打开）：
 

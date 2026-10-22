@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from contextvars import copy_context
 from datetime import datetime
 from threading import Event
 from typing import Any, Callable, Iterable, Optional
@@ -159,7 +160,7 @@ class CZSCBatchScanner:
                 symbol = next(iterator)
             except StopIteration:
                 return False
-            future = executor.submit(self._analyze_one, symbol, period, bars, as_of)
+            future = executor.submit(copy_context().run, self._analyze_one, symbol, period, bars, as_of)
             pending[future] = symbol
             return True
 

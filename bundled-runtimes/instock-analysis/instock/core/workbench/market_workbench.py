@@ -14,7 +14,7 @@ from typing import Any
 
 import pandas as pd
 
-from instock.core.analysis_snapshot import SNAPSHOT_SCHEMA_VERSION
+from instock.core.analysis_snapshot import SNAPSHOT_SCHEMA_VERSION, normalize_as_of
 from instock.core.industry_taxonomy import (
     SW_2021_L1_INDUSTRIES,
     UNCLASSIFIED_INDUSTRY,
@@ -29,7 +29,7 @@ class MarketWorkbenchError(ValueError):
 
 class MarketWorkbenchEngine:
     engine_name = "instock-market-workbench"
-    engine_version = "1.4.0"
+    engine_version = "1.4.1"
     supported_scan_limits = (50, 100, 200)
     market_map_limit = 200  # 兼容旧调用；市场概览运行时不再请求云图数据。
     board_specs = {
@@ -89,6 +89,8 @@ class MarketWorkbenchEngine:
                     failures.append({"board": board, "error": str(exc)})
                     continue
                 rows = [dict(item) for item in (scan.get("items") or []) if isinstance(item, dict)]
+                for row in rows:
+                    row.setdefault("scan_as_of", scan.get("as_of") or "")
                 sort_basis = str((scan.get("coverage") or {}).get("sort_basis") or "")
                 expected_sort = self.board_specs[board][0]
                 required_field = {
@@ -109,7 +111,7 @@ class MarketWorkbenchEngine:
                     limitations.append(f"{board}_leaderboard_unavailable")
                     continue
                 leaderboards[board] = rows[:20]
-                scan_meta[board] = scan
+                scan_meta[board] = {**scan, "items": rows}
 
         if not any(leaderboards.values()):
             raise MarketWorkbenchError("Desk A 股扫描没有返回任何可用榜单")
@@ -152,7 +154,17 @@ class MarketWorkbenchEngine:
             "most_active_symbol": str(active.get("symbol") or ""),
             "most_active_name": str(active.get("name") or "--"),
         }
-        as_of = self._as_of(scan_meta, overview)
+        board_dates = {board: self._source_date(scan.get("as_of")) for board, scan in scan_meta.items()}
+        known_dates = {value for value in board_dates.values() if value}
+        # A response/overview update is not the business date of its stock rows.
+        as_of = next(iter(known_dates)) if len(known_dates) == 1 and all(board_dates.values()) else None
+        emotion_date = self._source_date(market_emotion.get("date"))
+        if len(known_dates | ({emotion_date} if emotion_date else set())) > 1:
+            limitations.append("mixed_source_dates")
+        if not all(board_dates.values()):
+            limitations.append("leaderboard_date_unavailable")
+        if any((scan.get("coverage") or {}).get("frequency") == "daily" for scan in scan_meta.values()):
+            limitations.append("daily_scan_not_realtime")
         data_source = "+".join(dict.fromkeys(
             str(scan.get("source") or "")
             for scan in scan_meta.values()
@@ -173,6 +185,11 @@ class MarketWorkbenchEngine:
             },
             "leaderboard_sort_basis": {
                 board: str((scan.get("coverage") or {}).get("sort_basis") or "")
+                for board, scan in scan_meta.items()
+            },
+            "leaderboard_provenance": {
+                board: {"source": scan.get("source"), "as_of": scan.get("as_of"),
+                        "coverage": scan.get("coverage") or {}}
                 for board, scan in scan_meta.items()
             },
         }
@@ -196,10 +213,13 @@ class MarketWorkbenchEngine:
         data_state = (
             "partial"
             if failures or sector_source != "desk_overview" or not breadth_available
+            or "mixed_source_dates" in limitations or "leaderboard_date_unavailable" in limitations
             else "complete"
         )
         stable = {
             "as_of": as_of,
+            "source_dates": {"leaderboards": board_dates, "emotion": emotion_date,
+                             "overview_updated": str(overview.get("updated") or "")},
             "data_source": data_source,
             "data_state": data_state,
             "coverage": coverage,
@@ -213,7 +233,8 @@ class MarketWorkbenchEngine:
             "sector_basis": {
                 "source": sector_source,
                 "sample_size": len(sector_sample_rows) if sector_source == "ranked_scan_sample" else 0,
-                "sample_sort": "amount" if sector_source == "ranked_scan_sample" else None,
+                "sample_sort": ("amount" if "amount" in scan_meta else "ranked_boards_union")
+                    if sector_source == "ranked_scan_sample" else None,
             },
             "sector_leaders": sectors[:20],
             "market_anomalies": market_anomalies,
@@ -498,6 +519,7 @@ class MarketWorkbenchEngine:
             "symbol": str(row.get("symbol") or ""),
             "name": str(row.get("name") or ""),
             "industry": str(row.get("industry") or ""),
+            "scan_as_of": row.get("scan_as_of") or "",
             "price": round(cls._number(row.get("price")), 3),
             "change_pct": round(cls._number(row.get("change_pct")), 3),
             "amount": round(cls._number(row.get("amount")), 2),
@@ -527,19 +549,11 @@ class MarketWorkbenchEngine:
         return number if pd.notna(number) else 0.0
 
     @staticmethod
-    def _as_of(scan_meta: dict[str, dict[str, Any]], overview: dict[str, Any]) -> str:
-        values = [str(scan.get("as_of") or "") for scan in scan_meta.values()]
-        values.append(str(overview.get("updated") or ""))
-        parsed = []
-        for value in values:
-            if not value:
-                continue
-            try:
-                stamp = pd.Timestamp(value)
-                parsed.append(stamp.tz_localize(None) if stamp.tzinfo else stamp)
-            except ValueError:
-                continue
-        return max(parsed).strftime("%Y-%m-%d") if parsed else date.today().isoformat()
+    def _source_date(value: Any) -> str | None:
+        try:
+            return normalize_as_of(str(value or "")[:10])
+        except ValueError:
+            return None
 
     def _build_snapshot(
         self, stable, scan_meta, overview, market_emotion, scan_limit
@@ -562,7 +576,7 @@ class MarketWorkbenchEngine:
         digest = hashlib.sha256(
             json.dumps(material, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
         ).hexdigest()
-        lag_days = max((date.today() - pd.Timestamp(stable["as_of"]).date()).days, 0)
+        lag_days = max((date.today() - pd.Timestamp(stable["as_of"]).date()).days, 0) if stable["as_of"] else None
         return {
             "schema_version": SNAPSHOT_SCHEMA_VERSION,
             "snapshot_id": f"{self.engine_name}:{digest[:24]}",
@@ -582,7 +596,7 @@ class MarketWorkbenchEngine:
                 "limitations": list(stable["limitations"]),
             },
             "freshness": {
-                "state": "fresh" if lag_days <= 3 else "delayed",
+                "state": "unknown" if lag_days is None else "fresh" if lag_days <= 3 else "delayed",
                 "resolution": "latest_cross_section",
                 "calendar_lag_days": lag_days,
             },

@@ -18,7 +18,7 @@ import pandas as pd
 import talib as tl
 
 from instock.core.analysis_snapshot import SNAPSHOT_SCHEMA_VERSION
-from instock.core.market_data_provider import MarketDataError, MarketDataProvider
+from instock.core.market_data_provider import MarketDataError, MarketDataProvider, get_scan_history
 
 
 class TechnicalSignalCenterError(ValueError):
@@ -82,7 +82,7 @@ PATTERN_CATALOG = (
 
 class TechnicalSignalCenterEngine:
     engine_name = "instock-technical-signal-center"
-    engine_version = "1.4.0"
+    engine_version = "1.4.2"
     minimum_analysis_bars = 80
     fundamental_batch_size = 8
     fundamental_batch_workers = 2
@@ -274,6 +274,18 @@ class TechnicalSignalCenterEngine:
         failures.sort(key=lambda item: item["symbol"])
         short_history_watchlist.sort(key=lambda item: item["symbol"])
         limitations = ["latest_cross_section_only_no_historical_replay"]
+        history_adjustments = sorted({row["history_adjust"] for row in analyzed_rows})
+        unadjusted_history_count = sum(row["history_adjust"] == "none" for row in analyzed_rows)
+        unknown_adjustment_history_count = sum(row["history_adjust"] not in {"qfq", "hfq", "none"} for row in analyzed_rows)
+        adjustment_requires_review = any(value not in {"qfq", "hfq"} for value in history_adjustments)
+        if adjustment_requires_review:
+            limitations.append("price_history_adjustment_requires_review")
+        scan_failures = list((scan.get("coverage") or {}).get("scan_failures") or [])
+        scan_observations = list((scan.get("coverage") or {}).get("observations") or [])
+        if any(item.get("frequency") == "daily" for item in scan_observations):
+            limitations.append("daily_scan_not_realtime")
+        if scan_failures:
+            limitations.append("partial_market_scan_coverage")
         if broad_error:
             limitations.append("broad_universe_unavailable_quick_fallback")
         if bars < 250:
@@ -307,19 +319,27 @@ class TechnicalSignalCenterEngine:
             limitations.append("signal_pool_fell_back_to_market_cap_pool")
         data_state = "partial" if (
             failures or bars < 250 or broad_error or fundamental_failures
-            or institutional_evidence_failures
+            or institutional_evidence_failures or scan_failures or adjustment_requires_review
+            or any(item.get("missing_quote_count") for item in scan_observations)
         ) else "complete"
         as_of = self._as_of(scan, analyzed_rows)
         fundamental_available_count = sum(
             bool(packet.get("available")) for packet in fundamental_packets.values()
         )
         coverage = {
+            "scan_observations": scan_observations,
+            "scan_failures": scan_failures,
+            "scan_failed_count": len(scan_failures),
+            "scan_skipped_count": sum(item.get("skipped_axes", 0) for item in scan_failures),
             "scan_count": len(scan.get("items") or []),
             "broad_eligible_count": broad_eligible_count,
             "market_prefilter_count": market_eligible_count,
             "market_prefilter_excluded_count": len(market_excluded),
             "eligible_count": len(items),
             "analyzed_count": len(analyzed_rows),
+            "history_adjustments": history_adjustments,
+            "unadjusted_history_count": unadjusted_history_count,
+            "unknown_adjustment_history_count": unknown_adjustment_history_count,
             "matched_count": len(rows),
             "excluded_by_rules_count": len(excluded_by_rules),
             "fundamental_requested": fundamental_requested,
@@ -415,6 +435,10 @@ class TechnicalSignalCenterEngine:
             "as_of": max(str(cn_scan.get("as_of") or ""), str(hk_scan.get("as_of") or "")),
             "coverage": {
                 "scope": "combined_liquidity_pool",
+                "observations": [
+                    *((cn_scan.get("coverage") or {}).get("observations") or []),
+                    *((hk_scan.get("coverage") or {}).get("observations") or []),
+                ],
                 "sort_basis": "amount",
                 "markets": ["CN", "HK"],
             },
@@ -439,9 +463,19 @@ class TechnicalSignalCenterEngine:
         except ValueError:
             as_of = date.today().isoformat()
         limitations = ["latest_cross_section_only_no_historical_replay"]
+        scan_failures = list((scan.get("coverage") or {}).get("scan_failures") or [])
+        scan_observations = list((scan.get("coverage") or {}).get("observations") or [])
+        if any(item.get("frequency") == "daily" for item in scan_observations):
+            limitations.append("daily_scan_not_realtime")
+        if scan_failures:
+            limitations.append("partial_market_scan_coverage")
         if broad_error:
             limitations.append("broad_universe_unavailable_quick_fallback")
         coverage = {
+            "scan_observations": scan_observations,
+            "scan_failures": scan_failures,
+            "scan_failed_count": len(scan_failures),
+            "scan_skipped_count": sum(item.get("skipped_axes", 0) for item in scan_failures),
             "scan_count": len(scan.get("items") or []),
             "broad_eligible_count": broad_eligible_count,
             "market_prefilter_count": 0,
@@ -478,7 +512,8 @@ class TechnicalSignalCenterEngine:
         stable = {
             "as_of": as_of,
             "data_source": str(scan.get("source") or self.provider.name),
-            "data_state": "partial" if broad_error else "complete",
+            "data_state": "partial" if (broad_error or scan_failures
+                or any(item.get("missing_quote_count") for item in scan_observations)) else "complete",
             "coverage": coverage,
             "summary": summary,
             "catalog": self._catalog(),
@@ -517,9 +552,8 @@ class TechnicalSignalCenterEngine:
     def _analyze_one(self, item: dict[str, Any], bars: int) -> dict[str, Any]:
         symbol = str(item.get("symbol") or "").split(".")[0]
         market = str(item.get("market") or "CN").upper()
-        query_symbol = f"{symbol}.HK" if market == "HK" else symbol
         frame = self._normalize_frame(
-            self.provider.get_kline(query_symbol, limit=bars), symbol
+            get_scan_history(self.provider, item, limit=bars), symbol
         )
         if len(frame) < self.minimum_analysis_bars:
             raise TechnicalSignalInsufficientHistory(
@@ -591,6 +625,8 @@ class TechnicalSignalCenterEngine:
             "active_strategies": active_strategies,
             "institutional_evidence_failure": institutional_evidence_failure,
             "history_bars": len(frame),
+            "history_source": str(frame.attrs.get("upstream_source") or frame.attrs.get("data_source") or ""),
+            "history_adjust": str(frame.attrs.get("adjust") or "unknown"),
             "data_end": pd.Timestamp(frame["date"].iloc[-1]).strftime("%Y-%m-%d"),
             "_market_screening_evidence": item.get("_market_screening_evidence"),
         }
@@ -1330,7 +1366,8 @@ class TechnicalSignalCenterEngine:
                 "provider": self.provider.name,
                 "endpoint": "market.scan + market.ohlcv",
                 "upstream_source": stable["data_source"],
-                "adjust": "qfq",
+                "adjust": (stable["coverage"].get("history_adjustments") or ["unknown"])[0]
+                if len(stable["coverage"].get("history_adjustments") or []) <= 1 else "mixed",
                 "limitations": list(stable["limitations"]),
             },
             "freshness": {"state": "fresh" if lag_days <= 3 else "delayed", "resolution": "latest_cross_section", "calendar_lag_days": lag_days},

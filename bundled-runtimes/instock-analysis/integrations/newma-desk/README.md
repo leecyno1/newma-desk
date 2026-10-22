@@ -1,6 +1,6 @@
 # Newma-Desk 标准模组交付物
 
-本目录是 InStock Analysis 对牛马 / Newma-Desk 的规范来源。项目只作为 `instock-suite` 附属模组交付；Desk 通过 External Mod Runtime 托管进程，并通过 Suite、Bridge、Action 和 Data Service Interface 接入。项目仍保有隔离的 Python 依赖，但不再形成独立部署、数据平台、模型或 Agent 系统。
+本目录是 InStock Analysis 对牛马 / Newma-Desk 的规范来源。Desk 托管运行时继续通过 External Mod Runtime、Suite、Bridge、Action 和 Data Service Interface 接入；同一业务项目也提供独立 Python 构建及启动入口，见 `../../docs/standalone-runtime.md`。独立运行不另建数据平台、模型或 Agent 内核，所需数据接口必须显式配置。
 
 ## 交付边界
 

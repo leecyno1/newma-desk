@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 import re
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from typing import Any, Mapping
@@ -33,7 +34,7 @@ class EventFlowError(ValueError):
 
 class EventFlowEngine:
     engine_name = "instock-event-flow"
-    engine_version = "1.1.0"
+    engine_version = "1.6.0"
     packet_schema_version = "instock-event-flow-packet-v1"
     freshness_days = 30
     supported_markets = {"CN", "HK", "US", "GLOBAL"}
@@ -117,6 +118,7 @@ class EventFlowEngine:
             ),
         )
         symbol_summary = self._group_symbols(alerts)
+        related_groups = self._related_groups(alerts)
         summary = {
             "input_events": len(parsed),
             "deduplicated_events": len(alerts),
@@ -135,21 +137,31 @@ class EventFlowEngine:
         ]
         if summary["stale_events"]:
             limitations.append("stale_events_retained_for_audit")
+        if related_groups:
+            limitations.append("related_records_do_not_establish_independent_confirmation")
         if normalized_coverage.get("empty_sources"):
             limitations.append("empty_source_does_not_mean_no_market_activity")
-        if normalized_failures:
+        if normalized_failures or normalized_coverage.get("failed_sources"):
             limitations.append("source_failures_retained_in_coverage")
+        incomplete_metrics = any(item.get("details", {}).get("data_quality_note") for item in alerts)
+        if incomplete_metrics:
+            limitations.append("event_numeric_or_publication_fields_incomplete")
         for item in extra_limitations or []:
             if item not in limitations:
                 limitations.append(item)
         data_state = "partial" if (
             summary["stale_events"]
             or normalized_failures
+            or normalized_coverage.get("failed_sources")
             or normalized_coverage.get("empty_sources")
+            or incomplete_metrics
+            or "corporate_action_rows_excluded_without_timely_disclosure" in limitations
+            or "historical_event_replay_is_client_filtered_from_latest_desk_payloads" in limitations
         ) else "complete"
         stable_result = {
             "summary": summary,
             "alerts": alerts,
+            "related_groups": related_groups,
             "symbol_summary": symbol_summary,
             "coverage": normalized_coverage,
             "failures": normalized_failures,
@@ -181,6 +193,7 @@ class EventFlowEngine:
             "summary": summary,
             "coverage": normalized_coverage,
             "alerts": alerts,
+            "related_groups": related_groups,
             "symbol_summary": symbol_summary,
             "failures": normalized_failures,
             "limitations": limitations,
@@ -222,6 +235,12 @@ class EventFlowEngine:
             "events": events[:500],
         }
         limitations = ["desk_research_interfaces_are_latest_window_without_historical_anchor"]
+        for source_id in ("dividend", "lockup"):
+            raw = (sources.get(source_id) or {}).get("data")
+            rows = [*(raw.get("history") or []), *(raw.get("upcoming") or [])] if isinstance(raw, Mapping) else raw
+            if isinstance(rows, list) and len(self._corporate_rows(rows, normalized_as_of)) < len(rows):
+                limitations.append("corporate_action_rows_excluded_without_timely_disclosure")
+                break
         if normalized_as_of != date.today().isoformat():
             limitations.append("historical_event_replay_is_client_filtered_from_latest_desk_payloads")
         return self.analyze(
@@ -305,6 +324,12 @@ class EventFlowEngine:
                 source_id,
                 self._failed_source(source_id, "Desk 数据源未声明覆盖"),
             )
+            if sources[source_id].get("state") == "failed" and not any(
+                item.get("source") == source_id for item in failures
+            ):
+                failures.append(self._failure(
+                    source_id, str(sources[source_id].get("message") or "Desk 数据源读取失败")
+                ))
         return sources, failures
 
     def _failed_source(self, source_id: str, message: str) -> dict[str, Any]:
@@ -412,57 +437,104 @@ class EventFlowEngine:
         return events
 
     def _normalize_fund_flow(self, symbol: str, as_of: str, data: Any) -> list[dict[str, Any]]:
-        rows = self._dated_rows(data, as_of, ("date",))
+        rows = self._daily_numeric_rows(self._dated_rows(data, as_of, ("date",)), ("main_net",))
         if not rows:
             return []
-        values = [self._number(row.get("main_net")) for row in rows]
-        five_day = sum(values[:5])
-        twenty_day = sum(values[:20])
-        rolling = [sum(values[index:index + 5]) for index in range(max(len(values) - 4, 1))]
-        magnitude = self._percentile(abs(five_day), [abs(value) for value in rolling])
+        values = [row["main_net"] for row in rows]
+        totals, details, percentile = self._flow_statistics(rows, values, (5, 20))
+        five_day, twenty_day = totals[5], totals[20]
         latest = rows[0]
-        direction = self._direction(five_day)
+        direction = self._direction(five_day) if five_day is not None else "neutral"
         title = (
-            f"近5日主力资金{self._flow_word(five_day)} {self._format_cny(abs(five_day))}；"
-            f"近20日净额 {self._format_signed_cny(twenty_day)}"
+            (f"最近5条日记录主力资金{self._flow_word(five_day)} {self._format_cny(abs(five_day))}"
+             if five_day is not None else "5条日记录主力净额待核验")
+            + (f"；最近20条净额 {self._format_signed_cny(twenty_day)}"
+               if twenty_day is not None else "；20条净额待核验")
         )
         return [self._event(
-            "fund_flow", symbol, latest["_date"], title, direction, magnitude,
-            "strong" if len(rows) >= 20 else "medium" if len(rows) >= 5 else "weak",
+            "fund_flow", symbol, latest["_date"], title, direction, percentile or 0,
+            "weak" if five_day is None else "medium" if details["data_quality_note"] else "strong",
             f"desk://research/fund-flow/{symbol}/{latest['_date']}",
             {
-                "main_net_5d_cny": round(five_day, 2),
-                "main_net_20d_cny": round(twenty_day, 2),
-                "latest_main_net_cny": round(values[0], 2),
-                "five_day_abs_percentile_pct": round(magnitude, 2),
+                "main_net_5d_cny": five_day,
+                "main_net_20d_cny": twenty_day,
+                "latest_main_net_cny": round(values[0], 2) if values[0] is not None else None,
+                "five_day_abs_percentile_pct": percentile,
+                **details,
             },
         )]
 
     def _normalize_margin(self, symbol: str, as_of: str, data: Any) -> list[dict[str, Any]]:
-        rows = self._dated_rows(data, as_of, ("date",))
+        rows = self._daily_numeric_rows(self._dated_rows(data, as_of, ("date",)), ("rzmre", "rzche", "rzye", "rqye"))
         if not rows:
             return []
-        daily_net = [self._number(row.get("rzmre")) - self._number(row.get("rzche")) for row in rows]
-        five_day = sum(daily_net[:5])
-        rolling = [sum(daily_net[index:index + 5]) for index in range(max(len(daily_net) - 4, 1))]
-        magnitude = self._percentile(abs(five_day), [abs(value) for value in rolling])
+        daily_net = [row["rzmre"] - row["rzche"] if row["rzmre"] is not None and row["rzche"] is not None else None for row in rows]
+        totals, details, percentile = self._flow_statistics(rows, daily_net, (5,))
+        five_day = totals[5]
         latest = rows[0]
-        balance = self._number(latest.get("rzye"))
+        balance = latest["rzye"]
+        if balance is None or latest["rqye"] is None:
+            details["data_quality_note"] = "；".join(filter(None, [details["data_quality_note"], "融资或融券余额未知"]))
         title = (
-            f"融资余额 {self._format_cny(balance)}；"
-            f"近5日融资{self._flow_word(five_day)} {self._format_cny(abs(five_day))}"
+            f"融资余额 {self._format_cny(balance) if balance is not None else '未知'}；"
+            + (f"最近5条日记录融资{self._flow_word(five_day)} {self._format_cny(abs(five_day))}"
+               if five_day is not None else "5条日记录融资净额待核验")
         )
         return [self._event(
-            "margin", symbol, latest["_date"], title, self._direction(five_day), magnitude,
-            "strong" if len(rows) >= 20 else "medium",
+            "margin", symbol, latest["_date"], title, self._direction(five_day) if five_day is not None else "neutral", percentile or 0,
+            "weak" if five_day is None else "medium" if details["data_quality_note"] else "strong",
             f"desk://research/margin/{symbol}/{latest['_date']}",
             {
-                "financing_balance_cny": round(balance, 2),
-                "financing_net_5d_cny": round(five_day, 2),
-                "securities_lending_balance_cny": round(self._number(latest.get("rqye")), 2),
-                "five_day_abs_percentile_pct": round(magnitude, 2),
+                "financing_balance_cny": round(balance, 2) if balance is not None else None,
+                "financing_net_5d_cny": five_day,
+                "securities_lending_balance_cny": latest["rqye"],
+                "five_day_abs_percentile_pct": percentile,
+                **details,
             },
         )]
+
+    @classmethod
+    def _daily_numeric_rows(cls, rows, fields):
+        """A duplicate date is one observation; conflicting values remain unknown."""
+        daily = {}
+        for row in rows:
+            values = {field: cls._optional_number(row.get(field)) for field in fields}
+            previous = daily.get(row["_date"])
+            if previous is None:
+                daily[row["_date"]] = {**row, **values}
+            else:
+                for field in fields:
+                    if previous[field] != values[field]:
+                        previous[field] = None
+        return list(daily.values())
+
+    @classmethod
+    def _flow_statistics(cls, rows, values, windows):
+        totals, details, gaps = {}, {}, []
+        for size in windows:
+            sample = values[:size]
+            valid = sum(value is not None for value in sample)
+            totals[size] = round(sum(sample), 2) if len(sample) == size and valid == size else None
+            details.update({
+                f"window_{size}d_records": len(sample),
+                f"window_{size}d_valid_records": valid,
+                f"window_{size}d_start": rows[len(sample) - 1]["_date"],
+                f"window_{size}d_end": rows[0]["_date"],
+            })
+            if totals[size] is None:
+                gaps.append(f"{size}条窗口仅{valid}条有效/返回{len(sample)}条，缺失或冲突不填零")
+        # Keep missing observations in place. Dropping them first would compress
+        # six dates into a falsely complete five-observation window.
+        prior = pd.Series(values, dtype="float64").rolling(5, min_periods=5).sum().iloc[5:].dropna()
+        percentile = cls._percentile(abs(totals[5]), prior.abs().tolist()) if totals[5] is not None and len(prior) >= 20 else None
+        if percentile is None:
+            gaps.append(f"分位未计算：需要完整5条净额及至少20个此前完整窗口（当前{len(prior)}个）")
+        details.update({
+            "percentile_sample_count": len(prior),
+            "window_basis": "按有记录日期去重，未核验交易日连续性；分位窗口可重叠且不含本次窗口",
+            "data_quality_note": "；".join(gaps) or None,
+        })
+        return totals, details, percentile
 
     def _normalize_dragon_tiger(self, symbol: str, as_of: str, data: Any) -> list[dict[str, Any]]:
         if not isinstance(data, Mapping):
@@ -497,65 +569,97 @@ class EventFlowEngine:
             return []
         latest_date = rows[0]["_date"]
         latest_rows = [row for row in rows if row["_date"] == latest_date]
-        amount = sum(self._number(row.get("amount")) for row in latest_rows)
-        weighted_premium = (
-            sum(self._number(row.get("premium_pct")) * self._number(row.get("amount")) for row in latest_rows)
-            / amount if amount else 0.0
-        )
-        direction = "positive" if weighted_premium > 0.5 else "negative" if weighted_premium < -0.5 else "neutral"
+        amounts = [self._optional_number(row.get("amount")) for row in latest_rows]
+        premiums = [self._optional_number(row.get("premium_pct")) for row in latest_rows]
+        amount = sum(amounts) if all(value is not None and value >= 0 for value in amounts) else None
+        valid_count = sum(a is not None and a > 0 and p is not None for a, p in zip(amounts, premiums))
+        weighted_premium = sum(a * p for a, p in zip(amounts, premiums)) / amount if (
+            amount is not None and amount > 0 and valid_count == len(latest_rows)
+        ) else None
+        direction = self._direction(weighted_premium) if weighted_premium is not None and abs(weighted_premium) > 0.5 else "neutral"
         title = (
-            f"大宗交易 {len(latest_rows)} 笔，成交额 {self._format_cny(amount)}；"
-            f"加权折溢价 {weighted_premium:+.2f}%"
+            f"大宗交易 {len(latest_rows)} 笔，成交额 {self._format_cny(amount) if amount is not None else '未知'}；"
+            + (f"加权折溢价 {weighted_premium:+.2f}%" if weighted_premium is not None else "加权折溢价待核验")
         )
         return [self._event(
             "block_trade", symbol, latest_date, title, direction,
-            self._amount_priority(amount), "strong",
+            self._amount_priority(amount or 0), "strong" if weighted_premium is not None else "weak",
             f"desk://research/block-trade/{symbol}/{latest_date}",
             {
                 "trade_count": len(latest_rows),
-                "amount_cny": round(amount, 2),
-                "weighted_premium_pct": round(weighted_premium, 2),
+                "amount_cny": round(amount, 2) if amount is not None else None,
+                "weighted_premium_pct": round(weighted_premium, 2) if weighted_premium is not None else None,
+                "premium_valid_trade_count": valid_count,
+                "data_quality_note": "成交金额或折溢价不全，不能判断全日折溢价方向" if weighted_premium is None else None,
             },
         )]
 
     def _normalize_holders(self, symbol: str, as_of: str, data: Any) -> list[dict[str, Any]]:
         rows = self._dated_rows(data, as_of, ("date",))
+        rows = [row for row in rows if (
+            (published := self._row_date(row, ("published_at",))) is not None and published <= as_of
+        ) or (published is None and as_of == date.today().isoformat())]
         if not rows:
             return []
         latest = rows[0]
-        ratio = self._number(latest.get("change_ratio"))
-        direction = "positive" if ratio < 0 else "negative" if ratio > 0 else "neutral"
-        movement = "减少" if ratio < 0 else "增加" if ratio > 0 else "持平"
-        title = (
-            f"股东户数 {self._number(latest.get('holder_num')):,.0f} 户，"
-            f"环比{movement} {abs(ratio):.2f}%"
-        )
+        ratio = self._optional_number(latest.get("change_ratio"))
+        count = self._optional_number(latest.get("holder_num"))
+        average = self._optional_number(latest.get("avg_shares"))
+        published = self._row_date(latest, ("published_at",))
+        direction = self._direction(-ratio) if ratio is not None else "neutral"
+        movement = "未知" if ratio is None else f"{'减少' if ratio < 0 else '增加' if ratio > 0 else '持平'} {abs(ratio):.2f}%"
+        title = f"股东户数 {f'{count:,.0f} 户' if count is not None else '未知'}，环比{movement}"
+        gaps = []
+        if any(value is None for value in (ratio, count, average)):
+            gaps.append("部分数值未知，不以零或持平代替")
+        if not published:
+            gaps.append("披露日未知，统计期不代表当时已公开")
         return [self._event(
-            "holder_change", symbol, latest["_date"], title, direction,
-            min(95.0, 30.0 + abs(ratio) * 4.0), "strong",
+            "holder_change", symbol, published or latest["_date"], title, direction,
+            min(95.0, 30.0 + abs(ratio or 0) * 4.0), "weak" if gaps else "strong",
             f"desk://research/holders/{symbol}/{latest['_date']}",
             {
-                "holder_count": round(self._number(latest.get("holder_num")), 2),
-                "holder_change_pct": round(ratio, 4),
-                "average_shares_per_holder": round(self._number(latest.get("avg_shares")), 2),
+                "holder_count": count,
+                "holder_change_pct": round(ratio, 4) if ratio is not None else None,
+                "average_shares_per_holder": round(average, 2) if average is not None else None,
+                "observation_date": latest["_date"],
+                "published_at": published,
+                "average_shares_basis": "总A股股数/股东户数" if latest.get("avg_shares_basis") == "total_a_shares_per_holder" else "口径未提供",
+                "data_quality_note": "；".join(gaps) or None,
             },
         )]
 
     def _normalize_dividend(self, symbol: str, as_of: str, data: Any) -> list[dict[str, Any]]:
         events = []
-        for row in self._dated_rows(data, as_of, ("date",))[:2]:
-            cash = self._number(row.get("bonus_rmb"))
-            transfer = self._number(row.get("transfer_ratio"))
-            bonus = self._number(row.get("bonus_ratio"))
-            title = f"分红送转：每10股派 {cash:g} 元、转增 {transfer:g} 股、送 {bonus:g} 股"
+        for row in self._corporate_rows(data, as_of)[:2]:
+            cash = self._optional_number(row.get("bonus_rmb"))
+            transfer = self._optional_number(row.get("transfer_ratio"))
+            bonus = self._optional_number(row.get("bonus_ratio"))
+            plan = str(row.get("plan") or "进度未知")
+            show = lambda value: f"{value:g}" if value is not None else "未知"
+            title = f"分红方案（{plan}）：每10股派 {show(cash)} 元、转增 {show(transfer)} 股、送 {show(bonus)} 股"
+            gaps = []
+            if any(value is None for value in (cash, transfer, bonus)):
+                gaps.append("部分方案数值未知，不以零代替")
+            if not row.get("published_at"):
+                gaps.append("当前记录披露日未核验，不代表历史已知")
+            if not row.get("effective_at") or plan != "实施分配":
+                gaps.append("方案进度或除权日未确认，不代表已到账")
             events.append(self._event(
-                "dividend", symbol, row["_date"], title, "neutral", 45, "strong",
-                f"desk://research/dividend/{symbol}/{row['_date']}",
+                "dividend", symbol, row["_date"], title, "neutral", 45, "weak" if gaps else "strong",
+                f"desk://research/dividend/{symbol}/{row.get('report_date') or row.get('effective_at') or row['_date']}",
                 {
                     "cash_dividend_cny_per_10_shares": cash,
                     "transfer_shares_per_10": transfer,
                     "bonus_shares_per_10": bonus,
-                    "plan": str(row.get("plan") or "") or None,
+                    "plan": plan,
+                    "published_at": row.get("published_at"),
+                    "effective_at": row.get("effective_at"),
+                    "plan_published_at": self._row_date(row, ("plan_published_at",)),
+                    "record_date": self._row_date(row, ("record_date",)),
+                    "plan_description": row.get("plan_description"),
+                    "event_date_basis": "当前方案披露日" if row.get("published_at") else "除权日或本次观察日，非披露日",
+                    "data_quality_note": "；".join(gaps) or None,
                 },
             ))
         return events
@@ -563,46 +667,57 @@ class EventFlowEngine:
     def _normalize_lockup(self, symbol: str, as_of: str, data: Any) -> list[dict[str, Any]]:
         if not isinstance(data, Mapping):
             return []
-        if as_of == date.today().isoformat():
-            upcoming = self._future_rows(data.get("upcoming"), as_of, ("date",))
-            if upcoming:
-                row = upcoming[0]
-                ratio = self._number(row.get("ratio"))
-                able_shares = self._number(row.get("able_shares"))
-                direction = "negative" if ratio >= 0.05 else "neutral"
-                title = (
-                    f"未来解禁：{row['_date']} {str(row.get('type') or '限售股份')}，"
-                    f"实际可流通约 {able_shares:,.2f} 万股，占比 {ratio:.2%}"
-                )
-                return [self._event(
-                    "lockup", symbol, as_of, title, direction,
-                    min(95.0, 40.0 + ratio * 300.0), "strong",
-                    f"desk://research/lockup/{symbol}/{row['_date']}",
-                    {
-                        "effective_at": row["_date"],
-                        "able_shares_10k": round(able_shares, 4),
-                        "unlock_ratio": round(ratio, 8),
-                        "share_type": str(row.get("type") or "") or None,
-                    },
-                )]
-        history = self._dated_rows(data.get("history"), as_of, ("date",))
-        if not history:
+        rows = self._corporate_rows([*(data.get("history") or []), *(data.get("upcoming") or [])], as_of)
+        rows = [row for row in rows if row.get("effective_at")]
+        upcoming = sorted((row for row in rows if row["effective_at"] >= as_of), key=lambda row: row["effective_at"])
+        history = sorted((row for row in rows if row["effective_at"] < as_of), key=lambda row: row["effective_at"], reverse=True)
+        if not upcoming and not history:
             return []
-        row = history[0]
-        ratio = self._number(row.get("ratio"))
+        row = (upcoming or history)[0]
+        ratio = self._optional_number(row.get("ratio"))
+        able_shares = self._optional_number(row.get("able_shares"))
+        gaps = []
+        if ratio is None or able_shares is None:
+            gaps.append("解禁数量或占比未知，不以零代替")
+        if not row.get("published_at"):
+            gaps.append("披露日未核验，不代表历史已知")
         title = (
-            f"最近解禁记录：{str(row.get('type') or '限售股份')}，"
-            f"实际可流通约 {self._number(row.get('able_shares')):,.2f} 万股，占比 {ratio:.2%}"
+            f"{'当日/未来解禁计划' if upcoming else '最近解禁记录'}：{row['effective_at']} {str(row.get('type') or '限售股份')}，"
+            f"可流通 {f'{able_shares:,.2f} 万股' if able_shares is not None else '数量未知'}，"
+            f"占流通股本 {f'{ratio:.2%}' if ratio is not None else '未知'}"
         )
         return [self._event(
-            "lockup", symbol, row["_date"], title, "neutral", min(80.0, 35.0 + ratio * 200.0),
-            "strong", f"desk://research/lockup/{symbol}/{row['_date']}",
+            "lockup", symbol, row["_date"], title, "negative" if upcoming and ratio is not None and ratio >= 0.05 else "neutral",
+            min(95.0, 40.0 + max(ratio or 0, 0) * 300.0),
+            "weak" if gaps else "strong", f"desk://research/lockup/{symbol}/{row['effective_at']}",
             {
-                "able_shares_10k": round(self._number(row.get("able_shares")), 4),
-                "unlock_ratio": round(ratio, 8),
+                "able_shares_10k": round(able_shares, 4) if able_shares is not None else None,
+                "unlock_ratio": round(ratio, 8) if ratio is not None else None,
                 "share_type": str(row.get("type") or "") or None,
+                "effective_at": row["effective_at"],
+                "published_at": row.get("published_at"),
+                "event_date_basis": "披露日" if row.get("published_at") else "解禁日或本次观察日，非披露日",
+                "risk_basis": "占流通股本的小数比例；解禁不代表实际减持",
+                "data_quality_note": "；".join([*gaps, "解禁不代表实际减持"]) if gaps else None,
             },
         )]
+
+    @classmethod
+    def _corporate_rows(cls, data: Any, as_of: str) -> list[dict[str, Any]]:
+        """Keep disclosure and effective dates distinct; unknown disclosure is current-only."""
+        rows = []
+        for row in data if isinstance(data, list) else []:
+            if not isinstance(row, Mapping):
+                continue
+            published = cls._row_date(row, ("published_at",))
+            if (published and published > as_of) or (not published and (
+                row.get("published_at") or as_of != date.today().isoformat()
+            )):
+                continue
+            effective = cls._row_date(row, ("date",))
+            rows.append({**row, "published_at": published, "effective_at": effective,
+                         "_date": published or min(effective or as_of, as_of)})
+        return sorted(rows, key=lambda row: row["_date"], reverse=True)
 
     def _event(
         self,
@@ -697,6 +812,10 @@ class EventFlowEngine:
         if not math.isfinite(magnitude) or not 0 <= magnitude <= 100:
             raise EventFlowError(f"{context}.magnitude_score 必须在 0..100 之间")
         details = self._parse_details(raw.get("details"), f"{context}.details")
+        if details.get("published_at"):
+            published = self._row_date(details, ("published_at",))
+            if not published or published > as_of:
+                raise EventFlowError(f"{context}.details.published_at 无效或晚于 as_of")
         age_days = max((pd.Timestamp(as_of) - pd.Timestamp(occurred_at)).days, 0)
         freshness_score = max(0.0, 100 * (1 - age_days / self.freshness_days))
         intensity = magnitude * 0.65 + self.strength_scores[strength] * 0.25 + freshness_score * 0.10
@@ -738,10 +857,60 @@ class EventFlowEngine:
     def _deduplicate(events):
         selected = {}
         for item in events:
-            current = selected.get(item["source_ref"])
+            # One report can cover several securities or dated observations.
+            # Conflicting directions remain visible; a larger score is not a correction.
+            key = tuple(item[field] for field in ("symbol", "type", "occurred_at", "direction", "source_ref"))
+            current = selected.get(key)
             if current is None or item["intensity_score"] > current["intensity_score"]:
-                selected[item["source_ref"]] = item
+                selected[key] = item
         return list(selected.values())
+
+    @staticmethod
+    def _related_groups(alerts):
+        """Navigation candidates, never a claim of event identity or corroboration.
+
+        Keep source records and scores unchanged. Same-day corporate-action
+        headlines can describe different actors/plans; stages must not be mixed.
+        """
+        groups = {}
+        id_counts = Counter(item["id"] for item in alerts)
+        phases = (
+            ("终止/取消", r"终止|取消|撤回"),
+            ("完成/结果", r"完成|实施完毕|结果"),
+            ("进展/实施", r"进展|首次|累计|已回购|已增持|已减持"),
+            ("审议/批准", r"审议|通过|批准"),
+            ("提议/计划", r"提议|拟|计划|预案"),
+        )
+        for item in alerts:
+            if item["type"] not in {"announcement", "news"} or id_counts[item["id"]] != 1:
+                continue
+            title = item["title"]
+            # Market roundups and mixed topics are not single-company candidates.
+            topics = [word for word in ("回购", "增持", "减持") if word in title]
+            if len(topics) != 1 or re.search(r"多家|多只|盘前|早知道|掀起|潮", title):
+                continue
+            phase = next((label for label, pattern in phases if re.search(pattern, title)), None)
+            if not phase:
+                continue
+            key = (item["symbol"], item["occurred_at"], topics[0], phase)
+            groups.setdefault(key, []).append(item)
+        output = []
+        for (symbol, occurred_at, topic, phase), items in groups.items():
+            if len(items) < 2:
+                continue
+            primary = min(items, key=lambda item: (
+                item["type"] != "announcement", -item["intensity_score"], item["id"],
+            ))
+            directions = {item["direction"] for item in items}
+            output.append({
+                "symbol": symbol, "occurred_at": occurred_at, "label": f"{topic} · {phase}",
+                "basis": "same_security_date_topic_phase", "identity_verified": False,
+                "independent_source_count": None,
+                "primary_event_id": primary["id"], "event_ids": [item["id"] for item in items],
+                "direction_conflict": "positive" in directions and "negative" in directions,
+                "note": "同证券、同日、同主题和阶段的关联线索，主体与方案身份尚未核验；保留全部证据，不代表独立信号或多源确认。",
+            })
+        return output
 
     @staticmethod
     def _group_symbols(alerts):
@@ -817,7 +986,9 @@ class EventFlowEngine:
             },
             "freshness": {
                 "state": "current" if lag_days <= 3 else "historical",
-                "resolution": "point_in_time",
+                "resolution": (
+                    "partial_point_in_time" if packet["as_of"] != date.today().isoformat() else "latest_window"
+                ) if input_mode == "desk_symbol" else "declared_event_dates",
                 "calendar_lag_days": lag_days,
             },
             "input": {
@@ -835,6 +1006,7 @@ class EventFlowEngine:
                 "summary": result["summary"],
                 "evidence": {
                     "alerts": [dict(item) for item in result["alerts"]],
+                    "related_groups": result["related_groups"],
                     "symbol_summary": [dict(item) for item in result["symbol_summary"]],
                     "coverage": dict(result["coverage"]),
                     "failures": [dict(item) for item in result["failures"]],
@@ -892,6 +1064,16 @@ class EventFlowEngine:
         return max(dates) if dates else None
 
     @staticmethod
+    def _optional_number(value: Any) -> float | None:
+        if isinstance(value, bool):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    @staticmethod
     def _number(value: Any) -> float:
         try:
             number = float(value)
@@ -904,7 +1086,8 @@ class EventFlowEngine:
         numbers = [float(item) for item in population if math.isfinite(float(item))]
         if not numbers:
             return 0.0
-        return round(100.0 * sum(item <= value for item in numbers) / len(numbers), 2)
+        # Mid-rank ties: an all-equal reference must not label every value 100%.
+        return round(100.0 * (sum(item < value for item in numbers) + 0.5 * sum(item == value for item in numbers)) / len(numbers), 2)
 
     @staticmethod
     def _amount_priority(amount_cny: float) -> float:
@@ -986,6 +1169,7 @@ def resolve_event_flow_snapshot(
         if str(symbol or "").strip()
     }
     alerts = []
+    disclosure_excluded = 0
     for item in evidence.get("alerts") or []:
         symbol = str(item.get("symbol") or "").upper().split(".")[0]
         occurred_at = str(item.get("occurred_at") or "")[:10]
@@ -993,6 +1177,16 @@ def resolve_event_flow_snapshot(
             continue
         if requested_as_of and (not occurred_at or occurred_at > requested_as_of):
             continue
+        if requested_as_of:
+            details = item.get("details") or {}
+            published = EventFlowEngine._row_date(details, ("published_at",))
+            if (published and published > requested_as_of) or (
+                not published and (details.get("published_at") or (
+                    item.get("type") in {"holder_change", "dividend", "lockup"} and requested_as_of < date.today().isoformat()
+                ))
+            ):
+                disclosure_excluded += 1
+                continue
         normalized = dict(item)
         if requested_as_of and occurred_at:
             age_days = max((pd.Timestamp(requested_as_of) - pd.Timestamp(occurred_at)).days, 0)
@@ -1020,13 +1214,49 @@ def resolve_event_flow_snapshot(
         "top_event_id": alerts[0].get("id") if alerts else None,
     }
     resolved_freshness = dict(snapshot.get("freshness") or {})
+    coverage = dict(evidence.get("coverage") or {})
+    failures = [dict(item) for item in evidence.get("failures") or []]
+    limitations = list((snapshot.get("provenance") or {}).get("limitations") or [])
+    latest_window = (
+        (snapshot.get("parameters") or {}).get("inputMode") == "desk_symbol"
+        or "desk_research_interfaces_are_latest_window_without_historical_anchor" in limitations
+    )
+    warnings = []
+    if disclosure_excluded:
+        warnings.append(f"已排除{disclosure_excluded}条披露晚于截止日或股东/分红/解禁披露日期未核验的事件")
+    if "corporate_action_rows_excluded_without_timely_disclosure" in limitations:
+        warnings.append("部分分红/解禁记录的披露日晚于截止日或未核验，已排除；不代表没有相关事件")
+    if "event_numeric_or_publication_fields_incomplete" in limitations:
+        warnings.append("公司事件部分数值、样本窗口或披露日期不完整，不能将未知当作零或持平")
+    if failures or coverage.get("failed_sources"):
+        warnings.append("公司事件存在数据源读取失败，未覆盖部分不代表没有风险")
+    if coverage.get("empty_sources"):
+        warnings.append("公司事件部分来源为空，不等于没有发生相关事件")
+    if not coverage:
+        warnings.append("公司事件快照缺少来源覆盖记录，完整性未核验")
+    if resolved_summary["stale_events"]:
+        warnings.append("公司事件包含超过30日的旧证据，应核对是否仍然有效")
+    historical = (requested_as_of or snapshot_as_of or date.today().isoformat()) < date.today().isoformat()
+    if historical:
+        warnings.append(
+            "公司事件来自当前数据窗口的日期过滤，不是完整历史点时数据"
+            if latest_window else "事件包仅声明事件日期，披露时间尚未核验，不是完整历史点时数据"
+        )
+    # Old snapshots may overstate point-in-time fidelity. Preserve their original
+    # label separately without upgrading the evidence returned to consumers.
+    source_resolution = resolved_freshness.get("resolution")
+    resolved_freshness["source_snapshot_resolution"] = source_resolution
+    resolved_freshness["resolution"] = (
+        "partial_point_in_time" if historical else "latest_window"
+    ) if latest_window else "declared_event_dates"
     if requested_as_of:
         lag_days = max((date.today() - pd.Timestamp(requested_as_of).date()).days, 0)
         resolved_freshness = {
             "state": "current" if lag_days <= 3 else "historical",
-            "resolution": "point_in_time_replay",
+            "resolution": "partial_point_in_time_replay" if latest_window else "declared_event_dates_replay",
             "calendar_lag_days": lag_days,
             "source_snapshot_state": resolved_freshness.get("state"),
+            "source_snapshot_resolution": source_resolution,
         }
     return {
         "snapshot_id": snapshot_id,
@@ -1034,7 +1264,14 @@ def resolve_event_flow_snapshot(
         "snapshot_as_of": snapshot_as_of,
         "as_of_mode": "historical_replay" if requested_as_of and requested_as_of != snapshot_as_of else "snapshot",
         "freshness": resolved_freshness,
+        "data_state": "partial" if warnings else (snapshot.get("data_window") or {}).get("coverage", "partial"),
+        "coverage": coverage,
+        "coverage_scope": "source_snapshot",
+        "failures": failures,
+        "limitations": limitations,
+        "warnings": warnings,
         "summary": resolved_summary,
         "alerts": alerts,
+        "related_groups": EventFlowEngine._related_groups(alerts),
         "symbol_summaries": summaries,
-    }, []
+    }, warnings

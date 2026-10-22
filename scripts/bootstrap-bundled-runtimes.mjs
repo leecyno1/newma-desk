@@ -169,7 +169,7 @@ async function main() {
     "InStock",
     path.join(bundledRoot, "instock-analysis"),
     [
-      "-r", "requirements-attached.txt",
+      ".",
       "-c", "requirements-attached.constraints.txt",
     ],
   );

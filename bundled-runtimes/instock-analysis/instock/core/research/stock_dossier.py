@@ -30,8 +30,8 @@ class StockResearchError(ValueError):
 
 class StockResearchDossier:
     engine_name = "instock-stock-research-dossier"
-    engine_version = "1.2.0"
-    model = "instock-stock-research-dossier-v1.2"
+    engine_version = "1.4.3"
+    model = "instock-stock-research-dossier-v1.4"
     _symbol_pattern = re.compile(r"^\d{6}(?:\.(?:SH|SZ|BJ))?$", re.IGNORECASE)
     _periods = {"daily", "weekly", "monthly"}
     _bars = {120, 240, 480, 800}
@@ -43,6 +43,7 @@ class StockResearchDossier:
         "profitability.net_margin": "netMarginPct",
         "derived.cash_conversion": "cashConversionPct",
         "balance_sheet.debt_ratio": "debtRatioPct",
+        "derived.debt_ratio": "debtRatioPct",
     }
 
     def __init__(
@@ -100,7 +101,7 @@ class StockResearchDossier:
         fundamentals = self._fundamentals(equity, as_of=normalized_as_of)
         technical = self._technical(technical_payload)
         industry_chain, chain_limitations = self._industry_chain(
-            industry_chain_snapshot_id, code, as_of=normalized_as_of
+            industry_chain_snapshot_id, normalized_symbol, as_of=normalized_as_of
         )
         event_flow, event_limitations = resolve_event_flow_snapshot(
             event_flow_snapshot_id, symbols=[code], as_of=normalized_as_of
@@ -143,6 +144,7 @@ class StockResearchDossier:
             or chain_limitations
             or event_limitations
             or technical_partial
+            or assessment["gaps"]
         ) else "complete"
         as_of_value = str(
             normalized_as_of
@@ -272,28 +274,50 @@ class StockResearchDossier:
         ledger = [dict(item) for item in equity.get("evidenceLedger") or [] if isinstance(item, Mapping)]
         generated_at = cls._date_only(equity.get("generatedAt"))
         historical_mode = bool(as_of and as_of < date.today().isoformat())
-        snapshot_is_point_in_time = not historical_mode or bool(
+        snapshot_is_point_in_time = not as_of or bool(
             generated_at and generated_at <= as_of
         )
         excluded_future = 0
         excluded_unanchored = 0
+        excluded_publication_unknown = 0
+        excluded_dependencies = 0
         if as_of:
             filtered_ledger = []
+            derived_pending = []
             for item in ledger:
                 observed_at = cls._date_only(item.get("asOf"))
+                published_at = cls._date_only(item.get("publishedAt"))
+                derived = item.get("sourceType") == "derived" or str(item.get("id", "")).startswith("derived.")
                 if observed_at is None:
                     excluded_unanchored += 1
-                elif observed_at <= as_of:
-                    filtered_ledger.append(item)
-                else:
+                elif observed_at > as_of or (published_at and published_at > as_of):
+                    # Explicit publication dates take precedence over snapshot timestamps.
                     excluded_future += 1
+                elif derived and (not snapshot_is_point_in_time or item.get("dependsOn")):
+                    derived_pending.append(item)
+                elif not snapshot_is_point_in_time and published_at is None:
+                    excluded_publication_unknown += 1
+                else:
+                    filtered_ledger.append(item)
+            # A derived date alone cannot make later or absent inputs historical.
+            eligible_ids = {item.get("id") for item in filtered_ledger}
+            while derived_pending:
+                ready = [item for item in derived_pending if item.get("dependsOn")
+                         and all(dependency in eligible_ids for dependency in item["dependsOn"])]
+                if not ready:
+                    excluded_dependencies = len(derived_pending)
+                    break
+                filtered_ledger.extend(ready)
+                eligible_ids.update(item.get("id") for item in ready)
+                derived_pending = [item for item in derived_pending if item not in ready]
             ledger = filtered_ledger
 
         limitations = []
-        if historical_mode and not snapshot_is_point_in_time:
+        if as_of and (not snapshot_is_point_in_time or excluded_future or excluded_unanchored or excluded_dependencies):
+            snapshot_is_point_in_time = False
             limitations.extend([
                 "historical_equity_snapshot_unavailable",
-                "historical_fundamentals_limited_to_dated_evidence",
+                "historical_fundamentals_require_publication_or_retained_snapshot",
             ])
             metrics = {}
             for item in ledger:
@@ -317,7 +341,7 @@ class StockResearchDossier:
             normalized_quality = {
                 "score": None,
                 "level": "historical_evidence_only",
-                "limitations": ["Desk 未提供截止日点时基本面快照，已排除当前估值与综合评分"],
+                "limitations": ["缺少截止日完整有效的基本面快照，仅采用合格证据，已排除未核验估值与综合评分"],
             }
             mode = "historical_evidence_only"
         else:
@@ -330,6 +354,17 @@ class StockResearchDossier:
                 "limitations": list(quality.get("limitations") or []),
             }
             mode = "point_in_time_snapshot" if historical_mode else "latest_snapshot"
+        limitations.extend(normalized_quality["limitations"])
+        if excluded_publication_unknown:
+            limitations.append(f"{excluded_publication_unknown} 项证据缺少可核验披露日期，未用于历史判断")
+        if excluded_dependencies:
+            limitations.append(f"{excluded_dependencies} 项派生指标的依赖证据未在截止日前完整可用，已排除")
+        covered, total = coverage.get("coveredDimensions"), coverage.get("totalDimensions")
+        if covered is None or total is None or total <= 0:
+            limitations.append("基本面证据覆盖未知")
+        elif covered < total:
+            limitations.append(f"基本面证据覆盖不足：{covered}/{total} 个维度")
+        limitations = list(dict.fromkeys(limitations))
         return {
             "mode": mode,
             "requested_as_of": as_of,
@@ -342,6 +377,9 @@ class StockResearchDossier:
             "evidence": ledger[:40],
             "excluded_future_evidence_count": excluded_future,
             "excluded_unanchored_evidence_count": excluded_unanchored,
+            "excluded_unknown_publication_count": excluded_publication_unknown,
+            "excluded_dependency_evidence_count": excluded_dependencies,
+            "historical_cutoff_policy": "published_by_cutoff_or_observed_in_retained_snapshot",
             "limitations": limitations,
         }
 
@@ -384,11 +422,13 @@ class StockResearchDossier:
             for item in scorecard if item.get("status") == "weak"
         ]
         gaps = [str(item) for item in equity.get("gaps") or []]
+        gaps.extend(fundamentals["limitations"])
+        gaps.extend((event_flow or {}).get("warnings") or [])
         for item in scorecard:
             if item.get("status") == "unavailable":
                 gaps.append(str(item.get("title") or item.get("id")))
         if fundamentals.get("mode") == "historical_evidence_only":
-            gaps.append("Desk 未提供截止日点时基本面快照，当前估值与综合评分已排除")
+            gaps.append("缺少截止日完整有效的基本面快照，未核验估值与综合评分已排除")
         bias = str((technical.get("insight") or {}).get("bias") or "neutral")
         headline = str((technical.get("insight") or {}).get("headline") or "").strip()
         trend_strength = float((technical.get("summary") or {}).get("trend_strength") or 0)
@@ -419,12 +459,7 @@ class StockResearchDossier:
         if exposure:
             layer = exposure.get("layer") or {}
             layer_name = str(layer.get("name") or exposure.get("layer_id") or "产业链暴露")
-            confidence = str(exposure.get("confidence") or "unknown")
-            priority = str(exposure.get("research_priority") or "worth_tracking")
-            if confidence in {"high", "medium"} and priority in {"top_priority", "high_priority", "worth_tracking"}:
-                strengths.append(f"产业链：{layer_name}暴露已核验（{confidence} 置信）")
-            else:
-                gaps.append(f"产业链：{layer_name}暴露证据置信度仍低")
+            gaps.append(f"产业链：{layer_name}的评分来自研究包输入，来源及公司暴露主张尚未独立核实")
             for text in (exposure.get("invalidation") or [])[:2]:
                 tensions.append(f"产业链证伪：{text}")
 
@@ -466,8 +501,17 @@ class StockResearchDossier:
                 "核心证据仍不足，若后续没有新增可核验证据则停止跟踪"
             )
         invalidation_conditions = list(dict.fromkeys(invalidation_conditions))
+        directional_domains = []
+        if any(item.get("status") in {"strong", "weak"} for item in scorecard):
+            directional_domains.append("fundamentals")
+        if not insufficient_history and bias in {"bullish", "bearish"}:
+            directional_domains.append("technical")
+        if positive_events or negative_events:
+            directional_domains.append("events")
         if insufficient_history:
             conclusion = "技术历史不足，当前只保留结构事实，不形成综合方向判断"
+        elif len(directional_domains) < 2:
+            conclusion = "方向证据维度不足，暂不形成多维综合判断；单项结构与风险仍需分别跟踪"
         elif strengths and tensions:
             conclusion = "多维证据存在分歧：优势与风险同时成立，需优先核验张力项"
         elif tensions:
@@ -478,6 +522,7 @@ class StockResearchDossier:
             conclusion = "证据不足，暂不形成方向判断"
         return {
             "technical_bias": bias,
+            "directional_evidence_domains": directional_domains,
             "strengths": strengths,
             "tensions": tensions,
             "gaps": gaps,
@@ -574,6 +619,14 @@ class StockResearchDossier:
                 "digest": result_digest,
                 "summary": {
                     "symbol": symbol,
+                    "market": result["identity"].get("market", "CN"),
+                    "name": result["identity"].get("name"),
+                    "sector": result["identity"].get("industry") or result["identity"].get("sector"),
+                    "conclusion": result["assessment"]["conclusion"],
+                    "gaps": result["assessment"]["gaps"],
+                    "invalidation_conditions": result["assessment"]["invalidation_conditions"],
+                    "industry_chain_snapshot_id": industry_chain_snapshot_id,
+                    "event_flow_snapshot_id": event_flow_snapshot_id,
                     "data_state": result["data_state"],
                     "technical_bias": result["assessment"]["technical_bias"],
                     "strengths": result["assessment"]["strengths"],

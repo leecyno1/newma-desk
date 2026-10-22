@@ -18,6 +18,8 @@ from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
 
+from instock.release import process_release
+
 from instock.web.api_contract import (
     API_VERSION,
     BRIDGE_PROTOCOL,
@@ -30,6 +32,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 NEWMA_SUITE_PATH = (
     PROJECT_ROOT / "integrations" / "newma-desk" / "instock-suite" / "suite.json"
 )
+if not NEWMA_SUITE_PATH.is_file():
+    NEWMA_SUITE_PATH = Path(__file__).with_name("_suite.json")
 REQUIRED_ANALYSIS_DEPENDENCIES = {
     "czsc": "0.10.12",
     "TA-Lib": "0.6.8",
@@ -146,6 +150,15 @@ def warm_analysis_runtime_readiness() -> None:
 
 _MARKET_DATA_HEALTH_TTL_SECONDS = 15.0
 _MARKET_DATA_HEALTH_CACHE: tuple[float, dict] | None = None
+
+
+def _runtime_identity() -> dict:
+    standalone = os.environ.get("INSTOCK_RUNTIME_MODE") == "standalone"
+    return {
+        "mode": "standalone" if standalone else "newma-desk-attached",
+        "lifecycle_owner": "operator" if standalone else "newma-desk",
+        "standalone_deployment": standalone,
+    }
 
 
 def _market_data_readiness() -> dict:
@@ -270,14 +283,13 @@ class IntegrationHealthHandler(AnalysisApiHandler):
         health = {
             "status": "ok" if dependencies_ready else "unavailable",
             "service": "instock-analysis",
+            "release": process_release(),
             "api_version": API_VERSION,
             "bridge_protocol": BRIDGE_PROTOCOL,
             "time": datetime.now().astimezone().isoformat(timespec="seconds"),
             "database_required": False,
             "runtime": {
-                "mode": "newma-desk-attached",
-                "lifecycle_owner": "newma-desk",
-                "standalone_deployment": False,
+                **_runtime_identity(),
                 "instance": {
                     "id": _PROCESS_INSTANCE_ID,
                     "started_at": _PROCESS_STARTED_AT,
@@ -290,7 +302,7 @@ class IntegrationHealthHandler(AnalysisApiHandler):
             "market_data": {
                 "provider": provider,
                 "configured": configured_provider in {
-                    "newma-desk", "newma", "vibedesk", "instock"
+                    "newma-desk", "newma", "vibedesk", "instock", "http"
                 },
                 "configured_as": configured_provider,
                 **market_data,
@@ -321,10 +333,8 @@ class IntegrationCapabilitiesHandler(AnalysisApiHandler):
         self.write_success({
             "service": "instock-analysis",
             "runtime": {
-                "mode": "newma-desk-attached",
-                "lifecycle_owner": "newma-desk",
+                **_runtime_identity(),
                 "workspace_runtime_id": "instock",
-                "standalone_deployment": False,
             },
             "compatibility": {
                 "level": 2,

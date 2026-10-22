@@ -29,7 +29,8 @@
     .validation-run:disabled { opacity: .55; }
     .validation-note, .validation-meta { margin: 9px 0 0; color: var(--instock-text-muted); font-size: 9px; line-height: 1.65; }
     .validation-alert { display: none; margin-top: 12px; padding: 11px; border: 1px solid var(--instock-error-border); border-radius: 8px; color: var(--instock-error-text); background: var(--instock-error-bg); font-size: 10px; }
-    .validation-results { padding: 16px; }
+    .validation-results { padding: 16px; min-width: 0; }
+    #validation-capital-chart { height: 250px; }
     .validation-status { padding: 13px; border-left: 3px solid var(--validation-accent); background: var(--validation-soft); font-size: 12px; line-height: 1.6; }
     .validation-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-top: 12px; }
     .validation-stat { padding: 12px; border: 1px solid var(--instock-border); border-radius: 8px; background: var(--instock-surface-raised); }
@@ -49,16 +50,20 @@
     <section class="validation-panel validation-hero">
         <div class="validation-kicker">Strategy Validation / point-in-time</div>
         <h1 class="validation-title">策略验证</h1>
-        <p class="validation-copy">统一验证 A 股候选、CZSC 与轮动产生的历史决策：当日收盘形成信号，下一交易日开盘执行，计入双边成本，并按时间切分训练区间与样本外区间。</p>
+        <p class="validation-copy">以独立交易日历核验原始历史信号、成交与成本，隔离跨界收益。默认仅做逐笔诊断；可选择固定分仓，将重叠信号放入有限本金，核验现金占用、满仓跳过与每日风险。</p>
     </section>
     <section class="validation-grid">
         <article class="validation-panel validation-form">
             <div class="validation-fields">
+                <div class="validation-field validation-wide"><label for="validation-name">策略名称</label><input id="validation-name" value="页面策略验证" maxlength="100"></div>
                 <div class="validation-field"><label for="validation-source">信号来源</label><select id="validation-source"><option value="stock-candidates">A 股候选</option><option value="czsc">CZSC</option><option value="rotation">行业轮动</option></select></div>
                 <div class="validation-field"><label for="validation-benchmark">比较基准</label><input id="validation-benchmark" value="510300" maxlength="6"></div>
                 <div class="validation-field"><label for="validation-asof">截止日</label><input id="validation-asof" type="date"></div>
-                <div class="validation-field"><label for="validation-holding">持有交易日</label><select id="validation-holding"><option value="5">5 日</option><option value="10" selected>10 日</option><option value="20">20 日</option></select></div>
-                <div class="validation-field"><label for="validation-cost">单边成本</label><select id="validation-cost"><option value="10">10 bps</option><option value="25" selected>25 bps</option><option value="50">50 bps</option></select></div>
+                <div class="validation-field"><label for="validation-holding">持有交易日</label><input id="validation-holding" type="number" min="1" max="60" step="1" value="10" required></div>
+                <div class="validation-field"><label for="validation-cost">单边成本（bps）</label><input id="validation-cost" type="number" min="0" max="100" step="1" value="25" required></div>
+                <div class="validation-field"><label for="validation-model">资金模型</label><select id="validation-model"><option value="diagnostic">仅逐笔诊断</option><option value="fixed_sleeves">固定分仓 · 有限本金</option></select></div>
+                <div class="validation-field"><label for="validation-slots">分仓份数（同时持有上限）</label><input id="validation-slots" type="number" min="1" max="20" step="1" value="2" required disabled></div>
+                <p class="validation-note validation-wide">固定分仓：初始本金均分，每份只滚动自己的收益，不调拨、不借款；每条信号占一份，满仓跳过，到期先卖再买。同股多条信号也各占一份。</p>
                 <section class="validation-signal-editor">
                     <h2>添加历史决策</h2>
                     <div class="validation-signal-fields">
@@ -70,24 +75,60 @@
                 </section>
             </div>
             <button id="validation-run" class="validation-run" type="button">运行验证</button>
+            <p id="validation-input-state" class="validation-note">当前为编辑草稿，尚未运行。</p>
             <p class="validation-note">至少加入 2 条历史决策。它们必须是当时真实记录的结果，本模块不会用今天的信息反推过去。</p>
             <div id="validation-alert" class="validation-alert" role="alert"></div>
         </article>
         <article class="validation-panel validation-results">
             <div id="validation-status" class="validation-status">等待输入历史决策。</div>
             <div class="validation-stats">
-                <div class="validation-stat"><span>有效覆盖</span><strong id="validation-coverage">--</strong></div>
+                <div class="validation-stat"><span>逐笔证据覆盖</span><strong id="validation-coverage">--</strong></div>
                 <div class="validation-stat"><span>样本外收益</span><strong id="validation-return">--</strong></div>
-                <div class="validation-stat"><span>样本外回撤</span><strong id="validation-drawdown">--</strong></div>
+                <div class="validation-stat"><span id="validation-drawdown-label">样本外期末回撤</span><strong id="validation-drawdown">--</strong></div>
                 <div class="validation-stat"><span>样本外超额</span><strong id="validation-excess">--</strong></div>
             </div>
-            <section class="validation-section"><h2>执行记录</h2><div class="validation-table-wrap"><table class="validation-table"><thead><tr><th>决策日</th><th>开仓</th><th>平仓</th><th>标的</th><th>净收益</th><th>基准</th></tr></thead><tbody id="validation-trades"></tbody></table></div></section>
-            <p id="validation-meta" class="validation-meta">数据仅通过 Desk market.ohlcv 获取。</p>
+            <p id="validation-audit" class="validation-note">待核验完整决策日历。</p>
+            <p id="validation-calendar" class="validation-note">交易日历与行情分开核验；日历未确认时不会用行情日期代替。</p>
+            <section class="validation-section"><h2>成交依据 · 不等于委托可成交</h2>
+                <p id="validation-execution" class="validation-note">待核验计划买卖日的价格与成交量。</p>
+                <p id="validation-limits" class="validation-note">待配对原始开盘价与当日涨跌停价。</p>
+                <details><summary>查看原始价格、限价及数据来源</summary>
+                    <p id="validation-limit-sources" class="validation-note"></p>
+                    <div class="validation-table-wrap"><table class="validation-table"><thead><tr><th>日期</th><th>标的</th><th>方向</th><th>原始开盘</th><th>跌停价</th><th>涨停价</th><th>限价核验</th></tr></thead><tbody id="validation-limit-rows"></tbody></table></div>
+                </details>
+                <p class="validation-note">限价仅与同日同标的原始开盘价比较，不与复权收益价格混用。买入遇涨停、卖出遇跌停不确认成交；缺配对仅保留理论测算。停复牌状态、开盘竞价量、排队与整手约束仍未核验；全天有量不保证开盘成交。事后证据不用于提前替换信号或腾挪本金。</p>
+            </section>
+            <section id="validation-capital-panel" class="validation-section" hidden>
+                <h2>样本外有限本金 · 分仓账本与每日风险</h2>
+                <p id="validation-capital-note" class="validation-note"></p>
+                <div class="validation-stats">
+                    <div class="validation-stat"><span>期末现金 / 初始本金</span><strong id="validation-capital-cash">--</strong></div>
+                    <div class="validation-stat"><span>满仓跳过信号</span><strong id="validation-capital-skipped">--</strong></div>
+                    <div class="validation-stat"><span>期末占用份数（含待核验）</span><strong id="validation-capital-open">--</strong></div>
+                    <div class="validation-stat"><span>成本 / 初始本金</span><strong id="validation-capital-cost">--</strong></div>
+                </div>
+                <div id="validation-capital-chart" role="img" aria-label="固定分仓组合、基准与现金的每日开盘收盘净值"></div>
+                <div class="validation-table-wrap"><table class="validation-table"><thead><tr><th>决策日</th><th>资金份额</th><th>状态</th><th>投入 / 初始本金</th><th>退出回款 / 初始本金</th><th>执行说明</th></tr></thead><tbody id="validation-capital-ledger"></tbody></table></div>
+                <p class="validation-note">训练剔除跨界信号，样本外以独立本金重新起算，不承接训练持仓；这不是实际账户复盘。仅按上方成交依据核验价格、日成交量与限价，支持小数份额；仍未模拟整手、开盘成交容量、排队、税费及分红现金流。基准为同区间全额买入持有的理论毛收益。逐笔诊断扣简单双边成本，资金账本按实际买卖金额扣费，两者不能混用。</p>
+            </section>
+            <section class="validation-section"><h2>逐笔信号诊断 · 不是组合净值</h2>
+                <p id="validation-signal-coverage" class="validation-note">仅统计已核验的单笔结果；重叠样本并非独立试验。</p>
+                <div class="validation-stats">
+                    <div class="validation-stat"><span>平均单笔收益</span><strong id="validation-signal-return">--</strong></div>
+                    <div class="validation-stat"><span>平均单笔超额</span><strong id="validation-signal-excess">--</strong></div>
+                    <div class="validation-stat"><span>单笔盈利占比</span><strong id="validation-signal-win">--</strong></div>
+                    <div class="validation-stat"><span>单笔胜基准占比</span><strong id="validation-signal-beat">--</strong></div>
+                </div>
+            </section>
+            <section class="validation-section"><h2>完整信号账本 · 包含失败与跨界记录</h2><div class="validation-table-wrap"><table class="validation-table"><thead><tr><th>决策日</th><th>分组</th><th>计划开仓</th><th>计划到期</th><th>标的</th><th>净收益</th><th>基准</th><th>核验状态</th></tr></thead><tbody id="validation-trades"></tbody></table></div></section>
+            <p class="validation-note">“--”表示缺少有效样本或无法计算，不代表零收益、零风险。单个样本不估计波动率；Sharpe、信息比率至少需要两个样本且分母非零。Sharpe暂按零无风险利率、总体标准差计算；观察到零波动不等于未来无风险。</p>
+            <p id="validation-meta" class="validation-meta">收益行情、独立交易日历与原始限价均通过 Desk 数据服务获取，口径分别核验。</p>
         </article>
     </section>
 </main>
 
 <script src="{{ static_url('js/vibedesk-bridge.js') }}" data-mod-id="{{ vibedeskModId }}" data-parent-origins="{{ vibedeskParentOrigins }}"></script>
+<script src="{{ static_url('js/echarts.min-6.1.0.js') }}"></script>
 <script>
 (function () {
     const bridge = window.InStockNewmaDesk || window.InStockVibeDesk;
@@ -97,19 +138,282 @@
     const alertBox = document.getElementById('validation-alert');
     const signals = [];
     let result = null;
+    let revision = 0;
+    let phase = 'draft';
+    let strategyId = null;
+    let resultSource = null;
+    let capitalChart = null;
+    const fieldNames = ['name', 'source', 'benchmark', 'asof', 'holding', 'cost', 'model', 'slots'];
+    const field = name => document.getElementById('validation-' + name);
+    const scope = () => JSON.stringify([bridge?.config?.user?.id || '', bridge?.config?.workspace?.id || '']);
+    let currentScope = scope();
     document.getElementById('validation-asof').value = new Date().toISOString().slice(0, 10);
     function normalizedSymbols() { const values = document.getElementById('validation-signal-symbols').value.split(/[,，\s]+/).map(item => item.trim().toUpperCase().split('.')[0]).filter(Boolean); if (!values.length || values.some(code => !/^\d{6}$/.test(code))) throw new Error('请输入一个或多个 6 位股票代码'); return [...new Set(values)]; }
-    function renderSignals() { const root = document.getElementById('validation-signal-list'); root.replaceChildren(); signals.forEach((signal, index) => { const row = document.createElement('div'); row.className = 'validation-signal-row'; const date = document.createElement('b'); date.textContent = signal.decision_date; const symbols = document.createElement('span'); symbols.textContent = signal.symbols.join('、'); const remove = document.createElement('button'); remove.className = 'validation-remove'; remove.type = 'button'; remove.textContent = '移除'; remove.addEventListener('click', () => { signals.splice(index, 1); renderSignals(); publish(); }); row.append(date, symbols, remove); root.appendChild(row); }); }
-    function addSignal() { const decisionDate = document.getElementById('validation-signal-date').value; if (!decisionDate) throw new Error('请选择决策日期'); if (signals.some(item => item.decision_date === decisionDate)) throw new Error('该日期已经存在'); signals.push({decision_date: decisionDate, symbols: normalizedSymbols()}); signals.sort((a, b) => a.decision_date.localeCompare(b.decision_date)); document.getElementById('validation-signal-symbols').value = ''; renderSignals(); publish(); }
-    function packet() { if (signals.length < 2) throw new Error('至少加入 2 条历史决策'); return {schema_version: 'instock-strategy-validation-packet-v1', strategy: {id: `page-${document.getElementById('validation-source').value}`, name: '页面策略验证', source_module: document.getElementById('validation-source').value}, as_of: document.getElementById('validation-asof').value, benchmark: document.getElementById('validation-benchmark').value.trim(), holding_period_sessions: Number(document.getElementById('validation-holding').value), cost_bps_per_side: Number(document.getElementById('validation-cost').value), signals}; }
-    async function request(input) { if (bridge && bridge.whenReady) await bridge.whenReady(); if (bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)) return bridge.invokeAction(actionId, input); const response = await fetch('/api/v1/strategy-validations', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input)}); const body = await response.json(); if (!response.ok) throw new Error(body && body.error && body.error.message || '策略验证失败'); return body; }
+    function invalidate(message, nextPhase = 'draft', notifyHistory = true) {
+        revision += 1; phase = nextPhase; result = null; resultSource = null;
+        button.disabled = nextPhase === 'running'; button.textContent = nextPhase === 'running' ? '验证中…' : '运行验证';
+        alertBox.style.display = 'none';
+        setText('validation-status', message);
+        setText('validation-input-state', message);
+        ['coverage', 'return', 'drawdown', 'excess', 'signal-return', 'signal-excess', 'signal-win', 'signal-beat'].forEach(id => setText('validation-' + id, '--'));
+        setText('validation-audit', '待核验完整决策日历。');
+        setText('validation-calendar', '交易日历与行情分开核验；日历未确认时不会用行情日期代替。');
+        setText('validation-execution', '待核验计划买卖日的价格与成交量。');
+        setText('validation-limits', '待配对原始开盘价与当日涨跌停价。');
+        setText('validation-limit-sources', '');
+        document.getElementById('validation-limit-rows').replaceChildren();
+        setText('validation-signal-coverage', '尚无当前条件下的有效结果。');
+        setText('validation-meta', '收益行情、独立交易日历与原始限价均通过 Desk 数据服务获取，口径分别核验。');
+        document.getElementById('validation-trades').replaceChildren();
+        document.getElementById('validation-capital-panel').hidden = true;
+        document.getElementById('validation-capital-ledger').replaceChildren();
+        ['cash', 'skipped', 'open', 'cost'].forEach(id => setText('validation-capital-' + id, '--'));
+        setText('validation-capital-note', ''); setText('validation-drawdown-label', '样本外期末回撤');
+        if (capitalChart) capitalChart.clear();
+        // Invalidate pending history reads too: a late record must not replace an edited draft.
+        if (notifyHistory) document.dispatchEvent(new CustomEvent('instock:analysis-invalidated', {detail: {moduleId: 'strategy-validation'}}));
+        publish();
+    }
+    function renderSignals() { const root = document.getElementById('validation-signal-list'); root.replaceChildren(); signals.forEach((signal, index) => { const row = document.createElement('div'); row.className = 'validation-signal-row'; const date = document.createElement('b'); date.textContent = signal.decision_date; const symbols = document.createElement('span'); symbols.textContent = signal.symbols.join('、'); const remove = document.createElement('button'); remove.className = 'validation-remove'; remove.type = 'button'; remove.textContent = '移除'; remove.addEventListener('click', () => { signals.splice(index, 1); renderSignals(); invalidate('决策记录已修改，请重新运行验证。'); }); row.append(date, symbols, remove); root.appendChild(row); }); }
+    function addSignal() { const decisionDate = document.getElementById('validation-signal-date').value; if (!decisionDate) throw new Error('请选择决策日期'); if (signals.some(item => item.decision_date === decisionDate)) throw new Error('该日期已经存在'); signals.push({decision_date: decisionDate, symbols: normalizedSymbols()}); signals.sort((a, b) => a.decision_date.localeCompare(b.decision_date)); document.getElementById('validation-signal-symbols').value = ''; renderSignals(); invalidate('决策记录已修改，请重新运行验证。'); }
+    function draft() { return {schema_version: 'instock-strategy-validation-packet-v1', strategy: {id: strategyId || `page-${field('source').value}`, name: field('name').value.trim() || '页面策略验证', source_module: field('source').value}, as_of: field('asof').value, benchmark: field('benchmark').value.trim(), holding_period_sessions: field('holding').value === '' ? null : Number(field('holding').value), cost_bps_per_side: field('cost').value === '' ? null : Number(field('cost').value), signals: signals.map(row => ({decision_date: row.decision_date, symbols: [...row.symbols]})), ...(field('model').value === 'fixed_sleeves' ? {capital_model: {mode: 'fixed_sleeves', slots: field('slots').value === '' ? null : Number(field('slots').value)}} : {})}; }
+    function packet() {
+        if (signals.length < 2) throw new Error('至少加入 2 条历史决策');
+        if (!field('asof').value || !/^\d{6}$/.test(field('benchmark').value.trim())) throw new Error('请填写截止日及6位基准代码');
+        if (!field('holding').checkValidity() || !field('cost').checkValidity()) throw new Error('持有日须为1—60的整数，单边成本须为0—100的整数');
+        if (field('model').value === 'fixed_sleeves' && !field('slots').checkValidity()) throw new Error('分仓份数须为1—20的整数');
+        return draft();
+    }
+    function restoreInput(data) {
+        // Since 1.2.0 the audited ledger includes failed and purged signals.
+        // Older successful-trades-only records cannot reconstruct original inputs.
+        const input = data.input_packet || (data.validation_audit && data.trades?.length === data.coverage?.input_signals ? {
+            strategy: data.strategy, as_of: data.as_of, benchmark: data.benchmark,
+            holding_period_sessions: data.rules?.holding_period_sessions, cost_bps_per_side: data.rules?.cost_bps_per_side,
+            signals: data.trades.map(row => ({decision_date: row.decision_date, symbols: row.symbols})),
+        } : null);
+        const usable = input?.strategy && input.as_of && input.benchmark && Array.isArray(input.signals) && input.signals.length >= 2
+            && Number.isInteger(input.holding_period_sessions) && Number.isInteger(input.cost_bps_per_side);
+        strategyId = usable ? input.strategy.id : null;
+        field('name').value = input?.strategy?.name || data.strategy?.name || '';
+        field('source').value = input?.strategy?.source_module || data.strategy?.source_module || 'stock-candidates';
+        field('asof').value = input?.as_of || data.as_of || '';
+        field('benchmark').value = input?.benchmark || data.benchmark || '';
+        field('holding').value = input?.holding_period_sessions ?? data.rules?.holding_period_sessions ?? '';
+        field('cost').value = input?.cost_bps_per_side ?? data.rules?.cost_bps_per_side ?? '';
+        field('model').value = input?.capital_model?.mode || 'diagnostic';
+        field('slots').value = input?.capital_model?.slots ?? 2;
+        field('slots').disabled = field('model').value !== 'fixed_sleeves';
+        signals.splice(0, signals.length, ...(usable ? input.signals.map(row => ({decision_date: row.decision_date, symbols: [...row.symbols]})) : []));
+        field('signal-date').value = ''; field('signal-symbols').value = ''; renderSignals();
+        setText('validation-input-state', usable ? '已恢复该次完整参数和决策记录；当前显示历史结果，未重新计算。' : '旧记录缺少完整输入，不能自动重跑；请补齐原始决策，不以成功交易反推。');
+    }
+    async function request(input) { if (bridge && bridge.whenReady) await bridge.whenReady(); if (bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId)) return bridge.invokeAction(actionId, input); const response = await window.InStockNewmaDesk.fetchAnalysis('/api/v1/strategy-validations', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input)}); const body = await response.json(); if (!response.ok) throw new Error(body && body.error && body.error.message || '策略验证失败'); return body; }
     function setText(id, value) { document.getElementById(id).textContent = value; }
-    function render(payload, source) { const data = payload && payload.ok === true ? payload.data : payload; if (!data || !data.engine || data.engine.name !== 'instock-strategy-validation') throw new Error('返回结果缺少策略验证引擎标识'); result = data; const oos = data.out_of_sample || {}; setText('validation-status', data.verdict === 'evidence_sufficient' ? '样本外证据达到基础门槛，仍需结合策略来源继续核验。' : '样本外证据不足，当前结果只用于发现问题。'); setText('validation-coverage', `${data.coverage.executed_signals}/${data.coverage.input_signals}`); setText('validation-return', `${Number(oos.total_return_pct || 0).toFixed(2)}%`); setText('validation-drawdown', `${Number(oos.max_drawdown_pct || 0).toFixed(2)}%`); setText('validation-excess', `${Number(oos.excess_return_pct || 0).toFixed(2)}%`); const tbody = document.getElementById('validation-trades'); tbody.replaceChildren(); (data.trades || []).slice(-30).forEach(item => { const row = document.createElement('tr'); [item.decision_date, item.entry_date, item.exit_date, item.symbols.join(','), `${Number(item.net_return_pct).toFixed(2)}%`, `${Number(item.benchmark_return_pct).toFixed(2)}%`].forEach(value => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); }); tbody.appendChild(row); }); setText('validation-meta', `${source === 'history' ? '历史版本 · ' : ''}${data.data_source} · ${data.snapshot.snapshot_id} · ${data.limitations.join(' / ')}`); publish(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source); }
-    function context() { return {view: {id: 'strategy-validation', title: '策略验证'}, visibleBlocks: [{id: 'out-of-sample', type: 'strategy-validation', title: '样本外结果'}], data: result ? {strategy: result.strategy, verdict: result.verdict, coverage: result.coverage, outOfSample: result.out_of_sample, snapshot: result.snapshot, limitations: result.limitations} : {draftSignalCount: signals.length}, actions: [{id: actionId, label: '运行策略验证', available: Boolean(bridge && bridge.canInvokeAction && bridge.canInvokeAction(actionId))}]}; }
+    function numeric(value) { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
+    function percent(value) { const n = numeric(value); return n === null ? '--' : `${n.toFixed(2)}%`; }
+    function executionIssues(items = []) {
+        const labels = {missing_open: '缺有效开盘价', missing_volume: '成交量缺失或无效', zero_volume: '全天成交量为零', buy_at_upper_limit: '开盘涨停，不确认买入成交', sell_at_lower_limit: '开盘跌停，不确认卖出成交'};
+        return items.map(item => `${item.date} ${item.symbol} ${item.side === 'buy' ? '买入' : '卖出'}：${labels[item.reason] || item.reason}`).join('；');
+    }
+    function limitState(data) {
+        const evidence = data?.validation_audit?.execution_evidence;
+        const limits = evidence?.price_limits;
+        if (!evidence) return 'legacy_execution_requires_rerun';
+        if (!limits) return 'legacy_limits_requires_rerun';
+        if (limits.adverse_legs > 0) return 'adverse_limits_unresolved';
+        if (limits.unverified_legs > 0 || !(limits.dated_legs > 0)) return 'limits_incomplete_theoretical';
+        return 'limits_audited_not_fill_guarantee';
+    }
+    function renderLimits(data) {
+        const limits = data.validation_audit?.execution_evidence?.price_limits;
+        setText('validation-limits', limits
+            ? `历史限价：${limits.paired_legs}/${limits.dated_legs}项已配对；不利方向触限${limits.adverse_legs}项，缺配对${limits.unverified_legs}项。触限项不确认成交；缺配对结果仅为理论测算。`
+            : '旧结果未核验历史限价，须重跑；不将旧收益追认为已通过限价核验。');
+        setText('validation-limit-sources', (limits?.feeds || []).map(feed => `${feed.symbol}：${['price', 'limits'].map(key => {
+            const source = feed.feeds?.[key];
+            return source ? `${source.source} · ${source.status === 'ready' && !source.usingSaved ? '本次取数已确认' : source.reason || source.status} · 接收 ${source.receivedAt || '--'}${source.usingSaved ? '（旧缓存未用于核验）' : ''}` : feed.reason || '未取得来源';
+        }).join(' / ')}`).join('；'));
+        const root = document.getElementById('validation-limit-rows'); root.replaceChildren();
+        const labels = {checked: '未触及不利方向限价', adverse: '不确认成交', unverified: '未核验，仅理论测算'};
+        const reasons = {buy_at_upper_limit: '涨停买入', sell_at_lower_limit: '跌停卖出', missing_limit_pair: '缺同日配对', missing_or_duplicate_date: '日期缺失或冲突', security_mismatch: '标的不符', invalid_price_or_limit: '原始价或限价无效', open_outside_limits: '原始价超出限价', invalid_price_limit_pair: '配对无效'};
+        const unique = new Map((data.trades || []).flatMap(row => row.price_limit_checks || []).map(row => [[row.date, row.symbol, row.side].join(':'), row]));
+        [...unique.values()].sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol)).forEach(item => {
+            const row = document.createElement('tr');
+            [item.date, item.symbol, item.side === 'buy' ? '买入' : '卖出', ...['rawOpen', 'lowerLimit', 'upperLimit'].map(key => numeric(item[key]) === null ? '--' : String(item[key])),
+                [labels[item.state] || '未核验', reasons[item.reason] || item.reason].filter(Boolean).join(' · ')
+            ].forEach(value => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
+            root.appendChild(row);
+        });
+    }
+    function evidenceMetrics(metrics = {}, version) {
+        const count = numeric(metrics.trades);
+        const normalized = {...metrics};
+        ['total_return_pct', 'annualized_return_pct', 'annualized_volatility_pct', 'sharpe', 'max_drawdown_pct', 'win_rate_pct', 'benchmark_return_pct', 'excess_return_pct', 'information_ratio', 'beat_benchmark_rate_pct'].forEach(key => {
+            normalized[key] = count > 0 ? numeric(metrics[key]) : null;
+        });
+        if (!(count >= 2)) ['annualized_volatility_pct', 'sharpe', 'information_ratio'].forEach(key => { normalized[key] = null; });
+        const [major, minor] = String(version || '').split('.').map(Number);
+        if (!(major > 1 || (major === 1 && minor >= 1))) ['sharpe', 'information_ratio'].forEach(key => {
+            if (normalized[key] === 0) normalized[key] = null;
+        });
+        normalized.trades = count;
+        if (metrics.portfolio_state !== 'complete') {
+            ['total_return_pct', 'annualized_return_pct', 'annualized_volatility_pct', 'sharpe', 'max_drawdown_pct', 'benchmark_return_pct', 'excess_return_pct', 'information_ratio', 'win_rate_pct', 'beat_benchmark_rate_pct'].forEach(key => { normalized[key] = null; });
+        }
+        return normalized;
+    }
+    function renderCapital(capital) {
+        const book = capital?.out_of_sample;
+        document.getElementById('validation-capital-panel').hidden = !book;
+        if (!book) return;
+        setText('validation-return', percent(book.total_return_pct));
+        setText('validation-drawdown', percent(book.max_drawdown_pct));
+        setText('validation-drawdown-label', '样本外每日采样回撤');
+        setText('validation-excess', percent(book.excess_return_pct));
+        setText('validation-status', book.state === 'complete' ? '固定分仓资金路径可复核；仅为历史模拟，不代表策略有效或可以实盘。'
+            : book.state === 'unavailable' ? '样本外尚无可模拟的入场，不能判断组合收益。'
+            : '分仓成交或估值存在缺口，完整回撤与风险比率不可确认；若期末金额已知，仅展示期末收益。');
+        setText('validation-capital-cash', percent(numeric(book.ending_cash) === null ? null : book.ending_cash * 100));
+        setText('validation-capital-skipped', book.skipped_signals ?? '--');
+        setText('validation-capital-open', book.open_sleeves ?? '--');
+        setText('validation-capital-cost', percent(book.cost_pct_initial_capital));
+        setText('validation-capital-note', `初始本金1，均分${capital.slots}份；${book.start_date || '--'}至${book.end_date || '--'}。分配${book.allocated_signals ?? '--'}/${book.planned_signals ?? '--'}条，满仓跳过${book.skipped_signals ?? '--'}条，尚未入场${book.pending_signals ?? '--'}条，执行待核验${book.unresolved_signals ?? '--'}条。估值覆盖${book.coverage?.observed_marks ?? '--'}/${book.coverage?.expected_marks ?? '--'}；开盘交易前后＋收盘采样，不是盘中极值。${book.benchmark_state !== 'complete' ? '基准路径不完整，信息比率不可计算。' : ''}${book.open_sleeves ? '末日仍持仓：收益包含浮动盈亏，未虚构平仓。' : ''}`);
+        const root = document.getElementById('validation-capital-ledger'); root.replaceChildren();
+        const labels = {closed: '已到期', open: '持有中', unresolved: '待核验', skipped_capacity: '满仓跳过', pending_entry: '尚未入场'};
+        const reasons = {missing_entry_open: '开仓缺价，未替换标的', unverified_entry_volume: '开仓成交量待核验，未替换标的', unverified_entry_limit: '开仓触限，未替换标的', missing_exit_or_unknown_units: '退出证据或持仓数量未知', unknown_sleeve_capital: '前期资金待核验，未重置本金'};
+        (book.ledger || []).forEach(item => {
+            const row = document.createElement('tr');
+            [item.decision_date, item.slot ?? '--', labels[item.state] || item.state,
+                percent(numeric(item.entry_budget) === null ? null : item.entry_budget * 100),
+                percent(numeric(item.exit_proceeds) === null ? null : item.exit_proceeds * 100),
+                [executionIssues(item.execution_issues), (item.issues || []).map(issue => reasons[issue] || issue).join('；')].filter(Boolean).join('；') || (item.state === 'skipped_capacity' ? '不借款、不挤占已有仓位' : item.symbols.join(','))
+            ].forEach(value => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
+            root.appendChild(row);
+        });
+        if (window.echarts) {
+            capitalChart ||= window.echarts.init(document.getElementById('validation-capital-chart'));
+            const points = book.curve || [];
+            const phases = {initial: '初始', open_before_trades: '开盘前账本', open_after_trades: '开盘成交后', close: '收盘'};
+            capitalChart.setOption({animation: false, tooltip: {trigger: 'axis'}, legend: {top: 4, bottom: 'auto', data: ['分仓净值', '基准', '现金']},
+                grid: {left: 45, right: 15, top: 35, bottom: 50},
+                xAxis: {type: 'category', data: points.map(row => row.date + ' ' + phases[row.phase]), axisLabel: {hideOverlap: true, formatter: value => value.replace(' ', '\n')}},
+                yAxis: {type: 'value', scale: true},
+                series: [['分仓净值', 'nav', '#2b7068'], ['基准', 'benchmark_nav', '#af8c45'], ['现金', 'cash', '#75869a']].map(([name, key, color]) => ({name, type: 'line', showSymbol: false, smooth: false, connectNulls: false, itemStyle: {color}, data: points.map(row => numeric(row[key]))}))}, true);
+            capitalChart.resize();
+        }
+    }
+    function render(payload, source) {
+        const data = payload && payload.ok === true ? payload.data : payload;
+        if (!data || !data.engine || data.engine.name !== 'instock-strategy-validation') throw new Error('返回结果缺少策略验证引擎标识');
+        const oos = evidenceMetrics(data.out_of_sample, data.engine.version);
+        result = {...data, out_of_sample: oos}; phase = 'ready'; resultSource = source || 'current';
+        const state = oos.portfolio_state;
+        setText('validation-status', !data.validation_audit ? '旧记录未核验完整日历与持有期重叠，请重新运行。' : state === 'incomplete' ? `样本外有 ${oos.unresolved_signals} 笔未核验，完整收益与回撤不作结论。` : state === 'overlapping' ? '样本外持有期存在重叠，未定义多份本金分配；只展示逐笔诊断，不复合成组合收益。' : !(oos.trades > 0) ? '没有有效样本外持有期，不能判断收益或风险。' : data.verdict === 'diagnostic_ready' ? '执行口径可复核，仅供历史诊断，不代表策略有效或可以实盘。' : '样本外证据不足，当前结果只用于发现问题。');
+        setText('validation-coverage', `${data.coverage.executed_signals}/${data.coverage.input_signals}`);
+        setText('validation-return', percent(oos.total_return_pct));
+        setText('validation-drawdown', percent(oos.max_drawdown_pct));
+        setText('validation-excess', percent(oos.excess_return_pct));
+        const audit = data.validation_audit;
+        const calendar = audit?.calendar;
+        const execution = audit?.execution_evidence;
+        const executionAudited = execution?.policy === 'positive_daily_volume_required_for_open_price_diagnostic';
+        renderLimits(data);
+        setText('validation-execution', executionAudited
+            ? `全部计划买卖项：${execution.price_volume_verified_legs}/${execution.planned_legs}项价格与正成交量可核验；零成交量${execution.zero_volume_legs}项，缺证据${execution.missing_evidence_legs}项，尚未到期${execution.pending_legs}项。包括跨界剔除和满仓跳过的信号，不等于实际分仓成交数。零成交量或缺证据不输出该笔收益，资金不确定性继续保留。`
+            : '旧结果未核验计划买卖日的成交量，请重跑；旧收益仅保留为历史记录，不按当前成交依据追认。');
+        setText('validation-calendar', audit?.calendar_policy === 'independent_exchange_calendar_exact_dates'
+            ? `独立日历：${calendar?.source || '来源未记录'} · ${calendar?.start} 至 ${calendar?.end}；接收 ${calendar?.receivedAt || '--'}。仅上海交易所日历，不代表跨境标的底层市场；开市日不保证成交行情已到齐。`
+            : '旧结果尚未核验独立交易日历，请重新运行；原先基准行情缺日可能改变成交与到期日期。');
+        const riskSampling = data.capital_backtest?.mode === 'fixed_sleeves'
+            ? '固定分仓按每日开盘交易前后与收盘估值计算回撤，空闲现金零收益。'
+            : '非重叠组合默认空闲资金零收益，回撤仅按持有期末采样。';
+        setText('validation-audit', audit ? `${data.strategy?.name || '当前策略'} · 固定切分日 ${audit.split_decision_date}；训练 ${audit.train_signals} 笔，样本外 ${audit.out_of_sample_signals} 笔，跨界剔除 ${(audit.purged_decision_dates || []).length} 笔。未核验 ${data.coverage.failed_signals} 笔；样本外重叠 ${(oos.overlap_decision_dates || []).length} 笔。${riskSampling}` : '旧历史未保存日历核验，不按新规则追认收益。');
+        const diagnostics = oos.signal_diagnostics || {};
+        setText('validation-signal-coverage', `已核验 ${diagnostics.samples ?? '--'}/${diagnostics.expected_samples ?? '--'} 笔；只统计已核验结果，可能有选择偏差，重叠样本并非独立试验。`);
+        [['return', 'mean_return_pct'], ['excess', 'mean_excess_pct'], ['win', 'win_rate_pct'], ['beat', 'beat_benchmark_rate_pct']].forEach(([id, key]) => setText('validation-signal-' + id, percent(diagnostics.samples > 0 ? diagnostics[key] : null)));
+        const tbody = document.getElementById('validation-trades'); tbody.replaceChildren();
+        const groups = {train: '训练', out_of_sample: '样本外', purged: '跨界剔除'};
+        const reasons = {decision_outside_history: '决策早于历史窗口', holding_window_incomplete: '持有期尚不完整', missing_asset_open: '标的计划成交日缺价', unverified_asset_volume: '标的成交量未通过核验', adverse_price_limit: '不利方向触限，不确认成交', missing_benchmark_open: '基准计划成交日缺价'};
+        (data.trades || []).forEach(item => {
+            const row = document.createElement('tr');
+            [item.decision_date, groups[item.partition] || '旧记录', item.entry_date || '--', item.exit_date || '--', item.symbols.join(','), percent(item.net_return_pct), percent(item.benchmark_return_pct), item.execution_state === 'resolved' ? (executionAudited ? (item.price_limit_checks?.length && item.price_limit_checks.every(check => check.state === 'checked') ? '价格/量/限价已核验，成交未保证' : '理论测算，限价未完整核验') : '旧价格口径，待重跑') : executionIssues(item.execution_issues) || (reasons[item.reason] || '待核验') + (item.missing_symbols?.length ? ' · ' + item.missing_symbols.join(',') : '')].forEach(value => {
+                const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell);
+            });
+            tbody.appendChild(row);
+        });
+        setText('validation-meta', `${source === 'history' ? '历史版本，未重新计算 · ' : ''}${data.data_source} · ${data.snapshot.snapshot_id} · 计算版本 ${data.engine.version} · ${data.limitations.join(' / ')}`);
+        renderCapital(data.capital_backtest);
+        if (!executionAudited && data.capital_backtest?.out_of_sample?.state === 'complete') {
+            setText('validation-status', '旧资金路径未核验成交量，须重跑；历史收益不代表当前口径或实盘可执行性。');
+        } else if (executionAudited && !execution.price_limits) {
+            setText('validation-status', '旧结果未核验历史限价，须重跑；已展示的历史收益仅作理论参考。');
+        } else if (execution?.price_limits?.unverified_legs > 0) {
+            setText('validation-status', document.getElementById('validation-status').textContent + ' 历史限价配对不全，已展示收益仅为理论测算，不能确认实盘可执行性。');
+        }
+        publish(); window.InStockAnalysisHistory && window.InStockAnalysisHistory.rendered(source);
+    }
+    function context() {
+        // Retain provenance, not a second raw copy of legacy zero-filled metrics.
+        const {result: snapshotResult, ...snapshotReference} = result?.snapshot || {};
+        if (snapshotResult) snapshotReference.result = {digest: snapshotResult.digest};
+        const capital = result?.capital_backtest;
+        const {curve: capitalCurve, ...capitalBook} = capital?.out_of_sample || {};
+        return {view: {id: 'strategy-validation', title: '策略验证'}, visibleBlocks: [{id: 'out-of-sample', type: 'strategy-validation', title: '样本外结果'}], data: result ? {state: phase, resultSource, input: result.input_packet || null, strategy: result.strategy, verdict: result.validation_audit?.calendar_policy === 'independent_exchange_calendar_exact_dates' ? (result.verdict === 'diagnostic_ready' && limitState(result) !== 'limits_audited_not_fill_guarantee' ? limitState(result) : result.verdict) : 'legacy_calendar_requires_rerun', executionEvidenceState: limitState(result), executionPolicy: document.getElementById('validation-execution').textContent, priceLimitPolicy: document.getElementById('validation-limits').textContent, priceLimitChecks: (result.trades || []).flatMap(row => row.price_limit_checks || []), coverage: result.coverage, outOfSample: result.out_of_sample, capitalBacktest: capital ? {mode: capital.mode, slots: capital.slots, rules: capital.rules, partitionPolicy: capital.partition_policy, outOfSample: capitalBook} : null, validationAudit: result.validation_audit || null, unresolvedSignals: (result.trades || []).filter(row => row.execution_state === 'unresolved'), snapshot: snapshotReference, limitations: result.limitations, engineVersion: result.engine.version, calendarPolicy: document.getElementById('validation-calendar').textContent, metricPolicy: '完整原始信号日历切分，跨界收益不进训练。逐笔缺口或重叠不复合组合收益；仅显式capitalBacktest提供固定分仓组合，现金不借贷，训练/样本外分账；缺估值不确认完整回撤，期末金额已知仍可报告端点收益；逐笔诊断仅含已核验样本，不是独立试验或可投资组合。无样本为空；少于两个样本或零波动时风险比率不可用；旧历史未经重新计算。'} : {state: phase, draftSignalCount: signals.length, draft: draft(), note: '草稿或进行中的请求不代表已验证结论'}, actions: [{id: actionId, label: '运行策略验证', available: phase !== 'running' && (!bridge?.embedded || Boolean(bridge?.canInvokeAction?.(actionId))), inputSchema: {type: 'object', properties: {}, additionalProperties: false}}]};
+    }
     function publish() { if (!bridge) return; bridge.setContextProvider && bridge.setContextProvider(context); bridge.publishContext && bridge.publishContext(); }
     addButton.addEventListener('click', () => { alertBox.style.display = 'none'; try { addSignal(); } catch (error) { alertBox.textContent = error.message || String(error); alertBox.style.display = 'block'; } });
-    button.addEventListener('click', async () => { alertBox.style.display = 'none'; button.disabled = true; button.textContent = '验证中…'; try { render(await request(packet())); } catch (error) { alertBox.textContent = error && error.message ? error.message : String(error); alertBox.style.display = 'block'; } finally { button.disabled = false; button.textContent = '运行验证'; } });
-    document.addEventListener('instock:history-selected', event => render(event.detail.payload, event.detail.view_source || 'history'));
+    fieldNames.forEach(name => field(name).addEventListener('input', () => { if (name === 'source') strategyId = null; field('slots').disabled = field('model').value !== 'fixed_sleeves'; invalidate('参数已修改，旧结论已撤下，请重新运行。'); }));
+    window.addEventListener('resize', () => capitalChart?.resize());
+    async function runValidation() {
+        if (phase === 'running') throw new Error('策略验证正在运行，请等待当前任务完成');
+        invalidate('正在验证当前条件，尚无有效结论。', 'running');
+        const token = revision;
+        try {
+            const input = packet();
+            if (bridge?.whenReady) await bridge.whenReady();
+            if (token !== revision) throw new Error('草稿或工作区已变化，本次验证未采用');
+            const payload = await request(input);
+            if (token !== revision) throw new Error('草稿或工作区已变化，本次验证未采用');
+            setText('validation-input-state', '当前结果对应本次提交的参数与完整决策记录。');
+            render(payload);
+            return {snapshot: context().data.snapshot, verdict: context().data.verdict,
+                coverage: result.coverage, resultSource};
+        } catch (error) {
+            if (token === revision) {
+                invalidate('验证失败，未生成当前条件的结论。', 'error');
+                alertBox.textContent = error?.message || String(error); alertBox.style.display = 'block';
+            }
+            throw error;
+        } finally {
+            if (token === revision) { button.disabled = false; button.textContent = '运行验证'; publish(); }
+        }
+    }
+    button.addEventListener('click', () => runValidation().catch(() => {}));
+    if (bridge?.setUiActionHandler) bridge.setUiActionHandler((id, input = {}) => {
+        if (id !== actionId) throw new Error('当前页面不支持该操作');
+        if (Object.keys(input).length) throw new Error('请先修改页面参数与决策记录，不接受隐藏输入覆盖');
+        return runValidation();
+    });
+    document.addEventListener('instock:history-loading', () => invalidate('正在读取历史记录，原结果已撤下。', 'history-loading', false));
+    document.addEventListener('instock:history-error', () => invalidate('历史读取失败，未恢复任何结论。', 'error', false));
+    document.addEventListener('instock:history-selected', event => {
+        invalidate('正在恢复历史记录。', 'draft', false);
+        const data = event.detail.payload?.ok === true ? event.detail.payload.data : event.detail.payload;
+        try { restoreInput(data); render(data, 'history'); }
+        catch (error) { invalidate('历史记录无法恢复，请重新运行。', 'error'); alertBox.textContent = error.message; alertBox.style.display = 'block'; }
+    });
+    document.addEventListener('vibedesk:init', () => {
+        const next = scope();
+        if (next === currentScope) return;
+        const previous = currentScope; currentScope = next;
+        if (previous === '["",""]') return;
+        signals.splice(0); strategyId = null; renderSignals();
+        field('name').value = '页面策略验证'; field('source').value = 'stock-candidates'; field('benchmark').value = '510300';
+        field('holding').value = '10'; field('cost').value = '25'; field('asof').value = new Date().toISOString().slice(0, 10);
+        field('signal-date').value = ''; field('signal-symbols').value = '';
+        invalidate('工作区已切换，已清除原工作区的草稿与结果。');
+    });
     publish();
 })();
 </script>

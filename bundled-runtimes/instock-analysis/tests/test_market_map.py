@@ -130,7 +130,8 @@ def test_market_map_top100_uses_only_market_cap_ranking_and_discloses_fallbacks(
         "半导体",
         "电子化学品Ⅱ",
     ]
-    assert result["coverage"]["verified_l2_securities"] == 2
+    assert result["coverage"]["verified_l2_securities"] == 0
+    assert result["coverage"]["label_matched_l2_securities"] == 2
     assert result["coverage"]["represented_l2_industries"] == 2
     assert result["groups"][0]["items"][0]["rank_sources"] == [
         {"id": "market_cap", "label": "市值", "rank": 1}
@@ -145,7 +146,7 @@ def test_market_map_top500_is_round_robin_multi_rank_union_not_market_cap_claim(
     result = MarketMapEngine(provider).analyze(capacity=500)
 
     assert len(provider.scan_calls) == 6
-    assert result["data_state"] == "complete"
+    assert result["data_state"] == "partial"  # labels are not verified memberships
     assert result["coverage"]["pool_kind"] == "multi_rank_union"
     assert result["coverage"]["unique_securities"] == 600
     assert result["coverage"]["displayed_securities"] == 500
@@ -178,6 +179,75 @@ def test_market_map_rejects_unsupported_capacity():
         MarketMapEngine(MapProvider()).analyze(capacity=200)
 
 
+def test_market_map_keeps_zero_and_missing_metrics_distinct():
+    zero = _quote("600001", "零值", industry="银行", change=0, amount=0)
+    zero.update(turnover_pct=0, volume_ratio=0, pe=0, pb=-1)
+    missing = _quote("600002", "缺失", industry="银行", change=None)
+    missing.update(price=None, turnover_pct=None, volume_ratio=None, pe=None, pb=None)
+    groups, coverage, _ = MarketMapEngine._build_groups([zero, missing])
+    first, second = groups[0]["items"]
+    assert first["turnover_pct"] == 0
+    assert first["volume_ratio"] == 0
+    assert first["amount"] == 0
+    assert first["pe"] == 0 and first["pb"] == -1
+    assert all(second[key] is None for key in (
+        "price", "change_pct", "turnover_pct", "volume_ratio", "pe", "pb",
+    ))
+    assert coverage["missing_change_securities"] == 1
+    summary = MarketMapEngine._summary(groups)
+    assert summary["flat"] == 1
+    assert summary["unknown_change"] == 1
+
+
+def test_market_map_weighted_change_excludes_missing_returns():
+    known = _quote("600001", "已知", industry="银行", change=2)
+    missing = _quote("600002", "缺失", industry="银行", change=None)
+    groups, _, _ = MarketMapEngine._build_groups([known, missing])
+    assert groups[0]["change_pct"] == 2
+    missing["industry"] = "半导体"
+    groups, _, _ = MarketMapEngine._build_groups([missing])
+    assert groups[0]["change_pct"] is None
+    assert groups[0]["secondary_groups"][0]["change_pct"] is None
+    assert MarketMapEngine._summary(groups)["strongest_industry"] == "--"
+
+
+def test_market_map_multi_rank_merge_does_not_replace_real_zero_with_later_quote():
+    zero = _quote("600001", "零值", industry="银行", change=0)
+    zero.update(turnover_pct=0, volume_ratio=0, pe=0, pb=None)
+    later = dict(zero, change_pct=3, turnover_pct=2, volume_ratio=1, pe=10, pb=-1)
+    rows, _ = MarketMapEngine._merge_and_select(
+        {"market_cap": {"items": [zero]}, "amount": {"items": [later]}},
+        MarketMapEngine.ranking_specs[:2], 500,
+    )
+    assert rows[0]["change_pct"] == 0
+    assert rows[0]["turnover_pct"] == 0
+    assert rows[0]["volume_ratio"] == 0
+    assert rows[0]["pe"] == 0
+    assert rows[0]["pb"] == -1
+
+
+def test_market_map_discloses_daily_source_coverage_and_classification_gaps():
+    class DailyProvider(MapProvider):
+        def get_stock_scan(self, **kwargs):
+            scan = super().get_stock_scan(**kwargs)
+            scan["coverage"].update(frequency="daily", realtime=False,
+                tradeDate="2026-08-13", listedCount=5575, quoteCount=5564,
+                missingQuoteCount=11, note="缺失原因未核验")
+            scan["received_at"] = "2026-08-14T08:00:00+08:00"
+            return scan
+
+    result = MarketMapEngine(DailyProvider()).analyze()
+    ranking = result["coverage"]["contributing_rankings"][0]
+    assert ranking["coverage"]["missingQuoteCount"] == 11
+    assert ranking["coverage"]["realtime"] is False
+    assert ranking["as_of"] == "2026-08-13T15:00:00+08:00"
+    assert ranking["received_at"] == "2026-08-14T08:00:00+08:00"
+    assert result["data_state"] == "partial"
+    assert "daily_scan_not_realtime" in result["limitations"]
+    assert "scan_missing_quotes" in result["limitations"]
+    assert "market_map_has_unclassified_securities" in result["limitations"]
+
+
 def test_market_map_uses_real_l1_l2_hierarchy_and_keeps_ambiguous_rows_at_l1():
     rows = [
         _quote("300308", "中际旭创", industry="通信设备"),
@@ -206,6 +276,43 @@ def test_market_map_uses_real_l1_l2_hierarchy_and_keeps_ambiguous_rows_at_l1():
     ]
     assert by_name["银行"]["secondary_groups"] == []
     assert [item["symbol"] for item in by_name["银行"]["direct_items"]] == ["601398"]
-    assert coverage["verified_l2_securities"] == 3
+    assert coverage["verified_l2_securities"] == 0
+    assert coverage["label_matched_l2_securities"] == 3
     assert coverage["l1_only_securities"] == 1
     assert coverage["total_l2_industries"] == 134
+
+
+def test_market_map_uses_membership_evidence_and_keeps_basic_label_separate():
+    row = _quote("601857", "中国石油", industry="石油开采",
+                 industry_l1="石油石化", industry_l2="炼化及贸易")
+    evidence = {"taxonomy": "sw2021", "source": "tushare.index_member_all",
+                "l1Code": "801960.SI", "l2Code": "801963.SI",
+                "inDate": "2007-11-01", "pointInTime": False}
+    row["industry_classification"] = evidence
+    merged, _ = MarketMapEngine._merge_and_select(
+        {"market_cap": {"items": [row]}}, MarketMapEngine.ranking_specs[:1], 100)
+    groups, coverage, _ = MarketMapEngine._build_groups(merged)
+    item = groups[0]["items"][0]
+    assert groups[0]["name"] == "石油石化"
+    assert item["raw_industry"] == "石油开采"
+    assert item["classification_verified"] is True
+    assert item["industry_classification"] == evidence
+    assert coverage["verified_l2_securities"] == 1
+    assert coverage["unverified_classification_securities"] == 0
+    # Name overlap alone must not turn a foreign taxonomy into a SW membership.
+    row.update(industry="银行", industry_l1="", industry_l2="",
+               industry_classification={"taxonomy": "tushare_stock_basic"})
+    groups, coverage, _ = MarketMapEngine._build_groups([row])
+    assert groups[0]["name"] == "未分类"
+    assert coverage["unclassified_securities"] == 1
+
+
+def test_market_map_rejects_membership_code_name_conflict():
+    row = _quote("601857", "中国石油", industry="石油开采",
+                 industry_l1="银行", industry_l2="国有大型银行Ⅱ")
+    row["industry_classification"] = {
+        "taxonomy": "sw2021", "source": "tushare.index_member_all",
+        "l1Code": "801960.SI", "l2Code": "801963.SI"}
+    groups, coverage, _ = MarketMapEngine._build_groups([row])
+    assert groups[0]["name"] == "未分类"
+    assert coverage["verified_l2_securities"] == 0

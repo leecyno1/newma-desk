@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from instock.core.analysis_snapshot import SNAPSHOT_SCHEMA_VERSION
-from instock.core.market_data_provider import MarketDataError, MarketDataProvider
+from instock.core.market_data_provider import MarketDataError, MarketDataProvider, get_scan_history
 from instock.core.research.event_flow import resolve_event_flow_snapshot
 
 
@@ -52,7 +52,7 @@ class StockCandidateInsufficientHistory(StockCandidateError):
 
 class StockCandidateEngine:
     engine_name = "instock-stock-candidate-engine"
-    engine_version = "1.4.0"
+    engine_version = "1.4.3"
     factor_model = "instock-stock-candidate-score-v3"
     minimum_rank_bars = 10
     full_history_bars = 80
@@ -66,7 +66,7 @@ class StockCandidateEngine:
     fundamental_batch_workers = 3
     fundamental_snapshot_workers = 3
     fundamental_batch_timeout_seconds = 60.0
-    fundamental_snapshot_timeout_seconds = 20.0
+    fundamental_snapshot_timeout_seconds = 50.0
     technical_factors = (
         "trend", "momentum", "liquidity", "stability", "valuation", "classic",
     )
@@ -168,6 +168,8 @@ class StockCandidateEngine:
             scan = self.provider.get_stock_scan(
                 market="HK", sort="amount", order="desc", limit=universe_size
             )
+        scan_failures = list((scan.get("coverage") or {}).get("scan_failures") or [])
+        scan_observations = list((scan.get("coverage") or {}).get("observations") or [])
         raw_items = scan.get("items") or []
         if not raw_items:
             raise StockCandidateError("Desk 股票扫描没有返回候选")
@@ -197,6 +199,8 @@ class StockCandidateEngine:
                 "symbol": symbol,
                 "name": name,
                 "market": item_market,
+                "pe": self._optional_metric(item.get("pe")),
+                "pb": self._optional_metric(item.get("pb")),
             })
 
         broad_eligible_count = len(eligible)
@@ -217,6 +221,8 @@ class StockCandidateEngine:
         eligible = market_eligible
         market_eligible_count = len(eligible)
         if not eligible:
+            if scan_failures:
+                raise MarketDataError("扫描覆盖不完整，已取得样本未匹配条件；不能据此判断整个市场没有候选。")
             raise StockCandidateError("当前市场筛选条件没有匹配到 A/H 股候选")
         deep_pool_basis = self._deep_pool_selection_basis(normalized_filters)
         if len(eligible) > universe_size:
@@ -305,6 +311,8 @@ class StockCandidateEngine:
             "not_fundamental_preselected": 0,
         }
         if not screened:
+            if scan_failures:
+                raise MarketDataError("扫描覆盖不完整，已取得样本未匹配条件；不能据此判断整个市场没有候选。")
             raise StockCandidateError("当前筛选条件没有匹配到 A/H 股候选")
         analyzed = screened
 
@@ -447,11 +455,14 @@ class StockCandidateEngine:
                 "risks": risks,
                 "data_end": row["data_end"],
                 "history_source": row["history_source"],
+                "history_adjust": row["history_adjust"],
                 "history_has_more": row["history_has_more"],
             })
         screening_coverage["after_rules"] = len(candidates)
         screening_coverage["excluded_by_rules"] = len(excluded_by_rules)
         if not candidates:
+            if scan_failures:
+                raise MarketDataError("扫描覆盖不完整，已取得样本未匹配条件；不能据此判断整个市场没有候选。")
             raise StockCandidateError("当前高级筛选条件没有匹配到 A 股候选")
         candidates.sort(key=lambda row: (-row["score"], row["symbol"]))
         for rank, candidate in enumerate(candidates, 1):
@@ -501,6 +512,11 @@ class StockCandidateEngine:
         short_history_count = sum(
             row["history_mode"] == "short" for row in analyzed
         )
+        unadjusted_history_count = sum(row["history_adjust"] == "none" for row in analyzed)
+        unknown_adjustment_history_count = sum(row["history_adjust"] not in {"qfq", "hfq", "none"} for row in analyzed)
+        adjustment_requires_review = any(row["history_adjust"] not in {"qfq", "hfq"} for row in analyzed)
+        if adjustment_requires_review:
+            limitations.append("price_history_adjustment_requires_review")
         if failures:
             limitations.append("partial_kline_coverage")
         if history_exclusions:
@@ -515,9 +531,13 @@ class StockCandidateEngine:
             limitations.append("partial_fundamental_factor_coverage_neutralized")
         if len(analyzed) > len(fundamental_pool):
             limitations.append(f"two_stage_preselection_top_{fundamental_limit}")
-        if any(row["pe"] <= 0 or row["pb"] <= 0 for row in candidates):
+        if any(row[key] is None or row[key] <= 0 for row in candidates for key in ("pe", "pb")):
             limitations.append("missing_or_invalid_scan_valuation")
         limitations.extend(event_limitations)
+        if any(item.get("frequency") == "daily" for item in scan_observations):
+            limitations.append("daily_scan_not_realtime")
+        if scan_failures:
+            limitations.append("partial_market_scan_coverage")
         scan_scope = str((scan.get("coverage") or {}).get("scope") or "")
         if scan_scope == "full_market_top20_plus_market_cap_pool":
             limitations.append("candidate_pool_uses_turnover_top20_then_market_cap_fill")
@@ -533,13 +553,20 @@ class StockCandidateEngine:
         limitations.append("latest_cross_section_only_no_historical_replay")
         data_state = "complete" if (
             not failures
+            and not scan_failures
+            and not any(item.get("missing_quote_count") for item in scan_observations)
             and not fundamental_failures
             and not fundamental_partial_count
+            and not adjustment_requires_review
             and not event_limitations
             and screening_coverage["analyzed_count"] + len(history_exclusions) == len(eligible)
         ) else "partial"
         as_of = self._as_of(scan, analyzed)
         coverage = {
+            "scan_observations": scan_observations,
+            "scan_failures": scan_failures,
+            "scan_failed_count": len(scan_failures),
+            "scan_skipped_count": sum(item.get("skipped_axes", 0) for item in scan_failures),
             "scan_count": len(raw_items),
             "broad_eligible_count": broad_eligible_count,
             "market_prefilter_count": market_eligible_count,
@@ -559,6 +586,8 @@ class StockCandidateEngine:
             "history_excluded_count": len(history_exclusions),
             "new_listing_watch_count": len(history_exclusions),
             "short_history_count": short_history_count,
+            "unadjusted_history_count": unadjusted_history_count,
+            "unknown_adjustment_history_count": unknown_adjustment_history_count,
             "preselection_count": len(fundamental_pool),
             "fundamental_requested_count": len(fundamental_pool),
             "fundamental_available_count": fundamental_available_count,
@@ -612,8 +641,8 @@ class StockCandidateEngine:
                 {
                     "id": "price_history",
                     "label": "日线覆盖",
-                    "state": "available" if not failures else "partial",
-                    "detail": f"深算 {len(analyzed)}/{len(eligible)} 只，短历史 {short_history_count} 只",
+                    "state": "available" if not failures and not adjustment_requires_review else "partial",
+                    "detail": f"深算 {len(analyzed)}/{len(eligible)} 只，短历史 {short_history_count} 只，未复权 {unadjusted_history_count} 只，口径未知 {unknown_adjustment_history_count} 只；逐只口径见详情",
                 },
                 {
                     "id": "fundamentals",
@@ -625,7 +654,7 @@ class StockCandidateEngine:
                     "id": "liquidity",
                     "label": "流动性口径",
                     "state": "limited" if uses_liquidity_proxy else "available",
-                    "detail": "最近完整日线成交额代理" if uses_liquidity_proxy else "Desk 实时扫描成交额",
+                    "detail": "最近完整日线成交额代理" if uses_liquidity_proxy else "扫描截面成交额，日期与频率见扫描来源",
                 },
                 {
                     "id": "point_in_time",
@@ -749,6 +778,7 @@ class StockCandidateEngine:
     def _load_fundamentals(self, rows, *, refresh: bool = False):
         packets = {}
         errors = {}
+        no_fallback = set()
         symbols = [row["symbol"] for row in rows]
         stats = {
             "fundamental_batch_failure_count": 0,
@@ -802,15 +832,19 @@ class StockCandidateEngine:
                         if isinstance(item, Mapping):
                             symbol = str(item.get("symbol") or "").split(".")[0]
                             if symbol:
-                                errors[symbol] = str(item.get("error") or "横向比较失败")
+                                errors[symbol] = str(item.get("error") or item.get("message") or "横向比较失败")
                 except (MarketDataError, TypeError, ValueError, KeyError) as exc:
                     stats["fundamental_batch_failure_count"] += 1
                     if self._is_timeout_error(exc):
                         stats["fundamental_batch_timeout_count"] += 1
                     for symbol in chunk:
                         errors.setdefault(symbol, str(exc))
+                    if self._is_timeout_error(exc) or getattr(exc, "code", "") in {
+                        "UPSTREAM_AUTH_REQUIRED", "UPSTREAM_FORBIDDEN",
+                    }:
+                        no_fallback.update(chunk)
 
-        missing = [symbol for symbol in symbols if symbol not in packets]
+        missing = [symbol for symbol in symbols if symbol not in packets and symbol not in no_fallback]
         if not missing:
             return packets, errors, len(chunks), 0, stats
 
@@ -848,6 +882,8 @@ class StockCandidateEngine:
 
     @staticmethod
     def _is_timeout_error(exc: Exception) -> bool:
+        if getattr(exc, "code", "") == "UPSTREAM_TIMEOUT":
+            return True
         message = str(exc).lower()
         return "timeout" in message or "timed out" in message or "超时" in message
 
@@ -924,8 +960,7 @@ class StockCandidateEngine:
     def _analyze_one(self, item: Mapping[str, Any], bars: int):
         symbol = str(item["symbol"])
         market = str(item.get("market") or "CN").upper()
-        query_symbol = f"{symbol}.HK" if market == "HK" else symbol
-        frame = self.provider.get_kline(query_symbol, period="daily", limit=bars)
+        frame = get_scan_history(self.provider, item, limit=bars)
         data_start = pd.Timestamp(frame["date"].iloc[0]).strftime("%Y-%m-%d")
         data_end = pd.Timestamp(frame["date"].iloc[-1]).strftime("%Y-%m-%d")
         history_source = str(
@@ -986,7 +1021,9 @@ class StockCandidateEngine:
         latest_frame_amount = float(frame["amount"].iloc[-1]) if "amount" in frame else 0.0
         historical_amount = latest_frame_amount if latest_frame_amount > 0 else latest * last_volume * 100
         scan_amount = self._number(item.get("amount"))
-        liquidity_amount = scan_amount if scan_amount > 0 else historical_amount
+        daily_amount = item.get("scan_frequency") == "daily" and item.get("amount") is not None
+        use_scan_amount = scan_amount > 0 or (daily_amount and scan_amount == 0)
+        liquidity_amount = scan_amount if use_scan_amount else historical_amount
         daily_return = latest / float(close.iloc[-2]) - 1
         prior_high = float(close.iloc[-momentum_short_window - 1:-1].max())
         classic_signals = []
@@ -999,9 +1036,12 @@ class StockCandidateEngine:
         if momentum_long > 0.10 and annual_vol < 0.35:
             classic_signals.append("低波动成长" if history_mode == "full" else "短期低波动上涨")
 
-        pe = self._number(item.get("pe"))
-        pb = self._number(item.get("pb"))
-        valuation = -(math.log(pe) + 0.5 * math.log(pb)) if pe > 0 and pb > 0 else math.nan
+        pe = self._optional_metric(item.get("pe"))
+        pb = self._optional_metric(item.get("pb"))
+        valuation = (
+            -(math.log(pe) + 0.5 * math.log(pb))
+            if pe is not None and pb is not None and pe > 0 and pb > 0 else math.nan
+        )
         trend = (latest / ma_fast - 1) * 0.45 + (ma_fast / ma_slow - 1) * 0.35 + (ma_fast / prior_ma_fast - 1) * 0.20
         momentum = momentum_short * 0.60 + momentum_long * 0.40
         liquidity = math.log1p(max(liquidity_amount, 0)) + min(self._number(item.get("turnover_pct")), 15) * 0.04 + min(self._number(item.get("volume_ratio")), 3) * 0.08
@@ -1014,17 +1054,18 @@ class StockCandidateEngine:
             "price": round(self._number(item.get("price")), 3),
             "change_pct": round(self._number(item.get("change_pct")), 3),
             "amount": round(liquidity_amount, 2),
-            "amount_source": "scan_realtime" if scan_amount > 0 else "latest_daily_bar_proxy",
+            "amount_source": ("scan_daily" if daily_amount else "scan_realtime") if use_scan_amount else "latest_daily_bar_proxy",
             "turnover_pct": round(self._number(item.get("turnover_pct")), 3),
             "volume_ratio": round(self._number(item.get("volume_ratio")), 3),
             "market_cap": round(self._number(item.get("market_cap")), 2),
-            "pe": round(pe, 3),
-            "pb": round(pb, 3),
+            "pe": round(pe, 3) if pe is not None else None,
+            "pb": round(pb, 3) if pb is not None else None,
             "history_bars": history_bars,
             "history_mode": history_mode,
             "technical_confidence": round(technical_confidence, 4),
             "data_start": data_start,
             "history_source": history_source,
+            "history_adjust": str(frame.attrs.get("adjust") or "unknown"),
             "history_has_more": history_has_more,
             "raw_factors": {
                 "trend": trend,
@@ -1198,6 +1239,10 @@ class StockCandidateEngine:
     def _risk_penalty(self, row):
         penalty = 0.0
         risks = []
+        if row.get("history_adjust") == "none":
+            risks.append("日线为未复权备用源，除权除息可能影响技术指标，需复核；未额外调整评分")
+        elif row.get("history_adjust") not in {"qfq", "hfq"}:
+            risks.append("日线复权口径未知，技术指标需复核；未额外调整评分")
         if row["change_pct"] >= 9:
             penalty += 10
             risks.append("单日涨幅接近涨停，短线过热")
@@ -1207,9 +1252,11 @@ class StockCandidateEngine:
         if row["volume_ratio"] >= 3:
             penalty += 5
             risks.append("量比超过 3，成交脉冲过热")
-        if row["pe"] > 120 or row["pb"] > 15:
+        if any(row[key] is not None and row[key] > limit for key, limit in (("pe", 120), ("pb", 15))):
             penalty += 4
             risks.append("静态估值处于高风险区")
+        if any(row[key] is None or row[key] <= 0 for key in ("pe", "pb")):
+            risks.append("扫描 PE/PB 缺失或非正，未参与扫描估值比较；不代表估值便宜")
         if row["metrics"]["annualized_volatility_pct"] > 65:
             penalty += 5
             risks.append("历史波动率偏高")
@@ -1275,6 +1322,9 @@ class StockCandidateEngine:
             },
             "freshness": {"state": "fresh" if lag_days <= 3 else "delayed", "resolution": "latest_cross_section", "calendar_lag_days": lag_days},
             "input": {"digest": input_digest, "summary": {
+                "scan_failures": stable_result["coverage"]["scan_failures"],
+                "scan_failed_count": stable_result["coverage"]["scan_failed_count"],
+                "scan_skipped_count": stable_result["coverage"]["scan_skipped_count"],
                 "scan_count": stable_result["coverage"]["scan_count"],
                 "analyzed_count": stable_result["coverage"]["analyzed_count"],
                 "fundamental_requested_count": stable_result["coverage"]["fundamental_requested_count"],
@@ -1378,12 +1428,12 @@ class StockCandidateEngine:
                     filters["max_market_cap"],
                 )
         if filters["max_pe"] is not None:
-            if row["pe"] <= 0:
+            if row["pe"] is None or row["pe"] <= 0:
                 check("missing_pe", False, row["pe"], filters["max_pe"])
             else:
                 check("pe_above_max", row["pe"] <= filters["max_pe"], row["pe"], filters["max_pe"])
         if filters["max_pb"] is not None:
-            if row["pb"] <= 0:
+            if row["pb"] is None or row["pb"] <= 0:
                 check("missing_pb", False, row["pb"], filters["max_pb"])
             else:
                 check("pb_above_max", row["pb"] <= filters["max_pb"], row["pb"], filters["max_pb"])

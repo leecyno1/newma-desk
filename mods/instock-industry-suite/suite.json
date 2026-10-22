@@ -50,6 +50,7 @@
   "pages": [
     {
       "id": "instock-rotation",
+      "version": "0.27.0",
       "name": "行业与 ETF 轮动",
       "description": "覆盖申万 2021 版 31 个一级行业，以七因子排名和九组参数一致性观察轮动，并明示行业 ETF 代理口径。",
       "tags": ["行业轮动", "ETF", "相对强弱", "量化"],
@@ -103,12 +104,15 @@
     },
     {
       "id": "instock-industry-chain",
+      "version": "0.37.1",
       "name": "产业链证据",
-      "description": "沿产业链节点与关系识别供应链瓶颈，并按证据质量核验上市公司暴露。",
+      "description": "追溯产业链节点、关系和公司暴露的原文引用，按输入评级形成研究排序，并明确待核验边界。",
       "tags": ["产业链", "供应链", "瓶颈研究", "证据研究"],
       "route": "/mods/industry-chain",
       "navigation": {"itemOrder": 2, "label": "产业链证据"},
       "manifest": {
+        "permissions": ["analysis.read", "storage.read", "storage.write"],
+        "storage": {"mode": "desk-managed", "namespaces": [{"id": "relation-reviews", "scope": "user-workspace", "schemaVersion": 1, "quotaMb": 4, "maxItemKb": 1024}, {"id": "research-origins", "scope": "user-workspace", "schemaVersion": 1, "quotaMb": 8, "maxItemKb": 512}]},
         "events": {"emits": [], "accepts": []},
         "actions": {
           "analysis.industry-chain": {
@@ -127,8 +131,8 @@
                 "notes": {"type": "string"},
                 "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
                 "chain": {"type": "object", "required": ["nodes", "links"], "properties": {"nodes": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"type": "object"}}, "links": {"type": "array", "maxItems": 120, "items": {"type": "object"}}}, "additionalProperties": false},
-                "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
-                "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+                "layers": {"type": "array", "minItems": 0, "maxItems": 20, "items": {"type": "object"}},
+                "candidates": {"type": "array", "minItems": 0, "maxItems": 100, "items": {"type": "object"}}
               },
               "additionalProperties": false
             },

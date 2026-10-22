@@ -198,6 +198,7 @@
             <div class="czsc-scan-actions">
                 <button id="scan-start" class="btn btn-primary" type="submit"><i class="fa fa-crosshairs"></i> 开始扫描</button>
                 <button id="scan-cancel" class="btn btn-default" type="button" disabled><i class="fa fa-stop-circle-o"></i> 取消任务</button>
+                <button id="scan-refresh" class="btn btn-default" type="button" disabled>恢复读取</button>
                 <span class="czsc-scan-hint">任务保存在当前服务进程内，服务重启后失效</span>
             </div>
         </form>
@@ -274,6 +275,7 @@
     const scanForm = document.getElementById('czsc-scan-form');
     const scanStart = document.getElementById('scan-start');
     const scanCancel = document.getElementById('scan-cancel');
+    const scanRefresh = document.getElementById('scan-refresh');
     const scanError = document.getElementById('scan-error');
     const scanState = document.getElementById('scan-state');
     const scanResults = document.getElementById('scan-results');
@@ -281,21 +283,28 @@
     const deskBridge = window.InStockNewmaDesk || window.InStockVibeDesk;
     const analysisActionId = 'analysis.czsc';
     const scanActionId = 'analysis.czsc.scan';
-    const terminalScanStatuses = new Set(['completed', 'cancelled', 'failed']);
+    const terminalScanStatuses = new Set(['completed', 'cancelled', 'failed', 'unavailable']);
     let chart = null;
     let currentPayload = null;
     let currentAssetType = 'stock';
+    function periodDateWarning(payload) {
+        return payload?.engine?.analysis_version === '2.2.0'
+            ? '旧版结构日期可能受时区影响，请重新分析；原历史记录未改写'
+            : null;
+    }
     let currentDisplayName = '';
     let analysisRunning = false;
     let loadGeneration = 0;
     let currentScan = null;
     let scanPollTimer = null;
     let scanGeneration = 0;
+    let scanObservation = {state: 'idle', message: null};
 
-    function buildContext() {
+    function resultContext() {
         const summary = (currentPayload && currentPayload.summary) || {};
         const structure = (currentPayload && currentPayload.structure) || {};
         const snapshot = (currentPayload && currentPayload.snapshot) || null;
+        const provenance = (snapshot && snapshot.provenance) || {};
         const structureEvidence = (currentPayload && currentPayload.evidence) || {};
         const officialSignals = (structure.official_signals || []).filter(item => item.active).map(item => item.signal);
         const scanProgress = (currentScan && currentScan.progress) || {};
@@ -321,14 +330,15 @@
         const subjectType = currentAssetType === 'etf' ? 'etf' : 'security';
         return {
             view: {id: 'czsc-analysis', title: '缠论结构分析'},
-            visibleBlocks: [
+            visibleBlocks: currentPayload ? [
                 {id: 'structure-chart', type: 'chart', title: 'CZSC 结构图'},
                 {id: 'structure-insight', type: 'summary', title: '结构解读'},
                 {id: 'structure-signals', type: 'table', title: '近期结构信号'},
-            ],
+            ] : [],
             selection: {
                 symbol: code,
                 market: 'CN',
+                assetType: currentAssetType,
             },
             filters: {
                 period: document.getElementById('period').value,
@@ -341,12 +351,26 @@
                 freshness: snapshot ? snapshot.freshness.state : 'unknown',
                 summary: {
                     engine: currentPayload ? currentPayload.engine : {name: 'czsc'},
+                    periodDateWarning: periodDateWarning(currentPayload),
                     trend: summary.trend || 'unknown',
-                    trendStrength: summary.trend_strength || 0,
+                    trendStrength: summary.trend_strength ?? null,
+                    fxCount: summary.fx_count ?? null,
+                    biCount: summary.bi_count ?? null,
+                    zsCount: summary.zs_count ?? null,
+                    latestSignal: summary.latest_signal ?? null,
                     latestClose: currentPayload ? currentPayload.latest_close : null,
                     officialSignals,
                     signalSource: summary.signal_source || 'none',
-                    actualBars: currentPayload ? currentPayload.actual_bars : 0,
+                    actualBars: currentPayload ? currentPayload.actual_bars : null,
+                    marketData: currentPayload ? {
+                        source: currentPayload.data_source || null,
+                        upstreamSource: provenance.upstream_source || null,
+                        upstreamAsOf: provenance.upstream_as_of || null,
+                        market: provenance.market || null,
+                        timeframe: provenance.timeframe || null,
+                        adjust: provenance.adjust || null,
+                        asOfMode: provenance.as_of_mode || null,
+                    } : null,
                     conclusionState: currentPayload ? currentPayload.conclusion_state : 'unknown',
                     structureStability: structureEvidence.structure_stability || null,
                     latestStructureChange: structureEvidence.latest_structure_change || null,
@@ -355,6 +379,7 @@
                     batchScan: currentScan ? {
                         scanId: currentScan.scan_id,
                         status: currentScan.status,
+                        observation: {...scanObservation},
                         parameters: currentScan.parameters,
                         progress: {
                             total: scanProgress.total || 0,
@@ -409,7 +434,7 @@
                     displayName: currentDisplayName || code,
                     market: 'CN',
                     symbol: code,
-                    assetType: subjectType === 'etf' ? 'etf' : 'stock',
+                    assetType: currentAssetType,
                 },
                 relatedSubjects: [],
                 conceptIds: ['concept:technical-analysis', 'concept:czsc'],
@@ -419,6 +444,24 @@
             },
             tasks,
         };
+    }
+
+    function buildContext() {
+        const context = resultContext();
+        context.filters.scan = {symbols: document.getElementById('scan-symbols').value,
+            period: document.getElementById('scan-period').value, bars: Number(document.getElementById('scan-bars').value),
+            asOf: document.getElementById('scan-as-of').value || null,
+            maxWorkers: Number(document.getElementById('scan-workers').value)};
+        context.actions = [
+            {id: analysisActionId, label: '按当前页面条件运行结构分析',
+                available: !analysisRunning && (!deskBridge?.embedded || Boolean(deskBridge.canInvokeAction?.(analysisActionId))),
+                inputSchema: {type: 'object', properties: {}, additionalProperties: false}},
+            {id: scanActionId, label: '按当前扫描条件创建任务',
+                available: !scanStart.disabled && (!currentScan || terminalScanStatuses.has(currentScan.status))
+                    && (!deskBridge?.embedded || Boolean(deskBridge.canInvokeAction?.(scanActionId))),
+                inputSchema: {type: 'object', properties: {}, additionalProperties: false}},
+        ];
+        return context;
     }
 
     function publishContext() {
@@ -442,7 +485,7 @@
         });
         if (input.asOf) query.set('asOf', input.asOf);
         if (input.refresh) query.set('refresh', input.refresh);
-        const response = await fetch('/api/v1/czsc/analyses?' + query.toString());
+        const response = await window.InStockNewmaDesk.fetchAnalysis('/api/v1/czsc/analyses?' + query.toString());
         const body = await response.json();
         if (!response.ok) throw new Error(errorMessage(body, '缠论分析请求失败'));
         return body;
@@ -459,7 +502,7 @@
         if (deskBridge && deskBridge.canInvokeAction && deskBridge.canInvokeAction(scanActionId)) {
             return scanRecordFromResponse(await deskBridge.invokeAction(scanActionId, input));
         }
-        const response = await fetch('/api/v1/czsc/scans', {
+        const response = await window.InStockNewmaDesk.fetchAnalysis('/api/v1/czsc/scans', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(input),
@@ -470,14 +513,18 @@
     }
 
     async function fetchScan(scanId) {
-        const response = await fetch(`/api/v1/czsc/scans/${encodeURIComponent(scanId)}`);
+        const response = await window.InStockNewmaDesk.fetchAnalysis(`/api/v1/czsc/scans/${encodeURIComponent(scanId)}`);
         const body = await response.json();
-        if (!response.ok) throw new Error(errorMessage(body, '批量扫描状态读取失败'));
+        if (!response.ok) {
+            const error = new Error(errorMessage(body, '批量扫描状态读取失败'));
+            error.status = response.status;
+            throw error;
+        }
         return scanRecordFromResponse(body);
     }
 
     async function requestScanCancellation(scanId) {
-        const response = await fetch(`/api/v1/czsc/scans/${encodeURIComponent(scanId)}`, {method: 'DELETE'});
+        const response = await window.InStockNewmaDesk.fetchAnalysis(`/api/v1/czsc/scans/${encodeURIComponent(scanId)}`, {method: 'DELETE'});
         const body = await response.json();
         if (!response.ok) throw new Error(errorMessage(body, '批量扫描取消失败'));
         return scanRecordFromResponse(body);
@@ -497,6 +544,7 @@
         return {
             queued: '排队中', running: '扫描中', cancelling: '正在取消',
             completed: '扫描完成', cancelled: '已取消', failed: '扫描失败',
+            unavailable: '任务已失效',
         }[status] || '等待开始';
     }
 
@@ -524,11 +572,15 @@
 
     function selectScanCandidate(symbol) {
         const parameters = (currentScan && currentScan.parameters) || {};
+        // Batch rows contain codes, not verified instrument classifications.
+        // Do not carry the previous stock/ETF identity to another security.
+        currentAssetType = 'other';
+        currentDisplayName = symbol;
         document.getElementById('stock-code').value = symbol;
         if (parameters.period) document.getElementById('period').value = parameters.period;
         if (parameters.bars) document.getElementById('bars').value = String(parameters.bars);
         document.getElementById('as-of').value = parameters.asOf || '';
-        load(false);
+        load(false).catch(() => {});
         document.querySelector('.czsc-hero').scrollIntoView({behavior: 'smooth', block: 'start'});
     }
 
@@ -598,8 +650,10 @@
         scanResults.style.display = 'block';
     }
 
-    function renderScan(record) {
+    function renderScan(record, observation = {state: 'current', message: null}) {
         currentScan = record;
+        scanObservation = observation;
+        clearScanError();
         const progress = record.progress || {};
         const total = Number(progress.total || 0);
         const completed = Number(progress.completed || 0);
@@ -612,6 +666,7 @@
         const active = !terminalScanStatuses.has(record.status);
         scanStart.disabled = active;
         scanCancel.disabled = !active || record.status === 'cancelling';
+        scanRefresh.disabled = false;
         if (record.error) showScanError(record.error);
         if (record.result || terminalScanStatuses.has(record.status)) renderScanCandidates(record);
         publishContext();
@@ -624,6 +679,8 @@
 
     async function pollScan(scanId, generation) {
         if (generation !== scanGeneration) return;
+        scanPollTimer = null;
+        scanRefresh.disabled = true;
         try {
             const record = await fetchScan(scanId);
             if (generation !== scanGeneration) return;
@@ -636,23 +693,35 @@
         } catch (error) {
             if (generation === scanGeneration) {
                 stopScanPolling();
-                scanStart.disabled = false;
-                showScanError(error.message || String(error));
+                if (error.status === 404 && currentScan?.scan_id === scanId) {
+                    const message = '当前服务找不到该任务，可能已过期或服务已重启；不表示扫描完成或已取消。可以重新创建扫描。';
+                    renderScan({...currentScan, status: 'unavailable', error: message},
+                        {state: 'missing', message});
+                    return;
+                }
+                scanStart.disabled = Boolean(currentScan && !terminalScanStatuses.has(currentScan.status));
+                scanRefresh.disabled = false;
+                scanObservation = {state: 'interrupted', message: error.message || String(error)};
+                document.getElementById('scan-status').textContent = '读取中断 · 上次' + scanStatusLabel(currentScan?.status);
+                showScanError(scanObservation.message + '。任务是否结束尚未确认，请恢复读取同一任务，不要重复创建。');
                 publishContext();
             }
         }
     }
 
     async function startScan() {
+        if (scanStart.disabled || (currentScan && !terminalScanStatuses.has(currentScan.status))) throw new Error('当前扫描任务尚未终止，不能重复创建');
         clearScanError();
         let symbols;
         try { symbols = parseScanSymbols(); }
-        catch (error) { showScanError(error.message || String(error)); return; }
+        catch (error) { showScanError(error.message || String(error)); throw error; }
         stopScanPolling();
         const generation = ++scanGeneration;
         currentScan = null;
+        scanObservation = {state: 'creating', message: null};
         scanStart.disabled = true;
         scanCancel.disabled = true;
+        scanRefresh.disabled = true;
         scanResults.style.display = 'none';
         scanState.style.display = 'block';
         document.getElementById('scan-status').textContent = '正在创建任务';
@@ -669,35 +738,56 @@
         if (asOf) input.asOf = asOf;
         try {
             const record = await requestScan(input);
-            if (generation !== scanGeneration) return;
+            if (generation !== scanGeneration) throw new Error('查看范围已变化，创建结果未采用；后台任务可能仍在运行');
             renderScan(record);
             if (!terminalScanStatuses.has(record.status)) {
                 scanPollTimer = window.setTimeout(() => pollScan(record.scan_id, generation), 250);
             }
+            return {kind: 'task', scanId: record.scan_id, status: record.status,
+                completed: record.status === 'completed', progress: record.progress || {}};
         } catch (error) {
             if (generation === scanGeneration) {
                 scanStart.disabled = false;
                 showScanError(error.message || String(error));
                 publishContext();
             }
+            throw error;
         }
     }
 
     async function cancelScan() {
         if (!currentScan || terminalScanStatuses.has(currentScan.status)) return;
         clearScanError();
+        const scanId = currentScan.scan_id;
+        const generation = ++scanGeneration;
+        stopScanPolling();
         scanCancel.disabled = true;
+        scanRefresh.disabled = true;
         try {
-            const record = await requestScanCancellation(currentScan.scan_id);
+            const record = await requestScanCancellation(scanId);
+            if (generation !== scanGeneration || currentScan?.scan_id !== scanId) return;
             renderScan(record);
-            if (!terminalScanStatuses.has(record.status) && scanPollTimer === null) {
-                const generation = scanGeneration;
+            if (!terminalScanStatuses.has(record.status)) {
                 scanPollTimer = window.setTimeout(() => pollScan(record.scan_id, generation), 250);
             }
         } catch (error) {
+            if (generation !== scanGeneration || currentScan?.scan_id !== scanId) return;
             scanCancel.disabled = false;
-            showScanError(error.message || String(error));
+            scanRefresh.disabled = false;
+            scanObservation = {state: 'interrupted', message: error.message || String(error)};
+            showScanError(scanObservation.message + '。取消未确认，请恢复读取同一任务核对状态。');
+            publishContext();
         }
+    }
+
+    function resumeScan() {
+        if (!currentScan || scanRefresh.disabled) return;
+        stopScanPolling();
+        const generation = ++scanGeneration;
+        scanObservation = {state: 'reading', message: null};
+        clearScanError();
+        publishContext();
+        return pollScan(currentScan.scan_id, generation);
     }
 
     function applyUrlParameters() {
@@ -910,6 +1000,8 @@
         const adjustment = {qfq: '前复权', hfq: '后复权', none: '不复权'}[provenance.adjust]
             || (provenance.adjust && provenance.adjust !== 'unknown' ? provenance.adjust : '复权未知');
         meta.textContent = `${source === 'history' ? '历史版本 · ' : ''}${payload.engine.name.toUpperCase()} v${payload.engine.version} · ${sourceLabel} · ${adjustment} · ${payload.actual_bars} 根 · 更新至 ${payload.end_date}${replay}${coverage}${conclusion}${gaps}${compatibility}`;
+        const dateWarning = periodDateWarning(payload);
+        if (dateWarning) meta.textContent += ' · ' + dateWarning;
         meta.title = [
             `统一数据边界：${providerLabel}`,
             upstreamLabel ? `实际上游：${upstreamLabel}` : '',
@@ -921,7 +1013,7 @@
         const code = document.getElementById('stock-code').value.trim().toUpperCase();
         const researchParams = new URLSearchParams({symbol: code, period: document.getElementById('period').value, bars: document.getElementById('bars').value, sourceModule: 'instock-czsc', ...(snapshot.snapshot_id ? {sourceSnapshotId: snapshot.snapshot_id} : {}), ...(payload.end_date ? {asOf: payload.end_date} : {})});
         researchLink.href = `/mods/stock-research?${researchParams.toString()}`;
-        researchLink.style.display = /^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(code) && !['etf', 'index', 'fund'].includes(currentAssetType) ? 'inline-flex' : 'none';
+        researchLink.style.display = /^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(code) && currentAssetType === 'stock' ? 'inline-flex' : 'none';
         stats.style.display = 'grid'; resultBox.style.display = 'block';
         setTimeout(() => chart.resize(), 0);
         publishContext();
@@ -929,11 +1021,12 @@
     }
 
     async function load(refresh) {
-        if (typeof echarts === 'undefined') { showError('本地 ECharts 资源加载失败，请检查静态文件配置'); return; }
+        if (typeof echarts === 'undefined') { const error = new Error('本地 ECharts 资源加载失败，请检查静态文件配置'); showError(error.message); throw error; }
         const code = document.getElementById('stock-code').value.trim().toUpperCase();
         const period = document.getElementById('period').value;
         const bars = document.getElementById('bars').value;
         const asOf = document.getElementById('as-of').value;
+        invalidateAnalysis();
         const generation = ++loadGeneration;
         analysisRunning = true; publishContext();
         loading.style.display = 'inline'; errorBox.style.display = 'none';
@@ -941,13 +1034,19 @@
             const currentQuery = new URLSearchParams(window.location.search);
             const query = new URLSearchParams({code, period, bars});
             if (asOf) query.set('asOf', asOf);
-            ['sourceModule', 'sourceSnapshotId', 'assetType'].forEach(key => { if (currentQuery.get(key)) query.set(key, currentQuery.get(key)); });
+            ['sourceModule', 'sourceSnapshotId'].forEach(key => { if (currentQuery.get(key)) query.set(key, currentQuery.get(key)); });
+            query.set('assetType', currentAssetType);
             window.history.replaceState(null, '', window.location.pathname + '?' + query.toString());
             const body = await requestAnalysis({code, period, bars: Number(bars), asOf: asOf || undefined, ...(refresh ? {refresh: '1'} : {})});
             if (!body || !body.ok) throw new Error(errorMessage(body, '缠论分析请求失败'));
-            if (generation === loadGeneration) render(body.data);
+            if (generation !== loadGeneration || code !== document.getElementById('stock-code').value.trim().toUpperCase()
+                || period !== document.getElementById('period').value || bars !== document.getElementById('bars').value
+                || asOf !== document.getElementById('as-of').value) throw new Error('页面条件或查看范围已变化，本次结构结果未采用');
+            render(body.data);
+            return {snapshot: body.data.snapshot, asOf: body.data.end_date, summary: body.data.summary};
         } catch (error) {
             if (generation === loadGeneration) showError(error.message || String(error));
+            throw error;
         }
         finally {
             if (generation === loadGeneration) {
@@ -967,7 +1066,7 @@
         document.getElementById('stock-code').value = symbol;
         const eventAsOf = String(payload.asOf || '');
         document.getElementById('as-of').value = /^\d{4}-\d{2}-\d{2}$/.test(eventAsOf) ? eventAsOf : '';
-        load(false);
+        load(false).catch(() => {});
     }
 
     async function handleWikiHandoff(handoff) {
@@ -979,7 +1078,7 @@
         if (!/^\d{6}(?:\.(?:SH|SZ|BJ))?$/.test(symbol)) {
             throw new Error('Wiki 交接的证券代码无效');
         }
-        currentAssetType = subject.type === 'etf' ? 'etf' : 'stock';
+        currentAssetType = subject.assetType || (subject.type === 'etf' ? 'etf' : 'stock');
         currentDisplayName = String(subject.displayName || symbol).trim();
         document.getElementById('stock-code').value = symbol;
         const period = handoff.parameters && handoff.parameters.period;
@@ -991,11 +1090,51 @@
         return {selected: symbol};
     }
 
-    document.addEventListener('instock:history-selected', event => render(event.detail.payload, event.detail.view_source || 'history'));
+    function invalidateAnalysis() {
+        loadGeneration += 1; analysisRunning = false; currentPayload = null;
+        loading.style.display = 'none'; stats.style.display = 'none'; resultBox.style.display = 'none';
+        researchLink.style.display = 'none'; errorBox.style.display = 'none';
+        meta.textContent = '当前条件尚未生成分析结果';
+        meta.removeAttribute('title');
+        chart?.clear(); publishContext();
+    }
+    ['stock-code', 'period', 'bars', 'as-of'].forEach(id => {
+        const changed = () => {
+            if (id === 'stock-code') {
+                currentAssetType = 'other';
+                currentDisplayName = document.getElementById(id).value.trim().toUpperCase();
+            }
+            invalidateAnalysis();
+        };
+        document.getElementById(id).addEventListener('input', changed);
+        document.getElementById(id).addEventListener('change', changed);
+    });
+    document.addEventListener('instock:history-loading', invalidateAnalysis);
+    document.addEventListener('instock:history-selected', event => { invalidateAnalysis(); render(event.detail.payload, event.detail.view_source || 'history'); });
+    const scopeKey = () => JSON.stringify([deskBridge?.config?.user?.id || '', deskBridge?.config?.workspace?.id || '']);
+    let activeScope = scopeKey();
+    document.addEventListener('vibedesk:init', () => {
+        const next = scopeKey(), previous = activeScope; activeScope = next;
+        if (next === previous || previous === '["",""]') return;
+        scanGeneration += 1; stopScanPolling(); currentScan = null;
+        scanObservation = {state: 'idle', message: null};
+        scanStart.disabled = false; scanCancel.disabled = true;
+        scanRefresh.disabled = true; clearScanError();
+        scanState.style.display = 'none'; scanResults.style.display = 'none';
+        invalidateAnalysis();
+    });
+    if (deskBridge?.setUiActionHandler) deskBridge.setUiActionHandler((id, input = {}) => {
+        if (![analysisActionId, scanActionId].includes(id)) throw new Error('当前页面不支持该操作');
+        if (Object.keys(input).length) throw new Error('请先修改页面条件，不接受隐藏输入覆盖');
+        if (id === scanActionId) return startScan();
+        if (analysisRunning) throw new Error('结构分析正在运行，请等待当前任务完成');
+        return load(true);
+    });
 
-    form.addEventListener('submit', event => { event.preventDefault(); load(true); });
-    scanForm.addEventListener('submit', event => { event.preventDefault(); startScan(); });
+    form.addEventListener('submit', event => { event.preventDefault(); load(true).catch(() => {}); });
+    scanForm.addEventListener('submit', event => { event.preventDefault(); startScan().catch(() => {}); });
     scanCancel.addEventListener('click', cancelScan);
+    scanRefresh.addEventListener('click', resumeScan);
     window.addEventListener('resize', () => { if (chart) chart.resize(); });
     window.addEventListener('beforeunload', stopScanPolling);
     document.addEventListener('instock:themechange', renderChart);
@@ -1011,7 +1150,7 @@
     document.getElementById('as-of').max = today;
     document.getElementById('scan-as-of').max = today;
     applyUrlParameters();
-    load(false);
+    load(false).catch(() => {});
 })();
 </script>
 {% end %}

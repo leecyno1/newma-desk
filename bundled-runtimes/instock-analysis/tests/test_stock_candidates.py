@@ -229,6 +229,47 @@ def _quote(symbol, name, *, change, amount, turnover, volume_ratio, pe, pb, indu
     }
 
 
+@pytest.mark.parametrize(("pe", "pb", "expected_pe", "expected_pb"), [
+    (None, None, None, None),
+    ("", "--", None, None),
+    (float("nan"), float("inf"), None, None),
+    (0, 0, 0, 0),
+    (-10, -2, -10, -2),
+    ("8.25", "0.9", 8.25, 0.9),
+    (None, 18, None, 18),
+])
+def test_candidate_scan_valuation_preserves_missing_zero_and_negative(pe, pb, expected_pe, expected_pb):
+    item = _quote("000001", "估值口径", change=1, amount=2e9, turnover=3,
+                  volume_ratio=1, pe=pe, pb=pb, industry="银行")
+    provider = CandidateFixtureProvider([item], {"000001": _frame(growth=0.1)})
+    result = StockCandidateEngine(provider).analyze(universe_mode="quick")
+    row = result["candidates"][0]
+    assert (row["pe"], row["pb"]) == (expected_pe, expected_pb)
+    invalid = any(value is None or value <= 0 for value in (expected_pe, expected_pb))
+    assert ("missing_or_invalid_scan_valuation" in result["limitations"]) == invalid
+    if invalid:
+        assert any("扫描 PE/PB 缺失或非正" in risk for risk in row["risks"])
+    if expected_pb == 18:
+        assert "静态估值处于高风险区" in row["risks"]
+        assert row["penalty_score"] >= 4
+    json.dumps(result, allow_nan=False)
+
+
+def test_candidate_positive_valuation_filters_exclude_unknown_zero_and_negative_without_crashing():
+    items = [
+        _quote(symbol, symbol, change=1, amount=2e9, turnover=3, volume_ratio=1,
+               pe=pe, pb=pb, industry="银行")
+        for symbol, pe, pb in [("000001", None, 2), ("000002", 0, 0),
+                               ("000003", -10, -2), ("000004", "18", "2")]
+    ]
+    provider = CandidateFixtureProvider(items, {item["symbol"]: _frame(growth=0.1) for item in items})
+    result = StockCandidateEngine(provider).analyze(universe_mode="quick", filters={"max_pe": 30, "max_pb": 3})
+    assert [row["symbol"] for row in result["candidates"]] == ["000004"]
+    excluded = {row["symbol"]: row["reasons"] for row in result["excluded_by_rules"]}
+    assert all("missing_pe" in excluded[symbol] for symbol in ("000001", "000002", "000003"))
+    assert result["candidates"][0]["pe"] == 18
+
+
 def _event_packet():
     return {
         "schema_version": "instock-event-flow-packet-v1",
@@ -240,6 +281,47 @@ def _event_packet():
             {"id": "other-1", "type": "report", "symbol": "000001", "occurred_at": "2026-08-08", "title": "银行跟踪", "direction": "neutral", "magnitude_score": 40, "evidence_strength": "weak", "source_ref": "desk://report/000001/1"},
         ],
     }
+
+
+def test_candidate_scan_observations_survive_analysis_and_snapshot(monkeypatch):
+    provider = CandidateFixtureProvider(
+        [{**_quote("000001", "测试", change=1, amount=0, turnover=1, volume_ratio=1, pe=10, pb=1, industry="银行"), "scan_frequency": "daily", "scan_as_of": "2026-10-19T15:00:00+08:00"}],
+        {"000001": _frame(growth=0.2)},
+    )
+    scan = provider.get_liquidity_scan(limit=30)
+    observations = [{"market": "CN", "source": "tushare-daily", "frequency": "daily",
+                     "realtime": False, "as_of": "2026-10-19T15:00:00+08:00",
+                     "quote_count": 3, "listed_count": 4, "missing_quote_count": 1}]
+    scan["coverage"]["observations"] = observations
+    monkeypatch.setattr(provider, "get_liquidity_scan", lambda **kwargs: scan)
+    result = StockCandidateEngine(provider, max_workers=2).analyze(universe_mode="quick", universe_size=30, bars=120)
+    assert result["coverage"]["scan_observations"] == observations
+    assert result["candidates"][0]["amount_source"] == "scan_daily"
+    assert result["candidates"][0]["amount"] == 0  # do not replace a true daily zero with another day's volume
+    assert result["data_state"] == "partial"
+    assert "daily_scan_not_realtime" in result["limitations"]
+
+
+@pytest.mark.parametrize("adjust,label", [("none", "未复权"), ("unknown", "口径未知")])
+def test_candidate_unadjusted_history_is_preserved_and_flagged_without_score_penalty(adjust, label):
+    item = _quote("000001", "口径核验", change=1, amount=2e9, turnover=3,
+                  volume_ratio=1, pe=15, pb=2, industry="银行")
+    frame = _frame(growth=0.2)
+    provider = CandidateFixtureProvider([item], {"000001": frame})
+    baseline = StockCandidateEngine(provider).analyze(universe_mode="quick")
+    frame.attrs.update(adjust=adjust, upstream_source="fallback")
+    result = StockCandidateEngine(provider).analyze(universe_mode="quick")
+    row = result["candidates"][0]
+    assert row["history_adjust"] == adjust
+    assert row["history_source"] == "fallback"
+    assert row["score"] == baseline["candidates"][0]["score"]
+    assert any(label in risk for risk in row["risks"])
+    assert result["coverage"]["unadjusted_history_count"] == int(adjust == "none")
+    assert result["coverage"]["unknown_adjustment_history_count"] == int(adjust == "unknown")
+    history = next(item for item in result["evidence_quality"]["items"] if item["id"] == "price_history")
+    assert f"口径未知 {int(adjust == 'unknown')} 只" in history["detail"]
+    assert result["data_state"] == "partial"
+    assert "price_history_adjustment_requires_review" in result["limitations"]
 
 
 def test_candidate_engine_ranks_explainable_balanced_candidate_first():
@@ -258,7 +340,7 @@ def test_candidate_engine_ranks_explainable_balanced_candidate_first():
 
     assert result["engine"] == {
         "name": "instock-stock-candidate-engine",
-        "version": "1.4.0",
+        "version": "1.4.3",
         "factor_model": "instock-stock-candidate-score-v3",
     }
     assert result["factor_model"]["weights"] == {
@@ -294,6 +376,47 @@ def test_candidate_engine_ranks_explainable_balanced_candidate_first():
     assert quality["price_history"]["state"] == "available"
     assert quality["fundamentals"]["state"] == "available"
     assert result["snapshot"]["snapshot_id"].startswith("instock-stock-candidate-engine:")
+
+
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_candidates_preserve_partial_market_scan_coverage(empty, failed):
+    class ScanProvider(MultiMarketCandidateProvider):
+        def get_candidate_universe(self, **kwargs):
+            scan = super().get_candidate_universe(**kwargs)
+            if failed:
+                scan["coverage"]["scan_failures"] = [{
+                    "market": "CN", "sort": "amount", "order": "desc",
+                    "error": "行情源不可用", "skipped_axes": 10,
+                }]
+            return scan
+
+    item = {**_quote("00700", "腾讯控股", change=1.2, amount=8e9,
+                     turnover=0.4, volume_ratio=1.1, pe=16, pb=3.1,
+                     industry="软件服务"), "market": "HK", "exchange": "HKEX"}
+    provider = ScanProvider([item], {"00700": _frame(growth=0.35)})
+    if empty:
+        error = MarketDataError if failed else StockCandidateError
+        message = "扫描覆盖不完整" if failed else "没有匹配"
+        with pytest.raises(error, match=message):
+            StockCandidateEngine(provider).analyze(
+                market="CN_HK", universe_mode="broad", universe_size=30,
+                filters={"industries": ["不存在行业"]},
+            )
+        return
+    result = StockCandidateEngine(provider).analyze(
+        market="CN_HK", universe_mode="broad", universe_size=30,
+        filters={"industries": ["不存在行业"]} if empty else None,
+    )
+    assert result["data_state"] == ("partial" if failed else "complete")
+    assert ("partial_market_scan_coverage" in result["limitations"]) is failed
+    assert result["coverage"]["scan_failed_count"] == int(failed)
+    assert result["coverage"]["scan_skipped_count"] == (10 if failed else 0)
+    assert result["snapshot"]["input"]["summary"]["scan_failures"] == result["coverage"]["scan_failures"]
+    if empty:
+        assert result["candidates"] == []
+    else:
+        assert result["candidates"][0]["market"] == "HK"
 
 
 def test_candidate_engine_supports_hk_market_and_qualified_kline_symbol():
@@ -506,16 +629,17 @@ def test_candidate_engine_limits_snapshot_fallback_after_batch_failure():
     assert result["coverage"]["fundamental_batch_failure_count"] == 3
     assert result["coverage"]["fundamental_snapshot_failure_count"] == 0
     assert result["coverage"]["fundamental_snapshot_worker_limit"] == 3
-    assert result["coverage"]["fundamental_snapshot_timeout_seconds"] == 20.0
+    assert result["coverage"]["fundamental_snapshot_timeout_seconds"] == 50.0
     assert provider.snapshot_peak == 3
     assert set(provider.snapshot_requests) == set(symbols)
 
 
-def test_candidate_engine_reports_batch_and_snapshot_timeouts_separately():
+@pytest.mark.parametrize("code", ["UPSTREAM_TIMEOUT", "UPSTREAM_AUTH_REQUIRED", "UPSTREAM_FORBIDDEN"])
+def test_candidate_engine_does_not_repeat_unconfirmed_or_unauthorized_batch_as_snapshots(code):
     symbol = "000001"
 
     def comparison(_chunk):
-        raise MarketDataError("comparison request timed out")
+        raise MarketDataError("响应未确认" if code == "UPSTREAM_TIMEOUT" else "鉴权失败", code=code)
 
     provider = ComparisonFixtureProvider(
         [_quote(symbol, symbol, change=1.0, amount=2e9, turnover=3,
@@ -527,9 +651,11 @@ def test_candidate_engine_reports_batch_and_snapshot_timeouts_separately():
 
     result = StockCandidateEngine(provider).analyze()
 
-    assert result["coverage"]["fundamental_batch_timeout_count"] == 1
-    assert result["coverage"]["fundamental_snapshot_timeout_count"] == 1
-    assert result["coverage"]["fundamental_snapshot_failure_count"] == 1
+    assert result["coverage"]["fundamental_batch_timeout_count"] == (1 if code == "UPSTREAM_TIMEOUT" else 0)
+    assert result["coverage"]["fundamental_snapshot_fallback_count"] == 0
+    assert result["coverage"]["fundamental_snapshot_timeout_count"] == 0
+    assert result["coverage"]["fundamental_snapshot_failure_count"] == 0
+    assert provider.snapshot_requests == []
     assert result["data_state"] == "partial"
 
 
@@ -919,6 +1045,21 @@ class StockCandidateSnapshotHandlerTest(AsyncHTTPTestCase):
         get_analysis_history_registry().clear()
         stock_candidates_handler._RESULT_CACHE.clear()
         stock_candidates_handler._INFLIGHT.clear()
+
+    def test_http_and_persisted_history_keep_null_scan_valuation(self):
+        item = _quote("000001", "估值缺口", change=1, amount=2e9, turnover=3,
+                      volume_ratio=1, pe=None, pb=0, industry="银行")
+        provider = CandidateFixtureProvider([item], {"000001": _frame(growth=0.1)})
+        with patch.object(stock_candidates_handler, "get_market_data_provider", return_value=provider):
+            response = self.fetch("/api/v1/stock-candidates/snapshots?universeMode=quick")
+        assert response.code == 200
+        row = json.loads(response.body)["data"]["candidates"][0]
+        assert row["pe"] is None
+        assert row["pb"] == 0
+        registry = get_analysis_history_registry()
+        history = registry.get(registry.list("stock-candidates")[0]["history_id"])
+        assert history["payload"]["candidates"][0]["pe"] is None
+        assert history["payload"]["candidates"][0]["pb"] == 0
 
     def test_get_returns_v1_contract_and_registers_snapshot(self):
         items = [

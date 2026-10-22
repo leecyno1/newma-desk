@@ -17,6 +17,8 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, Callable, Mapping, Optional
 
+from instock.core.analysis_scope import analysis_scope
+
 
 HISTORY_SCHEMA_VERSION = "1.0"
 
@@ -38,7 +40,7 @@ class AnalysisHistoryRegistry:
         self._clock = clock
         self._wall_clock = wall_clock
         self._lock = RLock()
-        self._entries: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
+        self._entries: OrderedDict[tuple[str, str], tuple[float, dict[str, Any]]] = OrderedDict()
         self.db_path = str(db_path or "").strip()
         if self.db_path:
             path = Path(self.db_path).expanduser()
@@ -63,26 +65,32 @@ class AnalysisHistoryRegistry:
                     history_id TEXT PRIMARY KEY,
                     module_id TEXT NOT NULL,
                     stored_at REAL NOT NULL,
-                    entry_json TEXT NOT NULL
+                    entry_json TEXT NOT NULL,
+                    scope TEXT
                 )
                 """
             )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(analysis_history)")}
+            if "scope" not in columns:
+                # Old records have no proven owner. Preserve them without assigning
+                # them to the first workspace (or to the standalone user).
+                connection.execute("ALTER TABLE analysis_history ADD COLUMN scope TEXT")
             connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_analysis_history_module_time "
-                "ON analysis_history(module_id, stored_at DESC)"
+                "CREATE INDEX IF NOT EXISTS idx_analysis_history_scope_module_time "
+                "ON analysis_history(scope, module_id, stored_at DESC)"
             )
 
     def _purge_persistent(self, connection: sqlite3.Connection, now: float) -> None:
         connection.execute(
-            "DELETE FROM analysis_history WHERE stored_at <= ?",
-            (now - self.ttl_seconds,),
+            "DELETE FROM analysis_history WHERE scope = ? AND stored_at <= ?",
+            (analysis_scope.get(), now - self.ttl_seconds),
         )
 
     def _trim_persistent(self, connection: sqlite3.Connection) -> None:
         rows = connection.execute(
-            "SELECT history_id FROM analysis_history "
+            "SELECT history_id FROM analysis_history WHERE scope = ? "
             "ORDER BY stored_at DESC, rowid DESC LIMIT -1 OFFSET ?",
-            (self.max_entries,),
+            (analysis_scope.get(), self.max_entries),
         ).fetchall()
         if rows:
             connection.executemany(
@@ -164,18 +172,19 @@ class AnalysisHistoryRegistry:
                     self._purge_persistent(connection, now)
                     connection.execute(
                         "INSERT INTO analysis_history "
-                        "(history_id, module_id, stored_at, entry_json) VALUES (?, ?, ?, ?)",
+                        "(history_id, module_id, stored_at, entry_json, scope) VALUES (?, ?, ?, ?, ?)",
                         (
                             history_id,
                             normalized_module,
                             now,
                             json.dumps(entry, ensure_ascii=False, separators=(",", ":"), default=str),
+                            analysis_scope.get(),
                         ),
                     )
                     self._trim_persistent(connection)
                 return self._metadata(entry)
             self._purge_expired(now)
-            self._entries[history_id] = (now, entry)
+            self._entries[(analysis_scope.get(), history_id)] = (now, entry)
             while len(self._entries) > self.max_entries:
                 self._entries.popitem(last=False)
         return self._metadata(entry)
@@ -192,15 +201,15 @@ class AnalysisHistoryRegistry:
                     self._purge_persistent(connection, now)
                     rows = connection.execute(
                         "SELECT entry_json FROM analysis_history "
-                        "WHERE module_id = ? ORDER BY stored_at DESC, rowid DESC LIMIT ?",
-                        (normalized_module, safe_limit),
+                        "WHERE scope = ? AND module_id = ? ORDER BY stored_at DESC, rowid DESC LIMIT ?",
+                        (analysis_scope.get(), normalized_module, safe_limit),
                     ).fetchall()
                 return [self._metadata(json.loads(row[0])) for row in rows]
             self._purge_expired(now)
             matches = [
                 self._metadata(entry)
-                for _, entry in reversed(list(self._entries.values()))
-                if entry["module_id"] == normalized_module
+                for (scope, _), (_, entry) in reversed(list(self._entries.items()))
+                if scope == analysis_scope.get() and entry["module_id"] == normalized_module
             ]
         return matches[:safe_limit]
 
@@ -214,12 +223,12 @@ class AnalysisHistoryRegistry:
                 with self._connect() as connection:
                     self._purge_persistent(connection, now)
                     row = connection.execute(
-                        "SELECT entry_json FROM analysis_history WHERE history_id = ?",
-                        (key,),
+                        "SELECT entry_json FROM analysis_history WHERE scope = ? AND history_id = ?",
+                        (analysis_scope.get(), key),
                     ).fetchone()
                 return json.loads(row[0]) if row else None
             self._purge_expired(now)
-            entry = self._entries.get(key)
+            entry = self._entries.get((analysis_scope.get(), key))
             return deepcopy(entry[1]) if entry else None
 
     def clear(self) -> None:
@@ -230,6 +239,35 @@ class AnalysisHistoryRegistry:
                 return
             self._entries.clear()
 
+    def get_snapshot(self, snapshot_id: str) -> Optional[dict[str, Any]]:
+        """Read an exact top-level snapshot from retained, same-scope history.
+
+        Reading does not append history, refresh retention, or interpret embedded
+        references as independent snapshots. Legacy ownerless rows stay private.
+        """
+        key = str(snapshot_id or "").strip()
+        if not key:
+            return None
+        now = self._wall_clock() if self.persistent else self._clock()
+        with self._lock:
+            if self.persistent:
+                with self._connect() as connection:
+                    row = connection.execute(
+                        "SELECT entry_json FROM analysis_history WHERE scope = ? AND stored_at > ? "
+                        "AND json_extract(entry_json, '$.snapshot_id') = ? "
+                        "ORDER BY stored_at DESC, rowid DESC LIMIT 1",
+                        (analysis_scope.get(), now - self.ttl_seconds, key),
+                    ).fetchone()
+                entry = json.loads(row[0]) if row else None
+            else:
+                entry = next((entry for (scope, _), (stored_at, entry) in reversed(self._entries.items())
+                              if scope == analysis_scope.get() and now - stored_at < self.ttl_seconds
+                              and entry.get("snapshot_id") == key), None)
+            snapshot = (entry.get("payload") or {}).get("snapshot") if entry else None
+            if not isinstance(snapshot, dict) or snapshot.get("snapshot_id") != key or snapshot.get("schema_version") != "1.0":
+                return None
+            return deepcopy(snapshot)
+
     def stats(self) -> dict[str, Any]:
         now = self._wall_clock() if self.persistent else self._clock()
         with self._lock:
@@ -237,11 +275,11 @@ class AnalysisHistoryRegistry:
                 with self._connect() as connection:
                     self._purge_persistent(connection, now)
                     entries = int(connection.execute(
-                        "SELECT COUNT(*) FROM analysis_history"
+                        "SELECT COUNT(*) FROM analysis_history WHERE scope = ?", (analysis_scope.get(),)
                     ).fetchone()[0])
                     module_rows = connection.execute(
-                        "SELECT module_id, COUNT(*) FROM analysis_history "
-                        "GROUP BY module_id ORDER BY module_id"
+                        "SELECT module_id, COUNT(*) FROM analysis_history WHERE scope = ? "
+                        "GROUP BY module_id ORDER BY module_id", (analysis_scope.get(),)
                     ).fetchall()
                 return {
                     "storage": "sqlite",
@@ -254,13 +292,14 @@ class AnalysisHistoryRegistry:
                 }
             self._purge_expired(now)
             modules: dict[str, int] = {}
-            for _, entry in self._entries.values():
-                modules[entry["module_id"]] = modules.get(entry["module_id"], 0) + 1
+            for (scope, _), (_, entry) in self._entries.items():
+                if scope == analysis_scope.get():
+                    modules[entry["module_id"]] = modules.get(entry["module_id"], 0) + 1
             return {
                 "storage": "process_memory",
                 "volatile": True,
                 "cleared_on_restart": True,
-                "entries": len(self._entries),
+                "entries": sum(modules.values()),
                 "max_entries": self.max_entries,
                 "ttl_seconds": self.ttl_seconds,
                 "modules": dict(sorted(modules.items())),

@@ -65,7 +65,7 @@ _OFFICIAL_SIGNAL_RULES = (
 
 _CZSC_PRODUCTION_VERSION = "0.10.12"
 _CZSC_TESTED_VERSIONS = (_CZSC_PRODUCTION_VERSION, "1.0.0rc8")
-_ANALYSIS_MODEL_VERSION = "2.2.0"
+_ANALYSIS_MODEL_VERSION = "2.2.1"
 
 
 def _number(value: Any, digits: int = 4) -> float:
@@ -703,7 +703,12 @@ class CZSCAnalyzer:
 
             bars = [
                 czsc.RawBar(
-                    symbol=symbol, id=index, dt=row.date.to_pydatetime(), freq=freq_value,
+                    # Daily/weekly/monthly inputs are period labels, not UTC
+                    # instants. Explicit UTC transport keeps their wall dates
+                    # unchanged in both CZSC Python and Rust implementations;
+                    # Rust otherwise interprets naive midnight in the host TZ.
+                    symbol=symbol, id=index,
+                    dt=row.date.tz_localize(None).tz_localize("UTC").to_pydatetime(), freq=freq_value,
                     open=float(row.open), close=float(row.close), high=float(row.high), low=float(row.low),
                     vol=float(row.volume), amount=float(row.amount),
                 )

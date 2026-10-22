@@ -43,8 +43,8 @@
           "notes": {"type": "string"},
           "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
           "chain": {"type": "object", "required": ["nodes", "links"], "properties": {"nodes": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"type": "object"}}, "links": {"type": "array", "maxItems": 120, "items": {"type": "object"}}}, "additionalProperties": false},
-          "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
-          "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+          "layers": {"type": "array", "minItems": 0, "maxItems": 20, "items": {"type": "object"}},
+          "candidates": {"type": "array", "minItems": 0, "maxItems": 100, "items": {"type": "object"}}
         },
         "additionalProperties": false
       },

@@ -13,6 +13,17 @@ from instock.web.api_contract import AnalysisApiHandler
 
 
 class ResearchBookHandler(AnalysisApiHandler):
+    def get(self) -> None:
+        """Prepare a draft from a same-scope dossier snapshot; never save the draft."""
+        try:
+            result = ResearchBookEngine().draft_from_dossier(
+                self.get_query_argument("sourceSnapshotId", ""),
+                symbol=self.get_query_argument("symbol", "").strip().upper(),
+                market=self.get_query_argument("market", "CN").strip().upper())
+            self.write_success(result)
+        except ResearchBookError as exc:
+            self.write_error(400, "invalid_research_book_handoff", str(exc))
+
     def post(self) -> None:
         if not self.request.body:
             self.write_error(400, "empty_research_book_packet", "研究组合包不能为空")
@@ -24,16 +35,8 @@ class ResearchBookHandler(AnalysisApiHandler):
             return
         try:
             result = ResearchBookEngine().analyze(packet)
-            self.write_analysis_success(
-                result,
-                module_id="research-book",
-                title=f"{result.get('name') or '研究组合'} · 组合检查",
-                parameters={
-                    "name": result.get("name"),
-                    "asOf": result.get("as_of"),
-                    "items": (result.get("summary") or {}).get("items"),
-                },
-            )
+            self.write_analysis_success(result, module_id="research-book",
+                title=f"{result['name']} · 研究组合", parameters={"asOf": result["as_of"]})
         except ResearchBookError as exc:
             self.write_error(400, "invalid_research_book_packet", str(exc))
         except Exception:  # noqa: BLE001

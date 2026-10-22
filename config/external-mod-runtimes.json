@@ -383,10 +383,17 @@
           "criticality": { "local": "optional", "remote": "external" },
           "launch": {
             "command": "{{python}}",
-            "args": ["instock/web/web_service.py"],
+            "args": [
+              "-I", "-m", "instock.runtime", "--mode", "desk",
+              "--host", "127.0.0.1", "--port", "{{endpoint.port}}",
+              "--state-dir", "{{workspace}}/instock/cache",
+              "--log-dir", "{{workspace}}/instock/log"
+            ],
             "env": {
               "PYTHONUNBUFFERED": "1",
               "INSTOCK_SKIP_DB": "1",
+              "INSTOCK_DESK_SCOPE_URL": "http://127.0.0.1:8911/api/mods/runtime/instock-scope",
+              "INSTOCK_MARKET_SERVICES_URL": "http://127.0.0.1:8911",
               "INSTOCK_MARKET_DATA_PROVIDER": "vibedesk",
               "NEWMA_DESK_DATA_URL": "http://127.0.0.1:8911/api/research",
               "NEWMA_DESK_PARENT_ORIGIN": "http://127.0.0.1:5888",

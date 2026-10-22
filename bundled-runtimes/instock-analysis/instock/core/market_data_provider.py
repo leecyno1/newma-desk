@@ -29,10 +29,19 @@ import pandas as pd
 import requests
 
 from instock.core.analysis_snapshot import normalize_as_of
+from instock.runtime import validate_market_services_url
 
 
 class MarketDataError(RuntimeError):
     """Raised when a configured market-data adapter cannot return valid bars."""
+
+    def __init__(self, message: str, *, code: str = ""):
+        super().__init__(message)
+        self.code = code
+
+
+class MarketScanUnavailable(MarketDataError):
+    """The scan service failed; sibling sort axes are not a new data source."""
 
 
 class HistoricalWindowUnavailable(MarketDataError):
@@ -45,6 +54,15 @@ def _number(value: Any) -> float:
     except (TypeError, ValueError):
         return 0.0
     return number if math.isfinite(number) else 0.0
+
+
+def _scan_number(value: Any) -> Optional[float]:
+    """Missing scan metrics are not zero (especially ascending PE/PB ranks)."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 class MarketDataProvider(ABC):
@@ -95,6 +113,12 @@ class MarketDataProvider(ABC):
 
     def get_market_structure(self, *, refresh=False) -> Dict[str, Any]:
         raise MarketDataError("当前数据源尚未接入市场结构")
+
+    def get_trading_calendar(self, start: str, end: str) -> Dict[str, Any]:
+        raise MarketDataError("当前数据源尚未接入独立交易日历，不能用行情日期推定开休市")
+
+    def get_execution_prices(self, symbol: str, start: str, end: str) -> Dict[str, Any]:
+        raise MarketDataError("当前数据源尚未接入历史未复权价与涨跌停价")
 
     def get_market_evidence(self, code, as_of, industry, aliases, *, refresh=False) -> Dict[str, Any]:
         raise MarketDataError("当前数据源尚未接入复盘交叉证据")
@@ -186,10 +210,17 @@ class MarketDataProvider(ABC):
     ) -> Dict[str, Any]:
         """Return optional point-in-time industry valuation and quality scores."""
 
-        return {"as_of": as_of or "", "source": self.name, "items": {}}
+        return {"as_of": as_of or "", "source": "", "items": {}, "state": "not_configured",
+                "reason": "尚未接入行业级、带可用日期与来源的估值和基本面因子；不使用当前个股财务冒充行业点时证据。"}
 
     def get_security_announcements(self, symbol: str) -> list[Dict[str, Any]]:
         raise MarketDataError(f"{self.name} 行情适配器不支持公告数据")
+
+    def get_statement_evidence(self, symbol: str, announcement_id: str, source: str = "eastmoney") -> Dict[str, Any]:
+        raise MarketDataError(f"{self.name} 行情适配器不支持财报原件读取")
+
+    def get_statement_announcements(self, symbol: str) -> Dict[str, Any]:
+        raise MarketDataError(f"{self.name} 行情适配器不支持财报原件检索")
 
     def get_security_reports(self, symbol: str, pages: int = 1) -> list[Dict[str, Any]]:
         raise MarketDataError(f"{self.name} 行情适配器不支持研报数据")
@@ -206,6 +237,24 @@ class MarketDataProvider(ABC):
         """Return security-level dragon-tiger and institutional-seat evidence."""
 
         raise MarketDataError(f"{self.name} 行情适配器不支持龙虎榜机构证据")
+
+
+def get_scan_history(provider, item, *, limit: int) -> pd.DataFrame:
+    """Keep technical daily bars within the source scan's completed trading date."""
+    symbol = str(item["symbol"]).split(".")[0]
+    if str(item.get("market") or "CN").upper() == "HK":
+        symbol += ".HK"
+    if item.get("scan_frequency") != "daily":
+        return provider.get_kline(symbol, period="daily", limit=limit)
+    cutoff = normalize_as_of(str(item.get("scan_as_of") or "")[:10])
+    if not cutoff:
+        raise MarketDataError("日频扫描缺少有效截止日，不能混用最新日线")
+    frame = provider.get_kline(symbol, period="daily", limit=limit, as_of=cutoff)
+    dates = pd.to_datetime(frame["date"], errors="coerce").dt.date
+    frame = frame.loc[dates <= pd.Timestamp(cutoff).date()].tail(limit).copy()
+    if frame.empty:
+        raise MarketDataError(f"日频扫描截止 {cutoff} 没有可用日线")
+    return frame.reset_index(drop=True)
 
 
 def _normalize_kline(
@@ -289,6 +338,23 @@ class InStockMarketDataProvider(MarketDataProvider):
     """Use the current upstream project's fetch/cache implementation."""
 
     name = "instock"
+
+    def get_trading_calendar(self, start: str, end: str) -> Dict[str, Any]:
+        try:
+            from instock.core.crawling.trade_date_hist import tool_trade_date_hist_sina
+            frame = tool_trade_date_hist_sina()
+            dates = pd.DatetimeIndex(pd.to_datetime(frame["trade_date"])).sort_values().unique()
+        except ImportError as exc:
+            raise MarketDataError("Sina 日历解码依赖未安装，请使用已配置的 Desk 日历数据源") from exc
+        except Exception as exc:
+            raise MarketDataError("Sina 独立交易日历读取失败，未用行情日期替代") from exc
+        if dates.empty or dates.hasnans or dates[0] > pd.Timestamp(start) or dates[-1] < pd.Timestamp(end):
+            raise MarketDataError("Sina 交易日历未覆盖请求区间，不能将区间外日期视为休市")
+        return {"status": "ready", "exchange": "SSE", "start": start, "end": end,
+                "sessions": dates[(dates >= pd.Timestamp(start)) & (dates <= pd.Timestamp(end))].strftime("%Y-%m-%d").tolist(),
+                "source": "Sina 上海交易日列表", "receivedAt": datetime.now().astimezone().isoformat(),
+                "coverage": {"sourceStart": dates[0].strftime("%Y-%m-%d"), "sourceEnd": dates[-1].strftime("%Y-%m-%d"),
+                             "validation": "source_session_list_bounds_not_daily_open_closed_records"}}
 
     def get_kline(
         self,
@@ -376,20 +442,27 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         ),
     )
 
-    def __init__(self, base_url: str, token: str = "", timeout: float = 20.0):
+    def __init__(self, base_url: str, token: str = "", timeout: float = 20.0,
+                 *, market_services_url: str = "", market_services_token: str = ""):
         self.base_url = base_url.rstrip("/")
         self.token = token.strip()
         self.timeout = timeout
         parsed_base_url = urlsplit(self.base_url)
-        hostname = (parsed_base_url.hostname or "").lower()
-        self._bypass_system_proxy = (
-            hostname == "localhost" or hostname == "::1" or hostname.startswith("127.")
-        )
         self._use_data_service_gateway = parsed_base_url.path.rstrip("/") == "/api/research"
         self._desk_origin = (
             f"{parsed_base_url.scheme}://{parsed_base_url.netloc}"
             if parsed_base_url.scheme and parsed_base_url.netloc
             else self.base_url
+        )
+        self.market_services_url = (
+            validate_market_services_url(market_services_url) if market_services_url
+            else self._desk_origin if self._use_data_service_gateway else ""
+        )
+        # Only the legacy integrated gateway shares credentials. Explicit
+        # services never inherit the Research token, including on the same host.
+        self.market_services_token = (
+            market_services_token.strip() if market_services_url
+            else self.token if self._use_data_service_gateway else ""
         )
         self._equity_snapshot_cache: OrderedDict[str, tuple[float, Dict[str, Any]]] = (
             OrderedDict()
@@ -417,14 +490,27 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         )
 
     def _get(self, url: str, **kwargs):
-        if self._bypass_system_proxy:
+        if self._is_loopback(url):
             kwargs["proxies"] = {"http": None, "https": None}
         return requests.get(url, **kwargs)
 
     def _post(self, url: str, **kwargs):
-        if self._bypass_system_proxy:
+        if self._is_loopback(url):
             kwargs["proxies"] = {"http": None, "https": None}
         return requests.post(url, **kwargs)
+
+    @staticmethod
+    def _is_loopback(url: str) -> bool:
+        hostname = (urlsplit(url).hostname or "").lower()
+        return hostname == "localhost" or hostname == "::1" or hostname.startswith("127.")
+
+    def _research_url(self, path: str) -> str:
+        if self._use_data_service_gateway:
+            return f"{self.base_url}{path}"
+        # Standalone configuration accepts either the server root or its API
+        # prefix. Older callers include /api while newer research calls do not.
+        base = self.base_url if urlsplit(self.base_url).path.rstrip("/") else self.base_url + "/api"
+        return base + (path[4:] if path.startswith("/api/") else path)
 
     def _request_capability(
         self,
@@ -433,19 +519,21 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         parameters: Dict[str, Any],
         *,
         headers: Dict[str, str],
+        timeout: Optional[float] = None,
     ):
+        request_timeout = self.timeout if timeout is None else timeout
         if self._use_data_service_gateway:
             return self._post(
                 f"{self._desk_origin}/api/data-services/market-data/invoke/{capability}",
                 json=parameters,
                 headers=headers,
-                timeout=self.timeout,
+                timeout=request_timeout,
             )
         return self._get(
-            f"{self.base_url}{direct_path}",
+            self._research_url(direct_path),
             params=parameters,
             headers=headers,
-            timeout=self.timeout,
+            timeout=request_timeout,
         )
 
     def _invoke_json_capability(
@@ -453,12 +541,15 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         capability: str,
         direct_path: str,
         parameters: Dict[str, Any],
+        *,
+        timeout: Optional[float] = None,
     ) -> Any:
         headers: Dict[str, str] = {"Accept": "application/json"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         payload = None
         last_error: Exception | None = None
+        error_code = ""
         for attempt in range(2):
             try:
                 response = self._request_capability(
@@ -466,6 +557,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                     direct_path,
                     parameters,
                     headers=headers,
+                    timeout=timeout,
                 )
                 response.raise_for_status()
                 payload = response.json()
@@ -473,13 +565,31 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             except (requests.RequestException, ValueError) as exc:
                 last_error = exc
                 status_code = getattr(getattr(exc, "response", None), "status_code", None)
-                if attempt == 0 and status_code in {502, 503, 504}:
+                error_code = {401: "UPSTREAM_AUTH_REQUIRED", 403: "UPSTREAM_FORBIDDEN"}.get(status_code, "")
+                if isinstance(exc, requests.Timeout):
+                    error_code = "UPSTREAM_TIMEOUT"
+                error_response = getattr(exc, "response", None)
+                if error_response is not None:
+                    try:
+                        body = error_response.json()
+                        upstream_code = (body.get("error") or {}).get("code") if isinstance(body, dict) else None
+                        if upstream_code in {"UPSTREAM_TIMEOUT", "UPSTREAM_AUTH_REQUIRED", "UPSTREAM_FORBIDDEN"}:
+                            error_code = upstream_code
+                    except (ValueError, AttributeError, TypeError):
+                        pass  # HTTP status still identifies the failure; never expose the raw body.
+                if attempt == 0 and not error_code and status_code in {502, 503, 504}:
                     time.sleep(0.1)
                     continue
                 break
         if payload is None:
+            reason = {
+                "UPSTREAM_AUTH_REQUIRED": "数据服务鉴权失败，请检查服务端凭据",
+                "UPSTREAM_FORBIDDEN": "数据服务拒绝访问，请检查服务端权限",
+                "UPSTREAM_TIMEOUT": "数据服务响应超时，结果未确认；未自动重试",
+            }.get(error_code, "数据服务请求失败，未取得有效数据")
+            logging.warning("%s capability failed (%s)", capability, error_code or type(last_error).__name__)
             raise MarketDataError(
-                f"Newma-Desk {capability} capability 请求失败: {last_error or '未知错误'}"
+                f"Newma-Desk {capability}: {reason}", code=error_code
             ) from last_error
         return payload.get("data", payload) if isinstance(payload, dict) else payload
 
@@ -493,13 +603,16 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
     ) -> Any:
         """Call an existing Research HTTP Interface that is not a Data Service capability."""
 
+        if desk_native and not self.market_services_url:
+            raise MarketDataError("请配置 INSTOCK_MARKET_SERVICES_URL（或 --market-services-url）；Research 不提供基础市场服务")
         headers: Dict[str, str] = {"Accept": "application/json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
+        token = self.market_services_token if desk_native else self.token
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         request_timeout = self.timeout if timeout is None else max(float(timeout), 0.1)
         try:
             response = self._get(
-                f"{self._desk_origin if desk_native else self.base_url}{direct_path}",
+                f"{self.market_services_url}{direct_path}" if desk_native else self._research_url(direct_path),
                 params=parameters,
                 headers=headers,
                 timeout=request_timeout,
@@ -507,24 +620,34 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             response.raise_for_status()
             payload = response.json()
         except (requests.RequestException, ValueError) as exc:
+            if desk_native:
+                logging.warning("基础市场服务 %s 请求失败 (%s)", direct_path, type(exc).__name__)
+                raise MarketDataError("基础市场数据服务请求失败，请检查服务配置与可用性；未取得数据不等于无风险") from exc
             raise MarketDataError(f"Newma-Desk Research HTTP {direct_path} 请求失败: {exc}") from exc
         return payload.get("data", payload) if isinstance(payload, dict) else payload
 
     def health(self) -> Dict[str, Any]:
-        """Probe Desk's existing Research health route without loading market data."""
+        """Probe the configured service through the same transport as its data."""
 
         headers: Dict[str, str] = {"Accept": "application/json"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         try:
-            response = self._get(
-                f"{self.base_url}/health",
+            response = self._request_capability(
+                "market.health", "/health", {},
                 headers=headers,
                 timeout=min(max(float(self.timeout), 0.1), 2.0),
             )
             response.raise_for_status()
             payload = response.json()
         except (requests.RequestException, ValueError, TypeError) as exc:
+            if self._use_data_service_gateway and getattr(getattr(exc, "response", None), "status_code", None) == 404:
+                return {
+                    "status": "unavailable",
+                    "provider": self.name,
+                    "reason": "desk_health_capability_unavailable",
+                    "detail": "Desk 未提供 market.health 健康能力，请配套更新宿主数据服务声明；本次未确认数据服务状态。",
+                }
             return {
                 "status": "unavailable",
                 "provider": self.name,
@@ -574,6 +697,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                         "timeframe": timeframe,
                         "limit": upstream_limit,
                         "adjust": "qfq",
+                        **({"asOf": normalized_as_of} if normalized_as_of and market == "CN" and timeframe == "1d" else {}),
                     },
                     headers=headers,
                 )
@@ -600,11 +724,8 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                     as_of=normalized_as_of,
                 )
                 frame.attrs["data_endpoint"] = "/api/market-terminal/ohlcv"
-                frame.attrs["adjust"] = (
-                    str(data.get("adjust") or "qfq")
-                    if isinstance(data, dict)
-                    else "qfq"
-                )
+                actual_adjust = data.get("adjust") if isinstance(data, dict) else None
+                frame.attrs["adjust"] = actual_adjust if actual_adjust in ("qfq", "hfq", "none") else "unknown"
                 frame.attrs["upstream_limit"] = upstream_limit
                 frame.attrs["upstream_has_more"] = (
                     data.get("hasMore") if isinstance(data, dict) else None
@@ -641,7 +762,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         # /api/kline but not the unified adjusted market-terminal endpoint.
         try:
             response = self._get(
-                f"{self.base_url}/api/kline",
+                self._research_url("/api/kline"),
                 params={"code": symbol_code, "category": category, "offset": upstream_limit},
                 headers=headers,
                 timeout=self.timeout,
@@ -722,11 +843,8 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                     as_of=normalized_as_of,
                 )
                 frame.attrs["data_endpoint"] = "/api/market-terminal/ohlcv"
-                frame.attrs["adjust"] = (
-                    str(data.get("adjust") or "none")
-                    if isinstance(data, dict)
-                    else "none"
-                )
+                actual_adjust = data.get("adjust") if isinstance(data, dict) else None
+                frame.attrs["adjust"] = actual_adjust if actual_adjust in ("qfq", "hfq", "none") else "unknown"
                 frame.attrs["upstream_limit"] = upstream_limit
                 frame.attrs["upstream_has_more"] = (
                     data.get("hasMore") if isinstance(data, dict) else None
@@ -769,7 +887,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         if not self._use_data_service_gateway:
             try:
                 response = self._get(
-                    f"{self.base_url}/api/industry",
+                    self._research_url("/api/industry"),
                     params={"top": max(5, min(int(top), 50))},
                     headers=headers,
                     timeout=self.timeout,
@@ -783,6 +901,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             data = payload.get("data", payload) if isinstance(payload, dict) else payload
             if isinstance(data, dict):
                 result = {
+                    **data,
                     "top": data.get("top") or [],
                     "bottom": data.get("bottom") or [],
                     "total": int(data.get("total") or 0),
@@ -791,9 +910,14 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                     return result
 
         overview = self.get_market_overview()
+        breadth = overview.get("industryBreadth")
+        if isinstance(breadth, dict):
+            if not breadth.get("top") and not breadth.get("bottom"):
+                raise MarketDataError("日频行业广度暂不可用，未混用其他分类或时点")
+            return breadth
         sectors = [
             item for item in overview.get("sectors", [])
-            if isinstance(item, dict) and item.get("name")
+            if isinstance(item, dict) and item.get("name") and _scan_number(item.get("pct")) is not None
         ]
         sectors.sort(key=lambda item: float(item.get("pct") or 0), reverse=True)
         if not sectors:
@@ -805,8 +929,8 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 "rank": index + 1,
                 "name": str(item.get("name") or ""),
                 "change_pct": float(item.get("pct") or 0),
-                "net": float(item.get("net") or 0),
-                "firms": int(item.get("firms") or 0),
+                "net": _scan_number(item.get("net")),
+                "firms": _scan_number(item.get("firms")),
             }
             for index, item in enumerate(sectors)
         ]
@@ -835,12 +959,14 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             raise MarketDataError("Newma-Desk 市场宽度返回格式无效")
         sentiment = data.get("sentiment") or {}
         sectors = data.get("sectors") or []
-        if not sentiment and not sectors:
+        industry_breadth = data.get("industryBreadth")
+        if not sentiment and not sectors and not industry_breadth:
             raise MarketDataError("Newma-Desk 市场宽度暂时为空")
         return {
             "sentiment": sentiment if isinstance(sentiment, dict) else {},
             "sectors": sectors if isinstance(sectors, list) else [],
             "updated": str(data.get("updated") or ""),
+            **({"industryBreadth": industry_breadth} if isinstance(industry_breadth, dict) else {}),
         }
 
     def get_market_structure(self, *, refresh=False) -> Dict[str, Any]:
@@ -849,12 +975,30 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             raise MarketDataError("市场结构返回格式无效")
         return data
 
+    def get_trading_calendar(self, start: str, end: str) -> Dict[str, Any]:
+        data = self._invoke_research_http("/api/capital-flow/trading-calendar", {"start": start, "end": end}, desk_native=True)
+        if not isinstance(data, dict) or data.get("schemaVersion") != "newma-desk.trading-calendar.v1":
+            raise MarketDataError("独立交易日历返回格式无效")
+        if data.get("status") != "ready":
+            raise MarketDataError(data.get("reason") or "独立交易日历不可用，未改用行情日期")
+        return data
+
     def get_market_evidence(self, code, as_of, industry, aliases, *, refresh=False) -> Dict[str, Any]:
         data = self._invoke_research_http("/api/capital-flow/market-evidence", {
             "code": code, "as_of": as_of, "industry": industry, "aliases": list(aliases), "refresh": str(refresh).lower(),
         }, timeout=60, desk_native=True)
         if not isinstance(data, dict) or data.get("schemaVersion") != "newma-desk.market-evidence.v1":
             raise MarketDataError("复盘交叉证据返回格式无效")
+        return data
+
+    def get_execution_prices(self, symbol: str, start: str, end: str) -> Dict[str, Any]:
+        data = self._invoke_research_http("/api/capital-flow/execution-prices", {
+            "symbol": symbol, "start": start, "end": end,
+        }, timeout=45, desk_native=True)
+        if (not isinstance(data, dict) or data.get("schemaVersion") != "newma-desk.execution-prices.v1"
+                or data.get("symbol") != symbol or data.get("start") != start or data.get("end") != end
+                or data.get("priceBasis") != "unadjusted"):
+            raise MarketDataError("历史限价返回代码、日期或价格口径不匹配")
         return data
 
     def get_market_emotion(self) -> Dict[str, Any]:
@@ -916,7 +1060,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             headers["Authorization"] = f"Bearer {self.token}"
 
         def load_scan(scan_sort: str, scan_order: str, scan_limit: int):
-            last_error = ""
+            last_error = None
             for attempt in range(3):
                 try:
                     response = self._request_capability(
@@ -938,11 +1082,13 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                     if attempt < 2 and status_code in {502, 503, 504}:
                         time.sleep(0.1 * (attempt + 1))
                         continue
-                    last_error = str(exc)
+                    last_error = exc
                     break
-            raise MarketDataError(
-                f"Newma-Desk {market} 股票扫描请求失败: {last_error or '未知错误'}"
-            )
+            logging.warning("股票扫描失败：%s / %s / %s / %s",
+                            market, scan_sort, scan_order, type(last_error).__name__)
+            raise MarketScanUnavailable(
+                f"{market} 股票行情扫描暂不可用，未取得候选池；请检查数据服务或稍后重试。"
+            ) from last_error
 
         data = load_scan(sort, order, limit)
         if not isinstance(data, dict) or not isinstance(data.get("items"), list):
@@ -960,11 +1106,16 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 raise MarketDataError(f"Newma-Desk {market} 股票扫描返回格式无效")
             raw_items = [raw for raw in data["items"] if isinstance(raw, dict)]
             gateway_market_cap_fallback = True
-        enriched_items, quote_as_of, quote_source = self._enrich_scan_quotes(
-            raw_items, market=market
-        )
+        source_coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
+        if source_coverage.get("frequency") == "daily":
+            # Keep the daily cross-section coherent; never mix in a live quote.
+            enriched_items, quote_as_of, quote_source = raw_items, "", ""
+        else:
+            enriched_items, quote_as_of, quote_source = self._enrich_scan_quotes(
+                raw_items, market=market
+            )
         raw_items = enriched_items or raw_items
-        amount_proxy = sort == "amount" and not any(
+        amount_proxy = source_coverage.get("frequency") != "daily" and sort == "amount" and not any(
             _number(raw.get("amount")) > 0 for raw in raw_items
         )
         sort_field = {
@@ -977,10 +1128,13 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             "pb": "pb",
         }[sort]
         if not amount_proxy:
-            raw_items.sort(
-                key=lambda raw: _number(raw.get(sort_field)),
+            known_items = [raw for raw in raw_items if _scan_number(raw.get(sort_field)) is not None]
+            missing_items = [raw for raw in raw_items if _scan_number(raw.get(sort_field)) is None]
+            known_items.sort(
+                key=lambda raw: _scan_number(raw.get(sort_field)),
                 reverse=order == "desc",
             )
+            raw_items = known_items + missing_items
         raw_items = raw_items[:limit]
         items = []
         for raw in raw_items:
@@ -993,16 +1147,20 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 "name": name,
                 "market": str(raw.get("market") or market).upper(),
                 "exchange": str(raw.get("exchange") or ""),
-                "price": _number(raw.get("price")),
-                "change_pct": _number(raw.get("changePct", raw.get("change_pct"))),
-                "amount": _number(raw.get("amount")),
-                "turnover_pct": _number(raw.get("turnoverPct", raw.get("turnover_pct"))),
-                "volume_ratio": _number(raw.get("volumeRatio", raw.get("volume_ratio"))),
-                "market_cap": _number(raw.get("marketCap", raw.get("market_cap"))),
-                "float_market_cap": _number(raw.get("floatMarketCap", raw.get("float_market_cap"))),
-                "pe": _number(raw.get("pe")),
-                "pb": _number(raw.get("pb")),
+                "scan_frequency": str(source_coverage.get("frequency") or ""),
+                "scan_as_of": str(data.get("asOf") or data.get("as_of") or ""),
+                "price": _scan_number(raw.get("price")),
+                "change_pct": _scan_number(raw.get("changePct", raw.get("change_pct"))),
+                "amount": _scan_number(raw.get("amount")),
+                "turnover_pct": _scan_number(raw.get("turnoverPct", raw.get("turnover_pct"))),
+                "volume_ratio": _scan_number(raw.get("volumeRatio", raw.get("volume_ratio"))),
+                "market_cap": _scan_number(raw.get("marketCap", raw.get("market_cap"))),
+                "float_market_cap": _scan_number(raw.get("floatMarketCap", raw.get("float_market_cap"))),
+                "pe": _scan_number(raw.get("pe")),
+                "pb": _scan_number(raw.get("pb")),
                 "industry": str(raw.get("industry") or ""),
+                "industry_classification": dict(raw["industryClassification"])
+                    if isinstance(raw.get("industryClassification"), dict) else {},
                 "industry_l1": str(
                     raw.get("industryL1") or raw.get("industry_l1")
                     or raw.get("l1Industry") or raw.get("l1_industry")
@@ -1018,6 +1176,17 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         source = str(data.get("source") or self.name)
         if quote_source:
             source = f"{source}+{quote_source}"
+        observations = []
+        if coverage.get("frequency"):
+            observations.append({
+                "market": market, "source": source,
+                "as_of": str(data.get("asOf") or ""),
+                "received_at": str(data.get("receivedAt") or ""),
+                "frequency": coverage["frequency"], "realtime": coverage.get("realtime"),
+                "listed_count": coverage.get("listedCount"), "quote_count": coverage.get("quoteCount"),
+                "missing_quote_count": coverage.get("missingQuoteCount"),
+                "basic_count": coverage.get("basicCount"), "note": str(coverage.get("note") or ""),
+            })
         return {
             "items": items,
             "market": str(data.get("market") or market).upper(),
@@ -1026,6 +1195,8 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             "source": source,
             "as_of": quote_as_of or str(data.get("asOf") or data.get("as_of") or ""),
             "coverage": {
+                **coverage,
+                **({"observations": observations} if observations else {}),
                 "requested": int(coverage.get("requested") or limit),
                 "returned": int(coverage.get("returned") or len(items)),
                 "quote_enriched": bool(quote_source),
@@ -1067,17 +1238,17 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 "name": name,
                 "market": "CN",
                 "exchange": "",
-                "price": _number(raw.get("price")),
-                "change_pct": _number(raw.get("pct", raw.get("changePct"))),
+                "price": _scan_number(raw.get("price")),
+                "change_pct": _scan_number(raw.get("pct", raw.get("changePct"))),
                 "amount": _number(raw.get("amount")),
-                "turnover_pct": 0.0,
-                "volume_ratio": 0.0,
-                "market_cap": _number(raw.get("mcap", raw.get("marketCap"))),
-                "float_market_cap": _number(
+                "turnover_pct": _scan_number(raw.get("turnoverPct")),
+                "volume_ratio": _scan_number(raw.get("volumeRatio")),
+                "market_cap": _scan_number(raw.get("mcap", raw.get("marketCap"))),
+                "float_market_cap": _scan_number(
                     raw.get("float_cap", raw.get("floatMarketCap"))
                 ),
-                "pe": 0.0,
-                "pb": 0.0,
+                "pe": _scan_number(raw.get("pe")),
+                "pb": _scan_number(raw.get("pb")),
                 "industry": str(raw.get("industry") or ""),
                 "industry_l1": str(raw.get("industryL1") or raw.get("industry_l1") or ""),
                 "industry_l2": str(raw.get("industryL2") or raw.get("industry_l2") or ""),
@@ -1156,6 +1327,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 "sort": "marketCap",
                 "order": "desc",
                 "coverage": {
+                    **(fallback.get("coverage") or {}),
                     "requested": safe_limit,
                     "returned": len(items),
                     "quote_enriched": bool(
@@ -1191,6 +1363,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             "source": f"{turnover['source']}+{fallback.get('source') or self.name}",
             "as_of": turnover.get("as_of") or fallback.get("as_of") or "",
             "coverage": {
+                **(fallback.get("coverage") or {}),
                 "requested": safe_limit,
                 "returned": len(combined),
                 "quote_enriched": bool((fallback.get("coverage") or {}).get("quote_enriched")),
@@ -1240,8 +1413,9 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         as_of_values = []
         scans = []
         failures = []
+        observations = []
         for market in normalized_markets:
-            for sort, order in scan_axes:
+            for axis_index, (sort, order) in enumerate(scan_axes):
                 try:
                     scan = self.get_stock_scan(
                         market=market,
@@ -1256,6 +1430,9 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                         "order": order,
                         "error": str(exc),
                     })
+                    if isinstance(exc, MarketScanUnavailable):
+                        failures[-1]["skipped_axes"] = len(scan_axes) - axis_index - 1
+                        break
                     continue
                 source = str(scan.get("source") or "")
                 if source and source not in sources:
@@ -1264,11 +1441,15 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 if as_of:
                     as_of_values.append(as_of)
                 rows = scan.get("items") or []
+                for observation in (scan.get("coverage") or {}).get("observations") or []:
+                    if observation not in observations:
+                        observations.append(dict(observation))
                 scans.append({
                     "market": market,
                     "sort": sort,
                     "order": order,
                     "returned": len(rows),
+                    "coverage": scan.get("coverage") or {},
                 })
                 row_count = max(len(rows), 1)
                 for rank, raw in enumerate(rows, 1):
@@ -1302,6 +1483,12 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                             6,
                         )
         if not items_by_key:
+            if failures:
+                skipped = sum(failure.get("skipped_axes", 0) for failure in failures)
+                raise MarketDataError(
+                    f"宽覆盖行情扫描未完成（{len(failures)} 项查询失败、{skipped} 项未执行），未取得可分析候选。"
+                    "请检查数据服务或稍后重试，不能据此判断没有符合条件的股票。"
+                )
             raise MarketDataError("Newma-Desk CN/HK 宽覆盖扫描没有返回候选")
         items = list(items_by_key.values())
         security_master = self.get_security_master_status()
@@ -1320,6 +1507,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 "markets": list(normalized_markets),
                 "scan_count": len(scans),
                 "scan_failures": failures,
+                "observations": observations,
                 "scans": scans,
                 "full_security_master": False,
                 "security_master": security_master,
@@ -1408,19 +1596,12 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 if cached and now - cached[0] < self._equity_snapshot_cache_ttl:
                     self._equity_snapshot_cache[code] = cached
                     return deepcopy(cached[1])
-        try:
-            data = self._invoke_json_capability(
-                "research.equity-snapshot",
-                "/equity-research/snapshot",
-                {"symbol": code},
-            )
-        except MarketDataError:
-            if not self._use_data_service_gateway:
-                raise
-            data = self._invoke_research_http(
-                "/equity-research/snapshot",
-                {"symbol": code},
-            )
+        data = self._invoke_json_capability(
+            "research.equity-snapshot",
+            "/equity-research/snapshot",
+            {"symbol": code},
+            timeout=max(self.timeout, 50.0),
+        )
         if not isinstance(data, dict) or not isinstance(data.get("identity"), dict):
             raise MarketDataError("Newma-Desk 股票研究快照返回格式无效")
         with self._equity_snapshot_cache_lock:
@@ -1429,6 +1610,37 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             while len(self._equity_snapshot_cache) > self._equity_snapshot_cache_max_entries:
                 self._equity_snapshot_cache.popitem(last=False)
         return deepcopy(data)
+
+    def get_statement_evidence(self, symbol: str, announcement_id: str, source: str = "eastmoney") -> Dict[str, Any]:
+        code = str(symbol or "").split(".")[0]
+        parameters = {"code": code, "announcementId": announcement_id}
+        if source != "eastmoney":
+            parameters["source"] = source
+        try:
+            data = self._invoke_json_capability("research.statement-evidence", "/equity-research/statement-evidence",
+                                                parameters)
+        except MarketDataError as error:
+            logging.warning("财报原件能力调用失败：%s / %s", code, announcement_id)
+            response = getattr(error.__cause__, "response", None)
+            if getattr(response, "status_code", None) == 422:
+                raise MarketDataError(
+                    "所选公告未通过证券身份或财报格式校验，未用于核对。"
+                    "请查找本公司财报，重新选择年度/半年度全文；不要直接重复核对同一编号。"
+                ) from error
+            raise MarketDataError("未能读取财报原件，尚未完成核对。请打开原公告确认附件可读，或稍后重试；无需重新生成公司档案。") from error
+        if not isinstance(data, dict) or data.get("symbol") != code or data.get("announcementId") != announcement_id or data.get("announcementSource", "eastmoney") != source or data.get("contentOrigin") != "pdf-text":
+            raise MarketDataError("财报原件身份或内容类型不匹配，未用于核对")
+        return data
+
+    def get_statement_announcements(self, symbol: str) -> Dict[str, Any]:
+        code = str(symbol or "").split(".")[0]
+        try:
+            data = self._invoke_json_capability("research.statement-announcements", "/equity-research/statement-announcements", {"code": code})
+        except MarketDataError as error:
+            raise MarketDataError("巨潮财报列表暂不可读，可稍后重试或直接粘贴已知公告链接") from error
+        if not isinstance(data, dict) or data.get("symbol") != code or data.get("source") != "cninfo":
+            raise MarketDataError("财报列表来源或证券不符，未用于本公司核对")
+        return data
 
     def get_equity_comparison(
         self,
@@ -1453,7 +1665,8 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 if cached and now - cached[0] < self._equity_comparison_cache_ttl:
                     self._equity_comparison_cache[cache_key] = cached
                     return deepcopy(cached[1])
-        data = self._invoke_research_http(
+        data = self._invoke_json_capability(
+            "research.equity-comparison",
             "/equity-research/comparison",
             {"symbols": ",".join(codes)},
             timeout=max(self.timeout, 60.0),
@@ -1476,9 +1689,9 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
             "/announcements",
             {"code": str(symbol or "").split(".")[0]},
         )
-        if not isinstance(data, list):
+        if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
             raise MarketDataError("Newma-Desk 公告返回格式无效")
-        return [dict(item) for item in data if isinstance(item, dict)]
+        return [dict(item) for item in data]
 
     def get_security_reports(self, symbol: str, pages: int = 1) -> list[Dict[str, Any]]:
         data = self._invoke_json_capability(
@@ -1489,9 +1702,9 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 "pages": max(1, min(int(pages), 5)),
             },
         )
-        if not isinstance(data, list):
+        if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
             raise MarketDataError("Newma-Desk 研报返回格式无效")
-        return [dict(item) for item in data if isinstance(item, dict)]
+        return [dict(item) for item in data]
 
     def get_security_news(self, symbol: str, limit: int = 10) -> list[Dict[str, Any]]:
         data = self._invoke_json_capability(
@@ -1502,9 +1715,9 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 "limit": max(1, min(int(limit), 50)),
             },
         )
-        if not isinstance(data, list):
+        if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
             raise MarketDataError("Newma-Desk 新闻返回格式无效")
-        return [dict(item) for item in data if isinstance(item, dict)]
+        return [dict(item) for item in data]
 
     def get_dragon_tiger_evidence(self, symbol: str) -> Dict[str, Any]:
         code = str(symbol or "").strip().upper().split(".")[0]
@@ -1555,7 +1768,7 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
         failures = []
         successful = 0
         for source_id, label, endpoint, units in self._EVENT_FLOW_SOURCES:
-            exposed_endpoint = f"{urlsplit(self.base_url).path.rstrip('/')}{endpoint}" or endpoint
+            exposed_endpoint = urlsplit(self._research_url(endpoint)).path
             try:
                 data = self._invoke_research_http(endpoint, {"code": code})
                 if not isinstance(data, (list, dict)):
@@ -1572,11 +1785,14 @@ class NewmaDeskMarketDataProvider(MarketDataProvider):
                 }
                 successful += 1
             except MarketDataError as exc:
+                response = getattr(exc.__cause__, "response", None)
+                status = getattr(response, "status_code", None)
+                status_text = f"（HTTP {status}）" if status is not None else ""
                 failures.append({
                     "source": source_id,
                     "label": label,
                     "endpoint": exposed_endpoint,
-                    "message": str(exc),
+                    "message": f"数据源暂不可用{status_text}，请稍后刷新；未取得数据不等于没有相关活动",
                 })
                 sources[source_id] = {
                     "id": source_id,
@@ -1605,26 +1821,31 @@ VibeDeskMarketDataProvider = NewmaDeskMarketDataProvider
 def get_market_data_provider() -> MarketDataProvider:
     """Build the configured adapter without coupling callers to environment details."""
 
-    # New analysis surfaces consume Newma-Desk by default.  The upstream
-    # InStock crawler remains an explicit fallback for users that still need it.
+    # Select the adapter here, but never infer another local application's URL.
+    # The upstream InStock crawler remains an explicit operator choice.
     provider = os.environ.get("INSTOCK_MARKET_DATA_PROVIDER", "newma-desk").strip().lower()
     if provider == "instock":
         return InStockMarketDataProvider()
-    if provider in {"newma-desk", "newma", "vibedesk"}:
+    if provider in {"http", "newma-desk", "newma", "vibedesk"}:
         base_url = (
-            os.environ.get("NEWMA_DESK_DATA_URL")
+            os.environ.get("INSTOCK_DATA_URL")
+            or os.environ.get("NEWMA_DESK_DATA_URL")
             or os.environ.get("NEWMA_DOCK_DATA_URL")
             or os.environ.get("VIBEDESK_DATA_URL")
-            or "http://127.0.0.1:8911/api/research"
+            or ""
         ).strip()
+        if not base_url:
+            raise MarketDataError("请配置 INSTOCK_DATA_URL 或兼容的 Desk 数据地址；未自动连接本机 Desk")
         token = (
-            os.environ.get("NEWMA_DESK_DATA_TOKEN")
+            os.environ.get("INSTOCK_DATA_TOKEN")
+            or os.environ.get("NEWMA_DESK_DATA_TOKEN")
             or os.environ.get("NEWMA_DOCK_DATA_TOKEN")
             or os.environ.get("VIBEDESK_DATA_TOKEN")
             or ""
         )
         timeout = (
-            os.environ.get("NEWMA_DESK_DATA_TIMEOUT")
+            os.environ.get("INSTOCK_DATA_TIMEOUT")
+            or os.environ.get("NEWMA_DESK_DATA_TIMEOUT")
             or os.environ.get("NEWMA_DOCK_DATA_TIMEOUT")
             or os.environ.get("VIBEDESK_DATA_TIMEOUT")
             or "20"
@@ -1633,6 +1854,8 @@ def get_market_data_provider() -> MarketDataProvider:
             base_url=base_url,
             token=token,
             timeout=float(timeout),
+            market_services_url=os.environ.get("INSTOCK_MARKET_SERVICES_URL", "").strip(),
+            market_services_token=os.environ.get("INSTOCK_MARKET_SERVICES_TOKEN", ""),
         )
     logging.error("未知行情适配器: %s", provider)
     raise MarketDataError(f"未知行情适配器: {provider}")

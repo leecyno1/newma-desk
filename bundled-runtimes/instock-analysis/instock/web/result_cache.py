@@ -12,6 +12,8 @@ from copy import deepcopy
 from threading import RLock
 from typing import Any, Callable
 
+from instock.core.analysis_scope import analysis_scope
+
 
 class BoundedTTLCache:
     def __init__(
@@ -37,6 +39,7 @@ class BoundedTTLCache:
             self._entries.pop(key, None)
 
     def get(self, key: Any) -> Any | None:
+        key = (analysis_scope.get(), key)
         now = self._clock()
         with self._lock:
             self._purge_expired(now)
@@ -47,6 +50,7 @@ class BoundedTTLCache:
             return deepcopy(entry[1])
 
     def set(self, key: Any, value: Any) -> None:
+        key = (analysis_scope.get(), key)
         now = self._clock()
         with self._lock:
             self._purge_expired(now)
@@ -66,7 +70,7 @@ class BoundedTTLCache:
             return {
                 "storage": "process_memory",
                 "volatile": True,
-                "entries": len(self._entries),
+                "entries": sum(key[0] == analysis_scope.get() for key in self._entries),
                 "max_entries": self.max_entries,
                 "ttl_seconds": self.ttl_seconds,
             }
@@ -79,6 +83,7 @@ class AsyncTaskCoalescer:
         self._tasks: dict[Any, asyncio.Task] = {}
 
     def get(self, key: Any) -> asyncio.Task | None:
+        key = (analysis_scope.get(), key)
         task = self._tasks.get(key)
         if task is not None and task.get_loop() is not asyncio.get_running_loop():
             self._tasks.pop(key, None)
@@ -86,9 +91,10 @@ class AsyncTaskCoalescer:
         return task
 
     def set(self, key: Any, task: asyncio.Task) -> None:
-        self._tasks[key] = task
+        self._tasks[(analysis_scope.get(), key)] = task
 
     def discard(self, key: Any, task: asyncio.Task) -> None:
+        key = (analysis_scope.get(), key)
         if self._tasks.get(key) is task:
             self._tasks.pop(key, None)
 
@@ -96,4 +102,4 @@ class AsyncTaskCoalescer:
         self._tasks.clear()
 
     def __len__(self) -> int:
-        return len(self._tasks)
+        return sum(key[0] == analysis_scope.get() for key in self._tasks)

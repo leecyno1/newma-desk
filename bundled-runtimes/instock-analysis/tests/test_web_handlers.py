@@ -34,6 +34,24 @@ from instock.web.integration_api import (
 )
 
 
+class StockResearchFailureTest(AsyncHTTPTestCase):
+    def get_app(self):
+        from instock.web.stock_research_handler import StockResearchDossierHandler
+        return tornado.web.Application([(r"/api/v1/stock-research/dossiers", StockResearchDossierHandler)])
+
+    def test_source_failure_explains_recovery_without_internal_address(self):
+        from instock.core.market_data_provider import MarketDataError
+        with patch("instock.web.stock_research_handler.get_market_data_provider",
+                   side_effect=MarketDataError("HTTPConnectionPool(host='internal-source', port=8991)")):
+            response = self.fetch("/api/v1/stock-research/dossiers?symbol=300502&refresh=1")
+        body = json.loads(response.body)
+        assert response.code == 502
+        assert body["error"]["code"] == "market_data_unavailable"
+        assert "重试" in body["error"]["message"]
+        assert "internal-source" not in response.body.decode()
+        assert "HTTPConnectionPool" not in response.body.decode()
+
+
 def test_native_runtime_probe_returns_sanitized_failure():
     integration_api._native_analysis_runtime_readiness.cache_clear()
     completed = SimpleNamespace(returncode=7, stderr="loader failed at /private/runtime")
@@ -357,6 +375,23 @@ class AnalysisHandlerTest(AsyncHTTPTestCase):
             (r"/\.well-known/newma-desk-suite\.json", NewmaDeskSuiteHandler),
         ])
 
+    def test_another_workspace_research_book_history_is_not_public(self):
+        from instock.core.analysis_scope import analysis_scope, desk_scope
+        registry = get_analysis_history_registry()
+        token = analysis_scope.set(desk_scope("private-user", "private-workspace"))
+        try:
+            legacy = registry.register(module_id="research-book", title="私有观察组合", payload={"name": "旧组合私有理由"})
+        finally:
+            analysis_scope.reset(token)
+        listed = self.fetch("/api/v1/analysis-history?moduleId=research-book")
+        assert json.loads(listed.body)["data"] == []
+        assert self.fetch(f"/api/v1/analysis-history/{legacy['history_id']}").code == 404
+        token = analysis_scope.set(desk_scope("private-user", "private-workspace"))
+        try:
+            assert registry.get(legacy["history_id"])["payload"]["name"] == "旧组合私有理由"
+        finally:
+            analysis_scope.reset(token)
+
     @gen_test
     async def test_rotation_concurrent_refreshes_share_one_analysis(self):
         url = self.get_url("/api/rotation/snapshot?window=60&benchmark=510300&refresh=1")
@@ -565,6 +600,20 @@ class AnalysisHandlerTest(AsyncHTTPTestCase):
             raise_error=False,
         )
         assert loose_format.code == 400
+
+    @gen_test
+    async def test_standalone_reports_actual_lifecycle_and_http_configuration(self):
+        with patch.dict(os.environ, {"INSTOCK_RUNTIME_MODE": "standalone",
+                                     "INSTOCK_MARKET_DATA_PROVIDER": "http"}):
+            for endpoint in ("health", "capabilities"):
+                response = await self.http_client.fetch(self.get_url(f"/api/v1/{endpoint}"))
+                data = json.loads(response.body)["data"]
+                assert data["runtime"]["mode"] == "standalone"
+                assert data["runtime"]["lifecycle_owner"] == "operator"
+                assert data["runtime"]["standalone_deployment"] is True
+                if endpoint == "health":
+                    assert data["market_data"]["configured"] is True
+                    assert data["market_data"]["configured_as"] == "http"
 
     @gen_test
     async def test_health_and_capabilities_report_analysis_and_market_data_separately(self):

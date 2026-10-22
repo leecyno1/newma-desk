@@ -30,6 +30,7 @@
           "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
           "holding_period_sessions": {"type": "integer", "minimum": 1, "maximum": 60},
           "cost_bps_per_side": {"type": "integer", "minimum": 0, "maximum": 100},
+          "capital_model": {"type": "object", "required": ["mode", "slots"], "properties": {"mode": {"const": "fixed_sleeves"}, "slots": {"type": "integer", "minimum": 1, "maximum": 20}}, "additionalProperties": false},
           "signals": {"type": "array", "minItems": 2, "maxItems": 200, "items": {"type": "object"}}
         },
         "additionalProperties": false

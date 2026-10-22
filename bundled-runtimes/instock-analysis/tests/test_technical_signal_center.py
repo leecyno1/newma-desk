@@ -2,6 +2,7 @@ import math
 from datetime import datetime, timedelta
 
 import pandas as pd
+import pytest
 
 from instock.core.market_data_provider import MarketDataError, MarketDataProvider
 from instock.core.signals import TechnicalSignalCenterEngine, TechnicalSignalCenterError
@@ -74,6 +75,22 @@ class FixtureProvider(MarketDataProvider):
             "sort_basis": "amount_top20_then_marketCap",
         })
         return result
+
+
+@pytest.mark.parametrize("adjust,expected", [("qfq", "qfq"), ("none", "mixed"), ("unknown", "mixed")])
+def test_signal_snapshot_reports_actual_history_adjustment(adjust, expected):
+    provider = FixtureProvider()
+    provider.frames["300502"].attrs.update(adjust=adjust, upstream_source="fallback")
+    result = TechnicalSignalCenterEngine(provider).analyze(universe_mode="quick")
+    row = next(row for row in result["rows"] if row["symbol"] == "300502")
+    assert row["history_adjust"] == adjust
+    assert row["history_source"] == "fallback"
+    assert result["snapshot"]["provenance"]["adjust"] == expected
+    assert result["coverage"]["unadjusted_history_count"] == int(adjust == "none")
+    assert result["coverage"]["unknown_adjustment_history_count"] == int(adjust == "unknown")
+    if adjust != "qfq":
+        assert result["data_state"] == "partial"
+        assert "price_history_adjustment_requires_review" in result["limitations"]
 
 
 class DragonTigerProvider(FixtureProvider):
@@ -235,6 +252,26 @@ class FundamentalProvider(FixtureProvider):
         }
 
 
+@pytest.mark.parametrize("empty", [False, True])
+def test_signal_daily_scan_observations_survive_even_empty_screening(monkeypatch, empty):
+    provider = FixtureProvider()
+    scan = provider.get_liquidity_scan(limit=30)
+    observations = [{"market": "CN", "source": "tushare-daily", "frequency": "daily",
+                     "realtime": False, "as_of": "2026-10-19T15:00:00+08:00",
+                     "quote_count": 3, "listed_count": 4, "missing_quote_count": 1}]
+    scan["coverage"]["observations"] = observations
+    monkeypatch.setattr(provider, "get_liquidity_scan", lambda **kwargs: scan)
+    result = TechnicalSignalCenterEngine(provider, max_workers=2).analyze(
+        universe_mode="quick", universe_size=30, bars=260,
+        filters={"min_amount": 1e20} if empty else None,
+    )
+    assert result["coverage"]["scan_observations"] == observations
+    assert result["data_state"] == "partial"
+    assert "daily_scan_not_realtime" in result["limitations"]
+    if empty:
+        assert result["coverage"]["analyzed_count"] == 0
+
+
 def test_signal_center_unifies_indicators_patterns_and_ten_legacy_strategies():
     result = TechnicalSignalCenterEngine(FixtureProvider(), max_workers=2).analyze(
         universe_size=30, bars=260
@@ -394,6 +431,39 @@ def test_signal_center_applies_hard_rules_and_reports_exclusions():
     assert result["coverage"]["matched_count"] == 1
     assert {row["symbol"] for row in result["excluded_by_rules"]} == {"000001", "600000"}
     assert all(row["reasons"] for row in result["excluded_by_rules"])
+
+
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_signal_center_preserves_partial_market_scan_coverage(empty, failed):
+    class ScanProvider(CrossMarketProvider):
+        def get_candidate_universe(self, **kwargs):
+            scan = super().get_candidate_universe(**kwargs)
+            if failed:
+                scan["items"] = [item for item in scan["items"] if item.get("market") == "HK"]
+                scan["coverage"]["scan_failures"] = [{
+                    "market": "CN", "sort": "amount", "order": "desc",
+                    "error": "行情源不可用", "skipped_axes": 10,
+                }]
+            return scan
+
+        def get_dragon_tiger_evidence(self, symbol):
+            return {"records": [], "institution": {}}
+
+    result = TechnicalSignalCenterEngine(ScanProvider()).analyze(
+        universe_size=30, bars=260, market="CN_HK", universe_mode="broad",
+        filters={"industries": ["不存在行业"]} if empty else None,
+    )
+    assert result["data_state"] == ("partial" if failed else "complete")
+    assert ("partial_market_scan_coverage" in result["limitations"]) is failed
+    assert result["coverage"]["scan_failed_count"] == int(failed)
+    assert result["coverage"]["scan_skipped_count"] == (10 if failed else 0)
+    assert result["snapshot"]["input"]["summary"]["scan_failures"] == result["coverage"]["scan_failures"]
+    assert result["snapshot"]["data_window"]["coverage"] == result["data_state"]
+    if empty:
+        assert result["rows"] == []
+    elif failed:
+        assert {row["market"] for row in result["rows"]} == {"HK"}
 
 
 def test_signal_center_supports_combined_cn_hk_universe():

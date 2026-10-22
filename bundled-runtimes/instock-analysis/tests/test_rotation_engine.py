@@ -48,6 +48,8 @@ class FixtureProvider(MarketDataProvider):
         self.industry_calls = 0
         self.overview_calls = 0
         self.kline_as_of = []
+        # Deliberately synthetic sessions, independent of mutable price fixtures.
+        self.sessions = pd.date_range("2025-01-01", periods=145)
         self.frames = {
             "510300": _bars(0.0005),
             "100001": _bars(0.0030),
@@ -55,6 +57,11 @@ class FixtureProvider(MarketDataProvider):
             "100003": _bars(0.0001),
             "100004": _bars(-0.0012),
         }
+
+    def get_trading_calendar(self, start, end):
+        sessions = self.sessions[(self.sessions >= pd.Timestamp(start)) & (self.sessions <= pd.Timestamp(end))]
+        return {"status": "ready", "exchange": "SSE", "start": start, "end": end,
+                "source": "synthetic_test_calendar", "sessions": sessions.strftime("%Y-%m-%d").tolist()}
 
     def get_kline(self, symbol, period="daily", limit=480, as_of=None):
         if symbol == self.fail_code:
@@ -82,13 +89,14 @@ class FixtureProvider(MarketDataProvider):
             {"rank": 60, "name": "消费", "change_pct": -0.2, "up_count": 4, "down_count": 6, "code": "C"},
             {"rank": 100, "name": "地产", "change_pct": -2.0, "up_count": 1, "down_count": 9, "code": "D"},
         ]
-        return {"top": rows[:2], "bottom": rows[2:], "total": 100}
+        return {"top": rows[:2], "bottom": rows[2:], "total": 100, "as_of": "2025-05-25"}
 
     def get_market_overview(self):
         self.overview_calls += 1
         return {
             "sentiment": {
                 "up": 3405, "down": 1664, "flat": 128,
+                "date": "2025-05-25",
                 "breadth": "偏强", "speculation": "亢奋",
             },
             "sectors": [],
@@ -100,7 +108,7 @@ def test_rotation_engine_ranks_strong_relative_momentum_first():
     result = RotationEngine(FixtureProvider(), universe=UNIVERSE, max_workers=2).analyze(60, "510300")
 
     assert result["data_state"] == "complete"
-    assert result["engine"]["version"] == "2.1.1"
+    assert result["engine"]["version"] == "2.3.3"
     assert result["universe_standard"] == "申万行业分类标准（2021版）一级行业"
     assert result["proxy_count"] == 0
     assert result["successful_count"] == 4
@@ -200,6 +208,124 @@ def test_rotation_engine_activates_point_in_time_slow_factors_at_broad_coverage(
     assert all(row["factor_availability"]["valuation"] for row in result["etfs"])
     assert all(row["factor_availability"]["fundamental_quality"] for row in result["etfs"])
     assert all(row["slow_factor_source"] == "desk-point-in-time-fixture" for row in result["etfs"])
+
+
+def test_missing_industry_breadth_is_null_not_neutral_confirmation():
+    result = RotationEngine(FixtureProvider(fail_industry=True), universe=UNIVERSE).analyze()
+    assert all(row["industry_day_change"] is None for row in result["etfs"])
+    assert all(row["factor_scores"]["industry"] is None for row in result["etfs"])
+    assert all(row["industry_breadth"]["state"] == "unavailable" for row in result["etfs"])
+    breadth = RotationEngine._market_breadth({"sentiment": {"up": 10, "down": None, "flat": None}})
+    assert breadth["state"] == "unavailable" and breadth["up_ratio"] is None
+    assert breadth["down"] is None and breadth["flat"] is None
+
+
+def test_undated_breadth_cannot_confirm_dated_prices():
+    class UndatedProvider(FixtureProvider):
+        def get_market_overview(self):
+            overview = super().get_market_overview()
+            overview["sentiment"].pop("date", None)
+            return overview
+
+        def get_industry_ranking(self, top=50):
+            result = super().get_industry_ranking(top)
+            result.pop("as_of", None)
+            return result
+
+    result = RotationEngine(UndatedProvider(), universe=UNIVERSE).analyze()
+    assert result["market_breadth"]["reason"] == "missing_date"
+    assert result["market_breadth"]["state"] == "unavailable"
+    assert result["market_breadth"]["up_ratio"] is None
+    for row in result["etfs"]:
+        assert row["industry_breadth"]["reason"] == "missing_date"
+        assert row["industry_breadth"]["state"] == "unavailable"
+        assert row["industry_breadth"]["up_ratio"] is None
+        assert row["factor_scores"]["industry"] is None
+
+
+def test_invalid_flat_count_is_not_silently_dropped_from_breadth():
+    class InvalidFlatProvider(FixtureProvider):
+        def get_industry_ranking(self, top=50):
+            result = super().get_industry_ranking(top)
+            result["as_of"] = "2025-05-25"
+            for row, value in zip(result["top"] + result["bottom"], [-1, 0.5, "bad", float("inf")]):
+                row["flat_count"] = value
+            return result
+
+    result = RotationEngine(InvalidFlatProvider(), universe=UNIVERSE).analyze()
+    for row in result["etfs"]:
+        assert row["industry_breadth"]["state"] == "unavailable"
+        assert row["industry_breadth"]["up_ratio"] is None
+        assert row["industry_breadth"]["flat_count"] is None
+        assert row["factor_scores"]["industry"] is None
+
+
+def test_daily_confirmation_requires_same_day_and_undated_slow_factors_are_excluded():
+    class DailyProvider(FixtureProvider):
+        def get_industry_ranking(self, top=50):
+            return {"top": [{"name": "银行", "code": "801780.SI", "rank": 1,
+                "up_count": 0, "down_count": 0, "flat_count": 5,
+                "change_pct": 0, "as_of": "2025-05-25", "source": "tushare.daily+index_member_all",
+                "change_method": "equal_weight_member_daily_pct"}], "total": 1}
+    provider = DailyProvider()
+    slow = {"source": "undated-input", "items": {item.code: {
+        "valuation_score": 99, "fundamental_quality_score": 99} for item in UNIVERSE}}
+    result = RotationEngine(provider, universe=UNIVERSE).analyze(slow_factors=slow)
+    bank = next(row for row in result["etfs"] if row["industry"] == "银行")
+    assert bank["industry_breadth"]["state"] == "available"
+    assert bank["industry_breadth"]["up_ratio"] == 0
+    assert bank["industry_day_change"] == 0
+    assert result["factor_model"]["active_factor_count"] == 5
+    provider.frames["100002"] = provider.frames["100002"].iloc[:-1].copy()
+    result = RotationEngine(provider, universe=UNIVERSE).analyze(slow_factors=slow)
+    bank = next(row for row in result["etfs"] if row["industry"] == "银行")
+    assert bank["industry_breadth"]["reason"] == "date_mismatch"
+    assert bank["industry_day_change"] is None and bank["factor_scores"]["industry"] is None
+
+
+def test_completed_daily_breadth_sets_shared_price_cutoff_without_overriding_user_history():
+    class CompletedDayProvider(FixtureProvider):
+        def get_market_overview(self):
+            overview = super().get_market_overview()
+            day = "2025-05-24"
+            overview["sentiment"].update(date=day)
+            overview["industryBreadth"] = {
+                "as_of": day, "source": "daily-fixture", "coverage": {
+                    "frequency": "daily", "realtime": False, "tradeDate": day,
+                    "scope": "all_returned_daily_quotes"},
+                "top": [{"name": "银行", "code": "801780.SI", "rank": 1,
+                    "up_count": 0, "down_count": 3, "flat_count": 2,
+                    "change_pct": -1, "as_of": day, "source": "daily-fixture"}],
+            }
+            return overview
+
+    provider = CompletedDayProvider()
+    result = RotationEngine(provider, universe=UNIVERSE).analyze()
+    assert result["as_of"] == "2025-05-24"
+    assert result["requested_as_of"] is None
+    assert result["price_cutoff"]["mode"] == "completed_daily_snapshot"
+    assert all(value == "2025-05-24" for _, value in provider.kline_as_of)
+    assert result["market_breadth"]["state"] == "available"
+    bank = next(row for row in result["etfs"] if row["industry"] == "银行")
+    assert bank["industry_breadth"]["state"] == "available"
+    assert bank["industry_breadth"]["up_ratio"] == 0
+    assert provider.industry_calls == 0
+    provider.kline_as_of.clear()
+    history = RotationEngine(provider, universe=UNIVERSE).analyze(as_of="2025-05-23")
+    assert history["as_of"] == "2025-05-23"
+    assert history["price_cutoff"]["mode"] == "requested_history"
+    assert all(value == "2025-05-23" for _, value in provider.kline_as_of)
+    assert history["market_breadth"]["state"] == "unavailable"
+    future = {"as_of": "2025-05-25", "strategy_id": RotationEngine.shadow_strategy_id,
+              "last_rebalance_date": "2025-05-20", "models": [
+                  {"id": "balanced-w60", "selected_code": "100004"}]}
+    isolated = RotationEngine(provider, universe=UNIVERSE).analyze(shadow_state=future)
+    shadow = isolated["parameter_consensus"]["shadow_state"]
+    assert shadow["lifecycle_state"] == "future_state_isolated"
+    assert shadow["models"] == [] and shadow["model_count"] == 0
+    assert shadow["signal_id"] == "" and shadow["new_signal"] is False
+    assert shadow["previous_as_of"] == "2025-05-25"
+    assert isolated["parameter_consensus"]["model_count"] == 9
 
 
 def test_rotation_engine_attaches_sector_fund_flow_as_confirmation_only():
@@ -513,7 +639,7 @@ def test_rotation_engine_degrades_when_one_etf_and_industry_fail():
     assert result["successful_count"] == 3
     assert result["failures"][0]["code"] == "100004"
     assert any("行业广度" in warning for warning in result["warnings"])
-    assert all(row["factor_scores"]["industry"] == 50 for row in result["etfs"])
+    assert all(row["factor_scores"]["industry"] is None for row in result["etfs"])
 
 
 def test_rotation_engine_marks_small_data_lag_and_uses_benchmark_as_of():
@@ -552,7 +678,7 @@ def test_rotation_engine_historical_as_of_avoids_current_industry_snapshot():
     assert provider.industry_calls == 0
     assert provider.overview_calls == 0
     assert all(value == as_of for _, value in provider.kline_as_of)
-    assert all(row["factor_scores"]["industry"] == 50 for row in result["etfs"])
+    assert all(row["factor_scores"]["industry"] is None for row in result["etfs"])
     assert result["snapshot"]["freshness"]["state"] == "historical"
     assert result["snapshot"]["freshness"]["resolution"] == "exact"
     assert result["parameter_consensus"]["shadow_state"]["lifecycle_state"] == (

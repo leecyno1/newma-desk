@@ -273,6 +273,7 @@
     },
     {
       "id": "instock-rotation",
+      "version": "0.27.0",
       "name": "行业与 ETF 轮动",
       "description": "覆盖申万2021版31个一级行业，以七因子排名和9模型参数一致性辅助观察，并明示行业ETF代理口径。",
       "tags": ["行业轮动", "ETF", "相对强弱", "量化"],
@@ -363,6 +364,7 @@
     },
     {
       "id": "instock-industry-chain",
+      "version": "0.37.1",
       "name": "产业链研究",
       "description": "沿产业链节点与关系识别供应链瓶颈，并按证据质量核验上市公司暴露。",
       "tags": ["产业链", "供应链", "瓶颈研究", "证据研究"],
@@ -387,8 +389,8 @@
                 "notes": {"type": "string"},
                 "evidence": {"type": "array", "minItems": 1, "maxItems": 300, "items": {"type": "object"}},
                 "chain": {"type": "object", "required": ["nodes", "links"], "properties": {"nodes": {"type": "array", "minItems": 1, "maxItems": 60, "items": {"type": "object"}}, "links": {"type": "array", "maxItems": 120, "items": {"type": "object"}}}, "additionalProperties": false},
-                "layers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
-                "candidates": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}
+                "layers": {"type": "array", "minItems": 0, "maxItems": 20, "items": {"type": "object"}},
+                "candidates": {"type": "array", "minItems": 0, "maxItems": 100, "items": {"type": "object"}}
               },
               "additionalProperties": false
             },
@@ -462,8 +464,11 @@
       "route": "/mods/stock-research",
       "navigation": {"itemOrder": 6, "label": "股票研究档案"},
       "manifest": {
+        "dataServices": ["instock-analysis"],
         "events": {"emits": ["security.selected"], "accepts": ["security.selected"]},
         "actions": {
+          "analysis.stock-statement-announcements": {"binding":{"type":"data","service":"instock-analysis","capability":"analysis.stock-statement-announcements"},"execution":"request","permission":"analysis.read","inputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["symbol"],"properties":{"symbol":{"type":"string","pattern":"^[0-9]{6}(\\.(SH|SZ|BJ))?$"}},"additionalProperties":false},"outputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["ok","data","meta"],"properties":{"ok":{"const":true},"meta":{"type":"object"},"data":{"type":"object","required":["symbol","source","items","begin","end","hasMore","boundary"],"properties":{"symbol":{"type":"string"},"source":{"const":"cninfo"},"items":{"type":"array"},"begin":{"type":"string","format":"date"},"end":{"type":"string","format":"date"},"hasMore":{"type":"boolean"},"boundary":{"type":"string"}}}}},"confirmation":"none","timeoutSeconds":120},
+          "analysis.stock-statement-evidence": {"binding":{"type":"data","service":"instock-analysis","capability":"analysis.stock-statement-evidence"},"execution":"request","permission":"analysis.read","inputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["symbol","announcementId"],"properties":{"symbol":{"type":"string","pattern":"^[0-9]{6}(\\.(SH|SZ|BJ))?$"},"announcementId":{"type":"string","pattern":"^(AN[0-9]{10,30}|[0-9]{10,20})$"},"source":{"enum":["eastmoney","cninfo"],"default":"eastmoney"}},"additionalProperties":false},"outputSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["ok","data","meta"],"properties":{"ok":{"const":true},"meta":{"type":"object"},"data":{"type":"object","required":["symbol","announcementId","announcementSource","periodEnd","facts","pdfUrl","contentOrigin"],"properties":{"symbol":{"type":"string"},"announcementId":{"type":"string"},"announcementSource":{"enum":["eastmoney","cninfo"]},"periodEnd":{"type":"string","format":"date"},"facts":{"type":"array"},"pdfUrl":{"type":"string","format":"uri"},"contentOrigin":{"const":"pdf-text"}}}}},"confirmation":"none","timeoutSeconds":120},
           "analysis.stock-research": {
             "binding": {"type": "data", "capability": "analysis.stock-research"},
             "execution": "request",
@@ -493,6 +498,7 @@
     },
     {
       "id": "instock-strategy-validation",
+      "version": "0.25.0",
       "name": "策略验证",
       "description": "统一选股、CZSC 与轮动研究信号的点时验证语义，固定下一交易日开盘执行、成本和样本外切分。",
       "tags": ["策略验证", "样本外", "回撤", "成本", "点时数据"],
@@ -516,6 +522,7 @@
                 "benchmark": {"type": "string", "pattern": "^[0-9]{6}$"},
                 "holding_period_sessions": {"type": "integer", "minimum": 1, "maximum": 60},
                 "cost_bps_per_side": {"type": "integer", "minimum": 0, "maximum": 100},
+                "capital_model": {"type": "object", "required": ["mode", "slots"], "properties": {"mode": {"const": "fixed_sleeves"}, "slots": {"type": "integer", "minimum": 1, "maximum": 20}}, "additionalProperties": false},
                 "signals": {"type": "array", "minItems": 2, "maxItems": 200, "items": {"type": "object"}}
               },
               "additionalProperties": false
@@ -558,7 +565,8 @@
     {
       "id": "instock-research-book",
       "name": "研究组合",
-      "description": "汇总观察理由、证伪条件、Snapshot 引用、行业暴露与风险，不包含持久化和交易。",
+      "version": "0.24.0",
+      "description": "汇总观察理由、证伪条件、来源对照和研究暴露；检查记录按工作区保留，不记录真实持仓或交易。",
       "tags": ["研究组合", "观察列表", "证伪条件", "风险暴露", "Snapshot"],
       "route": "/mods/research-book",
       "navigation": {"itemOrder": 11, "label": "研究组合"},
