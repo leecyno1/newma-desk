@@ -1,0 +1,272 @@
+diff --git a/apps/shell/src/components/ModuleFrame.sessions.test.tsx b/apps/shell/src/components/ModuleFrame.sessions.test.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bb94c1bf6cf1251eab30c17b03276d9062e543e
+--- /dev/null
++++ b/apps/shell/src/components/ModuleFrame.sessions.test.tsx
+@@ -0,0 +1,70 @@
++import { act, render, screen, waitFor } from "@testing-library/react";
++import type { ModManifest } from "@newma-desk/contracts";
++import { afterEach, expect, it, vi } from "vitest";
++import { ShellEventBus } from "../events/ShellEventBus";
++import { readNewmaSessions } from "../lib/hostSessions";
++import { ModFrame } from "./ModuleFrame";
++
++vi.mock("../lib/hostSessions", () => ({ readNewmaSessions: vi.fn() }));
++afterEach(() => vi.clearAllMocks());
++
++const manifest: ModManifest = {
++  schemaVersion: "1.1", id: "workflow-sessions", name: "会话看板", version: "0.1.0",
++  category: "workflow", entry: { type: "external", url: "https://workflow.example/" },
++  permissions: ["sessions.read"], dataServices: [], events: { emits: [], accepts: [] },
++  compatibility: { level: 3, bridgeProtocol: "1.0", viewSpecVersion: "1.0" },
++  actions: { "sessions.snapshot": { binding: { type: "local" }, execution: "request", permission: "sessions.read", confirmation: "none" } },
++};
++
++async function openBoard(permissions = ["sessions.read"], actions = ["sessions.snapshot"]) {
++  const eventBus = new ShellEventBus();
++  const actionInvoker = vi.fn();
++  const sessionIssuer = vi.fn(async ({ instanceId }: { instanceId: string }) => ({
++    sessionId: "board", instanceId, accessToken: "test-only", tokenType: "Bearer" as const,
++    expiresAt: "2099-01-01T00:00:00Z", userId: "test", workspaceId: "desk",
++    moduleId: manifest.id, revision: 1, grants: { permissions, actions },
++  }));
++  const view = render(<ModFrame manifest={manifest} eventBus={eventBus} theme="light"
++    sessionIssuer={sessionIssuer} actionInvoker={actionInvoker} contextSaver={async () => undefined} />);
++  const frame = screen.getByTitle("会话看板") as HTMLIFrameElement;
++  const post = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => undefined);
++  const send = (data: object) => act(() => {
++    window.dispatchEvent(new MessageEvent("message", { source: frame.contentWindow, origin: "https://workflow.example", data }));
++  });
++  send({ type: "vibedesk:hello", modId: manifest.id, protocolVersions: ["1.0"], capabilities: ["actions", "context"] });
++  await waitFor(() => expect(post.mock.calls.some(([message]) => message.type === "vibedesk:init")).toBe(true));
++  const init = post.mock.calls.find(([message]) => message.type === "vibedesk:init")![0];
++  send({ type: "vibedesk:ack", modId: manifest.id, instanceId: init.instanceId, protocolVersion: "1.0" });
++  return { view, post, eventBus, actionInvoker, request(input = {}) {
++    send({ type: "vibedesk:action-request", requestId: "snapshot", modId: manifest.id,
++      instanceId: init.instanceId, actionId: "sessions.snapshot", input });
++  } };
++}
++
++it("reads through the host only with granted session permissions and invalidates on unmount", async () => {
++  const snapshot = { source: "newma-hermes" as const, scope: "default", fetchedAt: new Date().toISOString(), truncated: false, sessions: [] };
++  vi.mocked(readNewmaSessions).mockResolvedValue(snapshot);
++  const board = await openBoard();
++  board.request();
++  await waitFor(() => expect(board.post).toHaveBeenCalledWith(expect.objectContaining({ type: "vibedesk:action-result", ok: true, result: snapshot }), "https://workflow.example"));
++  expect(board.actionInvoker).not.toHaveBeenCalled();
++  const isCurrent = vi.mocked(readNewmaSessions).mock.calls[0]![0]!.isCurrent!;
++  expect(isCurrent()).toBe(true);
++  board.view.unmount();
++  expect(isCurrent()).toBe(false);
++  board.eventBus.close();
++});
++
++it.each([
++  { permissions: [], actions: ["sessions.snapshot"], input: {} },
++  { permissions: ["sessions.read"], actions: [], input: {} },
++  { permissions: ["sessions.read"], actions: ["sessions.snapshot"], input: { profile: "other" } },
++])("rejects missing grants or caller-selected scope: %j", async ({ permissions, actions, input }) => {
++  const board = await openBoard(permissions, actions);
++  board.request(input);
++  await waitFor(() => expect(board.post).toHaveBeenCalledWith(expect.objectContaining({ type: "vibedesk:action-result", ok: false }), "https://workflow.example"));
++  expect(readNewmaSessions).not.toHaveBeenCalled();
++  expect(board.actionInvoker).not.toHaveBeenCalled();
++  board.view.unmount();
++  board.eventBus.close();
++});
+diff --git a/apps/shell/src/components/ModuleFrame.tsx b/apps/shell/src/components/ModuleFrame.tsx
+index 6f6ac874d4d56bad38b4bd14b1f50db4e1ac04c2..e412f5ac466dad3cd02105b6d2c36ffee92519b2 100644
+--- a/apps/shell/src/components/ModuleFrame.tsx
++++ b/apps/shell/src/components/ModuleFrame.tsx
+@@ -55,6 +55,8 @@ import {
+ } from "../api/modSessions";
+ import { resolveModUrl } from "../lib/moduleUrl";
+ 
++import { readNewmaSessions } from "../lib/hostSessions";
++
+ const EmbeddedMarketFrame = lazy(() => import("./EmbeddedMarketFrame"));
+ const EmbeddedIntelligenceFrame = import.meta.env.DEV
+   ? lazy(() => import("./EmbeddedIntelligenceFrame"))
+@@ -679,6 +681,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
+     if (!frame || !resolution.src) return;
+ 
+     const expectedOrigin = new URL(resolution.src).origin;
++    let active = true;
+     let registeredWindow: Window | null = null;
+     const pendingContextRequests = new Map<
+       string,
+@@ -1114,15 +1117,27 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
+             ? requestContext("agent")
+             : Promise.resolve();
+         void synchronizeContext
+-          .then(() =>
+-            withSessionRecovery((session) =>
++          .then(() => {
++            if (manifest.id === "workflow-sessions" && actionRequest.data.actionId === "sessions.snapshot") {
++              return withSessionRecovery(async (session) => {
++                if (actionDefinition?.binding.type !== "local" || actionDefinition.permission !== "sessions.read"
++                  || !session.grants.permissions.includes("sessions.read")
++                  || !session.grants.actions.includes("sessions.snapshot")
++                  || Object.keys(actionRequest.data.input).length !== 0) {
++                  throw new Error("当前看板没有读取会话的授权。");
++                }
++                const body = await readNewmaSessions({ isCurrent: () => active });
++                return { status: 200, body };
++              });
++            }
++            return withSessionRecovery((session) =>
+               actionInvoker(
+                 session,
+                 actionRequest.data.actionId,
+                 actionRequest.data.input,
+               ),
+-            ),
+-          )
++            );
++          })
+           .then(({ status, body }) => {
+             currentWindow.postMessage(
+               deskActionResultSchema.parse({
+@@ -1186,6 +1201,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
+     frame.addEventListener("error", handleError);
+     window.addEventListener("message", handleMessage);
+     return () => {
++      active = false;
+       frame.removeEventListener("load", handleLoad);
+       frame.removeEventListener("error", handleError);
+       window.removeEventListener("message", handleMessage);
+diff --git a/apps/shell/src/lib/hostSessions.test.ts b/apps/shell/src/lib/hostSessions.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9264479c99c8338d7a96a46aedfc6722ef25102b
+--- /dev/null
++++ b/apps/shell/src/lib/hostSessions.test.ts
+@@ -0,0 +1,55 @@
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { readNewmaSessions } from "./hostSessions";
++
++const identity = { projectId: "workflow-center-suite", workspaceId: "workspace-1", parentOrigin: "https://newma.example", parentMessageOrigin: "https://newma.example", parentTargetOrigin: "https://newma.example" };
++const snapshot = { source: "newma-hermes", scope: "default", fetchedAt: "2026-10-23T10:00:00.000Z", truncated: false, sessions: [] };
++afterEach(() => vi.useRealTimers());
++function harness() {
++  const target = { postMessage: vi.fn() } as unknown as Window;
++  const reply = (data: object = {}, event: object = {}) => {
++    const sent = vi.mocked(target.postMessage).mock.calls[0]?.[0];
++    window.dispatchEvent(new MessageEvent("message", { source: target, origin: identity.parentOrigin,
++      data: { ...sent, type: "newma:sessions-result", ok: true, snapshot, ...data }, ...event }));
++  };
++  return { target, reply };
++}
++describe("newma session metadata bridge", () => {
++  it("requires an attached Web host", async () => {
++    await expect(readNewmaSessions({ identity: null })).rejects.toThrow("未连接");
++  });
++  it("accepts only the exact parent, request and workspace", async () => {
++    const { target, reply } = harness();
++    const result = readNewmaSessions({ identity, target });
++    reply({}, { origin: "https://wrong.example" });
++    reply({}, { source: window });
++    reply({ workspaceId: "another-workspace" });
++    reply({ requestId: "another-request" });
++    reply();
++    expect(await result).toEqual(snapshot);
++  });
++  it("rejects cross-origin session links and drops extra payload fields", async () => {
++    const { target, reply } = harness();
++    const result = readNewmaSessions({ identity, target });
++    reply({ snapshot: { ...snapshot, sessions: [{ id: "s1", title: "test", projectId: "p", projectName: "p", model: "", status: "idle", attention: "", pinned: false, readOnly: false, updatedAt: null, url: "https://wrong.example/session/s1" }] } });
++    await expect(result).rejects.toThrow("跳转地址");
++    const next = harness();
++    const accepted = readNewmaSessions({ identity, target: next.target });
++    next.reply({ snapshot: { ...snapshot, messages: ["should not be forwarded"] } });
++    expect(await accepted).not.toHaveProperty("messages");
++  });
++  it("rejects late results after a module switch", async () => {
++    const { target, reply } = harness();
++    const result = readNewmaSessions({ identity, target, isCurrent: () => false });
++    reply();
++    await expect(result).rejects.toThrow("已切换");
++  });
++  it("times out once without retrying or starting a model", async () => {
++    vi.useFakeTimers();
++    const { target } = harness();
++    const result = readNewmaSessions({ identity, target });
++    const assertion = expect(result).rejects.toThrow("未响应");
++    await vi.advanceTimersByTimeAsync(10000);
++    await assertion;
++    expect(target.postMessage).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/apps/shell/src/lib/hostSessions.ts b/apps/shell/src/lib/hostSessions.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..19c270eb95ee30db88cc2a04713989104231794f
+--- /dev/null
++++ b/apps/shell/src/lib/hostSessions.ts
+@@ -0,0 +1,38 @@
++import { sessionBoardSnapshotSchema, type SessionBoardSnapshot } from "@newma-desk/contracts";
++import { newmaHostIdentityFromLocation, type NewmaHostIdentity } from "./hostBridge";
++
++export function readNewmaSessions(options: {
++  identity?: NewmaHostIdentity | null; target?: Window; isCurrent?: () => boolean;
++} = {}): Promise<SessionBoardSnapshot> {
++  const identity = options.identity === undefined ? newmaHostIdentityFromLocation() : options.identity;
++  const target = options.target ?? window.parent;
++  if (!identity || target === window || identity.parentOrigin === "file://") {
++    return Promise.reject(new Error("未连接支持会话看板的 newma Web 宿主；独立 Desk 暂不读取 Hermes 登录凭据。"));
++  }
++  return new Promise((resolve, reject) => {
++    const requestId = crypto.randomUUID();
++    const cleanup = () => { window.clearTimeout(timer); window.removeEventListener("message", receive); };
++    const receive = (event: MessageEvent) => {
++      const data = event.data;
++      if (event.source !== target || event.origin !== identity.parentMessageOrigin || !data
++        || data.type !== "newma:sessions-result" || data.protocol !== "newma:mod-host:v1"
++        || data.requestId !== requestId || data.projectId !== identity.projectId
++        || data.workspaceId !== identity.workspaceId || data.modId !== "workflow-sessions") return;
++      cleanup();
++      if (options.isCurrent && !options.isCurrent()) { reject(new Error("看板已切换，请重新读取会话。")); return; }
++      if (data.ok !== true) { reject(new Error("newma 无法读取当前会话，请检查登录或 Profile 后重试。")); return; }
++      const parsed = sessionBoardSnapshotSchema.safeParse(data.snapshot);
++      if (!parsed.success || parsed.data.sessions.some((row) => {
++        const link = new URL(row.url);
++        return link.origin !== identity.parentOrigin || Boolean(link.username || link.password);
++      })) { reject(new Error("宿主返回的会话数据或跳转地址不符合约定。")); return; }
++      resolve(parsed.data);
++    };
++    const timer = window.setTimeout(() => {
++      cleanup(); reject(new Error("宿主未响应会话读取，请确认 newma 和 Desk 均已加载看板接入版本。"));
++    }, 10000);
++    window.addEventListener("message", receive);
++    target.postMessage({ type: "newma:sessions-request", protocol: "newma:mod-host:v1", requestId,
++      projectId: identity.projectId, workspaceId: identity.workspaceId, modId: "workflow-sessions" }, identity.parentTargetOrigin);
++  });
++}
+diff --git a/packages/contracts/src/index.ts b/packages/contracts/src/index.ts
+index 51b01e6e657e1014793f5c024185e85bf1670e81..29b593fd290f3877e30bf32a2ec6f0370aa72345 100644
+--- a/packages/contracts/src/index.ts
++++ b/packages/contracts/src/index.ts
+@@ -1,4 +1,5 @@
+ export * from "./bridge";
++export * from "./session-board";
+ export * from "./catalyst";
+ export * from "./earnings";
+ export * from "./event";
+diff --git a/packages/contracts/src/session-board.ts b/packages/contracts/src/session-board.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..61e8dc419ed50086eb0901f4c1cbd7e49645d66a
+--- /dev/null
++++ b/packages/contracts/src/session-board.ts
+@@ -0,0 +1,14 @@
++import { z } from "zod";
++
++/** Metadata only; never include messages, workspaces, credentials or tool output. */
++export const sessionBoardSnapshotSchema = z.object({
++  source: z.literal("newma-hermes"), scope: z.string().min(1).max(300), fetchedAt: z.string().datetime(),
++  truncated: z.boolean(), sessions: z.array(z.object({
++    id: z.string().min(1).max(256), title: z.string().max(300), projectId: z.string().max(128),
++    projectName: z.string().max(200), model: z.string().max(160),
++    status: z.enum(["attention", "running", "queued", "idle", "unknown"]),
++    attention: z.string().max(120), pinned: z.boolean(), readOnly: z.boolean(),
++    updatedAt: z.string().datetime().nullable(), url: z.string().url().max(2048),
++  })).max(500),
++});
++export type SessionBoardSnapshot = z.infer<typeof sessionBoardSnapshotSchema>;

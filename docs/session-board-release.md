@@ -2,6 +2,18 @@
 
 2026-10-24。此文件所在提交是 Desk 候选，不是生产验收证明。
 
+## 旧版服务器限定兼容
+
+服务器实际Shell基于 `fd5981a6c842fd28cfa18288f39f2b7bdfbe9ebe`，另有7个已存在的生产文件差异。不能用完整44fd8440替换它。
+
+- 保留现有生产源码/产物/配置；先由主发布记录并备份实际基线。`deploy/compat/session-board-fd5981a.patch` 只添加6个会话桥/DTO相关文件改动，可应用在已核实的生产基线上；不得把生产App、Copilot、hostBridge、moduleUrl和依赖清单恢复为裸fd版本。补丁通过`git apply --check`后再应用，失败停止。
+- 在fd基线叠加已核实的7个生产源文件后应用该补丁，已完成冻结安装、37项相关测试与Shell生产构建。这是兼容候选，不是服务器已加载证明。
+- 静态看板使用本提交 `modules/workflow-center/vite.sessions.config.ts`，构建命令：`VITE_PARENT_ORIGIN=https://c10375.runtime.drlemon.cc:10443 npx vite build --config modules/workflow-center/vite.sessions.config.ts`。产物在 `modules/workflow-center/dist-sessions`，仅包含会话看板，不加载WorkflowCanvas或业务后端。
+- 沿既有10444 Mod静态Origin新增限定 `/mod-runtime/workflow-center/` 路由，父Desk仍10443；不能同源嵌入、不能让缺失资源回退Shell。单页声明使用 `NEWMA_DESK_WORKFLOW_CENTER_WEB_URL=https://c10375.runtime.drlemon.cc:10444`。不升级API或修改其他Mod路由。
+- WebUI配套固定 `55d084bfa580df532af77d8fc2a8fb20cab2cd33`，只新增session_board.js和HTML一行加载。既有生产desk_collaboration.js保持原样。
+- 独立静态入口在内嵌浏览器1280px验收：五栏、未连接提示、读取按钮禁用、搜索/置顶控件可操作，无控制台错误或框架覆盖。截图位于本地验收目录；真实云端读取仍待主发布。
+- 业务源已补充会话专用入口提交 `d900c615715c7f91e4bf99f04cbf52358a81a67b`。源码仍归原工作流项目，不新建大项目或执行器。
+
 ## 范围与来源
 
 - 新页面 `workflow-sessions`，归属工作流大项目；不增加第16个业务工程。
