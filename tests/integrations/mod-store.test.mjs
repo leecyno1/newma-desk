@@ -96,6 +96,10 @@ test("validates the project Mod store and installs the core Desk projects", asyn
 
   assert.equal(store.mods.length, new Set(store.mods.map((mod) => mod.id)).size);
   assert.ok(store.mods.length >= 93);
+  const sessionBoard = store.mods.find((mod) => mod.id === "workflow-sessions");
+  assert.equal(sessionBoard.defaultInstall, false);
+  assert.deepEqual(sessionBoard.manifest.permissions, ["sessions.read"]);
+  assert.equal(sessionBoard.manifest.actions["sessions.snapshot"].binding.type, "local");
   assert.deepEqual(store.suites.map((suite) => suite.id), [
     "research-suite",
     "research-strategy-suite",
@@ -123,6 +127,7 @@ test("validates the project Mod store and installs the core Desk projects", asyn
     "calendar-effect-overview", "calendar-effect-history",
   ]);
   assert.deepEqual(defaults.map((mod) => mod.id), [
+    "industry-prosperity",
     "global-situation",
     "fed-rates",
     "hormuz-conflict",
@@ -237,7 +242,7 @@ test("validates the project Mod store and installs the core Desk projects", asyn
   }
   assert.equal(
     store.mods.filter((mod) => mod.id.startsWith("deepsee-")).length,
-    11,
+    12,
   );
   assert.equal(
     store.mods.find((mod) => mod.id === "deepsee-overview").suiteId,

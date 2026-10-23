@@ -22,6 +22,11 @@
   ],
   "mods": [
     {
+      "id": "workflow-sessions",
+      "path": "workflow-sessions/mod.json",
+      "defaultInstall": false
+    },
+    {
       "id": "industry-prosperity",
       "path": "industry-prosperity/mod.json",
       "defaultInstall": true

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0",
+  "id": "workflow-sessions",
+  "name": "会话看板",
+  "description": "集中查看 newma / Hermes 当前 Profile 的原生云端会话，按运行与待处理状态分栏，返回原会话继续对话。",
+  "version": "0.1.0",
+  "publisher": "Newma-Desk",
+  "agentWorkspace": {"type": "desk"},
+  "runtime": {
+    "type": "external", "baseUrlEnv": "NEWMA_DESK_WORKFLOW_CENTER_WEB_URL",
+    "defaultBaseUrl": "http://127.0.0.1:8911", "route": "/mod-runtime/workflow-center/?workspace=sessions"
+  },
+  "manifest": {
+    "schemaVersion": "1.1", "category": "workflow",
+    "navigation": {
+      "groupLabel": "工作流", "groupOrder": 170, "itemOrder": 5, "label": "会话看板",
+      "directory": {"id": "workflow-center-suite", "label": "组织工作流", "order": 10},
+      "project": {"id": "workflow-center-suite", "name": "工作流", "order": 170}, "icon": "module"
+    },
+    "compatibility": {"level": 3, "bridgeProtocol": "1.0", "sdkVersion": "^0.1.0", "viewSpecVersion": "1.0"},
+    "permissions": ["sessions.read"], "dataServices": [],
+    "actions": {
+      "sessions.snapshot": {
+        "binding": {"type": "local"}, "execution": "request", "permission": "sessions.read", "timeoutSeconds": 15,
+        "inputSchema": {"type": "object", "additionalProperties": false},
+        "outputSchema": {"type": "object", "additionalProperties": true}, "confirmation": "none"
+      },
+      "sessions.refresh": {
+        "binding": {"type": "local"}, "execution": "request", "permission": "sessions.read", "timeoutSeconds": 15,
+        "inputSchema": {"type": "object", "additionalProperties": false},
+        "outputSchema": {"type": "object", "additionalProperties": true}, "confirmation": "none"
+      }
+    },
+    "events": {"emits": [], "accepts": []}
+  }
+}

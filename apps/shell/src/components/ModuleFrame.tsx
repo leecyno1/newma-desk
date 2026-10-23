@@ -69,6 +69,8 @@ import type {
   AgentRuntimeRequest,
 } from "../lib/agentRuntime";
 
+import { readNewmaSessions } from "../lib/hostSessions";
+
 const EmbeddedMarketFrame = lazy(() => import("./EmbeddedMarketFrame"));
 const EmbeddedIntelligenceFrame = import.meta.env.DEV
   ? lazy(() => import("./EmbeddedIntelligenceFrame"))
@@ -990,6 +992,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     if (!frame || !resolution.src) return;
 
     const expectedOrigin = new URL(resolution.src).origin;
+    let active = true;
     let registeredWindow: Window | null = null;
     const pendingContextRequests = new Map<
       string,
@@ -1615,6 +1618,18 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
                 },
               };
             }
+            if (manifest.id === "workflow-sessions" && actionRequest.data.actionId === "sessions.snapshot") {
+              return withSessionRecovery(async (session) => {
+                if (actionDefinition?.binding.type !== "local" || actionDefinition.permission !== "sessions.read"
+                  || !session.grants.permissions.includes("sessions.read")
+                  || !session.grants.actions.includes("sessions.snapshot")
+                  || Object.keys(actionRequest.data.input).length !== 0) {
+                  throw new Error("当前看板没有读取会话的授权。");
+                }
+                const body = await readNewmaSessions({ isCurrent: () => active });
+                return { status: 200, body };
+              });
+            }
             return withSessionRecovery((session) =>
               actionInvoker(
                 session,
@@ -1686,6 +1701,7 @@ export const ModFrame = forwardRef<ModFrameHandle, ModFrameProps>(
     frame.addEventListener("error", handleError);
     window.addEventListener("message", handleMessage);
     return () => {
+      active = false;
       contextWriter.close();
       frame.removeEventListener("load", handleLoad);
       frame.removeEventListener("error", handleError);

@@ -16,3 +16,4 @@ export * from "./thesis";
 export * from "./valuation";
 export * from "./view";
 export * from "./wiki";
+export { sessionBoardSnapshotSchema, type SessionBoardSnapshot } from "./session-board";
