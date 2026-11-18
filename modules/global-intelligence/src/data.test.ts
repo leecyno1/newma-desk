@@ -20,6 +20,104 @@ import {
   updateGlobalIntelMilitaryTrackHistory,
 } from "./data";
 
+describe("cable corridor observation evidence", () => {
+  it("preserves FAA advisory types, original update and closure limits without declaring a full closure", () => {
+    const updated = new Date(Date.now() - 60000).toISOString();
+    const [event] = normalizeGlobalIntelEvents({ airport_delays: {
+      observation_basis: "faa-nas-airport-advisories", updated_at: updated,
+      status: "ok", freshness: "fresh", collected_at: new Date().toISOString(),
+      delayed: [{ code: "LAX", status: [
+        { type: "Airport Closures", reason: "CLSD TO NON SKED TRANSIENT GA ACFT EXC PPR", closure_begin: "May 27", closure_end: "May 28" },
+        { type: "Ground Delay Programs", reason: "Wind", avg_delay: "30 minutes" },
+      ] }],
+    } });
+    expect(event).toMatchObject({ title: "LAX 机场运行通告", timestamp: updated, timestampBasis: "updated", severity: "medium", recordKind: "event" });
+    expect(event?.detail).toContain("NON SKED TRANSIENT");
+    expect(event?.detail).toContain("Wind");
+    expect(event?.facts).toContainEqual({ label: "限制说明", value: "关闭类通告可能仅限制部分航班，须核对原文" });
+  });
+
+  it("keeps stale and legacy FAA records as observations without using scan time as source time", () => {
+    const delayed = [{ code: "DEN", status: [{ type: "Ground Stop Programs", reason: "Weather" }] }];
+    const [legacy] = normalizeGlobalIntelEvents({ timestamp: new Date().toISOString(), airport_delays: { delayed, timestamp: new Date().toISOString() } });
+    expect(legacy).toMatchObject({ timestamp: "", timestampBasis: "unknown", recordKind: "observation", severity: "info" });
+    const [stale] = normalizeGlobalIntelEvents({ airport_delays: { delayed, observation_basis: "faa-nas-airport-advisories", status: "stale", freshness: "stale", updated_at: "2026-01-01T12:00:00Z" } });
+    expect(stale).toMatchObject({ timestamp: "2026-01-01T12:00:00.000Z", timestampBasis: "updated", recordKind: "observation", sourceFreshness: "stale" });
+  });
+  it.each([null, 0, 2])("retains unknown/zero/sample counts without damage inference (%s)", (count) => {
+    const event = normalizeGlobalIntelEvents({ cable_health: {
+      observation_basis: "navigation-warning-corridor-bbox", freshness: "stale",
+      collected_at: "2026-10-01T12:00:00Z", unlocated_warnings: 3,
+      corridors: { red_sea: { warning_count: count, status_score: null, relevant_warnings: [] } },
+    } }).find((item) => item.source === "NGA MSI 光缆监测")!;
+    expect(event).toMatchObject({ severity: "info", recordKind: "observation", timestamp: "", sourceFreshness: "stale" });
+    expect(event.detail).toContain(count === null ? "数量待核验" : `${count} 条走廊内去重航警样本`);
+    expect(event.facts).toContainEqual({ label: "全源无坐标警告", value: "3" });
+    expect(event.facts?.some((fact) => fact.label.includes("分数"))).toBe(false);
+  });
+
+  it("ignores legacy damage scores", () => {
+    const event = normalizeGlobalIntelEvents({ cable_health: { corridors: {
+      red_sea: { status_score: 3, status_label: "disrupted" },
+    } } })[0]!;
+    expect(event.severity).toBe("info");
+    expect(event.detail).toContain("数量待核验");
+    expect(event.facts).toContainEqual({ label: "识别口径", value: "旧版代理评分不采用" });
+  });
+});
+
+describe("USNI report evidence", () => {
+  it.each([undefined, "2026-10-19T12:00:00Z"])("keeps publication separate from collection (%s)", (published) => {
+    const event = normalizeGlobalIntelEvents({ timestamp: "2026-10-27T12:00:00Z", usni_fleet: {
+      report_title: "USNI Fleet and Marine Tracker", report_date: published,
+      collected_at: "2026-10-26T12:00:00Z", timestamp: "2026-10-26T12:00:00Z",
+      freshness: "stale", ship_count: null, ships: [], status: "partial", content_basis: "summary",
+    } }).find((item) => item.source === "USNI Fleet Tracker")!;
+    expect(event.timestamp).toBe(published ? "2026-10-19T12:00:00.000Z" : "");
+    expect(event.timestampBasis).toBe(published ? "published" : "unknown");
+    expect(event.sourceFreshness).toBe("stale");
+    expect(event.detail).toContain("舰艇数量待核验");
+    expect(event.detail).not.toContain("0 艘");
+    expect(event.facts).toContainEqual({ label: "识别范围", value: "RSS 摘要，非完整清单" });
+    expect(event.facts).toContainEqual({ label: "位置口径", value: "邻近文本推断，非实时位置" });
+  });
+});
+
+describe("aviation and waterway observation boundaries", () => {
+  it("retains provider-tagged aircraft without a known callsign and excludes untagged civilians", () => {
+    const snapshot = { timestamp: "2026-10-27T10:00:00Z", military_flights: {
+      timestamp: "2026-10-27T09:59:00Z", aircraft: [
+        { icao24: "ab1234", callsign: "TEST123", classification_basis: "provider-military-tag", latitude: 35, longitude: 50 },
+        { icao24: "ab5678", callsign: "TEST456", classification_basis: "callsign-heuristic", latitude: 36, longitude: 50 },
+        { icao24: "ab9999", callsign: "CIV123", latitude: 35, longitude: 51 },
+      ],
+    } };
+    expect(normalizeGlobalIntelPoints(snapshot).map((point) => point.title)).toEqual(["TEST123", "TEST456"]);
+    const history = updateGlobalIntelMilitaryTrackHistory({}, snapshot, new Date(snapshot.timestamp));
+    expect(Object.keys(history)).toEqual(["ab1234", "ab5678"]);
+    expect(history.ab1234![0]!.observedAt).toBe("2026-10-27T09:59:00.000Z");
+  });
+
+  it.each([null, 0])("preserves unknown versus measured zero (%s) without inventing readiness", (count) => {
+    const event = normalizeGlobalIntelEvents({ fleet_report: {
+      observation_basis: "public-aviation-and-navigation-warning-samples", timestamp: "2026-10-27T10:00:00Z",
+      total_tracked_aircraft: count, surge_count: null, readiness_score: null,
+      coverage: { available: 2, expected: 3 }, baseline_coverage: { available: 0, expected: 8, warming_up: ["persian_gulf"] },
+    } }).find((item) => item.title === "航空与航道观察")!;
+    expect(event).toMatchObject({ severity: "info", recordKind: "observation", timestamp: "", timestampBasis: "unknown" });
+    expect(event.detail).toContain(count === null ? "航空样本待核验" : "0 架区域内去重航空样本");
+    expect(event.detail).toContain("异常尚不能判断");
+    expect(event.facts).toContainEqual({ label: "区域基线", value: "0/8 可评估" });
+  });
+
+  it("does not turn a legacy readiness score into a high severity event", () => {
+    const event = normalizeGlobalIntelEvents({ fleet_report: { readiness_score: 99, readiness_level: "CRITICAL", total_tracked_aircraft: 200 } })[0]!;
+    expect(event).toMatchObject({ severity: "info", recordKind: "observation" });
+    expect(event.detail).toContain("旧版代理评分不采用");
+    expect(event.facts?.some((fact) => fact.label === "活动评分")).toBe(false);
+  });
+});
+
 describe("navigation warning time semantics", () => {
   const collectedAt = "2026-08-12T14:01:51Z";
   const snapshot = (issueDate: unknown) => ({
@@ -110,6 +208,92 @@ describe("news and disaster source times", () => {
 });
 
 describe("global intelligence media monitor", () => {
+  it("preserves update-only timestamps and temporal coverage without relabeling publication", () => {
+    const time = { timestamp: "2026-10-27T11:00:00Z", timestamp_basis: "updated", time_status: "valid" };
+    const coverage = { status: "complete", total: 2, dated: 2, published: 0, updated: 2, unknown: 0, future: 0, outside_window: 0 };
+    const monitor = normalizeGlobalMediaMonitor({ media_monitor: {
+      summary: { analyzed_items: 2, current_mentions: 1, previous_mentions: 1, velocity_state: "flat", heat_velocity_pct: 0, time_coverage: coverage },
+      topics: [{ id: "dated", time_coverage: coverage, velocity_state: "flat", heat_velocity_pct: 0,
+        latest_at: time.timestamp, latest_at_basis: "updated",
+        items: [{ title: "Correction: shipping", published: null, updated: time.timestamp, ...time }],
+        verification_timeline: [{ title: "Correction: shipping", ...time }],
+      }],
+    } });
+    expect(monitor.summary).toMatchObject({ currentMentions: 1, previousMentions: 1, velocityState: "flat", heatVelocityPct: 0,
+      timeCoverage: { dated: 2, published: 0, updated: 2, outsideWindow: 0 } });
+    expect(monitor.topics[0]).toMatchObject({ latestAtBasis: "updated", items: [expect.objectContaining({
+      published: "", updated: "2026-10-27T11:00:00.000Z", timestampBasis: "updated", timeStatus: "valid",
+    })], verificationTimeline: [expect.objectContaining({ timestampBasis: "updated" })] });
+  });
+
+  it.each([undefined, { status: "partial", total: 2, dated: 1, unknown: 1, future: 0 },
+    { status: "unknown", total: 1, dated: 0, unknown: 0, future: 1 }])("withholds unsupported comparison and scores for missing or incomplete time evidence (%j)", (coverage) => {
+    const raw = { analyzed_items: 2, time_coverage: coverage, velocity_state: "flat", heat_velocity_pct: 0,
+      heat_score: 30, attention_score: 45, attention_level: "留意", attention_topic_count: 1 };
+    const monitor = normalizeGlobalMediaMonitor({ media_monitor: { summary: raw, topics: [{ id: "test", ...raw }], annotations: [{ title: "Report", ...raw }] } });
+    expect(monitor.summary).toMatchObject({ velocityState: "unknown", heatVelocityPct: null, attentionTopicCount: null });
+    expect(monitor.topics[0]).toMatchObject({ velocityState: "unknown", heatVelocityPct: null, heatScore: null, attentionScore: null, attentionLevel: "待核验" });
+    expect(monitor.annotations[0]).toMatchObject({ velocityState: "unknown", heatVelocityPct: null });
+  });
+
+  it("does not invent topic, frame or annotation judgments from missing fields", () => {
+    const monitor = normalizeGlobalMediaMonitor({ media_monitor: {
+      topics: [{ id: "missing", label: "Missing inputs", media_frames: [{ label: "Sample source" }], items: [{ title: "Unclassified record" }] }],
+      annotations: [{ title: "Unclassified record" }], media_frames: [{ label: "Sample source" }],
+    } });
+    const topic = monitor.topics[0]!;
+    expect(topic).toMatchObject({ mentionCount: null, sourceCount: null, languageCount: null, heatScore: null,
+      attentionScore: null, spreadScore: null, sentiment: "unknown", sentimentScore: null,
+      crossLanguage: null, framingDivergence: null, velocityState: "unknown", verificationStatus: "待核验",
+      spreadLevel: "待核验", attentionLevel: "待核验", socialEngagement: null });
+    expect(topic.sentimentCounts).toEqual({ positive: null, negative: null, neutral: null, mixed: null, unknown: null });
+    expect(topic.items[0]).toMatchObject({ sentiment: "unknown", language: "unknown", kind: "unknown" });
+    expect(monitor.mediaFrames[0]).toMatchObject({ count: null, positive: null, negative: null, neutral: null, mixed: null, dominantSentiment: "unknown", dominantLabel: "待核验" });
+    expect(monitor.annotations[0]).toMatchObject({ sentiment: "unknown", spreadScore: null, crossLanguageTopic: null, verificationStatus: "待核验" });
+  });
+
+  it("preserves explicit zero counts and neutral judgments without using heat as attention", () => {
+    const topic = normalizeGlobalMediaMonitor({ media_monitor: { topics: [{
+      id: "zero", mention_count: 0, source_count: 0, heat_score: 35, spread_score: 0,
+      sentiment: "neutral", sentiment_score: 0, cross_language: false, framing_divergence: false,
+      velocity_state: "flat", heat_velocity_pct: 0, verification_status: "常规报道",
+      sentiment_counts: { positive: 0, negative: 0, neutral: 0, mixed: 0 },
+    }] } }).topics[0]!;
+    expect(topic).toMatchObject({ mentionCount: 0, sourceCount: 0, heatScore: null, attentionScore: null,
+      spreadScore: 0, sentiment: "neutral", sentimentScore: 0, crossLanguage: false, framingDivergence: false,
+      velocityState: "unknown", heatVelocityPct: null, verificationStatus: "常规报道" });
+  });
+
+  it("does not infer flat velocity from a sample count without a time comparison", () => {
+    const monitor = normalizeGlobalMediaMonitor({ media_monitor: { summary: { analyzed_items: 2 } } });
+    expect(monitor.summary.velocityState).toBe("unknown");
+    expect(monitor.summary.heatVelocityPct).toBeNull();
+    expect(monitor.summary.windowHours).toBeNull();
+  });
+
+  it.each([{}, { error: "offline", status: "unavailable", summary: { analyzed_items: 0, spread_score: 0 }, topics: [] }])("keeps unavailable media metrics unknown", (domain) => {
+    const monitor = normalizeGlobalMediaMonitor({ media_monitor: domain });
+    expect(monitor.summary.analyzedItems).toBeNull();
+    expect(monitor.summary.topicCount).toBeNull();
+    expect(monitor.summary.spreadScore).toBeNull();
+    expect(monitor.summary.sentiment.negativePct).toBeNull();
+  });
+
+  it("preserves a valid empty sample without inventing sentiment or spread", () => {
+    const monitor = normalizeGlobalMediaMonitor({ media_monitor: {
+      status: "ok", coverage: { expected: 2, complete: 2, available: 2, partial: 0, failed: 0, stale: 0 },
+      summary: { analyzed_items: 0, topic_count: 0, spread_score: 0, heat_velocity_pct: 0, sentiment: { negative_pct: 0 } }, topics: [],
+    } });
+    expect(monitor.status).toBe("ok");
+    expect(monitor.summary.analyzedItems).toBe(0);
+    expect(monitor.summary.topicCount).toBe(0);
+    expect(monitor.summary.spreadScore).toBeNull();
+    expect(monitor.summary.sentiment.negativePct).toBeNull();
+    expect(monitor.summary.heatVelocityPct).toBeNull();
+    expect(monitor.coverage.complete).toBe(2);
+    expect(monitor.coverage.partial).toBe(0);
+  });
+
   it("normalizes sentiment, velocity, cross-language topics, framing, and verification", () => {
     const monitor = normalizeGlobalMediaMonitor({
       media_monitor: {
@@ -117,6 +301,7 @@ describe("global intelligence media monitor", () => {
         caveat: "lightweight",
         summary: {
           analyzed_items: 20,
+          time_coverage: { status: "complete", total: 20, dated: 20, published: 20, updated: 0, unknown: 0, future: 0, outside_window: 2 },
           news_items: 18,
           social_items: 2,
           source_count: 8,
@@ -142,6 +327,7 @@ describe("global intelligence media monitor", () => {
         topics: [{
           id: "topic-hormuz", label: "伊朗 · 霍尔木兹海峡", headline: "Hormuz report",
           mention_count: 6, current_mentions: 5, previous_mentions: 1,
+          time_coverage: { status: "complete", total: 6, dated: 6, published: 6, updated: 0, unknown: 0, future: 0, outside_window: 0 },
           heat_velocity_pct: 400, velocity_state: "rising", heat_score: 90,
           attention_score: 88, attention_level: "重点",
           spread_score: 82, spread_level: "广泛传播", source_count: 4,
@@ -214,7 +400,7 @@ describe("global intelligence media monitor", () => {
 
     expect(monitor.summary.heatVelocityPct).toBeNull();
     expect(monitor.topics[0]?.heatVelocityPct).toBeNull();
-    expect(mediaVelocityLabel(null, "new")).toBe("新出现");
+    expect(mediaVelocityLabel(null, "new")).toBe("仅本时段有样本");
   });
 
   it("normalizes legacy new-topic +100% values to an honest new label", () => {
@@ -226,7 +412,8 @@ describe("global intelligence media monitor", () => {
     });
 
     expect(monitor.summary.heatVelocityPct).toBeNull();
-    expect(mediaVelocityLabel(monitor.topics[0]?.heatVelocityPct, "new")).toBe("新出现");
+    expect(monitor.topics[0]?.velocityState).toBe("unknown");
+    expect(mediaVelocityLabel(monitor.topics[0]?.heatVelocityPct, monitor.topics[0]!.velocityState)).toBe("待核验");
   });
 
   it("finds lightweight historical similarities from topic words and sources", () => {
@@ -261,6 +448,7 @@ describe("global intelligence media monitor", () => {
           verification_status: "存在争议",
           verification_flags: ["unverified", "denial"],
           heat_velocity_pct: 120,
+          time_coverage: { status: "complete", total: 16, dated: 16, published: 16, updated: 0, unknown: 0, future: 0, outside_window: 0 },
           velocity_state: "rising",
           spread_score: 78,
           cross_language_topic: true,
@@ -270,7 +458,7 @@ describe("global intelligence media monitor", () => {
 
     expect(events[0]?.facts).toEqual(expect.arrayContaining([
       { label: "报道语气", value: "负面" },
-      { label: "热度增速", value: "+120%" },
+      { label: "样本时段对比", value: "+120%" },
       { label: "传播范围", value: "78/100" },
       { label: "跨语言合并", value: "是" },
       { label: "核验提示", value: "存在争议" },
@@ -936,7 +1124,7 @@ describe("global intelligence normalization", () => {
       expect.objectContaining({ category: "aviation", title: expect.stringContaining("JFK") }),
       expect.objectContaining({ category: "infrastructure", title: expect.stringContaining("Cloud Test") }),
       expect.objectContaining({ category: "infrastructure", title: expect.stringContaining("red sea") }),
-      expect.objectContaining({ category: "military", title: expect.stringContaining("全球舰队活动") }),
+      expect.objectContaining({ category: "military", title: "航空与航道观察", severity: "info", recordKind: "observation" }),
       expect.objectContaining({ category: "society", title: expect.stringContaining("全球流离失所人口") }),
       expect.objectContaining({ category: "news", title: "Detailed world report", content: "Longer report & additional context.", severity: "medium" }),
     ]));
@@ -1106,15 +1294,15 @@ describe("global intelligence normalization", () => {
     const points = normalizeGlobalIntelPoints(snapshot);
 
     expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ title: "全球综合预警 · 2 项", severity: "critical", content: expect.stringContaining("军事活动激增") }),
+      expect.objectContaining({ title: "全球综合预警 · 2 项", severity: "critical", content: expect.stringContaining("区域航空样本异常；不代表已确认军事部署") }),
       expect.objectContaining({ title: "波斯湾 军机活动偏离历史基线", severity: "high" }),
       expect.objectContaining({ title: "全球综合态势 · 风险升高", content: expect.stringContaining("未来12小时") }),
       expect.objectContaining({ title: "全球新闻热词 · hormuz / shipping / energy", recordKind: "news" }),
       expect.objectContaining({ title: "全球在途航空器 7000 架", recordKind: "observation" }),
-      expect.objectContaining({ title: "中东 监测信号汇聚", pointId: expect.any(String) }),
+      expect.objectContaining({ title: "中东 区域地震观察", pointId: expect.any(String) }),
     ]));
     expect(points).toEqual(expect.arrayContaining([
-      expect.objectContaining({ title: "中东 监测信号汇聚", category: "conflict", severity: "medium" }),
+      expect.objectContaining({ title: "中东 区域地震观察", category: "disaster", severity: "info" }),
     ]));
     expect(points.some((point) => point.title.includes("萨赫勒"))).toBe(false);
   });
@@ -1142,6 +1330,30 @@ describe("global intelligence normalization", () => {
       expect.objectContaining({ category: "disaster", title: "Pacific Ridge", severity: "critical" }),
       expect.objectContaining({ category: "disaster", title: "north america 火点集群", source: "NASA FIRMS" }),
     ]));
+  });
+
+  it('preserves regional FIRMS freshness and treats detections as observations rather than confirmed wildfires', () => {
+    const snapshot = {wildfires: {status: 'partial', freshness: 'unknown', fires_by_region: {
+      fresh_region: {status: 'ok', freshness: 'fresh', collected_at: '2026-10-31T10:00:00Z', cache_expires_at: '2099-01-01T00:00:00Z', top_clusters: [{lat: 10, lon: 20, fire_count: 4, max_frp: null}]},
+      stale_region: {status: 'stale', freshness: 'stale', collected_at: '2026-10-30T10:00:00Z', top_clusters: [{lat: 30, lon: 40, fire_count: 2, max_frp: 5}]},
+    }}};
+    const points = normalizeGlobalIntelPoints(snapshot).filter(point => point.source === 'NASA FIRMS');
+    expect(points).toHaveLength(2);
+    expect(points.find(point => point.title.startsWith('fresh region'))).toMatchObject({severity: 'info', sourceFreshness: 'fresh', collectedAt: '2026-10-31T10:00:00.000Z'});
+    expect(points.find(point => point.title.startsWith('stale region'))).toMatchObject({severity: 'info', sourceFreshness: 'stale', collectedAt: '2026-10-30T10:00:00.000Z'});
+    expect(normalizeGlobalIntelEvents(snapshot).filter(event => event.source === 'NASA FIRMS').every(event => event.recordKind === 'observation')).toBe(true);
+  });
+
+  it('does not present legacy or expired FIRMS regions as fresh', () => {
+    const snapshot = {wildfires: {status: 'partial', fires_by_region: {
+      missing_expiry: {status: 'ok', freshness: 'fresh', collected_at: '2020-01-01T00:00:00Z', top_clusters: [{lat: 1, lon: 2}]},
+      future_collection: {status: 'ok', freshness: 'fresh', collected_at: '2099-01-01T00:00:00Z', cache_expires_at: '2100-01-01T00:00:00Z', top_clusters: [{lat: 3, lon: 4}]},
+      expired_region: {status: 'ok', freshness: 'fresh', collected_at: '2000-01-01T00:00:00Z', cache_expires_at: '2000-01-02T00:00:00Z', top_clusters: [{lat: 5, lon: 6}]},
+    }}};
+    const points = normalizeGlobalIntelPoints(snapshot).filter(point => point.source === 'NASA FIRMS');
+    expect(points.find(point => point.title.startsWith('missing expiry'))?.sourceFreshness).toBe('unknown');
+    expect(points.find(point => point.title.startsWith('future collection'))?.sourceFreshness).toBe('unknown');
+    expect(points.find(point => point.title.startsWith('expired region'))?.sourceFreshness).toBe('stale');
   });
 
   it("normalizes pipeline and cable infrastructure routes", () => {
@@ -1236,7 +1448,7 @@ describe("global intelligence normalization", () => {
 
     expect(points).toEqual(expect.arrayContaining([
       expect.objectContaining({ category: "maritime", title: "NAVAREA XI · NW-1", severity: "high" }),
-      expect.objectContaining({ category: "nuclear", source: "USGS 核活动监测", severity: "high" }),
+      expect.objectContaining({ category: "nuclear", source: "USGS 试验场邻近地震", severity: "info" }),
       expect.objectContaining({ category: "climate", title: "South Asia", severity: "high" }),
       expect.objectContaining({ category: "infrastructure", source: "TomTom 交通事件", severity: "high" }),
       expect.objectContaining({ source: "Windy 公共摄像头", url: "https://example.com/cam" }),
@@ -1328,13 +1540,63 @@ describe("global intelligence normalization", () => {
       }),
       expect.objectContaining({
         category: "nuclear",
-        facts: expect.arrayContaining([expect.objectContaining({ label: "关注评分", value: "68" })]),
+        facts: expect.arrayContaining([expect.objectContaining({ label: "启发式关注值（非核试验判定）", value: "68" })]),
       }),
       expect.objectContaining({
         title: "South Asia",
         facts: expect.arrayContaining([expect.objectContaining({ label: "去年同期降水", value: "100.0 mm" })]),
       }),
     ]));
+  });
+
+  it("keeps missing brief metrics unknown without inventing a zero risk score", () => {
+    const [event] = normalizeGlobalIntelEvents({ situation_brief: {
+      timestamp: "2026-10-27T10:43:18Z", status: "partial", brief: "来源失败，风险待核验",
+      metrics_snapshot: { posture_score: null, risk_level: "LOW", alerts: null, conflicts: null, military_aircraft: "", earthquakes: 0, cyber_threats: 33 },
+    } });
+    if (!event) throw new Error("Expected a briefing observation");
+    expect(event).toMatchObject({ title: "全球综合态势 · 风险待核验", recordKind: "observation", timestampBasis: "collected" });
+    expect(event.facts).toEqual(expect.arrayContaining([
+      { label: "综合评分", value: "未知" }, { label: "活跃告警", value: "未知" },
+      { label: "军事航空器", value: "未知" }, { label: "冲突样本", value: "未知" },
+      { label: "地震", value: "0" }, { label: "网络威胁样本", value: "33" },
+    ]));
+    expect(isActionableGlobalIntelEvent(event)).toBe(false);
+  });
+
+  it("labels curated rates as historical references and never borrows the scan date for missing observations", () => {
+    const events = normalizeGlobalIntelEvents({ timestamp: "2026-10-27T10:00:00Z", central_bank_rates: { rates: [
+      { bank: "Old reference", source: "curated", rate: 4.5, as_of: "2025-01-29", label: "Target upper bound" },
+      { bank: "Unknown date", source: "curated", rate: 0 },
+      { bank: "Unknown value", source: "fred", rate: null, as_of: "2026-10-26", label: "Effective overnight rate" },
+    ] } });
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "Old reference 历史参考利率 4.50%", timestamp: "2025-01-29T00:00:00.000Z",
+        sourceFreshness: "stale", detail: expect.stringContaining("未核验现行值"), recordKind: "observation" }),
+      expect.objectContaining({ title: "Unknown date 历史参考利率 0.00%", timestamp: "", timestampBasis: "unknown", sourceFreshness: "unknown" }),
+      expect.objectContaining({ title: "Unknown value 利率观测 · 数值缺失", detail: expect.stringContaining("Effective overnight rate") }),
+    ]));
+    expect(events.every((event) => !isActionableGlobalIntelEvent(event))).toBe(true);
+  });
+
+  it("separates public policy observations from references when current data is unavailable", () => {
+    const events = normalizeGlobalIntelEvents({ timestamp: "2026-10-27T10:00:00Z", central_bank_rates: { rates: [
+      { bank: "Fed", source: "fred", rate: 0, as_of: "2026-10-26", status: "available", freshness: "fresh",
+        label: "Target upper bound", series_id: "DFEDTARU", collected_at: "2026-10-27T09:00:00Z",
+        source_url: "https://fred.stlouisfed.org/series/DFEDTARU", reference: { rate: 4.5, as_of: "2025-01-29" } },
+      { bank: "BoE", source: "boe", rate: -0.25, as_of: "2026-10-20", status: "stale", freshness: "fresh" },
+      { bank: "Missing", rate: null, as_of: null, status: "unavailable", reason: "取数失败",
+        reference: { rate: 4.5, as_of: "2025-01-29", source: "curated" } },
+    ] } });
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "Fed 利率观测 0.00%", sourceFreshness: "fresh", source: "fred",
+        url: "https://fred.stlouisfed.org/series/DFEDTARU",
+        facts: expect.arrayContaining([expect.objectContaining({ label: "来源序列", value: "DFEDTARU" })]) }),
+      expect.objectContaining({ title: "BoE 利率观测 -0.25%", sourceFreshness: "stale" }),
+      expect.objectContaining({ title: "Missing 历史参考利率 4.50%", timestamp: "2025-01-29T00:00:00.000Z",
+        sourceFreshness: "stale", source: "curated", detail: expect.stringContaining("取数失败") }),
+    ]));
+    expect(events.every((event) => !isActionableGlobalIntelEvent(event))).toBe(true);
   });
 
   it("combines policy, news, market, conflict, and disaster events by freshness", () => {
@@ -1370,7 +1632,7 @@ describe("global intelligence normalization", () => {
       new Set(["news", "policy", "market", "conflict", "military"]),
     );
     expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ title: "ECB 政策利率 2.50%", category: "policy" }),
+      expect.objectContaining({ title: "ECB 利率观测 2.50%", category: "policy" }),
       expect.objectContaining({ title: "France 议会选举", countryCode: "FRA" }),
       expect.objectContaining({ title: "SPX 下跌 2.40%", severity: "high" }),
     ]));
@@ -1397,9 +1659,82 @@ describe("global intelligence normalization", () => {
     });
     expect(events[0]).toMatchObject({
       sourceFreshness: freshness,
-      timestamp: freshness === "stale" ? "2026-08-01T00:00:00.000Z" : "",
+      timestamp: "", timestampBasis: "unknown",
       collectedAt: "2026-10-22T09:00:00.000Z",
     });
+  });
+
+  it("keeps supply months and revision identity as facts, never a synthetic publication timestamp", () => {
+    const [event] = normalizeGlobalIntelEvents({ crucix_intelligence: {
+      asOf: "2026-11-14T10:00:00Z", freshness: { status: "fresh" },
+      macro: { gscpi: { value: 0, period: "2026-10", date: "2026-10", vintage: "46327",
+        unit: "standard-deviations", frequency: "monthly", status: "partial", missing: 1, rejected: 2,
+        freshness: { status: "fresh" } } },
+    } });
+    expect(event).toMatchObject({ title: "全球供应链压力指数 0.00", timestamp: "", timestampBasis: "unknown", severity: "info" });
+    expect(event?.facts).toEqual(expect.arrayContaining([
+      { label: "观测期", value: "2026-10" }, { label: "单位", value: "标准差" },
+      { label: "修订列标识（非发布日期）", value: "46327" }, { label: "缺失格", value: "1" },
+    ]));
+  });
+
+  it("shows debt and average financing costs as dated observations, not directional trades", () => {
+    const events = normalizeGlobalIntelEvents({ crucix_intelligence: { macro: { treasury: {
+      totalDebt: "40000000000000.12", date: "2026-01-02", collectedAt: "2026-10-27T08:00:00Z", freshness: { status: "stale" },
+      interestRates: [{ security: "Treasury Notes", securityType: "Marketable", date: "2026-09", rate: 3.5,
+        basis: "outstanding-debt-average-interest-rate", freshness: { status: "fresh" } }],
+    } } } });
+    expect(events).toHaveLength(2);
+    expect(events.every(e => e.recordKind === "observation" && e.severity === "info")).toBe(true);
+    const debt = events.find(e => e.title.includes("余额"));
+    expect(debt).toMatchObject({ sourceFreshness: "stale", timestamp: "2026-01-02T00:00:00.000Z" });
+    expect(debt?.facts).toContainEqual({ label: "原始金额/USD", value: "40000000000000.12" });
+    const rate = events.find(e => e.title.includes("付息率"));
+    expect(rate?.title).toContain("3.500%");
+    expect(rate?.detail).toContain("不是同期限市场收益率");
+    expect(rate?.facts).toContainEqual({ label: "观测期", value: "2026-09" });
+  });
+
+  it("keeps unlocated weather alerts, expiry and unknown coverage visible", () => {
+    const events = normalizeGlobalIntelEvents({ crucix_intelligence: { global: {
+      weatherCoverage: { status: "error", totalAlerts: null, collectedAt: "2026-10-27T08:00:00Z", freshness: { status: "stale" } },
+      weatherAlerts: [{ id: "expired", event: "Flood Warning", headline: "Expired example", sent: "2000-01-01T00:00:00Z", expires: "2000-01-02T00:00:00Z" },
+        { id: "current", event: "Flood Warning", severity: "Severe", sent: null, expires: "2099-01-01T00:00:00Z", areas: "Example county" }],
+    } } });
+    expect(events).toHaveLength(3);
+    const coverage = events.find(e => e.id === "crucix-weather-coverage");
+    expect(coverage?.facts).toContainEqual({ label: "有效预警", value: "未知" });
+    const expired = events.find(e => e.title === "Expired example");
+    expect(expired).toMatchObject({ recordKind: "observation", severity: "info", sourceFreshness: "stale", timestampBasis: "published" });
+    const current = events.find(e => e.title === "Flood Warning");
+    expect(current).toMatchObject({ timestamp: "", timestampBasis: "unknown", sourceFreshness: "stale" });
+    expect(current?.detail).toContain("Example county");
+    expect(current?.facts).toContainEqual({ label: "定位依据", value: "无几何信息，保留文字区域" });
+  });
+
+  it("presents regional monitoring as observations, not aircraft positions or radiation safety signals", () => {
+    const events = normalizeGlobalIntelEvents({ crucix_intelligence: { global: {
+      airRegions: [{ id: "r", name: "sample air", totalAircraft: null, status: "error", observedAt: null }],
+      radiationAreas: [{ id: "s", name: "sample radiation", recentReadings: 0, sampleReadings: 0, avgCPM: null, assessment: "unassessed" }],
+    } } });
+    expect(events).toHaveLength(2);
+    expect(events.every(e => e.recordKind === "observation" && e.severity === "info")).toBe(true);
+    expect(events.find(e => e.category === "aviation")?.facts).toContainEqual({ label: "航空器", value: "未知" });
+    const radiation = events.find(e => e.source === "Safecast");
+    expect(radiation?.facts).toContainEqual({ label: "安全判断", value: "未评估" });
+    expect(radiation?.facts).toContainEqual({ label: "24小时内有效样本", value: "0" });
+    expect(radiation?.detail).toContain("不是传感器位置");
+  });
+
+  it("does not replace an RSS collection clock with a new sweep clock", () => {
+    const collectedAt = "2026-10-26T00:00:00Z";
+    const [event] = normalizeGlobalIntelEvents({ crucix_intelligence: {
+      asOf: "2026-10-27T00:00:00Z", freshness: { status: "fresh" },
+      news: [{ title: "Retained RSS report", source: "Synthetic", type: "rss", publishedAt: null,
+        collectedAt, cached: true, collectionFreshness: { status: "stale" } }],
+    } });
+    expect(event).toMatchObject({ collectedAt: "2026-10-26T00:00:00.000Z", sourceFreshness: "stale", timestampBasis: "unknown" });
+    expect(event?.detail).toContain("上次有效缓存");
   });
 
   it("keeps Crucix collection freshness on news and marks defense time as collection only", () => {

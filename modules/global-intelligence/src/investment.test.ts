@@ -24,7 +24,8 @@ describe("investment transmission evidence boundaries", () => {
   it("does not turn cable operations warnings or a heuristic score into a high-severity cable outage", () => {
     const events = normalizeGlobalIntelEvents({ cable_health: { timestamp: "2026-10-14T00:00:00Z", corridors: { red_sea: { status_score: 3, status_label: "disrupted", relevant_warnings: [{ text_snippet: "CABLE OPERATIONS IN PROGRESS" }] } } } });
     const cable = events.find((item) => item.title.includes("光缆走廊"));
-    expect(cable).toMatchObject({ severity: "medium", timestamp: "", timestampBasis: "unknown", sourceFreshness: "unknown" });
+    expect(cable).toMatchObject({ severity: "info", recordKind: "observation", timestamp: "", timestampBasis: "unknown", sourceFreshness: "unknown" });
+    expect(cable?.content).toContain("CABLE OPERATIONS IN PROGRESS");
     expect(cable?.title).not.toContain("中断");
     expect(cable?.facts).toContainEqual({ label: "故障状态", value: "未核验；施工或相关警告不能证明中断" });
   });

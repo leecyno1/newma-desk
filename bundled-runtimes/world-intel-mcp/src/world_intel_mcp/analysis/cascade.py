@@ -109,7 +109,11 @@ def simulate_cascade(
         severity = 1.0
         if current_health:
             health = current_health.get(corridor, {})
-            status_score = health.get("status_score", 0)
+            status_score = health.get("status_score")
+            if status_score is None:
+                # Caller explicitly requested a scenario, not a live diagnosis.
+                corridor_severity[corridor] = severity
+                continue
             # Scale: 0=clear(full disruption simulated), 1=advisory(0.8x), 2=at_risk(0.9x), 3=disrupted(1.0x already)
             if status_score >= 3:
                 severity = 1.0

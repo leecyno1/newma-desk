@@ -11,6 +11,8 @@ import math
 import sqlite3
 from datetime import datetime, timezone
 
+from .inputs import AnalysisInputs, input_status
+
 logger = logging.getLogger("world-intel-mcp.analysis.alerts")
 
 
@@ -55,14 +57,7 @@ _ALERT_THRESHOLDS: dict[str, dict] = {
         "threshold": 1,
         "priority": "high",
         "domain": "military",
-        "message_template": "{count} military surge anomalies detected",
-    },
-    "cable_health": {
-        "field": "corridors",
-        "threshold": 2,
-        "priority": "high",
-        "domain": "infrastructure",
-        "message_template": "{count} cable corridors at risk",
+        "message_template": "{count} regional aircraft sample anomalies; not verified deployments",
     },
     "hotspot_escalation": {
         "field": "hotspots",
@@ -88,42 +83,26 @@ _ALERT_THRESHOLDS: dict[str, dict] = {
 }
 
 
-async def fetch_alert_digest(fetcher) -> dict:
-    """Aggregate alerts from 7 intelligence domains.
+ALERT_INPUTS = (
+    "space_weather", "instability", "military_surge", "cable_health",
+    "hotspot_escalation", "internet_outages", "shipping_index",
+)
 
-    Calls existing source functions in parallel, applies threshold-based
-    alerting, and returns a prioritized alert list.
 
-    Args:
-        fetcher: Shared HTTP fetcher with caching and circuit breaking.
+async def fetch_alert_digest(fetcher, *, inputs=None) -> dict:
+    owned = inputs is None
+    inputs = inputs or AnalysisInputs(fetcher)
+    try:
+        return build_alert_digest(await inputs.collect(ALERT_INPUTS))
+    finally:
+        if owned:
+            await inputs.close()
 
-    Returns:
-        Dict with alerts, alert_count, by_priority, domains_checked, source.
-    """
-    # Lazy imports to avoid circular deps
-    from ..sources import space_weather, infrastructure
-    from ..sources import intelligence
-    from ..sources import shipping
 
-    # Fetch all sources in parallel
-    (
-        sw_data,
-        instability_data,
-        surge_data,
-        cable_data,
-        hotspot_data,
-        outage_data,
-        shipping_data,
-    ) = await asyncio.gather(
-        _safe_fetch(space_weather.fetch_space_weather(fetcher), "space_weather"),
-        _safe_fetch(intelligence.fetch_instability_index(fetcher), "instability"),
-        _safe_fetch(intelligence.fetch_military_surge(fetcher), "military_surge"),
-        _safe_fetch(infrastructure.fetch_cable_health(fetcher), "cable_health"),
-        _safe_fetch(intelligence.fetch_hotspot_escalation(fetcher), "hotspot_escalation"),
-        _safe_fetch(infrastructure.fetch_internet_outages(fetcher), "internet_outages"),
-        _safe_fetch(shipping.fetch_shipping_index(fetcher), "shipping"),
-    )
-
+def build_alert_digest(inputs: dict) -> dict:
+    states = {name: input_status(name, inputs.get(name, {})) for name in ALERT_INPUTS}
+    usable = {name: inputs[name] if states[name] != "unavailable" else {} for name in ALERT_INPUTS}
+    sw_data, instability_data, surge_data, _cable_data, hotspot_data, outage_data, shipping_data = (usable[name] for name in ALERT_INPUTS)
     alerts: list[dict] = []
 
     # Space weather: Kp >= 5
@@ -154,25 +133,12 @@ async def fetch_alert_digest(fetcher) -> dict:
         alerts.append({
             "domain": "military",
             "priority": "high",
-            "message": f"{surge_count} military surge anomalies detected",
+            "message": f"{surge_count} regional aircraft sample anomalies; not verified deployments",
             "surges": surge_data.get("surges", [])[:3],
             "value": surge_count,
         })
 
-    # Cable health: corridors with status_score >= 2
-    corridors = cable_data.get("corridors", {})
-    at_risk = [
-        name for name, info in corridors.items()
-        if isinstance(info, dict) and info.get("status_score", 0) >= 2
-    ]
-    if at_risk:
-        alerts.append({
-            "domain": "infrastructure",
-            "priority": "high",
-            "message": f"{len(at_risk)} cable corridors at elevated risk: {', '.join(at_risk[:3])}",
-            "corridors": at_risk,
-            "value": len(at_risk),
-        })
+    # Cable observations remain in coverage as unassessed, never damage alerts.
 
     # Hotspot escalation: hotspots with score >= 60
     hotspots = hotspot_data.get("hotspots", [])
@@ -187,7 +153,7 @@ async def fetch_alert_digest(fetcher) -> dict:
         })
 
     # Internet outages
-    outage_count = outage_data.get("outage_count", 0)
+    outage_count = outage_data.get("ongoing_count", 0)
     if outage_count >= 5:
         alerts.append({
             "domain": "infrastructure",
@@ -216,15 +182,21 @@ async def fetch_alert_digest(fetcher) -> dict:
         p = a.get("priority", "unknown")
         by_priority[p] = by_priority.get(p, 0) + 1
 
+    checked = [name for name, state in states.items() if state != "unavailable"]
+    complete = [name for name, state in states.items() if state == "ok"]
     return {
+        "status": "ok" if len(complete) == len(ALERT_INPUTS) else "partial" if checked else "unavailable",
+        "coverage": {
+            "available": len(checked), "complete": len(complete), "expected": len(ALERT_INPUTS),
+            "missing": [name for name in ALERT_INPUTS if name not in checked],
+            "partial": [name for name in checked if name not in complete],
+        },
+        "input_status": states,
+        "note": "Alerts describe only the monitored sample. Missing checks are not evidence of safety; political/conflict inputs include static baselines and proxies.",
         "alerts": alerts,
-        "alert_count": len(alerts),
+        "alert_count": len(alerts) if checked else None,
         "by_priority": by_priority,
-        "domains_checked": [
-            "space_weather", "instability", "military_surge",
-            "cable_health", "hotspot_escalation", "internet_outages",
-            "shipping_stress",
-        ],
+        "domains_checked": checked,
         "source": "alert-digest",
         "timestamp": _utc_now_iso(),
     }

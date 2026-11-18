@@ -10,12 +10,30 @@ function setup() {
   const body = new ReadableStream<Uint8Array>({ start(controller) { writer = controller; }, cancel });
   const fetcher = vi.fn().mockResolvedValue(new Response(body, { headers: { "content-type": "text/event-stream" } }));
   const source = createGlobalIntelDataSource({ baseUrl: "https://desk.example", fetch: fetcher, session, requireSession: true });
-  const payload = vi.fn(), status = vi.fn();
-  const close = source.subscribe(payload, status);
-  return { writer, cancel, fetcher, payload, status, close };
+  const payload = vi.fn(), status = vi.fn(), failure = vi.fn();
+  const close = source.subscribe(payload, status, failure);
+  return { writer, cancel, fetcher, payload, status, failure, close };
 }
 
 describe("authenticated global SSE", () => {
+  it("reports an allowlisted failure reason without losing already received data", async () => {
+    const test = setup();
+    test.writer.enqueue(encoder.encode('data: {"_done":1,"_total":48}\n\nevent: error\ndata: {"code":"world_stream_idle_timeout","message":"private-token"}\n\n'));
+    await vi.waitFor(() => expect(test.status).toHaveBeenLastCalledWith("degraded"));
+    expect(test.payload).toHaveBeenCalledExactlyOnceWith({ _done: 1, _total: 48 });
+    expect(test.failure).toHaveBeenCalledExactlyOnceWith({ code: "world_stream_idle_timeout", message: "情报引擎长时间未返回数据，连接已结束；已收到的数据保留，可手动刷新" });
+    expect(test.fetcher).toHaveBeenCalledOnce();
+    expect(test.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not display arbitrary upstream error text or codes", async () => {
+    const test = setup();
+    test.writer.enqueue(encoder.encode('event: error\ndata: {"code":"private-token","message":"internal-url"}\n\n'));
+    await vi.waitFor(() => expect(test.failure).toHaveBeenCalledOnce());
+    expect(test.failure.mock.calls[0]![0].code).toBe("stream_unavailable");
+    expect(JSON.stringify(test.failure.mock.calls)).not.toMatch(/private-token|internal-url/);
+  });
+
   it("preserves incremental, multiline and UTF-8 events with scoped headers", async () => {
     const test = setup();
     await vi.waitFor(() => expect(test.status).toHaveBeenLastCalledWith("live"));

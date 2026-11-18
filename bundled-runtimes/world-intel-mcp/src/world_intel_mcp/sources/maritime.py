@@ -61,9 +61,14 @@ def _is_active(warning: dict) -> bool:
 
 
 _COORD_RE = re.compile(
-    r"(\d{1,3})-(\d{1,2}(?:\.\d+)?)\s*([NS])\s+"
+    r"(\d{1,3})-(\d{1,2}(?:\.\d+)?)\s*([NS])\s*[/\s]\s*"
     r"(\d{1,3})-(\d{1,2}(?:\.\d+)?)\s*([EW])",
     re.I,
+)
+
+_DECIMAL_COORD_RE = re.compile(
+    r"(?<![\d.\-])(\d{1,3}(?:\.\d+)?)\s*([NS])\s*[/\s]\s*"
+    r"(\d{1,3}(?:\.\d+)?)\s*([EW])", re.I,
 )
 
 
@@ -86,6 +91,12 @@ def _all_coords(text: str) -> list[dict]:
             continue
         points.append({"lat": round(-lat if m[3] == "S" else lat, 4),
                        "lon": round(-lon if m[6] == "W" else lon, 4)})
+    # Strip complete DMS matches so their minutes cannot become decimal degrees.
+    for m in _DECIMAL_COORD_RE.finditer(_COORD_RE.sub(" ", text.upper())):
+        lat, lon = float(m[1]), float(m[3])
+        if lat <= 90 and lon <= 180:
+            points.append({"lat": round(-lat if m[2] == "S" else lat, 4),
+                           "lon": round(-lon if m[4] == "W" else lon, 4)})
     return points
 
 
@@ -188,11 +199,15 @@ async def fetch_nav_warnings(
     else:
         raw_warnings = None
 
-    if not isinstance(raw_warnings, list) or any(not isinstance(w, dict) for w in raw_warnings):
+    if not isinstance(raw_warnings, list) or any(
+        not isinstance(w, dict) or not w.get("msgYear") or not w.get("msgNumber")
+        for w in raw_warnings
+    ):
         logger.warning("NGA MSI API returned no data")
         return {
             "warnings": [],
-            "count": 0,
+            "status": "unavailable",
+            "count": None,
             "by_navarea": {},
             "navareas": NAVAREAS,
             "source": "nga-msi",
@@ -226,6 +241,7 @@ async def fetch_nav_warnings(
         by_navarea[na] = by_navarea.get(na, 0) + 1
 
     return {
+        "status": "ok" if source_timing["freshness"] == "fresh" else "partial",
         "warnings": warnings,
         "count": len(warnings),
         "by_navarea": by_navarea,

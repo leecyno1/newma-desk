@@ -7,9 +7,10 @@ No API key required — uses the public RSS category feed.
 
 import logging
 import re
-from datetime import datetime, timezone
+from html import unescape
 
 from ..fetcher import Fetcher
+from ..source_time import parse_rss_time, source_cache_timing
 
 try:
     import feedparser
@@ -22,11 +23,11 @@ _FEED_URL = "https://news.usni.org/category/fleet-tracker/feed"
 
 # Regex patterns for extracting fleet data from article content
 _SHIP_PATTERN = re.compile(
-    r"USS\s+([\w\s.]+?)\s*\(((?:CVN|DDG|CG|LHD|LHA|LPD|LSD|SSN|SSBN|SSGN|FFG|MCM|PC|AS|ESB|ESD|EPF|AFSB|T-AO|T-AKE|T-ESB|WAGB|LCS)-?\d+)\)",
+    r"USS\s+([\w\s.'’\-]+?)\s*\(((?:CVN|DDG|CG|LHD|LHA|LPD|LSD|SSN|SSBN|SSGN|FFG|MCM|PC|AS|ESB|ESD|EPF|AFSB|T-AO|T-AKE|T-ESB|WAGB|LCS)[-\s]*\d+)\)",
     re.IGNORECASE,
 )
 _USCG_PATTERN = re.compile(
-    r"USCGC\s+([\w\s.]+?)\s*\((WAGB|WMSL|WPC|WPB|WLB)-?\d+\)",
+    r"USCGC\s+([\w\s.'’\-]+?)\s*\(((?:WAGB|WMSL|WPC|WPB|WLB)[-\s]*\d+)\)",
     re.IGNORECASE,
 )
 _CSG_PATTERN = re.compile(
@@ -96,7 +97,7 @@ def _extract_fleet_data(content: str) -> dict:
     # Extract USS ships
     for match in _SHIP_PATTERN.finditer(content):
         name = match.group(1).strip()
-        hull = match.group(2).strip()
+        hull = re.sub(r"[-\s]*(\d+)$", r"-\1", match.group(2).upper())
         # Find surrounding context for region classification
         start = max(0, match.start() - 200)
         end = min(len(content), match.end() + 200)
@@ -133,7 +134,7 @@ def _extract_fleet_data(content: str) -> dict:
     # Extract USCG cutters
     for match in _USCG_PATTERN.finditer(content):
         name = match.group(1).strip()
-        hull = match.group(2).strip()
+        hull = re.sub(r"[-\s]*(\d+)$", r"-\1", match.group(2).upper())
         start = max(0, match.start() - 200)
         end = min(len(content), match.end() + 200)
         context = content[start:end]
@@ -196,6 +197,7 @@ def _extract_fleet_data(content: str) -> dict:
         "strike_groups": strike_groups,
         "force_totals": force_totals,
         "region_breakdown": region_counts,
+        "region_basis": "article_context_heuristic",
     }
 
 
@@ -210,66 +212,68 @@ async def fetch_usni_fleet(fetcher: Fetcher) -> dict:
         Dict with ships[], strike_groups[], force_totals, region_breakdown,
         report_date, report_url, source, timestamp.
     """
+    cache_key = "usni:fleet_tracker_rss"
+    def unavailable(message: str) -> dict:
+        timing = source_cache_timing(fetcher.cache, cache_key)
+        return {"status": "unavailable", "error": message, "ships": [],
+                "ship_count": None, "source": "usni-fleet-tracker",
+                **timing, "timestamp": timing["collected_at"]}
+
     if feedparser is None:
-        return {
-            "error": "feedparser not installed",
-            "ships": [],
-            "ship_count": 0,
-            "source": "usni-fleet-tracker",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        return unavailable("USNI 报告解析依赖未安装")
 
     xml = await fetcher.get_text(
         _FEED_URL,
         source="usni-fleet-tracker",
-        cache_key="usni:fleet_tracker_rss",
+        cache_key=cache_key,
         cache_ttl=3600,  # Weekly updates, cache for 1 hour
     )
 
     if not xml:
-        return {
-            "error": "failed to fetch USNI fleet tracker feed",
-            "ships": [],
-            "ship_count": 0,
-            "source": "usni-fleet-tracker",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        return unavailable("USNI 舰队报告暂时不可用，不能据此判断没有舰艇")
 
     feed = feedparser.parse(xml)
 
-    if not feed.entries:
-        return {
-            "error": "no fleet tracker entries found",
-            "ships": [],
-            "ship_count": 0,
-            "source": "usni-fleet-tracker",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+    entries = [entry for entry in feed.entries
+               if re.search(r"\bfleet(?:\s+and\s+marine)?\s+tracker\b", entry.get("title", ""), re.I)]
+    if not entries:
+        return unavailable("USNI 来源未返回可识别的舰队报告")
 
-    # Get the most recent entry (fleet tracker article)
-    entry = feed.entries[0]
+    # RSS order is not guaranteed; never replace publication with collection time.
+    entry = max(entries, key=lambda item: parse_rss_time(item) or "")
     title = entry.get("title", "")
     link = entry.get("link", "")
-    published = entry.get("published", "")
+    published = parse_rss_time(entry)
 
     # Try content:encoded first (full article), fall back to summary
     content = ""
+    content_basis = "full_content"
     if hasattr(entry, "content") and entry.content:
         content = entry.content[0].get("value", "")
     if not content:
         content = entry.get("summary", entry.get("description", ""))
+        content_basis = "summary"
 
     # Strip HTML tags for cleaner regex matching
-    clean_content = re.sub(r"<[^>]+>", " ", content)
+    clean_content = unescape(re.sub(r"<[^>]+>", " ", content))
     clean_content = re.sub(r"\s+", " ", clean_content)
 
     fleet_data = _extract_fleet_data(clean_content)
+    # No match is a parsing/coverage gap, not evidence of an empty fleet.
+    if not fleet_data["ships"]:
+        fleet_data["ship_count"] = None
+    timing = source_cache_timing(fetcher.cache, cache_key)
 
     return {
         **fleet_data,
+        "status": "partial" if content_basis == "summary" or not fleet_data["ships"] or not published else "ok",
+        "content_basis": content_basis,
+        "coverage_note": "仅统计报告文本识别出的舰艇；区域为邻近文本推断，非实时位置或完整部署清单",
         "report_title": title,
         "report_url": link,
         "report_date": published,
+        "report_date_raw": entry.get("published") if "published" in entry else None,
         "source": "usni-fleet-tracker",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **timing,
+        "timestamp": timing["collected_at"],
     }

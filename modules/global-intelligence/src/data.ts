@@ -1,5 +1,5 @@
 import type { GatewayFetch } from "@newma-desk/mod-sdk";
-import { subscribeGlobalStream } from "./stream";
+import { globalStreamFailure, subscribeGlobalStream, type GlobalStreamFailure } from "./stream";
 import { globalRequest, type GlobalRequestSession } from "./request";
 
 export const GLOBAL_INTELLIGENCE_CONTRACT = "newma-desk.global-intelligence.v1";
@@ -372,16 +372,34 @@ export interface GlobalIntelEventCluster {
   updatedAt: string;
 }
 
-export type GlobalMediaSentiment = "positive" | "negative" | "neutral" | "mixed";
+export type GlobalMediaSentiment = "positive" | "negative" | "neutral" | "mixed" | "unknown";
+
+export interface GlobalMediaTimeCoverage {
+  status: "complete" | "partial" | "unknown";
+  total: number | null;
+  dated: number | null;
+  published: number | null;
+  updated: number | null;
+  unknown: number | null;
+  future: number | null;
+  outsideWindow: number | null;
+}
+
+export interface GlobalMediaRecordTime {
+  timestamp: string;
+  timestampBasis: "published" | "updated" | "unknown";
+  timeStatus: "valid" | "future" | "unknown";
+}
 
 export interface GlobalMediaMonitorFrame {
   group: string;
   label: string;
-  count: number;
-  positive: number;
-  negative: number;
-  neutral: number;
-  mixed: number;
+  count: number | null;
+  positive: number | null;
+  negative: number | null;
+  neutral: number | null;
+  mixed: number | null;
+  unknown: number | null;
   dominantSentiment: GlobalMediaSentiment;
   dominantLabel: string;
   sources: string[];
@@ -391,39 +409,41 @@ export interface GlobalMediaMonitorTopic {
   id: string;
   label: string;
   headline: string;
-  mentionCount: number;
-  currentMentions: number;
-  previousMentions: number;
+  mentionCount: number | null;
+  currentMentions: number | null;
+  previousMentions: number | null;
+  timeCoverage: GlobalMediaTimeCoverage;
   heatVelocityPct: number | null;
-  velocityState: "rising" | "falling" | "flat" | "new";
-  heatScore: number;
-  attentionScore: number;
+  velocityState: "rising" | "falling" | "flat" | "new" | "unknown";
+  heatScore: number | null;
+  attentionScore: number | null;
   attentionLevel: string;
-  spreadScore: number;
+  spreadScore: number | null;
   spreadLevel: string;
-  sourceCount: number;
+  sourceCount: number | null;
   sources: string[];
   sourceTiers: string[];
-  languageCount: number;
+  languageCount: number | null;
   languages: string[];
   languageLabels: string[];
-  crossLanguage: boolean;
+  crossLanguage: boolean | null;
   sentiment: GlobalMediaSentiment;
-  sentimentScore: number;
-  sentimentCounts: Record<GlobalMediaSentiment, number>;
+  sentimentScore: number | null;
+  sentimentCounts: Record<GlobalMediaSentiment, number | null>;
   mediaFrames: GlobalMediaMonitorFrame[];
-  framingDivergence: boolean;
-  framingDivergenceScore: number;
+  framingDivergence: boolean | null;
+  framingDivergenceScore: number | null;
   verificationStatus: string;
   verificationFlags: string[];
   verificationTimeline: GlobalMediaVerificationStep[];
-  socialEngagement: number;
+  socialEngagement: number | null;
   latestAt: string;
+  latestAtBasis: GlobalMediaRecordTime["timestampBasis"];
   keywords: string[];
   items: GlobalMediaMonitorTopicItem[];
 }
 
-export interface GlobalMediaMonitorTopicItem {
+export interface GlobalMediaMonitorTopicItem extends GlobalMediaRecordTime {
   key: string;
   title: string;
   source: string;
@@ -431,65 +451,73 @@ export interface GlobalMediaMonitorTopicItem {
   language: string;
   sentiment: GlobalMediaSentiment;
   published: string;
-  kind: "news" | "social";
+  updated: string;
+  kind: "news" | "social" | "unknown";
 }
 
-export interface GlobalMediaVerificationStep {
+export interface GlobalMediaVerificationStep extends GlobalMediaRecordTime {
   status: string;
   flag: string;
-  timestamp: string;
   source: string;
   title: string;
   url: string;
 }
 
 export interface GlobalMediaMonitorAnnotation {
+  timeCoverage: GlobalMediaTimeCoverage;
   key: string;
   title: string;
   source: string;
   url: string;
   topicId: string;
   sentiment: GlobalMediaSentiment;
-  sentimentScore: number;
+  sentimentScore: number | null;
   language: string;
   verificationStatus: string;
   verificationFlags: string[];
   heatVelocityPct: number | null;
   velocityState: GlobalMediaMonitorTopic["velocityState"];
-  spreadScore: number;
-  crossLanguageTopic: boolean;
+  spreadScore: number | null;
+  crossLanguageTopic: boolean | null;
 }
 
 export interface GlobalMediaMonitor {
+  status: "ok" | "partial" | "stale" | "unavailable" | "unknown";
+  coverage: { expected: number | null; available: number | null; complete: number | null; partial: number | null; failed: number | null; stale: number | null };
+  sampleBasis: string;
   summary: {
-    analyzedItems: number;
-    newsItems: number;
-    socialItems: number;
-    sourceCount: number;
-    languageCount: number;
-    topicCount: number;
-    currentMentions: number;
-    previousMentions: number;
+    analyzedItems: number | null;
+    newsItems: number | null;
+    socialItems: number | null;
+    sourceCount: number | null;
+    languageCount: number | null;
+    topicCount: number | null;
+    currentMentions: number | null;
+    previousMentions: number | null;
+    timeCoverage: GlobalMediaTimeCoverage;
     heatVelocityPct: number | null;
-    velocityState: "rising" | "falling" | "flat" | "new";
-    windowHours: number;
-    crossLanguageTopicCount: number;
-    flaggedTopicCount: number;
-    disputedTopicCount: number;
-    reversalTopicCount: number;
-    divergentTopicCount: number;
-    attentionTopicCount: number;
-    spreadScore: number;
+    velocityState: "rising" | "falling" | "flat" | "new" | "unknown";
+    windowHours: number | null;
+    crossLanguageTopicCount: number | null;
+    flaggedTopicCount: number | null;
+    disputedTopicCount: number | null;
+    reversalTopicCount: number | null;
+    divergentTopicCount: number | null;
+    attentionTopicCount: number | null;
+    spreadScore: number | null;
     sentiment: {
-      positive: number;
-      negative: number;
-      neutral: number;
-      mixed: number;
-      positivePct: number;
-      negativePct: number;
-      neutralPct: number;
-      mixedPct: number;
-      netScore: number;
+      positive: number | null;
+      negative: number | null;
+      neutral: number | null;
+      mixed: number | null;
+      unknown: number | null;
+      assessedItems: number | null;
+      positivePct: number | null;
+      negativePct: number | null;
+      neutralPct: number | null;
+      mixedPct: number | null;
+      unknownPct: number | null;
+      netScore: number | null;
     };
   };
   topics: GlobalMediaMonitorTopic[];
@@ -898,6 +926,7 @@ export interface GlobalIntelDataSource {
   subscribe(
     onPayload: (payload: Record<string, unknown>) => void,
     onStatus: (status: "connecting" | "live" | "degraded") => void,
+    onFailure?: (failure: GlobalStreamFailure) => void,
   ): () => void;
 }
 
@@ -948,14 +977,19 @@ function mediaSentiment(value: unknown): GlobalMediaSentiment {
   return normalized === "positive" || normalized === "negative"
     || normalized === "mixed" || normalized === "neutral"
     ? normalized
-    : "neutral";
+    : "unknown";
 }
 
 function mediaVelocityState(value: unknown): GlobalMediaMonitorTopic["velocityState"] {
   const normalized = String(value ?? "").toLocaleLowerCase();
-  return normalized === "rising" || normalized === "falling" || normalized === "new"
+  return normalized === "rising" || normalized === "falling" || normalized === "new" || normalized === "flat"
     ? normalized
-    : "flat";
+    : "unknown";
+}
+
+function nullableBooleanValue(value: unknown): boolean | null {
+  return value === true || value === 1 || value === "true" ? true
+    : value === false || value === 0 || value === "false" ? false : null;
 }
 
 function nullableNumberValue(record: Record<string, unknown>, key: string) {
@@ -970,20 +1004,51 @@ function mediaVelocityValue(
   state: GlobalMediaMonitorTopic["velocityState"],
 ) {
   const value = nullableNumberValue(record, "heat_velocity_pct");
-  return state === "new" && (value === 100 || value === null) ? null : value;
+  return state === "unknown" || state === "new" && (value === 100 || value === null) ? null : value;
+}
+
+function normalizeMediaTimeCoverage(value: unknown): GlobalMediaTimeCoverage {
+  const raw = objectValue(value);
+  return {
+    status: raw.status === "complete" || raw.status === "partial" ? raw.status : "unknown",
+    total: nullableNumberValue(raw, "total"), dated: nullableNumberValue(raw, "dated"),
+    published: nullableNumberValue(raw, "published"), updated: nullableNumberValue(raw, "updated"),
+    unknown: nullableNumberValue(raw, "unknown"), future: nullableNumberValue(raw, "future"),
+    outsideWindow: nullableNumberValue(raw, "outside_window"),
+  };
+}
+
+function mediaTimestampBasis(value: unknown): GlobalMediaRecordTime["timestampBasis"] {
+  return value === "published" || value === "updated" ? value : "unknown";
+}
+
+function normalizeMediaRecordTime(raw: Record<string, unknown>): GlobalMediaRecordTime {
+  const published = isoTimestamp(raw.published);
+  const updated = isoTimestamp(raw.updated);
+  return {
+    timestamp: isoTimestamp(raw.timestamp) || published || updated,
+    timestampBasis: mediaTimestampBasis(raw.timestamp_basis || (published ? "published" : updated ? "updated" : "unknown")),
+    timeStatus: raw.time_status === "valid" || raw.time_status === "future" ? raw.time_status : "unknown",
+  };
+}
+
+export function mediaTimeCoverageLabel(coverage: GlobalMediaTimeCoverage) {
+  const value = (count: number | null) => count === null ? "—" : String(count);
+  return `有效时间 ${value(coverage.dated)}/${value(coverage.total)} · 发布 ${value(coverage.published)} · 更新 ${value(coverage.updated)} · 缺日期 ${value(coverage.unknown)} · 未来日期 ${value(coverage.future)} · 窗口外 ${value(coverage.outsideWindow)}`;
 }
 
 function normalizeMediaFrames(value: unknown): GlobalMediaMonitorFrame[] {
   return listValue(value).map((frame) => ({
     group: stringValue(frame, "group") || "other",
     label: stringValue(frame, "label") || "其他来源",
-    count: numberValue(frame, "count") ?? 0,
-    positive: numberValue(frame, "positive") ?? 0,
-    negative: numberValue(frame, "negative") ?? 0,
-    neutral: numberValue(frame, "neutral") ?? 0,
-    mixed: numberValue(frame, "mixed") ?? 0,
+    count: nullableNumberValue(frame, "count"),
+    positive: nullableNumberValue(frame, "positive"),
+    negative: nullableNumberValue(frame, "negative"),
+    neutral: nullableNumberValue(frame, "neutral"),
+    mixed: nullableNumberValue(frame, "mixed"),
+    unknown: nullableNumberValue(frame, "unknown"),
     dominantSentiment: mediaSentiment(frame.dominant_sentiment),
-    dominantLabel: stringValue(frame, "dominant_label") || "中性",
+    dominantLabel: stringValue(frame, "dominant_label") || "待核验",
     sources: stringList(frame.sources),
   }));
 }
@@ -992,124 +1057,149 @@ export function normalizeGlobalMediaMonitor(
   snapshot: Record<string, unknown>,
 ): GlobalMediaMonitor {
   const domain = objectValue(snapshot.media_monitor);
-  const summary = objectValue(domain.summary);
+  const unavailable = Boolean(domain.error) || domain.status === "unavailable" || domain.status === "error";
+  const summary = unavailable ? {} : objectValue(domain.summary);
   const sentiment = objectValue(summary.sentiment);
-  const topics = domainRecords(snapshot, "media_monitor", "topics").map((topic) => {
+  const topics = (unavailable ? [] : domainRecords(snapshot, "media_monitor", "topics")).map((topic) => {
     const counts = objectValue(topic.sentiment_counts);
-    const velocityState = mediaVelocityState(topic.velocity_state);
+    const timeCoverage = normalizeMediaTimeCoverage(topic.time_coverage);
+    const velocityState = timeCoverage.status === "complete" ? mediaVelocityState(topic.velocity_state) : "unknown";
     return {
       id: stringValue(topic, "id") || stableId("media-topic", stringValue(topic, "label", "headline")),
       label: stringValue(topic, "label") || stringValue(topic, "headline") || "未命名主题",
       headline: stringValue(topic, "headline") || stringValue(topic, "label"),
-      mentionCount: numberValue(topic, "mention_count") ?? 0,
-      currentMentions: numberValue(topic, "current_mentions") ?? 0,
-      previousMentions: numberValue(topic, "previous_mentions") ?? 0,
+      mentionCount: nullableNumberValue(topic, "mention_count"),
+      currentMentions: nullableNumberValue(topic, "current_mentions"),
+      previousMentions: nullableNumberValue(topic, "previous_mentions"),
+      timeCoverage,
       heatVelocityPct: mediaVelocityValue(topic, velocityState),
       velocityState,
-      heatScore: numberValue(topic, "heat_score") ?? 0,
-      attentionScore: numberValue(topic, "attention_score") ?? numberValue(topic, "heat_score") ?? 0,
-      attentionLevel: stringValue(topic, "attention_level") || "常规",
-      spreadScore: numberValue(topic, "spread_score") ?? 0,
-      spreadLevel: stringValue(topic, "spread_level") || "有限传播",
-      sourceCount: numberValue(topic, "source_count") ?? 0,
+      heatScore: velocityState === "unknown" ? null : nullableNumberValue(topic, "heat_score"),
+      attentionScore: velocityState === "unknown" ? null : nullableNumberValue(topic, "attention_score"),
+      attentionLevel: velocityState === "unknown" ? "待核验" : stringValue(topic, "attention_level") || "待核验",
+      spreadScore: nullableNumberValue(topic, "spread_score"),
+      spreadLevel: stringValue(topic, "spread_level") || "待核验",
+      sourceCount: nullableNumberValue(topic, "source_count"),
       sources: stringList(topic.sources),
       sourceTiers: stringList(topic.source_tiers),
-      languageCount: numberValue(topic, "language_count") ?? 0,
+      languageCount: nullableNumberValue(topic, "language_count"),
       languages: stringList(topic.languages),
       languageLabels: stringList(topic.language_labels),
-      crossLanguage: booleanValue(topic.cross_language),
+      crossLanguage: nullableBooleanValue(topic.cross_language),
       sentiment: mediaSentiment(topic.sentiment),
-      sentimentScore: numberValue(topic, "sentiment_score") ?? 0,
+      sentimentScore: nullableNumberValue(topic, "sentiment_score"),
       sentimentCounts: {
-        positive: numberValue(counts, "positive") ?? 0,
-        negative: numberValue(counts, "negative") ?? 0,
-        neutral: numberValue(counts, "neutral") ?? 0,
-        mixed: numberValue(counts, "mixed") ?? 0,
+        positive: nullableNumberValue(counts, "positive"),
+        negative: nullableNumberValue(counts, "negative"),
+        neutral: nullableNumberValue(counts, "neutral"),
+        mixed: nullableNumberValue(counts, "mixed"),
+        unknown: nullableNumberValue(counts, "unknown"),
       },
       mediaFrames: normalizeMediaFrames(topic.media_frames),
-      framingDivergence: booleanValue(topic.framing_divergence),
-      framingDivergenceScore: numberValue(topic, "framing_divergence_score") ?? 0,
-      verificationStatus: stringValue(topic, "verification_status") || "常规报道",
+      framingDivergence: nullableBooleanValue(topic.framing_divergence),
+      framingDivergenceScore: nullableNumberValue(topic, "framing_divergence_score"),
+      verificationStatus: stringValue(topic, "verification_status") || "待核验",
       verificationFlags: stringList(topic.verification_flags),
       verificationTimeline: listValue(topic.verification_timeline).map((step) => ({
         status: stringValue(step, "status") || "核验提示",
         flag: stringValue(step, "flag"),
-        timestamp: isoTimestamp(step.timestamp),
+        ...normalizeMediaRecordTime(step),
         source: stringValue(step, "source") || "公开来源",
         title: stringValue(step, "title"),
         url: stringValue(step, "url"),
       })).filter((step) => step.title),
-      socialEngagement: numberValue(topic, "social_engagement") ?? 0,
+      socialEngagement: nullableNumberValue(topic, "social_engagement"),
       latestAt: isoTimestamp(topic.latest_at),
+      latestAtBasis: mediaTimestampBasis(topic.latest_at_basis),
       keywords: stringList(topic.keywords),
       items: listValue(topic.items).map((item) => ({
         key: stringValue(item, "key") || stableId("media-item", stringValue(item, "source"), stringValue(item, "title")),
         title: stringValue(item, "title"),
         source: stringValue(item, "source") || "公开来源",
         url: stringValue(item, "url"),
-        language: stringValue(item, "language") || "en",
+        language: stringValue(item, "language") || "unknown",
         sentiment: mediaSentiment(item.sentiment),
         published: isoTimestamp(item.published),
-        kind: (stringValue(item, "kind") === "social" ? "social" : "news") as GlobalMediaMonitorTopicItem["kind"],
+        updated: isoTimestamp(item.updated),
+        ...normalizeMediaRecordTime(item),
+        kind: (item.kind === "social" || item.kind === "news" ? item.kind : "unknown") as GlobalMediaMonitorTopicItem["kind"],
       })).filter((item) => item.title),
     } satisfies GlobalMediaMonitorTopic;
   });
-  const annotations = domainRecords(snapshot, "media_monitor", "annotations").map((annotation) => {
-    const velocityState = mediaVelocityState(annotation.velocity_state);
+  const annotations = (unavailable ? [] : domainRecords(snapshot, "media_monitor", "annotations")).map((annotation) => {
+    const timeCoverage = normalizeMediaTimeCoverage(annotation.time_coverage);
+    const velocityState = timeCoverage.status === "complete" ? mediaVelocityState(annotation.velocity_state) : "unknown";
     return ({
+      timeCoverage,
       key: stringValue(annotation, "key"),
       title: stringValue(annotation, "title"),
       source: stringValue(annotation, "source"),
       url: stringValue(annotation, "url"),
       topicId: stringValue(annotation, "topic_id"),
       sentiment: mediaSentiment(annotation.sentiment),
-      sentimentScore: numberValue(annotation, "sentiment_score") ?? 0,
-      language: stringValue(annotation, "language") || "en",
-      verificationStatus: stringValue(annotation, "verification_status") || "常规报道",
+      sentimentScore: nullableNumberValue(annotation, "sentiment_score"),
+      language: stringValue(annotation, "language") || "unknown",
+      verificationStatus: stringValue(annotation, "verification_status") || "待核验",
       verificationFlags: stringList(annotation.verification_flags),
       heatVelocityPct: mediaVelocityValue(annotation, velocityState),
       velocityState,
-      spreadScore: numberValue(annotation, "spread_score") ?? 0,
-      crossLanguageTopic: booleanValue(annotation.cross_language_topic),
+      spreadScore: nullableNumberValue(annotation, "spread_score"),
+      crossLanguageTopic: nullableBooleanValue(annotation.cross_language_topic),
     });
   }).filter((annotation) => annotation.title);
 
-  const summaryVelocityState = mediaVelocityState(summary.velocity_state);
+  const timeCoverage = normalizeMediaTimeCoverage(summary.time_coverage);
+  const summaryVelocityState = timeCoverage.status === "complete" && ["rising", "falling", "flat", "new"].includes(String(summary.velocity_state))
+    ? mediaVelocityState(summary.velocity_state) : "unknown";
+  const hasSamples = (nullableNumberValue(summary, "analyzed_items") ?? 0) > 0;
+  const coverage = objectValue(domain.coverage);
 
   return {
+    status: unavailable ? "unavailable" : snapshot._stale === true || domain.freshness === "stale" || domain.status === "stale" ? "stale"
+      : domain.status === "ok" || domain.status === "partial" ? domain.status : "unknown",
+    coverage: {
+      expected: nullableNumberValue(coverage, "expected"), available: nullableNumberValue(coverage, "available"),
+      complete: nullableNumberValue(coverage, "complete"), partial: nullableNumberValue(coverage, "partial"),
+      failed: nullableNumberValue(coverage, "failed"), stale: nullableNumberValue(coverage, "stale"),
+    },
+    sampleBasis: stringValue(domain, "sample_basis") || "unknown",
     summary: {
-      analyzedItems: numberValue(summary, "analyzed_items") ?? 0,
-      newsItems: numberValue(summary, "news_items") ?? 0,
-      socialItems: numberValue(summary, "social_items") ?? 0,
-      sourceCount: numberValue(summary, "source_count") ?? 0,
-      languageCount: numberValue(summary, "language_count") ?? 0,
-      topicCount: numberValue(summary, "topic_count") ?? topics.length,
-      currentMentions: numberValue(summary, "current_mentions") ?? 0,
-      previousMentions: numberValue(summary, "previous_mentions") ?? 0,
-      heatVelocityPct: mediaVelocityValue(summary, summaryVelocityState),
-      velocityState: summaryVelocityState,
-      windowHours: numberValue(summary, "window_hours") ?? 12,
-      crossLanguageTopicCount: numberValue(summary, "cross_language_topic_count") ?? 0,
-      flaggedTopicCount: numberValue(summary, "flagged_topic_count") ?? 0,
-      disputedTopicCount: numberValue(summary, "disputed_topic_count") ?? 0,
-      reversalTopicCount: numberValue(summary, "reversal_topic_count") ?? 0,
-      divergentTopicCount: numberValue(summary, "divergent_topic_count") ?? 0,
-      attentionTopicCount: numberValue(summary, "attention_topic_count") ?? 0,
-      spreadScore: numberValue(summary, "spread_score") ?? 0,
+      analyzedItems: nullableNumberValue(summary, "analyzed_items"),
+      newsItems: nullableNumberValue(summary, "news_items"),
+      socialItems: nullableNumberValue(summary, "social_items"),
+      sourceCount: nullableNumberValue(summary, "source_count"),
+      languageCount: nullableNumberValue(summary, "language_count"),
+      topicCount: nullableNumberValue(summary, "topic_count") ?? (!unavailable && Array.isArray(domain.topics) ? topics.length : null),
+      currentMentions: nullableNumberValue(summary, "current_mentions"),
+      previousMentions: nullableNumberValue(summary, "previous_mentions"),
+      timeCoverage,
+      heatVelocityPct: hasSamples && summaryVelocityState !== "unknown" ? mediaVelocityValue(summary, summaryVelocityState) : null,
+      velocityState: hasSamples ? summaryVelocityState : "unknown",
+      windowHours: nullableNumberValue(summary, "window_hours"),
+      crossLanguageTopicCount: nullableNumberValue(summary, "cross_language_topic_count"),
+      flaggedTopicCount: nullableNumberValue(summary, "flagged_topic_count"),
+      disputedTopicCount: nullableNumberValue(summary, "disputed_topic_count"),
+      reversalTopicCount: nullableNumberValue(summary, "reversal_topic_count"),
+      divergentTopicCount: nullableNumberValue(summary, "divergent_topic_count"),
+      attentionTopicCount: timeCoverage.status === "complete" || nullableNumberValue(summary, "analyzed_items") === 0 ? nullableNumberValue(summary, "attention_topic_count") : null,
+      spreadScore: hasSamples ? nullableNumberValue(summary, "spread_score") : null,
       sentiment: {
-        positive: numberValue(sentiment, "positive") ?? 0,
-        negative: numberValue(sentiment, "negative") ?? 0,
-        neutral: numberValue(sentiment, "neutral") ?? 0,
-        mixed: numberValue(sentiment, "mixed") ?? 0,
-        positivePct: numberValue(sentiment, "positive_pct") ?? 0,
-        negativePct: numberValue(sentiment, "negative_pct") ?? 0,
-        neutralPct: numberValue(sentiment, "neutral_pct") ?? 0,
-        mixedPct: numberValue(sentiment, "mixed_pct") ?? 0,
-        netScore: numberValue(sentiment, "net_score") ?? 0,
+        positive: nullableNumberValue(sentiment, "positive"),
+        negative: nullableNumberValue(sentiment, "negative"),
+        neutral: nullableNumberValue(sentiment, "neutral"),
+        mixed: nullableNumberValue(sentiment, "mixed"),
+        unknown: nullableNumberValue(sentiment, "unknown"),
+        assessedItems: nullableNumberValue(sentiment, "assessed_items"),
+        positivePct: hasSamples ? nullableNumberValue(sentiment, "positive_pct") : null,
+        negativePct: hasSamples ? nullableNumberValue(sentiment, "negative_pct") : null,
+        neutralPct: hasSamples ? nullableNumberValue(sentiment, "neutral_pct") : null,
+        mixedPct: hasSamples ? nullableNumberValue(sentiment, "mixed_pct") : null,
+        unknownPct: hasSamples ? nullableNumberValue(sentiment, "unknown_pct") : null,
+        netScore: hasSamples ? nullableNumberValue(sentiment, "net_score") : null,
       },
     },
     topics,
-    mediaFrames: normalizeMediaFrames(domain.media_frames),
+    mediaFrames: unavailable ? [] : normalizeMediaFrames(domain.media_frames),
     annotations,
     caveat: stringValue(domain, "caveat"),
     timestamp: isoTimestamp(domain.timestamp),
@@ -1117,7 +1207,7 @@ export function normalizeGlobalMediaMonitor(
 }
 
 export function mediaSentimentLabel(sentiment: GlobalMediaSentiment) {
-  return sentiment === "positive" ? "正面"
+  return sentiment === "unknown" ? "待核验" : sentiment === "positive" ? "正面"
     : sentiment === "negative" ? "负面"
       : sentiment === "mixed" ? "正负交织"
         : "中性";
@@ -1130,9 +1220,10 @@ export function signedPercent(value: number | null | undefined) {
 
 export function mediaVelocityLabel(
   value: number | null | undefined,
-  state: GlobalMediaMonitorTopic["velocityState"],
+  state: GlobalMediaMonitorTopic["velocityState"] | "unknown",
 ) {
-  return state === "new" && value === null ? "新出现" : signedPercent(value);
+  if (state === "unknown") return "待核验";
+  return state === "new" && value === null ? "仅本时段有样本" : signedPercent(value);
 }
 
 export function globalMediaTopicSimilarity(
@@ -1234,6 +1325,7 @@ function eventFacts(entries: Array<[string, unknown]>) {
 function numberValue(value: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
     const candidate = value[key];
+    if (typeof candidate !== "number" && (typeof candidate !== "string" || !candidate.trim())) continue;
     const number = typeof candidate === "number" ? candidate : Number(candidate);
     if (Number.isFinite(number)) return number;
   }
@@ -1532,6 +1624,7 @@ function domainRecords(
 }
 
 function isMilitaryAircraft(record: Record<string, unknown>) {
+  if (record.classification_basis === "provider-military-tag" || record.classification_basis === "callsign-heuristic") return true;
   if (record.military === true || record.is_military === true) return true;
   const classification = `${stringValue(record, "type", "aircraft_type", "category", "operator")}`.toLocaleLowerCase();
   if (/military|air force|navy|army|marines|coast guard|政府专机/.test(classification)) return true;
@@ -1771,24 +1864,17 @@ export function normalizeGlobalIntelPoints(
   const nuclearDomain = objectValue(snapshot.nuclear_monitor);
   const nuclearTimestamp = nuclearDomain.timestamp;
   append(domainRecords(snapshot, "nuclear_monitor", "sites").map((record) => {
-    const highestConcern = objectValue(record.highest_concern);
-    const eventCount = numberValue(record, "events_detected") ?? 0;
+    const eventCount = numberValue(record, "events_detected");
     return {
       ...record,
-      detail_summary: eventCount > 0
-        ? `${eventCount} 个近场地震 · 最高关注 ${stringValue(highestConcern, "concern_level") || "待研判"}`
-        : `近 72 小时未发现近场异常 · ${stringValue(record, "status") || "状态未知"}`,
+      detail_summary: eventCount === undefined ? "近场地震数量未知，不能判断没有异常"
+        : `${eventCount} 个近场地震目录样本 · ${stringValue(record, "source_status") || "来源待核验"} · 不等于核试验确认`,
       timestamp: nuclearTimestamp,
     };
   }), {
     category: "nuclear", source: "World Intel 核监测站",
     titleKeys: ["name"], detailKeys: ["detail_summary", "status"],
-  }, (record) => {
-    const concern = stringValue(objectValue(record.highest_concern), "concern_level").toLocaleLowerCase();
-    if (concern === "critical") return "critical";
-    if (concern === "high" || concern === "elevated") return "high";
-    return (numberValue(record, "events_detected") ?? 0) > 0 ? "medium" : "info";
-  });
+  }, () => "info", () => ({ ...sourceCollectionTiming(nuclearDomain), content: stringValue(nuclearDomain, "note") }));
   append(domainRecords(snapshot, "nuclear_monitor", "flagged_events").map((record) => ({
     ...record,
     detail_summary: [
@@ -1797,16 +1883,16 @@ export function normalizeGlobalIntelPoints(
       numberValue(record, "distance_km") === undefined ? "" : `距设施 ${numberValue(record, "distance_km")!.toFixed(1)} km`,
     ].filter(Boolean).join(" · "),
   })), {
-    category: "nuclear", source: "USGS 核活动监测",
+    category: "nuclear", source: "USGS 试验场邻近地震",
     titleKeys: ["site", "place"], detailKeys: ["detail_summary", "place"],
     timestampKeys: ["time"],
   }, (record) => {
-    const concern = stringValue(record, "concern_level").toLocaleLowerCase();
-    return concern === "critical" ? "critical" : concern === "high" ? "high" : concern === "elevated" ? "medium" : "low";
+    return nuclearDomain.status === "ok" && nuclearDomain.freshness === "fresh" ? "medium" : "info";
   }, (record) => ({
+    ...sourceCollectionTiming(nuclearDomain),
     facts: eventFacts([
-      ["关注评分", numberValue(record, "concern_score")],
-      ["关注等级", stringValue(record, "concern_level")],
+      ["启发式关注值（非核试验判定）", numberValue(record, "concern_score")],
+      ["来源更新时间", stringValue(nuclearDomain, "source_updated_at")],
       ["震级", numberValue(record, "magnitude") === undefined ? "" : "M" + numberValue(record, "magnitude")!.toFixed(1)],
       ["深度", numberValue(record, "depth_km") === undefined ? "" : numberValue(record, "depth_km")!.toFixed(1) + " km"],
       ["距设施", numberValue(record, "distance_km") === undefined ? "" : numberValue(record, "distance_km")!.toFixed(1) + " km"],
@@ -1897,7 +1983,7 @@ export function normalizeGlobalIntelPoints(
   append(domainRecords(snapshot, "population_exposure", "exposed_cities").map((record) => ({
     ...record,
     title_summary: `${stringValue(record, "city") || "城市"} 人口暴露`,
-    detail_summary: `${compactNumber(numberValue(record, "population") ?? 0)} 人 · 距${stringValue(record, "nearest_event") || "事件"}约 ${numberValue(record, "distance_km") ?? "—"} km`,
+    detail_summary: `${numberValue(record, "population") === undefined ? "人口未知" : compactNumber(numberValue(record, "population")!)} · 静态城市名录人口，非实际受灾人数 · 距${stringValue(record, "nearest_event") || "事件"}约 ${numberValue(record, "distance_km") ?? "—"} km`,
     timestamp: exposureDomain.timestamp,
   })), {
     category: "society", source: "World Intel 人口暴露分析",
@@ -1918,33 +2004,46 @@ export function normalizeGlobalIntelPoints(
         ...record,
         latitude: numberValue(record, "lat", "latitude"),
         longitude: numberValue(record, "lon", "longitude"),
-        title_summary: analysisLabel(stringValue(record, "name")) + " 监测信号汇聚",
-        detail_summary: "汇聚评分 " + score.toFixed(1) + "/10 · 地震 " + (numberValue(signals, "earthquakes") ?? 0) + " 起",
+        title_summary: analysisLabel(stringValue(record, "name")) + " 区域地震观察",
+        detail_summary: "启发式观察值 " + score.toFixed(1) + "/10 · 地震样本 " + (numberValue(signals, "earthquakes") ?? "未知") + " 起；不是多源冲突风险",
         timestamp: convergenceDomain.timestamp,
       };
     }), {
-    category: "conflict", source: "World Intel 信号汇聚",
+    category: "disaster", source: "World Intel 区域地震观察",
     titleKeys: ["title_summary"], detailKeys: ["detail_summary"],
   }, (record) => {
-    const score = numberValue(record, "convergence_score") ?? 0;
-    return score >= 6 ? "high" : score >= 4 ? "medium" : "low";
-  });
+    return "info";
+  }, () => ({ ...sourceCollectionTiming(convergenceDomain), content: stringValue(convergenceDomain, "note") }));
 
-  const wildfireRegions = objectValue(objectValue(snapshot.wildfires).fires_by_region);
+  const wildfireSource = objectValue(snapshot.wildfires);
+  const wildfireRegions = objectValue(wildfireSource.fires_by_region);
   for (const [region, value] of Object.entries(wildfireRegions)) {
-    const clusters = listValue(objectValue(value).top_clusters);
+    const regionData = objectValue(value);
+    const clusters = listValue(regionData.top_clusters);
     for (const cluster of clusters) {
       const point = pointFromRecord(cluster, {
         category: "disaster",
         source: "NASA FIRMS",
         titleKeys: ["name"],
         detailKeys: ["fire_count", "max_frp"],
-        severity: "high",
+        severity: "info",
       });
       if (!point) continue;
       if (point.title === "NASA FIRMS") {
         point.title = `${region.replace(/_/g, " ")} 火点集群`;
       }
+      const count = numberValue(objectValue(cluster), "fire_count");
+      point.detail = `卫星非低置信度热异常探测样本${count === undefined ? "" : ` ${count} 条`}；不等同已核实山火或损失。`;
+      const timing = sourceCollectionTiming({ ...regionData, freshness: regionData.status === "stale" || wildfireSource.freshness === "stale" || wildfireSource._stale === true ? "stale" : regionData.freshness });
+      const hasTimeZone = (value: unknown) => typeof value === "string" && /(?:Z|[+-]\d\d:\d\d)$/.test(value);
+      if (timing.sourceFreshness === "fresh" && (
+        Boolean(wildfireSource.error) || Boolean(regionData.error) ||
+        !["ok", "partial"].includes(String(wildfireSource.status)) ||
+        !["ok", "partial"].includes(String(regionData.status)) ||
+        !hasTimeZone(regionData.collected_at) || !hasTimeZone(regionData.cache_expires_at) ||
+        !timing.collectedAt || !timing.sourceExpiresAt || Date.parse(timing.collectedAt) > Date.now()
+      )) timing.sourceFreshness = "unknown";
+      Object.assign(point, timing);
       points.push(point);
     }
   }
@@ -1971,7 +2070,7 @@ function eventFromPoint(point: GlobalIntelPoint): GlobalIntelEvent {
     ...(point.url ? { url: point.url } : {}),
     ...(point.facts?.length ? { facts: point.facts } : {}),
     ...(point.content ? { content: point.content } : {}),
-    recordKind: point.source === "ADS-B"
+    recordKind: point.source === "NASA FIRMS" ? "observation" : point.source === "ADS-B"
       ? point.severity === "critical" || point.severity === "high" ? "event" : "observation"
       : "event",
   };
@@ -2680,7 +2779,9 @@ function normalizeMonitorSignalEvents(
     const deployed = objectValue(forceTotals.deployed);
     const underway = objectValue(forceTotals.underway);
     const regions = objectValue(usniDomain.region_breakdown);
-    const reportTimestamp = isoTimestamp(usniDomain.report_date, isoTimestamp(usniDomain.timestamp, fallbackTimestamp));
+    const reportTimestamp = isoTimestamp(usniDomain.report_date);
+    const shipCount = numberValue(usniDomain, "ship_count");
+    const reportTiming = sourceCollectionTiming(usniDomain);
     const reportUrl = stringValue(usniDomain, "report_url");
     const regionSummary = Object.entries(regions)
       .map(([region, count]) => region + " " + String(count))
@@ -2689,15 +2790,21 @@ function normalizeMonitorSignalEvents(
       id: stableId("usni-fleet", reportTitle, reportTimestamp),
       category: "military",
       title: reportTitle,
-      detail: (numberValue(usniDomain, "ship_count") ?? ships.length) + " 艘舰艇已识别 · " + strikeGroups.length + " 个打击/远征群",
+      detail: (shipCount === undefined ? "舰艇数量待核验" : shipCount + " 艘报告文本舰艇样本")
+        + (strikeGroups.length ? " · " + strikeGroups.length + " 个编队文本匹配" : " · 编队识别待核验"),
       source: "USNI Fleet Tracker",
       severity: "medium",
       timestamp: reportTimestamp,
+      timestampBasis: reportTimestamp ? "published" : "unknown",
+      ...reportTiming,
       facts: eventFacts([
-        ["战斗舰艇总数", numberValue(battleForce, "total")],
-        ["海外部署", numberValue(deployed, "total")],
-        ["航行中", numberValue(underway, "total")],
-        ["区域分布", regionSummary],
+        ["报告战斗舰艇总数", numberValue(battleForce, "total")],
+        ["报告部署数量", numberValue(deployed, "total")],
+        ["报告航行数量", numberValue(underway, "total")],
+        ["文本区域归类", regionSummary],
+        ["识别范围", usniDomain.content_basis === "summary" ? "RSS 摘要，非完整清单" : "报告文本样本，非完整清单"],
+        ["位置口径", "邻近文本推断，非实时位置"],
+        ["数据状态", reportTiming.sourceFreshness === "stale" ? "旧缓存，当前部署待核验" : "报告所述时点，非实时部署"],
       ]),
       content: ships.slice(0, 16).map((ship) => (
         stringValue(ship, "name") + "（" + stringValue(ship, "hull_number") + "）"
@@ -2732,7 +2839,7 @@ function normalizeAnalysisLayerEvents(
     const domain = stringValue(alert, "domain");
     const value = numberValue(alert, "value") ?? 0;
     if (listValue(alert.countries).length || stringList(alert.countries).length) return value + " 个国家不稳定风险超过阈值";
-    if (listValue(alert.surges).length) return "发现 " + value + " 项军事活动激增";
+    if (listValue(alert.surges).length) return "发现 " + value + " 项区域航空样本异常；不代表已确认军事部署";
     if (stringList(alert.corridors).length) return value + " 条海底光缆走廊风险升高";
     if (stringList(alert.hotspots).length) return value + " 个安全热点进入升级区间";
     if (domain === "space") return "地磁活动升高，当前 Kp=" + value;
@@ -2796,7 +2903,7 @@ function normalizeAnalysisLayerEvents(
   const brief = typeof briefDomain.brief === "string" ? briefDomain.brief.trim() : "";
   if (brief) {
     const metrics = objectValue(briefDomain.metrics_snapshot);
-    const postureScore = numberValue(metrics, "posture_score") ?? 0;
+    const postureScore = numberValue(metrics, "posture_score");
     const riskLevel = stringValue(metrics, "risk_level").toUpperCase();
     const riskLabels: Record<string, string> = {
       LOW: "低风险",
@@ -2808,18 +2915,21 @@ function normalizeAnalysisLayerEvents(
     events.push({
       id: stableId("situation-brief", isoTimestamp(briefDomain.timestamp, fallbackTimestamp)),
       category: "news",
-      title: "全球综合态势 · " + (riskLabels[riskLevel] ?? "持续监测"),
+      title: "全球综合态势 · " + (postureScore === undefined ? "风险待核验" : riskLabels[riskLevel] ?? "持续监测"),
       detail: plainText(brief).slice(0, 180),
       source: "World Intel 态势简报",
-      severity: postureScore >= 80 ? "critical" : postureScore >= 60 ? "high" : postureScore >= 35 ? "medium" : "info",
+      severity: postureScore === undefined ? "info" : postureScore >= 80 ? "critical" : postureScore >= 60 ? "high" : postureScore >= 35 ? "medium" : "info",
       timestamp: isoTimestamp(briefDomain.timestamp, fallbackTimestamp),
+      timestampBasis: "collected",
+      recordKind: "observation",
       facts: eventFacts([
-        ["综合评分", postureScore + "/100"],
-        ["活跃告警", numberValue(metrics, "alerts")],
-        ["军事航空器", numberValue(metrics, "military_aircraft")],
-        ["冲突事件", numberValue(metrics, "conflicts")],
-        ["地震", numberValue(metrics, "earthquakes")],
-        ["网络威胁", numberValue(metrics, "cyber_threats")],
+        ["综合评分", postureScore === undefined ? "未知" : postureScore + "/100"],
+        ["活跃告警", numberValue(metrics, "alerts") ?? "未知"],
+        ["军事航空器", numberValue(metrics, "military_aircraft") ?? "未知"],
+        ["冲突样本", numberValue(metrics, "conflicts") ?? "未知"],
+        ["地震", numberValue(metrics, "earthquakes") ?? "未知"],
+        ["网络威胁样本", numberValue(metrics, "cyber_threats") ?? "未知"],
+        ["时间口径", "简报生成时间，非事件发生时间"],
       ]),
       content: brief,
     });
@@ -2896,7 +3006,7 @@ export function normalizeGlobalIntelEvents(
       point.category === "conflict"
       || point.category === "disaster"
       || point.category === "maritime"
-      || (point.category === "nuclear" && point.source === "USGS 核活动监测")
+      || (point.category === "nuclear" && point.source === "USGS 试验场邻近地震")
       || (point.category === "climate" && (point.severity === "critical" || point.severity === "high"))
       || point.source === "TomTom 交通事件"
       || (point.source === "TomTom 交通流" && point.severity === "high")
@@ -2921,7 +3031,8 @@ export function normalizeGlobalIntelEvents(
       url,
     });
     events.push({
-      id: stableId("news", source, title, url),
+      // Long identical headlines can belong to distinct reports; never truncate the URL identity.
+      id: JSON.stringify(["news", source, title, url]),
       category: "news",
       title,
       detail: plainText(stringValue(item, "summary")) || stringValue(item, "category") || "全球公开新闻",
@@ -2934,9 +3045,9 @@ export function normalizeGlobalIntelEvents(
       ...(annotation ? {
         facts: eventFacts([
           ["报道语气", mediaSentimentLabel(annotation.sentiment)],
-          ["热度增速", mediaVelocityLabel(annotation.heatVelocityPct, annotation.velocityState)],
-          ["传播范围", `${annotation.spreadScore}/100`],
-          ["跨语言合并", annotation.crossLanguageTopic ? "是" : "否"],
+          ["样本时段对比", mediaVelocityLabel(annotation.heatVelocityPct, annotation.velocityState)],
+          ["传播范围", annotation.spreadScore === null ? "待核验" : `${annotation.spreadScore}/100`],
+          ["跨语言合并", annotation.crossLanguageTopic === null ? "待核验" : annotation.crossLanguageTopic ? "是" : "否"],
           ["核验提示", annotation.verificationStatus],
         ]),
       } : {}),
@@ -2956,40 +3067,140 @@ export function normalizeGlobalIntelEvents(
     const source = stringValue(item, "source") || "公开情报源";
     const timing = newsRecordTiming(item);
     const url = stringValue(item, "url");
+    const collection = "collectedAt" in item ? sourceCollectionTiming({
+      collected_at: item.collectedAt,
+      freshness: item.cached === true ? "stale" : objectValue(item.collectionFreshness).status,
+    }) : crucixTiming;
     events.push({
-      id: stableId("crucix-news", source, title, url),
-      category: "news",
+      id: JSON.stringify(["crucix-news", source, title, url]),
+      category: source === "WHO" && item.type === "who" ? "health" : "news",
       title,
-      detail: [stringValue(item, "region"), stringValue(item, "type")].filter(Boolean).join(" · ") || "Crucix 补充情报",
+      detail: [stringValue(item, "region"), stringValue(item, "type"), item.cached === true ? "上次有效缓存，未确认最新" : ""].filter(Boolean).join(" · ") || "Crucix 补充情报",
       source: `Crucix / ${source}`,
       severity: item.urgent === true ? "high" : "info",
       ...timing,
-      ...crucixTiming,
+      ...collection,
       ...(timing.sourceFreshness === "stale" ? { sourceFreshness: "stale" as const } : {}),
       ...(url ? { url } : {}),
       recordKind: "news",
     });
   }
 
+  const monitoring = objectValue(crucixSnapshot.global);
+  const weatherCoverage = objectValue(monitoring.weatherCoverage);
+  const weatherTiming = sourceCollectionTiming({
+    collected_at: weatherCoverage.collectedAt,
+    freshness: objectValue(weatherCoverage.freshness).status,
+  });
+  if (Object.keys(weatherCoverage).length) {
+    events.push({
+      id: "crucix-weather-coverage", category: "climate", title: "美国严重天气预警 · 来源覆盖",
+      source: "NOAA/NWS", severity: "info", recordKind: "observation",
+      timestamp: isoTimestamp(weatherCoverage.collectedAt), timestampBasis: weatherCoverage.collectedAt ? "collected" : "unknown",
+      ...weatherTiming,
+      detail: "仅覆盖美国 NWS 的 Extreme/Severe 预警，不代表全球天气；区域预警不等于投资损失判断",
+      facts: eventFacts([["查询状态", weatherCoverage.status || "unknown"],
+        ["有效预警", weatherCoverage.totalAlerts ?? "未知"], ["展示条数", weatherCoverage.displayed ?? "未知"],
+        ["完整源覆盖", weatherCoverage.complete === true ? "是" : "未确认"],
+        ["来源错误", weatherCoverage.errorCode], ["HTTP", weatherCoverage.httpStatus]]),
+    });
+  }
+  for (const row of listValue(monitoring.weatherAlerts)) {
+    const title = stringValue(row, "headline", "event");
+    if (!title) continue;
+    const sent = isoTimestamp(row.sent);
+    const expires = isoTimestamp(row.expires);
+    const expired = Boolean(expires && Date.parse(expires) <= Date.now());
+    const severity = stringValue(row, "severity");
+    const url = stringValue(row, "url");
+    events.push({
+      id: stableId("crucix-weather", row.id || url || title), category: "climate", title,
+      source: "NOAA/NWS", severity: expired ? "info" : severity === "Extreme" ? "critical" : "high",
+      timestamp: sent, timestampBasis: sent ? "published" : "unknown", ...weatherTiming,
+      ...(expired ? { sourceFreshness: "stale" as const } : {}),
+      detail: [stringValue(row, "event"), stringValue(row, "areas"), expired ? "预警已到期，勿当作当前生效" : "生效范围和期限以官方原文为准"].filter(Boolean).join(" · "),
+      facts: eventFacts([["严重程度", severity], ["发布时间", sent || "未知"],
+        ["生效时间", row.effective], ["预计开始", row.onset], ["到期时间", expires || "未知"],
+        ["定位依据", row.geoBasis || "无几何信息，保留文字区域"]]),
+      ...(url ? { url } : {}), recordKind: expired ? "observation" : "event",
+    });
+  }
+  for (const [field, label, category] of [
+    ["airRegions", "航空区域样本", "aviation"], ["radiationAreas", "辐射区域样本", "infrastructure"],
+  ] as const) {
+    for (const row of listValue(monitoring[field])) {
+      const name = stringValue(row, "name");
+      if (!name) continue;
+      const observedAt = isoTimestamp(row.observedAt);
+      const radiation = field === "radiationAreas";
+      events.push({
+        id: stableId("crucix-region", field, row.id, name),
+        category, title: label + " · " + name, source: radiation ? "Safecast" : "OpenSky 区域查询",
+        severity: "info", timestamp: observedAt, timestampBasis: observedAt ? "occurred" : "unknown",
+        sourceFreshness: row.cached === true ? "stale"
+          : objectValue(row.freshness).status === "fresh" ? "fresh"
+            : objectValue(row.freshness).status === "stale" ? "stale" : "unknown",
+        detail: radiation ? "查询区域中心不是传感器位置；样本不能判定区域辐射安全"
+          : "查询范围内的航空器快照，不代表航迹或起降路线；重叠区域不能直接求和",
+        facts: eventFacts(radiation
+          ? [["查询状态", row.status], ["安全判断", "未评估"], ["24小时内有效样本", row.recentReadings ?? "未知"],
+             ["有效返回样本", row.sampleReadings ?? "未知"], ["同型号样本 CPM 均值", row.avgCPM ?? "不可比较"],
+             ["查询半径/km", row.radiusKm], ["样本上限", row.sampleLimit], ["观测窗口起点", row.windowStart], ["观测窗口终点", row.windowEnd]]
+          : [["查询状态", row.status], ["航空器", row.totalAircraft ?? "未知"], ["无呼号", row.noCallsign ?? "未知"], ["旧缓存", row.cached ? "是" : "否"]]),
+        recordKind: "observation",
+      });
+    }
+  }
+
   const crucixMacro = objectValue(crucixSnapshot.macro);
+  const treasury = objectValue(crucixMacro.treasury);
+  const debtText = stringValue(treasury, "totalDebt");
+  const debtValue = /^[-+]?\d+(?:\.\d+)?$/.test(debtText) ? Number(debtText) : NaN;
+  const treasuryTiming = sourceCollectionTiming({ collected_at: treasury.collectedAt, freshness: objectValue(treasury.freshness).status });
+  if (Number.isFinite(debtValue)) {
+    const date = stringValue(treasury, "date");
+    events.push({
+      id: stableId("crucix-treasury-debt", date), category: "market", severity: "info", recordKind: "observation",
+      title: `美国国债余额 ${(debtValue / 1e12).toFixed(2)} 万亿美元`, source: "US Treasury Fiscal Data",
+      detail: "日频存量规模，含公众持有与政府内部持有；不能仅据绝对规模推导黄金、比特币或债券的买卖方向。",
+      timestamp: isoTimestamp(date), timestampBasis: date ? "occurred" : "unknown", ...treasuryTiming,
+      facts: eventFacts([["观测日期", date || "未知"], ["原始金额/USD", debtText], ["取数状态", treasury.status || "unknown"]]),
+      ...(stringValue(treasury, "debtUrl") ? { url: stringValue(treasury, "debtUrl") } : {}),
+    });
+  }
+  const treasuryRates = listValue(treasury.interestRates).filter(row => row.basis === "outstanding-debt-average-interest-rate");
+  for (const row of treasuryRates) {
+    const rate = numberValue(row, "rate"), period = stringValue(row, "date"), security = stringValue(row, "security");
+    if (!security) continue;
+    events.push({
+      id: stableId("crucix-treasury-average-rate", security, row.securityType, period), category: "market", severity: "info", recordKind: "observation",
+      title: `存量国债平均付息率 · ${security} · ${rate === undefined ? "未知" : rate.toFixed(3) + "%"}`,
+      source: "US Treasury Fiscal Data", detail: "按存量证券统计的月度平均利率，不是同期限市场收益率，不能据此判断收益率曲线陡峭或倒挂。",
+      timestamp: isoTimestamp(period), timestampBasis: period ? "occurred" : "unknown",
+      ...sourceCollectionTiming({ collected_at: treasury.collectedAt, freshness: objectValue(row.freshness).status }),
+      facts: eventFacts([["观测期", period || "未知"], ["证券类别", row.securityType], ["单位", "百分比"], ["缺失值", rate === undefined ? "是" : "否"]]),
+      ...(stringValue(treasury, "ratesUrl") ? { url: stringValue(treasury, "ratesUrl") } : {}),
+    });
+  }
   const gscpi = objectValue(crucixMacro.gscpi);
   const gscpiValue = numberValue(gscpi, "value");
   if (gscpiValue !== undefined) {
-    const observationDate = isoTimestamp(gscpi.date);
     const observationFreshness = objectValue(gscpi.freshness).status;
     events.push({
-      id: stableId("crucix-gscpi", observationDate, gscpiValue),
+      id: stableId("crucix-gscpi", gscpi.period || gscpi.date, gscpi.vintage, gscpiValue),
       category: "market",
       title: `全球供应链压力指数 ${gscpiValue.toFixed(2)}`,
-      detail: stringValue(gscpi, "interpretation") || "纽约联储 GSCPI 最新观测",
+      detail: [stringValue(gscpi, "interpretation"), "月度统计期不是发布日期；零代表历史均值，不是双边贸易或通胀传导结论。"].filter(Boolean).join(" · "),
       source: "Crucix / New York Fed GSCPI",
       severity: Math.abs(gscpiValue) >= 2 ? "high" : Math.abs(gscpiValue) >= 1 ? "medium" : "info",
-      timestamp: observationDate,
-      ...(!observationDate ? { timestampBasis: "unknown" as const } : {}),
+      timestamp: "", timestampBasis: "unknown",
       ...crucixTiming,
       sourceFreshness: crucixTiming.sourceFreshness === "stale" || observationFreshness === "stale"
         ? "stale" : crucixTiming.sourceFreshness === "fresh" && observationFreshness === "fresh" ? "fresh" : "unknown",
-      facts: eventFacts([["观测期", stringValue(gscpi, "period", "date") || "未知"]]),
+      facts: eventFacts([["观测期", stringValue(gscpi, "period", "date") || "未知"],
+        ["单位", gscpi.unit === "standard-deviations" ? "标准差" : "待核验"],
+        ["修订列标识（非发布日期）", gscpi.vintage ?? "未知"], ["取数状态", gscpi.status ?? "unknown"],
+        ["拒绝行", gscpi.rejected ?? "未知"], ["缺失格", gscpi.missing ?? "未知"]]),
       recordKind: "observation",
     });
   }
@@ -3016,16 +3227,34 @@ export function normalizeGlobalIntelEvents(
 
   for (const item of domainRecords(snapshot, "central_bank_rates", "rates")) {
     const bank = stringValue(item, "bank") || "中央银行";
-    const rate = numberValue(item, "rate");
-    const timestamp = isoTimestamp(item.as_of, fallbackTimestamp);
+    const reference = objectValue(item.reference);
+    const historical = item.rate == null && Object.keys(reference).length > 0;
+    const observation = historical ? reference : item;
+    const rate = typeof observation.rate === "number" || (typeof observation.rate === "string" && observation.rate.trim())
+      ? numberValue(observation, "rate") : undefined;
+    const timestamp = isoTimestamp(observation.as_of);
+    const curated = historical || stringValue(item, "source") === "curated";
+    const validTime = timestamp && Date.parse(timestamp) <= Date.now();
     events.push({
       id: stableId("policy", bank, timestamp, rate),
       category: "policy",
-      title: `${bank} 政策利率${rate === undefined ? "更新" : ` ${rate.toFixed(2)}%`}`,
-      detail: [stringValue(item, "label"), stringValue(item, "currency", "country")].filter(Boolean).join(" · "),
-      source: stringValue(item, "source") || "World Intel 央行利率",
+      title: `${bank} ${curated ? "历史参考利率" : "利率观测"}${rate === undefined ? " · 数值缺失" : ` ${rate.toFixed(2)}%`}`,
+      detail: [stringValue(item, "label"), stringValue(item, "currency", "country"),
+        curated ? "手工参考值，未核验现行值" : "观测口径以来源说明为准，不代表调息事件", stringValue(item, "reason"),
+        !timestamp ? "观测日期缺失" : !validTime ? "未来日期，待核验" : "",
+      ].filter(Boolean).join(" · "),
+      source: curated ? "curated" : stringValue(item, "source") || "World Intel 央行利率",
+      ...(!curated && stringValue(item, "source_url") ? { url: stringValue(item, "source_url") } : {}),
       severity: "medium",
       timestamp,
+      timestampBasis: timestamp ? "occurred" : "unknown",
+      sourceFreshness: curated && validTime || item.status === "stale" ? "stale"
+        : validTime && item.status === "available" && item.freshness === "fresh" ? "fresh" : "unknown",
+      facts: eventFacts([["观测日期", timestamp ? timestamp.slice(0, 10) : "未知"],
+        ["利率口径", stringValue(item, "label")],
+        ["来源序列", curated ? "历史手工参考" : stringValue(item, "series_id")],
+        ["采集时间", curated ? "未核验" : stringValue(item, "collected_at")],
+        ["数据性质", curated ? "历史手工参考，非当前核验值" : "来源利率观测，非政策变动"]]),
       country: stringValue(item, "country"),
       ...(countryCode(item, stringValue(item, "country")) ? { countryCode: countryCode(item, stringValue(item, "country")) } : {}),
       recordKind: "observation",
@@ -3223,22 +3452,38 @@ export function normalizeGlobalIntelEvents(
   }
 
   const airportDomain = objectValue(snapshot.airport_delays);
-  for (const item of domainRecords(snapshot, "airport_delays", "delayed").slice(0, 20)) {
+  const airportContract = airportDomain.observation_basis === "faa-nas-airport-advisories";
+  const airportUpdatedAt = airportContract ? isoTimestamp(airportDomain.updated_at) : "";
+  const airportTiming = sourceCollectionTiming(airportDomain);
+  const airportAge = Date.now() - Date.parse(airportUpdatedAt);
+  const airportFresh = airportTiming.sourceFreshness === "fresh" && airportAge >= 0 && airportAge <= 30 * 60 * 1000;
+  for (const item of domainRecords(snapshot, "airport_delays", "delayed")) {
     const code = stringValue(item, "code") || "机场";
     const statuses = listValue(item.status);
     const primaryStatus = statuses[0] ?? {};
-    const timestamp = isoTimestamp(airportDomain.timestamp, fallbackTimestamp);
     events.push({
-      id: stableId("airport-delay", code, timestamp),
+      id: stableId("airport-advisory", code),
       category: "aviation",
-      title: `${code} ${stringValue(item, "name") || "机场"}出现延误`,
-      detail: [stringValue(primaryStatus, "type"), stringValue(primaryStatus, "reason"), stringValue(primaryStatus, "avg_delay")].filter(Boolean).join(" · ") || "FAA 机场运行延误",
+      title: `${code} 机场运行通告`,
+      detail: statuses.map((entry) => [stringValue(entry, "type"), stringValue(entry, "reason"), stringValue(entry, "avg_delay"), stringValue(entry, "direction")].filter(Boolean).join(" · ")).join("；") || "FAA 通告详情待核验",
+      content: statuses.map((entry) => Object.entries(entry).filter(([, value]) => value !== "").map(([key, value]) => `${key}: ${value}`).join("\n")).join("\n\n"),
       source: "FAA",
-      severity: /closure|closed/i.test(stringValue(primaryStatus, "type")) ? "high" : "medium",
-      timestamp,
+      severity: airportFresh && airportDomain.status === "ok" ? "medium" : "info",
+      ...airportTiming,
+      sourceFreshness: !airportContract || !airportUpdatedAt || airportAge < 0 ? "unknown"
+        : airportAge > 30 * 60 * 1000 ? "stale" : airportTiming.sourceFreshness,
+      timestamp: airportUpdatedAt,
+      timestampBasis: airportUpdatedAt ? "updated" : "unknown",
+      recordKind: airportFresh && airportDomain.status === "ok" ? "event" : "observation",
+      url: "https://nasstatus.faa.gov/",
       facts: eventFacts([
-        ["延误类型", stringValue(primaryStatus, "type")],
+        ["统计口径", airportContract ? "FAA已列出的运行通告；未列出不等于无延误" : "旧版机场查询，来源更新时间待核验"],
+        ["限制说明", "关闭类通告可能仅限制部分航班，须核对原文"],
+        ["通告类型", statuses.map((entry) => stringValue(entry, "type")).join("；")],
         ["平均延误", stringValue(primaryStatus, "avg_delay")],
+        ["最长延误", stringValue(primaryStatus, "max_delay")],
+        ["方向", stringValue(primaryStatus, "direction")],
+        ["地面等待结束", stringValue(primaryStatus, "end_time")],
         ["关闭开始", stringValue(primaryStatus, "closure_begin")],
         ["关闭结束", stringValue(primaryStatus, "closure_end")],
       ]),
@@ -3267,46 +3512,64 @@ export function normalizeGlobalIntelEvents(
   const cableDomain = objectValue(snapshot.cable_health);
   for (const [corridor, raw] of Object.entries(objectValue(cableDomain.corridors))) {
     const item = objectValue(raw);
-    const score = numberValue(item, "status_score") ?? 0;
-    if (score <= 0) continue;
+    const currentContract = cableDomain.observation_basis === "navigation-warning-corridor-bbox";
+    const count = currentContract ? numberValue(item, "warning_count") : undefined;
     const warnings = listValue(item.relevant_warnings);
     events.push({
-      id: stableId("cable-health", corridor, isoTimestamp(cableDomain.timestamp, fallbackTimestamp), score),
+      id: stableId("cable-health", corridor, isoTimestamp(cableDomain.collected_at), count),
       category: "infrastructure",
       title: `${corridor.replace(/_/g, " ")} 光缆走廊 · 相关航行提示`,
-      detail: warnings.map((warning) => plainText(stringValue(warning, "text_snippet"))).filter(Boolean).slice(0, 2).join(" · ") || `${warnings.length} 条相关航行警告`,
+      detail: (count === undefined ? "航警数量待核验" : `${count} 条走廊内去重航警样本`)
+        + "；不能据此判断海缆故障或安全",
       source: "NGA MSI 光缆监测",
-      severity: score >= 2 ? "medium" : "low",
+      severity: "info",
+      recordKind: "observation",
       timestamp: "",
       timestampBasis: "unknown",
       ...sourceCollectionTiming(cableDomain),
       facts: eventFacts([
         ["故障状态", "未核验；施工或相关警告不能证明中断"],
-        ["上游规则标签", stringValue(item, "status_label")],
-        ["上游规则分数", score],
-        ["模型生成时间", isoTimestamp(cableDomain.timestamp)],
-        ["涉及光缆", stringList(item.cables).join("、")],
-        ["相关警告", warnings.length],
+        ["识别口径", currentContract ? "粗略走廊边界匹配，非光缆精确位置" : "旧版代理评分不采用"],
+        ["光缆名称（静态参考）", stringList(item.cables).join("、")],
+        ["相关警告", count],
+        ["全源无坐标警告", currentContract ? numberValue(cableDomain, "unlocated_warnings") : undefined],
+        ["数据状态", cableDomain.error ? "来源不可用" : cableDomain.freshness === "stale" ? "旧缓存，当前状态待核验" : "仅供航警观察"],
       ]),
+      content: warnings.map((warning) => [stringValue(warning, "id"), stringValue(warning, "issue_date"),
+        plainText(stringValue(warning, "text", "text_snippet"))].filter(Boolean).join(" · ")).join("；"),
     });
   }
 
   const fleetDomain = objectValue(snapshot.fleet_report);
-  const fleetScore = numberValue(fleetDomain, "readiness_score");
-  if (fleetScore !== undefined) {
+  if (Object.keys(fleetDomain).length && !fleetDomain.error) {
+    const currentContract = fleetDomain.observation_basis === "public-aviation-and-navigation-warning-samples";
+    const aircraft = currentContract ? numberValue(fleetDomain, "total_tracked_aircraft") : undefined;
+    const surges = currentContract ? numberValue(fleetDomain, "surge_count") : undefined;
+    const coverage = objectValue(fleetDomain.coverage);
+    const baseline = objectValue(fleetDomain.baseline_coverage);
     events.push({
-      id: stableId("fleet-report", isoTimestamp(fleetDomain.timestamp, fallbackTimestamp), fleetScore),
+      id: stableId("fleet-report", isoTimestamp(fleetDomain.timestamp), aircraft, surges),
       category: "military",
-      title: `全球舰队活动 · ${stringValue(fleetDomain, "readiness_level").replace(/_/g, " ") || "态势更新"}`,
-      detail: `${numberValue(fleetDomain, "total_tracked_aircraft") ?? 0} 架关联军机 · ${numberValue(fleetDomain, "surge_count") ?? 0} 个活动激增区域`,
-      source: "World Intel 舰队报告",
-      severity: fleetScore >= 70 ? "high" : fleetScore >= 40 ? "medium" : "info",
-      timestamp: isoTimestamp(fleetDomain.timestamp, fallbackTimestamp),
+      title: "航空与航道观察",
+      detail: currentContract
+        ? `${aircraft === undefined ? "航空样本待核验" : `${aircraft} 架区域内去重航空样本`} · ${surges === undefined ? "异常尚不能判断" : `${surges} 个已评估区域出现样本异常`}；不代表舰队规模或战备水平`
+        : "旧版代理评分不采用；等待新版观察数据，不能判断舰队规模或战备水平",
+      source: "World Intel 公开样本汇总",
+      severity: "info",
+      recordKind: "observation",
+      timestamp: "",
+      timestampBasis: "unknown",
       facts: eventFacts([
-        ["活动评分", fleetScore],
-        ["战区", numberValue(fleetDomain, "theater_count")],
-        ["水道", numberValue(fleetDomain, "waterway_count")],
-        ["海军基地", numberValue(fleetDomain, "naval_base_count")],
+        ["战备评估", "未评估；公开航空与航警样本不足以支持"],
+        ["观察覆盖", currentContract ? `${numberValue(coverage, "available") ?? "—"}/${numberValue(coverage, "expected") ?? "—"}` : "旧版口径待更新"],
+        ["区域基线", currentContract ? `${numberValue(baseline, "available") ?? "—"}/${numberValue(baseline, "expected") ?? "—"} 可评估` : "待核验"],
+        ["基线积累中", stringList(baseline.warming_up).join("、")],
+        ["区域观察数", currentContract ? numberValue(fleetDomain, "theater_count") : undefined],
+        ["水道观察数", currentContract ? numberValue(fleetDomain, "waterway_count") : undefined],
+        ["海军基地（静态参考）", numberValue(fleetDomain, "naval_base_count")],
+        ["汇总生成时间", isoTimestamp(fleetDomain.timestamp)],
+        ["航空样本时间", isoTimestamp(objectValue(fleetDomain.source_times).theater_posture)],
+        ["航警样本时间", isoTimestamp(objectValue(fleetDomain.source_times).vessel_snapshot)],
       ]),
     });
   }
@@ -3561,9 +3824,9 @@ export function createGlobalIntelDataSource(input: {
     staticSnapshot: () => jsonRequest(fetcher, url("/api/global-intel/static")),
     overview: () => jsonRequest(fetcher, url("/api/global-intel/overview")),
     crucixSnapshot: () => jsonRequest(fetcher, url("/api/crucix/snapshot")),
-    subscribe(onPayload, onStatus) {
+    subscribe(onPayload, onStatus, onFailure) {
       if (!input.eventSourceFactory || input.requireSession || input.session) {
-        return subscribeGlobalStream(fetcher, url("/api/global-intel/stream"), onPayload, onStatus);
+        return subscribeGlobalStream(fetcher, url("/api/global-intel/stream"), onPayload, onStatus, onFailure);
       }
       onStatus("connecting");
       const source = (input.eventSourceFactory ?? ((target) => new EventSource(target)))(
@@ -3577,6 +3840,7 @@ export function createGlobalIntelDataSource(input: {
       };
       const unavailable = () => {
         if (closed) return;
+        onFailure?.(globalStreamFailure(undefined));
         onStatus("degraded");
         close(); // Retry only via the visible refresh action, not an automatic loop.
       };

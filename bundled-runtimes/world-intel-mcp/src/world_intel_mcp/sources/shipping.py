@@ -7,6 +7,7 @@ No additional API keys required.
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timezone
 
 from ..fetcher import Fetcher
@@ -71,7 +72,7 @@ async def fetch_shipping_index(fetcher: Fetcher) -> dict:
             "price": quote.get("price"),
             "change_pct": change_pct,
         })
-        if change_pct is not None:
+        if isinstance(change_pct, (int, float)) and not isinstance(change_pct, bool) and math.isfinite(change_pct):
             change_pcts.append(abs(change_pct))
 
     # Compute stress score (0-100)
@@ -80,13 +81,13 @@ async def fetch_shipping_index(fetcher: Fetcher) -> dict:
         # Scale: 0% change = 0 stress, 10%+ change = 100 stress
         stress_score = min(100, round(avg_change * 10, 1))
     else:
-        avg_change = 0.0
-        stress_score = 0.0
+        avg_change = None
+        stress_score = None
 
     # Assessment
-    assessment = "low"
+    assessment = "low" if change_pcts else "unknown"
     for threshold, label in _STRESS_THRESHOLDS:
-        if avg_change >= threshold:
+        if avg_change is not None and avg_change >= threshold:
             assessment = label
             break
 
@@ -99,6 +100,9 @@ async def fetch_shipping_index(fetcher: Fetcher) -> dict:
             signals.append(f"{q['symbol']} {direction} {abs(pct):.1f}%")
 
     return {
+        "status": "ok" if len(change_pcts) == len(_SHIPPING_SYMBOLS) else "partial" if change_pcts else "unavailable",
+        "coverage": {"available": len(change_pcts), "expected": len(_SHIPPING_SYMBOLS)},
+        "note": "Absolute daily price moves in selected shipping securities; not a freight-rate index or calibrated economic risk.",
         "quotes": quotes,
         "stress_score": stress_score,
         "assessment": assessment,

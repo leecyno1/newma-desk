@@ -604,9 +604,13 @@ def create_app(
     application.include_router(workflow_control_router)
     application.include_router(workflow_runtime_router)
     application.include_router(finance_pilots_router)
-    application.include_router(global_intel_router)
-    application.include_router(crucix_router)
-    application.include_router(global_topics_router)
+    if app_settings.global_intelligence_api_url:
+        from vibe_visualization_api.global_intelligence_proxy import router as global_proxy_router
+        application.include_router(global_proxy_router)
+    else:
+        application.include_router(global_intel_router)
+        application.include_router(crucix_router)
+        application.include_router(global_topics_router)
     application.include_router(policy_analysis_router)
     application.include_router(capital_flow_router)
     industry_dependencies = [Depends(authorize_industry_read)]

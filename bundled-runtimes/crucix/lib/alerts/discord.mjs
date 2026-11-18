@@ -2,6 +2,7 @@
 // Mirrors TelegramAlerter architecture: same eval logic, same tier system, same dedup
 
 import { createHash } from 'crypto';
+import { collectionSignal } from '../delta/count-observations.mjs';
 
 // ─── Alert Tiers (shared with Telegram) ─────────────────────────────────────
 
@@ -303,6 +304,7 @@ export class DiscordAlerter {
     ];
 
     const newSignals = allSignals.filter(s => {
+      if (collectionSignal(s)) return false;
       const key = this._signalKey(s);
       if (typeof memory.isSignalSuppressed === 'function') {
         if (memory.isSignalSuppressed(key)) return false;
@@ -568,6 +570,7 @@ export class DiscordAlerter {
   // ─── Rule-Based Fallback (same logic as Telegram) ───────────────────────
 
   _ruleBasedEvaluation(signals, delta) {
+    signals = signals.filter(signal => !collectionSignal(signal));
     const criticals = signals.filter(s => s.severity === 'critical');
     const highs = signals.filter(s => s.severity === 'high');
     const nukeSignal = signals.find(s => s.key === 'nuke_anomaly');

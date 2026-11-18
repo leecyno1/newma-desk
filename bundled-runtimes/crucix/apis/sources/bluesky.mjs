@@ -3,11 +3,10 @@
 // Public API: app.bsky.feed.searchPosts (full-text search, sorted by latest)
 
 import { safeFetch } from '../utils/fetch.mjs';
+import { sourceDelay as delay } from '../utils/source-request.mjs';
+import { queryReceipt } from '../utils/source-health.mjs';
 
 const BASE = 'https://public.api.bsky.app/xrpc';
-
-// Rate-limit-safe delay
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // Search public posts by query string
 export async function searchPosts(query, opts = {}) {
@@ -17,7 +16,8 @@ export async function searchPosts(query, opts = {}) {
     limit: String(limit),
     sort,
   });
-  return safeFetch(`${BASE}/app.bsky.feed.searchPosts?${params}`);
+  // Three topic requests and two 1.5s pauses fit the 30s source deadline.
+  return safeFetch(`${BASE}/app.bsky.feed.searchPosts?${params}`, { timeout: 8000, retries: 0 });
 }
 
 // Compact a post for briefing output
@@ -32,13 +32,6 @@ function compactPost(post) {
   };
 }
 
-// Categorize posts by topic bucket based on keyword matching
-function categorize(posts, keywords) {
-  return posts.filter(p =>
-    keywords.some(k => p.text?.toLowerCase().includes(k))
-  );
-}
-
 // Briefing — search key geopolitical/market terms and categorize
 export async function briefing() {
   const searchQueries = [
@@ -47,26 +40,35 @@ export async function briefing() {
     { label: 'health', q: 'pandemic OR outbreak OR epidemic' },
   ];
 
-  const allPosts = [];
   const topicResults = {};
+  const queryStatus = {};
+  const gaps = {};
+  let succeeded = 0;
 
-  for (const { label, q } of searchQueries) {
+  for (const [index, { label, q }] of searchQueries.entries()) {
     const result = await searchPosts(q, { limit: 25 });
-    const posts = (result?.posts || []).map(compactPost);
-    topicResults[label] = posts;
-    allPosts.push(...posts);
-    // Small delay between searches to be polite to the API
-    await delay(1500);
+    const envelope = !result?.error && Array.isArray(result?.posts);
+    const posts = envelope ? result.posts.filter(post => {
+      const text = post?.record?.text ?? post?.text;
+      return typeof text === 'string' && text.trim();
+    }).map(compactPost) : [];
+    const known = envelope && (result.posts.length === 0 || posts.length > 0);
+    topicResults[label] = known ? posts : null;
+    if (known) succeeded++;
+    if (!known) gaps[label] = '主题查询失败或响应格式无效，不能据此判断没有讨论';
+    else if (posts.length !== result.posts.length) gaps[label] = '部分帖子格式无效，已保留有效记录';
+    queryStatus[label] = queryReceipt(result, known, !!gaps[label]);
+    // Wait only between queries; cancellation still stops the sequence.
+    if (index < searchQueries.length - 1) await delay(1500);
   }
 
   return {
     source: 'Bluesky',
     timestamp: new Date().toISOString(),
-    topics: {
-      conflict: topicResults.conflict || [],
-      markets: topicResults.markets || [],
-      health: topicResults.health || [],
-    },
+    status: succeeded === 0 ? 'error' : Object.keys(gaps).length ? 'partial' : 'ok',
+    coverage: { requested: searchQueries.length, succeeded, failed: searchQueries.length - succeeded },
+    gaps, queryStatus,
+    topics: topicResults,
   };
 }
 

@@ -78,6 +78,7 @@ async def fetch_disease_outbreaks(
         }
 
     all_items: list[dict] = []
+    feed_status: dict[str, str] = {}
 
     async def _fetch_feed(name: str, url: str) -> list[dict]:
         safe_name = name.lower().replace(" ", "_")
@@ -90,10 +91,15 @@ async def fetch_disease_outbreaks(
 
         if xml_text is None:
             logger.debug("No data from health feed %s", name)
+            feed_status[name] = "unavailable"
             return []
 
         parsed = feedparser.parse(xml_text)
+        if not parsed.get("version") or parsed.get("bozo"):
+            feed_status[name] = "unavailable"
+            return []
         timing = source_cache_timing(fetcher.cache, f"health:rss:{safe_name}")
+        feed_status[name] = "ok" if timing.get("freshness") == "fresh" else "stale"
         items: list[dict] = []
 
         for entry in parsed.get("entries", [])[:30]:
@@ -125,16 +131,30 @@ async def fetch_disease_outbreaks(
     all_items = all_items[:limit]
 
     # Counts
-    high_concern_count = sum(1 for i in all_items if i.get("is_high_concern"))
+    cutoff = datetime.now(timezone.utc).timestamp() - 30 * 86400
+    def recent(item):
+        published = item.get("published") or item.get("updated")
+        if item.get("freshness") != "fresh" or not published:
+            return False
+        observed = datetime.fromisoformat(published.replace("Z", "+00:00")).timestamp()
+        return cutoff <= observed <= datetime.now(timezone.utc).timestamp()
+    current_items = [item for item in all_items if recent(item)]
+    high_concern_count = sum(1 for i in current_items if i.get("is_high_concern"))
     by_organization: dict[str, int] = {}
     for item in all_items:
         org = item.get("organization", "unknown")
         by_organization[org] = by_organization.get(org, 0) + 1
 
     return {
+        "status": "partial" if any(state == "ok" for state in feed_status.values()) else "unavailable",
+        "coverage": {"available": sum(state == "ok" for state in feed_status.values()), "expected": len(_HEALTH_FEEDS)},
+        "feed_status": feed_status,
+        "observation_window_days": 30,
+        "note": "Scoring counts only dated reports in the last 30 days from fresh feeds. Historical items remain references; keyword matches do not establish active outbreaks.",
         "items": all_items,
-        "count": len(all_items),
-        "high_concern_count": high_concern_count,
+        "current_count": len(current_items) if any(state == "ok" for state in feed_status.values()) else None,
+        "count": len(all_items) if any(state == "ok" for state in feed_status.values()) else None,
+        "high_concern_count": high_concern_count if any(state == "ok" for state in feed_status.values()) else None,
         "by_organization": by_organization,
         "source": "health-outbreak-monitor",
         "timestamp": _utc_now_iso(),

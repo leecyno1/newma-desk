@@ -6,11 +6,15 @@ Requires a NASA FIRMS API key (env: NASA_FIRMS_API_KEY).
 """
 
 import asyncio
+import csv
+import io
 import logging
+import math
 import os
 from datetime import datetime, timezone
 
 from ..fetcher import Fetcher
+from ..source_time import source_cache_timing
 
 logger = logging.getLogger("world-intel-mcp.sources.wildfire")
 
@@ -41,69 +45,64 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _parse_fires_csv(csv_text: str) -> list[dict]:
-    """Parse FIRMS CSV text into a list of fire dicts.
-
-    Only returns high-confidence detections. Uses header row to find
-    column indices dynamically (FIRMS CSV schema varies by sensor).
-    """
-    if not isinstance(csv_text, str):
-        logger.warning("Expected CSV text, got %s", type(csv_text).__name__)
-        return []
-
-    lines = csv_text.strip().split("\n")
-    if len(lines) < 2:
-        return []
-
-    # Parse header to find column indices dynamically
-    header = [h.strip().lower() for h in lines[0].split(",")]
-    col = {name: idx for idx, name in enumerate(header)}
-
-    idx_lat = col.get("latitude")
-    idx_lon = col.get("longitude")
-    idx_bright = col.get("bright_ti4")
-    idx_conf = col.get("confidence")
-    idx_frp = col.get("frp")
-    idx_date = col.get("acq_date")
-    idx_time = col.get("acq_time")
-    idx_dn = col.get("daynight")
-    idx_sat = col.get("satellite")
-
-    if idx_lat is None or idx_lon is None or idx_conf is None:
-        logger.warning("Missing required columns in FIRMS CSV header: %s", header)
-        return []
-
-    fires: list[dict] = []
-    for line in lines[1:]:
-        fields = line.split(",")
-        if len(fields) <= max(idx_lat, idx_lon, idx_conf):
-            continue
-
-        confidence = fields[idx_conf].strip().lower()
-        if confidence in ("low", "l"):
-            continue
-
+def current_regions(data: dict) -> dict[str, dict]:
+    """Only regions with explicit current collection evidence are usable now."""
+    if (not isinstance(data, dict) or data.get("error") or data.get("_stale")
+            or data.get("status") not in {"ok", "partial"} or data.get("freshness") == "stale"):
+        return {}
+    regions = data.get("fires_by_region")
+    if not isinstance(regions, dict):
+        return {}
+    now = datetime.now(timezone.utc)
+    def is_current(region: dict) -> bool:
         try:
-            lat = float(fields[idx_lat])
-            lon = float(fields[idx_lon])
-            brightness = float(fields[idx_bright]) if idx_bright is not None and idx_bright < len(fields) else 0.0
-            frp_val = float(fields[idx_frp]) if idx_frp is not None and idx_frp < len(fields) and fields[idx_frp].strip() else 0.0
-        except (ValueError, IndexError):
-            continue
+            collected = datetime.fromisoformat(region["collected_at"].replace("Z", "+00:00"))
+            expires = datetime.fromisoformat(region["cache_expires_at"].replace("Z", "+00:00"))
+            return collected.tzinfo is not None and expires.tzinfo is not None and collected <= now < expires
+        except (KeyError, AttributeError, TypeError, ValueError):
+            return False
+    return {name: region for name, region in regions.items()
+            if isinstance(region, dict) and not region.get("error")
+            and region.get("status") in {"ok", "partial"}
+            and region.get("freshness") == "fresh"
+            and is_current(region)
+            and isinstance(region.get("top_clusters"), list)}
 
-        fires.append({
-            "latitude": lat,
-            "longitude": lon,
-            "brightness": brightness,
-            "frp": frp_val,
-            "confidence": confidence,
-            "acq_date": fields[idx_date].strip() if idx_date is not None and idx_date < len(fields) else "",
-            "acq_time": fields[idx_time].strip() if idx_time is not None and idx_time < len(fields) else "",
-            "daynight": fields[idx_dn].strip() if idx_dn is not None and idx_dn < len(fields) else "",
-            "satellite": fields[idx_sat].strip() if idx_sat is not None and idx_sat < len(fields) else "",
-        })
 
-    return fires
+def _parse_fires_csv(csv_text: str) -> tuple[list[dict], int]:
+    """Return validated non-low detections and invalid-row count; reject non-CSV responses."""
+    if not isinstance(csv_text, str):
+        raise ValueError("missing CSV response")
+    reader = csv.DictReader(io.StringIO(csv_text), strict=True)
+    if not reader.fieldnames:
+        raise ValueError("missing CSV header")
+    reader.fieldnames = [name.strip().lower() for name in reader.fieldnames]
+    if not {"latitude", "longitude", "confidence"}.issubset(reader.fieldnames):
+        raise ValueError("invalid CSV header")
+    fires: list[dict] = []
+    invalid = 0
+    for row in reader:
+        try:
+            confidence = (row.get("confidence") or "").strip().lower()
+            if confidence in ("low", "l"):
+                continue
+            if confidence not in ("nominal", "n", "high", "h"):
+                raise ValueError("unknown confidence")
+            lat, lon = float(row["latitude"]), float(row["longitude"])
+            if not math.isfinite(lat) or not math.isfinite(lon) or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                raise ValueError("invalid coordinates")
+            def optional_number(name: str) -> float | None:
+                value = (row.get(name) or "").strip()
+                result = float(value) if value else None
+                if result is not None and not math.isfinite(result):
+                    raise ValueError("invalid measurement")
+                return result
+            fires.append({"latitude": lat, "longitude": lon, "brightness": optional_number("bright_ti4"),
+                "frp": optional_number("frp"), "confidence": confidence,
+                **{name: (row.get(name) or "").strip() for name in ("acq_date", "acq_time", "daynight", "satellite")}})
+        except (ValueError, TypeError, KeyError):
+            invalid += 1
+    return fires, invalid
 
 
 def _cluster_fires(fires: list[dict], top_n: int = 20) -> list[dict]:
@@ -125,7 +124,7 @@ def _cluster_fires(fires: list[dict], top_n: int = 20) -> list[dict]:
 
     clusters: list[dict] = []
     for (lat, lon), cell_fires in sorted_clusters[:top_n]:
-        max_frp = max(f["frp"] for f in cell_fires)
+        max_frp = max((f["frp"] for f in cell_fires if f["frp"] is not None), default=None)
         clusters.append({
             "lat": lat,
             "lon": lon,
@@ -145,7 +144,7 @@ async def fetch_wildfires(
     region: str | None = None,
     api_key: str | None = None,
 ) -> dict:
-    """Fetch active wildfire data from NASA FIRMS (VIIRS SNPP NRT, last 24h).
+    """Fetch non-low-confidence FIRMS detections for the requested two-day window.
 
     Args:
         fetcher: Shared HTTP fetcher with caching and circuit breaking.
@@ -169,23 +168,26 @@ async def fetch_wildfires(
     else:
         regions_to_fetch = dict(REGIONS)
 
-    async def _fetch_region(region_name: str, bbox: str) -> tuple[str, list[dict] | None]:
-        """Fetch fires for a single region, return (name, fires_list_or_None)."""
+    async def _fetch_region(region_name: str, bbox: str) -> tuple[str, dict]:
         url = f"{_FIRMS_BASE_URL}/{key}/VIIRS_SNPP_NRT/{bbox}/2"
-
-        csv_text = await fetcher.get_text(
-            url=url,
-            source="nasa-firms",
-            cache_key=f"wildfire:csv:{region_name}",
-            cache_ttl=1800,
-        )
-
-        if csv_text is None:
-            logger.warning("FIRMS returned no data for region %s", region_name)
-            return (region_name, None)
-
-        fires = _parse_fires_csv(csv_text)
-        return (region_name, fires)
+        cache_key = f"wildfire:csv:{region_name}"
+        try:
+            csv_text = await fetcher.get_text(url=url, source="nasa-firms", cache_key=cache_key, cache_ttl=1800)
+            timing = source_cache_timing(fetcher.cache, cache_key)
+            fires, invalid = _parse_fires_csv(csv_text)
+        except (ValueError, TypeError, csv.Error):
+            return region_name, {"status": "unavailable", "count": None, "sample_count": None,
+                "top_clusters": [], "error": "FIRMS 响应缺失或格式无效"}
+        except Exception as exc:
+            logger.warning("FIRMS region %s failed: %s", region_name, type(exc).__name__)
+            return region_name, {"status": "unavailable", "count": None, "sample_count": None,
+                "top_clusters": [], "error": "FIRMS 请求失败"}
+        clusters = _cluster_fires(fires)
+        truncated = len(_cluster_fires(fires, top_n=21)) > 20
+        status = "stale" if timing["freshness"] == "stale" else "partial" if invalid or timing["freshness"] != "fresh" else "ok"
+        return region_name, {"status": status, "count": len(fires) if status == "ok" else None,
+            "sample_count": len(fires), "invalid_rows": invalid, "top_clusters": clusters,
+            "clusters_truncated": truncated, **timing}
 
     # Fetch all requested regions in parallel
     tasks = [
@@ -195,38 +197,23 @@ async def fetch_wildfires(
     results = await asyncio.gather(*tasks)
 
     # Assemble response
-    fires_by_region: dict[str, dict] = {}
-    total_fires = 0
-
-    for region_name, fires in results:
-        if fires is None:
-            fires_by_region[region_name] = {"count": 0, "top_clusters": []}
-            continue
-
-        count = len(fires)
-        total_fires += count
-        top_clusters = _cluster_fires(fires)
-        fires_by_region[region_name] = {
-            "count": count,
-            "top_clusters": top_clusters,
-        }
-
-    cache_label = region if region is not None else "global"
-    # Store assembled result in cache under the composite key
-    fetcher.cache.set(
-        f"wildfire:fires:{cache_label}",
-        {
-            "fires_by_region": fires_by_region,
-            "total_fires": total_fires,
-            "source": "nasa-firms",
-            "timestamp": _utc_now_iso(),
-        },
-        1800,
-    )
-
-    return {
+    fires_by_region = dict(results)
+    available = [row for row in fires_by_region.values() if row["status"] in {"ok", "partial"}]
+    complete = len(available) == len(fires_by_region) and all(row["status"] == "ok" for row in available)
+    cluster_complete = complete and not any(row["clusters_truncated"] for row in available)
+    status = "ok" if cluster_complete else "partial" if available else "unavailable"
+    generated_at = _utc_now_iso()
+    result = {
+        "status": status,
         "fires_by_region": fires_by_region,
-        "total_fires": total_fires,
-        "source": "nasa-firms",
-        "timestamp": _utc_now_iso(),
+        "total_fires": sum(row["count"] for row in available) if complete else None,
+        "sample_detections": sum(row["sample_count"] for row in available) if available else None,
+        "coverage": {"available": len(available), "requested": len(fires_by_region)},
+        "freshness": "fresh" if complete else "unknown",
+        "note": "VIIRS SNPP 两日非低置信度探测样本，不等同独立火灾；区域范围重叠，相加可能重复，每区仅展示前20个网格。",
+        "source": "nasa-firms", "timestamp": generated_at,
+        **({"error": "FIRMS 未取得可用区域"} if not available else {}),
     }
+    cache_label = region if region is not None else "global"
+    fetcher.cache.set(f"wildfire:fires:{cache_label}", result, 1800)
+    return result

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deskActionPendingSchema,
   deskAppearanceSchema,
   deskActionResultSchema,
+  deskAgentResultSchema,
+  modAgentRequestSchema,
   deskContextRequestSchema,
   deskInitSchema,
   deskVisualContextRequestSchema,
@@ -66,6 +69,27 @@ const darkAppearance = {
 } as const;
 
 describe("Newma-Desk bridge protocol", () => {
+  it("bounds the optional action wait budget without changing the handshake", () => {
+    const pending = {type: "vibedesk:action-pending", requestId: "request-1", instanceId: "instance-1",
+      modId: "market-daily", actionId: "market.scan", timeoutSeconds: 120};
+    expect(deskActionPendingSchema.safeParse(pending).success).toBe(true);
+    for (const timeoutSeconds of [0, 301, 1.5, "120"]) {
+      expect(deskActionPendingSchema.safeParse({...pending, timeoutSeconds}).success).toBe(false);
+    }
+    expect(deskActionPendingSchema.safeParse({...pending, result: {}}).success).toBe(false);
+  });
+  it("keeps legacy Agent requests valid and bounds correlated results", () => {
+    const request = {type: "vibedesk:copilot-open", instanceId: "instance-1", modId: "market-daily", prompt: "review"};
+    expect(modAgentRequestSchema.parse(request).requestId).toBeUndefined();
+    expect(modAgentRequestSchema.parse({...request, requestId: "request-1"}).requestId).toBe("request-1");
+    const result = {type: "vibedesk:agent-result", requestId: "request-1", instanceId: "instance-1", modId: "market-daily",
+      outcome: {status: "completed", answer: "result"}};
+    expect(deskAgentResultSchema.safeParse(result).success).toBe(true);
+    expect(deskAgentResultSchema.safeParse({...result, outcome: {status: "completed", answer: "x".repeat(60001)}}).success).toBe(false);
+    expect(deskAgentResultSchema.safeParse({...result, outcome: {status: "failed"}}).success).toBe(false);
+    expect(deskAgentResultSchema.safeParse({...result, outcome: {status: "completed", answer: "result", arbitrary: true}}).success).toBe(false);
+  });
+
   it("validates the hello, init, and acknowledgement lifecycle", () => {
     const hello = modHelloSchema.parse({
       type: "vibedesk:hello",

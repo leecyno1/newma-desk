@@ -38,7 +38,7 @@
     "acledLayer": "ACLED CONFLICT LAYER",
     "events": "EVENTS",
     "degraded": "DEGRADED",
-    "flightCorridors": "FLIGHT CORRIDORS",
+    "flightCorridors": "FLIGHT TRACKS NOT PROVIDED",
     "active": "ACTIVE",
     "dualProjection": "DUAL PROJECTION",
     "ready": "READY",
@@ -81,6 +81,9 @@
     "fatalities": "fatalities",
     "whoAlerts": "WHO alerts",
     "rssGeolocated": "RSS geolocated",
+    "referenceRegion": "Headline reference region, not event coordinates",
+    "referenceHints": "reference regions · not event locations",
+    "unlocatedFeed": "Bulletins and posts have no verified coordinates; shown in the feed, not as map locations.",
     "earthquakes": "Earthquakes",
     "seismicEvents": "Seismic Events",
     "cyberVulns": "Cyber Vulnerabilities",
@@ -196,6 +199,7 @@
   },
   "nuclear": {
     "allSitesNormal": "ALL SITES NORMAL",
+    "unassessed": "SAFETY UNASSESSED · sample coverage only",
     "anomalyDetected": "ANOMALY DETECTED",
     "noData": "No data"
   },

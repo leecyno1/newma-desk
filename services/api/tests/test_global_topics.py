@@ -125,13 +125,40 @@ async def test_trade_keeps_official_document_scope_separate_from_global_pressure
     assert result["metrics"][0]["value"] == "2"
     assert result["metrics"][0]["dateBasis"] == "query-time"
     assert result["metrics"][1]["value"] == "1.06"
-    assert result["metrics"][1]["unit"] == "标准差"
+    assert result["metrics"][1]["unit"] is None  # Legacy receipt has no verified unit.
+    assert result["metrics"][1]["status"] == "unknown"
     assert result["events"][0]["documentType"] == "Proposed Rule"
     assert result["events"][0]["evidenceKey"] == result["events"][0]["sourceUrl"]
     assert result["events"][0]["sourceStatus"] == "ready"
     assert result["events"][0]["date"] == "2026-09-09"
     assert len(result["events"]) == 1
     assert result["metrics"][2]["value"] == "—"
+
+
+@pytest.mark.asyncio
+async def test_topic_charts_keep_dated_source_history_and_latest_value_wins():
+    async def with_history():
+        payload = await crucix()
+        payload["macro"]["energy"]["observations"][0]["history"] = [
+            {"period": "2026-09-08", "value": 0}, {"period": "2026-09-09", "value": 99},
+            {"period": "2026-09-10", "value": 888}]
+        payload["macro"]["energy"]["observations"][1]["history"] = [
+            {"period": "2026-09-08", "value": 70}]
+        payload["macro"]["gscpi"]["history"] = [
+            {"period": "2026-07", "value": 0}, {"period": "2026-08", "value": 99},
+            {"period": "2026-10", "value": 888}]
+        return payload
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(response_for)) as client:
+        sources = TopicSources(crucix_snapshot=with_history, client=client, clock=lambda: CLOCK)
+        energy = (await sources.snapshot("hormuz"))["observations"]
+        trade = (await sources.snapshot("us-china-trade"))["observations"]
+    assert [(p["date"], p["value"]) for p in energy if p["seriesId"] == "wti"] == [
+        ("2026-09-08", 0), ("2026-09-09", 70)]
+    assert [(p["date"], p["value"]) for p in energy if p["seriesId"] == "brent"] == [
+        ("2026-09-08", 70), ("2026-09-09", 75)]
+    assert [(p["date"], p["value"]) for p in trade] == [("2026-07", 0), ("2026-08", 1.06)]
+    assert all(p["sourceUrl"].startswith("https://fred.stlouisfed.org/") for p in energy)
 
 
 @pytest.mark.asyncio
@@ -221,6 +248,9 @@ async def test_maritime_empty_success_and_source_failure_are_distinct():
         assert result["maritime"]["status"] == status
         assert result["maritime"]["warnings"] == []
         assert "不代表海峡安全" in result["maritime"]["limitations"]
+        if status == "unavailable":
+            assert any("NGA 航警来源不可用" in gap for gap in result["gaps"])
+            assert not any("已接入 NGA" in gap for gap in result["gaps"])
 
 
 @pytest.mark.asyncio

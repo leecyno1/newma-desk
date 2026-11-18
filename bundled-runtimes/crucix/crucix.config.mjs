@@ -1,12 +1,18 @@
 // Crucix Configuration — all settings with env var overrides
 
 import "./apis/utils/env.mjs"; // Load .env first
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export default {
   host: process.env.HOST || "127.0.0.1",
   port: parseInt(process.env.PORT) || 3117,
   publicUrl: process.env.PUBLIC_URL || null,
   refreshIntervalMinutes: parseInt(process.env.REFRESH_INTERVAL_MINUTES) || 15,
+  runsDir: resolve(process.env.CRUCIX_RUNS_DIR || fileURLToPath(new URL("./runs/", import.meta.url))),
+  autoSweep: !["0", "false", "no", "off"].includes(
+    (process.env.CRUCIX_AUTO_SWEEP || "true").toLowerCase(),
+  ),
   autoOpenDashboard: !["0", "false", "no", "off"].includes(
     (process.env.AUTO_OPEN_DASHBOARD || "true").toLowerCase(),
   ),

@@ -371,8 +371,12 @@ def earthquakes(ctx: click.Context, min_mag: float, hours: int) -> None:
 
     quakes = data.get("earthquakes", [])
     console.print(
-        f"[bold]{data.get('count', 0)} earthquakes[/bold] (M{min_mag}+ in last {hours}h)\n"
+        f"[bold]{data.get('count') if data.get('count') is not None else 'unknown'} earthquake samples[/bold] (M{min_mag}+ in last {hours}h)\n"
     )
+    console.print(f"Status: {data.get('status', 'unknown')} | Source updated: {data.get('source_updated_at') or 'unknown'}", markup=False)
+    console.print(data.get('error') or data.get('note') or 'Coverage unknown', markup=False)
+    if data.get('truncated'):
+        console.print('Query sample limit reached; not a complete event count.')
 
     table = Table(box=box.SIMPLE_HEAVY)
     table.add_column("Mag", justify="right", style="bold")
@@ -381,14 +385,14 @@ def earthquakes(ctx: click.Context, min_mag: float, hours: int) -> None:
     table.add_column("Time")
     table.add_column("Alert")
 
-    for q in quakes[:25]:
+    for q in quakes:
         mag = q.get("magnitude", 0)
         style = "red bold" if mag >= 6.0 else "yellow" if mag >= 5.0 else ""
         alert = q.get("alert_level") or ""
         table.add_row(
             f"[{style}]{mag:.1f}[/{style}]" if style else f"{mag:.1f}",
             q.get("place", "Unknown"),
-            f"{q.get('depth_km', 0):.1f}",
+            f"{q['depth_km']:.1f}" if q.get('depth_km') is not None else "unknown",
             q.get("time", "")[:19],
             alert,
         )
@@ -399,7 +403,7 @@ def earthquakes(ctx: click.Context, min_mag: float, hours: int) -> None:
 @click.option("--region", "-r", default=None, help="Region name (e.g., north_america)")
 @click.pass_context
 def fires(ctx: click.Context, region: str | None) -> None:
-    """Active wildfires (NASA FIRMS)."""
+    """Satellite thermal anomaly detections (NASA FIRMS)."""
     f = _get_fetcher()
     data = _run(wildfire.fetch_wildfires(f, region=region))
 
@@ -407,19 +411,22 @@ def fires(ctx: click.Context, region: str | None) -> None:
         _print_json(data)
         return
 
-    console.print(
-        f"[bold]{data.get('total_fires', 0)} high-confidence fires detected[/bold]\n"
-    )
+    coverage = data.get("coverage", {})
+    total = data.get("total_fires")
+    console.print(f"[bold]Regional detection total: {total if total is not None else 'unknown'}[/bold]")
+    if coverage:
+        console.print(f"Coverage: {coverage.get('available', 0)}/{coverage.get('requested', 0)} regions")
+    console.print("Two-day satellite observations; regions may overlap. Detections are not verified fires.\n")
 
     for reg_name, reg_data in data.get("fires_by_region", {}).items():
-        count = reg_data.get("count", 0)
-        if count == 0:
-            continue
-        console.print(f"  [bold]{reg_name}[/bold]: {count} fires")
+        count = reg_data.get("count")
+        status = reg_data.get("status", "unknown")
+        console.print(f"  [bold]{reg_name}[/bold]: {count if count is not None else 'unknown'} detections ({status})")
         for cluster in reg_data.get("top_clusters", [])[:5]:
+            frp = cluster.get("max_frp")
             console.print(
                 f"    ({cluster.get('lat', 0):.1f}, {cluster.get('lon', 0):.1f}) "
-                f"— {cluster.get('fire_count', 0)} fires, FRP max {cluster.get('max_frp', 0):.0f}"
+                f"— {cluster.get('fire_count', 0)} detections, FRP max {f'{frp:.0f}' if frp is not None else 'unknown'}"
             )
 
 
@@ -519,20 +526,19 @@ def posture(ctx: click.Context) -> None:
         return
 
     console.print(
-        f"[bold]{data.get('total_military_aircraft', 0)} total military aircraft[/bold]\n"
+        f"[bold]{data.get('total_military_aircraft') if data.get('total_military_aircraft') is not None else 'Unknown'} unique regional aircraft observations[/bold]\n"
     )
     theaters = data.get("theaters", {})
 
     table = Table(title="Theater Posture", box=box.SIMPLE_HEAVY)
     table.add_column("Theater", style="bold")
     table.add_column("Aircraft", justify="right")
-    table.add_column("Countries")
+    table.add_column("Registration hints")
     table.add_column("Sample Callsigns")
 
     for name, info in theaters.items():
-        count = info.get("count", 0)
-        style = "red bold" if count >= 20 else "yellow" if count >= 5 else ""
-        count_str = f"[{style}]{count}[/{style}]" if style else str(count)
+        count = info.get("count")
+        count_str = str(count) if count is not None else "Unknown"
         table.add_row(
             name.replace("_", " ").title(),
             count_str,
@@ -574,34 +580,28 @@ def outages(ctx: click.Context) -> None:
 @main.command()
 @click.pass_context
 def cables(ctx: click.Context) -> None:
-    """Undersea cable corridor health (NGA)."""
+    """Navigation warning observations in rough cable corridor boxes (NGA)."""
     f = _get_fetcher()
     data = _run(infrastructure.fetch_cable_health(f))
 
-    if ctx.obj.get("json"):
+    if ctx.obj.get("json") or data.get("error"):
         _print_json(data)
         return
 
-    status_labels = {
-        0: "[green]Clear[/green]",
-        1: "[yellow]Advisory[/yellow]",
-        2: "[red]At Risk[/red]",
-        3: "[red bold]Disrupted[/red bold]",
-    }
-
-    table = Table(title="Undersea Cable Health", box=box.SIMPLE_HEAVY)
+    console.print("Warning observations only; cable health is not assessed.")
+    console.print(f"Collected: {data.get('collected_at') or 'unknown'} · {data.get('freshness', 'unknown')}")
+    table = Table(title="Cable Corridor Warning Observations", box=box.SIMPLE_HEAVY)
     table.add_column("Corridor", style="bold")
     table.add_column("Status")
     table.add_column("Cables")
     table.add_column("Warnings", justify="right")
 
     for name, info in data.get("corridors", {}).items():
-        score = info.get("status_score", 0)
         table.add_row(
             name.replace("_", " ").title(),
-            status_labels.get(score, str(score)),
+            info.get("status_label", "unknown"),
             ", ".join(info.get("cables", [])[:3]),
-            str(len(info.get("relevant_warnings", []))),
+            str(info.get("warning_count") if info.get("warning_count") is not None else "unknown"),
         )
     console.print(table)
 
@@ -619,11 +619,12 @@ def warnings(ctx: click.Context, navarea: str | None) -> None:
     f = _get_fetcher()
     data = _run(maritime.fetch_nav_warnings(f, navarea=navarea))
 
-    if ctx.obj.get("json"):
+    if ctx.obj.get("json") or "error" in data:
         _print_json(data)
         return
 
-    console.print(f"[bold]{data.get('count', 0)} active warnings[/bold]\n")
+    console.print(f"[bold]{data.get('count')} source warnings not cancelled[/bold]\n")
+    console.print(f"  Collection: {data.get('collected_at') or 'unknown'} · {data.get('freshness', 'unknown')}")
 
     by_area = data.get("by_navarea", {})
     if by_area:
@@ -726,6 +727,12 @@ def news_cmd(ctx: click.Context, category: str | None, limit: int) -> None:
         _print_json(data)
         return
 
+    if data.get("error"):
+        console.print("[yellow]News unavailable; item count is unknown.[/yellow]")
+        return
+    coverage = data.get("coverage", {})
+    console.print(f"RSS coverage: {coverage.get('complete', '?')}/{coverage.get('expected', '?')} complete; "
+                  f"{coverage.get('stale', '?')} stale, {coverage.get('failed', '?')} unavailable. Counts describe the available sample.")
     items = data.get("items", [])
     if not items:
         console.print("[yellow]No news items available[/yellow]")
@@ -756,6 +763,11 @@ def trending(ctx: click.Context, min_count: int) -> None:
         _print_json(data)
         return
 
+    if data.get("error"):
+        console.print("[yellow]News input unavailable; trends cannot be assessed.[/yellow]")
+        return
+    if data.get("status") != "ok":
+        console.print("[yellow]Partial or unverified news coverage; trends describe the available sample only.[/yellow]")
     keywords = data.get("keywords", [])
     console.print(
         f"[bold]Trending keywords[/bold] (from {data.get('total_items_analyzed', 0)} items)\n"
@@ -889,7 +901,7 @@ def displacement_cmd(ctx: click.Context, year: int | None) -> None:
 @main.command()
 @click.pass_context
 def delays(ctx: click.Context) -> None:
-    """US airport delays (FAA)."""
+    """US airport operating advisories (FAA; not all flight delays)."""
     f = _get_fetcher()
     data = _run(aviation.fetch_airport_delays(f))
 
@@ -898,31 +910,36 @@ def delays(ctx: click.Context) -> None:
         return
 
     delayed = data.get("delayed", [])
-    console.print(
-        f"[bold]{data.get('delayed_count', 0)} airports with delays[/bold] "
-        f"(checked {data.get('total_checked', 0)})\n"
-    )
+    if data.get("error") or data.get("reported_airport_count") is None:
+        console.print("[yellow]FAA advisory coverage unknown; cannot conclude no delays.[/yellow]")
+        return
+    console.print(f"[bold]{data['reported_airport_count']} airports with listed advisories[/bold]")
+    console.print(f"Source updated: {data.get('updated_at') or 'unknown'} · {data.get('status', 'unknown')}")
+    console.print("Listed advisories only, not all flight delays. Closures may apply to selected flights.")
 
     if not delayed:
-        console.print("[green]No major airport delays![/green]")
+        console.print("No advisories listed in this snapshot; this does not establish normal airport operations.")
         return
 
     table = Table(box=box.SIMPLE_HEAVY)
     table.add_column("Airport", style="bold")
     table.add_column("Name")
-    table.add_column("Delay Info")
+    table.add_column("Advisories")
 
     for d in delayed:
         statuses = d.get("status", [])
         info = (
             "; ".join(
-                f"{s.get('type', '')} - {s.get('reason', '')} ({s.get('avg_delay', '')})"
+                " · ".join(str(s[key]) for key in (
+                    "type", "reason", "direction", "avg_delay", "min_delay", "max_delay",
+                    "trend", "end_time", "closure_begin", "closure_end",
+                ) if s.get(key))
                 for s in statuses
             )
             if statuses
             else "Details unavailable"
         )
-        table.add_row(d.get("code", ""), d.get("name", ""), info[:80])
+        table.add_row(d.get("code", ""), d.get("name", ""), info)
     console.print(table)
 
 
@@ -1235,35 +1252,28 @@ def central_banks_cmd(ctx: click.Context) -> None:
         _print_json(data)
         return
 
-    fred_tag = (
-        "[green]FRED[/green]"
-        if data.get("fred_available")
-        else "[yellow]curated[/yellow]"
-    )
-    console.print(f"[bold]{data.get('count', 0)} Central Banks[/bold] ({fred_tag})\n")
+    coverage = data.get("coverage", {})
+    console.print(f"[bold]{data.get('count', 0)} Central Banks[/bold] — {coverage.get('available', 0)} available observations\n")
 
     table = Table(box=box.SIMPLE_HEAVY)
     table.add_column("Bank", style="bold")
     table.add_column("Country")
     table.add_column("Rate %", justify="right")
     table.add_column("As Of")
+    table.add_column("Status")
+    table.add_column("Historical reference")
 
     for r in data.get("rates", []):
-        rate = r.get("rate", 0)
-        style = (
-            "red bold"
-            if rate >= 10
-            else "yellow"
-            if rate >= 5
-            else "green"
-            if rate < 1
-            else ""
-        )
-        rate_str = f"[{style}]{rate:.2f}[/{style}]" if style else f"{rate:.2f}"
+        rate = r.get("rate")
+        rate_str = f"{rate:.2f}" if isinstance(rate, (int, float)) else "N/A"
+        reference = r.get("reference", {})
+        historical = f"{reference['rate']:.2f}% ({reference.get('as_of', 'unknown')})" if isinstance(reference.get("rate"), (int, float)) else "N/A"
         table.add_row(
-            r.get("bank", ""), r.get("country", ""), rate_str, r.get("as_of", "")
+            r.get("bank", ""), r.get("country", ""), rate_str, r.get("as_of") or "unknown",
+            r.get("status", "unknown"), historical,
         )
     console.print(table)
+    console.print(data.get("caveat", "Observation date is not a rate-change date."))
 
 
 @main.command(name="shipping")
@@ -1405,16 +1415,17 @@ def nuclear_cmd(ctx: click.Context, hours: int) -> None:
         return
 
     console.print(
-        f"[bold]{data.get('total_flagged_events', 0)} flagged events[/bold] "
-        f"([red]{data.get('critical_flags', 0)} critical[/red]) in last {hours}h\n"
+        f"[bold]{data.get('total_flagged_events') if data.get('total_flagged_events') is not None else 'unknown'} nearby seismic samples[/bold] in last {hours}h\n"
     )
+    console.print(f"Status: {data.get('status', 'unknown')} | Source updated: {data.get('source_updated_at') or 'unknown'}", markup=False)
+    console.print(data.get('error') or data.get('note') or 'Not a nuclear test determination.', markup=False)
+    if data.get('truncated'):
+        console.print('Sample/display limit reached; counts are not complete coverage.')
 
     for site in data.get("sites", []):
         n = site.get("name", "")
-        events = site.get("events", [])
-        count = len(events)
-        style = "red bold" if count > 0 else "dim"
-        console.print(f"  [{style}]{n}: {count} events[/{style}]")
+        count = site.get("events_detected")
+        console.print(f"  {n}: {count if count is not None else 'unknown'} samples ({site.get('source_status', 'unknown')})", markup=False)
 
 
 @main.command(name="space")
@@ -1505,6 +1516,8 @@ def fleet_cmd(ctx: click.Context) -> None:
         return
 
     console.print(f"[bold]{data.get('report_title', 'Fleet Report')}[/bold]\n")
+    console.print(f"  Published: {data.get('report_date') or 'unknown'} · Collection: {data.get('collected_at') or 'unknown'} · {data.get('freshness', 'unknown')}")
+    console.print("  Text samples only; inferred regions are not live positions or a complete fleet inventory.")
 
     totals = data.get("force_totals", {})
     if totals.get("battle_force"):

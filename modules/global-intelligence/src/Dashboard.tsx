@@ -58,9 +58,11 @@ import {
 import { createModSnapshotCache } from "@newma-desk/mod-sdk";
 import { buildInvestmentTransmission } from "./investment";
 import { InvestmentTransmission } from "./InvestmentTransmission";
+import { ComparisonPanel, readCrucixComparison } from "./ComparisonPanel";
 
 import {
   GLOBAL_INTELLIGENCE_CONTRACT,
+  mediaTimeCoverageLabel,
   calculateGlobalIntelMarketReactions,
   calculateGlobalIntelRouteAlerts,
   calculateGlobalIntelRouteImpacts,
@@ -192,6 +194,7 @@ interface SourceHealthItem {
   statusLabel: string;
   reason: string;
   freshness?: string;
+  observation?: Record<string, unknown>;
 }
 
 interface PostureDomain {
@@ -235,8 +238,8 @@ interface ConvergenceHotspot {
   label: string;
   latitude: number;
   longitude: number;
-  score: number;
-  earthquakeCount: number;
+  score: number | null;
+  earthquakeCount: number | null;
 }
 
 const MEDIA_SENTIMENT_ORDER = ["positive", "negative", "neutral", "mixed"] as const;
@@ -245,6 +248,7 @@ const MEDIA_SENTIMENT_SHORT_LABEL = {
   negative: "负",
   neutral: "中",
   mixed: "混",
+  unknown: "未判定",
 } as const;
 
 interface SavedWatchRegion {
@@ -267,6 +271,7 @@ interface MediaWatchRule {
   keywords: string[];
   createdAt: string;
   baselineSignature?: string;
+  topicBaselines?: Record<string, string>;
 }
 
 interface MediaTopicHistoryEntry {
@@ -278,11 +283,11 @@ interface MediaTopicHistoryEntry {
   firstSeenAt: string;
   lastSeenAt: string;
   lastChangedAt: string;
-  mentionCount: number;
-  sourceCount: number;
-  heatScore: number;
-  attentionScore?: number;
-  spreadScore: number;
+  mentionCount: number | null;
+  sourceCount: number | null;
+  heatScore: number | null;
+  attentionScore?: number | null;
+  spreadScore: number | null;
   verificationStatus: string;
   verificationHistory: Array<{ status: string; timestamp: string }>;
 }
@@ -294,7 +299,8 @@ const EVENT_HISTORY_KEY = "newma-desk.global-intelligence.event-history.v1";
 const EVENT_DISPOSITIONS_KEY = "newma-desk.global-intelligence.event-dispositions.v1";
 const EVENT_ATTENTION_BASELINE_KEY = "newma-desk.global-intelligence.attention-baseline.v2";
 const MEDIA_WATCH_RULES_KEY = "newma-desk.global-intelligence.media-watch-rules.v1";
-const MEDIA_TOPIC_HISTORY_KEY = "newma-desk.global-intelligence.media-topic-history.v1";
+// Keep legacy history untouched; its defaults are not verified observations.
+const MEDIA_TOPIC_HISTORY_KEY = "newma-desk.global-intelligence.media-topic-history.v2";
 const SITUATION_PRESETS: SituationPreset[] = [
   {
     id: "overview",
@@ -388,7 +394,7 @@ const SOURCE_LABELS: Record<string, string> = {
   usni_fleet: "USNI 舰队追踪",
   climate_anomalies: "气候异常",
   disease_outbreaks: "公共卫生",
-  nuclear_monitor: "核活动监测",
+  nuclear_monitor: "试验场邻近地震",
   traffic_flow: "交通流",
   traffic_incidents: "交通事件",
   webcams: "公共摄像头",
@@ -396,16 +402,16 @@ const SOURCE_LABELS: Record<string, string> = {
   strategic_posture: "战略态势",
   situation_brief: "态势简报",
   prediction_markets: "预测市场",
-  airport_delays: "机场延误",
+  airport_delays: "机场运行通告",
   domestic_flights: "全球航空流量",
   space_weather: "空间天气",
   ai_watch: "AI 动态",
   service_status: "云服务状态",
-  fleet_report: "舰队态势",
+  fleet_report: "航空与航道观察",
   social_signals: "社交信号",
   displacement: "人口流离失所",
   population_exposure: "人口暴露",
-  signal_convergence: "信号汇聚",
+  signal_convergence: "区域地震观察",
   alert_digest: "综合预警",
   weekly_trends: "历史基线异常",
 };
@@ -453,45 +459,23 @@ const TREND_LABELS: Record<string, string> = {
   south_china_sea: "南海",
 };
 
-const DEFAULT_CONVERGENCE_HOTSPOTS: ConvergenceHotspot[] = [
-  {
-    id: "default-middle-east",
-    label: "中东",
-    latitude: 29.5,
-    longitude: 45.5,
-    score: 0,
-    earthquakeCount: 0,
-  },
-  {
-    id: "default-east-asia",
-    label: "东亚",
-    latitude: 30.5,
-    longitude: 121.5,
-    score: 0,
-    earthquakeCount: 0,
-  },
-  {
-    id: "default-europe",
-    label: "欧洲",
-    latitude: 50.0,
-    longitude: 12.0,
-    score: 0,
-    earthquakeCount: 0,
-  },
-];
+function privateStorageKey(key: string, scoped: boolean, identity?: {userId: string; workspaceId: string}): string | null {
+  if (!scoped) return key;
+  return identity ? `${key}:${JSON.stringify([identity.userId, identity.workspaceId])}` : null;
+}
 
-function loadWatchRegions(): SavedWatchRegion[] {
+function loadWatchRegions(key: string | null): SavedWatchRegion[] {
   try {
-    const saved = JSON.parse(localStorage.getItem(WATCH_REGIONS_KEY) || "[]") as unknown;
+    const saved = JSON.parse((key && localStorage.getItem(key)) || "[]") as unknown;
     return Array.isArray(saved) ? saved as SavedWatchRegion[] : [];
   } catch {
     return [];
   }
 }
 
-function loadRouteAlertStates(): Record<string, GlobalIntelRouteAlertState> {
+function loadRouteAlertStates(key: string | null): Record<string, GlobalIntelRouteAlertState> {
   try {
-    const saved = JSON.parse(localStorage.getItem(ROUTE_ALERTS_KEY) || "{}") as unknown;
+    const saved = JSON.parse((key && localStorage.getItem(key)) || "{}") as unknown;
     return typeof saved === "object" && saved !== null && !Array.isArray(saved)
       ? saved as Record<string, GlobalIntelRouteAlertState>
       : {};
@@ -500,9 +484,9 @@ function loadRouteAlertStates(): Record<string, GlobalIntelRouteAlertState> {
   }
 }
 
-function loadMilitaryTrackHistory(): GlobalIntelMilitaryTrackHistory {
+function loadMilitaryTrackHistory(key: string | null): GlobalIntelMilitaryTrackHistory {
   try {
-    const saved = JSON.parse(sessionStorage.getItem(MILITARY_TRACKS_KEY) || "{}") as unknown;
+    const saved = JSON.parse((key && sessionStorage.getItem(key)) || "{}") as unknown;
     return typeof saved === "object" && saved !== null && !Array.isArray(saved)
       ? saved as GlobalIntelMilitaryTrackHistory
       : {};
@@ -511,9 +495,9 @@ function loadMilitaryTrackHistory(): GlobalIntelMilitaryTrackHistory {
   }
 }
 
-function loadEventHistory(): GlobalIntelEventHistoryEntry[] {
+function loadEventHistory(key: string | null): GlobalIntelEventHistoryEntry[] {
   try {
-    const saved = JSON.parse(localStorage.getItem(EVENT_HISTORY_KEY) || "[]") as unknown;
+    const saved = JSON.parse((key && localStorage.getItem(key)) || "[]") as unknown;
     return Array.isArray(saved)
       ? saved.map((item) => ({
         ...item as GlobalIntelEventHistoryEntry,
@@ -531,9 +515,9 @@ function loadEventHistory(): GlobalIntelEventHistoryEntry[] {
   }
 }
 
-function loadEventDispositions(): Record<string, EventDisposition> {
+function loadEventDispositions(key: string | null): Record<string, EventDisposition> {
   try {
-    const saved = JSON.parse(localStorage.getItem(EVENT_DISPOSITIONS_KEY) || "{}") as unknown;
+    const saved = JSON.parse((key && localStorage.getItem(key)) || "{}") as unknown;
     return typeof saved === "object" && saved !== null && !Array.isArray(saved)
       ? saved as Record<string, EventDisposition>
       : {};
@@ -542,24 +526,24 @@ function loadEventDispositions(): Record<string, EventDisposition> {
   }
 }
 
-function loadMediaWatchRules(): MediaWatchRule[] {
+function loadMediaWatchRules(key: string | null): MediaWatchRule[] {
   try {
-    const saved = JSON.parse(localStorage.getItem(MEDIA_WATCH_RULES_KEY) || "[]") as unknown;
+    const saved = JSON.parse((key && localStorage.getItem(key)) || "[]") as unknown;
     return Array.isArray(saved) ? saved as MediaWatchRule[] : [];
   } catch {
     return [];
   }
 }
 
-function loadMediaTopicHistory(): MediaTopicHistoryEntry[] {
+function loadMediaTopicHistory(key: string | null): MediaTopicHistoryEntry[] {
   try {
-    const saved = JSON.parse(localStorage.getItem(MEDIA_TOPIC_HISTORY_KEY) || "[]") as unknown;
+    const saved = JSON.parse((key && localStorage.getItem(key)) || "[]") as unknown;
     return Array.isArray(saved) ? saved.map((item) => ({
       ...item as MediaTopicHistoryEntry,
       verificationHistory: Array.isArray((item as MediaTopicHistoryEntry).verificationHistory)
         ? (item as MediaTopicHistoryEntry).verificationHistory
         : [{
-          status: (item as MediaTopicHistoryEntry).verificationStatus || "常规报道",
+          status: (item as MediaTopicHistoryEntry).verificationStatus || "待核验",
           timestamp: (item as MediaTopicHistoryEntry).lastChangedAt || (item as MediaTopicHistoryEntry).lastSeenAt,
         }],
     })) : [];
@@ -573,11 +557,33 @@ function mediaWatchRuleMatchesTopic(rule: MediaWatchRule, topic: GlobalMediaMoni
   const haystack = `${topic.label} ${topic.headline} ${topic.keywords.join(" ")}`.toLocaleLowerCase();
   const keywords = [...new Set(rule.keywords.map((keyword) => keyword.trim()).filter(Boolean))];
   const matches = keywords.filter((keyword) => haystack.includes(keyword.toLocaleLowerCase())).length;
-  return matches >= Math.min(2, keywords.length);
+  return keywords.length > 0 && matches >= Math.min(2, keywords.length);
+}
+
+function mediaTopicValues(topic: GlobalMediaMonitorTopic) {
+  return [topic.mentionCount, topic.sourceCount, topic.heatScore, topic.attentionScore, topic.spreadScore,
+    topic.verificationStatus === "待核验" ? null : topic.verificationStatus, topic.framingDivergence]
+    .map((value) => value === null ? "" : String(value));
 }
 
 function mediaTopicSignature(topic: GlobalMediaMonitorTopic) {
-  return `${topic.mentionCount}|${topic.sourceCount}|${topic.heatScore}|${topic.attentionScore}|${topic.spreadScore}|${topic.verificationStatus}|${topic.framingDivergence}`;
+  return ["v2", ...mediaTopicValues(topic)].join("|");
+}
+
+function mediaWatchBaseline(rule: MediaWatchRule, topic: GlobalMediaMonitorTopic) {
+  const baseline = rule.topicBaselines?.[topic.id];
+  return typeof baseline === "string" ? baseline : rule.id === topic.id ? rule.baselineSignature : undefined;
+}
+
+function mediaTopicComparison(signature: string | undefined, topic: GlobalMediaMonitorTopic) {
+  const baseline = signature?.startsWith("v2|") ? signature.split("|").slice(1) : [];
+  const current = mediaTopicValues(topic);
+  return {
+    changed: current.some((value, index) => value !== "" && baseline[index] && baseline[index] !== value),
+    incomplete: current.some((value, index) => value === "" || !baseline[index]),
+    // Fill previously unknown fields without acknowledging existing changes.
+    baseline: ["v2", ...current.map((value, index) => baseline[index] || value)].join("|"),
+  };
 }
 
 function mergeMediaTopicHistory(
@@ -587,23 +593,11 @@ function mergeMediaTopicHistory(
 ) {
   const byId = new Map(history.map((item) => [item.id, item]));
   for (const topic of topics) {
-    let previous = byId.get(topic.id);
-    if (!previous) {
-      const semanticMatch = [...byId.values()]
-        .map((item) => ({ item, similarity: globalMediaTopicSimilarity(topic, item) }))
-        .sort((left, right) => right.similarity - left.similarity)[0];
-      if (semanticMatch && semanticMatch.similarity >= 62) {
-        previous = semanticMatch.item;
-        byId.delete(previous.id);
-      }
-    }
+    const previous = byId.get(topic.id);
     const changed = previous && (
-      previous.mentionCount !== topic.mentionCount
-      || previous.sourceCount !== topic.sourceCount
-      || previous.heatScore !== topic.heatScore
-      || previous.attentionScore !== topic.attentionScore
-      || previous.spreadScore !== topic.spreadScore
-      || previous.verificationStatus !== topic.verificationStatus
+      (["mentionCount", "sourceCount", "heatScore", "attentionScore", "spreadScore"] as const)
+        .some((key) => previous[key] != null && topic[key] != null && previous[key] !== topic[key])
+      || previous.verificationStatus !== "待核验" && topic.verificationStatus !== "待核验" && previous.verificationStatus !== topic.verificationStatus
     );
     byId.set(topic.id, {
       id: topic.id,
@@ -614,18 +608,18 @@ function mergeMediaTopicHistory(
       firstSeenAt: previous?.firstSeenAt || observedAt,
       lastSeenAt: observedAt,
       lastChangedAt: changed ? observedAt : previous?.lastChangedAt || observedAt,
-      mentionCount: topic.mentionCount,
-      sourceCount: topic.sourceCount,
-      heatScore: topic.heatScore,
-      attentionScore: topic.attentionScore,
-      spreadScore: topic.spreadScore,
-      verificationStatus: topic.verificationStatus,
-      verificationHistory: previous?.verificationStatus !== topic.verificationStatus
+      mentionCount: topic.mentionCount ?? previous?.mentionCount ?? null,
+      sourceCount: topic.sourceCount ?? previous?.sourceCount ?? null,
+      heatScore: topic.heatScore ?? previous?.heatScore ?? null,
+      attentionScore: topic.attentionScore ?? previous?.attentionScore ?? null,
+      spreadScore: topic.spreadScore ?? previous?.spreadScore ?? null,
+      verificationStatus: topic.verificationStatus === "待核验" ? previous?.verificationStatus ?? "待核验" : topic.verificationStatus,
+      verificationHistory: topic.verificationStatus !== "待核验" && previous?.verificationStatus !== topic.verificationStatus
         ? [
           ...(previous?.verificationHistory ?? []),
           { status: topic.verificationStatus, timestamp: observedAt },
         ].slice(-8)
-        : previous?.verificationHistory ?? [{ status: topic.verificationStatus, timestamp: observedAt }],
+        : previous?.verificationHistory ?? [],
     });
   }
   return [...byId.values()]
@@ -757,6 +751,35 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
     });
   }
 
+  const worldNews = recordValue(snapshot.news_feed);
+  const worldSources = recordList(worldNews.source_results);
+  // Namespace cache freshness is not a source receipt (it can contain an HTML
+  // error page or a newly saved historical fallback). Prefer the actual rows.
+  if (worldSources.length) items.delete("news");
+  for (const row of worldSources) {
+    if (typeof row.id !== "string" || typeof row.source !== "string") continue;
+    const state: SourceHealthItem["status"] = row.status === "unavailable" ? "error"
+      : row.status === "stale" || row.freshness === "stale" ? "stale"
+        : row.status === "ok" && row.freshness === "fresh" ? "healthy" : "degraded";
+    const count = typeof row.count === "number" ? row.count : null;
+    // Use the Fetcher source ID: a closed circuit is not a successful feed parse.
+    items.set(row.id, {
+      id: row.id, label: "World RSS / " + row.source, status: state,
+      statusLabel: state === "error" ? "取数失败" : state === "stale" ? "保留旧缓存"
+        : state === "healthy" ? count === 0 ? "有效空源" : "正常" : "部分或待核验",
+      reason: (typeof row.reason === "string" ? row.reason : "来源未提供说明")
+        + (count === null ? " · 数量未知" : ` · 解析 ${count} 条（非当前展示条数）`)
+        + (typeof row.collected_at === "string" ? ` · 采集于 ${row.collected_at}` : " · 采集时间未知"),
+    });
+  }
+  const worldCoverage = recordValue(worldNews.coverage);
+  if (typeof worldCoverage.expected === "number" && worldCoverage.expected > worldSources.length) {
+    items.set("news_feed:coverage", {
+      id: "news_feed:coverage", label: "World RSS 覆盖", status: "degraded", statusLabel: "回执不完整",
+      reason: `应有 ${worldCoverage.expected} 个来源，仅收到 ${worldSources.length} 个回执；缺失不代表没有新闻`,
+    });
+  }
+
   const crucix = recordValue(snapshot.crucix_intelligence);
   if (Object.keys(crucix).length) {
     const crucixHealth = recordValue(crucix.sourceHealth);
@@ -783,11 +806,195 @@ function sourceHealthDetails(snapshot: Record<string, unknown>) {
       reason: queried > 0 ? `${ok}/${queried} 个来源采集正常，${failed} 不可用、${partial} 部分可用、${Number(crucixHealth.stale ?? 0)} 陈旧、${unknown} 待核验` : "等待 Crucix 首轮扫描",
       ...(Number.isFinite(ageSeconds) ? { freshness: freshnessLabel(ageSeconds) } : {}),
     });
+
+    const sourceRows = recordList(crucixHealth.items).filter((row) => typeof row.source === "string" && row.source);
+    const names = new Set(sourceRows.map((row) => row.source));
+    // Complete per-source receipts replace the roll-up so the console does not double-count them.
+    if (queried > 0 && names.size === queried) items.delete("crucix");
+    for (const row of sourceRows) {
+      const name = String(row.source);
+      const state: SourceHealthItem["status"] = row.status === "error" ? "error"
+        : row.status === "stale" || freshnessStatus === "stale" ? "stale"
+          : row.status === "ok" && freshnessStatus === "fresh" ? "healthy" : "degraded";
+      items.set("crucix:" + name, {
+        id: "crucix:" + name, label: "Crucix / " + name, status: state,
+        statusLabel: state === "error" ? "取数失败" : state === "stale" ? "数据过期"
+          : state === "healthy" ? "正常" : row.status === "partial" ? "部分可用" : "待核验",
+        reason: typeof row.reason === "string" ? row.reason : "来源未提供查询说明，不能据此判断风险已解除",
+        ...(Number.isFinite(ageSeconds) ? { freshness: "采集快照 " + freshnessLabel(ageSeconds) } : {}),
+      });
+    }
+
+    const macro = recordValue(crucix.macro);
+    const supply = recordValue(macro.gscpi);
+    if (Object.keys(supply).length) {
+      const freshness = recordValue(supply.freshness).status;
+      const state: SourceHealthItem["status"] = supply.status === "error" ? "error"
+        : freshness === "stale" || freshnessStatus === "stale" ? "stale"
+          : supply.status === "ok" && supply.basisVerified === true && freshness === "fresh" && freshnessStatus === "fresh" ? "healthy" : "degraded";
+      const unit = supply.unit === "standard-deviations" ? "标准差" : "单位待核验";
+      items.set("crucix:GSCPI", {
+        id: "crucix:GSCPI", label: "Crucix / GSCPI", status: state,
+        statusLabel: state === "error" ? "取数失败" : state === "stale" ? "历史观测"
+          : state === "healthy" ? "观测可用" : "部分或待核验",
+        reason: `指数 ${supply.value ?? "未知"} ${unit} · 月度统计期 ${supply.period ?? "未知"}`
+          + ` · 修订列标识 ${supply.vintage ?? "未知"}（非发布日期） · 拒绝 ${supply.rejected ?? "未知"} · 缺格 ${supply.missing ?? "未知"}`
+          + `；${supply.note || "月度统计期不是发布时间，零代表历史均值；历史版本待核验。"}`,
+        freshness: `采集于 ${supply.collectedAt ?? "未知"} · 观测时效 ${freshness ?? "unknown"}（本地窗口，非官方发布保证）`,
+        observation: supply,
+      });
+    }
+    for (const row of recordList(recordValue(macro.metals).observations)) {
+      const name = row.id === "gold" ? "黄金" : row.id === "silver" ? "白银" : null;
+      if (!name) continue;
+      const freshness = recordValue(row.freshness).status;
+      const state: SourceHealthItem["status"] = freshness === "stale" || freshnessStatus === "stale" ? "stale"
+        : row.basisVerified === true && freshness === "fresh" && freshnessStatus === "fresh" ? "healthy" : "degraded";
+      const provenance = recordValue(row.source);
+      items.set("crucix:metal:" + row.id, {
+        id: "crucix:metal:" + row.id, label: `Crucix / ${name}报价`, status: state,
+        statusLabel: state === "healthy" ? "观测可用" : state === "stale" ? "历史报价" : "报价待核验",
+        reason: `价格 ${row.value ?? "未知"} ${row.unit === "USD/troy-ounce" ? "USD/金衡盎司" : "单位待核验"}`
+          + ` · ${row.kind === "futures" ? "连续期货" : "类型待核验"} · ${provenance.id ?? "来源未知"} / ${provenance.seriesId ?? "代码未知"}`
+          + `；${row.note || "连续期货可能换月，不是现货；前收日期未知。"}`,
+        freshness: `报价于 ${row.observedAt ?? "未知"} · ${freshness ?? "unknown"}（7自然日本地窗口，不是实时保证）`,
+        observation: row,
+      });
+    }
+
+    const who = recordValue(recordValue(crucix.global).who);
+    if (Object.keys(who).length) {
+      const freshness = recordValue(who.freshness).status;
+      const state: SourceHealthItem["status"] = who.status === "error" ? "error"
+        : freshness === "stale" ? "stale" : who.status === "ok" && who.complete === true && freshness === "fresh" ? "healthy" : "degraded";
+      const window = recordValue(who.window);
+      const gaps = Object.values(recordValue(who.gaps)).filter((value) => typeof value === "string").join("；");
+      items.set("crucix:WHO", {
+        id: "crucix:WHO", label: "Crucix / WHO", status: state,
+        statusLabel: state === "error" ? "取数失败" : state === "stale" ? "历史公告快照"
+          : state === "healthy" ? who.reportCount === 0 ? "有效空窗口" : "公告查询可用" : "覆盖不完整或待核验",
+        reason: `窗口公告 ${who.reportCount ?? "未知"} 篇 · 展示 ${who.displayed ?? "未知"} 篇 · 查询上限 ${who.queryLimit ?? "未知"}`
+          + ` · 完整查询${who.complete === true ? "已核对" : "未确认"}；${gaps ? gaps + "；" : ""}${who.note || "公告样本不能证明全球疫情覆盖或感染人数。"}`,
+        freshness: `查询窗口 ${window.start ?? "未知"} → ${window.end ?? "未知"} · ${who.collectedAt ? "采集于 " + who.collectedAt : "检查于 " + (who.checkedAt ?? "未知") + "，未取得已核验公告"}`,
+        observation: who,
+      });
+    }
+
+    const ofac = recordValue(recordValue(crucix.global).ofac);
+    if (Object.keys(ofac).length) {
+      const freshness = recordValue(ofac.collectionFreshness).status;
+      const state: SourceHealthItem["status"] = ofac.status === "error" ? "error"
+        : freshness === "stale" ? "stale" : ofac.status === "ok" && freshness === "fresh" ? "healthy" : "degraded";
+      items.set("crucix:OFAC", {
+        id: "crucix:OFAC", label: "Crucix / OFAC", status: state,
+        statusLabel: state === "error" ? "取数失败" : state === "stale" ? "旧采集快照"
+          : state === "healthy" ? "名单已读取" : ofac.status === "partial" ? "部分可用" : "待核验",
+        reason: `名单发布日 ${ofac.publishedDate ?? "未知"}（仅日期） · 实际解析 ${ofac.entryCount ?? "未知"} 条 · 声明 ${ofac.recordCount ?? "未知"} 条`
+          + ` · 完整性${ofac.complete === true ? "已核对" : "未确认"}；${ofac.reason || "来源说明缺失"}；${ofac.note || "仅 SDN 名单观察，非合规筛查"}`,
+        freshness: ofac.collectedAt
+          ? `采集于 ${ofac.collectedAt} · ${freshness === "fresh" ? "采集快照新鲜，不代表名单刚发布" : freshness === "stale" ? "旧快照，当前名单待核验" : "采集时效未知"}`
+          : `检查于 ${ofac.checkedAt ?? "未知"} · 未取得已核验名单`,
+        observation: ofac,
+      });
+    }
+
+    const rss = recordValue(crucix.newsCoverage);
+    if (Object.keys(rss).length) {
+      const sources = recordList(rss.items);
+      const requested = Number(recordValue(rss.coverage).requested ?? 0);
+      for (const row of sources) {
+        const name = typeof row.source === "string" ? row.source : "未知来源";
+        const freshness = recordValue(row.freshness);
+        const state: SourceHealthItem["status"] = row.cached === true ? "stale" : row.status === "error" ? "error"
+          : freshness.status === "stale" ? "stale"
+            : row.status === "ok" && freshness.status === "fresh" ? "healthy" : "degraded";
+        const count = typeof row.count === "number" ? row.count : null;
+        items.set("rss:" + name, {
+          id: "rss:" + name, label: "RSS / " + name, status: state,
+          statusLabel: row.cached === true ? "保留旧缓存" : state === "healthy" ? count === 0 ? "有效空源" : "正常"
+            : state === "error" ? "取数失败" : state === "stale" ? "数据过期" : "部分或待核验",
+          reason: (typeof row.reason === "string" ? row.reason : "未返回来源说明")
+            + (count !== null ? ` · 解析 ${count} 条（非当前展示条数）` : " · 数量未知")
+            + (row.cached === true ? ` · 使用上次有效结果 ${row.availableCount ?? "未知"} 条，采集于 ${row.dataAsOf ?? "未知"}；${rss.mode === "cache" ? "本次未联网" : "本次更新失败"}` : ""),
+          ...(typeof freshness.ageSeconds === "number" ? { freshness: "检查于 " + freshnessLabel(freshness.ageSeconds) } : {}),
+          observation: row,
+        });
+      }
+      if (!sources.length || requested > sources.length) items.set("rss:coverage", {
+        id: "rss:coverage", label: "RSS 覆盖", status: "degraded", statusLabel: "待核验",
+        reason: requested === 0 ? "本轮未执行 RSS 采集，不代表没有新闻" : "部分来源缺少采集结果",
+      });
+      const cache = recordValue(rss.cache);
+      if (cache.status === "error") items.set("rss:cache", {
+        id: "rss:cache", label: "RSS 缓存", status: "degraded", statusLabel: "缓存异常",
+        reason: typeof cache.reason === "string" ? cache.reason : "缓存恢复或保存失败",
+      });
+    }
   }
 
   for (const [domain, raw] of Object.entries(snapshot)) {
     if (domain.startsWith("_") || domain === "source_health" || domain === "cache_freshness" || domain === "cache_stats") continue;
     const info = recordValue(raw);
+    if (["earthquakes", "signal_convergence", "nuclear_monitor", "population_exposure"].includes(domain)) {
+      const coverage = recordValue(info.coverage);
+      const expired = Date.parse(String(info.cache_expires_at ?? "")) < Date.now();
+      const state = info.error || info.status === "unavailable" ? "error" : expired || info.freshness === "stale" || info.status === "stale" ? "stale"
+        : info.status === "ok" ? "healthy" : "degraded";
+      items.set(domain, { id: domain, label: sourceLabel(domain), status: state,
+        statusLabel: state === "error" ? "数据缺失" : state === "stale" ? "历史样本" : state === "healthy" ? "样本可用" : "部分或待核验",
+        reason: `${info.error || info.note || "目录样本不代表全部事件或实际灾损"} · 来源更新 ${info.source_updated_at ?? "未知"}`
+          + (coverage.expected != null ? ` · 覆盖 ${coverage.available ?? "未知"}/${coverage.expected}` : "")
+          + (info.truncated ? " · 已达样本上限" : ""),
+      });
+      continue;
+    }
+    if (["strategic_posture", "alert_digest"].includes(domain) && ["partial", "unavailable"].includes(String(info.status))) {
+      const coverage = recordValue(info.coverage);
+      items.set(`${domain}:coverage`, {
+        id: `${domain}:coverage`, label: `${SOURCE_LABELS[domain] ?? domain}覆盖`, status: "degraded", statusLabel: "评估不完整",
+        reason: `可用样本 ${coverage.available ?? "未知"}/${coverage.expected ?? "未知"}，完整输入 ${coverage.complete ?? "未知"}；缺失不代表安全，分项评分是启发式观察值，不是风险概率。`,
+      });
+    }
+    if (domain === "situation_brief" && (info.status === "partial" || info.status === "unavailable")) {
+      const coverage = recordValue(info.coverage);
+      items.set("situation_brief:coverage", {
+        id: "situation_brief:coverage", label: "态势简报数据覆盖", status: "degraded", statusLabel: "证据不完整",
+        reason: `简报仅有 ${coverage.available ?? "未知"}/${coverage.expected ?? "未知"} 项可用数字指标；缺失不代表零风险，样本计数不代表全球总量`,
+      });
+    }
+    if (domain === "airport_delays") {
+      const known = info.observation_basis === "faa-nas-airport-advisories";
+      const sourceAge = Date.now() - Date.parse(String(info.updated_at ?? ""));
+      const expired = Date.parse(String(info.cache_expires_at ?? "")) < Date.now();
+      const airportStatus = !known ? "degraded" : info.status === "unavailable" ? "error"
+        : !Number.isFinite(sourceAge) || sourceAge < 0 ? "degraded"
+        : info.status === "stale" || info.freshness === "stale" || expired || sourceAge > 30 * 60 * 1000 ? "stale"
+          : info.status === "ok" && info.freshness === "fresh" ? "healthy" : "degraded";
+      items.delete("faa");
+      items.set(domain, {
+        id: domain, label: "FAA 机场运行通告", status: airportStatus,
+        statusLabel: airportStatus === "healthy" ? "官方通告可用" : airportStatus === "error" ? "取数失败" : airportStatus === "stale" ? "历史通告" : "口径待核验",
+        reason: !known ? "旧机场查询没有完整来源回执；不能据此判断无延误"
+          : `${info.reported_airport_count ?? "未知"} 个机场 / ${info.advisory_count ?? "未知"} 条通告 · 来源更新 ${info.updated_at ?? "未知"} · ${info.error || info.note || "未列出不等于无延误"}`,
+      });
+      continue;
+    }
+    if (domain === "central_bank_rates") {
+      const rates = recordList(info.rates);
+      const curated = rates.filter((rate) => rate.source === "curated"
+        || (rate.rate == null && Object.keys(recordValue(rate.reference)).length > 0)).length;
+      const undated = rates.filter((rate) => typeof rate.as_of !== "string"
+        || !Number.isFinite(Date.parse(rate.as_of)) || Date.parse(rate.as_of) > Date.now()).length;
+      if (curated || undated) items.set("central_bank_rates:reference", {
+        id: "central_bank_rates:reference", label: "央行利率口径", status: "degraded", statusLabel: "现行值待核验",
+        reason: `${rates.length} 条观测中 ${curated} 条历史手工参考，${undated} 条日期缺失或异常；不能作为当前政策利率或调息信号`,
+      });
+      const coverage = recordValue(info.coverage);
+      if (Object.keys(coverage).length) items.set("central_bank_rates:coverage", {
+        id: "central_bank_rates:coverage", label: "央行实时来源覆盖", status: info.status === "ok" ? "healthy" : "degraded",
+        statusLabel: "来源覆盖", reason: `${coverage.available ?? 0}/${coverage.tracked ?? rates.length} 家取得近期观测；${coverage.queried ?? 0} 家已查询，${coverage.failed ?? 0} 失败，${coverage.stale ?? 0} 过期，${coverage.reference_only ?? 0} 家仅历史参考`,
+      });
+    }
     if (!info.error && info.freshness === "stale") {
       items.set(domain, {
         id: domain, label: sourceLabel(domain), status: "stale",
@@ -838,8 +1045,9 @@ function riskLevelLabel(level: string) {
 }
 
 function strategicRisk(snapshot: Record<string, unknown>) {
-  const posture = recordValue(snapshot.strategic_posture);
-  const score = Number(posture.composite_score ?? posture.overall_score ?? posture.score);
+  const posture = currentResearchDomain(snapshot.strategic_posture);
+  const rawScore = posture.composite_score ?? posture.overall_score ?? posture.score;
+  const score = typeof rawScore === "number" && Number.isFinite(rawScore) ? rawScore : undefined;
   const rawLevel = typeof posture.risk_level === "string"
     ? posture.risk_level
     : typeof posture.overall_level === "string"
@@ -848,10 +1056,16 @@ function strategicRisk(snapshot: Record<string, unknown>) {
         ? posture.level
         : "";
   return {
-    score: Number.isFinite(score) ? score : undefined,
-    level: riskLevelLabel(rawLevel),
-    rawLevel: rawLevel.toUpperCase(),
+    score,
+    level: score === undefined ? "风险待核验" : riskLevelLabel(rawLevel),
+    rawLevel: score === undefined ? "UNKNOWN" : rawLevel.toUpperCase(),
   };
+}
+
+function currentResearchDomain(value: unknown) {
+  const domain = recordValue(value);
+  return domain.error || domain._stale || domain.freshness === "stale"
+    || ["unavailable", "error", "stale"].includes(String(domain.status)) ? {} : domain;
 }
 
 function localizedAlertMessage(alert: Record<string, unknown>) {
@@ -868,11 +1082,12 @@ function localizedAlertMessage(alert: Record<string, unknown>) {
 }
 
 function strategicBriefing(snapshot: Record<string, unknown>) {
-  const posture = recordValue(snapshot.strategic_posture);
-  const alertDigest = recordValue(snapshot.alert_digest);
+  const posture = currentResearchDomain(snapshot.strategic_posture);
+  const alertDigest = currentResearchDomain(snapshot.alert_digest);
   const situationBrief = recordValue(snapshot.situation_brief);
   const risk = strategicRisk(snapshot);
   const domains: PostureDomain[] = Object.entries(recordValue(posture.domain_scores))
+    .filter(([, raw]) => typeof recordValue(raw).score === "number" && Number.isFinite(recordValue(raw).score))
     .map(([id, raw]) => {
       const info = recordValue(raw);
       const score = Number(info.score ?? 0);
@@ -880,7 +1095,7 @@ function strategicBriefing(snapshot: Record<string, unknown>) {
         id,
         label: POSTURE_DOMAIN_LABELS[id] ?? id,
         score: Number.isFinite(score) ? score : 0,
-        level: riskLevelLabel(typeof info.level === "string" ? info.level : ""),
+        level: info.status === "partial" ? "部分证据 · 样本评分" : riskLevelLabel(typeof info.level === "string" ? info.level : ""),
         signals: Array.isArray(info.signals)
           ? info.signals.filter((signal): signal is string => typeof signal === "string")
           : [],
@@ -911,10 +1126,13 @@ function strategicBriefing(snapshot: Record<string, unknown>) {
       : "";
   return {
     ...risk,
+    postureCoverage: recordValue(recordValue(snapshot.strategic_posture).coverage),
+    alertCoverage: recordValue(recordValue(snapshot.alert_digest).coverage),
     domains,
     threats,
     alerts,
-    alertCount: Number(alertDigest.alert_count ?? alerts.length),
+    alertCount: typeof alertDigest.alert_count === "number" && Number.isFinite(alertDigest.alert_count)
+      ? alertDigest.alert_count : !("alert_count" in alertDigest) && Array.isArray(alertDigest.alerts) ? alerts.length : null,
     priorityCounts: recordValue(alertDigest.by_priority),
     brief,
     briefParagraphs: brief ? brief.split(/\n\s*\n|\n/).filter(Boolean) : [],
@@ -926,6 +1144,10 @@ function strategicBriefing(snapshot: Record<string, unknown>) {
 
 function trendLabel(value: string) {
   return TREND_LABELS[value] ?? value.replace(/[_-]+/g, " ");
+}
+
+function mediaMetric(value: number | null, suffix = "") {
+  return value === null ? "—" : `${value}${suffix}`;
 }
 
 function trendRadar(snapshot: Record<string, unknown>) {
@@ -956,22 +1178,19 @@ function trendRadar(snapshot: Record<string, unknown>) {
       label: trendLabel(String(hotspot.name ?? "热点")),
       latitude: Number(hotspot.lat ?? hotspot.latitude ?? 0),
       longitude: Number(hotspot.lon ?? hotspot.longitude ?? 0),
-      score: Number(hotspot.convergence_score ?? 0),
-      earthquakeCount: Number(signals.earthquakes ?? 0),
+      score: typeof hotspot.convergence_score === "number" ? hotspot.convergence_score : null,
+      earthquakeCount: typeof signals.earthquakes === "number" ? signals.earthquakes : null,
     };
   });
-  const liveLabels = new Set(liveHotspots.map((hotspot) => hotspot.label));
-  const hotspots = [
-    ...liveHotspots,
-    ...DEFAULT_CONVERGENCE_HOTSPOTS.filter((hotspot) => !liveLabels.has(hotspot.label)),
-  ];
+  const hotspots = liveHotspots;
+  const knownScores = hotspots.flatMap((hotspot) => hotspot.score === null ? [] : [hotspot.score]);
   return {
     anomalies,
     trends,
     hotspots,
     anomalyCount: Number(weekly.current_anomaly_count ?? anomalies.length),
     trendCount: Number(weekly.trend_count ?? trends.length),
-    maxConvergence: hotspots.reduce((maximum, hotspot) => Math.max(maximum, hotspot.score), 0),
+    maxConvergence: knownScores.length ? Math.max(...knownScores) : null,
     timestamp: typeof weekly.timestamp === "string"
       ? weekly.timestamp
       : typeof convergence.timestamp === "string"
@@ -1007,7 +1226,7 @@ function hasDomainData(value: unknown) {
   const domain = recordValue(value);
   if (domain.error || ["error", "unavailable"].includes(String(domain.status))) return false;
   return Object.keys(domain).some((key) => !key.startsWith("_")
-    && !["timestamp", "collected_at", "freshness", "status", "sourceHealth", "asOf"].includes(key));
+    && !["timestamp", "collected_at", "freshness", "status", "sourceHealth", "newsCoverage", "asOf"].includes(key));
 }
 
 function hasWorldSnapshotData(snapshot: Record<string, unknown>) {
@@ -1019,6 +1238,9 @@ function hasWorldSnapshotData(snapshot: Record<string, unknown>) {
 function hasCrucixSnapshotData(value: unknown) {
   const crucix = recordValue(value);
   const health = recordValue(crucix.sourceHealth);
+  const rss = recordValue(recordValue(crucix.newsCoverage).coverage);
+  if (Number(rss.succeeded ?? 0) + Number(rss.partial ?? 0) > 0
+    || Number(recordValue(crucix.newsCoverage).cachedSources ?? 0) > 0) return true;
   return Object.keys(health).length
     ? Number(health.ok ?? 0) + Number(health.partial ?? 0) > 0 : hasDomainData(crucix);
 }
@@ -1148,21 +1370,31 @@ const RISK_WEIGHT: Record<GlobalIntelSeverity, number> = {
   info: 2,
 };
 
-export function GlobalIntelligenceDashboard({
-  dataSource,
-  theme,
-  refreshNonce,
-  cacheIdentity,
-  onRefresh,
-  onContextChange,
-}: {
+interface GlobalIntelligenceDashboardProps {
   dataSource: GlobalIntelDataSource;
   theme: "light" | "dark";
   refreshNonce: number;
   cacheIdentity?: { userId: string; workspaceId: string };
+  scopedStorage?: boolean;
   onRefresh(): void;
   onContextChange(value: Record<string, unknown>): void;
-}) {
+}
+
+export function GlobalIntelligenceDashboard(props: GlobalIntelligenceDashboardProps) {
+  const key = props.scopedStorage ? JSON.stringify([props.cacheIdentity?.userId, props.cacheIdentity?.workspaceId]) : "standalone";
+  return <GlobalIntelligenceDashboardContent key={key} {...props} />;
+}
+
+function GlobalIntelligenceDashboardContent({
+  dataSource,
+  theme,
+  refreshNonce,
+  cacheIdentity,
+  scopedStorage = false,
+  onRefresh,
+  onContextChange,
+}: GlobalIntelligenceDashboardProps) {
+  const key = (name: string) => privateStorageKey(name, scopedStorage, cacheIdentity);
   const snapshotCache = useMemo(() => cacheIdentity
     ? createModSnapshotCache<Record<string, unknown>>({
         modId: "global-situation",
@@ -1176,14 +1408,14 @@ export function GlobalIntelligenceDashboard({
   const [snapshot, setSnapshot] = useState<Record<string, unknown>>(() => (
     cacheIdentity ? snapshotCache?.read()?.value ?? {} : {}
   ));
-  const [militaryTrackHistory, setMilitaryTrackHistory] = useState(loadMilitaryTrackHistory);
-  const [eventHistory, setEventHistory] = useState(loadEventHistory);
-  const [eventDispositions, setEventDispositions] = useState(loadEventDispositions);
-  const [mediaWatchRules, setMediaWatchRules] = useState(loadMediaWatchRules);
-  const [mediaTopicHistory, setMediaTopicHistory] = useState(loadMediaTopicHistory);
+  const [militaryTrackHistory, setMilitaryTrackHistory] = useState(() => loadMilitaryTrackHistory(key(MILITARY_TRACKS_KEY)));
+  const [eventHistory, setEventHistory] = useState(() => loadEventHistory(key(EVENT_HISTORY_KEY)));
+  const [eventDispositions, setEventDispositions] = useState(() => loadEventDispositions(key(EVENT_DISPOSITIONS_KEY)));
+  const [mediaWatchRules, setMediaWatchRules] = useState(() => loadMediaWatchRules(key(MEDIA_WATCH_RULES_KEY)));
+  const [mediaTopicHistory, setMediaTopicHistory] = useState(() => loadMediaTopicHistory(key(MEDIA_TOPIC_HISTORY_KEY)));
   const [eventHistoryObservedAt, setEventHistoryObservedAt] = useState("");
   const [attentionBaselineReady, setAttentionBaselineReady] = useState(
-    () => localStorage.getItem(EVENT_ATTENTION_BASELINE_KEY) === "ready",
+    () => { const name = key(EVENT_ATTENTION_BASELINE_KEY); return !!name && localStorage.getItem(name) === "ready"; },
   );
   const [riskClock, setRiskClock] = useState(() => Date.now());
   const [status, setStatus] = useState<"connecting" | "live" | "degraded">("connecting");
@@ -1210,8 +1442,8 @@ export function GlobalIntelligenceDashboard({
   const [selectedEventId, setSelectedEventId] = useState("");
   const [selectedRouteId, setSelectedRouteId] = useState("");
   const [progress, setProgress] = useState({ done: 0, total: 0 });
-  const [watchedRegions, setWatchedRegions] = useState<SavedWatchRegion[]>(loadWatchRegions);
-  const [routeAlertStates, setRouteAlertStates] = useState(loadRouteAlertStates);
+  const [watchedRegions, setWatchedRegions] = useState<SavedWatchRegion[]>(() => loadWatchRegions(key(WATCH_REGIONS_KEY)));
+  const [routeAlertStates, setRouteAlertStates] = useState(() => loadRouteAlertStates(key(ROUTE_ALERTS_KEY)));
   const [watchPanelOpen, setWatchPanelOpen] = useState(false);
   const [routeAlertPanelOpen, setRouteAlertPanelOpen] = useState(false);
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
@@ -1224,31 +1456,31 @@ export function GlobalIntelligenceDashboard({
   const [mapExpanded, setMapExpanded] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem(WATCH_REGIONS_KEY, JSON.stringify(watchedRegions));
+    const name = key(WATCH_REGIONS_KEY); if (name) localStorage.setItem(name, JSON.stringify(watchedRegions));
   }, [watchedRegions]);
 
   useEffect(() => {
-    localStorage.setItem(ROUTE_ALERTS_KEY, JSON.stringify(routeAlertStates));
+    const name = key(ROUTE_ALERTS_KEY); if (name) localStorage.setItem(name, JSON.stringify(routeAlertStates));
   }, [routeAlertStates]);
 
   useEffect(() => {
-    sessionStorage.setItem(MILITARY_TRACKS_KEY, JSON.stringify(militaryTrackHistory));
+    const name = key(MILITARY_TRACKS_KEY); if (name) sessionStorage.setItem(name, JSON.stringify(militaryTrackHistory));
   }, [militaryTrackHistory]);
 
   useEffect(() => {
-    localStorage.setItem(EVENT_HISTORY_KEY, JSON.stringify(eventHistory));
+    const name = key(EVENT_HISTORY_KEY); if (name) localStorage.setItem(name, JSON.stringify(eventHistory));
   }, [eventHistory]);
 
   useEffect(() => {
-    localStorage.setItem(EVENT_DISPOSITIONS_KEY, JSON.stringify(eventDispositions));
+    const name = key(EVENT_DISPOSITIONS_KEY); if (name) localStorage.setItem(name, JSON.stringify(eventDispositions));
   }, [eventDispositions]);
 
   useEffect(() => {
-    localStorage.setItem(MEDIA_WATCH_RULES_KEY, JSON.stringify(mediaWatchRules));
+    const name = key(MEDIA_WATCH_RULES_KEY); if (name) localStorage.setItem(name, JSON.stringify(mediaWatchRules));
   }, [mediaWatchRules]);
 
   useEffect(() => {
-    localStorage.setItem(MEDIA_TOPIC_HISTORY_KEY, JSON.stringify(mediaTopicHistory));
+    const name = key(MEDIA_TOPIC_HISTORY_KEY); if (name) localStorage.setItem(name, JSON.stringify(mediaTopicHistory));
   }, [mediaTopicHistory]);
 
   useEffect(() => {
@@ -1283,12 +1515,15 @@ export function GlobalIntelligenceDashboard({
     let staticSettled = false;
     let crucixSettled = false;
     let streamSettled = false;
+    let streamStarted = false;
     let receivedNewData = false;
     let failed = false;
+    let streamFailed = false;
+    let streamSnapshot: Record<string, unknown> = {};
     const finish = () => {
       if (active && staticSettled && crucixSettled && streamSettled) {
         setRefreshRun({ nonce: refreshNonce, source: dataSource,
-          status: !receivedNewData ? "error" : failed ? "partial" : "ready" });
+          status: !receivedNewData ? "error" : failed || streamFailed ? "partial" : "ready" });
       }
     };
     setStatus(Object.keys(snapshot).length ? "degraded" : "connecting");
@@ -1303,11 +1538,15 @@ export function GlobalIntelligenceDashboard({
         if (!active) return;
         receivedNewData ||= quiet ? hasCrucixSnapshotData(payload.crucix_intelligence) : hasWorldSnapshotData(payload);
         failed ||= payload._stale === true || sourceHealthDetails(payload).issueCount > 0;
-        setSnapshot((current) => mergeSnapshot(current, payload));
+        // Static infrastructure has its own 1/1 marker, not the live cycle's
+        // completion. A late static response must not replace stream progress.
+        const visiblePayload = payload._static === true
+          ? Object.fromEntries(Object.entries(payload).filter(([key]) => !key.startsWith("_"))) : payload;
+        setSnapshot((current) => mergeSnapshot(current, visiblePayload));
         const done = Number(payload._done);
         const total = Number(payload._total);
-        if (Number.isFinite(done) && Number.isFinite(total)) setProgress({ done, total });
-        if (payload._static === true) setStatus("degraded");
+        if (payload._static !== true && Number.isFinite(done) && Number.isFinite(total)) setProgress({ done, total });
+        if (payload._static === true && !streamStarted) setStatus("degraded");
       }).catch(() => {
         failed = true;
         if (active && !quiet) setError(Object.keys(snapshot).length
@@ -1327,22 +1566,36 @@ export function GlobalIntelligenceDashboard({
 
     const close = dataSource.subscribe((payload) => {
       if (!active) return;
+      streamStarted = true;
       receivedNewData ||= hasWorldSnapshotData(payload);
-      failed ||= payload._stale === true || sourceHealthDetails(payload).issueCount > 0;
       setSnapshot((current) => mergeSnapshot(current, payload));
       const done = Number(payload._done);
       const total = Number(payload._total);
+      if (payload._stale === true) {
+        // A completed OLD cycle is display evidence, not this refresh's receipt.
+        streamFailed = true;
+        streamSettled = false;
+        if (Number.isFinite(total)) setProgress({ done: 0, total });
+        return;
+      }
+      // Metadata-only completion must retain failures from this cycle, but not
+      // pin a replaced error from the initial stale replay forever.
+      streamSnapshot = mergeSnapshot(streamSnapshot, payload);
+      streamFailed = sourceHealthDetails(streamSnapshot).issueCount > 0;
       if (Number.isFinite(done) && Number.isFinite(total)) setProgress({ done, total });
-      if (total > 0 && done >= total) streamSettled = true;
+      streamSettled = payload._complete === true
+        || (payload._complete !== false && total > 0 && done >= total);
       finish();
     }, (next) => {
       if (!active) return;
       setStatus(next);
       if (next === "degraded") {
-        failed = true;
+        streamFailed = true;
         streamSettled = true;
         finish();
       }
+    }, (failure) => {
+      if (active) setError(failure.message);
     });
 
     return () => {
@@ -1356,14 +1609,15 @@ export function GlobalIntelligenceDashboard({
     () => normalizeGlobalIntelEvents(snapshot, militaryTrackHistory),
     [militaryTrackHistory, snapshot],
   );
-  const dataSettlementComplete = progress.total > 0 && progress.done >= progress.total;
+  const dataSettlementComplete = snapshot._stale !== true && snapshot._complete !== false
+    && progress.total > 0 && progress.done >= progress.total;
   useEffect(() => {
     if (!events.length) return;
-    if (progress.total > 0 && progress.done < progress.total) return;
+    if (progress.total > 0 && !dataSettlementComplete) return;
     const observedAt = new Date().toISOString();
     setEventHistory((current) => mergeGlobalIntelEventHistory(current, events, observedAt));
     setEventHistoryObservedAt(observedAt);
-  }, [events, progress.done, progress.total, snapshot.timestamp]);
+  }, [events, dataSettlementComplete, progress.total, snapshot.timestamp]);
   const eventTimeline = useMemo(() => {
     const merged = new Map<string, GlobalIntelEvent>();
     for (const event of eventHistory) merged.set(globalIntelEventIdentity(event), event);
@@ -1389,7 +1643,7 @@ export function GlobalIntelligenceDashboard({
   );
   useEffect(() => {
     if (attentionBaselineReady || !actionableEvents.length) return;
-    if (progress.total > 0 && progress.done < progress.total) return;
+    if (progress.total > 0 && !dataSettlementComplete) return;
     const baselineAt = typeof snapshot.timestamp === "string"
       ? snapshot.timestamp
       : new Date().toISOString();
@@ -1407,9 +1661,9 @@ export function GlobalIntelligenceDashboard({
       }
       return nextState;
     });
-    localStorage.setItem(EVENT_ATTENTION_BASELINE_KEY, "ready");
+    const name = key(EVENT_ATTENTION_BASELINE_KEY); if (name) localStorage.setItem(name, "ready");
     setAttentionBaselineReady(true);
-  }, [actionableEvents, attentionBaselineReady, eventHistoryObservedAt, historyByIdentity, progress.done, progress.total, snapshot.timestamp]);
+  }, [actionableEvents, attentionBaselineReady, eventHistoryObservedAt, historyByIdentity, dataSettlementComplete, progress.total, snapshot.timestamp]);
   const observationEvents = useMemo(
     () => events.filter((event) => !isActionableGlobalIntelEvent(event)),
     [events],
@@ -1693,10 +1947,20 @@ export function GlobalIntelligenceDashboard({
   );
   const totalWatchAlerts = watchedRegionViews.reduce((sum, region) => sum + region.alertCount, 0);
   const health = useMemo(() => sourceHealthDetails(snapshot), [snapshot]);
+  const crucixComparison = useMemo(() => readCrucixComparison(recordValue(snapshot.crucix_intelligence).comparison), [snapshot]);
   const hasWorldData = hasWorldSnapshotData(snapshot);
   const hasCrucixData = hasCrucixSnapshotData(snapshot.crucix_intelligence);
   const hasData = hasWorldData || hasCrucixData;
-  const hasMediaData = hasDomainData(snapshot.media_monitor);
+  const mediaMonitor = useMemo(() => normalizeGlobalMediaMonitor(snapshot), [snapshot]);
+  const hasMediaPayload = Object.keys(recordValue(snapshot.media_monitor)).length > 0;
+  const hasMediaData = mediaMonitor.status !== "unavailable"
+    && (mediaMonitor.summary.analyzedItems !== null || mediaMonitor.topics.length > 0);
+  const mediaStatusText = mediaMonitor.status === "unavailable" ? "舆情输入不可用"
+    : mediaMonitor.status === "partial" ? "舆情证据不完整"
+      : mediaMonitor.status === "stale" ? "历史舆情快照"
+        : mediaMonitor.status === "ok" ? "舆情样本已分析" : "舆情覆盖待核验";
+  const mediaCoverageText = mediaMonitor.coverage.expected === null ? "来源覆盖待核验"
+    : `RSS 完整来源 ${mediaMetric(mediaMonitor.coverage.complete)}/${mediaMonitor.coverage.expected} · 部分 ${mediaMetric(mediaMonitor.coverage.partial)} · 陈旧 ${mediaMetric(mediaMonitor.coverage.stale)} · 失败 ${mediaMetric(mediaMonitor.coverage.failed)}`;
   const dataAvailability = hasData ? (error || health.issueCount || snapshot._stale === true ? "partial" : "available")
     : error || status === "degraded" || dataSettlementComplete ? "unavailable" : "loading";
   const activePreset = useMemo(() => SITUATION_PRESETS.find((preset) => (
@@ -1710,20 +1974,19 @@ export function GlobalIntelligenceDashboard({
   )), [activeLayers, activeRouteKinds, categoryFilter, mapMode, severityFilter, showCountryRisk, timeWindow]);
   const briefing = useMemo(() => strategicBriefing(snapshot), [snapshot]);
   const trend = useMemo(() => trendRadar(snapshot), [snapshot]);
-  const mediaMonitor = useMemo(() => normalizeGlobalMediaMonitor(snapshot), [snapshot]);
   const mediaAttentionTopics = useMemo(() => [...mediaMonitor.topics].sort((left, right) => (
-    right.attentionScore - left.attentionScore
-    || right.heatScore - left.heatScore
-    || right.spreadScore - left.spreadScore
+    (right.attentionScore ?? -1) - (left.attentionScore ?? -1)
+    || (right.heatScore ?? -1) - (left.heatScore ?? -1)
+    || (right.spreadScore ?? -1) - (left.spreadScore ?? -1)
   )), [mediaMonitor.topics]);
   useEffect(() => {
-    if (!mediaMonitor.topics.length || !mediaMonitor.timestamp) return;
+    if (mediaMonitor.status === "stale" || !mediaMonitor.topics.length || !mediaMonitor.timestamp) return;
     setMediaTopicHistory((current) => mergeMediaTopicHistory(
       current,
       mediaMonitor.topics,
       mediaMonitor.timestamp,
     ));
-  }, [mediaMonitor.timestamp, mediaMonitor.topics]);
+  }, [mediaMonitor.status, mediaMonitor.timestamp, mediaMonitor.topics]);
   const mediaAnnotationByEventId = useMemo(() => new Map(events
     .filter((event) => event.recordKind === "news")
     .flatMap((event) => {
@@ -1745,21 +2008,33 @@ export function GlobalIntelligenceDashboard({
   const watchedMediaTopics = useMemo(() => mediaMonitor.topics.filter((topic) => (
     mediaWatchRules.some((rule) => mediaWatchRuleMatchesTopic(rule, topic))
   )), [mediaMonitor.topics, mediaWatchRules]);
-  const watchedMediaTopicChanges = useMemo(() => watchedMediaTopics.filter((topic) => {
-    const rule = mediaWatchRules.find((item) => mediaWatchRuleMatchesTopic(item, topic));
-    return Boolean(rule?.baselineSignature && rule.baselineSignature !== mediaTopicSignature(topic));
-  }), [mediaWatchRules, watchedMediaTopics]);
+  const watchedMediaTopicChanges = useMemo(() => mediaMonitor.status === "stale" ? [] : watchedMediaTopics.filter((topic) => {
+    return mediaWatchRules.some((rule) => mediaWatchRuleMatchesTopic(rule, topic)
+      && mediaTopicComparison(mediaWatchBaseline(rule, topic), topic).changed);
+  }), [mediaMonitor.status, mediaWatchRules, watchedMediaTopics]);
+  const incompleteMediaTopicComparisons = mediaMonitor.status === "stale" ? watchedMediaTopics.length : watchedMediaTopics.filter((topic) => (
+    mediaWatchRules.some((rule) => mediaWatchRuleMatchesTopic(rule, topic)
+      && mediaTopicComparison(mediaWatchBaseline(rule, topic), topic).incomplete)
+  )).length;
   useEffect(() => {
-    if (!mediaMonitor.topics.length || !mediaWatchRules.some((rule) => !rule.baselineSignature)) return;
-    setMediaWatchRules((current) => current.map((rule) => {
-      if (rule.baselineSignature) return rule;
-      const topic = mediaMonitor.topics.find((item) => mediaWatchRuleMatchesTopic(rule, item));
-      return topic ? { ...rule, baselineSignature: mediaTopicSignature(topic) } : rule;
-    }));
-  }, [mediaMonitor.topics, mediaWatchRules]);
-  const selectedMediaTopicWatched = Boolean(selectedMediaTopic && mediaWatchRules.some((rule) => (
-    mediaWatchRuleMatchesTopic(rule, selectedMediaTopic)
-  )));
+    if (mediaMonitor.status === "stale" || !mediaMonitor.topics.length || !mediaWatchRules.length) return;
+    setMediaWatchRules((current) => {
+      const next = current.map((rule) => {
+        const topicBaselines: Record<string, string> = Object.assign(Object.create(null), rule.topicBaselines);
+        let changed = false;
+        for (const topic of mediaMonitor.topics.filter((item) => mediaWatchRuleMatchesTopic(rule, item))) {
+          const baseline = mediaTopicComparison(mediaWatchBaseline(rule, topic), topic).baseline;
+          if (topicBaselines[topic.id] !== baseline) {
+            topicBaselines[topic.id] = baseline;
+            changed = true;
+          }
+        }
+        return changed ? { ...rule, topicBaselines } : rule;
+      });
+      return next.some((rule, index) => rule !== current[index]) ? next : current;
+    });
+  }, [mediaMonitor.status, mediaMonitor.topics, mediaWatchRules]);
+  const selectedMediaTopicWatched = Boolean(selectedMediaTopic && mediaWatchRules.some((rule) => rule.id === selectedMediaTopic.id));
   const selectedMediaTopicHistory = selectedMediaTopic
     ? mediaTopicHistory.find((item) => item.id === selectedMediaTopic.id)
     : undefined;
@@ -1771,6 +2046,8 @@ export function GlobalIntelligenceDashboard({
         status: step.status,
         flag: "history",
         timestamp: step.timestamp,
+        timestampBasis: "observed" as const,
+        timeStatus: "valid" as const,
         source: "浏览器历史",
         title: "主题核验状态发生变化",
       })),
@@ -1780,9 +2057,9 @@ export function GlobalIntelligenceDashboard({
       && candidate.timestamp === step.timestamp
       && candidate.source === step.source
     )) === index).sort((left, right) => {
-      const leftTime = Date.parse(left.timestamp);
-      const rightTime = Date.parse(right.timestamp);
-      return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
+      const leftTime = left.timeStatus === "valid" ? Date.parse(left.timestamp) : NaN;
+      const rightTime = right.timeStatus === "valid" ? Date.parse(right.timestamp) : NaN;
+      return (Number.isFinite(leftTime) ? leftTime : Number.MAX_SAFE_INTEGER) - (Number.isFinite(rightTime) ? rightTime : Number.MAX_SAFE_INTEGER);
     });
   }, [selectedMediaTopic, selectedMediaTopicHistory]);
   const similarMediaTopics = useMemo(() => {
@@ -1846,6 +2123,7 @@ export function GlobalIntelligenceDashboard({
         futureDates: "来源时间在未来时，可能为预告或来源日期异常，须核验；不能描述成已经发生，也不计入近期风险。",
         tracking: "跟踪窗口与回放按浏览器首次收录或内容变化筛选；首次收录不等于新发生。",
         validity: "sourceFreshness=stale 时，警告未取消仅代表旧缓存状态，当前有效性待核验。",
+        comparison: "crucixComparison与页面共用来源两批比较，timestamp/previous是主来源汇总批次时间，不等于每个来源的采集时间。entries的fromDate/toDate通常是观测期；kind=collection-sample、timeBasis=collected时是原采集时间（可早于汇总，RSS补充采集也可晚于汇总），不是发布或发生时间。countScope保留查询窗口、区域、订阅源、筛选与限量；样本变化不代表事件增减、总体数量或风险升降，currentEligible也仅表示本批样本可比。restored非新采集，currentEligible=false不能作当前信号。来源报告数量和方向不是风险评级；不可比较/缺口不能当作零变化或风险下降。",
       },
       mapMode,
       routes: {
@@ -1876,7 +2154,8 @@ export function GlobalIntelligenceDashboard({
       selectedPoint: selectedPoint ?? null,
       selectedRoute: selectedRoute ?? null,
       investmentResearch,
-      presentation: { layersOpen, mapExpanded, healthPanelOpen },
+      crucixComparison,
+      presentation: { layersOpen, mapExpanded, healthPanelOpen, mediaPanelOpen },
       sourceHealth: {
         healthy: health.healthy,
         total: health.total,
@@ -1888,6 +2167,8 @@ export function GlobalIntelligenceDashboard({
         score: briefing.score ?? null,
         level: briefing.level,
         alertCount: briefing.alertCount,
+        postureCoverage: briefing.postureCoverage,
+        alertCoverage: briefing.alertCoverage,
         topDomains: briefing.domains.slice(0, 3),
         topThreats: briefing.threats.slice(0, 5),
         brief: briefing.brief || null,
@@ -1901,22 +2182,37 @@ export function GlobalIntelligenceDashboard({
         hotspots: trend.hotspots,
         focusedHotspot: mapFocus ?? null,
       } : null,
-      mediaMonitor: hasMediaData ? {
+      mediaMonitor: hasMediaPayload ? {
+        status: mediaMonitor.status,
+        coverage: mediaMonitor.coverage,
+        sampleBasis: mediaMonitor.sampleBasis,
+        timestamp: mediaMonitor.timestamp || null,
+        timestampBasis: "analysis-generated",
         analyzedItems: mediaMonitor.summary.analyzedItems,
+        newsItems: mediaMonitor.summary.newsItems,
+        socialItems: mediaMonitor.summary.socialItems,
         sourceCount: mediaMonitor.summary.sourceCount,
         languageCount: mediaMonitor.summary.languageCount,
         topicCount: mediaMonitor.summary.topicCount,
         heatVelocityPct: mediaMonitor.summary.heatVelocityPct,
+        velocityState: mediaMonitor.summary.velocityState,
+        currentMentions: mediaMonitor.summary.currentMentions,
+        previousMentions: mediaMonitor.summary.previousMentions,
+        timeCoverage: mediaMonitor.summary.timeCoverage,
+        comparisonBasis: "本批样本按发布/更新时间分段；不代表全网热度增长或新发布量",
+        windowHours: mediaMonitor.summary.windowHours,
         spreadScore: mediaMonitor.summary.spreadScore,
         sentiment: mediaMonitor.summary.sentiment,
+        caveat: mediaMonitor.caveat,
         crossLanguageTopicCount: mediaMonitor.summary.crossLanguageTopicCount,
         flaggedTopicCount: mediaMonitor.summary.flaggedTopicCount,
         reversalTopicCount: mediaMonitor.summary.reversalTopicCount,
         divergentTopicCount: mediaMonitor.summary.divergentTopicCount,
         attentionTopicCount: mediaMonitor.summary.attentionTopicCount,
         watchRuleCount: mediaWatchRules.length,
-        watchedTopicCount: watchedMediaTopics.length,
-        watchedTopicChangeCount: watchedMediaTopicChanges.length,
+        watchedTopicCount: hasMediaData ? watchedMediaTopics.length : null,
+        watchedTopicChangeCount: hasMediaData ? watchedMediaTopicChanges.length : null,
+        watchedTopicIncompleteCount: hasMediaData ? incompleteMediaTopicComparisons : null,
         topTopics: mediaAttentionTopics.slice(0, 6),
       } : null,
       lastUpdate: lastUpdate || null,
@@ -1927,7 +2223,7 @@ export function GlobalIntelligenceDashboard({
       dataContract: GLOBAL_INTELLIGENCE_CONTRACT,
       source: "world-intel-mcp",
     });
-  }, [refreshNonce, refreshRun, dataSource, dataAvailability, error, hasData, hasMediaData, hasWorldData, hasCrucixData, activeLayers, activePreset?.id, activeRouteKinds, affectedRouteCount, briefing, categoryFilter, countryRisk, currentActionableEvents.length, eventClusters.length, eventFeedMode, eventHistory.length, eventTimeline.length, healthPanelOpen, layersOpen, mapExpanded, health.cache, health.healthy, health.issueCount, health.items, health.total, historyByIdentity, highPriorityCount, highRouteAlertCount, investmentResearch, lastUpdate, mapFocus, mapMode, marketConfirmedRouteCount, mediaAttentionTopics, mediaMonitor, mediaWatchRules.length, newEventCount, observationEvents.length, ongoingEventCount, onContextChange, playbackCursor, playbackPlaying, playbackTime, points.length, progress, query, recentlyResolvedEventCount, routeAlerts.length, routes.length, selectedEvent, selectedHistory, selectedPoint, selectedRegion, selectedRoute, severityFilter, showCountryRisk, showObservations, status, timeWindow, trend, unacknowledgedEventCount, visibleEventClusters.length, visibleEvents, visiblePoints.length, visibleRoutes.length, watchedMediaTopicChanges.length, watchedMediaTopics.length, watchedRegionViews, watchingAttentionCount, watchingEventCount]);
+  }, [crucixComparison, incompleteMediaTopicComparisons, mediaPanelOpen, hasMediaPayload, refreshNonce, refreshRun, dataSource, dataAvailability, error, hasData, hasMediaData, hasWorldData, hasCrucixData, activeLayers, activePreset?.id, activeRouteKinds, affectedRouteCount, briefing, categoryFilter, countryRisk, currentActionableEvents.length, eventClusters.length, eventFeedMode, eventHistory.length, eventTimeline.length, healthPanelOpen, layersOpen, mapExpanded, health.cache, health.healthy, health.issueCount, health.items, health.total, historyByIdentity, highPriorityCount, highRouteAlertCount, investmentResearch, lastUpdate, mapFocus, mapMode, marketConfirmedRouteCount, mediaAttentionTopics, mediaMonitor, mediaWatchRules.length, newEventCount, observationEvents.length, ongoingEventCount, onContextChange, playbackCursor, playbackPlaying, playbackTime, points.length, progress, query, recentlyResolvedEventCount, routeAlerts.length, routes.length, selectedEvent, selectedHistory, selectedPoint, selectedRegion, selectedRoute, severityFilter, showCountryRisk, showObservations, status, timeWindow, trend, unacknowledgedEventCount, visibleEventClusters.length, visibleEvents, visiblePoints.length, visibleRoutes.length, watchedMediaTopicChanges.length, watchedMediaTopics.length, watchedRegionViews, watchingAttentionCount, watchingEventCount]);
 
   const applySituationPreset = (preset: SituationPreset) => {
     setActiveLayers(new Set(preset.activeLayers));
@@ -1948,7 +2244,7 @@ export function GlobalIntelligenceDashboard({
       id: `${hotspot.id}-${Date.now()}`,
       longitude: hotspot.longitude,
       latitude: hotspot.latitude,
-      label: `${hotspot.label} · 汇聚 ${hotspot.score.toFixed(1)}`,
+      label: `${hotspot.label} · 地震样本 ${hotspot.earthquakeCount ?? "未知"}`,
       zoom: 4.1,
     });
     setSelectedRegion(undefined);
@@ -2056,25 +2352,25 @@ export function GlobalIntelligenceDashboard({
 
   const toggleMediaTopicWatch = (topic: GlobalMediaMonitorTopic) => {
     setMediaWatchRules((current) => {
-      const matching = current.filter((rule) => mediaWatchRuleMatchesTopic(rule, topic));
-      if (matching.length) {
-        const matchingIds = new Set(matching.map((rule) => rule.id));
-        return current.filter((rule) => !matchingIds.has(rule.id));
+      if (current.some((rule) => rule.id === topic.id)) {
+        return current.filter((rule) => rule.id !== topic.id);
       }
       return [...current, {
         id: topic.id,
         label: topic.label,
         keywords: [...new Set((topic.keywords.length ? topic.keywords : [topic.label]).filter(Boolean))].slice(0, 6),
         createdAt: new Date().toISOString(),
-        baselineSignature: mediaTopicSignature(topic),
+        topicBaselines: mediaMonitor.status === "stale" ? {} : { [topic.id]: mediaTopicSignature(topic) },
       }];
     });
   };
 
   const acknowledgeMediaTopic = (topic: GlobalMediaMonitorTopic) => {
+    if (mediaMonitor.status === "stale") return;
     const baselineSignature = mediaTopicSignature(topic);
     setMediaWatchRules((current) => current.map((rule) => (
-      mediaWatchRuleMatchesTopic(rule, topic) ? { ...rule, baselineSignature } : rule
+      mediaWatchRuleMatchesTopic(rule, topic)
+        ? { ...rule, topicBaselines: { ...rule.topicBaselines, [topic.id]: baselineSignature } } : rule
     )));
   };
 
@@ -2177,13 +2473,14 @@ export function GlobalIntelligenceDashboard({
             趋势<TrendingUp size={11} />
           </button>
         </div>
-        <div className="intel-media-card" data-alert={mediaMonitor.summary.flaggedTopicCount > 0}>
+        <div className="intel-media-card" data-alert={(mediaMonitor.summary.flaggedTopicCount ?? 0) > 0}>
           <span><Sparkles size={14} />舆情雷达</span>
-          <strong>{hasMediaData ? mediaMonitor.summary.attentionTopicCount || mediaMonitor.summary.topicCount : "—"}</strong>
+          <strong>{hasMediaData ? mediaMetric(mediaMonitor.summary.attentionTopicCount ?? mediaMonitor.summary.topicCount) : "—"}</strong>
           <small>
-            {!hasMediaData ? "舆情数据未接入" : mediaMonitor.summary.analyzedItems > 0
-              ? `${mediaMonitor.summary.analyzedItems} 条报道 · 负面 ${mediaMonitor.summary.sentiment.negativePct}% · 热度 ${mediaVelocityLabel(mediaMonitor.summary.heatVelocityPct, mediaMonitor.summary.velocityState)}`
-              : "0 条报道 · 暂无情绪样本"}
+            {!hasMediaData ? hasMediaPayload ? mediaStatusText : "舆情数据未接入" : (mediaMonitor.summary.analyzedItems ?? 0) > 0
+              ? `${mediaMonitor.summary.analyzedItems} 条报道 · 负面 ${mediaMetric(mediaMonitor.summary.sentiment.negativePct, "%")} · 样本对比 ${mediaVelocityLabel(mediaMonitor.summary.heatVelocityPct, mediaMonitor.summary.velocityState)}`
+              : mediaMonitor.summary.analyzedItems === 0 ? "0 条报道 · 暂无情绪样本" : "样本数量待核验"}
+            {hasMediaData && mediaMonitor.status !== "ok" ? ` · ${mediaStatusText}` : ""}
             {mediaMonitor.summary.flaggedTopicCount ? ` · ${mediaMonitor.summary.flaggedTopicCount} 条核验提示` : ""}
             {watchedMediaTopicChanges.length ? ` · 关注变化 ${watchedMediaTopicChanges.length}` : watchedMediaTopics.length ? ` · 关注命中 ${watchedMediaTopics.length}` : ""}
           </small>
@@ -2196,7 +2493,7 @@ export function GlobalIntelligenceDashboard({
               setHealthPanelOpen(false);
             }}
             aria-expanded={mediaPanelOpen}
-            disabled={!hasMediaData}
+            disabled={!hasMediaPayload}
           >
             查看<Languages size={11} />
           </button>
@@ -2236,6 +2533,7 @@ export function GlobalIntelligenceDashboard({
             <div><small>有效缓存</small><strong>{health.cache.active}/{health.cache.total || 0}</strong></div>
           </section>
           <div className="intel-health-list">
+            <ComparisonPanel receipt={crucixComparison} />
             {health.items.map((item) => (
               <article key={item.id} data-status={item.status}>
                 <i />
@@ -2264,8 +2562,9 @@ export function GlobalIntelligenceDashboard({
                 <span>COMPOSITE RISK</span>
                 <strong>{risk.score === undefined ? "—" : risk.score.toFixed(0)}</strong>
                 <b>{risk.level}</b>
-                <small>{briefing.domains.length || 9} 个风险域综合评估</small>
+                <small>{briefing.domains.length ? `${briefing.domains.length} 个已返回评分的风险域` : "风险域数据未就绪"}</small>
               </div>
+              {Object.keys(briefing.postureCoverage).length ? <p>评分覆盖 {String(briefing.postureCoverage.available ?? "未知")}/{String(briefing.postureCoverage.expected ?? "未知")} 域，完整输入 {String(briefing.postureCoverage.complete ?? "未知")} 域。缺项不合成总分；分项为样本观察，不是风险概率。</p> : null}
               <div className="intel-domain-matrix">
                 <header><Gauge size={12} /><span>风险域分布</span></header>
                 {briefing.domains.map((domain) => (
@@ -2281,7 +2580,7 @@ export function GlobalIntelligenceDashboard({
                     <i><em /></i>
                   </article>
                 ))}
-                {briefing.domains.length === 0 ? <p>战略态势模型正在计算风险域评分。</p> : null}
+                {briefing.domains.length === 0 ? <p>未取得有效风险域评分，请查看来源状态；不能据此判定低风险。</p> : null}
               </div>
             </section>
 
@@ -2289,7 +2588,7 @@ export function GlobalIntelligenceDashboard({
               <article className="intel-situation-brief">
                 <header>
                   <span><BookOpen size={12} />当前研判</span>
-                  <small>{briefing.aiGenerated ? `LOCAL AI · ${briefing.model}` : "实时指标规则引擎"}</small>
+                  <small>{briefing.aiGenerated ? `LOCAL AI · ${briefing.model}` : "本次来源摘要"}</small>
                 </header>
                 <div>
                   {briefing.briefParagraphs.length ? briefing.briefParagraphs.map((paragraph, index) => (
@@ -2305,9 +2604,10 @@ export function GlobalIntelligenceDashboard({
                   <header>
                     <span><AlertTriangle size={12} />活跃告警</span>
                     <small>
-                      C {Number(briefing.priorityCounts.critical ?? 0)} · H {Number(briefing.priorityCounts.high ?? 0)} · M {Number(briefing.priorityCounts.medium ?? 0)}
+                      {briefing.alertCount === null ? "数量待核验" : `C ${briefing.priorityCounts.critical ?? "—"} · H ${briefing.priorityCounts.high ?? "—"} · M ${briefing.priorityCounts.medium ?? "—"}`}
                     </small>
                   </header>
+                  {Object.keys(briefing.alertCoverage).length ? <p>告警检查覆盖 {String(briefing.alertCoverage.available ?? "未知")}/{String(briefing.alertCoverage.expected ?? "未知")} 项；未覆盖部分不能判断安全。</p> : null}
                   <div>
                     {briefing.alerts.slice(0, 8).map((alert) => (
                       <section key={alert.id} data-priority={alert.priority}>
@@ -2315,7 +2615,9 @@ export function GlobalIntelligenceDashboard({
                         <span><strong>{alert.message}</strong><small>{alert.domainLabel}</small></span>
                       </section>
                     ))}
-                    {briefing.alerts.length === 0 ? <p>当前没有达到阈值的战略告警。</p> : null}
+                    {briefing.alerts.length === 0 ? <p>{briefing.alertCount === null
+                      ? "告警数据未取得，不能判断当前是否存在战略告警。"
+                      : briefing.alertCount === 0 ? "本次返回的告警样本为空。" : "告警明细未返回，请核验来源。"}</p> : null}
                   </div>
                 </article>
 
@@ -2349,7 +2651,7 @@ export function GlobalIntelligenceDashboard({
           <section className="intel-trend-summary">
             <div data-alert={trend.anomalyCount > 0}><small>当前异常</small><strong>{trend.anomalyCount}</strong><span>偏离历史基线</span></div>
             <div><small>基线指标</small><strong>{trend.trendCount}</strong><span>按星期与月份建模</span></div>
-            <div><small>最高汇聚</small><strong>{trend.maxConvergence.toFixed(1)}</strong><span>多信号空间评分 / 10</span></div>
+            <div><small>区域地震观察值</small><strong>{trend.maxConvergence?.toFixed(1) ?? "—"}</strong><span>地震样本与静态基线，非多源风险 / 10</span></div>
           </section>
           <div className="intel-trend-body">
             <article className="intel-anomaly-list">
@@ -2386,17 +2688,17 @@ export function GlobalIntelligenceDashboard({
             </article>
 
             <article className="intel-convergence-list">
-              <header><span><Crosshair size={12} />空间信号汇聚</span><small>SCORE / 10</small></header>
+              <header><span><Crosshair size={12} />区域地震样本</span><small>HEURISTIC / 10</small></header>
               <div>
                 {trend.hotspots.map((hotspot) => (
                   <button type="button" key={hotspot.id} onClick={() => focusHotspot(hotspot)}>
-                    <i style={{ "--convergence": `${Math.min(100, hotspot.score * 10)}%` } as CSSProperties}><em /></i>
-                    <span><strong>{hotspot.label}</strong><small>{hotspot.earthquakeCount} 次地震信号 · 点击聚焦地图</small></span>
-                    <b>{hotspot.score.toFixed(1)}</b>
+                    <i style={{ "--convergence": `${Math.min(100, (hotspot.score ?? 0) * 10)}%` } as CSSProperties}><em /></i>
+                    <span><strong>{hotspot.label}</strong><small>{hotspot.earthquakeCount ?? "未知"} 次地震样本 · 点击聚焦地图</small></span>
+                    <b>{hotspot.score?.toFixed(1) ?? "—"}</b>
                     <LocateFixed size={12} />
                   </button>
                 ))}
-                {trend.hotspots.length === 0 ? <p>正在扫描全球热点的多源信号。</p> : null}
+                {trend.hotspots.length === 0 ? <p>尚未取得区域地震样本，不能判断没有信号。</p> : null}
               </div>
             </article>
           </div>
@@ -2408,42 +2710,56 @@ export function GlobalIntelligenceDashboard({
           <header>
             <div><Sparkles size={15} /><span><strong>全球舆情雷达</strong><small>MEDIA VELOCITY · FRAMING · VERIFICATION</small></span></div>
             <div>
-              <small>{mediaMonitor.timestamp ? `${relativeTime(mediaMonitor.timestamp)}更新` : "等待新闻批次"}</small>
+              <small>{mediaMonitor.timestamp ? `${relativeTime(mediaMonitor.timestamp)}生成分析，非新闻发布时间` : "分析时间待核验"}</small>
               <button type="button" onClick={() => setMediaPanelOpen(false)} aria-label="关闭全球舆情雷达"><X size={14} /></button>
             </div>
           </header>
+          <p className="intel-media-coverage" role="status">
+            {mediaStatusText} · {mediaCoverageText} · {mediaMonitor.sampleBasis === "social_sample_news_unavailable"
+              ? "仅社交样本，新闻输入不可用" : "仅代表已取得样本，不代表全球舆情全量"}
+          </p>
+          <p className="intel-media-coverage">
+            语气词典命中 {mediaMetric(mediaMonitor.summary.sentiment.assessedItems)}/{mediaMetric(mediaMonitor.summary.analyzedItems)} 条
+            · 未判定 {mediaMetric(mediaMonitor.summary.sentiment.unknown)} 条；未命中不等于中性，正负比例以全部样本为分母。
+          </p>
           <section className="intel-media-summary">
             <div data-tone="negative">
               <small>报道语气</small>
-              <strong>{mediaMonitor.summary.sentiment.negativePct}%</strong>
-              <span>负面 · 正面 {mediaMonitor.summary.sentiment.positivePct}%</span>
+              <strong>{mediaMetric(mediaMonitor.summary.sentiment.negativePct, "%")}</strong>
+              <span>负面 · 正面 {mediaMetric(mediaMonitor.summary.sentiment.positivePct, "%")}</span>
             </div>
             <div data-trend={mediaMonitor.summary.velocityState}>
-              <small>讨论热度</small>
+              <small>样本时段对比</small>
               <strong>{mediaVelocityLabel(mediaMonitor.summary.heatVelocityPct, mediaMonitor.summary.velocityState)}</strong>
-              <span>{mediaMonitor.summary.velocityState === "new" ? "前一时段无可比样本" : `${mediaMonitor.summary.windowHours}h 对比前一时段`}</span>
+              <span>{mediaMetric(mediaMonitor.summary.windowHours)}h 已知样本 {mediaMetric(mediaMonitor.summary.currentMentions)} / 前段 {mediaMetric(mediaMonitor.summary.previousMentions)}</span>
             </div>
             <div>
               <small>主题聚类</small>
-              <strong>{mediaMonitor.summary.topicCount}</strong>
-              <span>{mediaMonitor.summary.attentionTopicCount} 个值得留意 · {mediaMonitor.summary.crossLanguageTopicCount} 个跨语言</span>
+              <strong>{mediaMetric(mediaMonitor.summary.topicCount)}</strong>
+              <span>{mediaMetric(mediaMonitor.summary.attentionTopicCount)} 个值得留意 · {mediaMetric(mediaMonitor.summary.crossLanguageTopicCount)} 个跨语言</span>
             </div>
             <div>
               <small>传播范围</small>
-              <strong>{mediaMonitor.summary.spreadScore}</strong>
-              <span>{mediaMonitor.summary.sourceCount} 源 · {mediaMonitor.summary.languageCount} 语种</span>
+              <strong>{mediaMetric(mediaMonitor.summary.spreadScore)}</strong>
+              <span>{mediaMetric(mediaMonitor.summary.sourceCount)} 源 · {mediaMetric(mediaMonitor.summary.languageCount)} 语种</span>
             </div>
-            <div data-alert={mediaMonitor.summary.flaggedTopicCount > 0}>
+            <div data-alert={(mediaMonitor.summary.flaggedTopicCount ?? 0) > 0}>
               <small>核验提示</small>
-              <strong>{mediaMonitor.summary.flaggedTopicCount}</strong>
-              <span>纠正/反转 {mediaMonitor.summary.reversalTopicCount}</span>
+              <strong>{mediaMetric(mediaMonitor.summary.flaggedTopicCount)}</strong>
+              <span>纠正/反转 {mediaMetric(mediaMonitor.summary.reversalTopicCount)}</span>
             </div>
             <div data-alert={watchedMediaTopics.length > 0}>
               <small>主题关注</small>
               <strong>{mediaWatchRules.length}</strong>
-              <span>{watchedMediaTopicChanges.length ? `${watchedMediaTopicChanges.length} 个主题有变化` : `本批命中 ${watchedMediaTopics.length}`}</span>
+              <span>{!hasMediaData ? "本批命中待核验" : incompleteMediaTopicComparisons
+                ? `${incompleteMediaTopicComparisons} 个主题对比不完整 · 已确认变化 ${watchedMediaTopicChanges.length}`
+                : watchedMediaTopicChanges.length ? `${watchedMediaTopicChanges.length} 个主题有变化` : `本批命中 ${watchedMediaTopics.length}`}</span>
             </div>
           </section>
+          <p className="intel-media-coverage">
+            {mediaTimeCoverageLabel(mediaMonitor.summary.timeCoverage)}。
+            优先发布，缺失才用更新；不代表新发布量或全网热度。时间不完整不判断增速。
+          </p>
           <div className="intel-media-body">
             <article className="intel-media-topic-list">
               <header><span><TrendingUp size={12} />优先关注</span><small>ATTENTION / HEAT</small></header>
@@ -2451,52 +2767,58 @@ export function GlobalIntelligenceDashboard({
                 {mediaAttentionTopics.slice(0, 12).map((topic) => (
                   <div
                     key={topic.id}
-                    data-verification={topic.verificationStatus !== "常规报道"}
+                    data-verification={topic.verificationStatus !== "常规报道" && topic.verificationStatus !== "待核验"}
                     data-watching={mediaWatchRules.some((rule) => mediaWatchRuleMatchesTopic(rule, topic))}
                   >
                     <button type="button" className="intel-media-topic-main" onClick={() => openMediaTopic(topic)}>
                       <span>
                         <strong>{topic.label}</strong>
                         <small>
-                          {topic.sourceCount} 源 · {topic.languageLabels.join("/") || "单语"} · {topic.spreadLevel}
+                          {mediaMetric(topic.sourceCount)} 源 · {topic.languageLabels.join("/") || "语种待核验"} · {topic.spreadLevel}
                         </small>
                       </span>
-                      <b title={`关注度 ${topic.attentionScore} · 热度 ${topic.heatScore}`}>{topic.attentionScore}</b>
+                      <b title={`关注度 ${mediaMetric(topic.attentionScore)} · 热度 ${mediaMetric(topic.heatScore)}`}>{mediaMetric(topic.attentionScore)}</b>
                       <em data-trend={topic.velocityState}>{mediaVelocityLabel(topic.heatVelocityPct, topic.velocityState)}</em>
-                      <i style={{ "--media-reach": `${topic.spreadScore}%` } as CSSProperties}><u /></i>
+                      {topic.spreadScore !== null ? <i style={{ "--media-reach": `${topic.spreadScore}%` } as CSSProperties}><u /></i> : null}
                       {topic.attentionLevel !== "常规" ? <mark data-attention={topic.attentionLevel}>{topic.attentionLevel}</mark> : null}
                       <mark data-sentiment={topic.sentiment}>{mediaSentimentLabel(topic.sentiment)}</mark>
-                      {topic.verificationStatus !== "常规报道" ? <mark data-verify="true">{topic.verificationStatus}</mark> : null}
+                      {topic.verificationStatus !== "常规报道" ? <mark data-verify={topic.verificationStatus !== "待核验"}>{topic.verificationStatus}</mark> : null}
                       {topic.framingDivergence ? <mark data-divergence="true">表述分歧</mark> : null}
                       {topic.crossLanguage ? <mark data-language="true"><Languages size={9} />跨语言</mark> : null}
+                      {mediaWatchRules.some((rule) => mediaWatchRuleMatchesTopic(rule, topic)) && !mediaWatchRules.some((rule) => rule.id === topic.id)
+                        ? <mark>关键词命中</mark> : null}
                     </button>
                     <button type="button" className="intel-media-topic-watch" onClick={() => toggleMediaTopicWatch(topic)}>
-                      <Star size={9} />{mediaWatchRules.some((rule) => mediaWatchRuleMatchesTopic(rule, topic)) ? "已关注" : "关注"}
+                      <Star size={9} />{mediaWatchRules.some((rule) => rule.id === topic.id) ? "已关注" : "关注"}
                     </button>
                   </div>
                 ))}
-                {mediaMonitor.topics.length === 0 ? <p>正在等待新闻与社交信号完成聚类。</p> : null}
+                {mediaMonitor.topics.length === 0 ? <p>{!hasMediaData ? "尚无可评估样本，不代表没有热点。" : "本批样本没有可展示主题。"}</p> : null}
               </div>
             </article>
             <article className="intel-media-frame-list">
               <header><span><Newspaper size={12} />媒体框架</span><small>TONE BY SOURCE TYPE</small></header>
               <div>
                 {mediaMonitor.mediaFrames.map((frame) => {
-                  const total = Math.max(1, frame.count);
+                  const total = frame.count;
+                  const sentimentOrder = frame.unknown === null ? MEDIA_SENTIMENT_ORDER : [...MEDIA_SENTIMENT_ORDER, "unknown"] as const;
+                  const comparable = total !== null && total > 0
+                    && sentimentOrder.every((sentiment) => frame[sentiment] !== null && frame[sentiment]! >= 0)
+                    && sentimentOrder.reduce((sum, sentiment) => sum + (frame[sentiment] ?? 0), 0) === total;
                   return (
                     <section key={frame.group}>
-                      <span><strong>{frame.label}</strong><small>{frame.count} 条 · {frame.sources.slice(0, 3).join(" / ")}</small></span>
+                      <span><strong>{frame.label}</strong><small>{mediaMetric(frame.count)} 条 · 未判定 {mediaMetric(frame.unknown)} 条 · {frame.sources.slice(0, 3).join(" / ")}</small></span>
                       <b>{frame.dominantLabel}</b>
-                      <i>
-                        {MEDIA_SENTIMENT_ORDER.map((sentiment) => (
+                      {comparable ? <i>
+                        {sentimentOrder.map((sentiment) => (
                           <em
                             key={sentiment}
                             data-sentiment={sentiment}
-                            style={{ width: `${frame[sentiment] / total * 100}%` }}
+                            style={{ width: `${frame[sentiment]! / total! * 100}%` }}
                             title={`${MEDIA_SENTIMENT_SHORT_LABEL[sentiment]} ${frame[sentiment]}`}
                           />
                         ))}
-                      </i>
+                      </i> : <small>{total === 0 ? "无语气样本" : "语气分布数据不完整"}</small>}
                     </section>
                   );
                 })}
@@ -2830,8 +3152,8 @@ export function GlobalIntelligenceDashboard({
                         <mark data-state={monitorState}>{eventMonitorLabel(monitorState)}</mark>
                         {clusterWatching ? <mark data-state={clusterNeedsAttention ? "watching-change" : "watching"}>{clusterNeedsAttention ? "关注有变化" : "关注中"}</mark> : null}
                         {mediaAnnotation ? <mark data-sentiment={mediaAnnotation.sentiment}>{mediaSentimentLabel(mediaAnnotation.sentiment)}</mark> : null}
-                        {mediaAnnotation?.velocityState === "new" ? <mark data-heat="new">热度 新出现</mark> : null}
-                        {mediaAnnotation?.heatVelocityPct !== null && mediaAnnotation && Math.abs(mediaAnnotation.heatVelocityPct) >= 20 ? <mark data-heat={mediaAnnotation.heatVelocityPct > 0 ? "up" : "down"}>热度 {mediaVelocityLabel(mediaAnnotation.heatVelocityPct, mediaAnnotation.velocityState)}</mark> : null}
+                        {mediaAnnotation?.velocityState === "new" ? <mark data-heat="new">仅本时段有样本</mark> : null}
+                        {mediaAnnotation?.heatVelocityPct !== null && mediaAnnotation && Math.abs(mediaAnnotation.heatVelocityPct) >= 20 ? <mark data-heat={mediaAnnotation.heatVelocityPct > 0 ? "up" : "down"}>样本对比 {mediaVelocityLabel(mediaAnnotation.heatVelocityPct, mediaAnnotation.velocityState)}</mark> : null}
                         {mediaAnnotation?.verificationStatus !== "常规报道" ? <mark data-verify="true">{mediaAnnotation?.verificationStatus}</mark> : null}
                         {mediaAnnotation?.crossLanguageTopic ? <mark data-language="true">跨语言</mark> : null}
                       </small>
@@ -2971,7 +3293,7 @@ export function GlobalIntelligenceDashboard({
                 </section>
               ) : null}
               {selectedEvent?.recordKind === "news" && selectedMediaAnnotation ? (
-                <section className="intel-media-dossier" data-verification={selectedMediaAnnotation.verificationStatus !== "常规报道"}>
+                <section className="intel-media-dossier" data-verification={selectedMediaAnnotation.verificationStatus !== "常规报道" && selectedMediaAnnotation.verificationStatus !== "待核验"}>
                   <header>
                     <span><Sparkles size={12} />舆情观察</span>
                     <div>
@@ -2989,17 +3311,19 @@ export function GlobalIntelligenceDashboard({
                   </header>
                   <dl>
                     <div><dt>报道语气</dt><dd>{mediaSentimentLabel(selectedMediaAnnotation.sentiment)}</dd></div>
-                    <div><dt>热度增速</dt><dd>{mediaVelocityLabel(selectedMediaAnnotation.heatVelocityPct, selectedMediaAnnotation.velocityState)}</dd></div>
-                    <div><dt>传播范围</dt><dd>{selectedMediaAnnotation.spreadScore}/100</dd></div>
-                    <div><dt>跨语言合并</dt><dd>{selectedMediaAnnotation.crossLanguageTopic ? "已合并" : "单语主题"}</dd></div>
+                    <div><dt>样本时段对比</dt><dd>{mediaVelocityLabel(selectedMediaAnnotation.heatVelocityPct, selectedMediaAnnotation.velocityState)}</dd></div>
+                    <div><dt>传播范围</dt><dd>{mediaMetric(selectedMediaAnnotation.spreadScore, "/100")}</dd></div>
+                    <div><dt>跨语言合并</dt><dd>{selectedMediaAnnotation.crossLanguageTopic === null ? "待核验" : selectedMediaAnnotation.crossLanguageTopic ? "已合并" : "未合并"}</dd></div>
                   </dl>
                   {selectedMediaTopic ? (
                     <>
                       <h3>{selectedMediaTopic.label}</h3>
+                      <p>{mediaTimeCoverageLabel(selectedMediaTopic.timeCoverage)}。更新不等于新发布；缺日期与未来日期不参与时段计数。</p>
                       <p>
-                        {selectedMediaTopic.mentionCount} 条相关记录，来自 {selectedMediaTopic.sourceCount} 个来源、
-                        {selectedMediaTopic.languageLabels.join("、") || "单一语种"}；传播级别为{selectedMediaTopic.spreadLevel}，
-                        关注度 {selectedMediaTopic.attentionScore}/100（{selectedMediaTopic.attentionLevel}）。
+                        {mediaMetric(selectedMediaTopic.mentionCount)} 条相关记录，来自 {mediaMetric(selectedMediaTopic.sourceCount)} 个来源、
+                        {selectedMediaTopic.languageLabels.join("、") || "语种待核验"}；传播级别为{selectedMediaTopic.spreadLevel}，
+                        关注度 {mediaMetric(selectedMediaTopic.attentionScore, "/100")}（{selectedMediaTopic.attentionLevel}）。
+                        其中语气未判定 {mediaMetric(selectedMediaTopic.sentimentCounts.unknown)} 条。
                         {selectedMediaTopic.mediaFrames.length
                           ? ` 不同来源框架：${selectedMediaTopic.mediaFrames.map((frame) => `${frame.label}${frame.dominantLabel}`).join("；")}。`
                           : ""}
@@ -3012,7 +3336,7 @@ export function GlobalIntelligenceDashboard({
                             const url = safeExternalUrl(item.url);
                             const content = (
                               <>
-                                <span><strong>{item.source}</strong><small>{item.published ? relativeTime(item.published) : "时间未知"} · {mediaSentimentLabel(item.sentiment)}</small></span>
+                                <span><strong>{item.source}</strong><small>{item.timestampBasis === "updated" ? "更新" : item.timestampBasis === "published" ? "发布" : "来源时间"} · {item.timeStatus === "future" ? "未来日期，未计入" : item.timestamp ? relativeTime(item.timestamp) : "时间未知"} · {mediaSentimentLabel(item.sentiment)}</small></span>
                                 <b>{item.title}</b>
                                 {url ? <ExternalLink size={10} /> : null}
                               </>
@@ -3031,7 +3355,7 @@ export function GlobalIntelligenceDashboard({
                           最近变化于 {new Date(selectedMediaTopicHistory.lastChangedAt).toLocaleString("zh-CN")}。
                         </p>
                       ) : null}
-                      {selectedMediaTopicWatched && watchedMediaTopicChanges.some((topic) => topic.id === selectedMediaTopic.id) ? (
+                      {watchedMediaTopicChanges.some((topic) => topic.id === selectedMediaTopic.id) ? (
                         <button type="button" className="intel-media-change-ack" onClick={() => acknowledgeMediaTopic(selectedMediaTopic)}>
                           <Check size={10} />标记本次变化已查看
                         </button>
@@ -3042,7 +3366,7 @@ export function GlobalIntelligenceDashboard({
                           <ol>
                             {selectedMediaVerificationEvolution.map((step, index) => (
                               <li key={`${step.flag}-${step.timestamp}-${index}`} data-status={step.flag}>
-                                <time>{step.timestamp ? new Date(step.timestamp).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "时间未知"}</time>
+                                <time>{step.timestampBasis === "updated" ? "更新" : step.timestampBasis === "published" ? "发布" : step.timestampBasis === "observed" ? "浏览器记录" : "来源时间"} · {step.timeStatus === "future" ? "未来日期，未计入" : step.timestamp ? new Date(step.timestamp).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "时间未知"}</time>
                                 <strong>{step.status} · {step.source}</strong>
                                 <span>{step.title}</span>
                               </li>
@@ -3055,7 +3379,7 @@ export function GlobalIntelligenceDashboard({
                           <h4>历史相似线索</h4>
                           {similarMediaTopics.map(({ topic, similarity }) => (
                             <button type="button" key={topic.id} onClick={() => openMediaTopic(topic)}>
-                              <span><strong>{topic.label}</strong><small>{new Date(topic.lastSeenAt).toLocaleDateString("zh-CN")} · {topic.sourceCount} 源</small></span>
+                              <span><strong>{topic.label}</strong><small>{new Date(topic.lastSeenAt).toLocaleDateString("zh-CN")} · 历史已知 {mediaMetric(topic.sourceCount)} 源</small></span>
                               <b>{similarity}%</b>
                             </button>
                           ))}
@@ -3063,7 +3387,7 @@ export function GlobalIntelligenceDashboard({
                       ) : null}
                     </>
                   ) : null}
-                  <small>核验提示只识别报道中的“据称、否认、更正、反转”等显式措辞，不直接判断真假。</small>
+                  <small>核验提示只识别报道中的“据称、否认、更正、反转”等显式措辞，不直接判断真假。日期为报道发布或更新时间，不代表事件发生时间；未知或未来日期列于末尾。</small>
                 </section>
               ) : null}
               {selectedEventImpacts.length ? (

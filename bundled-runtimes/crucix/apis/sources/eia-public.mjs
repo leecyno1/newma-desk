@@ -1,3 +1,5 @@
+import { sourceFetch as fetch } from '../utils/source-request.mjs';
+
 // Keyless fallbacks for the same EIA spot/inventory series, not futures or inventory changes.
 const FRED_SERIES = { RWTC: 'DCOILWTICO', RBRTE: 'DCOILBRENTEU', RNGWHHD: 'DHHNGSP' };
 const STOCKS_URL = 'https://ir.eia.gov/wpsr/table4.csv';

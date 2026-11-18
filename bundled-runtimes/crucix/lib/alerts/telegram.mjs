@@ -2,6 +2,8 @@
 // USP feature: Crucix becomes a conversational intelligence agent via Telegram
 
 import { createHash } from 'crypto';
+import { deltaSignalText } from '../delta/format.mjs';
+import { collectionSignal } from '../delta/count-observations.mjs';
 
 const TELEGRAM_API = 'https://api.telegram.org';
 /** Telegram Bot API limit for sendMessage text (bytes/characters). */
@@ -141,6 +143,8 @@ export class TelegramAlerter {
     ];
 
     const newSignals = allSignals.filter(s => {
+      // Keep sample changes on the dashboard; they do not establish urgent risk.
+      if (collectionSignal(s)) return false;
       const key = this._signalKey(s);
       // Check decay-based suppression (if memory supports it)
       if (typeof memory.isSignalSuppressed === 'function') {
@@ -218,6 +222,7 @@ export class TelegramAlerter {
    * Uses signal counts, severity, and cross-domain correlation.
    */
   _ruleBasedEvaluation(signals, delta) {
+    signals = signals.filter(signal => !collectionSignal(signal));
     const criticals = signals.filter(s => s.severity === 'critical');
     const highs = signals.filter(s => s.severity === 'high');
     const nukeSignal = signals.find(s => s.key === 'nuke_anomaly');
@@ -664,7 +669,7 @@ Respond with ONLY valid JSON:
   }
 
   _buildSignalContext(signals, delta) {
-    const sections = [];
+    const sections = ['Collection samples are not incident totals or safety evidence. Do not infer risk improvement or emergency severity from sample volume.'];
 
     // Categorize signals
     const marketSignals = signals.filter(s => ['vix', 'hy_spread', 'wti', 'brent', 'natgas', 'gold', 'silver', '10y2y', 'fed_funds', '10y_yield', 'usd_index'].includes(s.key));
@@ -674,7 +679,7 @@ Respond with ONLY valid JSON:
 
     if (marketSignals.length > 0) {
       sections.push('📊 MARKET SIGNALS:\n' + marketSignals.map(s =>
-        `  ${s.label}: ${s.from} → ${s.to} (${s.pctChange > 0 ? '+' : ''}${s.pctChange?.toFixed(1) || s.change}${s.pctChange !== undefined ? '%' : ''})`
+        `  ${deltaSignalText(s)}`
       ).join('\n'));
     }
 
@@ -687,7 +692,7 @@ Respond with ONLY valid JSON:
 
     if (conflictSignals.length > 0) {
       sections.push('⚔️ CONFLICT INDICATORS:\n' + conflictSignals.map(s =>
-        `  ${s.label}: ${s.from} → ${s.to} (${s.direction})`
+        `  ${deltaSignalText(s)}`
       ).join('\n'));
     }
 

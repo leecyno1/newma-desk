@@ -1,8 +1,10 @@
+import { sourceFetch as fetch } from '../utils/source-request.mjs';
+
 // BLS — Bureau of Labor Statistics
 // CPI, unemployment, nonfarm payrolls, PPI. No auth required (v1 API).
-// v2 with registration key supports more requests; v1 is rate-limited but functional.
+// v2 with registration key supports more requests; availability is checked per response.
 
-import { safeFetch, daysAgo } from '../utils/fetch.mjs';
+import { safeFetch } from '../utils/fetch.mjs';
 
 const V1_BASE = 'https://api.bls.gov/publicAPI/v1/timeseries/data/';
 const V2_BASE = 'https://api.bls.gov/publicAPI/v2/timeseries/data/';
@@ -13,12 +15,20 @@ const SERIES = {
   'CUUR0000SA0L1E': 'CPI-U Core (ex Food & Energy)',
   'LNS14000000':    'Unemployment Rate',
   'CES0000000001':  'Nonfarm Payrolls (thousands)',
-  'WPUFD49104':     'PPI Final Demand',
+  'WPUFD49104':     'PPI WPUFD49104 (category unverified)',
+};
+
+const SERIES_BASIS = {
+  CUUR0000SA0: { unit: 'index', changeUnit: 'index-points', seasonalAdjustment: 'not-seasonally-adjusted' },
+  CUUR0000SA0L1E: { unit: 'index', changeUnit: 'index-points', seasonalAdjustment: 'not-seasonally-adjusted' },
+  LNS14000000: { unit: 'percent', changeUnit: 'percentage-points', seasonalAdjustment: 'seasonally-adjusted' },
+  CES0000000001: { unit: 'thousands-of-persons', changeUnit: 'thousands-of-persons', seasonalAdjustment: 'seasonally-adjusted' },
+  WPUFD49104: { unit: 'index', changeUnit: 'index-points', seasonalAdjustment: 'not-seasonally-adjusted' },
 };
 
 // Fetch a single series via GET (v1, no key needed)
 export async function getSeriesV1(seriesId) {
-  return safeFetch(`${V1_BASE}/${seriesId}`);
+  return safeFetch(`${V1_BASE}${encodeURIComponent(seriesId)}`);
 }
 
 // Fetch one or more series via POST (v2 if key available, v1 otherwise)
@@ -37,58 +47,50 @@ export async function getSeries(seriesIds, opts = {}) {
   if (apiKey) payload.registrationkey = apiKey;
 
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    const signal = AbortSignal.timeout(15000);
     const res = await fetch(base, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: controller.signal,
+      signal,
     });
-    clearTimeout(timer);
-    return await res.json();
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      return { error: `BLS 请求失败（HTTP ${res.status}）`, errorCode: 'HTTP_ERROR', httpStatus: res.status };
+    }
+    try {
+      const data = await res.json();
+      return data?.error ? { error: 'BLS 返回来源错误', errorCode: 'PROVIDER_ERROR' } : data;
+    }
+    catch { return { error: 'BLS 未返回有效 JSON', errorCode: 'INVALID_RESPONSE' }; }
   } catch (e) {
-    return { error: e.message };
+    return { error: 'BLS 请求失败或超时', errorCode: 'REQUEST_FAILED' };
   }
 }
 
-// Extract the latest observation from a BLS series response
-function latestFromSeries(seriesData) {
-  if (!seriesData?.data?.length) return null;
-  // BLS returns data sorted by year desc, period desc
-  // Filter out unavailable values (BLS uses "-" for missing data)
-  const valid = seriesData.data.filter(d => d.value !== '-' && d.value !== '.');
-  if (!valid.length) return null;
-  const sorted = [...valid].sort((a, b) => {
-    const ya = parseInt(a.year), yb = parseInt(b.year);
-    if (ya !== yb) return yb - ya;
-    // period is M01..M12 or M13 (annual avg) or Q01..Q05
-    return b.period.localeCompare(a.period);
-  });
-  return sorted[0];
+// All configured series are monthly. M13 is an annual average, not December.
+function monthlyObservations(seriesData) {
+  if (!Array.isArray(seriesData?.data)) return [];
+  return seriesData.data.filter(d => d && /^\d{4}$/.test(d.year) && /^M(0[1-9]|1[0-2])$/.test(d.period))
+    .map(d => ({
+      ordinal: Number(d.year) * 12 + Number(d.period.slice(1)) - 1,
+      period: `${d.year}-${d.period}`,
+      date: `${d.year}-${d.period.slice(1)}`,
+      // Preserve a missing newest month; do not silently use an older valid value.
+      value: /^[-+]?\d+(?:\.\d+)?$/.test(String(d.value)) && Number.isFinite(Number(d.value)) ? Number(d.value) : null,
+    }))
+    .sort((a, b) => b.ordinal - a.ordinal);
 }
 
-// Get the two most recent observations to compute month-over-month change
-function momChange(seriesData) {
-  if (!seriesData?.data?.length || seriesData.data.length < 2) return null;
-  const sorted = [...seriesData.data]
-    .filter(d => d.period.startsWith('M') && d.period !== 'M13' && d.value !== '-' && d.value !== '.')
-    .sort((a, b) => {
-      const ya = parseInt(a.year), yb = parseInt(b.year);
-      if (ya !== yb) return yb - ya;
-      return b.period.localeCompare(a.period);
-    });
-  if (sorted.length < 2) return null;
-  const curr = parseFloat(sorted[0].value);
-  const prev = parseFloat(sorted[1].value);
-  if (isNaN(curr) || isNaN(prev) || prev === 0) return null;
+function periodChange(observations, months) {
+  const latest = observations[0];
+  const previous = observations.find(d => d.ordinal === latest?.ordinal - months);
+  if (!Number.isFinite(latest?.value) || !Number.isFinite(previous?.value)) return null;
+  const change = latest.value - previous.value;
   return {
-    current: curr,
-    previous: prev,
-    change: +(curr - prev).toFixed(4),
-    changePct: +(((curr - prev) / prev) * 100).toFixed(4),
-    currentPeriod: `${sorted[0].year}-${sorted[0].period}`,
-    previousPeriod: `${sorted[1].year}-${sorted[1].period}`,
+    change: +change.toFixed(4),
+    changePct: previous.value !== 0 ? +((change / previous.value) * 100).toFixed(4) : null,
+    previousPeriod: previous.date,
   };
 }
 
@@ -97,15 +99,17 @@ export async function briefing(apiKey) {
   const seriesIds = Object.keys(SERIES);
   const resp = await getSeries(seriesIds, { apiKey });
 
-  if (resp.error) {
-    return { source: 'BLS', error: resp.error, timestamp: new Date().toISOString() };
+  if (resp?.error) {
+    return { source: 'BLS', error: resp.errorCode ? resp.error : 'BLS 返回来源错误',
+      errorCode: resp.errorCode || 'PROVIDER_ERROR',
+      ...(Number.isInteger(resp.httpStatus) ? { httpStatus: resp.httpStatus } : {}), timestamp: new Date().toISOString() };
   }
 
-  if (resp.status !== 'REQUEST_SUCCEEDED' || !resp.Results?.series?.length) {
+  if (resp?.status !== 'REQUEST_SUCCEEDED' || !Array.isArray(resp.Results?.series)) {
     return {
       source: 'BLS',
-      error: resp.message?.[0] || 'BLS API returned no data',
-      rawStatus: resp.status,
+      error: 'BLS 返回来源错误或无效序列结构',
+      errorCode: 'PROVIDER_ERROR',
       timestamp: new Date().toISOString(),
     };
   }
@@ -113,48 +117,46 @@ export async function briefing(apiKey) {
   const indicators = [];
   const signals = [];
 
-  for (const s of resp.Results.series) {
-    const id = s.seriesID;
-    const label = SERIES[id] || id;
-    const latest = latestFromSeries(s);
-    const mom = momChange(s);
-
-    if (!latest) {
-      indicators.push({ id, label, value: null, date: null });
-      continue;
-    }
-
-    const value = parseFloat(latest.value);
-    const period = `${latest.year}-${latest.period}`;
+  for (const id of seriesIds) {
+    const observations = monthlyObservations(resp.Results.series.find(s => s?.seriesID === id));
+    const latest = observations[0];
+    const value = latest?.value ?? null;
+    const mom = periodChange(observations, 1);
+    const yoy = periodChange(observations, 12);
 
     indicators.push({
       id,
-      label,
+      label: SERIES[id],
+      ...SERIES_BASIS[id],
+      frequency: 'monthly',
       value,
-      period,
-      date: latest.year + '-' + latest.period.replace('M', '').padStart(2, '0'),
+      period: latest?.period ?? null,
+      date: latest?.date ?? null,
       momChange: mom ? mom.change : null,
       momChangePct: mom ? mom.changePct : null,
+      momPreviousPeriod: mom?.previousPeriod ?? null,
+      yoyChangePct: yoy?.changePct ?? null,
+      yoyPreviousPeriod: yoy?.previousPeriod ?? null,
     });
 
-    // Generate signals
+    // Dated observations, not policy/trading conclusions. NSA CPI monthly moves
+    // are not interchangeable with the seasonally-adjusted headline release.
     if (id === 'LNS14000000' && value > 5.0) {
-      signals.push(`Unemployment elevated at ${value}%`);
+      signals.push(`Unemployment ${value}% (${latest.date}, seasonally adjusted)`);
     }
-    if (id === 'CUUR0000SA0' && mom && mom.changePct > 0.4) {
-      signals.push(`CPI-U MoM jump: ${mom.changePct}% (${mom.previousPeriod} -> ${mom.currentPeriod})`);
-    }
-    if (id === 'CUUR0000SA0L1E' && mom && mom.changePct > 0.3) {
-      signals.push(`Core CPI MoM rising: ${mom.changePct}%`);
+    if (id.startsWith('CUUR') && Number.isFinite(yoy?.changePct)) {
+      signals.push(`${SERIES[id]} YoY ${yoy.changePct}% (${latest.date}, not seasonally adjusted)`);
     }
     if (id === 'CES0000000001' && mom && mom.change < -50) {
-      signals.push(`Nonfarm payrolls dropped by ${Math.abs(mom.change)}K`);
+      signals.push(`Nonfarm payrolls dropped by ${Math.abs(mom.change)}K (${latest.date}, seasonally adjusted)`);
     }
   }
 
   return {
     source: 'BLS',
     timestamp: new Date().toISOString(),
+    coverage: { requested: seriesIds.length, succeeded: indicators.filter(d => d.value !== null).length,
+      failed: indicators.filter(d => d.value === null).length },
     indicators,
     signals,
   };

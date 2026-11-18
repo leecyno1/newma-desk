@@ -1,7 +1,11 @@
 import {
   modEventSchema,
   type ModEvent,
-} from "@newma-desk/contracts";
+} from "@newma-desk/contracts/event";
+import packageInfo from "../package.json";
+
+/** Version of the actual SDK package bundled by the consumer. */
+export const MOD_SDK_VERSION = packageInfo.version;
 
 export * from "./artifact";
 export * from "./agent";

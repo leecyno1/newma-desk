@@ -6,9 +6,10 @@ Each domain is scored 0-100 with a weight, producing a weighted composite.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
+
+from .inputs import AnalysisInputs, input_status, number
 
 logger = logging.getLogger("world-intel-mcp.analysis.posture")
 
@@ -25,14 +26,6 @@ DOMAIN_WEIGHTS: dict[str, float] = {
     "climate": 0.08,
     "space": 0.07,
 }
-
-
-async def _safe(coro, label: str) -> dict:
-    try:
-        return await coro
-    except Exception as exc:
-        logger.warning("Posture: %s failed: %s", label, exc)
-        return {}
 
 
 def _risk_level(score: float) -> str:
@@ -62,7 +55,7 @@ def _score_military(surge_data: dict, posture_data: dict) -> tuple[float, list[s
     theaters = posture_data.get("theaters", {})
     # theaters is a dict keyed by theater name, values are dicts with "count"
     if isinstance(theaters, dict):
-        active_theaters = [(name, t) for name, t in theaters.items() if isinstance(t, dict) and t.get("count", 0) > 10]
+        active_theaters = [(name, t) for name, t in theaters.items() if isinstance(t, dict) and number(t.get("count")) and t["count"] > 10]
     else:
         active_theaters = []
     score += min(50.0, len(active_theaters) * 12.0)
@@ -108,13 +101,10 @@ def _score_infrastructure(cable_data: dict, outage_data: dict) -> tuple[float, l
     signals: list[str] = []
     score = 0.0
 
-    corridors = cable_data.get("corridors", {})
-    at_risk = [n for n, c in corridors.items() if isinstance(c, dict) and c.get("status_score", 0) >= 2]
-    score += min(50.0, len(at_risk) * 15.0)
-    for c in at_risk[:2]:
-        signals.append(f"Cable: {c} at risk")
+    # Cable health is unassessed; the input gate prevents a complete score.
+    # Navigation warning counts must not be converted into damage risk points.
 
-    outage_count = outage_data.get("outage_count", 0)
+    outage_count = outage_data.get("ongoing_count", 0)
     score += min(50.0, outage_count * 5.0)
     if outage_count > 0:
         signals.append(f"{outage_count} internet outages")
@@ -135,11 +125,11 @@ def _score_economic(shipping_data: dict) -> tuple[float, list[str]]:
 def _score_cyber(cyber_data: dict) -> tuple[float, list[str]]:
     """Score cyber 0-100 from threat intelligence."""
     signals: list[str] = []
-    threat_count = cyber_data.get("threat_count", 0)
+    threat_count = cyber_data.get("count", 0)
     score = min(100.0, threat_count * 2.0)
     if threat_count > 0:
-        signals.append(f"{threat_count} active threats")
-    by_source = cyber_data.get("by_source", {})
+        signals.append(f"{threat_count} threat records in monitored feeds")
+    by_source = cyber_data.get("by_type", {})
     for src, count in sorted(by_source.items(), key=lambda x: x[1], reverse=True)[:2]:
         signals.append(f"{src}: {count}")
     return score, signals
@@ -148,24 +138,24 @@ def _score_cyber(cyber_data: dict) -> tuple[float, list[str]]:
 def _score_health(health_data: dict) -> tuple[float, list[str]]:
     """Score health 0-100 from disease outbreaks."""
     signals: list[str] = []
-    count = health_data.get("count", 0)
+    count = health_data.get("current_count", health_data.get("count", 0))
     high_concern = health_data.get("high_concern_count", 0)
     score = min(100.0, high_concern * 25.0 + count * 3.0)
     if high_concern > 0:
-        signals.append(f"{high_concern} high-concern pathogen alerts")
+        signals.append(f"{high_concern} recent reports mentioning high-concern pathogens (not confirmed outbreaks)")
     if count > 0:
-        signals.append(f"{count} outbreak reports")
+        signals.append(f"{count} health feed reports (not confirmed active outbreaks)")
     return score, signals
 
 
 def _score_climate(climate_data: dict) -> tuple[float, list[str]]:
     """Score climate 0-100 from anomalies."""
     signals: list[str] = []
-    anomalies = climate_data.get("anomalies", [])
-    extreme = [a for a in anomalies if abs(a.get("temp_deviation_c", 0)) > 3.0]
+    anomalies = [{"zone": name, **value} for name, value in climate_data.get("zones", {}).items() if value.get("is_significant")]
+    extreme = [a for a in anomalies if abs(a.get("temp_anomaly_c", 0)) > 3.0]
     score = min(100.0, len(extreme) * 15.0 + len(anomalies) * 3.0)
     for a in extreme[:2]:
-        signals.append(f"{a.get('zone', '?')}: {a.get('temp_deviation_c', 0):+.1f}°C")
+        signals.append(f"{a.get('zone', '?')}: {a.get('temp_anomaly_c', 0):+.1f}°C")
     return score, signals
 
 
@@ -181,85 +171,71 @@ def _score_space(sw_data: dict) -> tuple[float, list[str]]:
     return score, signals
 
 
-async def fetch_strategic_posture(fetcher) -> dict:
-    """Compute composite strategic posture from all intelligence domains.
+DOMAIN_INPUTS = {
+    "military": ("military_surge", "theater_posture"),
+    "political": ("instability",),
+    "conflict": ("hotspot_escalation",),
+    "infrastructure": ("cable_health", "internet_outages"),
+    "economic": ("shipping_index",),
+    "cyber": ("cyber_threats",),
+    "health": ("disease_outbreaks",),
+    "climate": ("climate_anomalies",),
+    "space": ("space_weather",),
+}
 
-    Calls 9 existing source functions in parallel, scores each domain 0-100,
-    and produces a weighted composite risk assessment.
-    """
-    from ..sources import space_weather, infrastructure, shipping, cyber, health, climate
-    from ..sources import intelligence, military
 
-    (
-        surge_data,
-        posture_data,
-        instability_data,
-        hotspot_data,
-        cable_data,
-        outage_data,
-        shipping_data,
-        cyber_data,
-        health_data,
-        climate_data,
-        sw_data,
-    ) = await asyncio.gather(
-        _safe(intelligence.fetch_military_surge(fetcher), "military_surge"),
-        _safe(military.fetch_theater_posture(fetcher), "theater_posture"),
-        _safe(intelligence.fetch_instability_index(fetcher), "instability"),
-        _safe(intelligence.fetch_hotspot_escalation(fetcher), "hotspot_escalation"),
-        _safe(infrastructure.fetch_cable_health(fetcher), "cable_health"),
-        _safe(infrastructure.fetch_internet_outages(fetcher), "internet_outages"),
-        _safe(shipping.fetch_shipping_index(fetcher), "shipping"),
-        _safe(cyber.fetch_cyber_threats(fetcher), "cyber"),
-        _safe(health.fetch_disease_outbreaks(fetcher), "health"),
-        _safe(climate.fetch_climate_anomalies(fetcher), "climate"),
-        _safe(space_weather.fetch_space_weather(fetcher), "space_weather"),
-    )
-
-    # Score each domain
-    mil_score, mil_signals = _score_military(surge_data, posture_data)
-    pol_score, pol_signals = _score_political(instability_data)
-    con_score, con_signals = _score_conflict(hotspot_data)
-    inf_score, inf_signals = _score_infrastructure(cable_data, outage_data)
-    eco_score, eco_signals = _score_economic(shipping_data)
-    cyb_score, cyb_signals = _score_cyber(cyber_data)
-    hlt_score, hlt_signals = _score_health(health_data)
-    clm_score, clm_signals = _score_climate(climate_data)
-    spc_score, spc_signals = _score_space(sw_data)
-
-    domain_scores = {
-        "military": {"score": round(mil_score, 1), "level": _risk_level(mil_score), "signals": mil_signals},
-        "political": {"score": round(pol_score, 1), "level": _risk_level(pol_score), "signals": pol_signals},
-        "conflict": {"score": round(con_score, 1), "level": _risk_level(con_score), "signals": con_signals},
-        "infrastructure": {"score": round(inf_score, 1), "level": _risk_level(inf_score), "signals": inf_signals},
-        "economic": {"score": round(eco_score, 1), "level": _risk_level(eco_score), "signals": eco_signals},
-        "cyber": {"score": round(cyb_score, 1), "level": _risk_level(cyb_score), "signals": cyb_signals},
-        "health": {"score": round(hlt_score, 1), "level": _risk_level(hlt_score), "signals": hlt_signals},
-        "climate": {"score": round(clm_score, 1), "level": _risk_level(clm_score), "signals": clm_signals},
-        "space": {"score": round(spc_score, 1), "level": _risk_level(spc_score), "signals": spc_signals},
+def build_strategic_posture(inputs: dict) -> dict:
+    """Keep observed domain scores; never zero-fill the composite."""
+    scorers = {
+        "military": _score_military, "political": _score_political,
+        "conflict": _score_conflict, "infrastructure": _score_infrastructure,
+        "economic": _score_economic, "cyber": _score_cyber,
+        "health": _score_health, "climate": _score_climate, "space": _score_space,
     }
+    domain_scores = {}
+    for domain, names in DOMAIN_INPUTS.items():
+        states = {name: input_status(name, inputs.get(name, {})) for name in names}
+        missing = [name for name, state in states.items() if state == "unavailable"]
+        status = "unavailable" if missing else "ok" if all(s == "ok" for s in states.values()) else "partial"
+        score, signals = (None, []) if missing else scorers[domain](*(inputs[name] for name in names))
+        domain_scores[domain] = {
+            "score": round(score, 1) if score is not None else None,
+            "level": _risk_level(score) if score is not None else "UNKNOWN",
+            "signals": signals, "status": status, "inputs": states,
+            "missing": missing,
+        }
 
-    # Weighted composite
-    composite = sum(
-        domain_scores[domain]["score"] * weight
-        for domain, weight in DOMAIN_WEIGHTS.items()
-    )
-    composite = min(100.0, max(0.0, composite))
-
-    # Top threats: highest-scored signals across all domains
-    all_signals = []
-    for domain, info in domain_scores.items():
-        for sig in info["signals"]:
-            all_signals.append({"domain": domain, "signal": sig, "domain_score": info["score"]})
-    all_signals.sort(key=lambda s: s["domain_score"], reverse=True)
-
+    available = [name for name, value in domain_scores.items() if value["score"] is not None]
+    complete = [name for name, value in domain_scores.items() if value["status"] == "ok"]
+    composite = sum(domain_scores[name]["score"] * weight for name, weight in DOMAIN_WEIGHTS.items()) if len(complete) == len(DOMAIN_WEIGHTS) else None
+    signals = [
+        {"domain": name, "signal": signal, "domain_score": value["score"], "status": value["status"]}
+        for name, value in domain_scores.items() for signal in value["signals"]
+    ]
+    signals.sort(key=lambda item: item["domain_score"], reverse=True)
     return {
-        "composite_score": round(composite, 1),
-        "risk_level": _risk_level(composite),
-        "domain_scores": domain_scores,
-        "weights": DOMAIN_WEIGHTS,
-        "top_threats": all_signals[:10],
-        "domains_assessed": len(DOMAIN_WEIGHTS),
+        "composite_score": round(composite, 1) if composite is not None else None,
+        "risk_level": _risk_level(composite) if composite is not None else "UNKNOWN",
+        "status": "ok" if composite is not None else "partial" if available else "unavailable",
+        "domain_scores": domain_scores, "weights": DOMAIN_WEIGHTS,
+        "top_threats": signals[:10], "domains_assessed": len(available),
+        "coverage": {
+            "available": len(available), "complete": len(complete), "expected": len(DOMAIN_WEIGHTS),
+            "missing": [name for name in DOMAIN_WEIGHTS if name not in available],
+            "partial": [name for name in available if name not in complete],
+        },
+        "note": "Heuristic monitored-sample scores, not calibrated probabilities. Missing or partial inputs prevent a complete composite; legacy political/conflict models include static baselines and proxies.",
         "source": "strategic-posture-assessment",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+async def fetch_strategic_posture(fetcher, *, inputs=None) -> dict:
+    owned = inputs is None
+    inputs = inputs or AnalysisInputs(fetcher)
+    try:
+        names = tuple(dict.fromkeys(name for names in DOMAIN_INPUTS.values() for name in names))
+        return build_strategic_posture(await inputs.collect(names))
+    finally:
+        if owned:
+            await inputs.close()

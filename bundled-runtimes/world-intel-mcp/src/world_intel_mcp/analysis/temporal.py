@@ -16,7 +16,9 @@ from datetime import datetime, timezone
 logger = logging.getLogger("world-intel-mcp.analysis.temporal")
 
 _DB_PATH = os.path.join(
-    os.path.expanduser("~"), ".cache", "world-intel-mcp", "temporal.db"
+    os.path.dirname(os.path.abspath(os.environ["WORLD_INTEL_CACHE_DB"])) if os.environ.get("WORLD_INTEL_CACHE_DB")
+    else os.path.join(os.path.expanduser("~"), ".cache", "world-intel-mcp"),
+    "temporal.db",
 )
 
 
@@ -77,6 +79,16 @@ class TemporalBaseline:
             (key, n, mean, m2, now_iso),
         )
         self._conn.commit()
+
+    def summary(self, event_type: str, region: str) -> dict:
+        """Describe the existing baseline before adding the current sample."""
+        row = self._conn.execute(
+            "SELECT count, mean, m2 FROM baselines WHERE key = ?", (self._key(event_type, region),)
+        ).fetchone()
+        if row is None:
+            return {"samples": 0, "mean": None, "variance": None}
+        n, mean, m2 = row
+        return {"samples": n, "mean": mean, "variance": m2 / (n - 1) if n > 1 else None}
 
     def check(self, event_type: str, region: str, count: int) -> dict | None:
         """Check a value against the baseline.

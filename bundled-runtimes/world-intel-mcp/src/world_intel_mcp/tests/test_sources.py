@@ -1,6 +1,7 @@
 """Tests for source modules — uses respx to mock HTTP calls."""
 
 import asyncio
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -102,6 +103,7 @@ async def test_fetch_earthquakes(fetcher: Fetcher) -> None:
 
     geojson = {
         "type": "FeatureCollection",
+        "metadata": {"generated": time.time() * 1000, "count": 1},
         "features": [
             {
                 "type": "Feature",
@@ -109,7 +111,7 @@ async def test_fetch_earthquakes(fetcher: Fetcher) -> None:
                 "properties": {
                     "mag": 5.2,
                     "place": "100km SSW of Somewhere",
-                    "time": 1708700000000,
+                    "time": (time.time() - 3600) * 1000,
                     "tsunami": 0,
                     "felt": 15,
                     "alert": "green",
@@ -123,7 +125,7 @@ async def test_fetch_earthquakes(fetcher: Fetcher) -> None:
         ],
     }
 
-    respx.get("https://earthquake.usgs.gov/fdsnws/event/1/query").mock(
+    respx.get("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/1.0_month.geojson").mock(
         return_value=httpx.Response(200, json=geojson)
     )
 
@@ -363,6 +365,9 @@ async def test_fetch_disease_outbreaks(fetcher: Fetcher) -> None:
     </channel></rss>"""
 
     # Mock all 3 health feeds returning same XML
+    from datetime import datetime, timezone
+    from email.utils import format_datetime
+    rss_xml = rss_xml.replace("Mon, 10 Feb 2026 12:00:00 GMT", format_datetime(datetime.now(timezone.utc), usegmt=True))
     respx.get(url__regex=r".*who\.int.*").mock(
         return_value=httpx.Response(200, text=rss_xml)
     )
@@ -556,6 +561,7 @@ async def test_fetch_nuclear_monitor(fetcher: Fetcher) -> None:
 
     geojson = {
         "type": "FeatureCollection",
+        "metadata": {"generated": time.time() * 1000, "count": 1},
         "features": [
             {
                 "type": "Feature",
@@ -563,7 +569,7 @@ async def test_fetch_nuclear_monitor(fetcher: Fetcher) -> None:
                 "properties": {
                     "mag": 2.8,
                     "place": "50km N of Test Site",
-                    "time": 1708700000000,
+                    "time": (time.time() - 3600) * 1000,
                     "tsunami": 0,
                 },
                 "geometry": {
@@ -574,8 +580,8 @@ async def test_fetch_nuclear_monitor(fetcher: Fetcher) -> None:
         ],
     }
 
-    # Mock USGS for all nuclear sites
-    respx.get("https://earthquake.usgs.gov/fdsnws/event/1/query").mock(
+    # One official catalogue supplies all sites.
+    respx.get("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/1.0_month.geojson").mock(
         return_value=httpx.Response(200, json=geojson)
     )
 
@@ -694,7 +700,7 @@ async def test_fetch_cable_health(fetcher: Fetcher) -> None:
             "msgNumber": 42,
             "navArea": "XII",
             "subregion": "31",
-            "status": "in force",
+            "status": "A",
             "issueDate": "2026-02-20",
             "text": "SUBMARINE CABLE OPERATIONS 40-30.5N/030-15.2E VESSELS ADVISED",
         }
@@ -1181,50 +1187,46 @@ async def test_fetch_btc_technicals_insufficient_data(fetcher: Fetcher) -> None:
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_fetch_central_bank_rates_no_fred(fetcher: Fetcher) -> None:
+async def test_fetch_central_bank_rates_unavailable(fetcher: Fetcher) -> None:
     from world_intel_mcp.sources.central_banks import fetch_central_bank_rates
 
-    import os
-
-    os.environ.pop("FRED_API_KEY", None)
-
+    respx.get(url__regex=r"https://(fred.stlouisfed.org|www.bankofengland.co.uk)/.*").mock(return_value=httpx.Response(200, text="unavailable"))
     result = await fetch_central_bank_rates(fetcher)
     assert result["source"] == "multi"
     assert result["fred_available"] is False
-    # Should have all 15 banks (12 curated + 3 FRED-fallback curated)
     assert result["count"] == 15
-    # Sorted by rate descending — CBRT (45%) should be first
-    assert result["rates"][0]["bank"] == "Central Bank of Turkey"
-    assert result["rates"][0]["rate"] == 45.00
-    # All should be curated source
-    assert all(r["source"] == "curated" for r in result["rates"])
+    assert all(r["rate"] is None for r in result["rates"])
+    assert all(r["reference"]["source"] == "curated" for r in result["rates"])
+    assert result["coverage"] == {"tracked": 15, "queried": 3, "available": 0, "stale": 0, "failed": 3, "reference_only": 12}
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_fetch_central_bank_rates_with_fred(fetcher: Fetcher) -> None:
+async def test_fetch_central_bank_rates_public_without_keys(fetcher: Fetcher, monkeypatch) -> None:
     from world_intel_mcp.sources.central_banks import fetch_central_bank_rates
 
-    import os
-
-    os.environ["FRED_API_KEY"] = "test_key_123"
-
-    fred_response = {"observations": [{"date": "2026-02-25", "value": "4.33"}]}
-
-    respx.get("https://api.stlouisfed.org/fred/series/observations").mock(
-        return_value=httpx.Response(200, json=fred_response)
-    )
-
-    try:
-        result = await fetch_central_bank_rates(fetcher)
-        assert result["source"] == "multi"
-        assert result["fred_available"] is True
-        assert result["count"] == 15
-        # At least some should be from FRED
-        fred_sources = [r for r in result["rates"] if r["source"] == "fred"]
-        assert len(fred_sources) >= 1
-    finally:
-        os.environ.pop("FRED_API_KEY", None)
+    from datetime import datetime, timezone
+    monkeypatch.delenv("FRED_API_KEY", raising=False)
+    today = datetime.now(timezone.utc).date()
+    def fred(request):
+        series = request.url.params["id"]
+        assert series in {"DFEDTARU", "ECBDFR"}
+        assert "api_key" not in request.url.params
+        return httpx.Response(200, text=f"observation_date,{series}\n{today.isoformat()},0\n")
+    respx.get("https://fred.stlouisfed.org/graph/fredgraph.csv").mock(side_effect=fred)
+    boe = respx.get("https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp").mock(
+        return_value=httpx.Response(200, text=f"DATE,IUDBEDR\r\n{today.strftime('%d %b %Y')},-0.25\r\n"))
+    result = await fetch_central_bank_rates(fetcher)
+    assert boe.calls[0].request.url.params["SeriesCodes"] == "IUDBEDR"
+    assert result["fred_available"] is True
+    assert result["coverage"]["available"] == 3
+    assert result["coverage"]["reference_only"] == 12
+    assert result["status"] == "partial"
+    current = {r["bank"]: r for r in result["sources"]}
+    assert current["Federal Reserve"]["rate_type"] == "target-upper-bound"
+    assert current["Federal Reserve"]["rate"] == 0
+    assert current["Bank of England"]["rate"] == -0.25
+    assert all(r["as_of"] == today.isoformat() and r["collected_at"] for r in current.values())
 
 
 # ---------------------------------------------------------------------------
@@ -1493,7 +1495,7 @@ async def test_fetch_usni_fleet_empty_feed(fetcher: Fetcher) -> None:
     result = await fetch_usni_fleet(fetcher)
     assert result["source"] == "usni-fleet-tracker"
     assert "error" in result
-    assert result["ship_count"] == 0
+    assert result["ship_count"] is None
 
 
 # ---------------------------------------------------------------------------

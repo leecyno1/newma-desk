@@ -1,5 +1,7 @@
 import {
+  deskActionPendingSchema,
   deskActionResultSchema,
+  deskAgentResultSchema,
   deskContextRequestSchema,
   deskHandoffSchema,
   deskInitSchema,
@@ -15,12 +17,13 @@ import {
   modVisualContextSchema,
   modPageContextSchema,
   type DeskContextRequest,
+  type AgentOutcome,
   type DeskHandoff,
   type DeskInit,
   type DeskVisualContextRequest,
   type ModPageContext,
-  type WikiHandoff,
-} from "@newma-desk/contracts";
+} from "@newma-desk/contracts/bridge";
+import type { WikiHandoff } from "@newma-desk/contracts";
 
 export interface ModHostConfig {
   modId: string;
@@ -30,6 +33,7 @@ export interface ModHostConfig {
     | "events"
     | "actions"
     | "agent"
+    | "agent-result"
     | "model"
     | "data"
     | "context"
@@ -165,6 +169,7 @@ export type ModHostConnection =
         input?: Record<string, unknown>,
       ): Promise<T>;
       requestAgent(request?: { prompt?: string; mode?: "ask" | "edit" }): void;
+      requestAgentResult?(request: { prompt: string; mode?: "ask" | "edit" }, options?: {signal?: AbortSignal}): Promise<AgentOutcome>;
       close(): void;
     };
 
@@ -369,21 +374,34 @@ export function connectModHost(
     let settled = false;
     let closed = false;
     let activeConfig: DeskInit | undefined;
+    let scopeVersion = 0;
     let contextProvider: ModContextProvider | undefined;
     let visualCaptureProvider: ModVisualCaptureProvider | undefined;
     let uiActionHandler: ModUiActionHandler | undefined;
     let handoffHandler: ModHandoffHandler | undefined;
     const queuedHandoffs: DeskHandoff[] = [];
     const subscriptions = new Set<(config: DeskInit) => void>();
+    const pendingAgents = new Map<string, {resolve(value: AgentOutcome): void; reject(reason: unknown): void}>();
     const pendingActions = new Map<
       string,
       {
+        actionId: string;
+        instanceId: string;
+        deadlineReceived: boolean;
+        expire(): void;
         resolve(value: unknown): void;
         reject(reason: unknown): void;
         timer: ReturnType<typeof globalThis.setTimeout>;
       }
     >();
     const requestId = () => runtime.randomUUID?.() ?? fallbackRequestId();
+    const actionScope = (value: DeskInit) => JSON.stringify([
+      value.modId, value.instanceId, value.user.id, value.workspace.id,
+      value.session?.id, value.session?.accessToken, value.session?.expiresAt,
+      value.gateways.actions, value.gateways.data, value.gateways.storage,
+      value.gateways.agent, value.gateways.model, value.runtime,
+      [...value.grants.permissions].sort(), [...value.grants.actions].sort(),
+    ]);
     const post = (message: unknown) => {
       runtime.window.parent.postMessage(message, parentOrigin);
     };
@@ -394,6 +412,7 @@ export function connectModHost(
       runtime.window.removeEventListener("message", handleMessage);
       config.signal?.removeEventListener("abort", handleAbort);
       subscriptions.clear();
+      for (const pending of pendingAgents.values()) pending.reject(new Error("Host connection closed; host task was not cancelled"));
       queuedHandoffs.length = 0;
       visualCaptureProvider = undefined;
       uiActionHandler = undefined;
@@ -424,12 +443,15 @@ export function connectModHost(
       );
     };
     const respondWithContext = async (contextRequest: DeskContextRequest) => {
+      const requestedScope = scopeVersion;
       try {
         const context = contextProvider
           ? await contextProvider()
           : renderedDomContext(runtime.window, config.modId);
+        if (closed || requestedScope !== scopeVersion) return;
         publishContext(context, contextRequest.requestId);
       } catch {
+        if (closed || requestedScope !== scopeVersion) return;
         publishContext(
           renderedDomContext(runtime.window, config.modId),
           contextRequest.requestId,
@@ -439,6 +461,7 @@ export function connectModHost(
     const respondWithVisualContext = async (
       visualRequest: DeskVisualContextRequest,
     ) => {
+      const requestedScope = scopeVersion;
       if (
         !config.capabilities?.includes("visual-context") ||
         !visualCaptureProvider
@@ -466,6 +489,7 @@ export function connectModHost(
           capture.image,
           Math.min(visualRequest.maxBytes, MAX_BRIDGE_VISUAL_CAPTURE_BYTES),
         );
+        if (closed || requestedScope !== scopeVersion) return;
         post(modVisualContextSchema.parse({
           type: "vibedesk:visual-context",
           requestId: visualRequest.requestId,
@@ -481,6 +505,7 @@ export function connectModHost(
           },
         }));
       } catch (reason) {
+        if (closed || requestedScope !== scopeVersion) return;
         post(modVisualContextSchema.parse({
           type: "vibedesk:visual-context",
           requestId: visualRequest.requestId,
@@ -497,12 +522,14 @@ export function connectModHost(
       }
     };
     const respondToHandoff = async (request: DeskHandoff) => {
+      const requestedScope = scopeVersion;
       if (!handoffHandler) {
         queuedHandoffs.push(request);
         return;
       }
       try {
         const result = await handoffHandler(request.handoff);
+        if (closed || requestedScope !== scopeVersion) return;
         post(modHandoffResultSchema.parse({
           type: "vibedesk:handoff-result",
           requestId: request.requestId,
@@ -513,6 +540,7 @@ export function connectModHost(
           result: result ?? {},
         }));
       } catch (reason) {
+        if (closed || requestedScope !== scopeVersion) return;
         post(modHandoffResultSchema.parse({
           type: "vibedesk:handoff-result",
           requestId: request.requestId,
@@ -529,10 +557,9 @@ export function connectModHost(
     };
     const connection = () => {
       if (!activeConfig) throw new Error("Newma-Desk host is not initialized");
-      const initialConfig = activeConfig;
       return {
         embedded: true as const,
-        config: initialConfig,
+        get config() { return activeConfig!; },
         subscribe(handler: (next: DeskInit) => void) {
           if (closed) throw new Error("Newma-Desk host connection is closed");
           subscriptions.add(handler);
@@ -589,6 +616,29 @@ export function connectModHost(
             ...(request.prompt ? { prompt: request.prompt } : {}),
           }));
         },
+        requestAgentResult(request: {prompt: string; mode?: "ask" | "edit"}, {signal}: {signal?: AbortSignal} = {}) {
+          if (closed || activeConfig?.runtime?.aiExecution !== "host" || activeConfig.runtime.resultMessage !== "vibedesk:agent-result") {
+            return Promise.reject(new Error("Host result channel unavailable; no task was started"));
+          }
+          if (signal?.aborted) return Promise.reject(new Error("Observation stopped; host task was not cancelled"));
+          const id = requestId();
+          return new Promise<AgentOutcome>((resolveResult, rejectResult) => {
+            const finish = (outcome?: AgentOutcome, error?: unknown) => {
+              if (!pendingAgents.delete(id)) return;
+              runtime.clearTimeout(timer); signal?.removeEventListener("abort", abort);
+              if (outcome) resolveResult(outcome); else rejectResult(error);
+            };
+            const abort = () => finish(undefined, new Error("Observation stopped; host task was not cancelled"));
+            const timer = runtime.setTimeout(() => finish(undefined, new Error("Host result timed out; task state unknown. Check the original task before retrying.")), 190_000);
+            pendingAgents.set(id, {resolve: value => finish(value), reject: error => finish(undefined, error)});
+            signal?.addEventListener("abort", abort, {once: true});
+            try {
+              post(modAgentRequestSchema.parse({type: "vibedesk:copilot-open", requestId: id,
+                instanceId: activeConfig!.instanceId, modId: activeConfig!.modId,
+                prompt: request.prompt, mode: request.mode ?? "ask"}));
+            } catch (error) { finish(undefined, error); }
+          });
+        },
         invokeAction<T = unknown>(
           actionId: string,
           input: Record<string, unknown> = {},
@@ -604,11 +654,16 @@ export function connectModHost(
           const requestConfig = activeConfig;
           const id = requestId();
           return new Promise<T>((resolveAction, rejectAction) => {
-            const timer = runtime.setTimeout(() => {
+            const expire = () => {
               pendingActions.delete(id);
-              rejectAction(new Error("Newma-Desk action request timed out"));
-            }, requestTimeoutMs);
+              rejectAction(new Error("Newma-Desk action result not confirmed; operation may still be running. Check its status before retrying."));
+            };
+            const timer = runtime.setTimeout(expire, requestTimeoutMs);
             pendingActions.set(id, {
+              actionId,
+              instanceId: requestConfig.instanceId,
+              deadlineReceived: false,
+              expire,
               resolve: (value) => resolveAction(value as T),
               reject: rejectAction,
               timer,
@@ -638,6 +693,16 @@ export function connectModHost(
       }
       const init = deskInitSchema.safeParse(message.data);
       if (init.success && init.data.modId === config.modId) {
+        if (activeConfig && actionScope(activeConfig) !== actionScope(init.data)) {
+          scopeVersion += 1;
+          queuedHandoffs.length = 0;
+          for (const pending of pendingActions.values()) {
+            runtime.clearTimeout(pending.timer);
+            pending.reject(new Error("Host authorization changed; action result is unconfirmed and the operation may still be running. Check before retrying."));
+          }
+          pendingActions.clear();
+          for (const pending of pendingAgents.values()) pending.reject(new Error("Host scope changed; host task was not cancelled"));
+        }
         activeConfig = init.data;
         const root = runtime.window.document?.documentElement;
         if (root) root.dataset.vibedeskEmbedded = "true";
@@ -717,28 +782,28 @@ export function connectModHost(
           }));
           return;
         }
-        void Promise.resolve(uiActionHandler(request.actionId, request.input)).then(
-          (result) => post(modUiActionResultSchema.parse({
-            type: "vibedesk:ui-action-result",
-            requestId: request.requestId,
-            instanceId: request.instanceId,
-            modId: request.modId,
-            actionId: request.actionId,
-            ok: true,
-            result: result ?? {},
-          })),
-          (reason: unknown) => post(modUiActionResultSchema.parse({
-            type: "vibedesk:ui-action-result",
-            requestId: request.requestId,
-            instanceId: request.instanceId,
-            modId: request.modId,
-            actionId: request.actionId,
-            ok: false,
-            error: {
-              code: "action_failed",
-              message: reason instanceof Error ? reason.message : "Mod UI action failed",
-            },
-          })),
+        const requestedScope = scopeVersion;
+        let operation;
+        try { operation = uiActionHandler(request.actionId, request.input); }
+        catch (reason) { operation = Promise.reject(reason); }
+        void Promise.resolve(operation).then(
+          (result) => {
+            if (closed || requestedScope !== scopeVersion) return;
+            post(modUiActionResultSchema.parse({
+              type: "vibedesk:ui-action-result", requestId: request.requestId,
+              instanceId: request.instanceId, modId: request.modId,
+              actionId: request.actionId, ok: true, result: result ?? {},
+            }));
+          },
+          (reason: unknown) => {
+            if (closed || requestedScope !== scopeVersion) return;
+            post(modUiActionResultSchema.parse({
+              type: "vibedesk:ui-action-result", requestId: request.requestId,
+              instanceId: request.instanceId, modId: request.modId,
+              actionId: request.actionId, ok: false,
+              error: { code: "action_failed", message: reason instanceof Error ? reason.message : "Mod UI action failed" },
+            }));
+          },
         );
         return;
       }
@@ -769,6 +834,24 @@ export function connectModHost(
         return;
       }
 
+      const agentResult = deskAgentResultSchema.safeParse(message.data);
+      if (agentResult.success && activeConfig && agentResult.data.modId === activeConfig.modId && agentResult.data.instanceId === activeConfig.instanceId) {
+        pendingAgents.get(agentResult.data.requestId)?.resolve(agentResult.data.outcome);
+        return;
+      }
+      const actionPending = deskActionPendingSchema.safeParse(message.data);
+      if (actionPending.success && activeConfig &&
+          actionPending.data.modId === activeConfig.modId &&
+          actionPending.data.instanceId === activeConfig.instanceId) {
+        const pending = pendingActions.get(actionPending.data.requestId);
+        if (!pending || pending.deadlineReceived ||
+            pending.instanceId !== actionPending.data.instanceId ||
+            pending.actionId !== actionPending.data.actionId) return;
+        pending.deadlineReceived = true;
+        runtime.clearTimeout(pending.timer);
+        pending.timer = runtime.setTimeout(pending.expire, actionPending.data.timeoutSeconds * 1_000);
+        return;
+      }
       const actionResult = deskActionResultSchema.safeParse(message.data);
       if (
         !actionResult.success ||
@@ -779,7 +862,8 @@ export function connectModHost(
         return;
       }
       const pending = pendingActions.get(actionResult.data.requestId);
-      if (!pending) return;
+      if (!pending || pending.instanceId !== actionResult.data.instanceId ||
+          pending.actionId !== actionResult.data.actionId) return;
       pendingActions.delete(actionResult.data.requestId);
       runtime.clearTimeout(pending.timer);
       if (actionResult.data.ok) {

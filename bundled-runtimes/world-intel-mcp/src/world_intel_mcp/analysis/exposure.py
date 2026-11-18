@@ -29,7 +29,7 @@ async def _safe(coro, label: str) -> dict:
         return await coro
     except Exception as exc:
         logger.warning("Exposure: %s failed: %s", label, exc)
-        return {}
+        return {"status": "unavailable", "error": type(exc).__name__}
 
 
 def _find_exposed_cities(
@@ -69,6 +69,7 @@ async def fetch_population_exposure(
     fetcher,
     radius_km: float = 200.0,
     event_types: list[str] | None = None,
+    *, catalog: dict | None = None, inputs=None,
 ) -> dict:
     """Estimate population exposure near active events.
 
@@ -88,7 +89,10 @@ async def fetch_population_exposure(
 
     coros = {}
     if "earthquake" in types:
-        coros["earthquake"] = seismology.fetch_earthquakes(fetcher, min_magnitude=4.5, hours=48, limit=50)
+        async def earthquakes():
+            shared = await inputs.get("seismic_catalog") if inputs is not None else catalog
+            return await seismology.fetch_earthquakes(fetcher, min_magnitude=4.5, hours=48, limit=50, catalog=shared)
+        coros["earthquake"] = earthquakes()
     if "wildfire" in types:
         coros["wildfire"] = wildfire.fetch_wildfires(fetcher)
     if "conflict" in types:
@@ -102,13 +106,27 @@ async def fetch_population_exposure(
         for key, data in zip(coros.keys(), fetched):
             results[key] = data
 
-    # Normalize events to [{lat, lon, type, detail}]
+    source_times = {key: {field: data.get(field) for field in ("source_updated_at", "collected_at", "cache_expires_at", "timestamp", "freshness")} for key, data in results.items()}
+    coverage = {key: "unavailable" if not data or data.get("error") or data.get("freshness") == "stale" or ("count" in data and data["count"] is None)
+                else data.get("status", "partial") for key, data in results.items()}
+    fire_data = results.get("wildfire", {})
+    fire_regions = wildfire.current_regions(fire_data)
+    if "wildfire" in coverage:
+        all_regions = fire_data.get("fires_by_region")
+        if not fire_regions or coverage["wildfire"] in {"unavailable", "stale", "error"}:
+            coverage["wildfire"] = "unavailable"
+            fire_regions = {}
+        elif (coverage["wildfire"] != "ok" or fire_data.get("freshness") != "fresh"
+              or not isinstance(all_regions, dict) or len(fire_regions) != len(all_regions)):
+            coverage["wildfire"] = "partial"
+    results = {key: data for key, data in results.items() if coverage[key] not in {"unavailable", "stale"}}
+    # Normalize available samples; missing sources do not become zero exposure.
     events: list[dict] = []
 
     # Earthquakes
     for eq in results.get("earthquake", {}).get("earthquakes", []):
-        lat = eq.get("latitude") or eq.get("lat")
-        lon = eq.get("longitude") or eq.get("lon")
+        lat = eq.get("latitude", eq.get("lat"))
+        lon = eq.get("longitude", eq.get("lon"))
         if lat is not None and lon is not None:
             events.append({
                 "lat": float(lat),
@@ -118,7 +136,7 @@ async def fetch_population_exposure(
             })
 
     # Wildfires (fires_by_region is a dict keyed by region name)
-    for region_name, region_data in results.get("wildfire", {}).get("fires_by_region", {}).items():
+    for region_name, region_data in fire_regions.items():
         for cluster in region_data.get("top_clusters", []):
             lat = cluster.get("lat")
             lon = cluster.get("lon")
@@ -127,13 +145,13 @@ async def fetch_population_exposure(
                     "lat": float(lat),
                     "lon": float(lon),
                     "type": "wildfire",
-                    "detail": f"FRP {cluster.get('max_frp', '?')} ({cluster.get('fire_count', '?')} fires) in {region_name}",
+                    "detail": f"Satellite thermal detections: {cluster.get('fire_count', '?')} in {region_name}; not verified fires",
                 })
 
     # Conflict
     for ev in results.get("conflict", {}).get("events", []):
-        lat = ev.get("latitude") or ev.get("lat")
-        lon = ev.get("longitude") or ev.get("lon")
+        lat = ev.get("latitude", ev.get("lat"))
+        lon = ev.get("longitude", ev.get("lon"))
         if lat is not None and lon is not None:
             events.append({
                 "lat": float(lat),
@@ -160,12 +178,17 @@ async def fetch_population_exposure(
 
     return {
         "exposed_cities": exposed_cities,
-        "exposed_city_count": len(exposed_cities),
-        "total_exposed_population": total_exposed_pop,
-        "total_exposed_population_formatted": _format_pop(total_exposed_pop),
+        "exposed_city_count": len(exposed_cities) if results else None,
+        "total_exposed_population": total_exposed_pop if results else None,
+        "total_exposed_population_formatted": _format_pop(total_exposed_pop) if results else "未知",
+        "status": "unavailable" if not results else "ok" if all(value == "ok" for value in coverage.values()) else "partial",
+        "coverage": {"available": len(results), "expected": len(coros), "sources": coverage},
+        "source_times": source_times,
+        "note": "可用事件样本附近的静态城市名录人口，不是实际受灾人口；卫星热异常不等同已核实山火，缺源和未覆盖城市未计入。",
+        **({"error": "事件来源未取得，人口暴露待核验"} if not results else {}),
         "by_event_type": {k: _format_pop(v) for k, v in sorted(by_type.items(), key=lambda x: x[1], reverse=True)},
         "by_country": {k: _format_pop(v) for k, v in sorted(by_country.items(), key=lambda x: x[1], reverse=True)[:10]},
-        "events_analyzed": len(events),
+        "events_analyzed": len(events) if results else None,
         "radius_km": radius_km,
         "event_types": sorted(types),
         "source": "population-exposure-analysis",

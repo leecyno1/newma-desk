@@ -25,9 +25,6 @@ _CF_RADAR_TAMPERING_URL = (
     "https://api.cloudflare.com/client/v4/radar/connection_tampering/summary"
 )
 
-_NGA_BROADCAST_WARN_URL = (
-    "https://msi.nga.mil/api/publications/broadcast-warn"
-)
 
 # Known undersea cable corridors as rough lat/lon bounding boxes.
 CABLE_CORRIDORS: dict[str, dict] = {
@@ -68,19 +65,6 @@ _CABLE_KEYWORDS = re.compile(
     r"\b(cable|submarine|fiber|anchor|dredg)\b", re.IGNORECASE
 )
 
-# Pattern for DMS coordinates like "32-15.5N/044-30.2E" or "32-15N 044-30E".
-_DMS_PATTERN = re.compile(
-    r"(\d{1,3})-(\d{1,2}(?:\.\d+)?)\s*([NS])\s*[/ ]\s*"
-    r"(\d{1,3})-(\d{1,2}(?:\.\d+)?)\s*([EW])"
-)
-
-# Pattern for decimal lat/lon like "32.258N 44.503E" or "32.258/44.503".
-_DECIMAL_PATTERN = re.compile(
-    r"(\d{1,3}(?:\.\d+)?)\s*([NS])\s*[/ ]\s*"
-    r"(\d{1,3}(?:\.\d+)?)\s*([EW])"
-)
-
-_STATUS_LABELS = {0: "clear", 1: "advisory", 2: "at_risk", 3: "disrupted"}
 
 
 # ---------------------------------------------------------------------------
@@ -91,39 +75,6 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _extract_coordinates(text: str) -> list[tuple[float, float]]:
-    """Extract (lat, lon) pairs from navigational warning text.
-
-    Handles both DMS notation (DD-MM.M[N/S]/DDD-MM.M[E/W]) and simple
-    decimal notation (DD.DDD[N/S] DDD.DDD[E/W]).
-
-    Returns a list of (latitude, longitude) tuples in decimal degrees.
-    """
-    coords: list[tuple[float, float]] = []
-
-    # Try DMS pattern first
-    for match in _DMS_PATTERN.finditer(text):
-        deg_lat, min_lat, ns, deg_lon, min_lon, ew = match.groups()
-        lat = float(deg_lat) + float(min_lat) / 60.0
-        lon = float(deg_lon) + float(min_lon) / 60.0
-        if ns == "S":
-            lat = -lat
-        if ew == "W":
-            lon = -lon
-        coords.append((lat, lon))
-
-    # Try decimal pattern
-    for match in _DECIMAL_PATTERN.finditer(text):
-        lat_val, ns, lon_val, ew = match.groups()
-        lat = float(lat_val)
-        lon = float(lon_val)
-        if ns == "S":
-            lat = -lat
-        if ew == "W":
-            lon = -lon
-        coords.append((lat, lon))
-
-    return coords
 
 
 def _point_in_corridor(
@@ -297,9 +248,11 @@ async def fetch_internet_outages(fetcher: Fetcher) -> dict:
         note = "Set CLOUDFLARE_API_TOKEN for detailed outage data" if not token else None
         logger.warning("Internet outages: no data from Cloudflare or IODA")
         result: dict = {
+            "status": "unavailable",
+            "error": "Internet outage sources unavailable",
             "outages": [],
-            "ongoing_count": 0,
-            "total_7d": 0,
+            "ongoing_count": None,
+            "total_7d": None,
             "source": "cloudflare-radar",
             "timestamp": now_iso,
         }
@@ -313,7 +266,7 @@ async def fetch_internet_outages(fetcher: Fetcher) -> dict:
     # { "annotations": [ { "id", "dateStart", "dateEnd", "description",
     #                       "scope", "asns", "locations", ... } ] }
     # Adapt to both envelope shapes: top-level list or nested under a key.
-    raw_annotations: list = []
+    raw_annotations: list | None = None
     if isinstance(data, list):
         raw_annotations = data
     elif isinstance(data, dict):
@@ -324,6 +277,9 @@ async def fetch_internet_outages(fetcher: Fetcher) -> dict:
                 raw_annotations = candidate
                 break
 
+    if raw_annotations is None:
+        return {"status": "unavailable", "error": "Unrecognized outage response", "outages": [],
+                "ongoing_count": None, "total_7d": None, "source": "cloudflare-radar", "timestamp": now_iso}
     ongoing_count = 0
 
     for ann in raw_annotations:
@@ -376,144 +332,64 @@ async def fetch_internet_outages(fetcher: Fetcher) -> dict:
 # Undersea Cable Corridor Health (NGA Maritime Safety Information)
 # ---------------------------------------------------------------------------
 
-async def fetch_cable_health(fetcher: Fetcher) -> dict:
-    """Assess undersea cable corridor health using NGA broadcast warnings.
+async def fetch_cable_health(fetcher: Fetcher, *, nav_data: dict | None = None) -> dict:
+    """Observe warnings inside rough cable-corridor boxes, not cable health.
 
-    Fetches navigational warnings from the NGA Maritime Safety Information
-    (MSI) API, extracts coordinates from the warning text, and scores each
-    known cable corridor:
-
-        0 = clear (no warnings)
-        1 = advisory (warning nearby the corridor)
-        2 = at_risk (warning inside the corridor)
-        3 = disrupted (multiple warnings or explicit cable keyword)
-
-    Returns:
-        Dict with corridor statuses, warning counts, source, and timestamp.
+    Reuse the navigation source's cancellation filter, coordinates and timing.
+    Multiple points count once per warning per corridor; overlapping corridors
+    all retain the observation. A warning cannot prove an outage or safety.
     """
-    data = await fetcher.get_json(
-        url=_NGA_BROADCAST_WARN_URL,
-        source="nga-msi",
-        cache_key="infra:cables",
-        cache_ttl=180,
-        params={"output": "json"},
-    )
+    from .maritime import fetch_nav_warnings
 
-    now_iso = _utc_now_iso()
-
-    if data is None:
-        logger.warning("NGA MSI broadcast warnings API returned no data")
-        # Return all corridors as clear when data is unavailable
-        corridors_result = {}
-        for name, info in CABLE_CORRIDORS.items():
-            corridors_result[name] = {
-                "status_score": 0,
-                "status_label": "clear",
-                "cables": info["cables"],
-                "relevant_warnings": [],
-            }
-        return {
-            "corridors": corridors_result,
-            "warnings_total": 0,
-            "cable_related_warnings": 0,
-            "source": "nga-msi",
-            "timestamp": now_iso,
-        }
-
-    # Parse warnings from the response.  The NGA API may return:
-    # - A top-level list of warnings
-    # - A dict with a "broadcast-warn" or "broadcastWarn" key
-    raw_warnings: list = []
-    if isinstance(data, list):
-        raw_warnings = data
-    elif isinstance(data, dict):
-        for key in (
-            "broadcast-warn", "broadcastWarn", "warnings",
-            "result", "data",
-        ):
-            candidate = data.get(key)
-            if isinstance(candidate, list):
-                raw_warnings = candidate
-                break
-
-    # Initialize corridor tracking
-    corridor_warnings: dict[str, list[dict]] = {
-        name: [] for name in CABLE_CORRIDORS
+    data = await fetch_nav_warnings(fetcher) if nav_data is None else nav_data
+    available = not data.get("error") and isinstance(data.get("warnings"), list)
+    timing = {key: data.get(key) for key in ("collected_at", "cache_expires_at", "checked_at")}
+    timing.update(timestamp=data.get("collected_at"), freshness=data.get("freshness", "unknown"))
+    corridors = {
+        name: {"status_score": None, "status_label": "unknown", "cables": info["cables"],
+               "warning_count": None, "relevant_warnings": []}
+        for name, info in CABLE_CORRIDORS.items()
     }
-    cable_related_count = 0
+    result = {
+        "status": "unavailable", "observation_basis": "navigation-warning-corridor-bbox",
+        "health_assessment": "not_assessed",
+        "coverage_note": "粗略走廊边界内航警样本；不是光缆精确位置、故障或安全证明",
+        "corridors": corridors, "warnings_total": None, "cable_related_warnings": None,
+        "unlocated_warnings": None, "source": "nga-msi", **timing,
+    }
+    if not available:
+        result["error"] = "NGA 海缆走廊航警不可用，不能判断海缆状态"
+        return result
 
-    for warning in raw_warnings:
-        if not isinstance(warning, dict):
+    warnings = {}
+    for warning in data["warnings"]:
+        if warning.get("status") != "active":
             continue
-
-        text = warning.get("text", "") or ""
-        msg_year = warning.get("msgYear")
-        msg_number = warning.get("msgNumber")
-        nav_area = warning.get("navArea", "")
-        subregion = warning.get("subregion", "")
-        status = warning.get("status", "")
-        issue_date = warning.get("issueDate", "")
-
-        has_cable_keyword = bool(_CABLE_KEYWORDS.search(text))
-        if has_cable_keyword:
-            cable_related_count += 1
-
-        # Extract coordinates from the warning text
-        coords = _extract_coordinates(text)
-
-        warning_summary = {
-            "msgYear": msg_year,
-            "msgNumber": msg_number,
-            "navArea": nav_area,
-            "subregion": subregion,
-            "status": status,
-            "issueDate": issue_date,
-            "has_cable_keyword": has_cable_keyword,
-            "text_snippet": text[:200] if text else "",
+        key = (warning.get("broadcast_area"), warning.get("id"))
+        warnings.setdefault(key, warning)
+    cable_related = unlocated = 0
+    for warning in warnings.values():
+        text = warning.get("text", "")
+        has_keyword = bool(_CABLE_KEYWORDS.search(text))
+        cable_related += int(has_keyword)
+        coords = warning.get("coordinates", [])
+        if not coords:
+            unlocated += 1
+        summary = {
+            "id": warning.get("id"), "broadcast_area": warning.get("broadcast_area"),
+            "issue_date": warning.get("issue_date"), "issue_date_raw": warning.get("issue_date_raw"),
+            "has_cable_keyword": has_keyword, "text_snippet": text[:200], "text": text,
         }
+        for name, info in CABLE_CORRIDORS.items():
+            if any(_point_in_corridor(point["lat"], point["lon"], info) for point in coords):
+                corridors[name]["relevant_warnings"].append(summary)
 
-        # Check each coordinate against cable corridors
-        for lat, lon in coords:
-            for corridor_name, corridor_info in CABLE_CORRIDORS.items():
-                if _point_in_corridor(lat, lon, corridor_info):
-                    corridor_warnings[corridor_name].append(warning_summary)
-                    # A warning can match multiple corridors but should
-                    # only appear once per corridor.
-                    break
-
-    # Score each corridor
-    corridors_result: dict[str, dict] = {}
-    for name, info in CABLE_CORRIDORS.items():
-        warnings_in_corridor = corridor_warnings[name]
-        cable_mentions = sum(
-            1 for w in warnings_in_corridor if w["has_cable_keyword"]
-        )
-
-        # Scoring logic:
-        # 0 = clear: no warnings in corridor
-        # 1 = advisory: 1 warning, no cable keywords
-        # 2 = at_risk: 1 warning with cable keyword, or 2+ warnings
-        # 3 = disrupted: multiple warnings with cable keywords or 3+ total
-        if not warnings_in_corridor:
-            score = 0
-        elif cable_mentions >= 2 or len(warnings_in_corridor) >= 3:
-            score = 3
-        elif cable_mentions >= 1 or len(warnings_in_corridor) >= 2:
-            score = 2
-        else:
-            score = 1
-
-        corridors_result[name] = {
-            "status_score": score,
-            "status_label": _STATUS_LABELS[score],
-            "cables": info["cables"],
-            "relevant_warnings": warnings_in_corridor,
-        }
-
-    return {
-        "corridors": corridors_result,
-        "warnings_total": len(raw_warnings),
-        "cable_related_warnings": cable_related_count,
-        "source": "nga-msi",
-        "timestamp": now_iso,
-    }
+    for item in corridors.values():
+        count = len(item["relevant_warnings"])
+        item.update(warning_count=count, status_label="warnings_observed" if count else "no_matching_warnings")
+    result.update(
+        status="ok" if timing["freshness"] == "fresh" else "partial",
+        warnings_total=len(warnings), cable_related_warnings=cable_related,
+        unlocated_warnings=unlocated,
+    )
+    return result

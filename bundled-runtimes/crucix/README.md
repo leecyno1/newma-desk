@@ -112,13 +112,17 @@ Dashboard at `http://localhost:3117`. Sweep data persists in `./runs/` via volum
 ### Live Dashboard
 A self-contained Jarvis-style HUD with:
 - **3D WebGL globe** (Globe.gl) with atmosphere glow, star field, and smooth rotation — plus a classic flat map toggle
-- **9 marker types** across both views: fire detections, air traffic, radiation sites, maritime chokepoints, SDR receivers, OSINT events, health alerts, geolocated news, conflict events
-- **Animated 3D flight corridor arcs** between air traffic hotspots and global hubs
+- **Map layers** include fire detections, air traffic, radiation sites, maritime chokepoints, SDR receivers, conflict events and headline reference regions. RSS regions are keyword hints, not event coordinates; no random displacement or publisher-location fallback. Unlocated news stays in the feed. Telegram posts and WHO bulletins have no verified coordinates and are not plotted by list position.
+- **Air and radiation reference regions** — coordinates travel with source identities, never list positions. Air markers are query-bounds centers, not aircraft positions; overlapping region counts are not a unique global total. Radiation markers are query-radius centers, not sensor locations. Unlocated legacy records remain in summaries without invented pins. No route arcs are generated from region counts: actual flight tracks are not provided by this collector.
+- **Radiation sample limits** — request a bounded 24-hour observation window with unit=cpm and per_page=10; no claim of exhaustive/latest ordering. Safecast device_id identifies a manufacturer/model/sensor type, not an individual station. Preserve units, type IDs and observation times; only one reported type with current CPM samples can have a descriptive sample mean. Unknown units/types, older samples and failures never become a normal/safe assessment. All site safety assessments remain unassessed without calibrated baselines. Missing observations cannot resolve an earlier anomaly.
 - **Region filters** (World, Americas, Europe, Middle East, Asia Pacific, Africa) — rotates the globe or zooms the flat map
 - **Live market data** — indexes, crypto, energy, commodities via Yahoo Finance (no API key needed)
 - **Risk gauges** — VIX, high-yield spread, supply chain pressure index
 - **OSINT feed** — English-language posts from 17 Telegram intelligence channels (expandable)
 - **News ticker** — merged RSS + GDELT headlines + Telegram posts, auto-scrolling
+- **RSS coverage** — validates RSS/RDF/Atom XML with pinned saxes 6.0.0; distinguishes safe timeout, DNS, TLS, refused-connection, other network, HTTP and format diagnostics. One request per feed with the existing 8-second budget, no automatic retries or source/TLS bypass. Valid empty feeds remain zero, failed counts remain unknown. The display selects at most 50 recent/undated records, not the entire source universe.
+- **RSS identity** — source + complete article URL (full title only when no URL) + publication time; different articles/publishers are not merged by headline prefixes. Titles are bounded only after selection. Metadata carries `regional-reserve-30d-url-v2`; legacy receipts default to v1 and cannot produce cross-version sample-growth comparisons. Article revisions at one URL can still be grouped by the frontend's existing timeline identity.
+- **RSS recovery** — the server and injection CLI persist `rss-cache.json` only inside `CRUCIX_RUNS_DIR`, keyed by feed URL and source name. Each feed retains its latest attempt separately from its last usable result (up to 500 articles). A failed request keeps old articles with their original collection/publication clocks; a valid empty feed clears them. Manual snapshot startup reads this cache without network requests or timestamp rewrites, labels recovered data as cached, and preserves the prior failure reason. Missing/corrupt caches and failed saves are visible. Pure synthesis calls do not write files unless `newsCacheDir` is supplied.
 - **Sweep delta** — live panel showing what changed since last sweep (new signals, escalations, de-escalations with severity)
 - **Cross-source signals** — correlated intelligence across satellite, economic, conflict, and social domains
 - **Nuclear watch** — real-time radiation readings from Safecast + EPA RadNet
@@ -214,9 +218,14 @@ These three unlock the most valuable economic and satellite data. Each takes abo
 
 ### Optional (enable additional sources)
 
+ACLED uses the [official OAuth flow](https://acleddata.com/api-documentation/getting-started) with `scope=authenticated`; the account must have API access. Tokens are kept only in process memory and honor `expires_in`; authentication failure does not silently retry via website cookies. Debug mode never prints tokens, cookies, passwords or upstream authentication bodies. Missing credentials mean unknown event/fatality counts, not zero. The inclusive seven-date window returns at most 2,000 reported event records: reaching the limit, malformed/duplicate records or unknown fatalities stays explicit. Totals describe accepted samples, not a global census, verified deaths, or a causal energy/defense trade signal.
+
+OpenSanctions hosted queries require an authorized `OPENSANCTIONS_API_KEY` ([authentication](https://www.opensanctions.org/docs/api/authentication/)); do not assume commercial use is free. No key means no request, not zero sanctions. The collector uses `/catalog` metadata and preserves exact/lower-bound query totals; six keyword searches overlap and only sample ten entities each, so they are not a global count or a compliance-screening result. Failed queries remain unknown; metadata failure or stale indexes keep partial coverage visible. Credentials stay server-side.
+
 | Key | Source | How to Get |
 |-----|--------|------------|
 | `ACLED_EMAIL` + `ACLED_PASSWORD` | Armed conflict event data | [acleddata.com/register](https://acleddata.com/register/) — free, OAuth2 |
+| `OPENSANCTIONS_API_KEY` | Sanctions keyword samples | [opensanctions.org/docs/api/authentication](https://www.opensanctions.org/docs/api/authentication/) — authorized hosted API key; review licensing |
 | `AISSTREAM_API_KEY` | Maritime AIS vessel tracking | [aisstream.io](https://aisstream.io/) — free |
 | `ADSB_API_KEY` | Unfiltered flight tracking | [RapidAPI](https://rapidapi.com/adsbexchange/api/adsbexchange-com1) — ~$10/mo |
 
@@ -350,10 +359,10 @@ crucix/
 | **Maritime/AIS** | Vessel tracking, dark ships, sanctions evasion | Free key |
 | **Safecast** | Citizen-science radiation monitoring near 6 nuclear sites | None |
 | **ACLED** | Armed conflict events: battles, explosions, protests | Free (OAuth2) |
-| **ReliefWeb** | UN humanitarian crisis tracking | None |
-| **WHO** | Disease outbreaks and health emergencies | None |
+| **ReliefWeb** | UN humanitarian reports/disasters; HDX only supplements missing coverage | Approved `RELIEFWEB_APPNAME` |
+| **WHO** | Last 30 days of official outbreak bulletins; bounded to 100 source records | None |
 | **OFAC** | US Treasury sanctions (SDN list) | None |
-| **OpenSanctions** | Aggregated global sanctions (30+ sources) | Partial |
+| **OpenSanctions** | Sanctions keyword samples, not compliance screening | Authorized API key required |
 | **ADS-B Exchange** | Unfiltered flight tracking including military | Paid |
 
 ### Tier 2: Economic & Financial (7)
@@ -401,12 +410,40 @@ crucix/
 | `npm run dev` | `node --trace-warnings server.mjs` | Start dashboard with auto-refresh |
 | `npm run sweep` | `node apis/briefing.mjs` | Run a single sweep, output JSON to stdout |
 | `npm run inject` | `node dashboard/inject.mjs` | Inject latest data into static HTML |
+| `npm run start:proxy` | `node --env-file-if-exists=.env --use-env-proxy server.mjs` | Explicitly use the configured HTTP(S) proxy |
+| `npm run inject:proxy` | `node --env-file-if-exists=.env --use-env-proxy dashboard/inject.mjs --no-open` | Refresh RSS through the configured proxy and inject HTML without opening a browser |
 | `npm run brief:save` | `node apis/save-briefing.mjs` | Run sweep + save timestamped JSON |
 | `npm run diag` | `node diag.mjs` | Run diagnostics (Node version, imports, port check) |
 
 ---
 
 ## Configuration
+
+### Public-source access and request outcomes
+
+ReliefWeb uses the documented `/v2` API and `current` disaster filter. Configure your own approved `RELIEFWEB_APPNAME`; without it, the source skips network requests and reports a configuration gap, never a default borrowed app or zero disasters. With an approved appname, any existing HDX supplement remains a dataset catalogue, not a successful ReliefWeb report query. HTTP rejection codes remain in per-query receipts and dashboard health. Official references: [API endpoints](https://apidoc.reliefweb.int/endpoints), [appname](https://apidoc.reliefweb.int/parameters#appname).
+
+GDELT's built-in OR queries are grouped in parentheses. Briefing keeps the existing 5.5s pause between ordinary DOC and GEO queries; each request has a 12s timeout and no automatic retry, fitting the two-query budget inside the existing 30s source deadline. If DOC returns 429, this batch stops: GEO is marked skipped, not failed, empty or as if it also returned 429. Source health and API coverage preserve the skipped count; there is no immediate retry or switch to another endpoint to work around the limit. Existing scheduled sweeps are unchanged. GEO returned 404 in local checks on 2026-11-17; this change does not restore it or identify the cause of that response. [Official query syntax](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/).
+
+Bluesky public search can depend on the provider's deployed access policy. Each of the three topic requests has an 8s deadline and no automatic retry, preserving valid earlier topics when a later one times out. HTTP 403/429 and unknown counts remain visible; the collector does not borrow a login, switch endpoints or bypass access controls. [Official search API](https://docs.bsky.app/docs/api/app-bsky-feed-search-posts).
+
+### Optional HTTP(S) proxy
+
+The proxy scripts require Node **22.21+ or 24.5+** (also supported by Node 26). Default scripts keep their Node 22+ baseline and do not enable a proxy unless explicitly opted in below. Node does not automatically inherit the macOS system proxy. Set `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY=127.0.0.1,localhost,::1` in the process environment or the **engine-root `.env`**; see the commented examples in `.env.example`. The proxy CLI loads that file before enabling proxy-aware fetch; setting these only in `apis/.env` is too late for that CLI. Existing process variables take precedence.
+
+Run from this engine's directory, or use `npm --prefix engines/crucix run start:proxy` from the project root. `inject:proxy` reads the configured `latest.json`, refreshes RSS and writes the selected HTML (`-- --html /absolute/path/to/candidate.html`); it never opens a browser. These scripts use Node's native support, add no dependencies and do not change system proxy settings, the Desk launcher or running services. Do not use a SOCKS URL here. Keep local service addresses in `NO_PROXY`; configured models and bots retain their existing behavior and must be disabled separately for data-only testing.
+
+For managed launchers that run plain `node server.mjs`, set `CRUCIX_USE_ENV_PROXY=true` alongside the proxy URLs in the engine-root `.env`. After dotenv loads, the engine calls native `http.setGlobalProxyFromEnv` before source requests, including fetch. This requires that runtime API (verified on Node 24.19 and 26.7); an unsupported Node fails explicitly instead of silently connecting directly. Without this opt-in the existing routing is unchanged. Process environment values, including explicit empty/false values, override the file. This setting affects only this engine process and takes effect after a controlled restart; it does not read or change the system proxy.
+
+Proxy failures and HTTP 403 remain explicit source failures with unknown counts. There is no automatic direct fallback, source substitution, certificate bypass or added retry. Proxy reachability does not prove every source is available. Native option reference: [Node CLI documentation](https://nodejs.org/download/release/v22.21.0/docs/api/cli.html#--use-env-proxy).
+
+Desk integration adds two optional runtime settings:
+
+- `CRUCIX_RUNS_DIR`: shared state directory for the server, `brief:save`, HTML injection and historical fallback. Defaults to this engine's `runs/`, independent of the working directory.
+- Full sweeps give each source a 30-second deadline. Nested HTTP requests (including response bodies), retries and rate-limit waits share that source's cancellation scope; one timed-out source does not cancel its peers. Connection cleanup can outlast the summary, so wait for the CLI to exit. Direct provider calls retain their per-request timeouts.
+- `CRUCIX_AUTO_SWEEP=false`: serve saved data without initial or scheduled sweeps. Startup does not refresh RSS when restoring a snapshot. Use `brief:save` explicitly and restart the service to load a new file. Default automatic behavior remains enabled.
+
+This switch does not disable explicitly configured Telegram/Discord commands or alerts. Clear those credentials and `LLM_PROVIDER` separately when running a data-only candidate. Explicit empty environment variables override .env values. These controls do not provide public authentication.
 
 All settings are in `.env` with sensible defaults:
 

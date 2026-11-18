@@ -53,9 +53,9 @@ from world_intel_mcp.sources import (
     webcams,
 )
 from world_intel_mcp.analysis.alerts import fetch_alert_digest, fetch_weekly_trends
+from world_intel_mcp.analysis.inputs import AnalysisInputs
 from world_intel_mcp.analysis.posture import fetch_strategic_posture
 from world_intel_mcp.analysis.exposure import fetch_population_exposure
-from world_intel_mcp.analysis.media_monitor import analyze_media_monitor
 from world_intel_mcp.analysis.situation import fetch_situation_brief
 from world_intel_mcp.sources.fleet import fetch_fleet_report
 from world_intel_mcp.sources.usni_fleet import fetch_usni_fleet
@@ -157,23 +157,24 @@ def _ensure_fetcher() -> Fetcher:
 async def _fetch_overview() -> dict:
     """Fetch all dashboard domains in parallel, return unified dict."""
     fetcher = _ensure_fetcher()
+    inputs = AnalysisInputs(fetcher)
 
     coros = {
         "market_quotes": markets.fetch_market_quotes(fetcher),
         "crypto_quotes": markets.fetch_crypto_quotes(fetcher),
         "macro_signals": markets.fetch_macro_signals(fetcher),
         "sector_heatmap": markets.fetch_sector_heatmap(fetcher),
-        "earthquakes": seismology.fetch_earthquakes(fetcher),
-        "military_flights": military.fetch_military_flights(fetcher),
-        "cyber_threats": cyber.fetch_cyber_threats(fetcher),
+        "earthquakes": inputs.get("earthquakes"),
+        "military_flights": inputs.get("military_flights"),
+        "cyber_threats": inputs.get("cyber_threats"),
         "news_bundle": news.fetch_news_bundle(fetcher),
-        "nav_warnings": maritime.fetch_nav_warnings(fetcher),
-        "internet_outages": infrastructure.fetch_internet_outages(fetcher),
-        "cable_health": infrastructure.fetch_cable_health(fetcher),
+        "nav_warnings": inputs.get("nav_warnings"),
+        "internet_outages": inputs.get("internet_outages"),
+        "cable_health": inputs.get("cable_health"),
         "wildfires": wildfire.fetch_wildfires(fetcher),
         "prediction_markets": prediction.fetch_prediction_markets(fetcher),
         "airport_delays": aviation.fetch_airport_delays(fetcher),
-        "climate_anomalies": climate.fetch_climate_anomalies(fetcher),
+        "climate_anomalies": inputs.get("climate_anomalies"),
         "energy_prices": economic.fetch_energy_prices(fetcher),
         "gas_prices": economic.fetch_gas_prices(fetcher),
         "residential_natgas": economic.fetch_residential_natgas_prices(fetcher),
@@ -184,21 +185,21 @@ async def _fetch_overview() -> dict:
         "ucdp_events": conflict.fetch_ucdp_events(fetcher),
         "displacement": displacement.fetch_displacement_summary(fetcher),
         "risk_scores": intelligence.fetch_risk_scores(fetcher),
-        "signal_convergence": intelligence.fetch_signal_convergence(fetcher),
-        "space_weather": space_weather.fetch_space_weather(fetcher),
+        "signal_convergence": inputs.get("signal_convergence"),
+        "space_weather": inputs.get("space_weather"),
         "ai_watch": ai_watch.fetch_ai_watch(fetcher),
-        "disease_outbreaks": health.fetch_disease_outbreaks(fetcher),
+        "disease_outbreaks": inputs.get("disease_outbreaks"),
         "election_calendar": elections.fetch_election_calendar(fetcher),
-        "shipping_index": shipping.fetch_shipping_index(fetcher),
+        "shipping_index": inputs.get("shipping_index"),
         "social_signals": social.fetch_social_signals(fetcher),
-        "nuclear_monitor": nuclear.fetch_nuclear_monitor(fetcher),
-        "alert_digest": fetch_alert_digest(fetcher),
+        "nuclear_monitor": inputs.get("nuclear_monitor"),
+        "alert_digest": fetch_alert_digest(fetcher, inputs=inputs),
         "weekly_trends": fetch_weekly_trends(fetcher),
         "service_status": service_status.fetch_service_status(fetcher),
-        "strategic_posture": fetch_strategic_posture(fetcher),
-        "fleet_report": fetch_fleet_report(fetcher),
+        "strategic_posture": fetch_strategic_posture(fetcher, inputs=inputs),
+        "fleet_report": fetch_fleet_report(fetcher, inputs=inputs),
         "usni_fleet": fetch_usni_fleet(fetcher),
-        "population_exposure": fetch_population_exposure(fetcher),
+        "population_exposure": inputs.get("population_exposure"),
         "domestic_flights": aviation.fetch_domestic_flights(fetcher),
         "traffic_flow": traffic.fetch_traffic_flow(fetcher),
         "traffic_incidents": traffic.fetch_traffic_incidents(fetcher),
@@ -224,10 +225,13 @@ async def _fetch_overview() -> dict:
             logger.warning("Dashboard fetch %s timed out after %.0fs", name, effective)
             return {"error": f"timeout after {effective}s", "_timeout": True}
 
-    gathered = await asyncio.gather(
-        *[_with_timeout(name, c) for name, c in zip(coros.keys(), coros.values())],
-        return_exceptions=True,
-    )
+    try:
+        gathered = await asyncio.gather(
+            *[_with_timeout(name, c) for name, c in coros.items()],
+            return_exceptions=True,
+        )
+    finally:
+        await inputs.close()
 
     result: dict = {}
     for name, data in zip(coros.keys(), gathered):
@@ -251,13 +255,13 @@ async def _fetch_overview() -> dict:
     bundled_monitor = result.get("media_monitor")
     social_posts = result.get("social_signals", {}).get("posts", [])
     if social_posts:
-        result["media_monitor"] = analyze_media_monitor(
-            result.get("news_feed", {}).get("items", []),
+        result["media_monitor"] = news.build_media_monitor(
+            result.get("news_feed", {}),
             social_posts,
         )
     elif not isinstance(bundled_monitor, dict):
-        result["media_monitor"] = analyze_media_monitor(
-            result.get("news_feed", {}).get("items", []),
+        result["media_monitor"] = news.build_media_monitor(
+            result.get("news_feed", {}),
         )
 
     # Conflict zone fallback: when both ACLED and UCDP fail, provide
@@ -392,6 +396,7 @@ async def api_stream(request):
         global _stream_completed_at, _stream_done, _stream_meta, _stream_snapshot, _stream_total
 
         tasks: list[asyncio.Task] = []
+        inputs = None
 
         try:
             while True:
@@ -414,6 +419,7 @@ async def api_stream(request):
                         continue
 
                     fetcher = _ensure_fetcher()
+                    inputs = AnalysisInputs(fetcher)
 
                     # Sources to fetch, grouped so fast ones arrive first
                     source_defs = {
@@ -421,17 +427,17 @@ async def api_stream(request):
                         "crypto_quotes": lambda: markets.fetch_crypto_quotes(fetcher),
                         "macro_signals": lambda: markets.fetch_macro_signals(fetcher),
                         "sector_heatmap": lambda: markets.fetch_sector_heatmap(fetcher),
-                        "earthquakes": lambda: seismology.fetch_earthquakes(fetcher),
-                        "military_flights": lambda: military.fetch_military_flights(fetcher),
-                        "cyber_threats": lambda: cyber.fetch_cyber_threats(fetcher),
+                        "earthquakes": lambda: inputs.get("earthquakes"),
+                        "military_flights": lambda: inputs.get("military_flights"),
+                        "cyber_threats": lambda: inputs.get("cyber_threats"),
                         "news_bundle": lambda: news.fetch_news_bundle(fetcher),
-                        "nav_warnings": lambda: maritime.fetch_nav_warnings(fetcher),
-                        "internet_outages": lambda: infrastructure.fetch_internet_outages(fetcher),
-                        "cable_health": lambda: infrastructure.fetch_cable_health(fetcher),
+                        "nav_warnings": lambda: inputs.get("nav_warnings"),
+                        "internet_outages": lambda: inputs.get("internet_outages"),
+                        "cable_health": lambda: inputs.get("cable_health"),
                         "wildfires": lambda: wildfire.fetch_wildfires(fetcher),
                         "prediction_markets": lambda: prediction.fetch_prediction_markets(fetcher),
                         "airport_delays": lambda: aviation.fetch_airport_delays(fetcher),
-                        "climate_anomalies": lambda: climate.fetch_climate_anomalies(fetcher),
+                        "climate_anomalies": lambda: inputs.get("climate_anomalies"),
                         "energy_prices": lambda: economic.fetch_energy_prices(fetcher),
                         "gas_prices": lambda: economic.fetch_gas_prices(fetcher),
                         "residential_natgas": lambda: economic.fetch_residential_natgas_prices(fetcher),
@@ -442,21 +448,21 @@ async def api_stream(request):
                         "ucdp_events": lambda: conflict.fetch_ucdp_events(fetcher),
                         "displacement": lambda: displacement.fetch_displacement_summary(fetcher),
                         "risk_scores": lambda: intelligence.fetch_risk_scores(fetcher),
-                        "signal_convergence": lambda: intelligence.fetch_signal_convergence(fetcher),
-                        "space_weather": lambda: space_weather.fetch_space_weather(fetcher),
+                        "signal_convergence": lambda: inputs.get("signal_convergence"),
+                        "space_weather": lambda: inputs.get("space_weather"),
                         "ai_watch": lambda: ai_watch.fetch_ai_watch(fetcher),
-                        "disease_outbreaks": lambda: health.fetch_disease_outbreaks(fetcher),
+                        "disease_outbreaks": lambda: inputs.get("disease_outbreaks"),
                         "election_calendar": lambda: elections.fetch_election_calendar(fetcher),
-                        "shipping_index": lambda: shipping.fetch_shipping_index(fetcher),
+                        "shipping_index": lambda: inputs.get("shipping_index"),
                         "social_signals": lambda: social.fetch_social_signals(fetcher),
-                        "nuclear_monitor": lambda: nuclear.fetch_nuclear_monitor(fetcher),
-                        "alert_digest": lambda: fetch_alert_digest(fetcher),
+                        "nuclear_monitor": lambda: inputs.get("nuclear_monitor"),
+                        "alert_digest": lambda: fetch_alert_digest(fetcher, inputs=inputs),
                         "weekly_trends": lambda: fetch_weekly_trends(fetcher),
                         "service_status": lambda: service_status.fetch_service_status(fetcher),
-                        "strategic_posture": lambda: fetch_strategic_posture(fetcher),
-                        "fleet_report": lambda: fetch_fleet_report(fetcher),
+                        "strategic_posture": lambda: fetch_strategic_posture(fetcher, inputs=inputs),
+                        "fleet_report": lambda: fetch_fleet_report(fetcher, inputs=inputs),
                         "usni_fleet": lambda: fetch_usni_fleet(fetcher),
-                        "population_exposure": lambda: fetch_population_exposure(fetcher),
+                        "population_exposure": lambda: inputs.get("population_exposure"),
                         "domestic_flights": lambda: aviation.fetch_domestic_flights(fetcher),
                         "traffic_flow": lambda: traffic.fetch_traffic_flow(fetcher),
                         "traffic_incidents": lambda: traffic.fetch_traffic_incidents(fetcher),
@@ -537,8 +543,8 @@ async def api_stream(request):
 
                     bundled_monitor = cycle_snapshot.get("media_monitor")
                     social_posts = cycle_snapshot.get("social_signals", {}).get("posts", [])
-                    media_monitor = analyze_media_monitor(
-                        cycle_snapshot.get("news_feed", {}).get("items", []),
+                    media_monitor = news.build_media_monitor(
+                        cycle_snapshot.get("news_feed", {}),
                         social_posts,
                     ) if social_posts or not isinstance(bundled_monitor, dict) else bundled_monitor
                     completed += 1
@@ -578,6 +584,8 @@ async def api_stream(request):
                     yield f"data: {json.dumps(meta, default=str)}\n\n"
 
                     await _cancel_tasks(tasks)
+                    await inputs.close()
+                    inputs = None
                     tasks = []
 
                 while _stream_cache_is_fresh():
@@ -595,6 +603,8 @@ async def api_stream(request):
             # otherwise repeated Mod opens leave a growing fan-out behind and
             # can starve the dashboard health endpoint.
             await _cancel_tasks(tasks)
+            if inputs is not None:
+                await inputs.close()
 
     return StreamingResponse(
         event_generator(),

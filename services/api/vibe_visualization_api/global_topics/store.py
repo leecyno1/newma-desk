@@ -123,6 +123,22 @@ class GlobalTopicStore:
             for row in rows
         ]
 
+    def latest_forecast(self, topic_id: str, *, scope: tuple[str, str] | None = None) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            if scope is None:
+                row = connection.execute(
+                    "SELECT created_at, factors_json, result_json FROM global_topic_forecasts WHERE topic_id = ? ORDER BY id DESC LIMIT 1",
+                    (topic_id,),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT created_at, factors_json, result_json FROM global_topic_scoped_forecasts WHERE user_id = ? AND workspace_id = ? AND topic_id = ? ORDER BY id DESC LIMIT 1",
+                    (*scope, topic_id),
+                ).fetchone()
+        if row is None:
+            return None
+        return {"createdAt": row["created_at"], "factors": json.loads(row["factors_json"]), "result": json.loads(row["result_json"])}
+
     def save_forecast(self, topic_id: str, created_at: str, factors: dict[str, float], result: dict[str, Any], *, scope: tuple[str, str] | None = None) -> None:
         with self._connect() as connection:
             if scope is not None:

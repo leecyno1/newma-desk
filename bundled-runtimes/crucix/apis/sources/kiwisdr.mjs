@@ -1,23 +1,21 @@
+import { sourceFetch as fetch } from '../utils/source-request.mjs';
+
 // KiwiSDR Network — Global software-defined radio receiver network
 // No auth required. ~900 public HF receivers worldwide (0-30 MHz).
 // Useful for SIGINT awareness: HF band activity, receiver distribution,
 // detecting unusual radio configurations in conflict zones.
 // Data source: receiverbook.de (embeds full receiver list as JS variable)
 
-import { safeFetch } from '../utils/fetch.mjs';
-
 const RECEIVERBOOK_URL = 'https://www.receiverbook.de/map?type=kiwisdr';
 
 // Fetch the full list of public KiwiSDR receivers from receiverbook.de
 export async function getAllReceivers() {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
+    const signal = AbortSignal.timeout(20000);
     const res = await fetch(RECEIVERBOOK_URL, {
       headers: { 'User-Agent': 'Crucix/1.0' },
-      signal: controller.signal,
+      signal,
     });
-    clearTimeout(timer);
     if (!res.ok) return { error: `HTTP ${res.status}` };
     const html = await res.text();
     // Extract embedded JS: var receivers = [...];
@@ -38,8 +36,8 @@ export async function getAllReceivers() {
           url: rx.url || site.url || '',
           version: rx.version || '',
           antenna: '',
-          users: 0, usersMax: 0,
-          offline: false,
+          users: null, usersMax: null,
+          offline: null,
           snr: NaN,
           tdoa: null,
           bands: '',
@@ -117,13 +115,13 @@ function normalizeReceiver(rx, idx) {
   return {
     name: (rx.name || `Receiver-${idx}`).slice(0, 100),
     location: (rx.location || '').slice(0, 80),
-    lat: parseFloat(rx.lat) || NaN,
-    lon: parseFloat(rx.lon) || NaN,
-    users: parseInt(rx.users ?? 0, 10),
-    usersMax: parseInt(rx.usersMax ?? 0, 10),
+    lat: Number.isFinite(Number(rx.lat)) ? Number(rx.lat) : NaN,
+    lon: Number.isFinite(Number(rx.lon)) ? Number(rx.lon) : NaN,
+    users: null,
+    usersMax: null,
     antenna: (rx.antenna || '').slice(0, 80),
     bands: (rx.bands || '').slice(0, 60),
-    offline: rx.offline === true,
+    offline: null,
     snr: parseFloat(rx.snr ?? NaN),
     tdoa: rx.tdoa ?? null,
     country: rx.country || '',
@@ -166,12 +164,10 @@ export async function briefing() {
 
   // Normalize all receivers
   const allRx = rxList.map((rx, i) => normalizeReceiver(rx, i));
-  const onlineRx = allRx.filter(r => !r.offline);
-  const offlineRx = allRx.filter(r => r.offline);
 
   // --- Geographic distribution by country ---
   const byCountry = {};
-  for (const rx of onlineRx) {
+  for (const rx of allRx) {
     const c = rx.country || 'Unknown';
     byCountry[c] = (byCountry[c] || 0) + 1;
   }
@@ -183,7 +179,7 @@ export async function briefing() {
 
   // --- Continental distribution ---
   const byContinent = {};
-  for (const rx of onlineRx) {
+  for (const rx of allRx) {
     const continent = getContinent(rx.lat, rx.lon);
     byContinent[continent] = (byContinent[continent] || 0) + 1;
   }
@@ -191,7 +187,7 @@ export async function briefing() {
   // --- Receivers in regions of interest ---
   const conflictZoneReceivers = {};
   for (const [key, box] of Object.entries(REGIONS_OF_INTEREST)) {
-    const rxInRegion = onlineRx.filter(rx => inBounds(rx, box));
+    const rxInRegion = allRx.filter(rx => inBounds(rx, box));
     conflictZoneReceivers[key] = {
       region: box.label,
       count: rxInRegion.length,
@@ -207,96 +203,23 @@ export async function briefing() {
     };
   }
 
-  // --- Activity analysis (users connected) ---
-  const activeRx = onlineRx
-    .filter(r => r.users > 0)
-    .sort((a, b) => b.users - a.users);
-
-  const totalUsers = onlineRx.reduce((sum, r) => sum + r.users, 0);
-  const totalCapacity = onlineRx.reduce((sum, r) => sum + r.usersMax, 0);
-
-  const topActive = activeRx.slice(0, 15).map(rx => ({
-    name: rx.name,
-    location: rx.location,
-    country: rx.country,
-    users: rx.users,
-    usersMax: rx.usersMax,
-    lat: rx.lat,
-    lon: rx.lon,
-    antenna: rx.antenna,
-  }));
-
-  // --- TDOA-capable receivers (direction finding / geolocation) ---
-  const tdoaCapable = onlineRx.filter(r => r.tdoa !== null && r.tdoa > 0);
-
-  // --- Antenna analysis (identify unusual/specialized setups) ---
-  const antennaTypes = {};
-  for (const rx of onlineRx) {
-    if (rx.antenna) {
-      const key = rx.antenna.toLowerCase().trim();
-      antennaTypes[key] = (antennaTypes[key] || 0) + 1;
-    }
-  }
-
-  // --- Utilization metrics ---
-  const utilizationPct = totalCapacity > 0
-    ? ((totalUsers / totalCapacity) * 100).toFixed(1)
-    : '0.0';
-
-  const highUtilization = onlineRx
-    .filter(r => r.usersMax > 0 && (r.users / r.usersMax) >= 0.8)
-    .map(rx => ({
-      name: rx.name,
-      location: rx.location,
-      country: rx.country,
-      users: rx.users,
-      usersMax: rx.usersMax,
-    }));
-
-  // --- Generate signals ---
-  const signals = [];
-
-  // High user count (unusual listening activity)
-  if (totalUsers > onlineRx.length * 0.5) {
-    signals.push(`HIGH LISTENER ACTIVITY: ${totalUsers} total users across ${onlineRx.length} receivers (${utilizationPct}% utilization)`);
-  }
-
-  // Conflict zone coverage
-  for (const [key, info] of Object.entries(conflictZoneReceivers)) {
-    if (info.count > 0) {
-      const activeInZone = info.receivers.filter(r => r.users > 0);
-      if (activeInZone.length > 0) {
-        signals.push(`ACTIVE LISTENING in ${info.region}: ${activeInZone.length}/${info.count} receivers have users connected`);
-      }
-    }
-  }
-
-  // High utilization receivers
-  if (highUtilization.length > 5) {
-    signals.push(`${highUtilization.length} receivers at >80% capacity — elevated HF monitoring demand`);
-  }
-
   return {
     source: 'KiwiSDR',
     timestamp: new Date().toISOString(),
-    status: 'active',
+    status: 'ok',
+    basis: 'directory-only',
+    note: 'Receiverbook directory entries; online state, listener activity and availability are not probed',
     network: {
       totalReceivers: allRx.length,
-      online: onlineRx.length,
-      offline: offlineRx.length,
-      totalUsers,
-      totalCapacity,
-      utilizationPct: parseFloat(utilizationPct),
-      tdoaCapable: tdoaCapable.length,
+      online: null, offline: null, totalUsers: null, totalCapacity: null,
+      utilizationPct: null, tdoaCapable: null,
     },
     geographic: {
       byContinent,
       topCountries,
     },
     conflictZones: conflictZoneReceivers,
-    topActive,
-    highUtilization: highUtilization.slice(0, 10),
-    signals,
+    topActive: [], highUtilization: [], signals: [],
   };
 }
 

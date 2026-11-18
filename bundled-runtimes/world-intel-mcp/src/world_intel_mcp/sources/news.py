@@ -22,6 +22,13 @@ except ImportError:
 
 logger = logging.getLogger("world-intel-mcp.sources.news")
 
+# Verified endpoint replacements must not reuse content cached for old URLs.
+_RSS_CACHE_REVISIONS = {
+    "DW News": ":rdf", "DW Deutsch": ":rdf", "DW Europe": ":rdf", "DW Español": ":rdf",
+    "VOA News": ":official", "Radio Free Europe": ":official", "Scroll India": ":official", "Lloyd's List": ":official",
+    "Maritime Executive": ":articles-atom",
+}
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -37,10 +44,10 @@ _RSS_FEEDS: dict[str, list[tuple[str, str]]] = {
             "https://news.google.com/rss/search?q=source:Reuters&hl=en-US&gl=US&ceid=US:en",
         ),
         ("The Guardian World", "https://www.theguardian.com/world/rss"),
-        ("DW News", "https://rss.dw.com/rss/en/top_news/rss-en-top"),
+        ("DW News", "https://rss.dw.com/rdf/rss-en-top"),
         ("France24", "https://www.france24.com/en/rss"),
         ("NPR World", "https://feeds.npr.org/1004/rss.xml"),
-        ("VOA News", "https://www.voanews.com/api/zyrttemnuq"),
+        ("VOA News", "https://www.voanews.com/api/"),
     ],
     "security": [
         ("BleepingComputer", "https://www.bleepingcomputer.com/feed/"),
@@ -140,8 +147,8 @@ _RSS_FEEDS: dict[str, list[tuple[str, str]]] = {
     ],
     "multilingual": [
         ("BBC Mundo", "https://feeds.bbci.co.uk/mundo/rss.xml"),
-        ("DW Español", "https://rss.dw.com/rss/es/top_news/rss-es-top"),
-        ("DW Deutsch", "https://rss.dw.com/rss/de/top_news/rss-de-top"),
+        ("DW Español", "https://rss.dw.com/rdf/rss-sp-all"),
+        ("DW Deutsch", "https://rss.dw.com/rdf/rss-de-all"),
         ("France24 Français", "https://www.france24.com/fr/rss"),
         ("RFI Français", "https://www.rfi.fr/fr/rss"),
         ("UN News Español", "https://news.un.org/feed/subscribe/es/news/all/rss.xml"),
@@ -173,12 +180,12 @@ _RSS_FEEDS: dict[str, list[tuple[str, str]]] = {
         ("EurActiv", "https://www.euractiv.com/feed/"),
         ("Politico EU", "https://www.politico.eu/feed/"),
         ("EU Observer", "https://euobserver.com/rss"),
-        ("DW Europe", "https://rss.dw.com/rss/en/eu/rss-en-eu"),
+        ("DW Europe", "https://rss.dw.com/rdf/rss-en-eu"),
     ],
     "south_asia": [
         ("NDTV", "https://feeds.feedburner.com/ndtvnews-top-stories"),
         ("Dawn Pakistan", "https://www.dawn.com/feeds/home"),
-        ("Scroll India", "https://scroll.in/feed"),
+        ("Scroll India", "https://feeds.feedburner.com/ScrollinArticles.rss"),
     ],
     "health": [
         ("STAT News", "https://www.statnews.com/feed/"),
@@ -189,7 +196,7 @@ _RSS_FEEDS: dict[str, list[tuple[str, str]]] = {
     "central_asia": [
         ("Eurasianet", "https://eurasianet.org/feed"),
         ("The Astana Times", "https://astanatimes.com/feed/"),
-        ("Radio Free Europe", "https://www.rferl.org/api/zyrttemnuq"),
+        ("Radio Free Europe", "https://www.rferl.org/api/"),
     ],
     "arctic": [
         ("The Barents Observer", "https://thebarentsobserver.com/en/rss.xml"),
@@ -197,9 +204,9 @@ _RSS_FEEDS: dict[str, list[tuple[str, str]]] = {
         ("High North News", "https://www.highnorthnews.com/en/rss.xml"),
     ],
     "maritime": [
-        ("Maritime Executive", "https://maritime-executive.com/feed"),
+        ("Maritime Executive", "https://maritime-executive.com/articles.rss"),
         ("gCaptain", "https://gcaptain.com/feed/"),
-        ("Lloyd's List", "https://lloydslist.maritimeintelligence.informa.com/rss/all"),
+        ("Lloyd's List", "https://www.lloydslist.com/rss/lloyds-list"),
     ],
     "space": [
         ("SpaceRef", "https://spaceref.com/feed/"),
@@ -571,8 +578,9 @@ async def fetch_news_feed(
     if feedparser is None:
         return {
             "error": "feedparser not installed — run: pip install feedparser",
+            "status": "unavailable",
             "items": [],
-            "count": 0,
+            "count": None,
         }
 
     now = datetime.now(timezone.utc)
@@ -582,7 +590,8 @@ async def fetch_news_feed(
         if category not in _RSS_FEEDS:
             return {
                 "items": [],
-                "count": 0,
+                "count": None,
+                "status": "unavailable",
                 "categories_fetched": [],
                 "error": f"Unknown category '{category}'. Valid: {list(_RSS_FEEDS.keys())}",
                 "source": "rss-aggregator",
@@ -594,10 +603,7 @@ async def fetch_news_feed(
 
     all_items: list[dict] = []
 
-    def _parse_feed(xml_text: str, feed_name: str, cat: str) -> list[dict]:
-        parsed = feedparser.parse(xml_text)
-        safe_name = feed_name.lower().replace(" ", "_")
-        timing = source_cache_timing(fetcher.cache, f"news:rss:{safe_name}")
+    def _parse_feed(parsed: dict, feed_name: str, cat: str, timing: dict) -> list[dict]:
         items: list[dict] = []
         for entry in parsed.get("entries", []):
             published = _parse_published(entry)
@@ -623,46 +629,84 @@ async def fetch_news_feed(
             })
         return items
 
-    async def _fetch_single_feed(
+    async def _safe_fetch(
         feed_name: str,
         url: str,
         cat: str,
-    ) -> list[dict]:
-        """Fetch and parse a single RSS feed, returning extracted items."""
+    ) -> tuple[list[dict], dict]:
+        """Each feed has a receipt, including valid empty and failed responses."""
         safe_name = feed_name.lower().replace(" ", "_")
-        xml_text = await fetcher.get_xml(
-            url,
-            source=f"rss:{safe_name}",
-            cache_key=f"news:rss:{safe_name}",
-            cache_ttl=300,
-            timeout=8.0,
-        )
-
-        if xml_text is None:
-            logger.debug("No data from RSS feed %s (%s)", feed_name, url)
-            return []
-
-        return _parse_feed(xml_text, feed_name, cat)
-
-    async def _safe_fetch(feed_name: str, url: str, cat: str) -> list[dict]:
-        """Wrap single feed fetch with a hard timeout."""
+        key = f"news:rss:{safe_name}" + _RSS_CACHE_REVISIONS.get(feed_name, "")
+        reason_code = None
         try:
-            return await asyncio.wait_for(
-                _fetch_single_feed(feed_name, url, cat),
+            xml_text = await asyncio.wait_for(
+                fetcher.get_xml(url, source=f"rss:{safe_name}", cache_key=key,
+                                cache_ttl=300, timeout=8.0),
                 timeout=12.0,
             )
         except asyncio.TimeoutError:
             logger.debug("RSS feed %s timed out", feed_name)
-            safe_name = feed_name.lower().replace(" ", "_")
-            stale_xml = fetcher.cache.get_stale(f"news:rss:{safe_name}")
-            return _parse_feed(stale_xml, feed_name, cat) if isinstance(stale_xml, str) else []
+            xml_text, reason_code = None, "timeout"
+        except Exception:
+            logger.exception("RSS feed %s failed", feed_name)
+            xml_text, reason_code = None, "fetch_failed"
+
+        if xml_text is None:
+            reason_code = reason_code or "no_response"
+            xml_text = fetcher.cache.get_stale(key)
+        timing = source_cache_timing(fetcher.cache, key)
+        receipt = {"id": f"rss:{safe_name}", "source": feed_name, "category": cat,
+                   "configured_url": url, **timing, "status": "unavailable",
+                   "count": None, "reason_code": reason_code or "no_response",
+                   "reason": "请求超时，未取得可用订阅" if reason_code == "timeout" else "未取得可用订阅响应"}
+
+        def retain_last_valid(failure: dict) -> tuple[list[dict], dict]:
+            # The HTTP cache may contain a 200 HTML/error page. Keep the last
+            # validated feed separately, including its original collection time.
+            previous = fetcher.cache.get_stale(key + ":last-valid")
+            if not isinstance(previous, dict) or previous.get("url") != url:
+                return [], failure
+            old_timing = {**previous["timing"], "checked_at": timing["checked_at"], "freshness": "stale"}
+            try:
+                old_items = _parse_feed(feedparser.parse(previous["xml"]), feed_name, cat, old_timing)
+            except Exception:
+                logger.exception("Last valid RSS feed %s could not be restored", feed_name)
+                return [], failure
+            return old_items, {**failure, **old_timing, "status": "stale", "count": len(old_items),
+                               "reason": failure["reason"] + "；保留上次有效订阅，非本次最新结果"}
+
+        if not isinstance(xml_text, str):
+            return retain_last_valid(receipt)
+        try:
+            parsed = feedparser.parse(xml_text)
+            # feedparser also accepts HTML and malformed XML without raising.
+            # Only recognised RSS/Atom with a valid empty body means zero news.
+            if not parsed.get("version") or (parsed.get("bozo") and not parsed.get("entries")):
+                return retain_last_valid({**receipt, "reason_code": "invalid_feed", "reason": "响应不是有效 RSS/Atom 订阅，不能视为空新闻源"})
+            items = _parse_feed(parsed, feed_name, cat, timing)
+        except Exception:
+            logger.exception("RSS feed %s could not be parsed", feed_name)
+            return retain_last_valid({**receipt, "reason_code": "parse_failed", "reason": "订阅解析失败，数量未知"})
+
+        if not parsed.get("bozo") and timing["freshness"] == "fresh" and reason_code is None:
+            # Retention is not freshness: survive ordinary expired-cache cleanup,
+            # but always use the original source timing and mark fallback stale.
+            fetcher.cache.set(key + ":last-valid", {"url": url, "xml": xml_text, "timing": timing}, 7 * 86400)
+
+        stale = timing["freshness"] == "stale"
+        partial = bool(parsed.get("bozo")) or timing["freshness"] != "fresh" or reason_code is not None
+        status = "stale" if stale else "partial" if partial else "ok"
+        reason = "保留过期订阅，不能代表本次最新新闻" if stale else (
+            "仅保留可解析样本，订阅格式或采集时间不完整" if partial else "订阅有效，解析完成")
+        return items, {**receipt, "status": status, "count": len(items), "reason": reason,
+                       "reason_code": reason_code or ("stale_cache" if stale else "partial_feed" if partial else "ok")}
 
     # Fetch feeds with concurrency cap to avoid saturating the httpx pool.
     # Without this, 119 RSS feeds + other source calls exceed the 50-connection
     # pool limit, causing cascade timeouts across the entire dashboard.
     sem = asyncio.Semaphore(25)
 
-    async def _throttled(feed_name: str, url: str, cat: str) -> list[dict]:
+    async def _throttled(feed_name: str, url: str, cat: str) -> tuple[list[dict], dict]:
         async with sem:
             return await _safe_fetch(feed_name, url, cat)
 
@@ -672,19 +716,19 @@ async def fetch_news_feed(
         for feed_name, url in feeds
     ]
     results = await asyncio.gather(*all_tasks)
-    for items in results:
+    for items, _ in results:
         all_items.extend(items)
-
-    # Keep the world browser useful during transient network or proxy stalls.
-    # Stale RSS is clearly timestamped per article and is preferable to an
-    # empty global news surface.
-    if not all_items:
-        for cat, feeds in categories_to_fetch.items():
-            for feed_name, _ in feeds:
-                safe_name = feed_name.lower().replace(" ", "_")
-                stale_xml = fetcher.cache.get_stale(f"news:rss:{safe_name}")
-                if isinstance(stale_xml, str):
-                    all_items.extend(_parse_feed(stale_xml, feed_name, cat))
+    receipts = [receipt for _, receipt in results]
+    coverage = {
+        "expected": len(receipts),
+        "available": sum(row["status"] != "unavailable" for row in receipts),
+        "complete": sum(row["status"] == "ok" for row in receipts),
+        "stale": sum(row["status"] == "stale" for row in receipts),
+        "partial": sum(row["status"] == "partial" for row in receipts),
+        "failed": sum(row["status"] == "unavailable" for row in receipts),
+    }
+    status = "unavailable" if not coverage["available"] else (
+        "ok" if coverage["complete"] == coverage["expected"] else "partial")
 
     # Sort by published date descending (entries without dates go last)
     all_items.sort(
@@ -698,7 +742,11 @@ async def fetch_news_feed(
 
     return {
         "items": all_items,
-        "count": len(all_items),
+        "count": len(all_items) if coverage["available"] else None,
+        "status": status,
+        "coverage": coverage,
+        "source_results": receipts,
+        **({"error": "没有可用新闻订阅，不能判断新闻或热点数量"} if status == "unavailable" else {}),
         "categories_fetched": list(categories_to_fetch.keys()),
         "source": "rss-aggregator",
         "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -733,7 +781,33 @@ async def fetch_trending_keywords(
     """
     # Fetch a broad set of recent items
     feed_data = await fetch_news_feed(fetcher, limit=200)
-    return analyze_trending_keywords(feed_data.get("items", []), min_count=min_count)
+    return _with_news_coverage(
+        analyze_trending_keywords(feed_data.get("items", []), min_count=min_count), feed_data)
+
+
+def _with_news_coverage(result: dict, feed_data: dict) -> dict:
+    """Derived views describe the same sample, never a complete news universe."""
+    result = {**result, "status": feed_data.get("status", "unknown"),
+              "coverage": feed_data.get("coverage", {}), "sample_basis": "available_rss_sample"}
+    if feed_data.get("status") == "unavailable" or feed_data.get("error"):
+        result.update(status="unavailable", error=feed_data.get("error") or "新闻输入不可用")
+        if "total_items_analyzed" in result:
+            result["total_items_analyzed"] = None
+        if "summary" in result:
+            result["summary"] = {}
+    return result
+
+
+def build_media_monitor(feed_data: dict, social_posts: list[dict] | None = None) -> dict:
+    """Preserve news coverage when dashboard merges social observations."""
+    from ..analysis.media_monitor import analyze_media_monitor
+
+    result = analyze_media_monitor(feed_data.get("items", []), social_posts or [])
+    news_unavailable = feed_data.get("status") == "unavailable" or bool(feed_data.get("error"))
+    if news_unavailable and result["summary"].get("analyzed_items", 0) > 0:
+        return {**result, "status": "partial", "coverage": feed_data.get("coverage", {}),
+                "sample_basis": "social_sample_news_unavailable", "news_error": feed_data.get("error") or "新闻输入不可用"}
+    return _with_news_coverage(result, feed_data)
 
 
 def analyze_trending_keywords(items: list[dict], min_count: int = 3) -> dict:
@@ -782,8 +856,6 @@ async def fetch_news_bundle(
     social_posts: list[dict] | None = None,
 ) -> dict:
     """Fetch RSS once and derive feed, keyword, and media-monitor views."""
-    from ..analysis.media_monitor import analyze_media_monitor
-
     feed_data = await fetch_news_feed(
         fetcher,
         limit=max(feed_limit, analysis_limit),
@@ -794,16 +866,13 @@ async def fetch_news_bundle(
         "news_feed": {
             **feed_data,
             "items": visible_items,
-            "count": len(visible_items),
+            "count": None if feed_data.get("status") == "unavailable" or feed_data.get("error") else len(visible_items),
         },
-        "trending_keywords": analyze_trending_keywords(
+        "trending_keywords": _with_news_coverage(analyze_trending_keywords(
             items[:analysis_limit],
             min_count=min_count,
-        ),
-        "media_monitor": analyze_media_monitor(
-            items[:analysis_limit],
-            social_posts or [],
-        ),
+        ), feed_data),
+        "media_monitor": build_media_monitor({**feed_data, "items": items[:analysis_limit]}, social_posts),
     }
 
 

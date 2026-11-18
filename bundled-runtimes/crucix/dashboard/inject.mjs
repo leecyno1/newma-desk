@@ -12,8 +12,12 @@ import { exec } from 'child_process';
 import config from '../crucix.config.mjs';
 import { createLLMProvider } from '../lib/llm/index.mjs';
 import { generateLLMIdeas } from '../lib/llm/ideas.mjs';
-import { energySnapshot } from './energy.mjs';
-import { sourceHealth } from '../apis/utils/source-health.mjs';
+import { energySnapshot, energySignalObservation, energySpotChange, energyObservationDate } from './energy.mjs';
+import { collectNewsSources } from './rss-cache.mjs';
+import { sourceHealth, sourceOutcome } from '../apis/utils/source-health.mjs';
+import { fredSignalObservation } from '../apis/utils/fred-signals.mjs';
+import { countObservation } from '../lib/delta/count-observations.mjs';
+import { blsSignalObservation, blsMonthlyChange, METAL_SIGNAL_SERIES, gscpiSignalObservation } from '../apis/utils/economic-signals.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -86,8 +90,12 @@ const geoKeywords = {
 
 function geoTagText(text) {
   if (!text) return null;
-  for (const [keyword, [lat, lon]] of Object.entries(geoKeywords)) {
-    if (text.includes(keyword)) {
+  // Longest phrase first (South Africa before Africa); never match US inside
+  // BUSINESS or UN inside FUNDING. This is a topic hint, not geolocation.
+  for (const [keyword, [lat, lon]] of Object.entries(geoKeywords).sort((a, b) => b[0].length - a[0].length)) {
+    const flags = /^[A-Z]+$/.test(keyword) ? 'u' : 'iu';
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${keyword}(?![\\p{L}\\p{N}])`, flags);
+    if (pattern.test(text)) {
       return { lat, lon, region: keyword };
     }
   }
@@ -110,16 +118,26 @@ function sumAirHotspots(hotspots = []) {
 
 function summarizeAirHotspots(hotspots = []) {
   return hotspots.map(h => ({
+    key: h.key || null,
     region: h.region,
-    total: h.totalAircraft || 0,
-    noCallsign: h.noCallsign || 0,
-    highAlt: h.highAltitude || 0,
+    status: h.status || (h.error ? 'error' : 'unknown'),
+    total: !h.error && Number.isFinite(h.totalAircraft) ? h.totalAircraft : null,
+    noCallsign: !h.error && Number.isFinite(h.noCallsign) ? h.noCallsign : null,
+    highAlt: !h.error && Number.isFinite(h.highAltitude) ? h.highAltitude : null,
+    observedAt: h.observedAt || null,
+    ...referenceLocation(h, 'query-bounds-center'),
     top: Object.entries(h.byCountry || {}).sort((a, b) => b[1] - a[1]).slice(0, 5),
   }));
 }
 
+function referenceLocation(row, basis) {
+  const valid = row.geoBasis === basis && Number.isFinite(row.latitude) && Math.abs(row.latitude) <= 90
+    && Number.isFinite(row.longitude) && Math.abs(row.longitude) <= 180;
+  return { lat: valid ? row.latitude : null, lon: valid ? row.longitude : null, geoBasis: valid ? basis : 'unlocated' };
+}
+
 function loadOpenSkyFallback(currentTimestamp) {
-  const runsDir = join(ROOT, 'runs');
+  const runsDir = config.runsDir;
   if (!existsSync(runsDir)) return null;
 
   const currentMs = currentTimestamp ? new Date(currentTimestamp).getTime() : NaN;
@@ -147,38 +165,10 @@ function loadOpenSkyFallback(currentTimestamp) {
   return null;
 }
 
-// === RSS Fetching ===
-async function fetchRSS(url, source) {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    const xml = await res.text();
-    const items = [];
-    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-    let match;
-    while ((match = itemRegex.exec(xml)) !== null) {
-      const block = match[1];
-      const title = (block.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/)?.[1] || '').trim();
-      const link = sanitizeExternalUrl((block.match(/<link>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/link>/)?.[1] || '').trim());
-      const pubDate = block.match(/<pubDate>(.*?)<\/pubDate>/)?.[1] || '';
-      if (title && title !== source) items.push({ title, date: pubDate, source, url: link || undefined });
-    }
-    return items;
-  } catch (e) {
-    console.log(`RSS fetch failed (${source}):`, e.message);
-    return [];
-  }
-}
 
-const RSS_SOURCE_FALLBACKS = {
-  'SBS Australia': { lat: -35.2809, lon: 149.13, region: 'Australia' },
-  'Indian Express': { lat: 28.6139, lon: 77.209, region: 'India' },
-  'The Hindu': { lat: 13.0827, lon: 80.2707, region: 'India' },
-  'MercoPress': { lat: -34.9011, lon: -56.1645, region: 'South America' }
-};
 const REGIONAL_NEWS_SOURCES = ['MercoPress', 'Indian Express', 'The Hindu', 'SBS Australia'];
 
-export async function fetchAllNews() {
-  const feeds = [
+export const DEFAULT_NEWS_FEEDS = [
     // Global
     ['http://feeds.bbci.co.uk/news/world/rss.xml', 'BBC'],
     ['https://rss.nytimes.com/services/xml/rss/nyt/World.xml', 'NYT'],
@@ -207,33 +197,33 @@ export async function fetchAllNews() {
     ['https://en.mercopress.com/rss/latin-america', 'MercoPress'],
   ];
 
-  const results = await Promise.allSettled(
-    feeds.map(([url, source]) => fetchRSS(url, source))
-  );
-
-  const allNews = results
-    .filter(r => r.status === 'fulfilled')
-    .flatMap(r => r.value);
+export async function fetchNewsResult(feeds = DEFAULT_NEWS_FEEDS, options = {}) {
+  const { results, cache, mode } = await collectNewsSources(feeds, options);
+  const allNews = results.flatMap(r => (r.items || []).map(item => ({ ...item,
+    collectedAt: r.dataAsOf, cached: r.cached, sourceStatus: r.status })));
 
   // De-duplicate and geo-tag
   const seen = new Set();
   const geoNews = [];
+  const keyFor = item => JSON.stringify([item.source, item.url || item.title, item.date]);
   for (const item of allNews) {
-    const key = item.title.substring(0, 40).toLowerCase();
+    const key = keyFor(item);
     if (seen.has(key)) continue;
     seen.add(key);
-    const geo = geoTagText(item.title) || RSS_SOURCE_FALLBACKS[item.source];
-    if (geo) {
-      geoNews.push({
-        title: item.title.substring(0, 100),
-        source: item.source,
-        date: item.date,
-        url: item.url,
-        lat: geo.lat + (Math.random() - 0.5) * 2,
-        lon: geo.lon + (Math.random() - 0.5) * 2,
-        region: geo.region
-      });
-    }
+    const geo = geoTagText(item.title);
+    geoNews.push({
+      title: item.title,
+      source: item.source,
+      date: item.date,
+      url: item.url,
+      collectedAt: item.collectedAt,
+      cached: item.cached,
+      sourceStatus: item.sourceStatus,
+      lat: geo?.lat ?? null,
+      lon: geo?.lon ?? null,
+      region: geo?.region ?? 'Global',
+      geoBasis: geo ? 'headline-keyword' : 'unlocated'
+    });
   }
 
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -242,7 +232,6 @@ export async function fetchAllNews() {
 
   const selected = [];
   const selectedKeys = new Set();
-  const keyFor = item => `${item.source}|${item.title}|${item.date}`;
   const pushUnique = item => {
     const key = keyFor(item);
     if (selectedKeys.has(key)) return;
@@ -255,113 +244,106 @@ export async function fetchAllNews() {
     filtered.filter(item => item.source === source).slice(0, 2).forEach(pushUnique);
   }
   filtered.forEach(pushUnique);
-  return selected.slice(0, 50);
+  const news = selected.slice(0, 50).map(item => ({ ...item, title: item.title.slice(0, 300) }));
+  const coverage = {
+    requested: results.length,
+    succeeded: results.filter(r => r.status === 'ok').length,
+    partial: results.filter(r => r.status === 'partial').length,
+    failed: results.filter(r => r.status === 'error').length,
+  };
+  const cachedSources = results.filter(r => r.cached).length;
+  const status = !results.length ? 'unknown' : coverage.succeeded === results.length && !cachedSources && cache.status !== 'error' ? 'ok'
+    : coverage.succeeded + coverage.partial + cachedSources > 0 ? 'partial' : 'error';
+  const asOf = results.map(r => r.asOf).filter(Boolean).sort().at(-1) || null;
+  return { news, meta: { status, asOf, coverage, cachedSources, cache, mode,
+    selection: 'regional-reserve-30d-url-v2',
+    displayedCount: news.length, eligibleCount: filtered.length, limit: 50,
+    items: results.map(({ items, ...summary }) => summary) } };
+}
+
+// Existing callers retain the array API; synthesis uses the coverage-aware result.
+export async function fetchAllNews() {
+  return (await fetchNewsResult()).news;
 }
 
 // === Leverageable Ideas from Signals ===
-export function generateIdeas(V2) {
+export function generateIdeas(V2, { now = new Date() } = {}) {
   const ideas = [];
-  const vix = V2.fred.find(f => f.id === 'VIXCLS');
-  const hy = V2.fred.find(f => f.id === 'BAMLH0A0HYM2');
-  const spread = V2.fred.find(f => f.id === 'T10Y2Y');
+  const signal = id => fredSignalObservation(V2.fred.find(f => f.id === id), { now });
+  const vix = signal('VIXCLS');
+  const hy = signal('BAMLH0A0HYM2');
+  const spread = signal('T10Y2Y');
 
-  if (V2.tg.urgent.length > 3 && V2.energy.wti > 68) {
+  const wti = energySignalObservation(V2.energy?.observations?.find(row => row.id === 'wti'), { now });
+  const urgentSample = countObservation(V2, 'urgent_posts', now);
+  if (urgentSample?.value > 3 && wti && wti.value > 68) {
     ideas.push({
       title: 'Conflict-Energy Nexus Active',
-      text: `${V2.tg.urgent.length} urgent conflict signals with WTI at $${V2.energy.wti}. Geopolitical risk premium may expand. Consider energy exposure.`,
-      type: 'long', confidence: 'Medium', horizon: 'swing'
+      text: `${V2.tg.urgent.length} urgent OSINT samples and WTI ${wti.kind} at ${wti.value} ${wti.unit} (${energyObservationDate(wti)}, ${wti.source.id}/${wti.source.seriesId}). Co-occurrence does not establish causality, a risk premium or a directional trade.`,
+      type: 'watch', confidence: 'Medium', horizon: 'swing'
     });
   }
   if (vix && vix.value > 20) {
     ideas.push({
       title: 'Elevated Volatility Regime',
-      text: `VIX at ${vix.value} — fear premium elevated. Portfolio hedges justified. Short-term equity upside is capped.`,
+      text: `${vix.date}: VIX at ${vix.value} — elevated volatility observation, not a forecast or proof of capped equity upside.`,
       type: 'hedge', confidence: vix.value > 25 ? 'High' : 'Medium', horizon: 'tactical'
     });
   }
-  if (vix && vix.value > 20 && hy && hy.value > 3) {
+  if (vix && vix.value > 20 && hy && hy.value > 3 && vix.date === hy.date) {
     ideas.push({
-      title: 'Safe Haven Demand Rising',
-      text: `VIX ${vix.value} + HY spread ${hy.value}% = risk-off building. Gold, treasuries, quality dividends may outperform.`,
+      title: 'Volatility and Credit Stress',
+      text: `${vix.date}: VIX ${vix.value} + HY spread ${hy.value}% — joint stress observation; safe-haven demand and future outperformance are not established.`,
       type: 'hedge', confidence: 'Medium', horizon: 'tactical'
     });
   }
-  if (V2.energy.wtiRecent.length > 1) {
-    const latest = V2.energy.wtiRecent[0];
-    const oldest = V2.energy.wtiRecent[V2.energy.wtiRecent.length - 1];
-    const pct = ((latest - oldest) / oldest * 100).toFixed(1);
+  const oilChange = energySpotChange(wti, { now });
+  if (oilChange && Number.isFinite(oilChange.pctChange)) {
+    const pct = oilChange.pctChange;
     if (Math.abs(pct) > 3) {
       ideas.push({
         title: pct > 0 ? 'Oil Momentum Building' : 'Oil Under Pressure',
-        text: `WTI moved ${pct > 0 ? '+' : ''}${pct}% recently to $${V2.energy.wti}/bbl. ${pct > 0 ? 'Energy and commodity names benefit.' : 'Demand concerns may be emerging.'}`,
-        type: pct > 0 ? 'long' : 'watch', confidence: 'Medium', horizon: 'swing'
+        text: `${oilChange.fromDate} → ${oilChange.toDate}: WTI spot moved ${pct > 0 ? '+' : ''}${pct.toFixed(1)}% from ${oilChange.from} to ${oilChange.to} ${wti.unit} (${wti.source.id}/${wti.source.seriesId}). This dated sample does not establish demand, supply or future returns.`,
+        type: 'watch', confidence: 'Medium', horizon: 'swing'
       });
     }
   }
   if (spread) {
     ideas.push({
-      title: spread.value > 0 ? 'Yield Curve Normalizing' : 'Yield Curve Inverted',
-      text: `10Y-2Y spread at ${spread.value.toFixed(2)}. ${spread.value > 0 ? 'Recession signal fading — cyclical rotation possible.' : 'Inversion persists — defensive positioning warranted.'}`,
+      title: spread.value > 0 ? 'Positive Yield Spread' : spread.value < 0 ? 'Yield Curve Inverted' : 'Flat Yield Curve',
+      text: `${spread.date}: 10Y-2Y spread at ${spread.value.toFixed(2)} percentage points. A single observation establishes the sign, not normalization, persistence or a recession forecast.`,
       type: 'watch', confidence: 'Medium', horizon: 'strategic'
     });
   }
-  const debt = parseFloat(V2.treasury.totalDebt);
-  if (debt > 35e12) {
+  // A nominal debt level alone cannot justify a directional hard-asset trade.
+  const thermalSample = countObservation(V2, 'thermal_total', now);
+  if (thermalSample?.value > 30000 && urgentSample?.value > 2) {
     ideas.push({
-      title: 'Fiscal Trajectory Supports Hard Assets',
-      text: `National debt at $${(debt / 1e12).toFixed(1)}T. Long-term gold, bitcoin, and real asset appreciation thesis intact.`,
-      type: 'long', confidence: 'High', horizon: 'strategic'
-    });
-  }
-  const totalThermal = V2.thermal.reduce((s, t) => s + t.det, 0);
-  if (totalThermal > 30000 && V2.tg.urgent.length > 2) {
-    ideas.push({
-      title: 'Satellite Confirms Conflict Intensity',
-      text: `${totalThermal.toLocaleString()} thermal detections + ${V2.tg.urgent.length} urgent OSINT flags. Defense sector procurement may accelerate.`,
+      title: 'Thermal and OSINT Sample Review',
+      text: `${thermalSample.value.toLocaleString()} thermal query-region samples (overlapping) + ${urgentSample.value} shown urgent OSINT samples. Neither confirms conflict intensity, thermal cause or defense procurement; independently verify locations and reports.`,
       type: 'watch', confidence: 'Medium', horizon: 'swing'
     });
   }
 
   // Yield Curve + Labor Interaction
-  const unemployment = V2.bls.find(b => b.id === 'LNS14000000' || b.id === 'UNRATE');
-  const payrolls = V2.bls.find(b => b.id === 'CES0000000001' || b.id === 'PAYEMS');
-  if (spread && unemployment && payrolls) {
-    const weakLabor = (unemployment.value > 4.3) || (payrolls.momChange && payrolls.momChange < -50);
+  const unemployment = blsSignalObservation(V2.bls.find(b => b.id === 'LNS14000000'), { now });
+  const payrolls = blsSignalObservation(V2.bls.find(b => b.id === 'CES0000000001'), { now });
+  if (spread && unemployment && payrolls && unemployment.date === payrolls.date) {
+    const payrollChange = blsMonthlyChange(payrolls, { now });
+    const weakLabor = unemployment.value > 4.3 || (payrollChange && payrollChange.value < -50);
     if (spread.value > 0.3 && weakLabor) {
       ideas.push({
-        title: 'Steepening Curve Meets Weak Labor',
-        text: `10Y-2Y at ${spread.value.toFixed(2)} + UE ${unemployment.value}%. Curve steepening with deteriorating employment = recession positioning warranted.`,
-        type: 'hedge', confidence: 'High', horizon: 'tactical'
+        title: 'Positive Spread with Weak Labor',
+        text: `${spread.date}: 10Y-2Y at ${spread.value.toFixed(2)} percentage points + ${unemployment.date} UE ${unemployment.value}%. These different frequencies warrant review, not proof of curve steepening, recession or a hedge recommendation.`,
+        type: 'watch', confidence: 'Medium', horizon: 'tactical'
       });
     }
   }
 
-  // ACLED Conflict + Energy Momentum
-  const conflictEvents = V2.acled?.totalEvents || 0;
-  if (conflictEvents > 50 && V2.energy.wtiRecent.length > 1) {
-    const wtiMove = V2.energy.wtiRecent[0] - V2.energy.wtiRecent[V2.energy.wtiRecent.length - 1];
-    if (wtiMove > 2) {
-      ideas.push({
-        title: 'Conflict Fueling Energy Momentum',
-        text: `${conflictEvents} ACLED events this week + WTI up $${wtiMove.toFixed(1)}. Conflict-energy transmission channel active.`,
-        type: 'long', confidence: 'Medium', horizon: 'swing'
-      });
-    }
-  }
-
-  // Defense + Conflict Intensity
-  const totalFatalities = V2.acled?.totalFatalities || 0;
-  const totalThermalAll = V2.thermal.reduce((s, t) => s + t.det, 0);
-  if (totalFatalities > 500 && totalThermalAll > 20000) {
-    ideas.push({
-      title: 'Defense Procurement Acceleration Signal',
-      text: `${totalFatalities.toLocaleString()} conflict fatalities + ${totalThermalAll.toLocaleString()} thermal detections. Defense contractors may see accelerated procurement.`,
-      type: 'long', confidence: 'Medium', horizon: 'swing'
-    });
-  }
+  // Bounded conflict samples do not establish an energy/defense trade or a causal transmission.
 
   // HY Spread + VIX Divergence
-  if (hy && vix) {
+  if (hy && vix && hy.date === vix.date) {
     const hyWide = hy.value > 3.5;
     const vixLow = vix.value < 18;
     const hyTight = hy.value < 2.5;
@@ -369,29 +351,31 @@ export function generateIdeas(V2) {
     if (hyWide && vixLow) {
       ideas.push({
         title: 'Credit Stress Ignored by Equity Vol',
-        text: `HY spread ${hy.value.toFixed(1)}% (wide) but VIX only ${vix.value.toFixed(0)} (complacent). Equity may be underpricing credit deterioration.`,
+        text: `${vix.date}: HY spread ${hy.value.toFixed(1)}% (wide) but VIX ${vix.value.toFixed(0)} (low). Different risk measures; possible divergence, not proof of equity mispricing.`,
         type: 'watch', confidence: 'Medium', horizon: 'tactical'
       });
     } else if (hyTight && vixHigh) {
       ideas.push({
         title: 'Equity Fear Exceeds Credit Stress',
-        text: `VIX at ${vix.value.toFixed(0)} but HY spread only ${hy.value.toFixed(1)}%. Equity vol may be overshooting — credit markets aren't confirming.`,
+        text: `${vix.date}: VIX at ${vix.value.toFixed(0)} but HY spread ${hy.value.toFixed(1)}%. Different risk measures; possible divergence, not proof of equity overshooting.`,
         type: 'watch', confidence: 'Medium', horizon: 'tactical'
       });
     }
   }
 
   // Supply Chain + Inflation Pipeline
-  const ppi = V2.bls.find(b => b.id === 'WPUFD49104' || b.id === 'PCU--PCU--');
-  const cpi = V2.bls.find(b => b.id === 'CUUR0000SA0' || b.id === 'CPIAUCSL');
-  if (ppi && cpi && V2.gscpi) {
-    const supplyPressure = V2.gscpi.value > 0.5;
-    const ppiRising = ppi.momChangePct > 0.3;
+  const ppi = blsSignalObservation(V2.bls.find(b => b.id === 'WPUFD49104'), { now });
+  const cpi = blsSignalObservation(V2.bls.find(b => b.id === 'CUUR0000SA0'), { now });
+  const supply = gscpiSignalObservation(V2.gscpi, { now });
+  const ppiChange = blsMonthlyChange(ppi, { now });
+  if (ppiChange && cpi && supply && ppi.date === cpi.date && ppi.date === supply.date) {
+    const supplyPressure = supply.value > 0.5;
+    const ppiRising = ppiChange.relative > 0.3;
     if (supplyPressure && ppiRising) {
       ideas.push({
-        title: 'Inflation Pipeline Building Pressure',
-        text: `GSCPI at ${V2.gscpi.value.toFixed(2)} (${V2.gscpi.interpretation}) + PPI momentum +${ppi.momChangePct?.toFixed(1)}%. Input costs flowing through — CPI may follow.`,
-        type: 'long', confidence: 'Medium', horizon: 'strategic'
+        title: 'Supply Chain and Inflation Review',
+        text: `${supply.date}: GSCPI ${supply.value.toFixed(2)} standard deviations (vintage ${supply.vintage}) and PPI adjacent change +${ppiChange.relative.toFixed(1)}% (NSA). Aligned observation periods do not establish release simultaneity, seasonally-adjusted momentum or causal pass-through to CPI.`,
+        type: 'watch', confidence: 'Medium', horizon: 'strategic'
       });
     }
   }
@@ -400,34 +384,53 @@ export function generateIdeas(V2) {
 }
 
 // === Synthesize raw sweep data into dashboard format ===
-export async function synthesize(data) {
+export async function synthesize(data, { refreshNews = true, newsCacheDir = null } = {}) {
   const liveAirHotspots = data.sources.OpenSky?.hotspots || [];
-  const airFallback = sumAirHotspots(liveAirHotspots) > 0
+  const airFallback = liveAirHotspots.some(h => !h.error && Number.isFinite(h.totalAircraft))
     ? null
     : loadOpenSkyFallback(data.sources.OpenSky?.timestamp || data.crucix?.timestamp);
   const effectiveAirHotspots = airFallback?.hotspots || liveAirHotspots;
   const air = summarizeAirHotspots(effectiveAirHotspots);
   const thermal = (data.sources.FIRMS?.hotspots || []).map(h => ({
-    region: h.region, det: h.totalDetections || 0, night: h.nightDetections || 0,
-    hc: h.highConfidence || 0,
+    region: h.region, det: h.error ? null : h.totalDetections ?? null, night: h.error ? null : h.nightDetections ?? null,
+    hc: h.error ? null : h.highConfidence ?? null, status: h.error ? 'error' : h.status || 'unknown',
+    error: h.error || null,
     fires: (h.highIntensity || []).slice(0, 8).map(f => ({ lat: f.lat, lon: f.lon, frp: f.frp || 0 }))
   }));
+  const firmsData = data.sources.FIRMS;
+  const thermalMeta = { status: firmsData ? sourceOutcome('FIRMS', firmsData).status : 'unknown',
+    collectedAt: firmsData?.timestamp || null, scope: firmsData?.scope || null };
   const tSignals = data.sources.FIRMS?.signals || [];
   const chokepoints = Object.values(data.sources.Maritime?.chokepoints || {}).map(c => ({
     label: c.label || c.name, note: c.note || '', lat: c.lat || 0, lon: c.lon || 0
   }));
   const nuke = (data.sources.Safecast?.sites || []).map(s => ({
-    site: s.site, anom: s.anomaly || false, cpm: s.avgCPM, n: s.recentReadings || 0
+    site: s.site, key: s.key || null, anom: null,
+    status: s.status || 'unknown', reason: s.reason || 'Legacy sample; radiation safety unassessed',
+    cpm: s.deviceId != null && Number.isFinite(s.avgCPM) ? s.avgCPM : null,
+    n: Number.isFinite(s.recentReadings) ? s.recentReadings : null,
+    sampleReadings: Number.isFinite(s.sampleReadings) ? s.sampleReadings : null,
+    deviceId: s.deviceId ?? null, observedAt: s.lastReading || null,
+    windowStart: s.windowStart || null, windowEnd: s.windowEnd || null, sampleLimit: s.sampleLimit ?? null,
+    radiusKm: s.radiusKm ?? null, measurements: s.measurements || [],
+    ...referenceLocation(s, 'query-radius-center'),
   }));
   const nukeSignals = (data.sources.Safecast?.signals || []).filter(s => s);
   const sdrData = data.sources.KiwiSDR || {};
   const sdrNet = sdrData.network || {};
   const sdrConflict = sdrData.conflictZones || {};
   const sdrZones = Object.values(sdrConflict).map(z => ({
-    region: z.region, count: z.count || 0,
+    region: z.region, count: z.count ?? null,
     receivers: (z.receivers || []).slice(0, 5).map(r => ({ name: r.name || '', lat: r.lat || 0, lon: r.lon || 0 }))
   }));
   const tgData = data.sources.Telegram || {};
+  const tgWeb = ['web_scrape', 'bot_api_empty_fallback_scrape'].includes(tgData.status);
+  const tgComplete = tgWeb && tgData.channels?.length > 0
+    && tgData.channels.length === tgData.channelsMonitored && tgData.channelsMonitored === tgData.channelsReachable
+    && tgData.channels.every(channel => channel.reachable === true);
+  const tgScope = tgWeb && tgData.channels?.length ? { source: 'Telegram-web-preview',
+    channels: tgData.channels.map(channel => channel.channel).sort(), limit: 15,
+    selection: 'significance-order-exclude-cyrillic-v1' } : null;
   const tgUrgent = (tgData.urgentPosts || []).filter(p => isEnglish(p.text)).map(p => ({
     channel: p.channel, text: p.text?.substring(0, 200), views: p.views, date: p.date, urgentFlags: p.urgentFlags || []
   }));
@@ -435,8 +438,13 @@ export async function synthesize(data) {
     channel: p.channel, text: p.text?.substring(0, 200), views: p.views, date: p.date, urgentFlags: []
   }));
   const who = (data.sources.WHO?.diseaseOutbreakNews || []).slice(0, 10).map(w => ({
-    title: w.title?.substring(0, 120), date: w.date, summary: w.summary?.substring(0, 150)
+    title: w.title?.substring(0, 120), date: w.date, url: w.url, summary: w.summary?.substring(0, 150)
   }));
+  const whoData = data.sources.WHO;
+  const whoMeta = { status: whoData ? sourceOutcome('WHO', whoData).status : 'unknown',
+    count: Number.isFinite(whoData?.outbreakCount) ? whoData.outbreakCount : null,
+    collectedAt: whoData?.timestamp || null,
+    window: whoData?.window || null, gaps: whoData?.gaps || {}, displayedCount: who.length };
   const fred = (data.sources.FRED?.indicators || []).map(f => ({
     id: f.id, label: f.label, value: f.value, date: f.date,
     recent: f.recent || [],
@@ -447,16 +455,32 @@ export async function synthesize(data) {
   const bls = data.sources.BLS?.indicators || [];
   const treasuryData = data.sources.Treasury || {};
   const debtArr = treasuryData.debt || [];
-  const treasury = { totalDebt: debtArr[0]?.totalDebt || '0', signals: treasuryData.signals || [] };
-  const gscpi = data.sources.GSCPI?.latest || null;
+  const treasury = { totalDebt: debtArr[0]?.totalDebt ?? null, date: debtArr[0]?.date || null,
+    status: treasuryData.status || 'unknown', collectedAt: treasuryData.timestamp || null,
+    debt: debtArr, interestRates: treasuryData.interestRates || [], coverage: treasuryData.coverage || null,
+    debtUrl: treasuryData.debtUrl || null, ratesUrl: treasuryData.ratesUrl || null,
+    note: treasuryData.note || null, signals: treasuryData.signals || [] };
+  const gscpiData = data.sources.GSCPI;
+  const gscpi = gscpiData ? { ...gscpiData.latest,
+    status: gscpiData.error ? 'error' : gscpiData.status || 'unknown',
+    vintage: gscpiData.latest?.vintage ?? gscpiData.vintage ?? null,
+    collectedAt: gscpiData.timestamp ?? null,
+    rejected: gscpiData.rejected ?? null, missing: gscpiData.missing ?? null,
+    history: Array.isArray(gscpiData.history) ? gscpiData.history : [] } : null;
   const defense = (data.sources.USAspending?.recentDefenseContracts || []).slice(0, 5).map(c => ({
     recipient: c.recipient?.substring(0, 40), amount: c.amount, desc: c.description?.substring(0, 80)
   }));
+  const weather = data.sources.NOAA || {};
   const noaa = {
-    totalAlerts: data.sources.NOAA?.totalSevereAlerts || 0,
-    alerts: (data.sources.NOAA?.topAlerts || []).filter(a => a.lat != null && a.lon != null).slice(0, 10).map(a => ({
-      event: a.event, severity: a.severity, headline: a.headline?.substring(0, 120),
-      lat: a.lat, lon: a.lon
+    status: weather.status || (weather.error ? 'error' : 'unknown'),
+    totalAlerts: Number.isFinite(weather.totalSevereAlerts) ? weather.totalSevereAlerts : null,
+    collectedAt: weather.timestamp || null, updatedAt: weather.updatedAt || null,
+    coverage: weather.coverage || null, error: weather.error || null,
+    errorCode: weather.errorCode || null, httpStatus: weather.httpStatus || null,
+    alerts: (weather.topAlerts || []).slice(0, 50).map(a => ({
+      id: a.id, url: a.url, event: a.event, severity: a.severity, headline: a.headline?.substring(0, 300),
+      areas: a.areas, sent: a.sent, effective: a.effective, onset: a.onset, expires: a.expires,
+      lat: a.lat, lon: a.lon, geoBasis: a.geoBasis
     }))
   };
 
@@ -510,57 +534,61 @@ export async function synthesize(data) {
 
   // ACLED conflict events
   const acledData = data.sources.ACLED || {};
-  const acled = acledData.error ? { totalEvents: 0, totalFatalities: 0, byRegion: {}, byType: {}, deadliestEvents: [] } : {
-    totalEvents: acledData.totalEvents || 0,
-    totalFatalities: acledData.totalFatalities || 0,
-    byRegion: acledData.byRegion || {},
-    byType: acledData.byType || {},
-    deadliestEvents: (acledData.deadliestEvents || []).slice(0, 15).map(e => ({
-      date: e.date, type: e.type, country: e.country, location: e.location,
-      fatalities: e.fatalities || 0, lat: e.lat || null, lon: e.lon || null
-    }))
+  const acledKnown = ['ok', 'partial'].includes(acledData.status) && acledData.basis === 'bounded-event-sample';
+  const acled = {
+    status: acledData.status || 'unknown', basis: acledData.basis || null,
+    period: acledData.period || null, collectedAt: acledData.timestamp || null,
+    sampleLimit: acledData.sampleLimit ?? null,
+    coverage: acledData.coverage || null, errorCode: acledData.errorCode || null, httpStatus: acledData.httpStatus || null,
+    totalEvents: acledKnown ? acledData.totalEvents ?? null : null,
+    totalFatalities: acledKnown ? acledData.totalFatalities ?? null : null,
+    byRegion: acledKnown ? acledData.byRegion || {} : {},
+    byType: acledKnown ? acledData.byType || {} : {},
+    deadliestEvents: acledKnown ? (acledData.deadliestEvents || []).slice(0, 15).map(e => ({
+      id: e.id, date: e.date, type: e.type, country: e.country, location: e.location,
+      fatalities: e.fatalities ?? null, lat: e.lat ?? null, lon: e.lon ?? null
+    })) : [],
   };
 
   // GDELT news articles + geo events
   const gdeltData = data.sources.GDELT || {};
+  const articlesKnown = Number.isFinite(gdeltData.totalArticles);
   const gdelt = {
-    totalArticles: gdeltData.totalArticles || 0,
-    conflicts: (gdeltData.conflicts || []).length,
-    economy: (gdeltData.economy || []).length,
-    health: (gdeltData.health || []).length,
-    crisis: (gdeltData.crisis || []).length,
+    totalArticles: articlesKnown ? gdeltData.totalArticles : null,
+    conflicts: articlesKnown ? (gdeltData.conflicts || []).length : null,
+    economy: articlesKnown ? (gdeltData.economy || []).length : null,
+    health: articlesKnown ? (gdeltData.health || []).length : null,
+    crisis: articlesKnown ? (gdeltData.crisis || []).length : null,
+    coverage: gdeltData.coverage || null,
+    gaps: gdeltData.gaps || {},
     topTitles: (gdeltData.allArticles || []).slice(0, 5).map(a => a.title?.substring(0, 80)),
     geoPoints: (gdeltData.geoPoints || []).slice(0, 20).map(p => ({
-      lat: p.lat, lon: p.lon, name: (p.name || '').substring(0, 80), count: p.count || 1
+      lat: p.lat, lon: p.lon, name: (p.name || '').substring(0, 80), count: p.count ?? null
     }))
   };
 
   const { health, counts } = sourceHealth(data);
 
-  // === Yahoo Finance live market data ===
+  // === Yahoo Finance quotes (observation time is distinct from collection time) ===
   const yfData = data.sources.YFinance || {};
   const yfQuotes = yfData.quotes || {};
+  const marketQuote = q => ({
+    symbol: q.symbol, name: q.name, price: q.price,
+    change: q.change ?? null, changePct: q.changePct ?? null,
+    currency: q.currency ?? null, observedAt: q.observedAt ?? null,
+    prevClose: q.prevClose ?? null, previousCloseBasis: q.previousCloseBasis ?? null,
+    history: q.history || [],
+  });
   const markets = {
-    indexes: (yfData.indexes || []).map(q => ({
-      symbol: q.symbol, name: q.name, price: q.price,
-      change: q.change, changePct: q.changePct, history: q.history || []
-    })),
-    rates: (yfData.rates || []).map(q => ({
-      symbol: q.symbol, name: q.name, price: q.price,
-      change: q.change, changePct: q.changePct
-    })),
-    commodities: (yfData.commodities || []).map(q => ({
-      symbol: q.symbol, name: q.name, price: q.price,
-      change: q.change, changePct: q.changePct, history: q.history || []
-    })),
-    crypto: (yfData.crypto || []).map(q => ({
-      symbol: q.symbol, name: q.name, price: q.price,
-      change: q.change, changePct: q.changePct
-    })),
-    vix: yfQuotes['^VIX'] ? {
+    indexes: (yfData.indexes || []).map(marketQuote),
+    rates: (yfData.rates || []).map(marketQuote),
+    commodities: (yfData.commodities || []).map(marketQuote),
+    crypto: (yfData.crypto || []).map(marketQuote),
+    vix: !yfQuotes['^VIX']?.error && Number.isFinite(yfQuotes['^VIX']?.price) ? {
       value: yfQuotes['^VIX'].price,
       change: yfQuotes['^VIX'].change,
       changePct: yfQuotes['^VIX'].changePct,
+      observedAt: yfQuotes['^VIX'].observedAt ?? null,
     } : null,
     timestamp: yfData.summary?.timestamp || null,
   };
@@ -576,43 +604,84 @@ export async function synthesize(data) {
     silverChange: yfSilver?.change,
     silverChangePct: yfSilver?.changePct,
     silverRecent: yfSilver?.history?.map(h => h.close) || [],
+    observations: Object.entries(METAL_SIGNAL_SERIES).map(([id, symbol]) => {
+      const quote = yfQuotes[symbol];
+      return { id, value: !quote?.error && Number.isFinite(quote?.price) ? quote.price : null,
+        kind: 'futures', frequency: 'quote', unit: quote?.currency === 'USD' ? 'USD/troy-ounce' : null,
+        prevClose: Number.isFinite(quote?.prevClose) ? quote.prevClose : null,
+        previousCloseBasis: quote?.previousCloseBasis || null,
+        observedAt: quote?.observedAt || null, source: { id: 'YFinance', seriesId: symbol,
+          url: `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}/` },
+        note: 'Continuous futures quote, not spot or physical metal; may be delayed and may roll.' };
+    }),
   };
 
   // Fetch RSS
-  const news = await fetchAllNews();
+  const rss = await fetchNewsResult(DEFAULT_NEWS_FEEDS, { refresh: refreshNews, cacheDir: newsCacheDir });
+  const news = rss.news;
+
+  const ofacData = data.sources.OFAC;
+  const ofacList = ofacData?.sdnList || {};
+  const ofacOutcome = sourceOutcome('OFAC', ofacData);
+  // List metadata only: file-order examples are not new designation events.
+  const ofac = ofacData ? {
+    ...ofacOutcome, collectedAt: ofacData.timestamp || null,
+    reason: ofacList.reason ? ofacList.reason + (ofacList.httpStatus ? `（HTTP ${ofacList.httpStatus}）` : '') : ofacOutcome.reason,
+    sdnList: Object.fromEntries(['publishDate', 'entryCount', 'recordCount', 'countBasis',
+      'complete', 'dataAvailable'].map(key => [key, ofacList[key] ?? null])),
+  } : null;
 
   const V2 = {
-    meta: { ...data.crucix, ...counts }, air, thermal, tSignals, chokepoints, nuke, nukeSignals,
+    meta: { ...data.crucix, ...counts }, air, thermal, thermalMeta, tSignals, chokepoints, nuke, nukeSignals,
     airMeta: {
       fallback: Boolean(airFallback),
-      liveTotal: sumAirHotspots(liveAirHotspots),
-      timestamp: airFallback?.timestamp || data.sources.OpenSky?.timestamp || data.crucix?.timestamp || null,
+      liveTotal: liveAirHotspots.length && liveAirHotspots.every(h => !h.error && Number.isFinite(h.totalAircraft))
+        ? sumAirHotspots(liveAirHotspots) : null,
+      countBasis: 'overlapping-query-regions',
+      timestamp: airFallback?.timestamp || data.sources.OpenSky?.timestamp || null,
       source: airFallback ? 'OpenSky fallback' : 'OpenSky',
+      scope: liveAirHotspots.length && liveAirHotspots.every(row => row.bounds) ? {
+        source: 'OpenSky', regions: liveAirHotspots.map(row => ({ region: row.region, bounds: row.bounds })) } : null,
       ...(airFallback ? { fallbackFile: airFallback.file } : {}),
       ...(data.sources.OpenSky?.error ? { error: data.sources.OpenSky.error } : {}),
     },
-    sdr: { total: sdrNet.totalReceivers || 0, online: sdrNet.online || 0, zones: sdrZones },
-    tg: { posts: tgData.totalPosts || 0, urgent: tgUrgent, topPosts: tgTop },
-    who, fred, energy, metals, bls, treasury, gscpi, defense, noaa, epa, acled, gdelt, space, health, news,
+    sdr: { total: sdrNet.totalReceivers ?? null, online: null, basis: 'directory-only',
+      collectedAt: sdrData.timestamp || null, zones: sdrZones },
+    tg: { posts: tgData.totalPosts ?? tgData.totalMessages ?? null, urgent: tgUrgent, topPosts: tgTop,
+      status: tgComplete ? 'ok' : tgWeb ? 'partial' : 'unknown', collectedAt: tgData.timestamp || null, scope: tgScope },
+    who, whoMeta, fred, energy, metals, bls, treasury, gscpi, defense, noaa, epa, acled, gdelt, space, health, news, ofac,
+    newsMeta: rss.meta,
     markets, // Live Yahoo Finance market data
     ideas: [], ideasSource: 'disabled',
-    // newsFeed for ticker (merged RSS + GDELT + Telegram)
-    newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop),
+    // Official bulletins retain publication dates; HDX datasets are not news reports.
+    newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop, [
+      ...(whoData?.diseaseOutbreakNews || []).map(item => ({ ...item, source: 'WHO', type: 'who' })),
+      ...(data.sources.ReliefWeb?.latestReports || []).map(item => ({ ...item, source: 'ReliefWeb', type: 'reliefweb' })),
+    ]),
   };
 
   return V2;
 }
 
 // === Unified News Feed for Ticker ===
-export function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop) {
+export function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop, officialNews = []) {
   const feed = [];
 
   // RSS news
   for (const n of rssNews) {
     feed.push({
       headline: n.title, source: n.source, type: 'rss',
-      timestamp: n.date, region: n.region, urgent: false, url: n.url
+      timestamp: n.date, region: n.region, urgent: false, url: n.url,
+      collectedAt: n.collectedAt, cached: n.cached, sourceStatus: n.sourceStatus
     });
+  }
+
+  for (const item of officialNews) {
+    const published = Date.parse(item.date);
+    if (!item.title || !Number.isFinite(published) || published > Date.now()) continue;
+    feed.push({ headline: item.title.substring(0, 100), source: item.source, type: item.type,
+      timestamp: new Date(published).toISOString(), timestampBasis: 'published',
+      region: 'Global', urgent: false, url: sanitizeExternalUrl(item.url) });
   }
 
   // GDELT top articles
@@ -656,7 +725,7 @@ export function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop) {
 
   const selected = [];
   const selectedKeys = new Set();
-  const keyFor = item => `${item.type}|${item.source}|${item.headline}|${item.timestamp}`;
+  const keyFor = item => JSON.stringify([item.type, item.source, item.url || item.headline, item.timestamp]);
   const pushUnique = item => {
     const key = keyFor(item);
     if (selectedKeys.has(key)) return;
@@ -678,12 +747,12 @@ function getCliArg(flag) {
 }
 
 async function cliInject() {
-  const data = JSON.parse(readFileSync(join(ROOT, 'runs/latest.json'), 'utf8'));
+  const data = JSON.parse(readFileSync(join(config.runsDir, 'latest.json'), 'utf8'));
   const htmlOverride = getCliArg('--html');
   const shouldOpen = !process.argv.includes('--no-open');
 
   console.log('Fetching RSS news feeds...');
-  const V2 = await synthesize(data);
+  const V2 = await synthesize(data, { newsCacheDir: config.runsDir });
   const llmProvider = createLLMProvider(config.llm);
 
   if (llmProvider?.isConfigured) {

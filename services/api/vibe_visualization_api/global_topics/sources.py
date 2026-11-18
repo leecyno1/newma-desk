@@ -67,6 +67,18 @@ def year_over_year(rows: list[dict]) -> list[dict]:
     return result
 
 
+def source_history(history: list[dict], latest: dict, today: date, *, monthly: bool = False) -> list[dict]:
+    points = {}
+    for item in history:
+        raw_date = item.get("period", "")
+        observed = period(f"{raw_date}-01" if monthly else raw_date, today)
+        value = number(item.get("value"))
+        if observed and observed <= latest["date"] and value is not None:
+            points.setdefault(observed, value)
+    points[latest["date"]] = latest["value"]
+    return [{"date": observed[:7] if monthly else observed, "value": points[observed]} for observed in sorted(points)]
+
+
 def parse_fed_events(text: str, today: date) -> list[dict]:
     events = []
     for item in ET.fromstring(text.lstrip("\ufeff")).findall("./channel/item"):
@@ -243,13 +255,16 @@ class TopicSources:
                 metrics.append(self._metric(evidence_source, label, row, "美元/桶", 7, raw.get("note", "")))
                 series.append({"id": identifier, "label": label, "color": color})
                 if row:
-                    observations.append({**row, "seriesId": identifier, "unit": "美元/桶", "source": evidence_source["label"], "sourceUrl": evidence_source["url"]})
+                    observations.extend({**point, "seriesId": identifier, "unit": "美元/桶", "source": evidence_source["label"], "sourceUrl": evidence_source["url"]}
+                                        for point in source_history(raw.get("history", []), row, self.clock().date()))
                 else:
                     gaps.append(f"{label}缺少同口径来源或日期")
             metrics.extend([self._missing("通道中断状态", "未接入可核验的航道状态"), self._missing("油轮运价", "未接入油轮运价序列")])
             maritime_source, maritime = maritime_evidence(loaded[1], self.clock())
             sources.append(maritime_source)
-            gaps.extend(["能源价格只反映市场价格，不证明海峡中断或战事升级。", "已接入 NGA 广播快照，但不保证覆盖全部 NAVAREA IX 或 UKMTO 公告；UKMTO 独立通报与油轮运价仍未接入。"])
+            maritime_status = {"ready": "已读取 NGA 广播快照", "stale": "当前仅有旧 NGA 广播快照"}.get(
+                maritime_source["status"], "NGA 航警来源不可用")
+            gaps.extend(["能源价格只反映市场价格，不证明海峡中断或战事升级。", f"{maritime_status}；不保证覆盖全部 NAVAREA IX 或 UKMTO 公告，UKMTO 独立通报与油轮运价仍未接入。"])
             for row in payload.get("news", []):
                 if re.search(r"hormuz|persian gulf|霍尔木兹|波斯湾", row.get("title", ""), re.I) and public_url(row.get("url")):
                     raw_date = row.get("publishedAt") or ""
@@ -290,24 +305,71 @@ class TopicSources:
                                    "note": "公布日期不是生效日期；涉华全文检索不代表全部中美贸易政策。"})
             count = (documents["data"] or {}).get("count")
             metrics.append({"label": "BIS 涉华文件（近 365 天）", "value": str(count) if count is not None else "—", "change": "全文含 China；不是全部贸易政策", "unit": "份", "source": documents["label"], "sourceUrl": documents["url"], "date": documents["collectedAt"], "dateBasis": "query-time", "status": documents["status"]})
-            gscpi = payload.get("macro", {}).get("gscpi", {})
-            observed = gscpi.get("period")
-            value = number(gscpi.get("value"))
-            month = period(f"{observed}-01", self.clock().date()) if observed else None
-            row = {"date": month, "value": value} if month and value is not None else None
-            gscpi_source = {**source, "label": "纽约联储 · GSCPI", "url": "https://www.newyorkfed.org/research/policy/gscpi"}
-            if gscpi.get("freshness", {}).get("status") == "stale":
-                gscpi_source["status"] = "stale"
-            metrics.append(self._metric(gscpi_source, "全球供应链压力", row, "标准差", 80, "全球月度指标，不是中美双边制裁强度。"))
+            gscpi_metric, gscpi_source, supply_history = self._supply(payload.get("macro", {}).get("gscpi"), source)
+            sources.append(gscpi_source)
+            metrics.append(gscpi_metric)
             metrics.extend([self._missing("出口限制强度", "无统一可核验量化口径"), self._missing("中方政策覆盖", "商务部、海关原文尚未接入")])
             series = [{"id": "GSCPI", "label": "全球供应链压力", "color": "#a3e635"}]
-            if row:
-                observations.append({**row, "seriesId": "GSCPI", "unit": "标准差", "source": gscpi_source["label"], "sourceUrl": gscpi_source["url"]})
+            observations.extend(supply_history)
+            if gscpi_metric["status"] != "ready":
+                gaps.append(f"全球供应链压力：{gscpi_source['reason']}")
             gaps.extend(["BIS 文件数量是近 365 天的全文检索命中数；事件列表只保留标题或摘要明确相关的文件，最多展示 20 条，不能视为完整政策清单。", "中方政策、双边贸易额与企业受限名单尚未完整接入。"])
         result = self._result(sources, metrics, observations, series, events, gaps)
         if topic_id == "hormuz":
             result["maritime"] = maritime
         return result
+
+    def _supply(self, raw: dict | None, upstream: dict) -> tuple[dict, dict, list[dict]]:
+        """Project the normalized receipt, without re-dating or upgrading its evidence."""
+        raw = raw or {}
+        today = self.clock().date()
+
+        def completed_month(value):
+            return (value if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}", value)
+                    and period(f"{value}-01", today) and value < today.strftime("%Y-%m") else None)
+
+        month, value = completed_month(raw.get("period")), number(raw.get("value"))
+        vintage = raw.get("vintage") or None
+        unit = "标准差" if raw.get("unit") == "standard-deviations" else raw.get("unit") or None
+        verified = (raw.get("basisVerified") is True and bool(vintage) and unit == "标准差"
+                    and raw.get("frequency") == "monthly")
+        freshness = raw.get("freshness", {}).get("status", "unknown")
+        if month is None or value is None or raw.get("status") in {"error", "no_data"}:
+            status = "unavailable"
+        elif upstream["status"] == "stale" or freshness == "stale":
+            status = "stale"
+        elif not verified or freshness != "fresh" or upstream["status"] != "ready":
+            status = "unknown"
+        else:
+            status = "partial" if raw.get("status") == "partial" else "ready" if raw.get("status") == "ok" else "unknown"
+        reason = {"ready": "同修订列月度观测", "partial": "部分数据缺失或被拒绝",
+                  "stale": "旧数据，非当前观测", "unknown": "来源口径或时效未核验",
+                  "unavailable": "来源失败或缺少有效已结束月观测"}[status]
+        metadata = {"vintage": vintage, "vintageBasis": raw.get("vintageBasis", "unknown"),
+                    "rejected": raw.get("rejected"), "missing": raw.get("missing"), "basisVerified": verified,
+                    "sourceStatus": raw.get("status", "unknown"), "collectedAt": raw.get("collectedAt")}
+        source = {"id": "GSCPI", "label": "纽约联储 · GSCPI",
+                  "url": public_url((raw.get("source") or {}).get("url")),
+                  **metadata, "status": status, "reason": reason}
+        metric = {"label": "全球供应链压力", "value": f"{value:.2f}" if month and value is not None else "—",
+                  "unit": unit, "date": month, "dateBasis": "observation-period", "frequency": "monthly",
+                  "source": source["label"], "sourceUrl": source["url"], **metadata, "status": status,
+                  "change": f"{reason}；全球月度指标，不是中美双边制裁强度。月期不是发布日期，修订列不是点时版本。"}
+        points = {}
+        for item in raw.get("history", []):
+            observed, numeric = completed_month(item.get("period")), number(item.get("value"))
+            if not observed or not month or observed > month or numeric is None or (item.get("vintage") or None) != vintage:
+                continue
+            if observed in points and points[observed] != numeric:
+                points[observed] = None
+            else:
+                points.setdefault(observed, numeric)
+        if month and value is not None:
+            points[month] = value
+        history = [{"date": observed, "value": numeric, "seriesId": "GSCPI", "unit": unit,
+                    "source": source["label"], "sourceUrl": source["url"], "frequency": "monthly", **metadata}
+                   for observed, numeric in sorted(points.items()) if numeric is not None]
+        return metric, source, history
 
     def _metric(self, source: dict, label: str, row: dict | None, unit: str, max_days: int, note: str) -> dict:
         status = "unavailable" if not row else "stale" if source["status"] == "stale" or (self.clock().date() - date.fromisoformat(row["date"])).days > max_days else "ready"
@@ -330,5 +392,5 @@ class TopicSources:
                 "sources": [source["label"] for source in sources],
                 "sourceStatus": [{key: value for key, value in source.items() if key != "data"} for source in sources],
                 "gaps": gaps, "dataMode": "source-backed" if available else "unavailable", "dataAsOf": None,
-                "freshness": "stale" if "stale" in statuses else "unknown" if "unavailable" in statuses else "fresh",
+                "freshness": "stale" if "stale" in statuses else "unknown" if any(status in {"unavailable", "partial", "unknown"} for status in statuses) else "fresh",
                 "dataWarning": "观测值保留各自来源、单位与数据期，非实时行情；手动情景参数未由这些观测自动校准，不能作为事实或市场概率。"}

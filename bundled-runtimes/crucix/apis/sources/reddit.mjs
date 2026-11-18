@@ -7,7 +7,7 @@
 import { safeFetch } from '../utils/fetch.mjs';
 import '../utils/env.mjs';
 
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+import { sourceDelay as delay, sourceFetch as fetch } from '../utils/source-request.mjs';
 
 const SUBREDDITS = [
   'worldnews',

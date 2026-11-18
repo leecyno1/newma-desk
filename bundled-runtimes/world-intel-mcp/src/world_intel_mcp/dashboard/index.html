@@ -678,13 +678,13 @@ a { color: var(--accent); text-decoration: none; }
     </div>
     <div class="layer-row" data-layer="fires">
         <span class="layer-dot" style="background:var(--gold)"></span>
-        <span class="layer-label">Wildfires</span>
+        <span class="layer-label">Thermal observations</span>
         <span class="layer-count" id="cntFires">—</span>
         <div class="toggle on" style="--lc:var(--gold)"><div class="knob"></div></div>
     </div>
     <div class="layer-row" data-layer="convergence">
         <span class="layer-dot" style="background:var(--purple)"></span>
-        <span class="layer-label">Convergence</span>
+        <span class="layer-label">Seismic Regions</span>
         <span class="layer-count" id="cntConv">—</span>
         <div class="toggle on" style="--lc:var(--purple)"><div class="knob"></div></div>
     </div>
@@ -952,7 +952,7 @@ $('#drawerToggle').addEventListener('click', function() {
 
 // ════════════ DETAIL MODAL ════════════
 var COLORS = { earthquake: 'var(--red)', military: 'var(--blue)', conflict: 'var(--amber)', fire: 'var(--gold)', convergence: 'var(--purple)', nuclear: 'var(--green)', military_base: 'var(--teal)', port: 'var(--blue)', nuclear_facility: 'var(--gold)', pipeline: 'var(--purple)', exposure: '#e040fb', waterway: 'var(--accent)', cable: 'var(--blue)', airtraffic: '#00c8ff', traffic_city: '#e0e0e0', navwarn: '#ffc832', webcam: '#909090' };
-var LABELS = { earthquake: 'EARTHQUAKE', military: 'MILITARY AIRCRAFT', conflict: 'CONFLICT EVENT', fire: 'WILDFIRE CLUSTER', convergence: 'SIGNAL CONVERGENCE', nuclear: 'NUCLEAR MONITOR', military_base: 'MILITARY BASE', port: 'STRATEGIC PORT', nuclear_facility: 'NUCLEAR FACILITY', pipeline: 'PIPELINE', exposure: 'POPULATION EXPOSURE', waterway: 'STRATEGIC WATERWAY', cable: 'CABLE CORRIDOR', airtraffic: 'AIRCRAFT', traffic_city: 'TRAFFIC CONGESTION', navwarn: 'NAVIGATION WARNING', webcam: 'WEBCAM' };
+var LABELS = { earthquake: 'EARTHQUAKE', military: 'MILITARY AIRCRAFT', conflict: 'CONFLICT EVENT', fire: 'THERMAL OBSERVATION GRID', convergence: 'REGIONAL SEISMIC SAMPLES', nuclear: 'TEST-SITE NEARBY SEISMIC SAMPLE', military_base: 'MILITARY BASE', port: 'STRATEGIC PORT', nuclear_facility: 'NUCLEAR FACILITY', pipeline: 'PIPELINE', exposure: 'POPULATION EXPOSURE', waterway: 'STRATEGIC WATERWAY', cable: 'CABLE CORRIDOR', airtraffic: 'AIRCRAFT', traffic_city: 'TRAFFIC CONGESTION', navwarn: 'NAVIGATION WARNING', webcam: 'WEBCAM' };
 
 function showDetail(type, d) {
     var title = '', subtitle = '', fields = [], link = '';
@@ -1003,35 +1003,39 @@ function showDetail(type, d) {
             ['Notes', trunc(d.notes || '', 120)]
         ];
     } else if (type === 'fire') {
-        title = 'Fire Cluster \u2014 ' + d.fire_count + ' detections';
+        title = 'Thermal grid \u2014 ' + d.fire_count + ' detections';
         subtitle = d.lat.toFixed(2) + ', ' + d.lon.toFixed(2);
         fields = [
-            ['Fire Count', String(d.fire_count), d.fire_count > 50 ? 'crit' : d.fire_count > 10 ? 'high' : ''],
-            ['Max FRP', d.max_frp != null ? d.max_frp.toFixed(1) + ' MW' : '\u2014', d.max_frp > 100 ? 'high' : ''],
+            ['Detection samples', String(d.fire_count)],
+            ['Max FRP', d.max_frp != null ? d.max_frp.toFixed(1) + ' MW' : '\u2014'],
+            ['Interpretation', 'Satellite observations, not verified fires or damage'],
             ['Coordinates', d.lat.toFixed(4) + ', ' + d.lon.toFixed(4)],
             ['Region', d._region || '\u2014']
         ];
     } else if (type === 'convergence') {
-        var score = d.convergence_score || 0;
-        title = d.name || 'Convergence Zone';
-        subtitle = 'Score: ' + score.toFixed(1);
+        var score = d.convergence_score;
+        title = d.name || 'Regional seismic samples';
+        subtitle = 'Seismic samples + static baseline; not multi-domain risk';
         fields = [
-            ['Convergence Score', score.toFixed(1), score >= 7 ? 'crit' : score >= 4 ? 'high' : '']
+            ['Heuristic observation', score == null ? 'unknown' : score.toFixed(1)],
+            ['Source status', d.source_status || 'unknown'],
+            ['Source updated', d.source_updated_at || 'unknown'],
+            ['Truncated', d.truncated ? 'yes' : 'no']
         ];
         var signals = d.signals || {};
         for (var sk in signals) {
             if (signals.hasOwnProperty(sk)) {
-                fields.push([sk.charAt(0).toUpperCase() + sk.slice(1), String(signals[sk])]);
+                fields.push([sk.charAt(0).toUpperCase() + sk.slice(1), signals[sk] == null ? 'unknown' : String(signals[sk])]);
             }
         }
         if (d.lat != null) fields.push(['Coordinates', d.lat.toFixed(3) + ', ' + d.lon.toFixed(3)]);
     } else if (type === 'nuclear') {
-        var cs = d.concern_score || 0;
+        var cs = d.concern_score;
         title = (d.site || 'Unknown Site') + ' \u2014 M' + (d.magnitude || 0).toFixed(1);
-        subtitle = d.site_country || '';
+        subtitle = 'Nearby seismic sample; not a nuclear test determination';
         fields = [
-            ['Concern Score', cs.toFixed(1), cs >= 70 ? 'crit' : cs >= 50 ? 'high' : cs >= 30 ? 'high' : ''],
-            ['Concern Level', d.concern_level || '\u2014', d.concern_level === 'critical' ? 'crit' : d.concern_level === 'high' ? 'high' : ''],
+            ['Heuristic observation', cs == null ? 'unknown' : cs.toFixed(1)],
+            ['Heuristic level', d.concern_level || 'not_assessed'],
             ['Magnitude', (d.magnitude || 0).toFixed(1)],
             ['Depth', d.depth_km != null ? d.depth_km + ' km' : '\u2014', d.depth_km <= 5 ? 'high' : ''],
             ['Distance to Site', d.distance_km != null ? d.distance_km + ' km' : '\u2014'],
@@ -1581,11 +1585,11 @@ document.addEventListener('keydown', function(e) {
 
 function updateMapQuakes(data) {
     mapLayers.quakes.clearLayers();
-    if (!data || data.error) { $('#cntQuakes').textContent = '0'; return; }
+    if (!data || data.error) { $('#cntQuakes').textContent = 'unknown'; return; }
     var quakes = (data.earthquakes || []).filter(function(q) {
         return _withinTimeWindow(q.time || q.timestamp);
     });
-    $('#cntQuakes').textContent = quakes.length;
+    $('#cntQuakes').textContent = data.count == null ? 'unknown' : quakes.length + (data.status === 'ok' ? '' : ' (' + (data.status || 'unknown') + ')');
     quakes.slice(0, 100).forEach(function(q) {
         if (q.latitude == null || q.longitude == null) return;
         var mag = q.magnitude || 1;
@@ -1639,15 +1643,26 @@ function updateMapConflict(data) {
     });
 }
 
+function isCurrentFireRegion(region) {
+    if (!region || region.error || (region.status !== 'ok' && region.status !== 'partial') || region.freshness !== 'fresh') return false;
+    if (typeof region.collected_at !== 'string' || typeof region.cache_expires_at !== 'string' ||
+        !/(?:Z|[+-]\d\d:\d\d)$/.test(region.collected_at) || !/(?:Z|[+-]\d\d:\d\d)$/.test(region.cache_expires_at)) return false;
+    var collected = Date.parse(region.collected_at), expires = Date.parse(region.cache_expires_at), now = Date.now();
+    return Number.isFinite(collected) && Number.isFinite(expires) && collected <= now && now < expires && Array.isArray(region.top_clusters);
+}
+
 function updateMapFires(data) {
     mapLayers.fires.clearLayers();
-    if (!data || data.error) { $('#cntFires').textContent = '0'; return; }
+    var countEl = $('#cntFires');
+    countEl.title = '';
+    if (!data || data.error || data._stale || data.freshness === 'stale' || (data.status !== 'ok' && data.status !== 'partial')) { countEl.textContent = 'unknown'; return; }
     var regions = data.fires_by_region || {};
-    var total = 0;
+    var currentCount = 0;
     for (var rName in regions) {
         if (!regions.hasOwnProperty(rName)) continue;
         var r = regions[rName];
-        total += r.count || 0;
+        if (!isCurrentFireRegion(r)) continue;
+        currentCount++;
         var clusters = r.top_clusters || [];
         clusters.forEach(function(c) {
             if (c.lat == null || c.lon == null) return;
@@ -1656,30 +1671,32 @@ function updateMapFires(data) {
             var mk = L.marker([c.lat, c.lon], {
                 icon: L.divIcon({ className: 'mk-fire', iconSize: [size, size], iconAnchor: [size/2, size/2] })
             });
-            mk.bindTooltip(c.fire_count + ' fires \u2014 ' + rName, { className: 'mk-tip', direction: 'top', offset: [0, -size/2] });
+            mk.bindTooltip(c.fire_count + ' thermal detections \u2014 ' + esc(rName) + ' (' + esc(r.status) + ')', { className: 'mk-tip', direction: 'top', offset: [0, -size/2] });
             mk.on('click', function() { showDetail('fire', obj); });
             mk.addTo(mapLayers.fires);
         });
     }
     var clusterCount = mapLayers.fires.getLayers().length;
-    // Show cluster count for sidebar (what's on the map), full total in tooltip
-    $('#cntFires').textContent = clusterCount;
-    $('#cntFires').title = (data.total_fires || total) + ' individual fire detections';
+    var coverage = data.coverage || {};
+    countEl.textContent = currentCount ? clusterCount : 'unknown';
+    countEl.title = (data.status || 'unknown') + ' · coverage ' + (coverage.available == null ? '?' : coverage.available) + '/' + (coverage.requested == null ? '?' : coverage.requested) +
+        ' regions at collection; current ' + currentCount + '/' + Object.keys(regions).length + '. Displayed grid samples may be truncated; overlapping regional detections are not verified fires.';
 }
 
 function updateMapConvergence(data) {
     mapLayers.convergence.clearLayers();
-    if (!data || data.error) { $('#cntConv').textContent = '0'; return; }
+    if (!data || data.error) { $('#cntConv').textContent = 'unknown'; return; }
     var hotspots = data.hotspots || [];
     $('#cntConv').textContent = hotspots.length;
     hotspots.forEach(function(h) {
         if (h.lat == null || h.lon == null) return;
-        var score = h.convergence_score || 0;
+        var score = h.convergence_score;
+        if (score == null) return;
         var size = 28 + score * 8;
         var mk = L.marker([h.lat, h.lon], {
             icon: L.divIcon({ className: 'mk-conv', iconSize: [size, size], iconAnchor: [size/2, size/2] })
         });
-        mk.bindTooltip((h.name || '?') + ' \u2014 Score ' + score.toFixed(1), { className: 'mk-tip', direction: 'top', offset: [0, -size/2] });
+        mk.bindTooltip((h.name || '?') + ' \u2014 Seismic heuristic ' + score.toFixed(1) + '; not conflict risk', { className: 'mk-tip', direction: 'top', offset: [0, -size/2] });
         mk.on('click', function() { showDetail('convergence', h); });
         mk.addTo(mapLayers.convergence);
     });
@@ -1687,28 +1704,27 @@ function updateMapConvergence(data) {
 
 function updateMapNuclear(data) {
     mapLayers.nuclear.clearLayers();
-    if (!data || data.error) { $('#cntNuclear').textContent = '0'; return; }
+    if (!data || data.error) { $('#cntNuclear').textContent = 'unknown'; return; }
     var sites = data.sites || [];
     var flagged = 0;
     sites.forEach(function(site) {
         if (site.lat == null || site.lon == null) return;
-        var evts = site.events_detected || 0;
+        var evts = site.events_detected;
         flagged += evts;
         var highest = site.highest_concern;
-        var isCrit = highest && highest.concern_level === 'critical';
         var size = evts > 0 ? Math.max(14, Math.min(24, evts * 3 + 10)) : 10;
         var mk = L.marker([site.lat, site.lon], {
-            icon: L.divIcon({ className: 'mk-nuclear' + (isCrit ? ' crit' : ''), iconSize: [size, size], iconAnchor: [size/2, size/2] })
+            icon: L.divIcon({ className: 'mk-nuclear', iconSize: [size, size], iconAnchor: [size/2, size/2] })
         });
         var tip = esc(site.name) + ' (' + esc(site.status) + ')';
-        if (evts > 0) tip += ' \u2014 ' + evts + ' events';
+        tip += ' \u2014 ' + (evts == null ? 'unknown' : evts) + ' nearby samples; not nuclear test confirmation';
         mk.bindTooltip(tip, { className: 'mk-tip', direction: 'top', offset: [0, -size/2] });
         mk.on('click', function() {
             if (highest) { showDetail('nuclear', highest); }
         });
         mk.addTo(mapLayers.nuclear);
     });
-    $('#cntNuclear').textContent = flagged;
+    $('#cntNuclear').textContent = data.total_flagged_events == null ? 'unknown' : data.total_flagged_events;
 }
 
 function updateMapInfra(data) {
@@ -2007,7 +2023,7 @@ function _geolocateArticle(article) {
 
 function updateMapNews(data) {
     mapLayers.news.clearLayers();
-    if (!data || data.error) { $('#cntNews').textContent = '0'; return; }
+    if (!data || data.error || data.status === 'unavailable') { $('#cntNews').textContent = 'unknown'; return; }
     var articles = (data.articles || data.items || []).filter(function(a) {
         return _withinTimeWindow(a.published || a.pub_date || a.timestamp);
     });
@@ -2056,9 +2072,9 @@ function updateAlertBanner(data) {
 
 function updateHudStats(data) {
     var pills = [];
-    if (data.earthquakes && !data.earthquakes.error) {
-        var qc = (data.earthquakes.earthquakes || []).length;
-        pills.push('<div class="stat-pill"><span class="v">' + qc + '</span><span class="l">Quakes</span></div>');
+    if (data.earthquakes) {
+        var qc = data.earthquakes.count;
+        pills.push('<div class="stat-pill"><span class="v">' + (qc == null ? 'unknown' : qc) + '</span><span class="l">Quake samples (' + esc(data.earthquakes.status || 'unknown') + ')</span></div>');
     }
     if (data.military_flights && !data.military_flights.error) {
         pills.push('<div class="stat-pill"><span class="v">' + (data.military_flights.count || 0) + '</span><span class="l">Aircraft</span></div>');
@@ -2073,11 +2089,15 @@ function updateHudStats(data) {
     if (data.cyber_threats && !data.cyber_threats.error) {
         pills.push('<div class="stat-pill"><span class="v">' + ((data.cyber_threats.threats || []).length) + '</span><span class="l">Cyber IOC</span></div>');
     }
-    if (data.wildfires && !data.wildfires.error) {
+    if (data.wildfires) {
         var fbr = data.wildfires.fires_by_region || {};
         var fireClusterCount = 0;
-        for (var rr in fbr) { if (fbr.hasOwnProperty(rr)) fireClusterCount += (fbr[rr].top_clusters || []).length; }
-        pills.push('<div class="stat-pill"><span class="v' + (fireClusterCount > 500 ? ' crit' : fireClusterCount > 100 ? ' warn' : '') + '">' + fireClusterCount + '</span><span class="l">Fires</span></div>');
+        var currentFireRegions = 0;
+        if (!data.wildfires.error && !data.wildfires._stale && data.wildfires.freshness !== 'stale' && (data.wildfires.status === 'ok' || data.wildfires.status === 'partial')) {
+            for (var rr in fbr) { if (fbr.hasOwnProperty(rr) && isCurrentFireRegion(fbr[rr])) { currentFireRegions++; fireClusterCount += fbr[rr].top_clusters.length; } }
+        }
+        var fireStatus = !currentFireRegions ? 'unavailable' : currentFireRegions < Object.keys(fbr).length ? 'partial' : (data.wildfires.status || 'unknown');
+        pills.push('<div class="stat-pill" title="' + esc(fireStatus) + ': displayed thermal observation grids, not verified fires"><span class="v">' + (fireStatus === 'unavailable' ? 'unknown' : fireClusterCount) + '</span><span class="l">Thermal observations</span></div>');
     }
     if (data.displacement && !data.displacement.error && data.displacement.global_totals) {
         pills.push('<div class="stat-pill"><span class="v warn">' + fmtBigPlain(data.displacement.global_totals.grand_total || 0) + '</span><span class="l">Displaced</span></div>');
@@ -2095,8 +2115,8 @@ function updateHudStats(data) {
         pills.push('<div class="stat-pill"><span class="v' + (hasCrit ? ' crit' : ' warn') + '">' + ac + '</span><span class="l">Alerts</span></div>');
     }
     if (data.shipping_index && !data.shipping_index.error) {
-        var ss = data.shipping_index.stress_score || 0;
-        pills.push('<div class="stat-pill"><span class="v' + (ss >= 60 ? ' crit' : ss >= 30 ? ' warn' : '') + '">' + ss + '</span><span class="l">Ship Stress</span></div>');
+        var ss = data.shipping_index.stress_score;
+        pills.push('<div class="stat-pill"><span class="v' + (ss >= 60 ? ' crit' : ss >= 30 ? ' warn' : '') + '">' + (ss == null ? '—' : ss) + '</span><span class="l">Ship Stress</span></div>');
     }
     if (data.disease_outbreaks && !data.disease_outbreaks.error) {
         var hc = data.disease_outbreaks.high_concern_count || 0;
@@ -2106,9 +2126,9 @@ function updateHudStats(data) {
         pills.push('<div class="stat-pill"><span class="v crit">' + data.nuclear_monitor.critical_flags + '</span><span class="l">Nuke Flag</span></div>');
     }
     if (data.strategic_posture && !data.strategic_posture.error) {
-        var ps = data.strategic_posture.composite_score || 0;
+        var ps = data.strategic_posture.composite_score;
         var psCls = ps >= 55 ? ' crit' : ps >= 35 ? ' warn' : '';
-        pills.push('<div class="stat-pill"><span class="v' + psCls + '">' + ps.toFixed(0) + '</span><span class="l">Posture</span></div>');
+        pills.push('<div class="stat-pill"><span class="v' + psCls + '">' + (typeof ps === 'number' ? ps.toFixed(0) : '—') + '</span><span class="l">Posture</span></div>');
     }
     if (data.population_exposure && !data.population_exposure.error && data.population_exposure.exposed_city_count > 0) {
         pills.push('<div class="stat-pill"><span class="v warn">' + (data.population_exposure.total_exposed_population_formatted || '0') + '</span><span class="l">Exposed</span></div>');
@@ -2136,24 +2156,25 @@ function updateDrawer(data) {
     // ── STRATEGIC POSTURE ──
     if (data.strategic_posture && !data.strategic_posture.error) {
         var sp = data.strategic_posture;
-        var compScore = sp.composite_score || 0;
+        var compScore = sp.composite_score;
         var riskLvl = sp.risk_level || 'UNKNOWN';
-        var riskColor = riskLvl === 'CRITICAL' ? 'var(--red)' : riskLvl === 'HIGH' ? 'var(--amber)' : riskLvl === 'ELEVATED' ? '#ff9100' : 'var(--green)';
+        var riskColor = compScore == null ? 'var(--muted)' : riskLvl === 'CRITICAL' ? 'var(--red)' : riskLvl === 'HIGH' ? 'var(--amber)' : riskLvl === 'ELEVATED' ? '#ff9100' : 'var(--green)';
         h += '<div class="sh">STRATEGIC POSTURE</div>';
         h += '<div style="display:flex;align-items:center;gap:12px;padding:6px 0">';
-        h += '<div style="font-size:2rem;font-weight:700;color:' + riskColor + '">' + compScore.toFixed(0) + '</div>';
+        h += '<div style="font-size:2rem;font-weight:700;color:' + riskColor + '">' + (typeof compScore === 'number' ? compScore.toFixed(0) : '—') + '</div>';
         h += '<div><div style="font-size:0.85rem;font-weight:600;color:' + riskColor + '">' + esc(riskLvl) + '</div>';
         h += '<div class="dim" style="font-size:0.6rem">' + (sp.domains_assessed || 0) + ' domains assessed</div></div>';
         h += '</div>';
+        h += '<p class="dim">' + esc(sp.note || '') + '</p>';
         var ds = sp.domain_scores || {};
         h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px">';
         for (var dk in ds) {
             if (ds.hasOwnProperty(dk)) {
                 var dInfo = ds[dk];
-                var dScore = dInfo.score || 0;
-                var dColor = dScore >= 55 ? 'var(--red)' : dScore >= 35 ? 'var(--amber)' : 'var(--green)';
+                var dScore = dInfo.score;
+                var dColor = dScore == null ? 'var(--muted)' : dScore >= 55 ? 'var(--red)' : dScore >= 35 ? 'var(--amber)' : 'var(--green)';
                 h += '<div style="text-align:center;padding:4px 2px;border-radius:4px;background:rgba(255,255,255,0.02)">';
-                h += '<div style="font-size:0.75rem;font-weight:600;color:' + dColor + '">' + dScore.toFixed(0) + '</div>';
+                h += '<div style="font-size:0.75rem;font-weight:600;color:' + dColor + '">' + (typeof dScore === 'number' ? dScore.toFixed(0) : '—') + '</div>';
                 h += '<div class="dim" style="font-size:0.5rem;text-transform:uppercase;letter-spacing:0.5px">' + esc(dk) + '</div>';
                 h += '</div>';
             }
@@ -2172,6 +2193,10 @@ function updateDrawer(data) {
     }
 
     // ── ALERTS ──
+    if (data.alert_digest && data.alert_digest.coverage) {
+        var cov = data.alert_digest.coverage;
+        h += '<p class="dim">Alert sample checks: ' + esc(String(cov.available)) + '/' + esc(String(cov.expected)) + '. Missing inputs do not establish safety.</p>';
+    }
     if (data.alert_digest && !data.alert_digest.error && data.alert_digest.alert_count > 0) {
         h += '<div class="sh">ALERTS</div>';
         var byPri = data.alert_digest.by_priority || {};
@@ -2357,18 +2382,35 @@ function updateDrawer(data) {
         var oc = data.internet_outages.ongoing_count || outages.length;
         h += '<div class="sub">Infrastructure</div>';
         h += '<div class="mini-row"><div class="mini-box"><div class="v' + (oc > 0 ? ' warn' : '') + '">' + oc + '</div><div class="l">Outages</div></div>';
-        if (data.cable_health && !data.cable_health.error) {
-            var cs = data.cable_health.health_score || data.cable_health.overall_score;
-            h += '<div class="mini-box"><div class="v">' + (cs != null ? cs + '%' : '\u2014') + '</div><div class="l">Cable Health</div></div>';
-        }
         h += '</div>';
     }
-    if (data.airport_delays && !data.airport_delays.error) {
-        var delays = data.airport_delays.delays || [];
+    if (data.cable_health) {
+        var cable = data.cable_health;
+        var cableObserved = cable.observation_basis === 'navigation-warning-corridor-bbox';
+        h += '<div class="sub">Cable corridor warning observations</div>';
+        h += '<div class="dim">Cable health not assessed. Rough corridor boxes, not cable locations.</div>';
+        h += '<div class="dim">Collected: ' + esc(cable.collected_at || 'unknown') + ' · ' + esc(cable.freshness || 'unknown') + '</div>';
+        h += '<table class="dtable"><thead><tr><th>Corridor</th><th>Warning samples</th></tr></thead><tbody>';
+        Object.entries(cable.corridors || {}).forEach(function(pair) {
+            var count = cableObserved ? pair[1].warning_count : null;
+            h += '<tr><td>' + esc(pair[0]) + '</td><td>' + (count == null ? 'unknown' : count) + '</td></tr>';
+        });
+        h += '</tbody></table>';
+        h += '<div class="dim">Unlocated warnings: ' + (cable.unlocated_warnings == null ? 'unknown' : cable.unlocated_warnings) + '</div>';
+    }
+    if (data.airport_delays) {
+        var faa = data.airport_delays;
+        var faaKnown = faa.observation_basis === 'faa-nas-airport-advisories';
+        var delays = faa.delayed || [];
+        h += '<div class="sub">FAA airport operating advisories</div>';
+        h += '<div class="dim">' + esc(faaKnown ? faa.status || 'unknown' : 'Legacy coverage unknown') + ' · Source updated: ' + esc(faaKnown ? faa.updated_at || 'unknown' : 'unknown') + '</div>';
+        h += '<div class="dim">Airports listed: ' + (faaKnown && faa.reported_airport_count != null ? faa.reported_airport_count : 'unknown') + '. Listed advisories only; absence does not establish no delays. Closures may apply to selected flights.</div>';
+        if (faa.error) h += '<div class="dim">' + esc(faa.error) + '</div>';
         if (delays.length) {
-            h += '<div class="sub">Airport Delays</div><table class="dtable"><thead><tr><th>Airport</th><th>Reason</th></tr></thead><tbody>';
-            delays.slice(0, 8).forEach(function(d) {
-                h += '<tr><td class="bright">' + esc(d.airport || d.iata || '?') + '</td><td class="dim">' + esc(trunc(d.reason || d.type || '\u2014', 30)) + '</td></tr>';
+            h += '<table class="dtable"><thead><tr><th>Airport</th><th>Advisories</th></tr></thead><tbody>';
+            delays.forEach(function(d) {
+                var info = (d.status || []).map(function(s) { return [s.type, s.reason, s.direction, s.avg_delay, s.min_delay, s.max_delay, s.end_time, s.closure_begin, s.closure_end].filter(Boolean).join(' · '); }).join('; ');
+                h += '<tr><td class="bright">' + esc(d.code || '?') + '</td><td class="dim">' + esc(info || 'unknown') + '</td></tr>';
             });
             h += '</tbody></table>';
         }
@@ -2630,21 +2672,24 @@ function updateDrawer(data) {
     // ── FLEET ──
     if (data.fleet_report && !data.fleet_report.error) {
         var fr = data.fleet_report;
-        h += '<div class="sh">FLEET</div>';
-        var fScore = fr.readiness_score || 0;
-        var fColor = fScore >= 70 ? 'var(--red)' : fScore >= 40 ? 'var(--amber)' : 'var(--green)';
+        h += '<div class="sh">AVIATION &amp; WATERWAY OBSERVATIONS</div>';
+        var observedFleet = fr.observation_basis === 'public-aviation-and-navigation-warning-samples';
+        h += '<div class="sub">Readiness not assessed. Public samples do not establish fleet size or combat readiness.</div>';
+        if (!observedFleet) h += '<div class="sub">Legacy proxy score not used; updated observations required.</div>';
         h += '<div class="mini-row">';
-        h += '<div class="mini-box"><div class="v" style="color:' + fColor + '">' + fScore + '</div><div class="l">Readiness</div></div>';
-        h += '<div class="mini-box"><div class="v">' + esc(fr.readiness_level || '\u2014') + '</div><div class="l">Level</div></div>';
-        h += '<div class="mini-box"><div class="v">' + (fr.total_tracked_aircraft || 0) + '</div><div class="l">Aircraft</div></div>';
-        h += '<div class="mini-box"><div class="v">' + (fr.surge_count || 0) + '</div><div class="l">Surges</div></div>';
+        h += '<div class="mini-box"><div class="v">' + (observedFleet ? (fr.total_tracked_aircraft ?? '\u2014') : '\u2014') + '</div><div class="l">Regional aircraft sample</div></div>';
+        h += '<div class="mini-box"><div class="v">' + (observedFleet ? (fr.surge_count ?? '\u2014') : '\u2014') + '</div><div class="l">Assessed sample anomalies</div></div>';
+        var fc = fr.coverage || {}, bc = fr.baseline_coverage || {};
+        h += '<div class="mini-box"><div class="v">' + (observedFleet ? (fc.available ?? '\u2014') + '/' + (fc.expected ?? '\u2014') : '\u2014') + '</div><div class="l">Observation inputs</div></div>';
+        h += '<div class="mini-box"><div class="v">' + (observedFleet ? (bc.available ?? '\u2014') + '/' + (bc.expected ?? '\u2014') : '\u2014') + '</div><div class="l">Regions with usable baseline</div></div>';
         h += '</div>';
-        var wws = fr.waterway_summary || [];
+        if (observedFleet && fr.surge_count == null) h += '<div class="sub">Anomalies not assessed: baseline warming up or observations unavailable.</div>';
+        var wws = observedFleet ? (fr.waterway_summary || []) : [];
         if (wws.length) {
             h += '<div class="sub">Waterways</div><table class="dtable"><thead><tr><th>Waterway</th><th>Status</th><th>Warnings</th></tr></thead><tbody>';
             wws.forEach(function(w) {
-                var sCls = w.status === 'critical' ? 'down' : w.status === 'elevated' ? 'warn' : w.status === 'advisory' ? 'warn' : 'dim';
-                h += '<tr><td class="bright">' + esc(trunc(w.name || '?', 22)) + '</td><td class="' + sCls + '">' + esc(w.status || '\u2014') + '</td><td class="dim">' + (w.warning_count || 0) + '</td></tr>';
+                var sCls = w.status === 'warnings-nearby' ? 'warn' : 'dim';
+                h += '<tr><td class="bright">' + esc(trunc(w.name || '?', 22)) + '</td><td class="' + sCls + '">' + esc(w.status || '\u2014') + '</td><td class="dim">' + (w.warning_count ?? '\u2014') + '</td></tr>';
             });
             h += '</tbody></table>';
         }
@@ -2676,34 +2721,38 @@ function updateDrawer(data) {
     }
 
     // ── NUCLEAR ──
-    if (data.nuclear_monitor && !data.nuclear_monitor.error) {
+    if (data.nuclear_monitor) {
         var nuc = data.nuclear_monitor;
-        h += '<div class="sh">NUCLEAR MONITOR</div>';
+        h += '<div class="sh">TEST-SITE NEARBY SEISMIC SAMPLES</div>';
+        h += '<div class="dim">' + esc(nuc.status || 'unknown') + ' · Source updated: ' + esc(nuc.source_updated_at || 'unknown') + ' · Not a nuclear test determination.</div>';
+        if (nuc.error) h += '<div class="dim">' + esc(nuc.error) + '</div>';
+        if (nuc.truncated) h += '<div class="dim">Sample/display limit reached.</div>';
         h += '<div class="mini-row">';
-        h += '<div class="mini-box"><div class="v">' + (nuc.total_flagged_events || 0) + '</div><div class="l">Flagged</div></div>';
-        h += '<div class="mini-box"><div class="v' + ((nuc.critical_flags || 0) > 0 ? ' crit' : '') + '">' + (nuc.critical_flags || 0) + '</div><div class="l">Critical</div></div>';
+        h += '<div class="mini-box"><div class="v">' + (nuc.total_flagged_events == null ? 'unknown' : nuc.total_flagged_events) + '</div><div class="l">Nearby samples</div></div>';
+        h += '<div class="mini-box"><div class="v">' + (nuc.critical_flags == null ? 'unknown' : nuc.critical_flags) + '</div><div class="l">Heuristic flags (not confirmed)</div></div>';
         h += '<div class="mini-box"><div class="v">' + ((nuc.sites || []).length) + '</div><div class="l">Sites</div></div>';
         h += '</div>';
         var nucSites = nuc.sites || [];
         if (nucSites.length) {
             h += '<table class="dtable"><thead><tr><th>Site</th><th>Status</th><th>Events</th><th>Concern</th></tr></thead><tbody>';
             nucSites.forEach(function(s) {
-                var concern = s.highest_concern ? s.highest_concern.concern_level : 'none';
-                var cc = concern === 'critical' ? 'down' : concern === 'high' ? 'warn' : concern === 'elevated' ? 'warn' : 'dim';
-                h += '<tr><td class="bright">' + esc(s.name || '?') + '</td><td class="dim">' + esc(s.status || '\u2014') + '</td><td>' + (s.events_detected || 0) + '</td><td class="' + cc + '">' + esc(concern) + '</td></tr>';
+                var concern = s.highest_concern ? s.highest_concern.concern_level : 'not_assessed';
+                h += '<tr><td class="bright">' + esc(s.name || '?') + '</td><td class="dim">' + esc(s.source_status || 'unknown') + '</td><td>' + (s.events_detected == null ? 'unknown' : s.events_detected) + '</td><td class="dim">' + esc(concern) + '</td></tr>';
             });
             h += '</tbody></table>';
         }
     }
 
     // ── POPULATION EXPOSURE ──
-    if (data.population_exposure && !data.population_exposure.error && data.population_exposure.exposed_city_count > 0) {
+    if (data.population_exposure) {
         var pe = data.population_exposure;
         h += '<div class="sh">POPULATION EXPOSURE</div>';
+        h += '<div class="dim">' + esc(pe.status || 'unknown') + ' · Static city-catalogue population, not actual affected population. Source coverage: ' + esc(String((pe.coverage || {}).available ?? 'unknown')) + '/' + esc(String((pe.coverage || {}).expected ?? 'unknown')) + '</div>';
+        if (pe.error) h += '<div class="dim">' + esc(pe.error) + '</div>';
         h += '<div class="mini-row">';
-        h += '<div class="mini-box"><div class="v warn">' + esc(pe.total_exposed_population_formatted || '0') + '</div><div class="l">Total Exposed</div></div>';
-        h += '<div class="mini-box"><div class="v">' + (pe.exposed_city_count || 0) + '</div><div class="l">Cities</div></div>';
-        h += '<div class="mini-box"><div class="v">' + (pe.events_analyzed || 0) + '</div><div class="l">Events</div></div>';
+        h += '<div class="mini-box"><div class="v">' + esc(pe.total_exposed_population_formatted || 'unknown') + '</div><div class="l">Catalogue population</div></div>';
+        h += '<div class="mini-box"><div class="v">' + (pe.exposed_city_count ?? 'unknown') + '</div><div class="l">Cities</div></div>';
+        h += '<div class="mini-box"><div class="v">' + (pe.events_analyzed ?? 'unknown') + '</div><div class="l">Event samples</div></div>';
         h += '<div class="mini-box"><div class="v">' + (pe.radius_km || 200) + 'km</div><div class="l">Radius</div></div>';
         h += '</div>';
         var byType = pe.by_event_type || {};
@@ -2833,21 +2882,24 @@ function updateDrawer(data) {
     }
 
     // ── USNI FLEET TRACKER ──
-    if (data.usni_fleet && !data.usni_fleet.error && data.usni_fleet.ship_count > 0) {
+    if (data.usni_fleet) {
         var uf = data.usni_fleet;
         h += '<div class="sh">USNI FLEET TRACKER</div>';
         h += '<div class="dim" style="font-size:0.6rem;padding:2px 0">' + esc(uf.report_title || '') + '</div>';
+        h += '<div class="dim">' + (uf.error ? 'Report unavailable; fleet count unknown.' : 'Report text samples, not live positions or a complete inventory.') + '</div>';
+        h += '<div class="dim">Published: ' + esc(uf.report_date || 'unknown') + ' · Collected: ' + esc(uf.collected_at || 'unknown') + ' · ' + esc(uf.freshness || 'unknown') + '</div>';
         if (uf.force_totals && uf.force_totals.battle_force) {
             var bf = uf.force_totals.battle_force;
             var dep = uf.force_totals.deployed || {};
             var uw = uf.force_totals.underway || {};
             h += '<div class="mini-boxes" style="margin:6px 0">';
             h += '<div class="mini-box"><div class="v">' + bf.total + '</div><div class="l">Battle Force</div></div>';
-            h += '<div class="mini-box"><div class="v">' + (dep.total || '?') + '</div><div class="l">Deployed</div></div>';
-            h += '<div class="mini-box"><div class="v">' + (uw.total || '?') + '</div><div class="l">Underway</div></div>';
+            h += '<div class="mini-box"><div class="v">' + (dep.total == null ? '?' : dep.total) + '</div><div class="l">Reported deployed</div></div>';
+            h += '<div class="mini-box"><div class="v">' + (uw.total == null ? '?' : uw.total) + '</div><div class="l">Reported underway</div></div>';
             h += '</div>';
         }
         if (uf.region_breakdown) {
+            h += '<div class="dim">Region inferred from nearby text</div>';
             var regions = Object.entries(uf.region_breakdown).sort(function(a,b){return b[1]-a[1];});
             regions.forEach(function(r) {
                 h += '<div style="font-size:0.65rem;padding:1px 0"><span class="bright">' + esc(r[0]) + '</span> <span class="dim">' + r[1] + ' ships</span></div>';
@@ -2888,13 +2940,15 @@ function updateDrawer(data) {
     if (data.central_bank_rates && !data.central_bank_rates.error && (data.central_bank_rates.rates || []).length > 0) {
         var cbr = data.central_bank_rates;
         h += '<div class="sh">CENTRAL BANK RATES</div>';
-        h += '<div class="dim" style="font-size:0.6rem;padding:2px 0">' + cbr.count + ' banks' + (cbr.fred_available ? ' (FRED live)' : ' (curated)') + '</div>';
+        h += '<div class="dim" style="font-size:0.6rem;padding:2px 0">' + cbr.count + ' banks / ' + ((cbr.coverage || {}).available || 0) + ' available observations; not rate-change dates</div>';
         cbr.rates.forEach(function(r) {
-            var rateCls = r.rate >= 10 ? 'crit' : r.rate >= 5 ? 'warn' : r.rate >= 2 ? 'bright' : 'good';
+            var known = typeof r.rate === 'number' && Number.isFinite(r.rate);
             h += '<div style="font-size:0.65rem;padding:1px 0">';
-            h += '<span class="' + rateCls + '" style="min-width:40px;display:inline-block;text-align:right">' + r.rate.toFixed(2) + '%</span> ';
+            h += '<span class="bright" style="min-width:40px;display:inline-block;text-align:right">' + (known ? r.rate.toFixed(2) + '%' : 'N/A') + '</span> ';
             h += '<span class="bright">' + esc(r.label) + '</span>';
             if (r.country) h += ' <span class="dim">(' + esc(r.country) + ')</span>';
+            h += ' <span class="dim">' + esc(r.as_of || 'date unknown') + ' / ' + esc(r.status || 'unknown') + '</span>';
+            if (r.reference && typeof r.reference.rate === 'number') h += ' <span class="dim">historical only: ' + r.reference.rate.toFixed(2) + '% (' + esc(r.reference.as_of || 'unknown') + ')</span>';
             h += '</div>';
         });
     }
@@ -2944,12 +2998,23 @@ function updateDrawer(data) {
 // ════════════ NEWS TICKER ════════════
 
 function updateTicker(data) {
-    if (!data.news_feed || data.news_feed.error) return;
-    var articles = data.news_feed.articles || data.news_feed.items || [];
-    if (!articles.length) return;
+    if (!data.news_feed) return;
+    var feed = data.news_feed;
+    if (feed.error || feed.status === 'unavailable') {
+        $('#tickerContent').textContent = 'News sources unavailable; coverage and item count are unknown.';
+        return;
+    }
+    var articles = feed.articles || feed.items || [];
+    var coverage = feed.coverage || {};
+    var coverageText = 'RSS: ' + (coverage.complete == null ? '?' : coverage.complete) + '/' + (coverage.expected == null ? '?' : coverage.expected) + ' complete; available sample only. ';
+    if (!articles.length) {
+        $('#tickerContent').textContent = coverageText + (feed.status === 'ok' ? 'Valid feeds returned no items.' : 'Incomplete coverage; no items in the available sample.');
+        return;
+    }
     var items = articles.slice(0, 30).map(function(a) {
-        return '<span class="ticker-item">' + esc(trunc(a.title || '?', 70)) + '<span class="src">' + esc(a.feed_name || a.source || a.feed || '') + '</span></span>';
+        return '<span class="ticker-item">' + (a.freshness === 'stale' ? '[cached] ' : '') + esc(trunc(a.title || '?', 70)) + '<span class="src">' + esc(a.feed_name || a.source || a.feed || '') + '</span></span>';
     });
+    items.unshift('<span class="ticker-item">' + esc(coverageText) + '</span>');
     // Duplicate for seamless loop
     var all = items.join('<span class="ticker-item sep">\u2022</span>');
     var doubled = all + '<span class="ticker-item sep">\u2022</span>' + all;
@@ -3108,7 +3173,7 @@ $('#drawerBody').addEventListener('click', function(e) {
 });
 
 // HUD pill click-to-zoom
-var HUD_LAYER_MAP = { 'Quakes': 'quakes', 'Aircraft': 'military', 'Conflict': 'conflict', 'Fires': 'fires', 'Exposed': 'exposure', 'Airborne': 'airtraffic', 'Traffic': 'traffic', 'Cams': 'webcams', 'Nuke Flag': 'nuclear', 'Climate': 'climate', 'News': 'news' };
+var HUD_LAYER_MAP = { 'Quakes': 'quakes', 'Aircraft': 'military', 'Conflict': 'conflict', 'Thermal observations': 'fires', 'Exposed': 'exposure', 'Airborne': 'airtraffic', 'Traffic': 'traffic', 'Cams': 'webcams', 'Nuke Flag': 'nuclear', 'Climate': 'climate', 'News': 'news' };
 $('#hudStats').addEventListener('click', function(e) {
     var pill = e.target.closest('.stat-pill');
     if (!pill) return;

@@ -8,6 +8,233 @@ from vibe_visualization_api.crucix.adapter import (
 )
 
 
+@pytest.mark.parametrize("status,actual,declared", [("ok", 19499, 19499), ("ok", 0, 0), ("partial", 1, 2), ("error", None, None)])
+def test_ofac_observation_preserves_date_counts_and_collection_without_screening(status, actual, declared):
+    result = normalize_snapshot({"meta": {"timestamp": "2026-11-05T09:00:00Z"}, "ofac": {
+        "status": status, "reason": "source receipt", "collectedAt": "2026-11-04T09:00:00Z",
+        "sdnList": {"publishDate": "2026-11-04", "entryCount": actual, "recordCount": declared,
+                    "countBasis": "sdn-entries", "dataAvailable": status != "error", "complete": status == "ok"},
+        "sampleEntries": [{"name": "Not a new designation"}],
+    }}, now=datetime(2026, 11, 5, 9, tzinfo=UTC))["global"]["ofac"]
+    assert result["status"] == status
+    assert result["entryCount"] == actual and result["recordCount"] == declared
+    assert result["publishedDate"] == ("2026-11-04" if status != "error" else None)
+    assert result["checkedAt"] == "2026-11-04T09:00:00Z"
+    assert result["collectedAt"] == ("2026-11-04T09:00:00Z" if status != "error" else None)
+    assert result["collectionFreshness"]["status"] == ("stale" if status != "error" else "unknown")
+    assert result["complete"] is (status == "ok")
+    assert result["countBasis"] == "sdn-entries"
+    assert "非合规筛查" in result["note"] and "不是新增" in result["note"]
+    assert "sampleEntries" not in result and "publishedAt" not in result
+
+
+def test_ofac_missing_and_legacy_data_do_not_invent_a_verified_list():
+    assert normalize_snapshot({"meta": {}})["global"]["ofac"] is None
+    result = normalize_snapshot({"ofac": {"status": "unknown", "sdnList": {
+        "entryCount": 1, "dataAvailable": True}}})["global"]["ofac"]
+    assert result["status"] == "unknown"
+    assert result["entryCount"] is None and result["recordCount"] is None
+    assert result["publishedDate"] is None and result["complete"] is False
+    assert result["collectedAt"] is None
+
+
+@pytest.mark.parametrize("source", [{}, {"totalEvents": 0, "totalFatalities": 0}, {"status": "no_credentials"}])
+def test_acled_missing_or_legacy_data_is_not_zero_conflict(source):
+    result = normalize_snapshot({"acled": source})["global"]["acled"]
+    assert result["totalEvents"] is None
+    assert result["totalFatalities"] is None
+    assert result["deadliestEvents"] == []
+
+
+def test_acled_preserves_sample_scope_nested_counts_and_zero_coordinates():
+    result = normalize_snapshot({"acled": {
+        "status": "partial", "basis": "bounded-event-sample", "totalEvents": 2, "totalFatalities": None,
+        "period": {"start": "2026-10-21", "end": "2026-10-27"}, "collectedAt": "2026-10-27T09:00:00Z",
+        "coverage": {"accepted": 2, "unknownFatalities": 1, "truncated": True},
+        "byRegion": {"Example": {"count": 2, "fatalities": None, "unknownFatalities": 1}},
+        "deadliestEvents": [{"id": "sample", "date": "2026-10-26", "lat": 0, "lon": 0, "fatalities": 1}],
+    }})["global"]["acled"]
+    assert result["totalEvents"] == 2 and result["totalFatalities"] is None
+    assert result["period"] == {"start": "2026-10-21", "end": "2026-10-27"}
+    assert result["coverage"]["truncated"] is True
+    assert result["byRegion"]["Example"] == {"count": 2, "fatalities": None, "unknownFatalities": 1}
+    assert result["deadliestEvents"][0]["latitude"] == result["deadliestEvents"][0]["longitude"] == 0
+    assert result["deadliestEvents"][0]["date"] == "2026-10-26T00:00:00Z"
+    zero = normalize_snapshot({"acled": {"status": "ok", "basis": "bounded-event-sample", "totalEvents": 0, "totalFatalities": 0}})["global"]["acled"]
+    assert zero["totalEvents"] == zero["totalFatalities"] == 0
+
+
+def test_bls_month_and_change_basis_survive_adapter_without_invented_daily_timestamp():
+    result = normalize_snapshot({"bls": [{
+        "id": "LNS14000000", "label": "Unemployment", "value": 4.2, "date": "2026-09",
+        "momChange": 0.2, "momChangePct": 5, "momPreviousPeriod": "2026-08",
+        "yoyChangePct": 10, "yoyPreviousPeriod": "2025-09", "unit": "percent",
+        "changeUnit": "percentage-points", "seasonalAdjustment": "seasonally-adjusted",
+    }]}, now=datetime(2026, 10, 27, tzinfo=UTC))["macro"]["bls"][0]
+    assert result["date"] == result["period"] == "2026-09"
+    assert result["frequency"] == "monthly"
+    assert result["momChange"] == 0.2
+    assert result["changeUnit"] == "percentage-points"
+    assert result["momPreviousPeriod"] == "2026-08"
+    assert result["yoyPreviousPeriod"] == "2025-09"
+    assert result["seasonalAdjustment"] == "seasonally-adjusted"
+    assert result["freshness"]["status"] == "fresh"
+
+
+@pytest.mark.parametrize("status,count", [("ok", 0), ("partial", 61), ("error", None)])
+def test_weather_retains_coverage_and_unlocated_alerts_without_new_sweep_timestamps(status, count):
+    result = normalize_snapshot({"meta": {"timestamp": "2026-10-27T09:00:00Z"}, "noaa": {
+        "status": status, "totalAlerts": count, "collectedAt": "2026-10-26T01:00:00Z",
+        "coverage": {"complete": status == "ok"}, "httpStatus": 400 if status == "error" else None,
+        "alerts": [{"id": "alert-1", "event": "Flood Warning", "lat": None, "lon": None,
+                    "sent": "2026-10-26T00:00:00Z", "expires": "2026-10-26T12:00:00Z",
+                    "url": "https://api.weather.gov/alerts/1", "areas": "Example county"}],
+    }}, now=datetime(2026, 10, 27, 9, tzinfo=UTC))["global"]
+    assert result["weatherCoverage"]["totalAlerts"] == count
+    assert result["weatherCoverage"]["freshness"]["status"] == "stale"
+    warning = result["weatherAlerts"][0]
+    assert warning["id"] == "alert-1" and warning["latitude"] is None
+    assert warning["sent"] == "2026-10-26T00:00:00Z"
+    assert warning["expires"] == "2026-10-26T12:00:00Z"
+
+
+def test_legacy_weather_zero_without_source_status_is_not_certified_empty():
+    coverage = normalize_snapshot({"noaa": {"totalAlerts": 0, "alerts": []}})["global"]["weatherCoverage"]
+    assert coverage["status"] == "unknown"
+    assert coverage["totalAlerts"] is None
+
+
+def test_treasury_keeps_daily_debt_monthly_cost_basis_and_original_freshness():
+    result = normalize_snapshot({"meta": {"timestamp": "2026-10-27T09:00:00Z"}, "treasury": {
+        "collectedAt": "2026-10-27T08:00:00Z", "status": "ok",
+        "debt": [{"date": "2026-01-02", "totalDebt": "40000000000000.12", "publicDebt": None}],
+        "interestRates": [{"date": "2026-09-30", "rate": 3.5, "security": "Treasury Notes", "securityType": "Marketable",
+                           "basis": "outstanding-debt-average-interest-rate"}],
+    }}, now=datetime(2026, 10, 27, tzinfo=UTC))["macro"]["treasury"]
+    assert result["totalDebt"] == "40000000000000.12"
+    assert result["freshness"]["status"] == "stale"
+    assert result["debt"][0]["publicDebt"] is None
+    rate = result["interestRates"][0]
+    assert rate["date"] == "2026-09"
+    assert rate["rate"] == 3.5 and rate["unit"] == "percent"
+    assert rate["freshness"]["status"] == "fresh"
+    assert rate["basis"] == "outstanding-debt-average-interest-rate"
+
+
+def test_treasury_legacy_zero_and_missing_rates_are_unknown_not_market_yields():
+    result = normalize_snapshot({"treasury": {"totalDebt": "0", "interestRates": [{"date": "2026-09-30", "rate": None}]}})["macro"]["treasury"]
+    assert result["totalDebt"] is None
+    assert result["freshness"]["status"] == "unknown"
+    assert result["interestRates"][0]["basis"] == "unknown"
+
+
+@pytest.mark.parametrize("period,value,status", [("2025-09", 100, "stale"), ("2026-09", None, "unknown"), ("2026-13", 100, "unknown")])
+def test_bls_old_missing_or_invalid_month_is_not_refreshed_by_sweep(period, value, status):
+    result = normalize_snapshot({"meta": {"timestamp": "2026-10-27T00:00:00Z"}, "bls": [{
+        "id": "CUUR0000SA0", "date": period, "value": value, "momChangePct": None,
+    }]}, now=datetime(2026, 10, 27, tzinfo=UTC))["macro"]["bls"][0]
+    assert result["freshness"]["status"] == status
+    assert result["momChangePct"] is None
+    assert result["seasonalAdjustment"] == "unknown"
+
+
+
+@pytest.mark.parametrize("status,count", [("ok", 0), ("partial", 2), ("error", None)])
+def test_rss_coverage_preserves_source_outcomes_and_unknown_counts(status, count):
+    result = normalize_snapshot({
+        "newsMeta": {"coverage": {"requested": 2}, "displayedCount": count,
+                     "items": [{"source": "Synthetic", "status": status, "count": count,
+                                "reason": "source outcome", "asOf": "2026-10-01T00:00:00Z"}]},
+    }, now=datetime(2026, 10, 27, tzinfo=UTC))
+    rss = result["newsCoverage"]
+    assert rss["items"][0]["count"] == count
+    assert rss["coverage"]["unknown"] == 1
+    assert rss["coverage"]["requested"] == 2
+    assert rss["items"][0]["freshness"]["status"] == "stale"
+    assert rss["status"] != "ok"
+
+
+def test_rss_unscanned_is_not_successful_empty_and_legacy_stays_absent():
+    assert normalize_snapshot({"meta": {}})["newsCoverage"] is None
+    rss = normalize_snapshot({"newsMeta": {"status": "unknown", "coverage": {"requested": 0}, "items": []}})["newsCoverage"]
+    assert rss["status"] == "unknown"
+    assert rss["displayedCount"] is None
+    assert rss["asOf"] is None
+
+@pytest.mark.parametrize("attempt", ["ok", "error"])
+def test_rss_cache_retains_data_clock_and_failure_separately(attempt):
+    collected = "2026-10-26T12:00:00Z"
+    result = normalize_snapshot({
+        "meta": {"timestamp": "2026-10-27T00:00:00Z"},
+        "newsMeta": {"mode": "cache", "coverage": {"requested": 1}, "cache": {"status": "ok"},
+                     "items": [{"source": "Synthetic", "status": attempt, "count": 1 if attempt == "ok" else None,
+                                "asOf": "2026-10-26T23:59:00Z", "cached": True,
+                                "dataAsOf": collected, "availableCount": 1}]},
+        "newsFeed": [{"headline": "Retained report", "source": "Synthetic", "type": "rss",
+                      "timestamp": None, "collectedAt": collected, "cached": True, "sourceStatus": attempt}],
+    }, now=datetime(2026, 10, 27, tzinfo=UTC))
+    assert result["newsCoverage"]["status"] == "partial"
+    assert result["newsCoverage"]["cachedSources"] == 1
+    row = result["newsCoverage"]["items"][0]
+    assert row["status"] == attempt
+    assert row["dataFreshness"]["status"] == "stale"
+    assert row["availableCount"] == 1
+    news = result["news"][0]
+    assert news["publishedAt"] is None
+    assert news["collectedAt"] == row["dataAsOf"]
+    assert news["collectionFreshness"]["status"] == "stale"
+    assert news["sourceStatus"] == attempt
+
+
+def test_rss_cache_write_failure_does_not_claim_full_success():
+    result = normalize_snapshot({"newsMeta": {"coverage": {"requested": 1},
+        "cache": {"status": "error", "reason": "cache unavailable"},
+        "items": [{"source": "Synthetic", "status": "ok", "count": 0}]} })
+    assert result["newsCoverage"]["status"] == "partial"
+    assert result["newsCoverage"]["cache"]["status"] == "error"
+
+def test_monitoring_reference_locations_and_unknown_safety_survive_api():
+    result = normalize_snapshot({
+        "air": [{"key": "b", "region": "second region", "geoBasis": "query-bounds-center",
+                 "lat": 0, "lon": 0, "total": 0, "status": "ok", "observedAt": "2026-10-27T00:00:00Z"},
+                {"key": "legacy", "region": "legacy", "lat": 20, "lon": 30, "total": None}],
+        "nuke": [{"key": "sample", "site": "sample area", "geoBasis": "query-radius-center",
+                  "lat": 1, "lon": 2, "cpm": 0, "deviceId": 7, "anom": False, "n": 1,
+                  "sampleReadings": 1, "radiusKm": 50, "status": "ok",
+                  "measurements": [{"value": 0, "unit": "cpm", "deviceId": 7, "observedAt": "2026-10-27T00:00:00Z"}]},
+                 {"key": "bad", "site": "legacy", "lat": 91, "lon": 0, "anom": True, "cpm": 300}],
+    }, now=datetime(2026, 10, 27, tzinfo=UTC))["global"]
+    air = result["airRegions"]
+    assert air[0]["id"] == "b" and air[0]["latitude"] == 0 and air[0]["totalAircraft"] == 0
+    assert air[1]["latitude"] is None and air[1]["totalAircraft"] is None
+    radiation = result["radiationAreas"]
+    assert radiation[0]["assessment"] == "unassessed"
+    assert radiation[0]["avgCPM"] == 0
+    assert radiation[0]["measurements"][0]["unit"] == "cpm"
+    assert radiation[1]["latitude"] is None and radiation[1]["avgCPM"] is None
+    assert all(row["assessment"] == "unassessed" for row in radiation)
+
+@pytest.mark.parametrize("count", [None, 0, 3])
+def test_news_collection_preserves_missing_zero_and_partial_coverage(count):
+    result = normalize_snapshot({
+        "health": [{"n": "GDELT", "status": "partial", "reason": "部分查询失败"}],
+        "gdelt": {"totalArticles": count, "coverage": {"requested": 2, "succeeded": 1, "failed": 1},
+                  "gaps": {"articles": "文章查询失败"} if count is None else {"geo": "地理查询失败"},
+                  "geoPoints": [{"lat": 0, "lon": 0, "count": 0}, {"lat": 1, "lon": 2, "count": None}]},
+    })
+    gdelt = result["global"]["gdelt"]
+    assert gdelt["totalArticles"] == count
+    assert gdelt["coverage"] == {"requested": 2, "succeeded": 1, "failed": 1}
+    assert gdelt["gaps"]
+    assert [point["count"] for point in gdelt["geoPoints"]] == [0, None]
+    assert result["sourceHealth"]["partial"] == 1
+
+
+def test_absent_gdelt_is_not_a_successful_zero_article_scan():
+    result = normalize_snapshot({"meta": {"sourcesQueried": 0}})
+    assert result["global"]["gdelt"]["totalArticles"] is None
+
+
 def test_snapshot_keeps_titled_evidence_and_strips_external_markup() -> None:
     payload = {
         "meta": {
@@ -178,7 +405,7 @@ def test_supply_chain_preserves_month_and_ages_data_separately_from_collection(p
     assert item["period"] == (None if period == "2026-13" else period)
     assert item["date"] == item["period"]
     assert item["dateBasis"] == "period"
-    assert item["unit"] == "标准差"
+    assert item["unit"] is None  # Legacy snapshots did not retain source units.
 
 
 def test_energy_preserves_source_units_and_stale_observation_despite_new_sweep():
@@ -241,3 +468,20 @@ def test_source_failure_marks_retained_monthly_value_stale():
         "health": [{"n": "GSCPI", "err": True}], "gscpi": {"value": 1.06, "date": "2026-08"},
     }, now=datetime(2026, 9, 10, tzinfo=UTC))
     assert result["macro"]["gscpi"]["freshness"]["status"] == "stale"
+
+
+def test_economic_history_keeps_real_periods_and_zero_without_manufacturing_dates():
+    history = [{"period": "2026-09-09", "value": 71}, {"period": "2026-09-08", "value": 0},
+               {"period": "2026-09-08", "value": 99}, {"period": "2026-09-10", "value": 999},
+               {"period": "not-a-date", "value": 70}, {"period": "2026-09-07", "value": None}, 72]
+    result = normalize_snapshot({
+        "energy": {"wtiRecent": [72, 70], "observations": [{"id": "wti", "value": 71,
+            "period": "2026-09-09", "frequency": "daily", "history": history}]},
+        "gscpi": {"date": "2026-08", "value": 1.2, "history": [
+            {"date": "2026-08", "value": 1.2}, {"date": "2026-07", "value": 0},
+            {"date": "2026-10", "value": 99}, {"date": "2026-13", "value": 99}]},
+    }, now=datetime(2026, 9, 10, tzinfo=UTC))["macro"]
+    assert result["energy"]["observations"][0]["history"] == [
+        {"period": "2026-09-08", "value": 0}, {"period": "2026-09-09", "value": 71}]
+    assert result["gscpi"]["history"] == [{"period": "2026-07", "value": 0}, {"period": "2026-08", "value": 1.2}]
+    assert result["energy"]["observations"][1]["history"] == []

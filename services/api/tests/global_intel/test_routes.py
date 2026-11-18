@@ -88,3 +88,17 @@ def test_stream_source_failure_is_a_terminal_error_not_a_successful_empty_feed(c
     assert response.text.startswith("event: error\n")
     assert '"status":"unavailable"' in response.text
     assert "internal source address" not in response.text
+    assert '"code":"world_unavailable"' in response.text
+    assert '"stage":"world"' in response.text
+
+
+def test_stream_exposes_typed_failure_after_partial_data(client: TestClient) -> None:
+    class PartialClient(FakeGlobalIntelClient):
+        async def stream(self, path):
+            yield b'data: {"_complete":false,"_done":1,"_total":48}\n\n'
+            raise GlobalIntelUnavailable("private details", code="world_stream_idle_timeout")
+    install_fake(client, PartialClient())
+    response = client.get("/api/global-intel/stream")
+    assert response.text.startswith('data: {"_complete":false')
+    assert '"code":"world_stream_idle_timeout"' in response.text
+    assert "private details" not in response.text

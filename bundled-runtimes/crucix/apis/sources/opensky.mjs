@@ -69,12 +69,20 @@ export async function briefing() {
   const results = await Promise.all(
     hotspotEntries.map(async ([key, box]) => {
       const data = await getFlightsInArea(box.lamin, box.lomin, box.lamax, box.lomax);
-      const error = data?.error || null;
-      const states = data?.states || [];
+      const validEnvelope = Array.isArray(data?.states) || (data?.states === null && Number.isFinite(data?.time));
+      const error = data?.error ? 'OpenSky request failed' : !validEnvelope ? 'Invalid OpenSky state vector response' : null;
+      const rawStates = Array.isArray(data?.states) ? data.states : [];
+      const states = rawStates.filter(s => Array.isArray(s) && s.length >= 8 && typeof s[0] === 'string');
+      const status = error ? 'error' : states.length < rawStates.length ? 'partial' : 'ok';
       return {
         region: box.label,
         key,
-        totalAircraft: states.length,
+        status,
+        latitude: (box.lamin + box.lamax) / 2, longitude: (box.lomin + box.lomax) / 2,
+        geoBasis: 'query-bounds-center', bounds: { ...box },
+        observedAt: Number.isFinite(data?.time) && data.time > 0 && data.time * 1000 <= Date.now()
+          ? new Date(data.time * 1000).toISOString() : null,
+        totalAircraft: error ? null : states.length,
         // states format: [icao24, callsign, origin_country, ...]
         byCountry: states.reduce((acc, s) => {
           const country = s[2] || 'Unknown';
@@ -82,8 +90,8 @@ export async function briefing() {
           return acc;
         }, {}),
         // Flag potentially interesting (military often have no callsign or specific patterns)
-        noCallsign: states.filter(s => !s[1]?.trim()).length,
-        highAltitude: states.filter(s => s[7] && s[7] > 12000).length, // >12km altitude
+        noCallsign: error ? null : states.filter(s => typeof s[1] !== 'string' || !s[1].trim()).length,
+        highAltitude: error ? null : states.filter(s => Number.isFinite(s[7]) && s[7] > 12000).length,
         ...(error ? { error } : {}),
       };
     })
@@ -96,6 +104,7 @@ export async function briefing() {
   return {
     source: 'OpenSky',
     timestamp: new Date().toISOString(),
+    status: results.every(r => r.status === 'ok') ? 'ok' : results.every(r => r.status === 'error') ? 'error' : 'partial',
     hotspots: results,
     ...(hotspotErrors.length ? {
       error: hotspotErrors.length === results.length

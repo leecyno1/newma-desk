@@ -19,7 +19,7 @@ import { DiscordAlerter } from './lib/alerts/discord.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
-const RUNS_DIR = join(ROOT, 'runs');
+const RUNS_DIR = config.runsDir;
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
 
 // Ensure directories exist
@@ -57,7 +57,7 @@ if (telegramAlerter.isConfigured) {
     const sourcesTotal = currentData?.meta?.sourcesQueried || 0;
     const sourcesFailed = currentData?.meta?.sourcesFailed || 0;
     const llmStatus = llmProvider?.isConfigured ? `✅ ${llmProvider.name}` : '❌ Disabled';
-    const nextSweep = lastSweepTime
+    const nextSweep = config.autoSweep && lastSweepTime
       ? new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000).toLocaleTimeString()
       : 'pending';
 
@@ -88,7 +88,7 @@ if (telegramAlerter.isConfigured) {
     const tg = currentData.tg || {};
     const energy = currentData.energy || {};
     const metals = currentData.metals || {};
-    const delta = memory.getLastDelta();
+    const delta = currentData.delta;
     const ideas = (currentData.ideas || []).slice(0, 3);
 
     const sections = [
@@ -98,6 +98,11 @@ if (telegramAlerter.isConfigured) {
     ];
 
     // Delta direction
+    if (currentData.deltaState?.status === 'restored') {
+      sections.push(`Saved comparison: ${currentData.deltaState.timestamp} (not a new sweep)`);
+    } else if (currentData.deltaState?.status === 'unavailable') {
+      sections.push('Comparison unavailable: saved history does not match this snapshot');
+    }
     if (delta?.summary) {
       const dirEmoji = { 'risk-off': '📉', 'risk-on': '📈', 'mixed': '↔️' }[delta.summary.direction] || '↔️';
       sections.push(`${dirEmoji} Direction: *${delta.summary.direction.toUpperCase()}* | ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical`);
@@ -156,7 +161,7 @@ if (discordAlerter.isConfigured) {
     const sourcesTotal = currentData?.meta?.sourcesQueried || 0;
     const sourcesFailed = currentData?.meta?.sourcesFailed || 0;
     const llmStatus = llmProvider?.isConfigured ? `✅ ${llmProvider.name}` : '❌ Disabled';
-    const nextSweep = lastSweepTime
+    const nextSweep = config.autoSweep && lastSweepTime
       ? new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000).toLocaleTimeString()
       : 'pending';
 
@@ -185,11 +190,16 @@ if (discordAlerter.isConfigured) {
     const tg = currentData.tg || {};
     const energy = currentData.energy || {};
     const metals = currentData.metals || {};
-    const delta = memory.getLastDelta();
+    const delta = currentData.delta;
     const ideas = (currentData.ideas || []).slice(0, 3);
 
     const sections = [`**📋 CRUCIX BRIEF**\n_${new Date().toISOString().replace('T', ' ').substring(0, 19)} UTC_\n`];
 
+    if (currentData.deltaState?.status === 'restored') {
+      sections.push(`Saved comparison: ${currentData.deltaState.timestamp} (not a new sweep)`);
+    } else if (currentData.deltaState?.status === 'unavailable') {
+      sections.push('Comparison unavailable: saved history does not match this snapshot');
+    }
     if (delta?.summary) {
       const dirEmoji = { 'risk-off': '📉', 'risk-on': '📈', 'mixed': '↔️' }[delta.summary.direction] || '↔️';
       sections.push(`${dirEmoji} Direction: **${delta.summary.direction.toUpperCase()}** | ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical\n`);
@@ -255,7 +265,10 @@ app.get('/', (req, res) => {
 
 // API: current data
 app.get('/api/data', (req, res) => {
-  if (!currentData) return res.status(503).json({ error: 'No data yet — first sweep in progress' });
+  if (!currentData) return res.status(503).json({
+    error: config.autoSweep ? 'No data yet — awaiting first completed sweep'
+      : 'No saved data — run brief:save with the same CRUCIX_RUNS_DIR, then restart this service',
+  });
   res.json(currentData);
 });
 
@@ -265,10 +278,11 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     uptime: Math.floor((Date.now() - startTime) / 1000),
     lastSweep: lastSweepTime,
-    nextSweep: lastSweepTime
+    nextSweep: config.autoSweep && lastSweepTime
       ? new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000).toISOString()
       : null,
     sweepInProgress,
+    autoSweepEnabled: config.autoSweep,
     sweepStartedAt,
     sourcesOk: currentData?.meta?.sourcesOk || 0,
     sourcesFailed: currentData?.meta?.sourcesFailed || 0,
@@ -336,11 +350,12 @@ async function runSweepCycle() {
 
     // 3. Synthesize into dashboard format
     console.log('[Crucix] Synthesizing dashboard data...');
-    const synthesized = await synthesize(rawData);
+    const synthesized = await synthesize(rawData, { newsCacheDir: config.runsDir });
 
     // 4. Delta computation + memory
     const delta = memory.addRun(synthesized);
     synthesized.delta = delta;
+    synthesized.deltaState = { status: delta ? 'current' : 'baseline', timestamp: synthesized.meta.timestamp };
 
     // 5. LLM-powered trade ideas (LLM-only feature) — isolated so failures don't kill sweep
     if (llmProvider?.isConfigured) {
@@ -398,7 +413,7 @@ async function runSweepCycle() {
     console.log(`[Crucix] Sweep complete — ${currentData.meta.sourcesOk}/${currentData.meta.sourcesQueried} sources OK`);
     console.log(`[Crucix] ${currentData.ideas.length} ideas (${synthesized.ideasSource}) | ${currentData.news.length} news | ${currentData.newsFeed.length} feed items`);
     if (delta?.summary) console.log(`[Crucix] Delta: ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical, direction: ${delta.summary.direction}`);
-    console.log(`[Crucix] Next sweep at ${new Date(Date.now() + config.refreshIntervalMinutes * 60000).toLocaleTimeString()}`);
+    if (config.autoSweep) console.log(`[Crucix] Next sweep at ${new Date(Date.now() + config.refreshIntervalMinutes * 60000).toLocaleTimeString()}`);
 
   } catch (err) {
     console.error('[Crucix] Sweep failed:', err.message);
@@ -420,7 +435,7 @@ async function start() {
   ╠══════════════════════════════════════════════╣
   ║  Dashboard:  http://${host}:${port}${' '.repeat(Math.max(1, 23 - String(host).length - String(port).length))}║
   ║  Health:     http://${host}:${port}/api/health${' '.repeat(Math.max(1, 13 - String(host).length - String(port).length))}║
-  ║  Refresh:    Every ${config.refreshIntervalMinutes} min${' '.repeat(20 - String(config.refreshIntervalMinutes).length)}║
+  ║  Refresh:    ${(config.autoSweep ? `Every ${config.refreshIntervalMinutes} min` : 'Manual / cached data').padEnd(31)}║
   ║  LLM:        ${(config.llm.provider || 'disabled').padEnd(31)}║
   ║  Telegram:   ${config.telegram.botToken ? 'enabled' : 'disabled'}${' '.repeat(config.telegram.botToken ? 24 : 23)}║
   ║  Discord:    ${config.discord?.botToken ? 'enabled' : config.discord?.webhookUrl ? 'webhook only' : 'disabled'}${' '.repeat(config.discord?.botToken ? 24 : config.discord?.webhookUrl ? 20 : 23)}║
@@ -459,14 +474,23 @@ async function start() {
     // Try to load existing data first for instant display (await so dashboard shows immediately)
     try {
       const existing = JSON.parse(readFileSync(join(RUNS_DIR, 'latest.json'), 'utf8'));
-      const data = await synthesize(existing);
+      // Loading a saved snapshot must not silently launch another RSS collection.
+      const data = await synthesize(existing, { refreshNews: false, newsCacheDir: config.runsDir });
+      const { delta, ...deltaState } = memory.restoreDelta(data);
+      data.delta = delta;
+      data.deltaState = deltaState;
       currentData = data;
+      lastSweepTime = Number.isFinite(Date.parse(data.meta?.timestamp)) ? data.meta.timestamp : null;
       console.log('[Crucix] Loaded existing data from runs/latest.json — dashboard ready instantly');
       broadcast({ type: 'update', data: currentData });
     } catch {
       console.log('[Crucix] No existing data found — first sweep required');
     }
 
+    if (!config.autoSweep) {
+      console.log('[Crucix] Automatic sweeps disabled — serving saved data only; explicit bot sweep commands remain available if configured');
+      return;
+    }
     // Run first sweep (refreshes data in background)
     console.log('[Crucix] Running initial sweep...');
     runSweepCycle().catch(err => {

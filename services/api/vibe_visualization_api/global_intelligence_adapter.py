@@ -1,8 +1,7 @@
 """Keep the Desk registry, credentials and database in the owning host."""
-import asyncio
-from contextlib import suppress
-
-from fastapi import FastAPI, HTTPException, Request
+from contextlib import aclosing
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
+from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
 from .config import Settings
@@ -12,22 +11,26 @@ from .global_intel.client import GlobalIntelClient
 from .global_topics.sources import TopicSources
 from .control_plane.routes import _validate_session
 from .control_plane.repository import ModuleRepositoryError
+from .global_intel.access import GLOBAL_READ_PATHS, TOPIC_MODULES, topic_access, required_access, guard_stream
 
 
-GLOBAL_READ_PATHS = frozenset({
-    "/api/global-intel/health", "/api/global-intel/static", "/api/global-intel/overview",
-    "/api/global-intel/stream", "/api/crucix/health", "/api/crucix/snapshot",
-})
-TOPIC_MODULES = {"fed-rates": "fed-rates", "hormuz": "hormuz-conflict", "us-china-trade": "us-china-trade"}
+scope_router = APIRouter()
 
 
-def topic_access(path: str, method: str):
-    for topic, module in TOPIC_MODULES.items():
-        if method == "GET" and path == f"/api/global-topics/{topic}":
-            return module, "market.read"
-        if method == "POST" and path == f"/api/global-topics/{topic}/forecast":
-            return module, "storage.write"
-    return None
+class GlobalRequestTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    method: str
+    path: str
+
+
+@scope_router.post("/api/mods/runtime/global-scope")
+async def global_request_scope(request: Request, target: GlobalRequestTarget, response: Response):
+    response.headers["Cache-Control"] = "private, no-store"
+    access = required_access(target.path, target.method)
+    if access is None:
+        raise HTTPException(403, "当前全球情报操作未获授权")
+    claims = await _authorize_global(request, *access, require_session=True)
+    return {"userId": claims.user_id, "workspaceId": claims.workspace_id}
 
 
 async def authorize_global_read(request: Request):
@@ -47,11 +50,11 @@ async def authorize_global_topic(request: Request):
     return (claims.user_id, claims.workspace_id) if claims is not None else None
 
 
-async def _authorize_global(request: Request, module_id: str, permission: str):
+async def _authorize_global(request: Request, module_id: str, permission: str, *, require_session=False):
     auth = getattr(request.app.state, "website_auth", None)
     if auth is not None and auth.enabled:
         await auth.authenticate(request, require_mod=True)
-    elif not request.headers.get("authorization"):
+    elif not require_session and not request.headers.get("authorization"):
         return  # Existing local/standalone mode; never used in cloud auth mode.
     claims = _validate_session(request, request.headers.get("authorization"), request.headers.get("x-newma-desk-instance-id"))
     if claims.module_id != module_id or permission not in claims.permissions:
@@ -66,35 +69,13 @@ async def _authorize_global(request: Request, module_id: str, permission: str):
 
 
 async def guard_global_stream(request, chunks, *, interval=5.0):
-    """Recheck expiry/revocation even when upstream sends no events."""
-    iterator = chunks.__aiter__()
-    pending = None
-    try:
-        while True:
-            await authorize_global_read(request)
-            if pending is None:
-                pending = asyncio.create_task(anext(iterator))
-            ready, _ = await asyncio.wait({pending}, timeout=interval)
-            if not ready:
-                continue
-            try:
-                chunk = pending.result()
-            except StopAsyncIteration:
-                return
-            pending = None
-            await authorize_global_read(request)
+    async with aclosing(guard_stream(request, chunks, authorize_global_read, interval=interval, stage="desk_scope")) as stream:
+        async for chunk in stream:
             yield chunk
-    except HTTPException:
-        yield b'event: error\ndata: {"status":"unauthorized","message":"Global intelligence authorization expired"}\n\n'
-    finally:
-        if pending is not None:
-            pending.cancel()
-            with suppress(asyncio.CancelledError, StopAsyncIteration):
-                await pending
-        await iterator.aclose()
 
 
 def install_global_intelligence(app: FastAPI, settings: Settings) -> None:
+    app.include_router(scope_router)
     app.state.global_intelligence_settings = settings
     app.state.global_intel_client = GlobalIntelClient(settings.world_intel_url)
     app.state.global_read_authorizer = authorize_global_read

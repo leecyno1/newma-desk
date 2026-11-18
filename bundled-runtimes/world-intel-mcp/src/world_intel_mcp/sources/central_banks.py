@@ -1,30 +1,27 @@
-"""Central bank policy rates from FRED and curated data.
+"""Public policy-rate observations; historical references never fill current gaps."""
 
-Fetches the Federal Funds Rate, ECB deposit rate, and other major central
-bank policy rates.  Uses FRED API when available (free key), falls back to
-a curated static dataset for non-FRED banks.
-"""
-
-import logging
-import os
-from datetime import datetime, timezone
+import asyncio
+import csv
+import io
+import math
+from datetime import date, datetime, timedelta, timezone
 
 from ..fetcher import Fetcher
-
-logger = logging.getLogger("world-intel-mcp.sources.central_banks")
+from ..source_time import source_cache_timing
 
 
 # ---------------------------------------------------------------------------
 # FRED series IDs for central bank rates
 # ---------------------------------------------------------------------------
 
-_FRED_RATE_SERIES: dict[str, dict] = {
+_RATE_SERIES: dict[str, dict] = {
     "fed_funds": {
-        "series_id": "DFF",
+        "series_id": "DFEDTARU",
         "bank": "Federal Reserve",
         "country": "USA",
         "currency": "USD",
-        "label": "Federal Funds Rate",
+        "label": "Fed target range upper bound / 目标区间上限",
+        "source": "fred", "frequency": "daily-7-days", "rate_type": "target-upper-bound",
     },
     "ecb_deposit": {
         "series_id": "ECBDFR",
@@ -32,24 +29,26 @@ _FRED_RATE_SERIES: dict[str, dict] = {
         "country": "EUR",
         "currency": "EUR",
         "label": "ECB Deposit Facility Rate",
+        "source": "fred", "frequency": "daily-7-days", "rate_type": "deposit-facility",
     },
     "boe_bank_rate": {
-        "series_id": "IUDSOIA",
+        "series_id": "IUDBEDR",
         "bank": "Bank of England",
         "country": "GBR",
         "currency": "GBP",
-        "label": "BoE Bank Rate (SONIA)",
+        "label": "BoE Official Bank Rate",
+        "source": "boe", "frequency": "daily-business-days", "rate_type": "official-bank-rate",
     },
 }
 
-_FRED_API_URL = "https://api.stlouisfed.org/fred/series/observations"
+_FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+_BOE_CSV_URL = "https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp"
 
 # ---------------------------------------------------------------------------
-# Curated fallback rates (updated periodically)
-# These are the most recent known policy rates for banks not on FRED.
+# Historical manual references, NOT verified current policy settings.
 # ---------------------------------------------------------------------------
 
-_CURATED_RATES: list[dict] = [
+_HISTORICAL_RATES: list[dict] = [
     {"bank": "Bank of Japan", "country": "JPN", "currency": "JPY",
      "label": "BoJ Policy Rate", "rate": 0.50, "as_of": "2025-01-24",
      "notes": "Short-term policy rate target"},
@@ -86,6 +85,12 @@ _CURATED_RATES: list[dict] = [
     {"bank": "Bank Indonesia", "country": "IDN", "currency": "IDR",
      "label": "BI Rate", "rate": 5.75, "as_of": "2025-01-15",
      "notes": "BI-Rate"},
+    {"bank": "Federal Reserve", "country": "USA", "currency": "USD",
+     "label": "Fed target range upper bound", "rate": 4.50, "as_of": "2025-01-29"},
+    {"bank": "European Central Bank", "country": "EUR", "currency": "EUR",
+     "label": "ECB Deposit Facility Rate", "rate": 2.75, "as_of": "2025-01-30"},
+    {"bank": "Bank of England", "country": "GBR", "currency": "GBP",
+     "label": "BoE Official Bank Rate", "rate": 4.50, "as_of": "2025-02-06"},
 ]
 
 
@@ -93,104 +98,77 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def _fetch_fred_rate(fetcher: Fetcher, series_id: str, meta: dict) -> dict | None:
-    """Fetch latest observation for a FRED series."""
-    api_key = os.environ.get("FRED_API_KEY")
-    if not api_key:
-        return None
+def _latest_observation(text: str, series_id: str, today: date) -> tuple[float | None, str | None]:
+    """Exact series/date columns only; a missing newest value stays missing."""
+    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")))
+    if series_id not in (reader.fieldnames or []):
+        return None, None
+    rows = []
+    for row in reader:
+        raw = row.get("observation_date", row.get("DATE", "")) or ""
+        observed = None
+        for pattern in ("%Y-%m-%d", "%d %b %Y"):
+            try:
+                observed = datetime.strptime(raw.strip(), pattern).date()
+                break
+            except ValueError:
+                continue
+        if observed is None or observed > today or observed < today - timedelta(days=45):
+            continue
+        try:
+            value = float(row.get(series_id) or "nan")
+            value = value if math.isfinite(value) else None
+        except ValueError:
+            value = None
+        rows.append((observed, value))
+    if not rows:
+        return None, None
+    latest = max(row[0] for row in rows)
+    values = {value for observed, value in rows if observed == latest}
+    return (next(iter(values)) if len(values) == 1 else None), latest.isoformat()
 
-    data = await fetcher.get_json(
-        _FRED_API_URL,
-        source="fred",
-        cache_key=f"central_banks:fred:{series_id}",
-        cache_ttl=3600,
-        params={
-            "series_id": series_id,
-            "api_key": api_key,
-            "file_type": "json",
-            "sort_order": "desc",
-            "limit": "1",
-        },
-    )
 
-    if data is None:
-        return None
-
-    try:
-        obs = data["observations"][0]
-        value = obs.get("value", ".")
-        if value == ".":
-            return None
-        return {
-            "bank": meta["bank"],
-            "country": meta["country"],
-            "currency": meta["currency"],
-            "label": meta["label"],
-            "rate": float(value),
-            "as_of": obs.get("date"),
-            "source": "fred",
-        }
-    except (KeyError, IndexError, TypeError, ValueError):
-        logger.warning("FRED parse error for %s", series_id)
-        return None
+async def _fetch_rate(fetcher: Fetcher, meta: dict, today: date) -> dict:
+    series_id = meta["series_id"]
+    start = today - timedelta(days=45)
+    boe = meta["source"] == "boe"
+    params = {"csv.x": "yes", "Datefrom": start.strftime("%d/%b/%Y"), "Dateto": today.strftime("%d/%b/%Y"),
+              "SeriesCodes": series_id, "CSVF": "TN", "UsingCodes": "Y", "VPD": "Y", "VFD": "N"} if boe else {
+        "id": series_id, "cosd": start.isoformat(), "coed": today.isoformat(),
+    }
+    # New namespace: legacy API/curated cache entries must not appear as live evidence.
+    key = f"central_banks:public-v1:{series_id}"
+    text = await fetcher.get_text(_BOE_CSV_URL if boe else _FRED_CSV_URL, source=meta["source"],
+                                  cache_key=key, cache_ttl=3600, params=params, timeout=10)
+    timing = source_cache_timing(fetcher.cache, key)
+    value, observed = _latest_observation(text or "", series_id, today)
+    stale = timing["freshness"] != "fresh" or (observed is not None and (today - date.fromisoformat(observed)).days > 7)
+    status = "unavailable" if value is None else "stale" if stale else "available"
+    return {**meta, "rate": value, "as_of": observed, "unit": "percent", "status": status,
+            "source_url": "https://www.bankofengland.co.uk/boeapps/database/Bank-Rate.asp" if boe else f"https://fred.stlouisfed.org/series/{series_id}",
+            **timing, "observation_freshness": status,
+            "reason": "来源响应无有效最新观测，未用历史参考填补" if value is None else
+                      "保留原观测；缓存过期或观测超过7日，现行值待核验" if stale else
+                      "已读取日频政策利率观测；观测日不代表调息日"}
 
 
 async def fetch_central_bank_rates(fetcher: Fetcher) -> dict:
-    """Fetch policy rates for 15 major central banks.
-
-    Uses FRED API for Fed, ECB, and BoE when FRED_API_KEY is set.
-    Falls back to curated static data for all other banks.
-
-    Returns::
-
-        {"rates": [{bank, country, currency, rate, as_of, source}],
-         "count": int, "source": "multi", "timestamp": "<iso>"}
-    """
-    import asyncio
-
-    # Try FRED for the banks we have series for
-    fred_tasks = []
-    for key, meta in _FRED_RATE_SERIES.items():
-        fred_tasks.append(_fetch_fred_rate(fetcher, meta["series_id"], meta))
-
-    fred_results = await asyncio.gather(*fred_tasks)
-
-    rates: list[dict] = []
-    fred_banks: set[str] = set()
-
-    for result in fred_results:
-        if result is not None:
-            rates.append(result)
-            fred_banks.add(result["bank"])
-
-    # Add curated rates (skip any that FRED already provided)
-    for entry in _CURATED_RATES:
-        if entry["bank"] not in fred_banks:
-            rates.append({**entry, "source": "curated"})
-
-    # If FRED was unavailable, add curated versions of FRED banks too
-    fred_curated_fallback = [
-        {"bank": "Federal Reserve", "country": "USA", "currency": "USD",
-         "label": "Federal Funds Rate", "rate": 4.50, "as_of": "2025-01-29",
-         "notes": "Fed funds target rate (upper bound)"},
-        {"bank": "European Central Bank", "country": "EUR", "currency": "EUR",
-         "label": "ECB Deposit Facility Rate", "rate": 2.75, "as_of": "2025-01-30",
-         "notes": "Deposit facility rate"},
-        {"bank": "Bank of England", "country": "GBR", "currency": "GBP",
-         "label": "BoE Bank Rate", "rate": 4.50, "as_of": "2025-02-06",
-         "notes": "Bank rate"},
-    ]
-    for entry in fred_curated_fallback:
-        if entry["bank"] not in fred_banks:
-            rates.append({**entry, "source": "curated"})
-
-    # Sort by rate descending (most hawkish first)
-    rates.sort(key=lambda r: r.get("rate", 0), reverse=True)
-
-    return {
-        "rates": rates,
-        "count": len(rates),
-        "fred_available": bool(os.environ.get("FRED_API_KEY")),
-        "source": "multi",
-        "timestamp": _utc_now_iso(),
-    }
+    """Track 15 banks; fetch 3 official series without keys. Unconnected values stay null."""
+    today = datetime.now(timezone.utc).date()
+    results = await asyncio.gather(*[_fetch_rate(fetcher, meta, today) for meta in _RATE_SERIES.values()])
+    by_bank = {row["bank"]: row for row in results}
+    rates = []
+    for reference in _HISTORICAL_RATES:
+        row = by_bank.get(reference["bank"], {
+            **{key: reference[key] for key in ("bank", "country", "currency", "label")},
+            "rate": None, "as_of": None, "source": "unavailable", "status": "reference-only",
+            "reason": "尚未接入现行来源；历史参考不代表当前政策", "unit": "percent",
+        })
+        rates.append({**row, "reference": {**reference, "source": "curated"}})
+    available = sum(row["status"] == "available" for row in results)
+    stale = sum(row["status"] == "stale" for row in results)
+    return {"rates": rates, "count": len(rates), "source": "multi", "timestamp": _utc_now_iso(),
+            "status": "partial", "fred_available": any(row["source"] == "fred" and row["status"] == "available" for row in results),
+            "coverage": {"tracked": len(rates), "queried": len(results), "available": available,
+                         "stale": stale, "failed": len(results) - available - stale, "reference_only": len(rates) - len(results)},
+            "sources": results, "caveat": "观测日不等于调息日；政策工具不同，不按数值高低推断鹰鸽。历史参考不可用于当前利差或交易信号。"}

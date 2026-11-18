@@ -288,7 +288,7 @@ def _core_tokens(tokens: set[str]) -> set[str]:
     return set(sorted(tokens, key=lambda token: (-len(token), token))[:10])
 
 
-def _sentiment(text: str) -> tuple[str, float]:
+def _sentiment(text: str) -> tuple[str, float | None]:
     lowered = text.casefold()
     positive = sum(_contains_term(lowered, term.casefold()) for term in _POSITIVE_TERMS)
     negative = sum(_contains_term(lowered, term.casefold()) for term in _NEGATIVE_TERMS)
@@ -298,7 +298,17 @@ def _sentiment(text: str) -> tuple[str, float]:
         return "positive", round((positive - negative) / max(positive + negative, 2), 3)
     if negative > positive:
         return "negative", round((positive - negative) / max(positive + negative, 2), 3)
-    return "neutral", 0.0
+    return "unknown", None
+
+
+def _dominant_sentiment(counts: dict) -> str:
+    # No lexical match is not evidence of neutral tone. A partial group cannot
+    # describe the whole source group or topic; keep its matched counts instead.
+    if counts.get("unknown", 0):
+        return "unknown"
+    best = max(counts.get(key, 0) for key in ("positive", "negative", "neutral", "mixed"))
+    winners = [key for key in ("positive", "negative", "neutral", "mixed") if counts.get(key, 0) == best]
+    return winners[0] if len(winners) == 1 else "mixed" if best else "unknown"
 
 
 def _verification_flags(text: str) -> list[str]:
@@ -331,7 +341,7 @@ def _item_key(source: str, title: str, url: str) -> str:
     return url or f"{source}|{title}".casefold()
 
 
-def _build_records(news_items: list[dict], social_posts: list[dict]) -> list[dict]:
+def _build_records(news_items: list[dict], social_posts: list[dict], now: datetime) -> list[dict]:
     records: list[dict] = []
     for kind, items in (("news", news_items), ("social", social_posts)):
         for item in items:
@@ -348,7 +358,13 @@ def _build_records(news_items: list[dict], social_posts: list[dict]) -> list[dic
             sentiment, sentiment_score = _sentiment(text)
             tier = "social" if kind == "social" else _clean_text(item.get("source_tier") or "unknown")
             language = _detect_language(text, source, item.get("language"))
-            published = _parse_timestamp(item.get("published") or item.get("created") or item.get("timestamp"))
+            published = _parse_timestamp(item.get("published"))
+            if published is None and kind == "social":
+                published = _parse_timestamp(item.get("created"))
+            updated = _parse_timestamp(item.get("updated"))
+            timestamp = published or updated
+            timestamp_basis = "published" if published else "updated" if updated else "unknown"
+            time_status = "unknown" if timestamp is None else "future" if timestamp > now else "valid"
             score = float(item.get("score") or 0)
             comments = float(item.get("num_comments") or 0)
             records.append({
@@ -361,6 +377,11 @@ def _build_records(news_items: list[dict], social_posts: list[dict]) -> list[dic
                 "category": _clean_text(item.get("category") or ("social" if kind == "social" else "news")),
                 "url": url,
                 "published": published,
+                "updated": updated,
+                "timestamp": timestamp,
+                "timestamp_basis": timestamp_basis,
+                "time_status": time_status,
+                "analysis_at": timestamp if time_status == "valid" else None,
                 "language": language,
                 "concepts": _extract_concepts(text),
                 "tokens": _core_tokens(_tokens(title)),
@@ -403,7 +424,7 @@ def _matches_topic(record: dict, topic: dict) -> bool:
 
 
 def _cluster_records(records: list[dict]) -> list[dict]:
-    ordered = sorted(records, key=lambda item: item["published"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    ordered = sorted(records, key=lambda item: item["analysis_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     topics: list[dict] = []
     for record in ordered:
         topic = next((candidate for candidate in topics if _matches_topic(record, candidate)), None)
@@ -426,14 +447,33 @@ def _cluster_records(records: list[dict]) -> list[dict]:
     return topics
 
 
-def _velocity(records: list[dict], now: datetime, window_hours: int) -> tuple[int, int, int | None, str]:
+def _time_coverage(records: list[dict], now: datetime, window_hours: int) -> dict:
+    valid = [item for item in records if item["analysis_at"] is not None]
+    return {
+        "status": "unknown" if not valid else "complete" if len(valid) == len(records) else "partial",
+        "total": len(records),
+        "dated": len(valid),
+        "published": sum(item["timestamp_basis"] == "published" for item in valid),
+        "updated": sum(item["timestamp_basis"] == "updated" for item in valid),
+        "unknown": sum(item["time_status"] == "unknown" for item in records),
+        "future": sum(item["time_status"] == "future" for item in records),
+        "outside_window": sum(item["analysis_at"] < now - timedelta(hours=window_hours * 2) for item in valid),
+    }
+
+
+def _velocity(records: list[dict], now: datetime, window_hours: int) -> tuple[int | None, int | None, int | None, str]:
     current_start = now - timedelta(hours=window_hours)
     previous_start = current_start - timedelta(hours=window_hours)
-    current = sum(bool(item["published"] and current_start <= item["published"] <= now + timedelta(minutes=10)) for item in records)
-    previous = sum(bool(item["published"] and previous_start <= item["published"] < current_start) for item in records)
+    dated = [item["analysis_at"] for item in records if item["analysis_at"] is not None]
+    if not dated:
+        return None, None, None, "unknown"
+    current = sum(current_start <= timestamp <= now for timestamp in dated)
+    previous = sum(previous_start <= timestamp < current_start for timestamp in dated)
+    if len(dated) != len(records) or current + previous == 0:
+        return current, previous, None, "unknown"
     if previous == 0:
-        growth = None if current > 0 else 0
-        state = "new" if current > 0 else "flat"
+        growth = None
+        state = "new"
     else:
         growth = round(max(-100, min(999, (current - previous) / previous * 100)))
         state = "rising" if growth >= 20 else "falling" if growth <= -20 else "flat"
@@ -452,15 +492,16 @@ def _media_frames(records: list[dict]) -> list[dict]:
             "negative": 0,
             "neutral": 0,
             "mixed": 0,
+            "unknown": 0,
             "sources": set(),
         })
         frame["count"] += 1
         frame[record["sentiment"]] += 1
         frame["sources"].add(record["source"])
     frames = []
-    sentiment_labels = {"positive": "偏正面", "negative": "偏负面", "neutral": "中性", "mixed": "正负交织"}
+    sentiment_labels = {"positive": "偏正面", "negative": "偏负面", "neutral": "中性", "mixed": "正负交织", "unknown": "语气未完整判定"}
     for frame in groups.values():
-        dominant = max(("positive", "negative", "neutral", "mixed"), key=lambda key: frame[key])
+        dominant = _dominant_sentiment(frame)
         frames.append({
             **{key: value for key, value in frame.items() if key != "sources"},
             "dominant_sentiment": dominant,
@@ -500,19 +541,28 @@ def _verification_timeline(records: list[dict]) -> list[dict]:
     timeline = []
     ordered = sorted(
         records,
-        key=lambda record: record["published"] or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda record: record["analysis_at"] or datetime.max.replace(tzinfo=timezone.utc),
     )
     for record in ordered:
         for flag in sorted(record["verification_flags"], key=lambda value: rank.get(value, 99)):
             timeline.append({
                 "status": labels[flag],
                 "flag": flag,
-                "timestamp": record["published"].isoformat().replace("+00:00", "Z") if record["published"] else None,
+                **_record_time(record),
                 "source": record["source"],
                 "title": record["title"],
                 "url": record["url"],
             })
     return timeline[-8:]
+
+
+def _record_time(record: dict) -> dict:
+    return {
+        **{key: record[key].isoformat().replace("+00:00", "Z") if record[key] else None
+           for key in ("published", "updated", "timestamp")},
+        "timestamp_basis": record["timestamp_basis"],
+        "time_status": record["time_status"],
+    }
 
 
 def _spread_score(records: list[dict]) -> tuple[int, str]:
@@ -539,15 +589,18 @@ def _topic_payload(topic: dict, now: datetime, window_hours: int) -> dict:
     current, previous, growth, velocity_state = _velocity(records, now, window_hours)
     spread_score, spread_level = _spread_score(records)
     sentiment_counts = Counter(record["sentiment"] for record in records)
-    average_sentiment = sum(record["sentiment_score"] for record in records) / len(records)
-    dominant_sentiment = max(("positive", "negative", "neutral", "mixed"), key=lambda key: sentiment_counts[key])
+    average_sentiment = None if sentiment_counts["unknown"] else sum(record["sentiment_score"] for record in records) / len(records)
+    dominant_sentiment = _dominant_sentiment(sentiment_counts)
     frames = _media_frames(records)
-    frame_sentiments = {frame["dominant_sentiment"] for frame in frames if frame["count"]}
-    framing_divergence = len(frames) >= 2 and len(frame_sentiments) >= 2
-    framing_divergence_score = min(100, len(frame_sentiments) * 24 + max(0, len(frames) - 1) * 10) if framing_divergence else 0
+    assessed_frames = [frame for frame in frames if frame["dominant_sentiment"] != "unknown"]
+    frame_sentiments = {frame["dominant_sentiment"] for frame in assessed_frames}
+    framing_divergence = True if len(frame_sentiments) >= 2 else None if sentiment_counts["unknown"] else False
+    framing_divergence_score = None if framing_divergence is None else (
+        min(100, len(frame_sentiments) * 24 + max(0, len(assessed_frames) - 1) * 10) if framing_divergence else 0
+    )
     flags = {flag for record in records for flag in record["verification_flags"]}
     engagement = round(sum(record["engagement"] for record in records))
-    heat_score = min(100, round(
+    heat_score = None if velocity_state == "unknown" else min(100, round(
         len(records) * 6
         + len(sources) * 6
         + math.log10(engagement + 1) * 10
@@ -555,7 +608,7 @@ def _topic_payload(topic: dict, now: datetime, window_hours: int) -> dict:
         + current * 2
     ))
     verification_status = _verification_status(flags)
-    attention_score = min(100, round(
+    attention_score = None if average_sentiment is None or heat_score is None else min(100, round(
         heat_score * 0.36
         + spread_score * 0.30
         + max(0, -average_sentiment) * 18
@@ -563,8 +616,8 @@ def _topic_payload(topic: dict, now: datetime, window_hours: int) -> dict:
         + (10 if framing_divergence else 0)
         + (6 if len(languages) > 1 else 0)
     ))
-    attention_level = "重点" if attention_score >= 62 else "留意" if attention_score >= 40 else "常规"
-    latest = max((record["published"] for record in records if record["published"]), default=None)
+    attention_level = "待核验" if attention_score is None else "重点" if attention_score >= 62 else "留意" if attention_score >= 40 else "常规"
+    latest = max((record for record in records if record["analysis_at"]), key=lambda record: record["analysis_at"], default=None)
     topic_id = _topic_identity(topic)
     keyword_concepts = [_CONCEPT_LABELS.get(concept, concept) for concept in sorted(topic["concepts"])]
     keyword_tokens = sorted(topic.get("identity_tokens") or topic["tokens"])
@@ -577,6 +630,7 @@ def _topic_payload(topic: dict, now: datetime, window_hours: int) -> dict:
         "previous_mentions": previous,
         "heat_velocity_pct": growth,
         "velocity_state": velocity_state,
+        "time_coverage": _time_coverage(records, now, window_hours),
         "heat_score": heat_score,
         "attention_score": attention_score,
         "attention_level": attention_level,
@@ -590,8 +644,8 @@ def _topic_payload(topic: dict, now: datetime, window_hours: int) -> dict:
         "language_labels": [_LANGUAGE_LABELS.get(language, language) for language in languages],
         "cross_language": len(languages) > 1,
         "sentiment": dominant_sentiment,
-        "sentiment_score": round(average_sentiment, 3),
-        "sentiment_counts": {key: sentiment_counts[key] for key in ("positive", "negative", "neutral", "mixed")},
+        "sentiment_score": round(average_sentiment, 3) if average_sentiment is not None else None,
+        "sentiment_counts": {key: sentiment_counts[key] for key in ("positive", "negative", "neutral", "mixed", "unknown")},
         "media_frames": frames,
         "framing_divergence": framing_divergence,
         "framing_divergence_score": framing_divergence_score,
@@ -599,7 +653,8 @@ def _topic_payload(topic: dict, now: datetime, window_hours: int) -> dict:
         "verification_flags": sorted(flags),
         "verification_timeline": _verification_timeline(records),
         "social_engagement": engagement,
-        "latest_at": latest.isoformat().replace("+00:00", "Z") if latest else None,
+        "latest_at": latest["analysis_at"].isoformat().replace("+00:00", "Z") if latest else None,
+        "latest_at_basis": latest["timestamp_basis"] if latest else "unknown",
         "keywords": list(dict.fromkeys(keyword_concepts + keyword_tokens))[:8],
         "items": [{
             "key": record["key"],
@@ -608,7 +663,7 @@ def _topic_payload(topic: dict, now: datetime, window_hours: int) -> dict:
             "url": record["url"],
             "language": record["language"],
             "sentiment": record["sentiment"],
-            "published": record["published"].isoformat().replace("+00:00", "Z") if record["published"] else None,
+            **_record_time(record),
             "kind": record["kind"],
         } for record in records[:8]],
         "_records": records,
@@ -625,19 +680,34 @@ def analyze_media_monitor(
 ) -> dict:
     """Build a compact media-monitor snapshot from existing feed records."""
     analysis_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    records = _build_records(news_items or [], social_posts or [])
+    records = _build_records(news_items or [], social_posts or [], analysis_time)
     if not records:
         return {
             "summary": {
                 "analyzed_items": 0,
+                "news_items": 0,
+                "social_items": 0,
+                "source_count": 0,
+                "language_count": 0,
                 "topic_count": 0,
-                "heat_velocity_pct": 0,
-                "velocity_state": "flat",
+                "current_mentions": 0,
+                "previous_mentions": 0,
+                "window_hours": window_hours,
+                "heat_velocity_pct": None,
+                "velocity_state": "unknown",
+                "time_coverage": _time_coverage(records, analysis_time, window_hours),
                 "cross_language_topic_count": 0,
                 "flagged_topic_count": 0,
+                "disputed_topic_count": 0,
                 "reversal_topic_count": 0,
-                "spread_score": 0,
-                "sentiment": {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0, "net_score": 0},
+                "divergent_topic_count": 0,
+                "attention_topic_count": 0,
+                "spread_score": None,
+                "sentiment": {
+                    "positive": 0, "negative": 0, "neutral": 0, "mixed": 0, "unknown": 0, "assessed_items": 0,
+                    "positive_pct": None, "negative_pct": None,
+                    "neutral_pct": None, "mixed_pct": None, "unknown_pct": None, "net_score": None,
+                },
             },
             "topics": [],
             "media_frames": [],
@@ -648,9 +718,10 @@ def analyze_media_monitor(
 
     current, previous, growth, velocity_state = _velocity(records, analysis_time, window_hours)
     topic_payloads = [_topic_payload(topic, analysis_time, window_hours) for topic in _cluster_records(records)]
-    topic_payloads.sort(key=lambda topic: (topic["attention_score"], topic["heat_score"], topic["spread_score"]), reverse=True)
+    topic_payloads.sort(key=lambda topic: (topic["attention_score"] if topic["attention_score"] is not None else -1, topic["heat_score"] if topic["heat_score"] is not None else -1, topic["spread_score"]), reverse=True)
     sentiment_counts = Counter(record["sentiment"] for record in records)
-    net_score = round(sum(record["sentiment_score"] for record in records) / len(records) * 100)
+    assessed_items = len(records) - sentiment_counts["unknown"]
+    net_score = None if sentiment_counts["unknown"] else round(sum(record["sentiment_score"] for record in records) / len(records) * 100)
     average_spread = round(sum(topic["spread_score"] for topic in topic_payloads) / len(topic_payloads)) if topic_payloads else 0
     annotations = []
     for topic in topic_payloads:
@@ -669,6 +740,7 @@ def analyze_media_monitor(
                 "verification_flags": sorted(flags),
                 "heat_velocity_pct": topic["heat_velocity_pct"],
                 "velocity_state": topic["velocity_state"],
+                "time_coverage": topic["time_coverage"],
                 "spread_score": topic["spread_score"],
                 "cross_language_topic": topic["cross_language"],
             })
@@ -685,23 +757,27 @@ def analyze_media_monitor(
             "previous_mentions": previous,
             "heat_velocity_pct": growth,
             "velocity_state": velocity_state,
+            "time_coverage": _time_coverage(records, analysis_time, window_hours),
             "window_hours": window_hours,
             "cross_language_topic_count": sum(topic["cross_language"] for topic in topic_payloads),
             "flagged_topic_count": sum(topic["verification_status"] != "常规报道" for topic in topic_payloads),
             "disputed_topic_count": sum(topic["verification_status"] in {"存在争议", "出现否认"} for topic in topic_payloads),
             "reversal_topic_count": sum(topic["verification_status"] in {"疑似反转", "出现纠正"} for topic in topic_payloads),
-            "divergent_topic_count": sum(topic["framing_divergence"] for topic in topic_payloads),
-            "attention_topic_count": sum(topic["attention_score"] >= 40 for topic in topic_payloads),
+            "divergent_topic_count": None if any(topic["framing_divergence"] is None for topic in topic_payloads) else sum(topic["framing_divergence"] for topic in topic_payloads),
+            "attention_topic_count": None if any(topic["attention_score"] is None for topic in topic_payloads) else sum(topic["attention_score"] >= 40 for topic in topic_payloads),
             "spread_score": average_spread,
             "sentiment": {
                 "positive": sentiment_counts["positive"],
                 "negative": sentiment_counts["negative"],
                 "neutral": sentiment_counts["neutral"],
                 "mixed": sentiment_counts["mixed"],
-                "positive_pct": round(sentiment_counts["positive"] / len(records) * 100),
-                "negative_pct": round(sentiment_counts["negative"] / len(records) * 100),
-                "neutral_pct": round(sentiment_counts["neutral"] / len(records) * 100),
-                "mixed_pct": round(sentiment_counts["mixed"] / len(records) * 100),
+                "unknown": sentiment_counts["unknown"],
+                "assessed_items": assessed_items,
+                "unknown_pct": round(sentiment_counts["unknown"] / len(records) * 100),
+                "positive_pct": round(sentiment_counts["positive"] / len(records) * 100) if assessed_items else None,
+                "negative_pct": round(sentiment_counts["negative"] / len(records) * 100) if assessed_items else None,
+                "neutral_pct": round(sentiment_counts["neutral"] / len(records) * 100) if assessed_items else None,
+                "mixed_pct": round(sentiment_counts["mixed"] / len(records) * 100) if assessed_items else None,
                 "net_score": net_score,
             },
         },
@@ -709,6 +785,6 @@ def analyze_media_monitor(
         "media_frames": _media_frames(records),
         "annotations": annotations,
         "method": "lightweight-lexicon-and-concept-clustering",
-        "caveat": "情绪表示报道语气；传播范围表示来源、语言与互动广度；核验提示仅识别显式措辞，不判定真伪。",
+        "caveat": "语气为有限词典信号，并非完整语义或投资利好利空判断；未命中不等于中性，比例以本批全部样本为分母。词典主要覆盖中英文及部分法西语，不处理否定、讽刺或可靠的多语理解。语气不完整时不合成净情绪及关注评分；传播范围仅为样本广度，核验提示不判定真伪。时段对比仅描述本批截断样本，不代表全网热度增长；优先发布时间，缺失时用来源更新时间且不视为新发布。不使用采集时间，严格排除未来日期；缺日期或未来日期时仅保留已知计数，不输出增速、热度及关注评分。前段无样本不计算增长率，热度仅按样本量计，不添加增长项。",
         "timestamp": analysis_time.isoformat().replace("+00:00", "Z"),
     }

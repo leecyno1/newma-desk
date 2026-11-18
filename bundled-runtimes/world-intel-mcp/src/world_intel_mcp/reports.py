@@ -226,25 +226,23 @@ def _render_markets(data: dict) -> str:
 def _render_earthquakes(data: dict) -> str:
     """Render seismology section."""
     quakes = data.get("earthquakes", [])
+    state = _esc(data.get("status", "unknown"))
+    updated = _esc(data.get("source_updated_at") or "unknown")
+    notice = f'<p>Status: {state}; source updated: {updated}. Catalogue samples, not damage assessment.</p>'
+    if data.get("truncated") or len(quakes) > 10:
+        notice += '<p>Sample/display limit reached; showing at most 10 events.</p>'
     if not quakes:
-        return '<p class="no-data">No significant seismic activity</p>'
+        message = "No matching samples in this query" if data.get("status") == "ok" and data.get("count") == 0 else "Seismic coverage unknown; not evidence of no activity"
+        return notice + f'<p class="no-data">{message}</p>'
 
     rows = []
     for q in quakes[:10]:
-        props = q.get("properties", {})
-        mag = _fmt_num(props.get("mag"), 1)
-        place = _esc(props.get("place", "Unknown"))
-        t = props.get("time")
-        time_str = (
-            datetime.fromtimestamp(t / 1000, tz=timezone.utc).strftime(
-                "%Y-%m-%d %H:%M UTC"
-            )
-            if t
-            else ""
-        )
+        mag = _fmt_num(q.get("magnitude"), 1)
+        place = _esc(q.get("place") or "Unknown")
+        time_str = _esc(q.get("time") or "unknown")
         rows.append(f"<tr><td>{mag}</td><td>{place}</td><td>{time_str}</td></tr>")
 
-    return f"""
+    return notice + f"""
     <table>
         <tr><th>Mag</th><th>Location</th><th>Time</th></tr>
         {"".join(rows)}
@@ -402,24 +400,23 @@ def _render_health(data: dict) -> str:
 
 
 def _render_maritime(data: dict) -> str:
-    """Render maritime overview."""
-    vessels = data.get("vessels") or data.get("snapshot", [])
-    if not vessels:
-        return '<p class="no-data">No maritime data</p>'
+    """Render located warnings, not inferred vessel positions or safe routes."""
+    waterways = data.get("waterways", [])
+    if data.get("error") or not waterways:
+        return '<p class="no-data">Navigation warning observations unavailable; route safety not assessed.</p>'
 
     rows = []
-    items = vessels if isinstance(vessels, list) else [vessels]
-    for v in items[:8]:
-        name = _esc(v.get("name") or v.get("vessel_name", ""))
-        vtype = _esc(v.get("type") or v.get("ship_type", ""))
-        flag = _esc(v.get("flag", ""))
-        rows.append(f"<tr><td>{name}</td><td>{vtype}</td><td>{flag}</td></tr>")
+    for waterway in waterways:
+        name = _esc(waterway.get("name", ""))
+        status = _esc(waterway.get("status", "unknown"))
+        count = waterway.get("warning_count")
+        rows.append(f"<tr><td>{name}</td><td>{status}</td><td>{count if count is not None else 'Unknown'}</td></tr>")
 
     return f"""
     <table>
-        <tr><th>Vessel</th><th>Type</th><th>Flag</th></tr>
+        <tr><th>Waterway reference</th><th>Warning match</th><th>Count</th></tr>
         {"".join(rows)}
-    </table>"""
+    </table><p>Warnings within 100 km of reference points; not vessel tracking or a route safety assessment.</p>"""
 
 
 def _render_situation_brief(data: dict) -> str:

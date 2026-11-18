@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from .runtime import authorize_global_read
@@ -69,10 +71,12 @@ async def global_intel_stream(
                 chunks = guard(request, chunks)
             async for chunk in chunks:
                 yield chunk
-        except GlobalIntelUnavailable:
+        except GlobalIntelUnavailable as error:
             # Headers may already be sent. Terminate with an explicit SSE error,
             # not an unhandled transport exception or a fake empty snapshot.
-            yield b'event: error\ndata: {"status":"unavailable","message":"World Intelligence source unavailable"}\n\n'
+            payload = {"status": "unavailable", "code": error.code, "stage": "world",
+                       "message": "World Intelligence source unavailable"}
+            yield ('event: error\ndata: ' + json.dumps(payload, separators=(',', ':')) + '\n\n').encode()
 
     return StreamingResponse(
         events(),

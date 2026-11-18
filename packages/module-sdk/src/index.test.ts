@@ -1,10 +1,16 @@
 import type { ModEvent } from "@newma-desk/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import packageInfo from "../package.json";
 
 import {
   createModuleBridge,
+  MOD_SDK_VERSION,
   type ModuleBridgeRuntime,
 } from "./index";
+
+it("reports the version of the installed SDK package", () => {
+  expect(MOD_SDK_VERSION).toBe(packageInfo.version);
+});
 
 const CHANNEL_NAME = "vibe-visualization-events";
 

@@ -373,7 +373,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="intel_cable_health",
-        description="Assess undersea cable corridor health from NGA navigational warnings. 6 corridors scored 0-3.",
+        description="Observe active NGA warnings within 6 rough cable-corridor boxes, with unique counts, unlocated coverage and original source timing. Does not assess cable failure, actual cable location or safety; health scores remain null.",
         inputSchema={"type": "object", "properties": {}},
     ),
     # --- Maritime (1 tool) ---
@@ -437,7 +437,7 @@ TOOLS: list[Tool] = [
     # --- Aviation (1 tool) ---
     Tool(
         name="intel_airport_delays",
-        description="Get current US airport delays from FAA (20 major airports). No API key needed.",
+        description="Get official FAA NAS airport operating advisories with source update time and coverage status. Includes ground stops, delay programs and closures that may apply only to selected flights. Counts listed airports, not all delayed flights; absence does not prove normal operations. No API key needed.",
         inputSchema={"type": "object", "properties": {}},
     ),
     # --- Cyber (1 tool) ---
@@ -597,7 +597,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="intel_signal_convergence",
-        description="Detect geographic convergence of multi-domain signals (earthquakes, conflict, military) in hotspot regions.",
+        description="Observe 30-day M2.5+ USGS seismic samples in regional boxes. Legacy score combines sample counts and static area baselines; not multi-domain convergence or conflict probability. Retains missing, stale and truncated coverage.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -664,12 +664,12 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="intel_military_surge",
-        description="Detect military surge anomalies — foreign aircraft concentration above baselines in 8 sensitive regions (Persian Gulf, Taiwan Strait, Baltic Sea, etc.).",
+        description="Compare public aircraft coordinate samples in 8 regions with their own learned baseline. Requires 10 prior distinct observations and non-zero variance; cold starts remain unassessed. Not foreign deployment or combat readiness evidence.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="intel_vessel_snapshot",
-        description="Naval activity snapshot at 9 strategic waterways (Hormuz, Malacca, Suez, etc.) from NGA navigational warnings. Each waterway scored clear/advisory/elevated/critical.",
+        description="Match located NGA navigation warnings within 100 km of strategic waterway reference points. Unlocated warnings remain separate. No match does not mean clear or safe; this is not vessel tracking or confirmed military activity.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
@@ -788,7 +788,7 @@ TOOLS: list[Tool] = [
     # --- Nuclear (1 tool) ---
     Tool(
         name="intel_nuclear_monitor",
-        description="Monitor seismic activity near 5 known nuclear test sites (Punggye-ri, Lop Nur, Novaya Zemlya, Nevada NTS, Semipalatinsk). Concern scoring based on depth, magnitude, distance.",
+        description="Observe USGS seismic samples within 100km of 5 historical nuclear test sites. Heuristic depth/magnitude/distance scores cannot detect or confirm nuclear tests. Missing/stale inputs are unassessed; retained results have explicit coverage and display limits.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -986,12 +986,12 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="intel_fleet_report",
-        description="Naval fleet activity report aggregating theater posture (5 theaters), vessel snapshot (9 waterways), military surge detections, and naval base count. Readiness scoring.",
+        description="Public aviation and waterway observation summary: deduplicated regional aircraft samples, nearby navigation warnings, learned-baseline coverage and static base references. Partial evidence and unknowns are preserved; fleet size and combat readiness are not assessed.",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
         name="intel_population_exposure",
-        description="Estimate population at risk near active events (earthquakes, wildfires, conflict). Finds major cities within radius and sums exposed population.",
+        description="Find static city-catalogue populations near available earthquake, wildfire and conflict samples. Not actual affected population or damage. Returns source coverage and dates; missing sources do not mean zero exposure.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -1239,7 +1239,7 @@ TOOLS: list[Tool] = [
     # --- USNI Fleet (1 tool) ---
     Tool(
         name="intel_usni_fleet",
-        description="US Navy fleet disposition from USNI News Fleet Tracker. Extracts ships, hull numbers, carrier strike groups, regional deployment, and force totals from the latest weekly report.",
+        description="USNI weekly report text samples: ship names/hulls, group mentions and reported totals. Regions are nearby-text heuristics, not verified live positions or a complete inventory. Publication and collection dates are separate; unavailable counts are null.",
         inputSchema={"type": "object", "properties": {}},
     ),
     # --- Environmental (2 tools) ---
@@ -1297,7 +1297,7 @@ TOOLS: list[Tool] = [
     # --- Central Banks (1 tool) ---
     Tool(
         name="intel_central_bank_rates",
-        description="Policy rates for 15 major central banks: Fed, ECB, BoE, BoJ, PBoC, RBI, RBA, BoC, SNB, BCB, BoK, CBRT, SARB, Banxico, BI. Live FRED data when API key set, curated fallback otherwise.",
+        description="Tracks 15 central banks. Reads public daily Fed target upper bound (DFEDTARU), ECB deposit facility (ECBDFR), BoE official Bank Rate (IUDBEDR); no key required. Other current values are null with separate historical references. Includes original observation dates, coverage and stale/unavailable status; observation date is not a rate-change date. Do not infer hawkishness by ranking nominal rates.",
         inputSchema={"type": "object", "properties": {}},
     ),
     # --- Trade Routes (1 tool) ---

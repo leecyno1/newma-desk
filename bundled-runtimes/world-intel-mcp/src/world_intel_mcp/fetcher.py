@@ -6,6 +6,8 @@ response is returned (marked with _stale=True) so dashboards never go blank.
 """
 
 import asyncio
+import contextvars
+import hashlib
 import logging
 import time
 from typing import Any
@@ -16,6 +18,31 @@ from .cache import Cache
 from .circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger("world-intel-mcp.fetcher")
+
+_suppress_http_logs = contextvars.ContextVar("world_intel_suppress_http_logs", default=False)
+
+
+class _ScopedHttpLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not _suppress_http_logs.get()
+
+
+_http_log_filter = _ScopedHttpLogFilter()
+_http_loggers = ("httpx", "httpcore.connection", "httpcore.http11", "httpcore.http2", "httpcore.proxy", "httpcore.socks")
+
+
+def _automatic_cache_key(source: str, kind: str, url: str, params: dict | None) -> str:
+    digest = hashlib.sha256(f"{url}:{params}".encode()).hexdigest()
+    return f"{source}:{kind}:sha256:{digest}"
+
+
+def _error_summary(error: Exception | None) -> str:
+    """Report failure type and HTTP status without logging request credentials."""
+    if error is None:
+        return "unknown error"
+    if isinstance(error, httpx.HTTPStatusError):
+        return f"{type(error).__name__} (HTTP {error.response.status_code})"
+    return type(error).__name__
 
 # Yahoo Finance requires serialized access (600ms gap)
 _yahoo_lock = asyncio.Lock()
@@ -78,6 +105,18 @@ class Fetcher:
             await self._client.aclose()
             self._client = None
 
+    async def _request(self, client: httpx.AsyncClient, url: str, **kwargs: Any) -> httpx.Response:
+        # Logger filters are process-wide, but the suppression flag is task-local.
+        for name in _http_loggers:
+            http_logger = logging.getLogger(name)
+            if _http_log_filter not in http_logger.filters:
+                http_logger.addFilter(_http_log_filter)
+        token = _suppress_http_logs.set(True)
+        try:
+            return await client.get(url, **kwargs)
+        finally:
+            _suppress_http_logs.reset(token)
+
     async def get_json(
         self,
         url: str,
@@ -105,15 +144,18 @@ class Fetcher:
             Parsed JSON or None on failure.
         """
         # Check cache (live)
-        effective_key = cache_key or f"{source}:{url}:{params}"
+        legacy_key = f"{source}:{url}:{params}" if not cache_key else None
+        effective_key = cache_key or _automatic_cache_key(source, "json", url, params)
         cached = self.cache.get(effective_key)
+        if cached is None and legacy_key is not None:
+            cached = self.cache.get(legacy_key)
         if cached is not None:
             return cached
 
         # Check circuit breaker — fall back to stale data if open
         if not self.breaker.is_available(source):
             logger.debug("Circuit open for %s, trying stale cache", source)
-            return self._stale_fallback(effective_key, source)
+            return self._stale_fallback(effective_key, source, legacy_key)
 
         # Per-source rate limiting
         if yahoo_rate_limit:
@@ -126,7 +168,7 @@ class Fetcher:
 
         for attempt in range(self.max_retries + 1):
             try:
-                resp = await client.get(
+                resp = await self._request(client,
                     url,
                     headers=headers,
                     params=params,
@@ -157,15 +199,15 @@ class Fetcher:
                         attempt + 1,
                         self.max_retries,
                         source,
-                        exc,
+                        _error_summary(exc),
                         wait,
                     )
                     await asyncio.sleep(wait)
 
         # All retries failed — try stale cache before giving up
         self.breaker.record_failure(source)
-        logger.warning("Fetch failed for %s: %s (url=%s)", source, last_error, url)
-        return self._stale_fallback(effective_key, source)
+        logger.warning("Fetch failed for %s: %s", source, _error_summary(last_error))
+        return self._stale_fallback(effective_key, source, legacy_key)
 
     async def get_text(
         self,
@@ -178,13 +220,16 @@ class Fetcher:
         timeout: float | None = None,
     ) -> str | None:
         """Fetch raw text with caching and circuit breaking."""
-        effective_key = cache_key or f"{source}:text:{url}:{params}"
+        legacy_key = f"{source}:text:{url}:{params}" if not cache_key else None
+        effective_key = cache_key or _automatic_cache_key(source, "text", url, params)
         cached = self.cache.get(effective_key)
+        if cached is None and legacy_key is not None:
+            cached = self.cache.get(legacy_key)
         if cached is not None:
             return cached
 
         if not self.breaker.is_available(source):
-            return self._stale_fallback(effective_key, source)
+            return self._stale_fallback(effective_key, source, legacy_key)
 
         await self._source_throttle(source)
 
@@ -193,7 +238,7 @@ class Fetcher:
 
         for attempt in range(self.max_retries + 1):
             try:
-                resp = await client.get(
+                resp = await self._request(client,
                     url,
                     headers=headers,
                     params=params,
@@ -210,8 +255,8 @@ class Fetcher:
                     await asyncio.sleep(min(2 ** attempt, 30))
 
         self.breaker.record_failure(source)
-        logger.warning("Text fetch failed for %s: %s", source, last_error)
-        return self._stale_fallback(effective_key, source)
+        logger.warning("Text fetch failed for %s: %s", source, _error_summary(last_error))
+        return self._stale_fallback(effective_key, source, legacy_key)
 
     async def get_xml(
         self,
@@ -224,11 +269,13 @@ class Fetcher:
         """Fetch XML content (returns raw text for feedparser/ET parsing)."""
         return await self.get_text(url, source, cache_key, cache_ttl, timeout=timeout)
 
-    def _stale_fallback(self, cache_key: str, source: str) -> Any | None:
+    def _stale_fallback(self, cache_key: str, source: str, legacy_key: str | None = None) -> Any | None:
         """Return stale (expired) cached data as last-known-good fallback."""
         stale = self.cache.get_stale(cache_key)
+        if stale is None and legacy_key is not None:
+            stale = self.cache.get_stale(legacy_key)
         if stale is not None:
-            logger.info("Serving stale cache for %s (key=%s)", source, cache_key)
+            logger.info("Serving stale cache for %s", source)
         return stale
 
     async def _source_throttle(self, source: str) -> None:

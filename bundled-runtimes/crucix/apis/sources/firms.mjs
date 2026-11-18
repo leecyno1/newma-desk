@@ -1,6 +1,8 @@
+import { sourceFetch as fetch } from '../utils/source-request.mjs';
+
 // NASA FIRMS — Fire Information for Resource Management System
 // Detects active fires/thermal anomalies globally within 3 hours of satellite pass.
-// Detects military strikes, explosions, wildfires, industrial fires.
+// Thermal detection samples do not identify their cause or verify military strikes.
 
 import '../utils/env.mjs';
 
@@ -8,14 +10,24 @@ const FIRMS_BASE = 'https://firms.modaps.eosdis.nasa.gov/api/area/csv';
 
 // Parse FIRMS CSV response into structured data
 function parseCSV(rawText) {
-  if (!rawText || typeof rawText !== 'string') return [];
+  if (!rawText || typeof rawText !== 'string') throw new Error('Missing FIRMS CSV');
   const lines = rawText.trim().split('\n');
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',');
-  return lines.slice(1).map(line => {
+  const headers = lines[0].split(',').map(header => header.trim());
+  const required = ['latitude', 'longitude', 'acq_date', 'acq_time', 'confidence', 'daynight', 'frp'];
+  if (!required.every(header => headers.includes(header))) throw new Error('Invalid FIRMS CSV header');
+  return lines.slice(1).filter(line => line.trim()).map(line => {
     const vals = line.split(',');
+    if (vals.length !== headers.length) throw new Error('Incomplete FIRMS CSV row');
     const obj = {};
     headers.forEach((h, i) => { obj[h.trim()] = vals[i]?.trim(); });
+    if (['latitude', 'longitude', 'frp'].some(field => obj[field] === '' || !Number.isFinite(Number(obj[field])))
+      || Math.abs(Number(obj.latitude)) > 90 || Math.abs(Number(obj.longitude)) > 180
+      || !['l', 'n', 'h', 'low', 'nominal', 'high'].includes(obj.confidence)
+      || !['D', 'N'].includes(obj.daynight)) throw new Error('Invalid FIRMS CSV observation');
+    const observed = /^\d{4}-\d{2}-\d{2}$/.test(obj.acq_date) ? Date.parse(obj.acq_date + 'T00:00:00Z') : NaN;
+    if (!Number.isFinite(observed) || new Date(observed).toISOString().slice(0, 10) !== obj.acq_date
+      || observed > Date.now() || !/^\d{4}$/.test(obj.acq_time)
+      || Number(obj.acq_time.slice(0, 2)) > 23 || Number(obj.acq_time.slice(2)) > 59) throw new Error('Invalid FIRMS acquisition time');
     return obj;
   });
 }
@@ -32,19 +44,16 @@ async function fetchFires(opts = {}) {
   if (!key) return { error: 'No FIRMS_MAP_KEY' };
 
   const url = `${FIRMS_BASE}/${key}/${source}/${west},${south},${east},${north}/${days}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
+  const signal = AbortSignal.timeout(25000);
   try {
     const res = await fetch(url, {
-      signal: controller.signal,
+      signal,
       headers: { 'User-Agent': 'Crucix/1.0' },
     });
-    clearTimeout(timer);
     if (!res.ok) return { error: `HTTP ${res.status}` };
     const text = await res.text();
     return parseCSV(text);
   } catch (e) {
-    clearTimeout(timer);
     return { error: e.message };
   }
 }
@@ -62,7 +71,8 @@ const HOTSPOTS = {
 // Analyze fire detections for potential military/strike activity
 function analyzeFires(fires, regionLabel) {
   if (!Array.isArray(fires) || fires.length === 0) {
-    return { region: regionLabel, totalDetections: 0, highConfidence: 0, highIntensity: [], summary: 'No detections' };
+    return { region: regionLabel, status: 'ok', totalDetections: 0, highConfidence: 0, nightDetections: 0,
+      highIntensity: [], summary: 'Valid empty query sample; cause and safety unassessed' };
   }
 
   const highConf = fires.filter(f => f.confidence === 'h' || f.confidence === 'high');
@@ -89,6 +99,7 @@ function analyzeFires(fires, regionLabel) {
 
   return {
     region: regionLabel,
+    status: 'ok',
     totalDetections: fires.length,
     highConfidence: highConf.length,
     nominalConfidence: nomConf.length,
@@ -131,14 +142,16 @@ export async function briefing() {
       signals.push(`HIGH INTENSITY FIRES in ${h.region}: ${h.highIntensity.length} detections >10MW FRP`);
     }
     if (h.nightDetections > 20) {
-      signals.push(`ELEVATED NIGHT ACTIVITY in ${h.region}: ${h.nightDetections} night detections (potential strikes/combat)`);
+      signals.push(`NIGHT THERMAL SAMPLES in ${h.region}: ${h.nightDetections} detections; cause unverified`);
     }
   }
 
   return {
     source: 'NASA FIRMS',
     timestamp: new Date().toISOString(),
-    status: 'active',
+    status: hotspots.every(row => !row.error) ? 'ok' : hotspots.every(row => row.error) ? 'error' : 'partial',
+    scope: { source: 'NASA-FIRMS', dataset: 'VIIRS_SNPP_NRT', days: 2,
+      regions: entries.map(([id, { west, south, east, north }]) => ({ id, west, south, east, north })) },
     hotspots,
     signals,
   };

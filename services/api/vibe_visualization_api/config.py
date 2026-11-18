@@ -339,6 +339,8 @@ class Settings(BaseSettings):
     world_intel_url: str = Field(
         default_factory=lambda: resolve_runtime_origin("world-intel", "api")
     )
+    # Empty retains the embedded domain API; explicit origin selects the independent API.
+    global_intelligence_api_url: str = ""
     crucix_url: str = Field(
         default_factory=lambda: resolve_runtime_origin("crucix", "api")
     )
@@ -499,6 +501,18 @@ class Settings(BaseSettings):
         parsed = urlsplit(value)
         if (parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment):
             raise ValueError("Policy RSSHub base URL must be an HTTP URL")
+        return value.rstrip("/")
+
+    @field_validator("global_intelligence_api_url")
+    @classmethod
+    def validate_global_intelligence_api_url(cls, value: str) -> str:
+        if not value:
+            return value
+        parsed = urlsplit(value)
+        if (parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "::1", "localhost"}
+                or parsed.username is not None or parsed.password is not None
+                or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+            raise ValueError("Independent domain API must be a loopback HTTP origin")
         return value.rstrip("/")
 
     @field_validator("crucix_url")

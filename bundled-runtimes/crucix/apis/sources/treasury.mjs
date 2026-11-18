@@ -1,5 +1,5 @@
-// US Treasury Fiscal Data — Government debt, spending, yields
-// No auth required. Daily updates.
+// US Treasury Fiscal Data — outstanding debt and monthly average financing rates.
+// Average interest rates on outstanding securities are NOT market yield curves.
 
 import { safeFetch, today, daysAgo } from '../utils/fetch.mjs';
 
@@ -27,15 +27,39 @@ export async function getDailyStatement(days = 7) {
   return safeFetch(`${BASE}/v1/accounting/dts/deposits_withdrawals_operating_cash?${params}`);
 }
 
-// Treasury yield curves (average interest rates on debt)
+// Monthly average interest rates on outstanding Treasury debt (not traded yields).
 export async function getAvgInterestRates() {
   const params = new URLSearchParams({
-    'fields': 'record_date,security_desc,avg_interest_rate_amt',
+    'fields': 'record_date,security_type_desc,security_desc,avg_interest_rate_amt',
     'sort': '-record_date',
-    'page[size]': '50',
-    'filter': `record_date:gte:${daysAgo(30)}`,
+    'page[size]': '1000',
+    // A 30-day window can exclude the latest published month at month-end.
+    'filter': `record_date:gte:${daysAgo(120)}`,
   });
   return safeFetch(`${BASE}/v2/accounting/od/avg_interest_rates?${params}`);
+}
+
+function numeric(value) {
+  return /^[-+]?\d+(?:\.\d+)?$/.test(String(value)) && Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function dataset(response, mapRow, requiredFields) {
+  if (response?.error || !Array.isArray(response?.data)) {
+    const httpStatus = Number.isInteger(response?.status) && response.status >= 400 && response.status <= 599 ? response.status : null;
+    return { rows: [], coverage: { status: 'error', latestDate: null, count: null, httpStatus,
+      errorCode: httpStatus ? 'HTTP_ERROR' : response?.error ? 'REQUEST_FAILED' : 'INVALID_RESPONSE' } };
+  }
+  const validDate = row => typeof row?.record_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.record_date)
+    && Number.isFinite(Date.parse(row.record_date)) && new Date(row.record_date).toISOString().slice(0, 10) === row.record_date
+    && row.record_date <= today();
+  const dated = response.data.filter(validDate).sort((a, b) => b.record_date.localeCompare(a.record_date));
+  const latestDate = dated[0]?.record_date || null;
+  const rows = dated.map(mapRow);
+  const newest = rows.filter(row => row.date === latestDate);
+  const invalid = dated.length !== response.data.length || newest.some(row => requiredFields.some(key => row[key] === null || row[key] === ''));
+  const truncated = Number(response.meta?.['total-pages']) > 1;
+  return { rows, coverage: { latestDate, count: newest.length, truncated,
+    status: invalid || truncated ? 'partial' : rows.length ? 'ok' : 'no_data' } };
 }
 
 // Briefing — key treasury data
@@ -45,32 +69,32 @@ export async function briefing() {
     getAvgInterestRates(),
   ]);
 
-  const debtData = debt?.data || [];
-  const latestDebt = debtData[0];
-  const signals = [];
-
-  if (latestDebt) {
-    const totalDebt = parseFloat(latestDebt.tot_pub_debt_out_amt);
-    if (totalDebt > 36_000_000_000_000) {
-      signals.push(`National debt at $${(totalDebt / 1e12).toFixed(2)}T`);
-    }
-  }
+  const debtResult = dataset(debt, d => ({ date: d.record_date,
+    totalDebt: numeric(d.tot_pub_debt_out_amt) === null ? null : String(d.tot_pub_debt_out_amt),
+    publicDebt: numeric(d.debt_held_public_amt) === null ? null : String(d.debt_held_public_amt),
+    intragovDebt: numeric(d.intragov_hold_amt) === null ? null : String(d.intragov_hold_amt),
+    unit: 'USD', frequency: 'daily',
+  }), ['totalDebt', 'publicDebt', 'intragovDebt']);
+  const rateResult = dataset(rates, r => ({ date: r.record_date,
+    security: typeof r.security_desc === 'string' ? r.security_desc : '',
+    securityType: typeof r.security_type_desc === 'string' ? r.security_type_desc : '',
+    rate: numeric(r.avg_interest_rate_amt), unit: 'percent', frequency: 'monthly',
+    basis: 'outstanding-debt-average-interest-rate',
+  }), ['rate', 'security']);
+  const statuses = [debtResult.coverage.status, rateResult.coverage.status];
 
   return {
     source: 'US Treasury',
     timestamp: new Date().toISOString(),
-    debt: debtData.slice(0, 5).map(d => ({
-      date: d.record_date,
-      totalDebt: d.tot_pub_debt_out_amt,
-      publicDebt: d.debt_held_public_amt,
-      intragovDebt: d.intragov_hold_amt,
-    })),
-    interestRates: (rates?.data || []).slice(0, 20).map(r => ({
-      date: r.record_date,
-      security: r.security_desc,
-      rate: r.avg_interest_rate_amt,
-    })),
-    signals,
+    status: statuses.every(s => s === 'ok') ? 'ok' : statuses.every(s => s === 'error') ? 'error'
+      : statuses.every(s => s === 'no_data') ? 'no_data' : 'partial',
+    coverage: { debt: debtResult.coverage, interestRates: rateResult.coverage },
+    debt: debtResult.rows.slice(0, 5),
+    interestRates: rateResult.rows.filter(r => r.date === rateResult.coverage.latestDate),
+    debtUrl: `${BASE}/v2/accounting/od/debt_to_penny`,
+    ratesUrl: `${BASE}/v2/accounting/od/avg_interest_rates`,
+    signals: [],
+    note: 'Outstanding debt and average financing cost are observations, not market yields or standalone trading signals.',
   };
 }
 

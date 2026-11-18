@@ -6,9 +6,11 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
+    "start:proxy": "node --env-file-if-exists=.env --use-env-proxy server.mjs",
     "dev": "node --trace-warnings server.mjs",
     "sweep": "node apis/briefing.mjs",
     "inject": "node dashboard/inject.mjs",
+    "inject:proxy": "node --env-file-if-exists=.env --use-env-proxy dashboard/inject.mjs --no-open",
     "brief": "node apis/briefing.mjs",
     "brief:save": "node apis/save-briefing.mjs",
     "diag": "node diag.mjs",
@@ -28,6 +30,7 @@
     "npm": ">=10"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "saxes": "6.0.0"
   }
 }

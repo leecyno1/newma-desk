@@ -852,13 +852,18 @@ async def invoke_module_action(
                 or service_capability.permission != action.get("permission")
             ):
                 raise HTTPException(403, "data service capability is not granted")
-            result = await request.app.state.data_service_client.invoke(
-                data_service,
-                capability,
-                input_data,
-                **({"mod_session": (bearer_token(authorization), claims.instance_id)}
-                   if data_service.id == "instock-analysis" else {}),
-            )
+            if (module_id == "global-situation" and data_service.id in {"world-intel", "crucix"}
+                    and request.app.state.global_intelligence_settings.global_intelligence_api_url):
+                from vibe_visualization_api.global_intelligence_proxy import invoke_global_data
+                result = await invoke_global_data(request, data_service, capability, input_data)
+            else:
+                result = await request.app.state.data_service_client.invoke(
+                    data_service,
+                    capability,
+                    input_data,
+                    **({"mod_session": (bearer_token(authorization), claims.instance_id)}
+                       if data_service.id == "instock-analysis" else {}),
+                )
             validate_json_contract(
                 action.get("outputSchema"),
                 result,

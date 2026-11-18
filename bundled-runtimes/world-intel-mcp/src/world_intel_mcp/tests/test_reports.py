@@ -112,23 +112,24 @@ class TestRenderMarkets:
 
 class TestRenderEarthquakes:
     def test_no_data(self):
-        assert "No significant" in _render_earthquakes({})
+        assert "coverage unknown" in _render_earthquakes({})
+        assert "No matching samples" in _render_earthquakes({"status": "ok", "count": 0, "earthquakes": []})
+        assert "coverage unknown" in _render_earthquakes({"status": "stale", "count": 0, "earthquakes": []})
 
     def test_with_quakes(self):
         data = {
             "earthquakes": [
                 {
-                    "properties": {
-                        "mag": 5.2,
-                        "place": "Near Tokyo",
-                        "time": 1700000000000,
-                    }
+                    "magnitude": 5.2,
+                    "place": "Near Tokyo",
+                    "time": "2026-10-27T12:00:00Z",
                 },
             ]
         }
         html = _render_earthquakes(data)
         assert "5.2" in html
         assert "Near Tokyo" in html
+        assert "2026-10-27T12:00:00Z" in html
 
 
 class TestRenderConflicts:
@@ -241,12 +242,13 @@ class TestRenderHealth:
 
 class TestRenderMaritime:
     def test_no_data(self):
-        assert "No maritime" in _render_maritime({})
+        assert "observations unavailable" in _render_maritime({})
 
-    def test_with_vessels(self):
-        data = {"vessels": [{"name": "USS Nimitz", "type": "CVN", "flag": "US"}]}
+    def test_with_waterway_warnings(self):
+        data = {"waterways": [{"name": "Hormuz", "status": "warnings-nearby", "warning_count": 2}]}
         html = _render_maritime(data)
-        assert "USS Nimitz" in html
+        assert "Hormuz" in html and "warnings-nearby" in html and "<td>2</td>" in html
+        assert "not vessel tracking" in html
 
 
 class TestRenderSituationBrief:
@@ -304,7 +306,7 @@ class TestBuildHtml:
             "earthquakes": {"earthquakes": []},
             "infrastructure": {"outages": []},
             "cyber": {"recent_threats": []},
-            "maritime": {"vessels": []},
+            "maritime": {"waterways": []},
             "health": {"outbreaks": []},
             "nuclear": {"sites": []},
             "climate": {"zones": {}},

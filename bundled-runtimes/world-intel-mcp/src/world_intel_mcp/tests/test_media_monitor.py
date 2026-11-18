@@ -5,6 +5,137 @@ from datetime import datetime, timezone
 from world_intel_mcp.analysis.media_monitor import analyze_media_monitor
 
 
+def test_updated_only_reports_use_update_time_without_inventing_publication() -> None:
+    result = analyze_media_monitor([
+        {"title": "Shipping route correction after attack", "published": "invalid", "updated": "2026-10-27T11:00:00Z"},
+        {"title": "Shipping route attack", "updated": "2026-10-27T03:00:00Z"},
+    ], now=datetime(2026, 10, 27, 12, tzinfo=timezone.utc), window_hours=6)
+    assert result["summary"]["current_mentions"] == result["summary"]["previous_mentions"] == 1
+    assert result["summary"]["heat_velocity_pct"] == 0
+    assert result["summary"]["time_coverage"]["updated"] == 2
+    topic = result["topics"][0]
+    assert topic["latest_at"] == "2026-10-27T11:00:00Z"
+    assert topic["latest_at_basis"] == "updated"
+    assert topic["items"][0]["published"] is None
+    assert topic["items"][0]["timestamp_basis"] == "updated"
+    assert topic["verification_timeline"][0]["timestamp_basis"] == "updated"
+
+
+def test_missing_future_and_collection_dates_do_not_imply_flat_or_zero_heat() -> None:
+    for fields, missing, future in [({}, 1, 0), ({"timestamp": "2026-10-27T11:00:00Z"}, 1, 0),
+                                    ({"published": "2026-10-27T12:01:00Z"}, 0, 1)]:
+        result = analyze_media_monitor([{"title": "Shipping route attack", **fields}],
+            now=datetime(2026, 10, 27, 12, tzinfo=timezone.utc), window_hours=6)
+        summary = result["summary"]
+        assert summary["current_mentions"] is summary["previous_mentions"] is None
+        assert summary["velocity_state"] == "unknown"
+        assert summary["heat_velocity_pct"] is None
+        assert summary["time_coverage"]["unknown"] == missing
+        assert summary["time_coverage"]["future"] == future
+        assert result["topics"][0]["heat_score"] is None
+        assert result["topics"][0]["attention_score"] is None
+        assert result["topics"][0]["latest_at"] is None
+
+
+def test_partial_dates_keep_observed_counts_but_withhold_growth() -> None:
+    result = analyze_media_monitor([
+        {"title": "Shipping route attack", "published": "2026-10-27T11:00:00Z"},
+        {"title": "Shipping route attack continues"},
+    ], now=datetime(2026, 10, 27, 12, tzinfo=timezone.utc), window_hours=6)
+    assert result["summary"]["current_mentions"] == 1
+    assert result["summary"]["previous_mentions"] == 0
+    assert result["summary"]["time_coverage"]["status"] == "partial"
+    assert result["summary"]["velocity_state"] == "unknown"
+    assert result["summary"]["heat_velocity_pct"] is None
+    assert result["topics"][0]["heat_score"] is None
+
+
+def test_published_takes_precedence_and_old_samples_do_not_imply_flat() -> None:
+    result = analyze_media_monitor([
+        {"title": "Shipping route attack", "published": "2026-10-25T12:00:00Z", "updated": "2026-10-27T11:00:00Z"},
+    ], now=datetime(2026, 10, 27, 12, tzinfo=timezone.utc), window_hours=6)
+    assert result["summary"]["current_mentions"] == result["summary"]["previous_mentions"] == 0
+    assert result["summary"]["time_coverage"]["outside_window"] == 1
+    assert result["summary"]["velocity_state"] == "unknown"
+    assert result["topics"][0]["items"][0]["timestamp_basis"] == "published"
+
+
+def test_unmatched_multilingual_reports_are_unassessed_not_neutral() -> None:
+    reports = [
+        ("de", "Die Regierung veröffentlicht den Haushaltsplan"),
+        ("ru", "Правительство представило бюджет на следующий год"),
+        ("ar", "الحكومة تعلن الموازنة للعام القادم"),
+        ("en", "Parliament publishes the annual budget schedule"),
+    ]
+    result = analyze_media_monitor([
+        {"title": title, "language": language, "feed_name": language, "source_tier": "wire"}
+        for language, title in reports
+    ])
+    sentiment = result["summary"]["sentiment"]
+    assert sentiment["neutral"] == 0
+    assert sentiment["unknown"] == 4
+    assert sentiment["assessed_items"] == 0
+    assert sentiment["unknown_pct"] == 100
+    assert sentiment["negative_pct"] is None
+    assert sentiment["net_score"] is None
+    assert all(item["sentiment"] == "unknown" and item["sentiment_score"] is None for item in result["annotations"])
+    assert all(topic["attention_score"] is None for topic in result["topics"])
+    assert result["media_frames"][0]["dominant_sentiment"] == "unknown"
+
+
+def test_partial_lexicon_coverage_preserves_signals_without_inventing_overall_tone() -> None:
+    result = analyze_media_monitor([
+        {"title": "Shipping route attack", "feed_name": "Wire", "source_tier": "wire"},
+        {"title": "Shipping route timetable", "feed_name": "Agency", "source_tier": "government"},
+    ])
+    sentiment = result["summary"]["sentiment"]
+    assert sentiment["negative"] == sentiment["unknown"] == 1
+    assert sentiment["negative_pct"] == sentiment["unknown_pct"] == 50
+    assert sentiment["assessed_items"] == 1
+    assert sentiment["net_score"] is None
+    topic = result["topics"][0]
+    assert topic["mention_count"] == 2
+    assert topic["sentiment"] == "unknown"
+    assert topic["sentiment_score"] is None
+    assert topic["framing_divergence"] is None
+    assert topic["framing_divergence_score"] is None
+    assert topic["attention_score"] is None
+    assert result["summary"]["attention_topic_count"] is None
+    assert result["summary"]["divergent_topic_count"] is None
+    assert result["annotations"][0]["sentiment"] == "negative"
+
+
+def test_fully_matched_balanced_signals_preserve_real_zero() -> None:
+    result = analyze_media_monitor([
+        {"title": "Shipping route peace", "source_tier": "wire"},
+        {"title": "Shipping route attack", "source_tier": "wire"},
+    ])
+    assert result["summary"]["sentiment"]["net_score"] == 0
+    assert result["summary"]["sentiment"]["assessed_items"] == 2
+    assert result["summary"]["sentiment"]["unknown"] == 0
+    assert result["topics"][0]["sentiment_score"] == 0
+
+
+def test_empty_sample_preserves_counts_without_assessing_sentiment_or_spread() -> None:
+    result = analyze_media_monitor([], now=datetime(2026, 10, 27, 12, tzinfo=timezone.utc), window_hours=6)
+    summary = result["summary"]
+    for key in ("analyzed_items", "news_items", "social_items", "source_count", "language_count",
+                "topic_count", "current_mentions", "previous_mentions", "flagged_topic_count",
+                "cross_language_topic_count", "disputed_topic_count", "reversal_topic_count",
+                "divergent_topic_count", "attention_topic_count"):
+        assert summary[key] == 0
+    assert summary["window_hours"] == 6
+    assert summary["spread_score"] is None
+    assert summary["heat_velocity_pct"] is None
+    assert summary["velocity_state"] == "unknown"
+    for sentiment in ("positive", "negative", "neutral", "mixed"):
+        assert summary["sentiment"][sentiment] == 0
+        assert summary["sentiment"][f"{sentiment}_pct"] is None
+    assert summary["sentiment"]["net_score"] is None
+    assert result["topics"] == result["annotations"] == result["media_frames"] == []
+    assert result["timestamp"] == "2026-10-27T12:00:00Z"
+
+
 def test_media_monitor_combines_languages_and_surfaces_verification_cues() -> None:
     result = analyze_media_monitor(
         [
@@ -119,7 +250,7 @@ def test_media_monitor_reports_sentiment_velocity_and_source_frames() -> None:
     }
 
 
-def test_media_monitor_clusters_a_shared_product_launch_and_scores_attention() -> None:
+def test_media_monitor_clusters_a_shared_product_launch_without_inventing_tone() -> None:
     result = analyze_media_monitor(
         [
             {
@@ -147,7 +278,9 @@ def test_media_monitor_clusters_a_shared_product_launch_and_scores_attention() -
     assert result["summary"]["topic_count"] == 1
     topic = result["topics"][0]
     assert topic["mention_count"] == 3
-    assert topic["attention_score"] >= 25
+    assert topic["heat_score"] > 0
+    assert topic["attention_score"] is None
+    assert topic["sentiment_counts"]["unknown"] == 3
     assert "pixel" in topic["keywords"]
 
 

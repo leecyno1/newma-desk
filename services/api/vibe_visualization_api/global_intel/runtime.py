@@ -1,8 +1,9 @@
 """Configuration owned by the global intelligence project, not the Desk host."""
 from pathlib import Path
+from typing import Literal
 
 from fastapi import HTTPException, Request
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +14,17 @@ class Settings(BaseSettings):
     world_intel_url: str = ""
     crucix_url: str = ""
     tushare_token: SecretStr = SecretStr("")
+    access_mode: Literal["local", "desk"] = "local"
+    desk_scope_url: str = ""
+
+    @model_validator(mode="after")
+    def validate_access(self):
+        from .access import validate_scope_url
+        if self.access_mode == "desk":
+            validate_scope_url(self.desk_scope_url)
+        elif self.desk_scope_url:
+            raise ValueError("desk_scope_url requires access_mode=desk")
+        return self
 
 
 def get_settings(request: Request) -> Settings:

@@ -1,3 +1,5 @@
+import { sourceFetch as fetch } from '../utils/source-request.mjs';
+
 // USAspending — Federal spending, defense contracts, procurement signals
 // No auth required. Updated daily.
 
@@ -48,15 +50,13 @@ export async function searchAwards(opts = {}) {
   };
 
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    const signal = AbortSignal.timeout(15000);
     const res = await fetch(`${BASE}/search/spending_by_award/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal,
     });
-    clearTimeout(timer);
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
       return { error: `HTTP ${res.status}: ${errBody.slice(0, 300)}`, results: [] };

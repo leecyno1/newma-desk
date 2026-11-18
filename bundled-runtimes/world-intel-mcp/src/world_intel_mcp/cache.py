@@ -116,7 +116,7 @@ class Cache:
             )
             conn.commit()
         except sqlite3.OperationalError as exc:
-            logger.warning("Cache write failed for %s: %s", key, exc)
+            logger.warning("Cache write failed: %s", type(exc).__name__)
 
     def delete(self, key: str) -> None:
         """Delete a specific key."""

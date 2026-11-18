@@ -8,7 +8,7 @@ No API keys required.
 
 import logging
 import math
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from ..fetcher import Fetcher
 from ..config.countries import NUCLEAR_TEST_SITES
@@ -19,11 +19,8 @@ logger = logging.getLogger("world-intel-mcp.sources.nuclear")
 # Constants
 # ---------------------------------------------------------------------------
 
-_USGS_ENDPOINT = "https://earthquake.usgs.gov/fdsnws/event/1/query"
-
 _BBOX_PADDING_DEG = 1.5  # degrees around each site for initial USGS query
 _MAX_DISTANCE_KM = 100.0  # Haversine filter radius
-_CACHE_TTL = 600  # 10 minutes
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +103,7 @@ def _concern_score(
 async def fetch_nuclear_monitor(
     fetcher: Fetcher,
     hours: int = 72,
+    *, catalog: dict | None = None,
 ) -> dict:
     """Monitor seismic activity near known nuclear test sites.
 
@@ -121,9 +119,12 @@ async def fetch_nuclear_monitor(
         flagged_events, source.
     """
     import asyncio
+    from .seismology import fetch_catalog, fetch_earthquake_geojson, _number
+
+    if catalog is None and hours <= 720:
+        catalog = await fetch_catalog(fetcher)
 
     now = datetime.now(timezone.utc)
-    starttime = (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")
 
     flagged_events: list[dict] = []
     sites: list[dict] = []
@@ -132,22 +133,9 @@ async def fetch_nuclear_monitor(
         lat = site["lat"]
         lon = site["lon"]
 
-        data = await fetcher.get_json(
-            _USGS_ENDPOINT,
-            source="usgs",
-            cache_key=f"nuclear:usgs:{site['name']}:{hours}",
-            cache_ttl=_CACHE_TTL,
-            params={
-                "format": "geojson",
-                "minmagnitude": 1.0,
-                "starttime": starttime,
-                "minlatitude": lat - _BBOX_PADDING_DEG,
-                "maxlatitude": lat + _BBOX_PADDING_DEG,
-                "minlongitude": lon - _BBOX_PADDING_DEG,
-                "maxlongitude": lon + _BBOX_PADDING_DEG,
-                "limit": 50,
-            },
-        )
+        data = await fetch_earthquake_geojson(fetcher, 1.0, hours, 50,
+            bbox=(lat - _BBOX_PADDING_DEG, lat + _BBOX_PADDING_DEG, lon - _BBOX_PADDING_DEG, lon + _BBOX_PADDING_DEG),
+            catalog=catalog)
 
         nearby_events: list[dict] = []
 
@@ -159,7 +147,7 @@ async def fetch_nuclear_monitor(
 
                 eq_lon = coords[0] if len(coords) > 0 else 0
                 eq_lat = coords[1] if len(coords) > 1 else 0
-                eq_depth = coords[2] if len(coords) > 2 else 0
+                eq_depth = coords[2] if len(coords) > 2 and _number(coords[2]) else None
 
                 distance = _haversine_km(lat, lon, eq_lat, eq_lon)
 
@@ -173,7 +161,7 @@ async def fetch_nuclear_monitor(
                     depth_km=eq_depth,
                     distance_km=distance,
                     site_status=site["status"],
-                )
+                ) if eq_depth is not None and data["status"] == "ok" else (None, "not_assessed")
 
                 # Convert time
                 epoch_ms = props.get("time")
@@ -187,10 +175,11 @@ async def fetch_nuclear_monitor(
                         pass
 
                 event = {
+                    "id": feature.get("id"),
                     "site": site["name"],
                     "site_country": site["country"],
                     "magnitude": magnitude,
-                    "depth_km": round(eq_depth, 1),
+                    "depth_km": round(eq_depth, 1) if eq_depth is not None else None,
                     "distance_km": round(distance, 1),
                     "latitude": eq_lat,
                     "longitude": eq_lon,
@@ -202,7 +191,7 @@ async def fetch_nuclear_monitor(
                 nearby_events.append(event)
 
         # Sort by concern_score descending
-        nearby_events.sort(key=lambda e: e["concern_score"], reverse=True)
+        nearby_events.sort(key=lambda e: e["concern_score"] if e["concern_score"] is not None else -1, reverse=True)
 
         return {
             "name": site["name"],
@@ -212,9 +201,12 @@ async def fetch_nuclear_monitor(
             "lon": lon,
             "status": site["status"],
             "last_test": site["last_test"],
-            "events_detected": len(nearby_events),
+            "events_detected": len(nearby_events) if data["count"] is not None else None,
+            "source_status": data["status"],
+            "source_updated_at": data.get("source_updated_at"),
+            "truncated": data.get("truncated", False),
             "highest_concern": nearby_events[0] if nearby_events else None,
-            "events": nearby_events[:5],
+            "events": nearby_events,
         }
 
     tasks = [_check_site(site) for site in NUCLEAR_TEST_SITES]
@@ -225,13 +217,25 @@ async def fetch_nuclear_monitor(
         for ev in site_result.get("events", []):
             flagged_events.append(ev)
 
-    flagged_events.sort(key=lambda e: e["concern_score"], reverse=True)
+    flagged_events.sort(key=lambda e: e["concern_score"] if e["concern_score"] is not None else -1, reverse=True)
     critical_flags = sum(1 for e in flagged_events if e["concern_level"] == "critical")
+    available = sum(site["events_detected"] is not None for site in sites)
+    complete = all(site["source_status"] == "ok" for site in sites)
 
     return {
         "sites": list(sites),
-        "total_flagged_events": len(flagged_events),
-        "critical_flags": critical_flags,
+        "total_flagged_events": len(flagged_events) if available else None,
+        "critical_flags": critical_flags if complete and all(e["concern_score"] is not None for e in flagged_events) else None,
+        "status": "unavailable" if not available else "ok" if complete else "partial",
+        "coverage": {"available": available, "expected": len(sites)},
+        "freshness": (catalog or {}).get("freshness", "unknown"),
+        "source_updated_at": (catalog or {}).get("source_updated_at"),
+        "collected_at": (catalog or {}).get("collected_at"),
+        "cache_expires_at": (catalog or {}).get("cache_expires_at"),
+        "truncated": any(site["truncated"] for site in sites) or len(flagged_events) > 20,
+        "display_limit": 20,
+        "note": "试验场邻近地震目录样本；距离、震级与深度的启发式关注评分不能识别或证实核试验。",
+        **({"error": "USGS目录不可用，近场地震数量待核验"} if not available else {}),
         "flagged_events": flagged_events[:20],
         "query": {"hours": hours, "max_distance_km": _MAX_DISTANCE_KM},
         "source": "usgs-nuclear-monitor",

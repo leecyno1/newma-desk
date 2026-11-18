@@ -43,6 +43,8 @@ async def test_unavailable_warnings_are_not_a_confirmed_empty_result(fetcher):
     fetcher.get_json = AsyncMock(return_value=None)
     result = await fetch_nav_warnings(fetcher)
     assert result["error"]
+    assert result["count"] is None
+    assert result["status"] == "unavailable"
     assert result["timestamp"] is None
     assert result["freshness"] == "unknown"
 
@@ -54,6 +56,7 @@ async def test_successful_empty_feed_is_distinct_from_failure(fetcher):
     fetcher.get_json = AsyncMock(return_value=payload)
     result = await fetch_nav_warnings(fetcher)
     assert result["count"] == 0
+    assert result["status"] == "ok"
     assert result["freshness"] == "fresh"
     assert result["collected_at"]
     assert "error" not in result
@@ -87,6 +90,14 @@ async def test_full_text_all_coordinates_relayed_navarea_and_cancelled_status(fe
 async def test_invalid_feed_is_not_a_successful_empty_result(fetcher):
     fetcher.get_json = AsyncMock(return_value={"error": "upstream unavailable"})
     assert (await fetch_nav_warnings(fetcher))["error"]
+
+
+@pytest.mark.asyncio
+async def test_invalid_warning_record_is_not_an_active_warning(fetcher):
+    fetcher.get_json = AsyncMock(return_value={"broadcast-warn": [{"error": "maintenance"}]})
+    result = await fetch_nav_warnings(fetcher)
+    assert result["status"] == "unavailable"
+    assert result["count"] is None
 
 
 @pytest.mark.asyncio

@@ -1,138 +1,122 @@
-"""Aviation data sources for world-intel-mcp.
+"""FAA airport advisories and OpenSky traffic observations."""
 
-Provides real-time US airport delay information from the FAA Airport
-Status Web Service (ASWS) API, and global domestic air traffic counts
-from OpenSky Network.  No API key required for either.
-"""
-
-import asyncio
 import base64
-import logging
 import os
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from xml.etree import ElementTree
 
 from ..fetcher import Fetcher
+from ..source_time import source_cache_timing
 
-logger = logging.getLogger("world-intel-mcp.sources.aviation")
+# Linked as "XML" by the FAA National Airspace System site's footer.
+_FAA_STATUS_URL = "https://nasstatus.faa.gov/api/airport-status-information"
+_FAA_CACHE_KEY = "aviation:faa:nas-status:v1"
+_FAA_LISTS = {
+    "Ground_Stop_List": ("Program", "Ground Stop Programs"),
+    "Ground_Delay_List": ("Ground_Delay", "Ground Delay Programs"),
+    "Arrival_Departure_Delay_List": ("Delay", "General Arrival/Departure Delay Info"),
+    "Airport_Closure_List": ("Airport", "Airport Closures"),
+}
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-_FAA_STATUS_URL = "https://soa.smext.faa.gov/asws/api/airport/status"
-
-_MAJOR_AIRPORTS = [
-    "ATL", "LAX", "ORD", "DFW", "DEN", "JFK", "SFO", "SEA", "LAS", "MCO",
-    "EWR", "CLT", "PHX", "IAH", "MIA", "BOS", "MSP", "FLL", "DTW", "PHL",
-]
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _parse_airport_status(code: str, data: dict) -> dict:
-    """Extract structured fields from a single FAA airport status response."""
-    name = data.get("Name", code)
-    delay = data.get("Delay", False)
+def _parse_faa_status(xml_text: str) -> tuple[list[dict], str | None, int]:
+    root = ElementTree.fromstring(xml_text)
+    if root.tag != "AIRPORT_STATUS_INFORMATION":
+        raise ValueError("Unexpected FAA document")
+    raw_time = root.findtext("Update_Time", "").strip()
+    try:
+        updated = parsedate_to_datetime(raw_time)
+        updated_at = updated.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if updated.tzinfo else None
+    except (ValueError, TypeError, OverflowError):
+        updated_at = None
+    airports: dict[str, dict] = {}
+    invalid = 0
+    for group in root.findall("Delay_type"):
+        for listing in group:
+            if listing.tag == "Name":
+                continue
+            spec = _FAA_LISTS.get(listing.tag)
+            if spec is None:
+                invalid += 1
+                continue
+            record_tag, label = spec
+            for record in listing:
+                code = record.findtext("ARPT", "").strip().upper()
+                if record.tag != record_tag or not code:
+                    invalid += 1
+                    continue
+                direction = record.find("Arrival_Departure")
+                status = {
+                    "type": label,
+                    "reason": record.findtext("Reason", "").strip(),
+                    "avg_delay": record.findtext("Avg", "").strip(),
+                    "max_delay": record.findtext("Max", "").strip(),
+                    "min_delay": "",
+                    "direction": "",
+                    "trend": "",
+                    "end_time": record.findtext("End_Time", "").strip(),
+                    "closure_begin": record.findtext("Start", "").strip(),
+                    "closure_end": record.findtext("Reopen", "").strip(),
+                }
+                if direction is not None:
+                    status.update({
+                        "direction": direction.get("Type", ""),
+                        "min_delay": direction.findtext("Min", "").strip(),
+                        "max_delay": direction.findtext("Max", "").strip(),
+                        "trend": direction.findtext("Trend", "").strip(),
+                    })
+                airport = airports.setdefault(code, {"code": code, "name": code, "status": []})
+                if status not in airport["status"]:
+                    airport["status"].append(status)
+    return list(airports.values()), updated_at, invalid
 
-    # Normalize delay to boolean (API may return string "true"/"false")
-    if isinstance(delay, str):
-        delay = delay.lower() == "true"
-
-    status_items = data.get("Status", [])
-    if not isinstance(status_items, list):
-        status_items = [status_items] if isinstance(status_items, dict) else []
-
-    parsed_statuses = []
-    for item in status_items:
-        if not isinstance(item, dict):
-            continue
-        parsed_statuses.append({
-            "type": item.get("Type", ""),
-            "reason": item.get("Reason", ""),
-            "avg_delay": item.get("AvgDelay", ""),
-            "closure_begin": item.get("ClosureBegin", ""),
-            "closure_end": item.get("ClosureEnd", ""),
-        })
-
-    return {
-        "code": code,
-        "name": name,
-        "delay": delay,
-        "status": parsed_statuses,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 async def fetch_airport_delays(fetcher: Fetcher) -> dict:
-    """Fetch current US airport delays from the FAA Airport Status API.
+    """Read one official FAA advisory feed; absence is not proof of no delays.
 
-    Queries the FAA ASWS API for each major US airport in parallel and
-    returns a summary of which airports currently have active delays.
-
-    Args:
-        fetcher: Shared HTTP fetcher with caching and circuit breaking.
-
-    Returns:
-        Dict with delayed airports list, counts, source, and timestamp.
+    The compatibility field 'delayed' contains airports with listed advisories,
+    including limited closures. The feed does not enumerate checked airports or
+    all delayed flights, so total_checked is unknown.
     """
-
-    async def _fetch_one(code: str) -> tuple[str, dict | None]:
-        """Fetch status for a single airport, returning (code, data|None)."""
-        data = await fetcher.get_json(
-            url=f"{_FAA_STATUS_URL}/{code}",
-            source="faa",
-            cache_key=f"aviation:faa:{code}",
-            cache_ttl=300,
-        )
-        return code, data
-
-    # Fetch all airports in parallel
-    results = await asyncio.gather(
-        *[_fetch_one(code) for code in _MAJOR_AIRPORTS],
-        return_exceptions=True,
+    xml_text = await fetcher.get_xml(
+        _FAA_STATUS_URL, source="faa", cache_key=_FAA_CACHE_KEY, cache_ttl=300,
     )
-
-    now_iso = _utc_now_iso()
-
-    delayed: list[dict] = []
-    all_airports: list[dict] = []
-    errors = 0
-
-    for result in results:
-        if isinstance(result, Exception):
-            logger.warning("Exception fetching airport status: %s", result)
-            errors += 1
-            continue
-
-        code, data = result
-
-        if data is None:
-            logger.debug("No data returned for airport %s", code)
-            errors += 1
-            continue
-
-        parsed = _parse_airport_status(code, data)
-        all_airports.append(parsed)
-
-        if parsed["delay"]:
-            delayed.append(parsed)
-
-    return {
-        "delayed": delayed,
-        "delayed_count": len(delayed),
-        "total_checked": len(_MAJOR_AIRPORTS),
-        "errors": errors,
+    timing = source_cache_timing(fetcher.cache, _FAA_CACHE_KEY)
+    base = {
         "source": "faa",
-        "timestamp": now_iso,
+        "source_url": _FAA_STATUS_URL,
+        "observation_basis": "faa-nas-airport-advisories",
+        "count_basis": "airports-with-listed-advisories",
+        "total_checked": None,
+        "note": "FAA公布的机场运行通告，不是全部航班延误；未列出不等于运行正常。关闭类通告可能仅限制部分航班，须核对原文。来源更新时间超过30分钟按历史参考展示（本地保守阈值，非FAA保证）。",
+    }
+    try:
+        if xml_text is None:
+            raise ValueError("FAA unavailable")
+        airports, updated_at, invalid = _parse_faa_status(xml_text)
+    except (ElementTree.ParseError, ValueError, TypeError):
+        return {**base, **timing, "status": "unavailable", "freshness": "unknown",
+                "error": "FAA机场运行通告未能取得或格式异常；不能据此判断没有延误",
+                "delayed": [], "delayed_count": None, "reported_airport_count": None,
+                "advisory_count": None, "updated_at": None, "timestamp": None,
+                "errors": 1, "coverage": {"available": 0, "expected": 1}}
+
+    age = (datetime.now(timezone.utc) - datetime.fromisoformat(updated_at.replace("Z", "+00:00"))).total_seconds() if updated_at else None
+    freshness = "unknown" if age is None or age < 0 else "stale" if age > 1800 or timing["freshness"] == "stale" else timing["freshness"]
+    status = "stale" if freshness == "stale" else "partial" if invalid or freshness != "fresh" else "ok"
+    count = len(airports) if airports or invalid == 0 else None
+    return {
+        **base, **timing, "freshness": freshness, "status": status,
+        "delayed": airports, "delayed_count": count, "reported_airport_count": count,
+        "advisory_count": sum(len(airport["status"]) for airport in airports) if count is not None else None,
+        "updated_at": updated_at, "timestamp": updated_at,
+        "invalid_records": invalid, "errors": 0,
+        "coverage": {"available": 1, "expected": 1},
     }
 
 

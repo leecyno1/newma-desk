@@ -63,11 +63,13 @@ async def test_each_feed_keeps_its_successful_collection_time(fetcher, monkeypat
 @pytest.mark.asyncio
 async def test_earthquake_missing_event_time_and_unavailable_source(fetcher):
     from world_intel_mcp.sources.seismology import fetch_earthquakes
-    data = {"features": [{"id": "q", "properties": {"mag": 6}, "geometry": {"coordinates": [60, 20, 10]}}]}
-    fetcher.cache.set("seismology:quakes:4.5:24", data, -1)
+    data = {"type": "FeatureCollection", "metadata": {"generated": time.time() * 1000, "count": 1},
+            "features": [{"id": "q", "properties": {"mag": 6}, "geometry": {"coordinates": [60, 20, 10]}}]}
+    fetcher.cache.set("seismology:usgs:1.0_month:v1", data, -1)
     fetcher.get_json = AsyncMock(return_value=data)
     result = await fetch_earthquakes(fetcher)
-    assert result["earthquakes"][0]["time"] is None
+    assert result["count"] is None and result["invalid_records"] == 1
+    assert result["earthquakes"] == []  # Undated samples cannot prove the requested window.
     assert result["freshness"] == "stale"
     assert result["timestamp"] == result["collected_at"]
     fetcher.get_json = AsyncMock(return_value=None)

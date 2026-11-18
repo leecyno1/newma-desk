@@ -1,7 +1,6 @@
-from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from vibe_visualization_api.global_intel.runtime import Settings, get_settings, global_topic_scope
@@ -23,10 +22,21 @@ def _require_topic(topic_id: str) -> None:
 
 
 @router.get("/{topic_id}")
-async def get_topic(topic_id: str, request: Request, scope=Depends(global_topic_scope)) -> dict:
+async def get_topic(topic_id: str, request: Request, response: Response, settings: Settings = Depends(get_settings), scope=Depends(global_topic_scope)) -> dict:
     _require_topic(topic_id)
+    response.headers["Cache-Control"] = "no-store"
     evidence = await request.app.state.global_topic_sources.snapshot(topic_id)
-    return topic_snapshot(topic_id, evidence)
+    snapshot = topic_snapshot(topic_id, evidence)
+    saved = GlobalTopicStore(settings.database_path).latest_forecast(topic_id, scope=scope)
+    snapshot["forecastOrigin"] = "saved" if saved else "default"
+    snapshot["forecastSavedAt"] = saved["createdAt"] if saved else None
+    if saved:
+        snapshot["factors"] = [
+            {**factor, "value": saved["factors"].get(factor["id"], factor["value"])}
+            for factor in snapshot["factors"]
+        ]
+        snapshot["forecast"] = saved["result"]
+    return snapshot
 
 
 @router.post("/{topic_id}/forecast")
@@ -38,6 +48,6 @@ def run_forecast(topic_id: str, request: ForecastRequest, settings: Settings = D
     factors = {factor["id"]: request.factors.get(factor["id"], factor["value"]) for factor in TOPICS[topic_id]["factors"]}
     result = forecast(topic_id, factors)
     GlobalTopicStore(settings.database_path).save_forecast(
-        topic_id, datetime.now(UTC).isoformat(), factors, result, scope=scope
+        topic_id, result["generatedAt"], factors, result, scope=scope
     )
     return result

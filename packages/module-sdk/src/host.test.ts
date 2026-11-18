@@ -128,6 +128,207 @@ function createThemeRoot() {
 }
 
 describe("connectModHost", () => {
+  it("drops queued handoffs from a previous account", async () => {
+    const { parent, runtime, dispatch } = embeddedRuntime();
+    const pending = connectModHost({ modId: "instock-czsc", parentOrigin: "https://desk.example", capabilities: ["handoff"] }, runtime);
+    const init = { type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "instock-czsc",
+      user: { id: "alice" }, workspace: { id: "one" }, environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+      gateways: { actions: "https://desk.example/actions", data: "https://desk.example/data" }, grants: { permissions: [], actions: [] } };
+    const send = (data: unknown) => dispatch({ origin: "https://desk.example", source: parent, data } as MessageEvent);
+    send(init);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+    const handoff = { version: 1, id: "hf_abc12345", sourceModId: "market-daily", targetModId: init.modId, entrypointId: "structure",
+      subject: { type: "etf", canonicalId: "etf:CN:512010", displayName: "医药 ETF", market: "CN", symbol: "512010", assetType: "etf" },
+      relatedSubjects: [], conceptIds: ["concept:CN:医药"], intent: "technical.structure", timeframe: "daily", parameters: { bars: 480 },
+      createdAt: "2026-08-15T10:00:00+08:00", expiresAt: "2026-08-15T10:05:00+08:00" };
+    send({ type: "vibedesk:handoff", requestId: "old-handoff", instanceId: init.instanceId, modId: init.modId, handoff });
+    send({ ...init, user: { id: "bob" } });
+    const handler = vi.fn();
+    connection.setHandoffHandler(handler);
+    expect(handler).not.toHaveBeenCalled();
+    connection.close();
+  });
+
+  it("drops a handoff result that finishes after an account switch", async () => {
+    const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
+    const pending = connectModHost({ modId: "instock-czsc", parentOrigin: "https://desk.example", capabilities: ["handoff"] }, runtime);
+    const init = { type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "instock-czsc",
+      user: { id: "alice" }, workspace: { id: "one" }, environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+      gateways: { actions: "https://desk.example/actions", data: "https://desk.example/data" }, grants: { permissions: [], actions: [] } };
+    const send = (data: unknown) => dispatch({ origin: "https://desk.example", source: parent, data } as MessageEvent);
+    send(init);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+    let finish!: (value: unknown) => void;
+    connection.setHandoffHandler(() => new Promise(resolve => { finish = resolve; }));
+    const handoff = { version: 1, id: "hf_abc12345", sourceModId: "market-daily", targetModId: init.modId, entrypointId: "structure",
+      subject: { type: "etf", canonicalId: "etf:CN:512010", displayName: "医药 ETF", market: "CN", symbol: "512010", assetType: "etf" },
+      relatedSubjects: [], conceptIds: ["concept:CN:医药"], intent: "technical.structure", timeframe: "daily", parameters: { bars: 480 },
+      createdAt: "2026-08-15T10:00:00+08:00", expiresAt: "2026-08-15T10:05:00+08:00" };
+    send({ type: "vibedesk:handoff", requestId: "late-handoff", instanceId: init.instanceId, modId: init.modId, handoff });
+    send({ ...init, user: { id: "bob" } });
+    finish({ applied: true });
+    await Promise.resolve();
+    expect(postMessage.mock.calls.some(([message]) => message?.type === "vibedesk:handoff-result" && message.requestId === "late-handoff")).toBe(false);
+    connection.close();
+  });
+  it("does not return a delayed UI action result after an account switch", async () => {
+    const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
+    const pending = connectModHost({ modId: "market-daily", parentOrigin: "https://desk.example", capabilities: ["actions"] }, runtime);
+    const init = { type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "market-daily",
+      user: { id: "alice" }, workspace: { id: "one" }, environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+      gateways: { actions: "https://desk.example/actions", data: "https://desk.example/data" },
+      grants: { permissions: [], actions: ["market.set-timeframe"] } };
+    const send = (data: unknown) => dispatch({ origin: "https://desk.example", source: parent, data } as MessageEvent);
+    send(init);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+    let finish!: (value: unknown) => void;
+    connection.setUiActionHandler(() => new Promise(resolve => { finish = resolve; }));
+    send({ type: "vibedesk:ui-action-request", requestId: "old-ui", instanceId: init.instanceId, modId: init.modId,
+      actionId: "market.set-timeframe", input: { timeframe: "1d" } });
+    send({ ...init, user: { id: "bob" } });
+    send(init);
+    finish({ selected: "old" });
+    await Promise.resolve();
+    expect(postMessage.mock.calls.some(([message]) => message?.type === "vibedesk:ui-action-result" && message.requestId === "old-ui")).toBe(false);
+    connection.close();
+  });
+  it("drops a delayed visual capture across an account switch", async () => {
+    const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
+    const pending = connectModHost({ modId: "market-daily", parentOrigin: "https://desk.example", capabilities: ["visual-context"] }, runtime);
+    const init = { type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "market-daily",
+      user: { id: "alice" }, workspace: { id: "one" }, environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+      gateways: { actions: "https://desk.example/actions", data: "https://desk.example/data" },
+      grants: { permissions: ["market.read"], actions: [] } };
+    const send = (data: unknown) => dispatch({ origin: "https://desk.example", source: parent, data } as MessageEvent);
+    send(init);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+    let finish!: (value: { image: string; width: number; height: number }) => void;
+    connection.setVisualCaptureProvider(() => new Promise(resolve => { finish = resolve; }));
+    send({ type: "vibedesk:visual-context-request", requestId: "old-visual", instanceId: init.instanceId, modId: init.modId,
+      reason: "agent", maxBytes: 65536, mediaTypes: ["image/png"] });
+    send({ ...init, user: { id: "bob" } });
+    send(init);
+    finish({ image: "data:image/png;base64,iVBORw==", width: 1, height: 1 });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(postMessage.mock.calls.some(([message]) => message?.type === "vibedesk:visual-context" && message.requestId === "old-visual")).toBe(false);
+    connection.close();
+  });
+  it("does not relabel an old asynchronous context after an account switches away and back", async () => {
+    const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
+    const pending = connectModHost({ modId: "market-daily", parentOrigin: "https://desk.example" }, runtime);
+    const init = { type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "market-daily",
+      user: { id: "alice" }, workspace: { id: "one" }, environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+      gateways: { actions: "https://desk.example/actions", data: "https://desk.example/data" },
+      grants: { permissions: ["market.read"], actions: [] } };
+    const send = (data: unknown) => dispatch({ origin: "https://desk.example", source: parent, data } as MessageEvent);
+    send(init);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+    const context = { view: { id: "market-daily", title: "市场" }, visibleBlocks: [], selection: {}, filters: {},
+      data: { freshness: "unknown" as const }, actions: [], tasks: [] };
+    let finish!: (value: typeof context) => void;
+    connection.setContextProvider(() => new Promise(resolve => { finish = resolve; }));
+    send({ type: "vibedesk:context-request", requestId: "old-context", instanceId: init.instanceId, modId: init.modId, reason: "agent" });
+    send({ ...init, user: { id: "bob" } });
+    send(init);
+    finish(context);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(postMessage.mock.calls.some(([message]) => message?.type === "vibedesk:context" && message.requestId === "old-context")).toBe(false);
+    connection.setContextProvider(() => context);
+    send({ type: "vibedesk:context-request", requestId: "new-context", instanceId: init.instanceId, modId: init.modId, reason: "agent" });
+    await Promise.resolve();
+    expect(postMessage.mock.calls.some(([message]) => message?.type === "vibedesk:context" && message.requestId === "new-context")).toBe(true);
+    connection.close();
+  });
+  it("exposes the current host configuration before notifying subscribers", async () => {
+    const { parent, runtime, dispatch } = embeddedRuntime();
+    const pending = connectModHost({ modId: "market-daily", parentOrigin: "https://desk.example" }, runtime);
+    const init = { type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "market-daily",
+      user: { id: "alice" }, workspace: { id: "one" }, environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+      gateways: { actions: "https://desk.example/actions", agent: "https://desk.example/agent", model: "https://desk.example/model", data: "https://desk.example/data" },
+      grants: { permissions: ["market.read"], actions: ["market.scan"] } };
+    const send = (data: unknown) => dispatch({ origin: "https://desk.example", source: parent, data } as MessageEvent);
+    send(init);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+    const seen = vi.fn(() => connection.config.user.id);
+    connection.subscribe(seen);
+    send({ ...init, user: { id: "bob" }, workspace: { id: "two" } });
+    expect(connection.config.user.id).toBe("bob");
+    expect(connection.config.workspace.id).toBe("two");
+    expect(seen.mock.results[0]?.value).toBe("bob");
+    connection.close();
+  });
+
+  it("rejects an in-flight action when the host account changes under the same instance", async () => {
+    const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
+    const pending = connectModHost({ modId: "market-daily", parentOrigin: "https://desk.example" }, runtime);
+    const init = { type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "market-daily",
+      user: { id: "alice" }, workspace: { id: "one" }, environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+      gateways: { actions: "https://desk.example/actions", agent: "https://desk.example/agent", model: "https://desk.example/model", data: "https://desk.example/data" },
+      grants: { permissions: ["market.read"], actions: ["market.scan"] } };
+    const send = (data: unknown) => dispatch({ origin: "https://desk.example", source: parent, data } as MessageEvent);
+    send(init);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+    const outcome = connection.invokeAction("market.scan").then(() => "resolved", () => "rejected");
+    const request = postMessage.mock.calls.find(([message]) => message?.type === "vibedesk:action-request")?.[0];
+    send({ ...init, user: { id: "bob" }, workspace: { id: "two" } });
+    send({ type: "vibedesk:action-result", requestId: request.requestId, instanceId: init.instanceId,
+      modId: init.modId, actionId: "market.scan", status: 200, ok: true, result: { old: true } });
+    expect(await outcome).toBe("rejected");
+    connection.close();
+  });
+
+  it.each(["session", "permissions", "actions", "gateway"] as const)("rejects in-flight actions when host %s changes", async change => {
+    const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
+    const pending = connectModHost({ modId: "market-daily", parentOrigin: "https://desk.example" }, runtime);
+    const init = { type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "market-daily",
+      user: { id: "alice" }, workspace: { id: "one" }, environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+      gateways: { actions: "https://desk.example/actions", agent: "https://desk.example/agent", model: "https://desk.example/model", data: "https://desk.example/data" },
+      session: { id: "one", accessToken: "test-token-one", expiresAt: "2099-01-01T00:00:00Z" },
+      grants: { permissions: ["market.read"], actions: ["market.scan"] } };
+    const send = (data: unknown) => dispatch({ origin: "https://desk.example", source: parent, data } as MessageEvent);
+    send(init);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+    const outcome = connection.invokeAction("market.scan").then(() => "resolved", () => "rejected");
+    const request = postMessage.mock.calls.find(([message]) => message?.type === "vibedesk:action-request")?.[0];
+    const next = change === "session" ? { ...init, session: { ...init.session, accessToken: "test-token-two" } }
+      : change === "permissions" ? { ...init, grants: { ...init.grants, permissions: [] } }
+      : change === "actions" ? { ...init, grants: { ...init.grants, actions: [] } }
+      : { ...init, gateways: { ...init.gateways, data: "https://desk.example/new-data" } };
+    send(next);
+    send({ type: "vibedesk:action-result", requestId: request.requestId, instanceId: init.instanceId,
+      modId: init.modId, actionId: "market.scan", status: 200, ok: true, result: { old: true } });
+    expect(await outcome).toBe("rejected");
+    connection.close();
+  });
+
+  it("does not interrupt an in-flight action for an appearance-only update", async () => {
+    const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
+    const pending = connectModHost({ modId: "market-daily", parentOrigin: "https://desk.example" }, runtime);
+    const init = { type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "market-daily",
+      user: { id: "alice" }, workspace: { id: "one" }, environment: { theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai" },
+      gateways: { actions: "https://desk.example/actions", agent: "https://desk.example/agent", model: "https://desk.example/model", data: "https://desk.example/data" },
+      grants: { permissions: ["market.read"], actions: ["market.scan"] } };
+    const send = (data: unknown) => dispatch({ origin: "https://desk.example", source: parent, data } as MessageEvent);
+    send(init);
+    const connection = await pending;
+    if (!connection.embedded) throw new Error("expected embedded connection");
+    const outcome = connection.invokeAction("market.scan");
+    const request = postMessage.mock.calls.find(([message]) => message?.type === "vibedesk:action-request")?.[0];
+    send({ ...init, environment: { ...init.environment, theme: "dark" } });
+    send({ type: "vibedesk:action-result", requestId: request.requestId, instanceId: init.instanceId,
+      modId: init.modId, actionId: "market.scan", status: 200, ok: true, result: { ok: true } });
+    await expect(outcome).resolves.toEqual({ ok: true });
+    connection.close();
+  });
   it("applies the Newma palette, mode classes, and theme event", () => {
     const { root, classes, dispatchEvent, setThemeColor } = createThemeRoot();
 
@@ -459,6 +660,43 @@ describe("connectModHost", () => {
     resolved.close();
   });
 
+  it("negotiates result support, binds responses to scope, and stops observation on abort or scope change", async () => {
+    const {parent, runtime, postMessage, dispatch} = embeddedRuntime();
+    const connecting = connectModHost({modId: "market-daily", parentOrigin: "https://desk.example", capabilities: ["agent", "agent-result"]}, runtime);
+    const init = {type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "market-daily",
+      user: {id: "alice"}, workspace: {id: "default"}, environment: {theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai"},
+      gateways: {actions: "https://desk.example/api/actions", data: "https://desk.example/api/data"}, grants: {permissions: [], actions: []},
+      runtime: {owner: "newma", aiExecution: "host", requestMessage: "vibedesk:copilot-open"}};
+    const receive = (data: unknown) => dispatch({origin: "https://desk.example", source: parent, data} as MessageEvent);
+    receive(init); const connection = await connecting;
+    if (!connection.embedded || !connection.requestAgentResult) throw new Error("expected result API");
+    await expect(connection.requestAgentResult({prompt: "review"})).rejects.toThrow("unavailable");
+    expect(postMessage.mock.calls.filter(([m]) => m.type === "vibedesk:copilot-open")).toHaveLength(0);
+    const next = {...init, runtime: {...init.runtime, resultMessage: "vibedesk:agent-result"}};
+    receive(next);
+    const resolved = vi.fn();
+    const result = connection.requestAgentResult({prompt: "review"}).then(value => {resolved(value); return value;});
+    const requestId = postMessage.mock.calls.at(-1)![0].requestId;
+    const reply = {type: "vibedesk:agent-result", requestId, instanceId: "instance-1", modId: "market-daily", outcome: {status: "completed", answer: "checked"}};
+    receive({...reply, instanceId: "other"}); receive({...reply, requestId: "other"});
+    await Promise.resolve(); expect(resolved).not.toHaveBeenCalled();
+    receive(reply); expect(await result).toEqual(reply.outcome);
+    const controller = new AbortController();
+    const stopped = connection.requestAgentResult({prompt: "review"}, {signal: controller.signal});
+    controller.abort(); await expect(stopped).rejects.toThrow("not cancelled");
+    const revoked = connection.requestAgentResult({prompt: "review"}).then(() => "resolved", () => "rejected");
+    const revokedRequestId = postMessage.mock.calls.at(-1)![0].requestId;
+    receive({...next, grants: {...next.grants, permissions: ["different"]}});
+    receive({...reply, requestId: revokedRequestId});
+    expect(await revoked).toBe("rejected");
+    receive(next);
+    const changed = connection.requestAgentResult({prompt: "review"});
+    receive({...next, workspace: {id: "other"}});
+    await expect(changed).rejects.toThrow("scope changed");
+    const closed = connection.requestAgentResult({prompt: "review"});
+    connection.close(); await expect(closed).rejects.toThrow("connection closed");
+  });
+
   it("rejects Agent requests when the host did not attach an Agent Runtime", async () => {
     const { parent, runtime, dispatch } = embeddedRuntime();
     const connection = connectModHost(
@@ -679,6 +917,45 @@ describe("connectModHost", () => {
     connection.close();
   });
 
+  it("honors one correlated host wait budget and retains the legacy fallback", async () => {
+    vi.useFakeTimers();
+    try {
+      const {parent, runtime, postMessage, dispatch} = embeddedRuntime();
+      const connecting = connectModHost({modId: "market-daily", parentOrigin: "https://desk.example"}, runtime);
+      const init = {type: "vibedesk:init", protocolVersion: "1.0", instanceId: "instance-1", modId: "market-daily",
+        user: {id: "alice"}, workspace: {id: "desk-1"}, environment: {theme: "light", locale: "zh-CN", timezone: "Asia/Shanghai"},
+        gateways: {actions: "https://desk.example/api/actions", data: "https://desk.example/api/data"},
+        grants: {permissions: ["market.read"], actions: ["market.scan"]}};
+      const send = (data: unknown, origin = "https://desk.example") => dispatch({data, origin, source: parent} as MessageEvent);
+      send(init);
+      const connection = await connecting;
+      if (!connection.embedded) throw new Error("expected embedded connection");
+      const requestFor = () => postMessage.mock.calls.filter(([m]) => m.type === "vibedesk:action-request").at(-1)![0];
+      let settled = false;
+      const action = connection.invokeAction("market.scan").finally(() => {settled = true;});
+      const request = requestFor();
+      const pending = {type: "vibedesk:action-pending", requestId: request.requestId, instanceId: init.instanceId,
+        modId: init.modId, actionId: "market.scan", timeoutSeconds: 120};
+      send({...pending, timeoutSeconds: 1}, "https://untrusted.example");
+      send({...pending, actionId: "market.other", timeoutSeconds: 1});
+      send(pending);
+      await vi.advanceTimersByTimeAsync(68_000);
+      expect(settled).toBe(false);
+      send({...pending, timeoutSeconds: 300});
+      const rejected = expect(action).rejects.toThrow(/not confirmed.*may still be running/);
+      await vi.advanceTimersByTimeAsync(52_000);
+      await rejected;
+      send({type: "vibedesk:action-result", requestId: request.requestId, instanceId: init.instanceId,
+        modId: init.modId, actionId: "market.scan", status: 200, ok: true, result: {count: 49}});
+      expect(postMessage.mock.calls.filter(([m]) => m.type === "vibedesk:action-request")).toHaveLength(1);
+      const legacy = connection.invokeAction("market.scan");
+      const legacyRejected = expect(legacy).rejects.toThrow(/not confirmed/);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await legacyRejected;
+      connection.close();
+    } finally {vi.useRealTimers();}
+  });
+
   it("returns a current visual capture through the optional provider", async () => {
     const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
     const pending = connectModHost(
@@ -813,7 +1090,7 @@ describe("connectModHost", () => {
     connection.close();
   });
 
-  it("accepts granted Desk-to-Mod UI actions through a scoped handler", async () => {
+  it.each([false, true])("returns a real receipt for a granted UI handler, including synchronous failure (throws=%s)", async (throws) => {
     const { parent, runtime, postMessage, dispatch } = embeddedRuntime();
     const pending = connectModHost(
       {
@@ -845,7 +1122,10 @@ describe("connectModHost", () => {
     } as MessageEvent);
     const connection = await pending;
     if (!connection.embedded) throw new Error("expected embedded connection");
-    const handler = vi.fn(() => ({ timeframe: "15m" }));
+    const handler = vi.fn(() => {
+      if (throws) throw new Error("业务输入无效");
+      return { timeframe: "15m" };
+    });
     connection.setUiActionHandler(handler);
 
     dispatch({
@@ -867,7 +1147,8 @@ describe("connectModHost", () => {
       expect.objectContaining({
         type: "vibedesk:ui-action-result",
         requestId: "ui-1",
-        ok: true,
+        ok: !throws,
+        ...(throws ? {error: {code: "action_failed", message: "业务输入无效"}} : {}),
       }),
       "https://desk.example",
     );

@@ -3,6 +3,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import { isDeepStrictEqual } from 'node:util';
 import { computeDelta } from './engine.mjs';
 
 const MAX_HOT_RUNS = 3;
@@ -114,6 +115,29 @@ export class MemoryManager {
     return this.hot.runs[0].delta;
   }
 
+  // Read-only recovery: a saved comparison belongs to its exact sweep, not merely the last run.
+  restoreDelta(data) {
+    const timestamp = data.meta?.timestamp;
+    const unavailable = { status: 'unavailable', timestamp: timestamp || null, delta: null };
+    if (!Number.isFinite(Date.parse(timestamp))) return unavailable;
+    const run = this.hot.runs.find(item => item.timestamp === timestamp);
+    if (!run?.data) return unavailable;
+    const compact = value => {
+      const saved = JSON.parse(JSON.stringify(this._compactForStorage(value)));
+      if (saved.newsMeta) {
+        // A read-only restart marks the same RSS receipt as cached. Compare its
+        // original attempt/data evidence, not derived read-mode/cache health.
+        for (const key of ['mode', 'cache', 'cachedSources', 'status']) delete saved.newsMeta[key];
+        for (const item of saved.newsMeta.items || []) delete item.cached;
+      }
+      return saved;
+    };
+    if (!isDeepStrictEqual(compact(data), compact(run.data))) return unavailable;
+    if (run.delta === null) return { status: 'baseline', timestamp, delta: null };
+    if (run.delta?.timestamp !== timestamp || !run.delta.summary) return unavailable;
+    return { status: 'restored', timestamp, delta: run.delta };
+  }
+
   // ─── Alert Signal Tracking (Decay-Based) ───────────────────────────────
 
   getAlertedSignals() {
@@ -198,10 +222,12 @@ export class MemoryManager {
       meta: data.meta,
       fred: data.fred,
       energy: data.energy,
+      metals: data.metals,
       bls: data.bls,
       treasury: data.treasury,
       gscpi: data.gscpi,
       tg: {
+        status: data.tg?.status, collectedAt: data.tg?.collectedAt, scope: data.tg?.scope,
         posts: data.tg?.posts,
         urgent: (data.tg?.urgent || []).map(p => ({
           text: p.text,
@@ -211,12 +237,19 @@ export class MemoryManager {
         })),
       },
       thermal: (data.thermal || []).map(t => ({ region: t.region, det: t.det, night: t.night, hc: t.hc })),
-      air: (data.air || []).map(a => ({ region: a.region, total: a.total })),
+      thermalMeta: data.thermalMeta,
+      air: (data.air || []).map(a => ({ region: a.region, total: a.total, status: a.status, observedAt: a.observedAt })),
+      airMeta: data.airMeta,
       nuke: (data.nuke || []).map(n => ({ site: n.site, anom: n.anom, cpm: n.cpm })),
       who: (data.who || []).map(w => ({ title: w.title })),
-      acled: { totalEvents: data.acled?.totalEvents, totalFatalities: data.acled?.totalFatalities },
+      whoMeta: data.whoMeta,
+      acled: { totalEvents: data.acled?.totalEvents, totalFatalities: data.acled?.totalFatalities,
+        status: data.acled?.status, basis: data.acled?.basis, collectedAt: data.acled?.collectedAt,
+        period: data.acled?.period, sampleLimit: data.acled?.sampleLimit, coverage: data.acled?.coverage },
       sdr: { total: data.sdr?.total, online: data.sdr?.online },
-      news: { count: data.news?.length || 0 },
+      news: { count: data.news?.length ?? data.news?.count ?? null },
+      newsMeta: data.newsMeta,
+      health: data.health,
       ideas: (data.ideas || []).map(i => ({ title: i.title, type: i.type, confidence: i.confidence })),
     };
   }

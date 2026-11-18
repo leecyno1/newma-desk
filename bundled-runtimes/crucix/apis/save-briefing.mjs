@@ -3,12 +3,13 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fullBriefing } from './briefing.mjs';
+import config from '../crucix.config.mjs';
 
 function formatTimestamp(date = new Date()) {
   return date.toISOString().replace(/[:]/g, '-').replace(/\.\d{3}Z$/, 'Z');
 }
 
-const runsDir = join(process.cwd(), 'runs');
+const runsDir = config.runsDir;
 await mkdir(runsDir, { recursive: true });
 
 const data = await fullBriefing();

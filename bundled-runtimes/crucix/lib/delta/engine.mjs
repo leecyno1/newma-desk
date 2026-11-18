@@ -2,6 +2,10 @@
 // Improvements: count metric thresholds, semantic TG dedup, configurable thresholds, null-safety
 
 import { createHash } from 'crypto';
+import { FRED_SIGNAL_SERIES, fredSignalObservation } from '../../apis/utils/fred-signals.mjs';
+import { BLS_SIGNAL_SERIES, blsSignalObservation, metalSignalObservation } from '../../apis/utils/economic-signals.mjs';
+import { energySignalObservation, energyBasis, sameEnergyBasis, energyObservationDate } from '../../dashboard/energy.mjs';
+import { COUNT_METRICS, countObservation, sameCountScope } from './count-observations.mjs';
 
 // ─── Default Thresholds ──────────────────────────────────────────────────────
 // Override via config.delta.thresholds in crucix.config.mjs
@@ -37,35 +41,24 @@ const DEFAULT_COUNT_THRESHOLDS = {
 // ─── Metric Definitions ──────────────────────────────────────────────────────
 
 const NUMERIC_METRICS = [
-  { key: 'vix', extract: d => d.fred?.find(f => f.id === 'VIXCLS')?.value, label: 'VIX' },
-  { key: 'hy_spread', extract: d => d.fred?.find(f => f.id === 'BAMLH0A0HYM2')?.value, label: 'HY Spread' },
-  { key: '10y2y', extract: d => d.fred?.find(f => f.id === 'T10Y2Y')?.value, label: '10Y-2Y Spread' },
-  { key: 'wti', extract: d => d.energy?.wti, label: 'WTI Crude' },
-  { key: 'brent', extract: d => d.energy?.brent, label: 'Brent Crude' },
-  { key: 'natgas', extract: d => d.energy?.natgas, label: 'Natural Gas' },
-  { key: 'gold', extract: d => d.metals?.gold, label: 'Gold' },
-  { key: 'silver', extract: d => d.metals?.silver, label: 'Silver' },
-  { key: 'unemployment', extract: d => d.bls?.find(b => b.id === 'LNS14000000' || b.id === 'UNRATE')?.value, label: 'Unemployment' },
-  { key: 'fed_funds', extract: d => d.fred?.find(f => f.id === 'DFF')?.value, label: 'Fed Funds Rate' },
-  { key: '10y_yield', extract: d => d.fred?.find(f => f.id === 'DGS10')?.value, label: '10Y Yield' },
-  { key: 'usd_index', extract: d => d.fred?.find(f => f.id === 'DTWEXBGS')?.value, label: 'USD Index' },
-  { key: 'mortgage', extract: d => d.fred?.find(f => f.id === 'MORTGAGE30US')?.value, label: '30Y Mortgage' },
-];
-
-const COUNT_METRICS = [
-  { key: 'urgent_posts', extract: d => d.tg?.urgent?.length || 0, label: 'Urgent OSINT Posts' },
-  { key: 'thermal_total', extract: d => d.thermal?.reduce((s, t) => s + t.det, 0) || 0, label: 'Thermal Detections' },
-  { key: 'air_total', extract: d => d.air?.reduce((s, a) => s + a.total, 0) || 0, label: 'Air Activity' },
-  { key: 'who_alerts', extract: d => d.who?.length || 0, label: 'WHO Alerts' },
-  { key: 'conflict_events', extract: d => d.acled?.totalEvents || 0, label: 'Conflict Events' },
-  { key: 'conflict_fatalities', extract: d => d.acled?.totalFatalities || 0, label: 'Conflict Fatalities' },
-  { key: 'sdr_online', extract: d => d.sdr?.online || 0, label: 'SDR Receivers' },
-  { key: 'news_count', extract: d => (d.news?.length ?? d.news?.count) || 0, label: 'News Items' },
-  { key: 'sources_ok', extract: d => d.meta?.sourcesOk || 0, label: 'Sources OK' },
+  { key: 'vix', fred: 'VIXCLS', extract: d => d.fred?.find(f => f.id === 'VIXCLS')?.value, label: 'VIX' },
+  { key: 'hy_spread', fred: 'BAMLH0A0HYM2', extract: d => d.fred?.find(f => f.id === 'BAMLH0A0HYM2')?.value, label: 'HY Spread' },
+  { key: '10y2y', fred: 'T10Y2Y', extract: d => d.fred?.find(f => f.id === 'T10Y2Y')?.value, label: '10Y-2Y Spread' },
+  { key: 'wti', energy: 'wti', extract: d => d.energy?.wti, label: 'WTI Crude' },
+  { key: 'brent', energy: 'brent', extract: d => d.energy?.brent, label: 'Brent Crude' },
+  { key: 'natgas', energy: 'naturalGas', extract: d => d.energy?.natgas, label: 'Natural Gas' },
+  { key: 'gold', metal: 'gold', extract: d => d.metals?.gold, label: 'Gold' },
+  { key: 'silver', metal: 'silver', extract: d => d.metals?.silver, label: 'Silver' },
+  { key: 'unemployment', bls: 'LNS14000000', extract: d => d.bls?.find(b => b.id === 'LNS14000000')?.value, label: 'Unemployment' },
+  { key: 'fed_funds', fred: 'DFF', extract: d => d.fred?.find(f => f.id === 'DFF')?.value, label: 'Fed Funds Rate' },
+  { key: '10y_yield', fred: 'DGS10', extract: d => d.fred?.find(f => f.id === 'DGS10')?.value, label: '10Y Yield' },
+  { key: 'usd_index', fred: 'DTWEXBGS', extract: d => d.fred?.find(f => f.id === 'DTWEXBGS')?.value, label: 'USD Index' },
+  { key: 'mortgage', fred: 'MORTGAGE30US', extract: d => d.fred?.find(f => f.id === 'MORTGAGE30US')?.value, label: '30Y Mortgage' },
 ];
 
 // Risk-sensitive keys: used for determining overall direction
-const RISK_KEYS = ['vix', 'hy_spread', 'urgent_posts', 'conflict_events', 'thermal_total'];
+// Collection/sample volume cannot establish geopolitical safety or risk appetite.
+const RISK_KEYS = ['vix', 'hy_spread'];
 
 // ─── Semantic Hashing for Telegram Posts ─────────────────────────────────────
 
@@ -122,26 +115,78 @@ export function computeDelta(current, previous, thresholdOverrides = {}, priorRu
   const cntThresholds = { ...DEFAULT_COUNT_THRESHOLDS, ...(thresholdOverrides.count || {}) };
 
   const signals = { new: [], escalated: [], deescalated: [], unchanged: [] };
+  const comparisonGaps = [];
+  const now = new Date();
   let criticalChanges = 0;
 
   // ─── Numeric metrics: track % change ─────────────────────────────────
 
   for (const m of NUMERIC_METRICS) {
-    const curr = m.extract(current);
-    const prev = m.extract(previous);
-    if (curr == null || prev == null) continue;
+    let curr = m.extract(current);
+    let prev = m.extract(previous);
+    let observation = {};
+    if (m.energy || m.metal) {
+      const group = m.energy ? 'energy' : 'metals', id = m.energy || m.metal;
+      const validate = m.energy ? energySignalObservation : metalSignalObservation;
+      const currRow = current[group]?.observations?.find(row => row.id === id);
+      const prevRow = previous[group]?.observations?.find(row => row.id === id);
+      if (!currRow && !prevRow && curr == null && prev == null) continue;
+      if (!validate(currRow, { now }) || !validate(prevRow, { now })
+        || !sameEnergyBasis(energyBasis(currRow), energyBasis(prevRow))) {
+        comparisonGaps.push({ key: m.key, reason: 'Missing, stale, unverified or changed commodity basis' });
+        continue;
+      }
+      curr = currRow.value;
+      prev = prevRow.value;
+      const fromDate = energyObservationDate(prevRow), toDate = energyObservationDate(currRow);
+      if (Date.parse(toDate) <= Date.parse(fromDate)) {
+        if (Date.parse(toDate) === Date.parse(fromDate) && curr === prev) signals.unchanged.push(m.key);
+        else comparisonGaps.push({ key: m.key, reason: Date.parse(toDate) === Date.parse(fromDate)
+          ? 'Same-date revision, not a new commodity observation' : 'Commodity observation date regressed' });
+        continue;
+      }
+      observation = { fromDate, toDate, unit: currRow.unit, changeUnit: currRow.unit,
+        [m.energy ? 'energyBasis' : 'metalBasis']: energyBasis(currRow) };
+    }
+    if (m.fred || m.bls) {
+      const source = m.fred ? 'FRED' : 'BLS';
+      const id = m.fred || m.bls;
+      const rows = data => m.fred ? data.fred : data.bls;
+      const validate = m.fred ? fredSignalObservation : blsSignalObservation;
+      const currRow = rows(current)?.find(row => row.id === id);
+      const prevRow = rows(previous)?.find(row => row.id === id);
+      if (!currRow && !prevRow) continue;
+      const currentValid = validate(currRow, { now });
+      const previousValid = validate(prevRow, { now });
+      if (!currentValid || !previousValid) {
+        comparisonGaps.push({ key: m.key, reason: `Missing, stale, invalid or undated ${source} observation` });
+        continue;
+      }
+      if (currRow.date <= prevRow.date) {
+        if (currRow.date === prevRow.date && curr === prev) signals.unchanged.push(m.key);
+        else comparisonGaps.push({ key: m.key, reason: currRow.date === prevRow.date ? 'Same-date revision, not a new observation' : 'Observation date regressed' });
+        continue;
+      }
+      const policy = m.fred ? FRED_SIGNAL_SERIES[id] : BLS_SIGNAL_SERIES[id];
+      observation = { seriesId: id, fromDate: prevRow.date, toDate: currRow.date,
+        unit: policy.unit, changeUnit: policy.changeUnit };
+    }
+    if (!Number.isFinite(curr) || !Number.isFinite(prev)) continue;
 
     const threshold = numThresholds[m.key] ?? 5;
-    const pctChange = prev !== 0 ? ((curr - prev) / Math.abs(prev)) * 100 : 0;
+    const diff = curr - prev;
+    if (!Number.isFinite(diff)) continue;
+    const pctChange = prev !== 0 && (!(m.energy || m.metal) || prev > 0 && curr >= 0) ? (diff / Math.abs(prev)) * 100 : null;
 
-    if (Math.abs(pctChange) > threshold) {
+    if ((pctChange === null && diff !== 0) || (Number.isFinite(pctChange) && Math.abs(pctChange) > threshold)) {
       const entry = {
         key: m.key, label: m.label, from: prev, to: curr,
-        pctChange: parseFloat(pctChange.toFixed(2)),
-        direction: pctChange > 0 ? 'up' : 'down',
+        change: diff, pctChange: pctChange === null ? null : parseFloat(pctChange.toFixed(2)),
+        direction: diff > 0 ? 'up' : 'down',
         severity: Math.abs(pctChange) > threshold * 3 ? 'critical' : Math.abs(pctChange) > threshold * 2 ? 'high' : 'moderate',
+        ...observation,
       };
-      if (pctChange > 0) signals.escalated.push(entry);
+      if (diff > 0) signals.escalated.push(entry);
       else signals.deescalated.push(entry);
       if (Math.abs(pctChange) > 10) criticalChanges++;
     } else {
@@ -152,23 +197,37 @@ export function computeDelta(current, previous, thresholdOverrides = {}, priorRu
   // ─── Count metrics: track absolute change (with minimum thresholds) ──
 
   for (const m of COUNT_METRICS) {
-    const curr = m.extract(current);
-    const prev = m.extract(previous);
+    if (current[m.field] == null && previous[m.field] == null) continue;
+    const currSample = countObservation(current, m.key, now);
+    const prevSample = countObservation(previous, m.key, now);
+    if (!currSample || !prevSample || !sameCountScope(currSample, prevSample)) {
+      comparisonGaps.push({ key: m.key, reason: 'Missing, partial, stale or different-scope collection samples; not evidence of safety improvement' });
+      continue;
+    }
+    const curr = currSample.value, prev = prevSample.value;
+    if (Date.parse(currSample.asOf) <= Date.parse(prevSample.asOf)) {
+      if (currSample.asOf === prevSample.asOf && curr === prev) signals.unchanged.push(m.key);
+      else comparisonGaps.push({ key: m.key, reason: 'Collection time regressed or same-time sample revised' });
+      continue;
+    }
     const diff = curr - prev;
     const threshold = cntThresholds[m.key] ?? 1;
 
     if (Math.abs(diff) >= threshold) {
-      const pctChange = prev > 0 ? ((diff / prev) * 100) : (diff > 0 ? 100 : 0);
+      const pctChange = prev !== 0 ? ((diff / Math.abs(prev)) * 100) : null;
       const entry = {
         key: m.key, label: m.label, from: prev, to: curr,
         change: diff, direction: diff > 0 ? 'up' : 'down',
-        pctChange: parseFloat(pctChange.toFixed(1)),
-        severity: Math.abs(diff) >= threshold * 5 ? 'critical' : Math.abs(diff) >= threshold * 2 ? 'high' : 'moderate',
+        pctChange: pctChange === null ? null : parseFloat(pctChange.toFixed(1)),
+        severity: 'informational',
+        fromDate: prevSample.asOf, toDate: currSample.asOf,
+        unit: currSample.unit, changeUnit: currSample.unit,
+        countBasis: currSample.basis, countScope: currSample.scope,
+        note: 'Collection sample change, not incident onset, population total or safety improvement',
       };
       if (diff > 0) signals.escalated.push(entry);
       else signals.deescalated.push(entry);
-      // Count metrics only critical if the change is extreme
-      if (entry.severity === 'critical') criticalChanges++;
+      // Magnitude within a collection sample is not a critical-risk judgement.
     } else {
       signals.unchanged.push(m.key);
     }
@@ -180,21 +239,29 @@ export function computeDelta(current, previous, thresholdOverrides = {}, priorRu
   // drop out of one sweep but reappear in a later one. Use stable post identity
   // where possible so updated posts are not collapsed into earlier alerts just
   // because their text is semantically similar.
-  const sources = priorRuns.length > 0 ? priorRuns : [previous];
+  const currTg = countObservation(current, 'urgent_posts', now);
+  const prevTg = countObservation(previous, 'urgent_posts', now);
+  const tgComparable = currTg && prevTg && sameCountScope(currTg, prevTg)
+    && Date.parse(currTg.asOf) > Date.parse(prevTg.asOf);
+  const sources = [previous, ...priorRuns].filter(run => {
+    const sample = countObservation(run, 'urgent_posts', now);
+    return currTg && sample && sameCountScope(currTg, sample) && Date.parse(sample.asOf) < Date.parse(currTg.asOf);
+  });
   const prevHashes = new Set(
     sources.flatMap(run => (run?.tg?.urgent || []).map(stablePostKey)).filter(Boolean)
   );
 
-  for (const post of (current.tg?.urgent || [])) {
+  for (const post of (tgComparable ? current.tg.urgent : [])) {
     const hash = stablePostKey(post);
     if (hash && !prevHashes.has(hash)) {
       signals.new.push({
         key: `tg_urgent:${hash}`,
         text: post.text,
         item: post,
-        reason: 'New urgent OSINT post',
+        reason: 'Newly present in shown OSINT samples; publication and incident onset not verified',
+        fromDate: prevTg.asOf, toDate: currTg.asOf,
+        countBasis: currTg.basis, countScope: currTg.scope,
       });
-      criticalChanges++;
     }
   }
 
@@ -205,21 +272,14 @@ export function computeDelta(current, previous, thresholdOverrides = {}, priorRu
   if (currAnom && !prevAnom) {
     signals.new.push({ key: 'nuke_anomaly', reason: 'Nuclear anomaly detected', severity: 'critical' });
     criticalChanges += 5;
-  } else if (!currAnom && prevAnom) {
+  } else if (!currAnom && prevAnom && current.nuke?.length && current.nuke.every(n => n.anom === false)) {
     signals.deescalated.push({ key: 'nuke_anomaly', label: 'Nuclear Anomaly', direction: 'resolved', severity: 'high' });
   }
 
   // ─── Source health degradation ───────────────────────────────────────
 
-  const currSourcesDown = current.health?.filter(s => s.err).length || 0;
-  const prevSourcesDown = previous.health?.filter(s => s.err).length || 0;
-  if (currSourcesDown > prevSourcesDown + 2) {
-    signals.new.push({
-      key: 'source_degradation',
-      reason: `${currSourcesDown - prevSourcesDown} additional sources failing (${currSourcesDown} total down)`,
-      severity: currSourcesDown > 5 ? 'critical' : 'moderate',
-    });
-  }
+  // sources_ok above already compares complete, same-source health checks.
+  // Missing health is not zero failures and must not generate a second unverified alert.
 
   // ─── Overall direction ───────────────────────────────────────────────
 
@@ -228,11 +288,13 @@ export function computeDelta(current, previous, thresholdOverrides = {}, priorRu
   const riskDown = signals.deescalated.filter(s => RISK_KEYS.includes(s.key)).length;
   if (riskUp > riskDown + 1) direction = 'risk-off';
   else if (riskDown > riskUp + 1) direction = 'risk-on';
+  if (comparisonGaps.length) direction = 'unverified';
 
   return {
     timestamp: current.meta?.timestamp || new Date().toISOString(),
     previous: previous.meta?.timestamp || null,
     signals,
+    comparisonGaps,
     summary: {
       totalChanges: signals.new.length + signals.escalated.length + signals.deescalated.length,
       criticalChanges,

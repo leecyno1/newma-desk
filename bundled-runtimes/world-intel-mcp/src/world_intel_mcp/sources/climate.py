@@ -227,6 +227,12 @@ async def fetch_climate_anomalies(
             )
             return (zone_key, None)
 
+        for observations in (current_data, baseline_data):
+            daily = observations.get("daily", {})
+            if not any(mx is not None and mn is not None for mx, mn in zip(
+                daily.get("temperature_2m_max", []), daily.get("temperature_2m_min", [])
+            )) or not any(value is not None for value in daily.get("precipitation_sum", [])):
+                return zone_key, None
         anomalies = _compute_anomalies(current_data, baseline_data)
 
         return (zone_key, {
@@ -259,6 +265,8 @@ async def fetch_climate_anomalies(
             significant_anomalies.append(zone_key)
 
     response = {
+        "status": "ok" if len(zone_results) == len(target_zones) else "partial" if zone_results else "unavailable",
+        "coverage": {"available": len(zone_results), "expected": len(target_zones)},
         "zones": zone_results,
         "significant_anomalies": significant_anomalies,
         "source": "open-meteo",

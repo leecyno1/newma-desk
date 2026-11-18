@@ -29,7 +29,7 @@ from ..analysis.instability import (
     score_information,
 )
 from ..analysis.escalation import score_all_hotspots
-from ..analysis.surge import detect_surges, SENSITIVE_REGIONS
+from ..analysis.surge import SENSITIVE_REGIONS
 from ..analysis.cascade import simulate_cascade
 from ..config.countries import (
     TIER1_COUNTRIES,
@@ -50,7 +50,6 @@ _temporal = TemporalBaseline()
 # ---------------------------------------------------------------------------
 
 _WB_BASE = "https://api.worldbank.org/v2/country"
-_USGS_ENDPOINT = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 
 _BASELINES = {
     "Syria": 5000, "Yemen": 3000, "Ukraine": 8000, "Myanmar": 4000,
@@ -483,6 +482,8 @@ async def _instability_single(
     # Score each domain (0-25)
     unrest_val = score_unrest(protest_count, riot_count)
     conflict_val = score_conflict_v2(conflict_count, total_fatalities)
+    if mil_count is None or outage_count is None:
+        return {"status": "unavailable", "error": "Country security observations unavailable", "source": "instability-index-v2"}
     security_val = score_security(mil_count, outage_count)
     info_val = score_information(news_vel)
 
@@ -643,13 +644,11 @@ async def fetch_signal_convergence(
     lat: float | None = None,
     lon: float | None = None,
     radius_deg: float = 5.0,
+    *, catalog: dict | None = None,
 ) -> dict:
-    """Detect geographic convergence of signals in hotspot regions.
+    """Regional seismic sample counts with a legacy static-area heuristic.
 
-    Checks for overlapping seismic activity and other observable signals
-    within a radius of known or specified hotspot coordinates.  Higher
-    convergence scores indicate multiple signal types in close proximity,
-    which may warrant deeper investigation.
+    This is not multi-domain convergence or a conflict probability model.
 
     Args:
         fetcher: Shared HTTP fetcher with caching and circuit breaking.
@@ -662,6 +661,9 @@ async def fetch_signal_convergence(
         Dict with hotspot list, convergence scores, source, and timestamp.
     """
     now = datetime.now(timezone.utc)
+    from .seismology import fetch_catalog, fetch_earthquake_geojson
+    if catalog is None:
+        catalog = await fetch_catalog(fetcher)
 
     if lat is not None and lon is not None:
         regions = {"custom": (lat, lon)}
@@ -677,35 +679,16 @@ async def fetch_signal_convergence(
         min_lon = center_lon - radius_deg
         max_lon = center_lon + radius_deg
 
-        starttime = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
-
-        quake_data = await fetcher.get_json(
-            _USGS_ENDPOINT,
-            source="usgs",
-            cache_key=f"intel:convergence:usgs:{name}:{radius_deg}",
-            cache_ttl=600,
-            params={
-                "format": "geojson",
-                "minmagnitude": 2.5,
-                "starttime": starttime,
-                "minlatitude": min_lat,
-                "maxlatitude": max_lat,
-                "minlongitude": min_lon,
-                "maxlongitude": max_lon,
-                "limit": 100,
-            },
-        )
-
-        earthquake_count = 0
-        if quake_data is not None:
-            earthquake_count = len(quake_data.get("features", []))
+        quake_data = await fetch_earthquake_geojson(fetcher, 2.5, 720, 100,
+            bbox=(min_lat, max_lat, min_lon, max_lon), catalog=catalog)
+        earthquake_count = quake_data["count"]
 
         # Convergence score heuristic (0-10)
         # Each signal type present adds to the score.
         score = 0.0
 
         # Earthquakes: 0-5 points based on count
-        if earthquake_count > 0:
+        if earthquake_count is not None and earthquake_count > 0:
             score += min(5.0, (earthquake_count / 20.0) * 5.0)
 
         # Hotspot presence bonus (known conflict zones get a baseline)
@@ -713,6 +696,8 @@ async def fetch_signal_convergence(
             score += 2.0
 
         score = min(10.0, round(score, 1))
+        if quake_data["status"] != "ok":
+            score = None
 
         return {
             "name": name,
@@ -722,16 +707,29 @@ async def fetch_signal_convergence(
                 "earthquakes": earthquake_count,
             },
             "convergence_score": score,
+            "source_status": quake_data["status"],
+            "source_updated_at": quake_data.get("source_updated_at"),
+            "truncated": quake_data.get("truncated", False),
         }
 
     tasks = [_assess_hotspot(name, center) for name, center in regions.items()]
     results = await asyncio.gather(*tasks)
 
     # Sort by convergence score descending
-    hotspots = sorted(results, key=lambda h: h["convergence_score"], reverse=True)
+    hotspots = sorted(results, key=lambda h: h["convergence_score"] if h["convergence_score"] is not None else -1, reverse=True)
+    available = sum(row["signals"]["earthquakes"] is not None for row in hotspots)
 
     return {
         "hotspots": hotspots,
+        "status": "unavailable" if not available else "ok" if all(row["source_status"] == "ok" for row in hotspots) else "partial",
+        "coverage": {"available": available, "expected": len(hotspots)},
+        "freshness": catalog.get("freshness", "unknown"),
+        "source_updated_at": catalog.get("source_updated_at"),
+        "collected_at": catalog.get("collected_at"),
+        "cache_expires_at": catalog.get("cache_expires_at"),
+        "truncated": any(row["truncated"] for row in hotspots),
+        "note": "仅地震目录与静态区域基线的启发式指标，未核验多信号汇聚，不是冲突风险概率。",
+        **({"error": "USGS目录不可用，区域信号数量待核验"} if not available else {}),
         "source": "signal-convergence",
         "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
@@ -783,7 +781,7 @@ async def fetch_focal_points(fetcher: Fetcher) -> dict:
         events = []
         for theater_name, theater_data in result.get("theaters", {}).items():
             count = theater_data.get("count", 0)
-            if count > 0:
+            if count is not None and count > 0:
                 for country in theater_data.get("countries", []):
                     events.append({
                         "entity": country,
@@ -1009,6 +1007,8 @@ async def fetch_temporal_anomalies(fetcher: Fetcher) -> dict:
     posture = await military.fetch_theater_posture(fetcher)
     for theater_name, theater_data in posture.get("theaters", {}).items():
         count = theater_data.get("count", 0)
+        if count is None:
+            continue
         result = _temporal.record_and_check("military_flights", theater_name, count)
         observations_recorded += 1
         if result is not None:
@@ -1219,10 +1219,8 @@ async def fetch_hotspot_escalation(fetcher: Fetcher) -> dict:
     """
     now = datetime.now(timezone.utc)
 
-    from . import military as mil_mod
-
     # Fetch global data once, then distribute to hotspots
-    async def _fetch_global_acled() -> list[dict]:
+    async def _fetch_global_acled() -> list[dict] | None:
         start_date = (now - timedelta(days=7)).strftime("%Y-%m-%d")
         end_date = now.strftime("%Y-%m-%d")
         data = await acled_query(
@@ -1235,33 +1233,18 @@ async def fetch_hotspot_escalation(fetcher: Fetcher) -> dict:
             cache_key="intel:escalation:acled:global:7d",
             cache_ttl=1800,
         )
-        if data is None:
-            return []
-        return data.get("data", []) if isinstance(data, dict) else []
+        if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+            return None
+        return data["data"]
 
-    async def _fetch_global_military() -> list[dict]:
-        # Use theater posture for global coverage
-        result = await mil_mod.fetch_theater_posture(fetcher)
-        aircraft = []
-        for theater_data in result.get("theaters", {}).values():
-            for ac in theater_data.get("countries", []):
-                # Create pseudo-aircraft entries at theater bbox center
-                bbox = theater_data.get("bbox", "")
-                parts = bbox.split(",")
-                if len(parts) == 4:
-                    try:
-                        lat = (float(parts[0]) + float(parts[2])) / 2
-                        lon = (float(parts[1]) + float(parts[3])) / 2
-                        for _ in range(theater_data.get("count", 0) // max(1, len(theater_data.get("countries", [1])))):
-                            aircraft.append({"lat": lat, "lon": lon, "origin_country": ac})
-                    except (ValueError, TypeError):
-                        pass
-        return aircraft
-
-    acled_events, military_data = await asyncio.gather(
-        _fetch_global_acled(),
-        _fetch_global_military(),
-    )
+    acled_events = await _fetch_global_acled()
+    if acled_events is None:
+        return {"status": "unavailable", "error": "Hotspot conflict observations unavailable",
+                "hotspots": [], "count": None, "source": "hotspot-escalation",
+                "timestamp": now.isoformat()}
+    # Theater counts cannot locate aircraft at a hotspot. Do not manufacture
+    # aircraft at theater centers; the remaining model is explicitly partial.
+    military_data = []
 
     # Build signal dict for each hotspot
     RADIUS_DEG = 2.0
@@ -1312,6 +1295,8 @@ async def fetch_hotspot_escalation(fetcher: Fetcher) -> dict:
     scored = score_all_hotspots(INTEL_HOTSPOTS, hotspot_signals)
 
     return {
+        "status": "partial",
+        "note": "Bounded ACLED sample plus static escalation baseline; military locations, news and convergence inputs are not assessed.",
         "hotspots": scored,
         "count": len(scored),
         "source": "hotspot-escalation",
@@ -1323,51 +1308,58 @@ async def fetch_hotspot_escalation(fetcher: Fetcher) -> dict:
 # Function 10: Military Surge Detection
 # ---------------------------------------------------------------------------
 
-async def fetch_military_surge(fetcher: Fetcher) -> dict:
-    """Detect military surge anomalies across sensitive regions.
+async def fetch_military_surge(fetcher: Fetcher, *, posture: dict | None = None) -> dict:
+    """Compare located regional samples with their own observed baseline.
 
-    1. Fetch theater posture (existing)
-    2. Build temporal baselines for each region
-    3. Run analysis.surge.detect_surges()
-
-    Args:
-        fetcher: Shared HTTP fetcher with caching and circuit breaking.
-
-    Returns:
-        Dict with surges list, regions checked, source, and timestamp.
+    No country allocation or hardcoded deployment counts. Cold starts remain
+    unassessed; repeated reads of the same source observation do not train again.
     """
-    now = datetime.now(timezone.utc)
-
     from . import military as mil_mod
 
-    posture = await mil_mod.fetch_theater_posture(fetcher)
-    theater_data = posture.get("theaters", {})
+    if posture is None:
+        posture = await mil_mod.fetch_theater_posture(fetcher)
+    regions = posture.get("region_observations", {})
+    observation_id = posture.get("observation_id")
+    if posture.get("error") or posture.get("freshness") != "fresh" or not observation_id or not regions:
+        return {"status": "unavailable", "surges": [], "surge_count": None, "regions_checked": 0,
+                "error": "Fresh located observations required for surge assessment",
+                "source": "military-surge-detection", "timestamp": posture.get("timestamp")}
 
-    # Build temporal baselines for each region
-    temporal_baselines: dict[str, dict] = {}
-    for region_name in SENSITIVE_REGIONS:
-        # Record total aircraft count in the region's matching theaters
-        total = 0
-        from ..analysis.surge import _THEATER_REGION_MAP
-        for theater_name, mapped_regions in _THEATER_REGION_MAP.items():
-            if region_name in mapped_regions:
-                total += theater_data.get(theater_name, {}).get("count", 0)
-
-        result = _temporal.record_and_check("surge_aircraft", region_name, total)
-        if result is not None:
-            temporal_baselines[region_name] = {
-                "z_score": result["z_score"],
-                "multiplier": result.get("multiplier"),
-            }
-
-    surges = detect_surges(theater_data, temporal_baselines)
-
+    observations, surges, assessed = {}, [], []
+    event_type = f"located_aircraft_v1:{posture.get('source', 'unknown')}"
+    for name, region in regions.items():
+        count = region.get("count")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            continue
+        key = f"military:surge:located-v1:{posture.get('source')}:{name}"
+        cached = fetcher.cache.get(key)
+        if cached and cached.get("observation_id") == observation_id:
+            assessment = cached["assessment"]
+        else:
+            baseline = _temporal.summary(event_type, name)
+            ready = baseline["samples"] >= 10 and (baseline["variance"] or 0) > 0
+            anomaly = _temporal.check(event_type, name, count) if ready else None
+            assessment = {"count": count, "baseline": baseline, "assessed": ready, "anomaly": anomaly}
+            # Check against prior observations, then record exactly once.
+            _temporal.record(event_type, name, count)
+            fetcher.cache.set(key, {"observation_id": observation_id, "assessment": assessment}, 86400)
+        observations[name] = assessment
+        if assessment["assessed"]:
+            assessed.append(name)
+        if assessment["anomaly"]:
+            anomaly = assessment["anomaly"]
+            surges.append({**anomaly, "region": name, "aircraft_count": count,
+                           "baseline": anomaly["expected"], "ratio": anomaly["multiplier"],
+                           "basis": "observed-position-sample", "sample_count": assessment["baseline"]["samples"]})
+    surges.sort(key=lambda item: item["z_score"], reverse=True)
     return {
-        "surges": surges,
-        "surge_count": len(surges),
-        "regions_checked": len(SENSITIVE_REGIONS),
-        "source": "military-surge-detection",
-        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "status": "partial", "surges": surges, "surge_count": len(surges) if assessed else None,
+        "regions_checked": len(assessed), "region_observations": observations,
+        "coverage": {"available": len(assessed), "expected": len(SENSITIVE_REGIONS),
+                     "warming_up": [name for name in observations if name not in assessed]},
+        "note": "Public ADS-B sample deviations only, not confirmed military deployments. At least 10 distinct prior observations and non-zero variance are needed; receiver coverage can also change counts.",
+        "source": "military-surge-detection", "timestamp": posture.get("timestamp"),
+        "observation_id": observation_id,
     }
 
 
@@ -1382,80 +1374,47 @@ _NAVAL_KEYWORDS = re.compile(
 )
 
 
-async def fetch_vessel_snapshot(fetcher: Fetcher) -> dict:
-    """Naval activity snapshot at strategic waterways using NGA warnings.
-
-    Uses NGA MSI (existing fetch_nav_warnings) filtered for naval/vessel
-    keywords near STRATEGIC_WATERWAYS from config.
-    Scores each waterway: clear/advisory/elevated/critical.
-
-    Note: Real-time AIS requires paid API.  This uses NGA MSI as a
-    free proxy for naval activity indicators.
-
-    Args:
-        fetcher: Shared HTTP fetcher with caching and circuit breaking.
-
-    Returns:
-        Dict with waterways list, source, and timestamp.
-    """
-    now = datetime.now(timezone.utc)
-
+async def fetch_vessel_snapshot(fetcher: Fetcher, *, nav_data: dict | None = None) -> dict:
+    """Match located navigation warnings near reference waterways, not vessels."""
     from . import maritime
+    from ..analysis.exposure import _haversine_km
 
-    nav_data = await maritime.fetch_nav_warnings(fetcher)
+    if nav_data is None:
+        nav_data = await maritime.fetch_nav_warnings(fetcher)
+    if nav_data.get("error") or nav_data.get("freshness") != "fresh":
+        return {"status": "unavailable", "error": "Fresh navigation warnings unavailable",
+                "waterways": [], "count": None, "total_nav_warnings": None,
+                "source": "nga-msi-vessel-snapshot", "timestamp": nav_data.get("timestamp")}
     all_warnings = nav_data.get("warnings", [])
-
-    waterways: list[dict] = []
-
+    relevant = [w for w in all_warnings if w.get("status") != "cancelled" and _NAVAL_KEYWORDS.search(w.get("text", ""))]
+    located, unlocated = [], []
+    for warning in relevant:
+        coordinates = [p for p in warning.get("coordinates", []) if isinstance(p.get("lat"), (int, float))
+                       and isinstance(p.get("lon"), (int, float)) and -90 <= p["lat"] <= 90 and -180 <= p["lon"] <= 180]
+        (located if coordinates else unlocated).append((warning, coordinates))
+    waterways = []
     for ww in STRATEGIC_WATERWAYS:
-        ww_lat = ww["lat"]
-        ww_lon = ww["lon"]
-
-        naval_warnings: list[dict] = []
-        total_nearby = 0
-
-        for warning in all_warnings:
-            text = warning.get("text", "")
-            # Simple proximity: check if warning text mentions coordinates
-            # near the waterway (NGA warnings have lat/lon in text parsed elsewhere)
-            # Use navarea as rough filter and keyword matching
-            if _NAVAL_KEYWORDS.search(text):
-                naval_warnings.append({
-                    "id": warning.get("id"),
-                    "text_snippet": text[:200],
-                    "navarea": warning.get("navarea"),
-                })
-
-            # Count all warnings in the general vicinity (any topic)
-            total_nearby += 1
-
-        naval_count = len(naval_warnings)
-
-        if naval_count >= 3:
-            status = "critical"
-        elif naval_count >= 2:
-            status = "elevated"
-        elif naval_count >= 1:
-            status = "advisory"
-        else:
-            status = "clear"
-
+        matches = []
+        for warning, coordinates in located:
+            distance = min(_haversine_km(ww["lat"], ww["lon"], p["lat"], p["lon"]) for p in coordinates)
+            if distance <= 100:
+                matches.append({"id": warning.get("id"), "text_snippet": warning.get("text", "")[:200],
+                                "distance_km": round(distance, 1), "issue_date": warning.get("issue_date")})
         waterways.append({
-            "name": ww["name"],
-            "lat": ww_lat,
-            "lon": ww_lon,
-            "throughput": ww.get("throughput"),
-            "naval_warnings": naval_count,
-            "status": status,
-            "warning_details": naval_warnings[:5],
+            "name": ww["name"], "lat": ww["lat"], "lon": ww["lon"], "throughput": ww.get("throughput"),
+            "naval_warnings": len(matches), "warning_count": len(matches),
+            "status": "warnings-nearby" if matches else "no-matched-warning",
+            "location_basis": "warning-coordinate-within-100km-of-reference-point",
+            "warning_details": matches[:5],
         })
-
     return {
-        "waterways": waterways,
-        "count": len(waterways),
-        "total_nav_warnings": len(all_warnings),
-        "source": "nga-msi-vessel-snapshot",
-        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "status": "partial" if unlocated else "ok", "waterways": waterways, "count": len(waterways),
+        "total_nav_warnings": len(all_warnings), "unlocated_warning_count": len(unlocated),
+        "unlocated_warnings": [{"id": w.get("id"), "text_snippet": w.get("text", "")[:200]} for w, _ in unlocated],
+        "matching_radius_km": 100,
+        "note": "Proximity to a warning coordinate is an observation filter, not a confirmed vessel position, military event, route closure or safety assessment. Unlocated warnings are not assigned to every waterway.",
+        "source": "nga-msi-vessel-snapshot", "timestamp": nav_data.get("timestamp"),
+        "freshness": nav_data.get("freshness"),
     }
 
 
@@ -1503,7 +1462,7 @@ async def fetch_cascade_analysis(
         at_risk_corridors = [
             name
             for name, info in corridors_health.items()
-            if info.get("status_score", 0) >= 2
+            if info.get("status_score") is not None and info["status_score"] >= 2
         ]
 
         if at_risk_corridors:

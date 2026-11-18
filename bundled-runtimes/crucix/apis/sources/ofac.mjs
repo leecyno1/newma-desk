@@ -1,143 +1,151 @@
-// OFAC — US Treasury Office of Foreign Assets Control Sanctions
-// No auth required. Monitors the Specially Designated Nationals (SDN) list
-// and consolidated sanctions list for changes.
-
-import { safeFetch } from '../utils/fetch.mjs';
+// OFAC public list metadata. File-order examples are not recent designations or screening.
+import { SaxesParser } from 'saxes';
+import { sourceFetch, sourceSignal } from '../utils/source-request.mjs';
 
 const EXPORTS_BASE = 'https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports';
-
-// SDN list endpoints
 const SDN_XML_URL = `${EXPORTS_BASE}/SDN.XML`;
 const SDN_ADVANCED_URL = `${EXPORTS_BASE}/SDN_ADVANCED.XML`;
 const CONS_ADVANCED_URL = `${EXPORTS_BASE}/CONS_ADVANCED.XML`;
+const SAMPLE_LIMIT = 10;
 
-// Parse basic info from SDN XML (publish date, entry count)
-function parseSDNMetadata(xml) {
-  if (!xml || xml.error) return { error: xml?.error || 'No data returned' };
-
-  const raw = xml.rawText || '';
-
-  // Extract publish date
-  const publishDate = raw.match(/<Publish_Date>(.*?)<\/Publish_Date>/)?.[1]
-    || raw.match(/<publish_date>(.*?)<\/publish_date>/i)?.[1]
-    || null;
-
-  // Count SDN entries
-  const entryMatches = raw.match(/<sdnEntry>/gi);
-  const entryCount = entryMatches ? entryMatches.length : null;
-
-  // Extract record count if present
-  const recordCount = raw.match(/<Record_Count>(.*?)<\/Record_Count>/)?.[1]
-    || raw.match(/<records_count>(.*?)<\/records_count>/i)?.[1]
-    || null;
-
-  return {
-    publishDate,
-    entryCount,
-    recordCount: recordCount ? parseInt(recordCount, 10) : null,
-    hasData: raw.length > 0,
-    dataSize: raw.length,
-  };
+function publicationDate(value) {
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value);
+  const iso = match ? `${match[3]}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}` : value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const time = Date.parse(`${iso}T00:00:00Z`);
+  return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === iso
+    && time <= Date.now() ? iso : null;
 }
 
-// Fetch SDN list metadata (smaller initial chunk via timeout)
-export async function getSDNMetadata() {
-  // The full SDN XML is large; safeFetch will get the first 500 chars
-  // which should include the header/publish date
-  const data = await safeFetch(SDN_XML_URL, { timeout: 20000 });
-  return parseSDNMetadata(data);
-}
-
-// Fetch advanced SDN data (includes more structured info)
-export async function getSDNAdvanced() {
-  const data = await safeFetch(SDN_ADVANCED_URL, { timeout: 20000 });
-  return parseSDNMetadata(data);
-}
-
-// Fetch consolidated list metadata
-export async function getConsolidatedMetadata() {
-  const data = await safeFetch(CONS_ADVANCED_URL, { timeout: 20000 });
-  return parseSDNMetadata(data);
-}
-
-// Parse recent SDN entries from XML snippet
-function parseRecentEntries(xml) {
-  if (!xml || xml.error) return [];
-
-  const raw = xml.rawText || '';
-  const entries = [];
-  const entryRegex = /<sdnEntry>([\s\S]*?)<\/sdnEntry>/gi;
-  let match;
-  let count = 0;
-
-  while ((match = entryRegex.exec(raw)) !== null && count < 20) {
-    const content = match[1];
-    const uid = content.match(/<uid>(.*?)<\/uid>/i)?.[1];
-    const lastName = content.match(/<lastName>(.*?)<\/lastName>/i)?.[1];
-    const firstName = content.match(/<firstName>(.*?)<\/firstName>/i)?.[1];
-    const sdnType = content.match(/<sdnType>(.*?)<\/sdnType>/i)?.[1];
-
-    // Extract programs
-    const programs = [];
-    const progRegex = /<program>(.*?)<\/program>/gi;
-    let progMatch;
-    while ((progMatch = progRegex.exec(content)) !== null) {
-      programs.push(progMatch[1]);
+function listParser(advanced) {
+  const parser = new SaxesParser({ xmlns: true });
+  const stack = [];
+  const samples = [];
+  const metadata = {};
+  let root = null, collection = false, entry = null, field = null, entryCount = 0;
+  const invalid = () => { throw new Error('Invalid sanctions XML'); };
+  parser.on('error', invalid);
+  parser.on('doctype', invalid);
+  parser.on('opentag', tag => {
+    const name = tag.local;
+    const parent = stack.at(-1);
+    stack.push(name);
+    if (stack.length === 1) {
+      root = name;
+      if (root !== (advanced ? 'Sanctions' : 'sdnList')) invalid();
     }
-
-    if (uid || lastName) {
-      entries.push({
-        uid,
-        name: [firstName, lastName].filter(Boolean).join(' '),
-        type: sdnType,
-        programs,
-      });
-      count++;
+    if (advanced && stack.length === 2 && name === 'DistinctParties') collection = true;
+    if (advanced && stack.length === 3 && parent === 'DistinctParties' && name === 'DistinctParty') entryCount++;
+    if (!advanced && stack.length === 2 && name === 'sdnEntry') {
+      entry = { uid: '', firstName: '', lastName: '', type: '', programs: [] };
+      collection = true;
     }
+    let key;
+    if (!advanced && stack.length === 3 && ['publshInformation', 'publishInformation'].includes(parent)
+        && ['Publish_Date', 'Record_Count'].includes(name)) key = name;
+    if (advanced && stack.length === 3 && parent === 'DateOfIssue' && ['Year', 'Month', 'Day'].includes(name)) key = name;
+    if (key) field = { depth: stack.length, key, target: metadata, text: '' };
+    else if (entry && stack.length === 3 && parent === 'sdnEntry'
+        && ['uid', 'firstName', 'lastName', 'sdnType'].includes(name)) {
+      field = { depth: stack.length, key: name === 'sdnType' ? 'type' : name, target: entry, text: '' };
+    } else if (entry && stack.length === 4 && parent === 'programList' && name === 'program') {
+      field = { depth: stack.length, key: 'program', target: entry, text: '' };
+    }
+  });
+  const append = value => { if (field) field.text += value; };
+  parser.on('text', append);
+  parser.on('cdata', append);
+  parser.on('closetag', () => {
+    if (field && field.depth === stack.length) {
+      if (field.key === 'program') field.target.programs.push(field.text.trim());
+      else field.target[field.key] = field.text.trim();
+      field = null;
+    }
+    if (entry && stack.length === 2 && stack.at(-1) === 'sdnEntry') {
+      if (!/^\d+$/.test(entry.uid) || !entry.lastName || !entry.type) invalid();
+      entryCount++;
+      if (samples.length < SAMPLE_LIMIT) samples.push({ uid: entry.uid,
+        name: [entry.firstName, entry.lastName].filter(Boolean).join(' '), type: entry.type,
+        programs: entry.programs });
+      entry = null;
+    }
+    stack.pop();
+  });
+  return { parser, finish() {
+    parser.close(); // A header or truncated body is never a complete list.
+    const rawCount = metadata.Record_Count;
+    const recordCount = /^\d+$/.test(rawCount || '') && Number.isSafeInteger(Number(rawCount)) ? Number(rawCount) : null;
+    if (!root || (!collection && (advanced || recordCount === null))) invalid();
+    const rawDate = advanced ? [metadata.Year, metadata.Month?.padStart(2, '0'), metadata.Day?.padStart(2, '0')].join('-')
+      : metadata.Publish_Date || '';
+    const publishDate = publicationDate(rawDate);
+    const gaps = [];
+    if (!publishDate) gaps.push('名单发布日期缺失或无效');
+    if (!advanced && recordCount === null) gaps.push('缺少声明记录数量');
+    if (!advanced && recordCount !== null && recordCount !== entryCount) gaps.push('解析数量与声明数量不一致');
+    return { status: gaps.length ? 'partial' : 'ok', reason: gaps.join('；') || '完整读取名单',
+      publishDate, entryCount, recordCount, hasData: true, complete: !gaps.length,
+      countBasis: advanced ? 'distinct-parties' : 'sdn-entries', sampleEntries: advanced ? null : samples };
+  } };
+}
+
+const unavailable = (errorCode, reason, httpStatus = null) => ({ status: 'error', errorCode, reason, httpStatus,
+  publishDate: null, entryCount: null, recordCount: null, hasData: false, complete: false,
+  dataSize: null, sampleEntries: null });
+
+async function fetchList(url, advanced = false) {
+  const caller = sourceSignal();
+  caller?.throwIfAborted();
+  const timeout = AbortSignal.timeout(25000);
+  const signal = sourceSignal(timeout);
+  let response;
+  try {
+    response = await sourceFetch(url, { signal, headers: { 'User-Agent': 'Crucix/1.0', Accept: 'application/xml, text/xml' } });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      return unavailable('HTTP_ERROR', '名单请求失败', response.status);
+    }
+    const parsed = listParser(advanced);
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    let dataSize = 0;
+    // Keep only metadata and ten examples; never buffer the full large XML document.
+    for await (const chunk of response.body) {
+      signal.throwIfAborted();
+      dataSize += chunk.byteLength;
+      if (dataSize > 128 * 1024 * 1024) return unavailable('RESPONSE_TOO_LARGE', '名单文件超过解析上限');
+      parsed.parser.write(decoder.decode(chunk, { stream: true }));
+    }
+    signal.throwIfAborted();
+    parsed.parser.write(decoder.decode());
+    return { ...parsed.finish(), dataSize };
+  } catch {
+    caller?.throwIfAborted();
+    return unavailable(timeout.aborted ? 'TIMEOUT' : 'INVALID_RESPONSE', timeout.aborted
+      ? '名单读取超时' : '名单连接失败或 XML 不完整/无效');
+  } finally {
+    if (response?.body && !response.body.locked) await response.body.cancel().catch(() => {});
   }
-
-  return entries;
 }
 
-// Briefing — report on sanctions list status and metadata
+export async function getSDNMetadata() { return fetchList(SDN_XML_URL); }
+export async function getSDNAdvanced() { return fetchList(SDN_ADVANCED_URL, true); }
+export async function getConsolidatedMetadata() { return fetchList(CONS_ADVANCED_URL, true); }
+
 export async function briefing() {
-  const [sdnMeta, advancedMeta] = await Promise.all([
-    getSDNMetadata(),
-    getSDNAdvanced(),
-  ]);
-
-  // Try to extract any entries visible in the advanced data
-  const sampleEntries = parseRecentEntries(
-    await safeFetch(SDN_ADVANCED_URL, { timeout: 25000 })
-  );
-
+  // OFAC states classic/advanced editions contain the same core SDN list.
+  // One classic download supplies metadata and examples; no duplicate advanced fetches.
+  const { sampleEntries, hasData, ...metadata } = await getSDNMetadata();
   return {
-    source: 'OFAC Sanctions',
-    timestamp: new Date().toISOString(),
-    lastUpdated: sdnMeta.publishDate || advancedMeta.publishDate || 'unknown',
-    sdnList: {
-      publishDate: sdnMeta.publishDate,
-      entryCount: sdnMeta.entryCount,
-      recordCount: sdnMeta.recordCount,
-      dataAvailable: sdnMeta.hasData,
-    },
-    advancedList: {
-      publishDate: advancedMeta.publishDate,
-      entryCount: advancedMeta.entryCount,
-      recordCount: advancedMeta.recordCount,
-      dataAvailable: advancedMeta.hasData,
-    },
-    sampleEntries: sampleEntries.slice(0, 10),
-    endpoints: {
-      sdnXml: SDN_XML_URL,
-      sdnAdvanced: SDN_ADVANCED_URL,
-      consolidatedAdvanced: CONS_ADVANCED_URL,
-    },
+    source: 'OFAC Sanctions', timestamp: new Date().toISOString(), status: metadata.status,
+    lastUpdated: metadata.publishDate,
+    sdnList: { ...metadata, dataAvailable: hasData },
+    advancedList: { status: 'not_requested', publishDate: null, entryCount: null, recordCount: null, dataAvailable: false },
+    sampleEntries, sampleBasis: 'first-in-file-not-recent',
+    coverage: { requested: 1, succeeded: metadata.status === 'ok' ? 1 : 0,
+      partial: metadata.status === 'partial' ? 1 : 0, failed: metadata.status === 'error' ? 1 : 0 },
+    note: '仅美国 OFAC SDN 名单元数据和文件顺序前十条；不是最新新增、全世界制裁总量，非合规筛查或风险评级；未覆盖非 SDN 名单。',
+    endpoints: { sdnXml: SDN_XML_URL, sdnAdvanced: SDN_ADVANCED_URL, consolidatedAdvanced: CONS_ADVANCED_URL },
   };
 }
 
-// Run standalone
-if (process.argv[1]?.endsWith('ofac.mjs')) {
-  const data = await briefing();
-  console.log(JSON.stringify(data, null, 2));
-}
+if (process.argv[1]?.endsWith('ofac.mjs')) console.log(JSON.stringify(await briefing(), null, 2));

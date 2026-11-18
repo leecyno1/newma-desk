@@ -1,4 +1,10 @@
 // LLM-Powered Trade Ideas — generates actionable ideas from sweep data + delta context
+import { FRED_SIGNAL_SERIES, fredSignalObservation } from '../../apis/utils/fred-signals.mjs';
+import { currentDeltaSignal, deltaSignalText } from '../delta/format.mjs';
+import { COUNT_METRICS, countObservation } from '../delta/count-observations.mjs';
+import { blsSignalObservation, blsMonthlyChange, treasuryDebtObservation, METAL_SIGNAL_SERIES,
+  metalSignalObservation, metalSessionChange, gscpiSignalObservation, gscpiMonthlyChange } from '../../apis/utils/economic-signals.mjs';
+import { ENERGY_SERIES, energySignalObservation, energySpotChange, energyObservationDate } from '../../dashboard/energy.mjs';
 
 /**
  * Generate LLM-enhanced trade ideas from sweep data.
@@ -23,6 +29,12 @@ export async function generateLLMIdeas(provider, sweepData, delta, previousIdeas
 
 Rules:
 - Each idea must cite specific data points from the input
+- Collection samples are not incident totals, new events or a safety assessment. Fewer samples never establish lower risk; failed, partial, stale or different-scope collections cannot establish a trend. SDR directory membership does not prove online status.
+- Preserve observation dates and units. Unavailable or old observations cannot support current signals; mismatched dates cannot establish a simultaneous divergence.
+- Return fewer ideas or abstain with [] when evidence is insufficient; a single yield spread cannot establish normalization or a trend.
+- Monthly BLS levels and adjacent-period changes have different units. Observation periods are not release dates; different frequencies do not establish a simultaneous signal. Treasury debt is a USD stock, not a flow, yield or standalone directional trade.
+- Energy spot, continuous futures quotes and weekly inventory are different measurements. Preserve their dates, units and sources; continuous futures may roll. OSINT co-occurrence does not establish causality, and price changes alone do not identify supply/demand or future returns.
+- Gold/silver are continuous futures quoted in USD per troy ounce, not spot or physical holdings. GSCPI is a monthly standard-deviation index, not percent; its vintage is a source column identifier, not a verified publication timestamp. Do not turn aligned months or NSA price changes into causal inflation forecasts.
 - Include entry rationale, risk factors, and time horizon
 - Blend geopolitical, economic, and market signals — cross-correlate across domains
 - Be specific: name instruments (tickers, futures, ETFs), not vague sectors
@@ -65,40 +77,72 @@ function compactSweepForLLM(data, delta, previousIdeas) {
   // Economic indicators
   if (data.fred?.length) {
     const key = data.fred.filter(f => ['VIXCLS', 'DFF', 'DGS10', 'DGS2', 'T10Y2Y', 'BAMLH0A0HYM2', 'DTWEXBGS', 'MORTGAGE30US'].includes(f.id));
-    sections.push(`ECONOMIC: ${key.map(f => `${f.id}=${f.value}${f.momChange ? ` (${f.momChange > 0 ? '+' : ''}${f.momChange})` : ''}`).join(', ')}`);
+    const now = new Date();
+    sections.push(`FRED signal policy: daily observations at most 7, weekly mortgage at most 14 calendar days old; local conservative windows, not publication or real-time guarantees. Dates are observation dates, not release dates.`);
+    sections.push(`ECONOMIC: ${key.map(f => {
+      const valid = fredSignalObservation(f, { now });
+      return valid ? `${f.id}=${f.value} ${FRED_SIGNAL_SERIES[f.id].unit} (observation ${f.date})` : `${f.id}=unavailable for current signals`;
+    }).join(', ')}`);
   }
 
   // Energy
   if (data.energy) {
-    sections.push(`ENERGY: WTI=$${data.energy.wti}, Brent=$${data.energy.brent}, NatGas=$${data.energy.natgas}, CrudeStocks=${data.energy.crudeStocks}bbl`);
+    const now = new Date();
+    sections.push('Energy policy: prices/quotes at most 7, weekly inventory at most 14 calendar days old; local conservative windows, not publication or real-time guarantees. Inventory is a stock in thousand barrels, not a flow. Spot history is separate from futures; continuous futures quotes may roll, and their daily closes are not intraday quotes.');
+    sections.push(`ENERGY: ${Object.keys(ENERGY_SERIES).map(id => {
+      const row = energySignalObservation(data.energy.observations?.find(item => item.id === id), { now });
+      if (!row) return `${id}=unavailable for current signals`;
+      const change = energySpotChange(row, { now });
+      const history = change ? `; dated spot change ${change.change} ${row.unit}${Number.isFinite(change.pctChange) ? ` (${change.pctChange.toFixed(1)}%)` : ' (relative unavailable)'} [${change.fromDate} → ${change.toDate}]` : '; comparable spot change unavailable';
+      return `${id}=${row.value} ${row.unit} (${row.kind}, observation ${energyObservationDate(row)}, ${row.source.id}/${row.source.seriesId})${history}`;
+    }).join(', ')}`);
   }
 
   // Metals
-  if (data.metals?.gold != null || data.metals?.silver != null) {
-    const gold = data.metals?.gold != null ? `$${data.metals.gold}` : 'n/a';
-    const silver = data.metals?.silver != null ? `$${data.metals.silver}` : 'n/a';
-    const goldChg = data.metals?.goldChangePct != null ? ` (${data.metals.goldChangePct >= 0 ? '+' : ''}${data.metals.goldChangePct}%)` : '';
-    const silverChg = data.metals?.silverChangePct != null ? ` (${data.metals.silverChangePct >= 0 ? '+' : ''}${data.metals.silverChangePct}%)` : '';
-    sections.push(`METALS: Gold=${gold}${goldChg}, Silver=${silver}${silverChg}`);
+  if (data.metals) {
+    sections.push(`METALS: ${Object.keys(METAL_SIGNAL_SERIES).map(id => {
+      const row = metalSignalObservation(data.metals.observations?.find(item => item.id === id));
+      if (!row) return `${id}=unavailable for current signals`;
+      const change = metalSessionChange(row);
+      return `${id}=${row.value} ${row.unit} (futures, observation ${row.observedAt}, YFinance/${row.source.seriesId}; continuous futures may roll)${change ? `; change vs reported prior close ${change.pct.toFixed(2)}% (basis ${change.basis}; prior-session date not supplied)` : '; reported session change unavailable'}`;
+    }).join(', ')}; local conservative age limit 7 calendar days, not a real-time guarantee`);
   }
 
   // BLS
   if (data.bls?.length) {
-    sections.push(`LABOR: ${data.bls.map(b => `${b.id}=${b.value}`).join(', ')}`);
+    const now = new Date();
+    sections.push('BLS monthly policy: last two completed months only, with explicit units and seasonal adjustment; local conservative window, not a release calendar or point-in-time guarantee.');
+    sections.push(`BLS_MONTHLY: ${data.bls.map(b => {
+      if (!blsSignalObservation(b, { now })) return `${b.id}=unavailable for current signals`;
+      const change = blsMonthlyChange(b, { now });
+      const mom = change ? `; adjacent change ${change.value} ${change.unit}${change.relative !== null ? ` (${change.relative}%)` : ''} [${change.fromDate} → ${change.toDate}]` : '; adjacent change unavailable';
+      return `${b.id}=${b.value} ${b.unit} (observation ${b.date}, ${b.seasonalAdjustment})${mom}`;
+    }).join(', ')}`);
   }
 
   // Treasury
-  if (data.treasury) {
-    sections.push(`TREASURY: totalDebt=$${data.treasury}T`);
+  if (data.treasury != null) {
+    const debt = treasuryDebtObservation(data.treasury);
+    sections.push(debt ? `TREASURY: totalDebt=${debt.value} USD (observation ${debt.date}; debt coverage=${debt.status}); outstanding stock, not a market yield or a standalone trade signal. Local age limit 7 calendar days, not a publication guarantee.`
+      : 'TREASURY: totalDebt=unavailable for current signals (missing, old, unverified or failed debt observation)');
   }
 
   // Supply chain
   if (data.gscpi) {
-    sections.push(`SUPPLY_CHAIN: GSCPI=${data.gscpi.value} (${data.gscpi.interpretation})`);
+    const row = gscpiSignalObservation(data.gscpi);
+    const change = gscpiMonthlyChange(data.gscpi);
+    sections.push(row ? `SUPPLY_CHAIN: GSCPI=${row.value} ${row.unit} (monthly observation ${row.date}, source GSCPI/NY Fed, vintage column ${row.vintage}); collection ${row.status || 'unknown'}, rejected rows ${row.rejected ?? 'unknown'}, missing vintage cells ${row.missing ?? 'unknown'}; ${change ? `adjacent change ${change.value.toFixed(3)} standard-deviations [${change.fromDate} → ${change.toDate}]` : 'adjacent change unavailable'}; last two completed months only, local conservative window, not a release calendar or point-in-time certification`
+      : 'SUPPLY_CHAIN: GSCPI=unavailable for current signals (missing, old or unverified observation)');
   }
 
   // Geopolitical signals (cap total OSINT text to ~1500 chars to keep prompt compact)
-  const urgentPosts = (data.tg?.urgent || []).slice(0, 5);
+  sections.push('Collection samples are not a safety assessment; reductions never establish lower risk. Regions may overlap, RSS/OSINT displays are capped and WHO/ACLED use explicit query windows. Collection time is not event or publication time.');
+  for (const metric of COUNT_METRICS) {
+    const sample = countObservation(data, metric.key);
+    sections.push(sample ? `SAMPLE ${metric.key}=${sample.value} ${sample.unit}; collection ${sample.asOf}; scope ${JSON.stringify(sample.scope)}`
+      : `SAMPLE ${metric.key}=unavailable (missing, partial, stale or unverified; not zero)`);
+  }
+  const urgentPosts = countObservation(data, 'urgent_posts') ? (data.tg?.urgent || []).slice(0, 5) : [];
   if (urgentPosts.length) {
     const MAX_OSINT_CHARS = 1500;
     let remaining = MAX_OSINT_CHARS;
@@ -113,18 +157,6 @@ function compactSweepForLLM(data, delta, previousIdeas) {
     sections.push(`URGENT_OSINT:\n${lines.join('\n')}`);
   }
 
-  // Thermal / fire detections
-  if (data.thermal?.length) {
-    const hotRegions = data.thermal.filter(t => t.det > 10).map(t => `${t.region}: ${t.det} detections (${t.hc} high-conf)`);
-    if (hotRegions.length) sections.push(`THERMAL: ${hotRegions.join(', ')}`);
-  }
-
-  // Air activity
-  if (data.air?.length) {
-    const airSum = data.air.map(a => `${a.region}: ${a.total} aircraft`);
-    sections.push(`AIR_ACTIVITY: ${airSum.join(', ')}`);
-  }
-
   // Nuclear
   if (data.nuke?.length) {
     const anomalies = data.nuke.filter(n => n.anom);
@@ -132,7 +164,7 @@ function compactSweepForLLM(data, delta, previousIdeas) {
   }
 
   // WHO alerts
-  if (data.who?.length) {
+  if (countObservation(data, 'who_alerts') && data.who?.length) {
     sections.push(`WHO_ALERTS: ${data.who.slice(0, 3).map(w => w.title).join('; ')}`);
   }
 
@@ -144,12 +176,18 @@ function compactSweepForLLM(data, delta, previousIdeas) {
 
   // Delta context
   if (delta?.summary) {
-    sections.push(`\nDELTA_SINCE_LAST_SWEEP: direction=${delta.summary.direction}, changes=${delta.summary.totalChanges}, critical=${delta.summary.criticalChanges}`);
-    if (delta.signals?.escalated?.length) {
-      sections.push(`ESCALATED: ${delta.signals.escalated.map(s => `${s.label}: ${s.previous}→${s.current} (${(s.changePct||0) > 0 ? '+' : ''}${(s.changePct||0).toFixed(1)}%)`).join(', ')}`);
-    }
-    if (delta.signals?.new?.length) {
-      sections.push(`NEW_SIGNALS: ${delta.signals.new.map(s => s.label || s.text?.substring(0, 60)).join('; ')}`);
+    let excluded = 0;
+    const now = new Date();
+    const groups = Object.fromEntries(['escalated', 'deescalated', 'new'].map(group => [group,
+      (delta.signals?.[group] || []).filter(signal => {
+        const valid = currentDeltaSignal(signal, data, now);
+        if (!valid) excluded++;
+        return valid;
+      })]));
+    const gaps = delta.comparisonGaps?.length || 0;
+    sections.push(`\nDELTA_SINCE_LAST_SWEEP: direction=${excluded || gaps ? 'unverified' : delta.summary.direction}, shown=${Object.values(groups).reduce((count, rows) => count + rows.length, 0)}, excluded=${excluded}, comparisonGaps=${gaps}; observation changes, not publication-time surprises`);
+    for (const [group, signals] of Object.entries(groups)) {
+      if (signals.length) sections.push(`${group === 'new' ? 'NEW_SIGNALS' : group.toUpperCase()}: ${signals.map(deltaSignalText).join('; ')}`);
     }
   }
 

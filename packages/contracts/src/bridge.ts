@@ -117,6 +117,7 @@ export const modHelloSchema = z
           "events",
           "actions",
           "agent",
+          "agent-result",
           "model",
           "data",
           "context",
@@ -163,6 +164,7 @@ export const deskInitSchema = z
             owner: z.enum(["newma", "numa"]),
             aiExecution: z.literal("host"),
             requestMessage: z.literal("vibedesk:copilot-open"),
+            resultMessage: z.literal("vibedesk:agent-result").optional(),
           })
           .strict(),
         z
@@ -351,15 +353,37 @@ export const modActionRequestSchema = z
   })
   .strict();
 
+// Optional, per-request wait budget. Older peers may ignore this message.
+// It is not a completion result or an additional permission grant.
+export const deskActionPendingSchema = z.object({
+  type: z.literal("vibedesk:action-pending"),
+  requestId: requestIdSchema,
+  instanceId: instanceIdSchema,
+  modId: modIdSchema,
+  actionId: actionIdSchema,
+  timeoutSeconds: z.number().int().min(1).max(300),
+}).strict();
+
 export const modAgentRequestSchema = z
   .object({
     type: z.literal("vibedesk:copilot-open"),
+    requestId: requestIdSchema.optional(),
     instanceId: instanceIdSchema,
     modId: modIdSchema,
     mode: z.enum(["ask", "edit"]).default("ask"),
     prompt: z.string().trim().min(1).max(8_000).optional(),
   })
   .strict();
+
+export const agentOutcomeSchema = z.discriminatedUnion("status", [
+  z.object({status: z.literal("completed"), answer: z.string().min(1).max(60_000),
+    taskId: z.string().min(1).max(128).optional(), adapter: z.string().min(1).max(128).optional(), model: z.string().min(1).max(128).optional()}).strict(),
+  z.object({status: z.literal("failed"), error: z.object({code: z.string().min(1).max(80), message: z.string().min(1).max(1000)}).strict(), taskId: z.string().min(1).max(128).optional()}).strict(),
+  z.object({status: z.literal("cancelled"), error: z.object({code: z.string().min(1).max(80), message: z.string().min(1).max(1000)}).strict(), taskId: z.string().min(1).max(128).optional()}).strict(),
+]);
+export const deskAgentResultSchema = z.object({type: z.literal("vibedesk:agent-result"), requestId: requestIdSchema,
+  instanceId: instanceIdSchema, modId: modIdSchema, outcome: agentOutcomeSchema}).strict();
+export type AgentOutcome = z.infer<typeof agentOutcomeSchema>;
 
 const deskActionResultBaseSchema = z.object({
   type: z.literal("vibedesk:action-result"),

@@ -6,7 +6,7 @@
 import { safeFetch } from '../utils/fetch.mjs';
 import '../utils/env.mjs';
 
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+import { sourceDelay as delay, sourceFetch as fetch } from '../utils/source-request.mjs';
 
 // Curated list of well-known public OSINT / conflict / geopolitics channels
 // All verified to have public web previews enabled at https://t.me/s/{id}
@@ -121,21 +121,18 @@ async function fetchBotUpdates() {
 
 // Fetch raw HTML from a URL (safeFetch truncates non-JSON to 500 chars, too short)
 async function fetchHTML(url, timeoutMs = 15000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
     const res = await fetch(url, {
-      signal: controller.signal,
+      signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
       },
     });
-    clearTimeout(timer);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.text();
   } catch (e) {
-    clearTimeout(timer);
     return null;
   }
 }

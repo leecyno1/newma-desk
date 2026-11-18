@@ -1,15 +1,18 @@
 import { Globe2, Radio, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import type { ModPageContext } from "@newma-desk/contracts";
 import {
   connectModHost,
+  MOD_SDK_VERSION,
   type ModHostConnection,
 } from "@newma-desk/mod-sdk";
 
 import { GlobalIntelligenceDashboard } from "./Dashboard";
 import { GlobalTopicDashboard, type GlobalTopicId } from "./TopicDashboard";
 import { buildGlobalTopicContext, GLOBAL_TOPICS } from "./topicContext";
+import { GLOBAL_PAGES, globalPageHref, topicFromSearch } from "./navigation";
 import { globalRequest } from "./request";
 import {
   createGlobalIntelDataSource,
@@ -18,17 +21,14 @@ import {
 
 type EmbeddedHost = Extract<ModHostConnection, { embedded: true }>;
 
+function hostScope(config: EmbeddedHost["config"]) {
+  return JSON.stringify([config.modId, config.instanceId, config.user.id, config.workspace.id,
+    config.session?.id, Boolean(config.session?.accessToken),
+    config.gateways, [...config.grants.permissions].sort(), [...(config.grants.actions ?? [])].sort()]);
+}
+
 function parentOrigin() {
-  const configured = import.meta.env.VITE_PARENT_ORIGIN?.trim();
-  if (configured) return configured;
-  if (document.referrer) {
-    try {
-      return new URL(document.referrer).origin;
-    } catch {
-      // Continue with the current origin.
-    }
-  }
-  return window.location.origin;
+  return import.meta.env.VITE_PARENT_ORIGIN?.trim() || window.location.origin;
 }
 
 function initialTheme(): "light" | "dark" {
@@ -59,6 +59,8 @@ export function buildGlobalIntelligenceContext(
       { id: "global-intelligence-map", type: "geospatial-map", title: "全球综合态势" },
       ...(!presentation?.mapExpanded ? [{ id: "global-intelligence-events", type: "event-stream", title: "实时事件流" }] : []),
       ...(presentation?.healthPanelOpen ? [{ id: "global-intelligence-sources", type: "source-health", title: "来源健康" }] : []),
+      ...(presentation?.healthPanelOpen ? [{ id: "global-intelligence-comparison", type: "table", title: "两批观测变化" }] : []),
+      ...(presentation?.mediaPanelOpen ? [{ id: "global-intelligence-media", type: "media-monitor", title: "全球舆情雷达" }] : []),
       ...(selectedRecord || selectedRoute ? [{ id: "global-intelligence-dossier", type: "event-detail", title: "事件详情" }] : []),
       ...(state.investmentResearch ? [{ id: "global-intelligence-investment", type: "transmission-chain", title: "投资传导研究" }] : []),
     ],
@@ -93,10 +95,11 @@ export function GlobalIntelligenceApp({
   embedded?: boolean;
   topicId?: GlobalTopicId;
 }) {
-  const requestedTopic = providedTopicId ?? new URLSearchParams(window.location.search).get("topic");
+  const requestedTopic = providedTopicId ?? topicFromSearch(window.location.search);
   const topicId = requestedTopic && Object.hasOwn(GLOBAL_TOPICS, requestedTopic) ? requestedTopic as GlobalTopicId : undefined;
   const topicTitle = topicId ? GLOBAL_TOPICS[topicId].title : "全球情报";
   const runtimeModId = topicId ? GLOBAL_TOPICS[topicId].id : "global-situation";
+  const isEmbedded = embedded || window.parent !== window;
   const [hostConnection, setHostConnection] = useState(providedHostConnection);
   const [hostConfig, setHostConfig] = useState(providedHostConnection?.config);
   const [gatewayOrigin, setGatewayOrigin] = useState(providedHostConnection
@@ -118,8 +121,45 @@ export function GlobalIntelligenceApp({
     nonce: number; resolve(value: unknown): void; reject(error: Error): void;
   } | undefined>(undefined);
   const [dashboardState, setDashboardState] = useState<Record<string, unknown>>({});
+  const forecastRunning = Boolean(topicId && dashboardState.forecastStatus === "running");
+  const scope = useRef(providedHostConnection ? hostScope(providedHostConnection.config) : "");
+  const scopeEpoch = useRef(0);
+  const cleared = useRef(false);
+  const [epoch, setEpoch] = useState(0);
+  const [switching, setSwitching] = useState(false);
+  useLayoutEffect(() => { if (!switching) cleared.current = false; }, [switching]);
+  const requireSession = embedded || window.parent !== window || Boolean(hostConfig);
+  const canRead = !requireSession || Boolean(hostConfig?.session?.accessToken && hostConfig.grants.permissions.includes("market.read"));
   const contextRef = useRef(buildGlobalIntelligenceContext(dashboardState, topicId));
-  contextRef.current = buildGlobalIntelligenceContext(dashboardState, topicId);
+  contextRef.current = canRead ? buildGlobalIntelligenceContext(dashboardState, topicId) : {
+    view: {id: runtimeModId, title: topicTitle}, visibleBlocks: [], selection: {}, filters: {},
+    data: {freshness: "unknown", summary: {status: "会话尚未就绪或未获读取权限"}}, actions: [], tasks: [],
+  };
+  const observeConfig = useCallback((config: EmbeddedHost["config"]) => {
+    const nextScope = hostScope(config);
+    if (scope.current !== nextScope) {
+      const hadScope = !!scope.current;
+      scope.current = nextScope;
+      scopeEpoch.current += 1;
+      if (hadScope) {
+        pendingRefresh.current?.reject(new Error("页面或工作区已切换，未确认刷新结果；不会自动重试。"));
+        pendingRefresh.current = undefined;
+        if (!cleared.current) {
+          cleared.current = true;
+          flushSync(() => { setSwitching(true); setDashboardState({}); });
+        }
+      }
+    }
+    setHostConfig(config);
+    setGatewayOrigin(new URL(config.gateways.data).origin);
+    setTheme(config.environment.theme);
+    setCacheIdentity({ userId: config.user.id, workspaceId: config.workspace.id });
+    setEpoch(scopeEpoch.current);
+    setSwitching(false);
+  }, []);
+  const updateDashboardState = useCallback((state: Record<string, unknown>) => {
+    if (epoch === scopeEpoch.current) setDashboardState(state);
+  }, [epoch]);
 
   const dataSource = useMemo(
     () => providedDataSource ?? createGlobalIntelDataSource({
@@ -132,9 +172,8 @@ export function GlobalIntelligenceApp({
         canRead: hostConfig.grants.permissions.includes("market.read"),
       } : undefined,
     }),
-    [gatewayOrigin, providedDataSource, embedded, hostConfig?.session?.accessToken, hostConfig?.instanceId, hostConfig?.grants?.permissions],
+    [gatewayOrigin, providedDataSource, embedded, epoch, hostConfig?.session?.accessToken, hostConfig?.instanceId, canRead],
   );
-  const requireSession = embedded || window.parent !== window || Boolean(hostConfig);
   const canForecast = !requireSession || Boolean(hostConfig?.session && hostConfig.grants.permissions.includes("storage.write"));
   const topicRequest = useMemo(() => globalRequest({
     requireSession,
@@ -143,7 +182,7 @@ export function GlobalIntelligenceApp({
       canRead: hostConfig.grants.permissions.includes("market.read"),
       canWrite: hostConfig.grants.permissions.includes("storage.write"),
     } : undefined,
-  }), [requireSession, hostConfig?.session?.accessToken, hostConfig?.instanceId, hostConfig?.grants?.permissions]);
+  }), [requireSession, epoch, hostConfig?.session?.accessToken, hostConfig?.instanceId, canRead, canForecast]);
 
   useEffect(() => {
     document.title = topicTitle + " · Newma-Desk";
@@ -159,62 +198,42 @@ export function GlobalIntelligenceApp({
     const controller = new AbortController();
     let close: () => void = () => undefined;
     let unsubscribe: () => void = () => undefined;
-    let removeContextProvider: () => void = () => undefined;
     void connectModHost({
       modId: runtimeModId,
       parentOrigin: parentOrigin(),
-      sdkVersion: "0.1.0",
+      sdkVersion: MOD_SDK_VERSION,
       capabilities: ["actions", "data", "context", "theme"],
       signal: controller.signal,
     }).then((connection) => {
+      if (controller.signal.aborted) { connection.close(); return; }
       close = connection.close;
       if (!connection.embedded) return;
       setHostConnection(connection);
-      setHostConfig(connection.config);
-      setGatewayOrigin(new URL(connection.config.gateways.data).origin);
-      setTheme(connection.config.environment.theme);
-      setCacheIdentity({
-        userId: connection.config.user.id,
-        workspaceId: connection.config.workspace.id,
-      });
-      unsubscribe = connection.subscribe((config) => {
-        setHostConfig(config);
-        setGatewayOrigin(new URL(config.gateways.data).origin);
-        setTheme(config.environment.theme);
-        setCacheIdentity({ userId: config.user.id, workspaceId: config.workspace.id });
-      });
-      removeContextProvider = connection.setContextProvider(() => contextRef.current);
+      observeConfig(connection.config);
+      unsubscribe = connection.subscribe(observeConfig);
     }).catch(() => undefined);
     return () => {
       controller.abort();
       unsubscribe();
-      removeContextProvider();
       close();
     };
-  }, [embedded, providedHostConnection, runtimeModId]);
+  }, [embedded, providedHostConnection, runtimeModId, observeConfig]);
 
   useEffect(() => {
     if (!providedHostConnection) return;
     setHostConnection(providedHostConnection);
-    setHostConfig(providedHostConnection.config);
-    setTheme(providedHostConnection.config.environment.theme);
-    setCacheIdentity({
-      userId: providedHostConnection.config.user.id,
-      workspaceId: providedHostConnection.config.workspace.id,
-    });
-    return providedHostConnection.subscribe((config) => {
-      setHostConfig(config);
-      setGatewayOrigin(new URL(config.gateways.data).origin);
-      setTheme(config.environment.theme);
-      setCacheIdentity({ userId: config.user.id, workspaceId: config.workspace.id });
-    });
-  }, [providedHostConnection]);
+    observeConfig(providedHostConnection.config);
+    return providedHostConnection.subscribe(observeConfig);
+  }, [providedHostConnection, observeConfig]);
 
-  useEffect(() => hostConnection?.setContextProvider(() => contextRef.current), [hostConnection]);
+  useEffect(() => hostConnection?.setContextProvider(() => epoch === scopeEpoch.current ? contextRef.current : {
+    view: {id: runtimeModId, title: topicTitle}, visibleBlocks: [], selection: {}, filters: {},
+    data: {freshness: "unknown", summary: {status: "会话切换中，等待重新取数"}}, actions: [], tasks: [],
+  }), [hostConnection, epoch, runtimeModId, topicTitle]);
 
   useEffect(() => {
-    hostConnection?.publishContext(contextRef.current);
-  }, [dashboardState, hostConnection, topicId]);
+    if (epoch === scopeEpoch.current && !switching) hostConnection?.publishContext(contextRef.current);
+  }, [dashboardState, hostConnection, topicId, epoch, switching]);
 
   useEffect(() => {
     const pending = pendingRefresh.current;
@@ -235,13 +254,17 @@ export function GlobalIntelligenceApp({
   }, [runtimeModId, cacheIdentity?.userId, cacheIdentity?.workspaceId, hostConfig?.session?.accessToken]);
 
   const refreshPage = useCallback(() => {
+    if (contextRef.current.data.summary?.forecastStatus === "running") return;
     pendingRefresh.current?.reject(new Error("用户已重新刷新，前次动作结果未确认。"));
     pendingRefresh.current = undefined;
     setRefreshNonce(++refreshSequence.current);
   }, []);
 
   const handleUiAction = useCallback((actionId: string, input: Record<string, unknown>) => {
+    if (epoch !== scopeEpoch.current || switching) return Promise.reject(new Error("会话切换中，请等待页面重新连接"));
+    if (!canRead) return Promise.reject(new Error("会话尚未就绪或未获读取权限"));
     if (actionId === "global-intel.refresh") {
+      if (contextRef.current.data.summary?.forecastStatus === "running") return Promise.reject(new Error("推演正在进行，请等待结果后再刷新。"));
       if (pendingRefresh.current) return Promise.reject(new Error("刷新正在进行，请等待本次结果。"));
       const nonce = ++refreshSequence.current;
       return new Promise((resolve, reject) => {
@@ -262,34 +285,39 @@ export function GlobalIntelligenceApp({
       return { layout: record };
     }
     throw new Error(`全球情报不支持动作 ${actionId}`);
-  }, [dashboardState, topicTitle, cacheIdentity?.userId, cacheIdentity?.workspaceId, runtimeModId]);
+  }, [dashboardState, topicTitle, cacheIdentity?.userId, cacheIdentity?.workspaceId, runtimeModId, epoch, switching, canRead]);
 
   useEffect(() => hostConnection?.setUiActionHandler(handleUiAction), [handleUiAction, hostConnection]);
 
   return (
-    <main className="global-intelligence-root" data-embedded={embedded}>
-      {!embedded ? (
+    <main className="global-intelligence-root" data-embedded={isEmbedded}>
+      {!isEmbedded ? (
         <header className="global-intelligence-topbar">
           <div className="global-intelligence-identity">
             <i><Globe2 size={18} /></i>
             <span><strong>{topicTitle}</strong><small>{topicId ? "GLOBAL THEMATIC RESEARCH" : "GLOBAL INTELLIGENCE OPERATIONS"}</small></span>
           </div>
           <div className="global-intelligence-runtime"><Radio size={13} />{topicId ? "专题研究 · 来源观测与手动推演" : "World Intelligence MCP · 实时数据平面"}</div>
-          <button type="button" onClick={refreshPage}><RefreshCw size={14} />刷新情报</button>
+          <button type="button" onClick={refreshPage} disabled={forecastRunning}><RefreshCw size={14} />刷新情报</button>
         </header>
       ) : null}
-      {topicId ? (
-        <GlobalTopicDashboard topicId={topicId} gatewayBaseUrl={gatewayOrigin} request={topicRequest} canForecast={canForecast} refreshNonce={refreshNonce} cacheIdentity={cacheIdentity} embedded onContextChange={setDashboardState} />
+      {!isEmbedded ? <nav className="global-intelligence-navigation" aria-label="全球研究">
+        {GLOBAL_PAGES.map(page => <a key={page.id} href={globalPageHref(window.location.href, page)}
+          aria-current={page.id === runtimeModId ? "page" : undefined}>{page.title}</a>)}
+      </nav> : null}
+      {switching ? <p role="status">会话切换中，等待重新连接…</p> : !canRead ? <p role="status">会话尚未就绪或未获读取权限</p> : topicId ? (
+        <GlobalTopicDashboard key={epoch} topicId={topicId} gatewayBaseUrl={gatewayOrigin} request={topicRequest} canForecast={canForecast} refreshNonce={refreshNonce} cacheIdentity={cacheIdentity} embedded onContextChange={updateDashboardState} />
       ) : <GlobalIntelligenceDashboard
-        key={cacheIdentity ? `${cacheIdentity.userId}:${cacheIdentity.workspaceId}` : "pending-host"}
+        key={`${epoch}:${cacheIdentity ? `${cacheIdentity.userId}:${cacheIdentity.workspaceId}` : "pending-host"}`}
         dataSource={dataSource}
         theme={theme}
         refreshNonce={refreshNonce}
         cacheIdentity={cacheIdentity}
+        scopedStorage={requireSession}
         onRefresh={refreshPage}
-        onContextChange={setDashboardState}
+        onContextChange={updateDashboardState}
       />}
-      {!embedded ? (
+      {!isEmbedded ? (
         <footer className="global-intelligence-statusbar">
           <span><i />{runtimeModId.toUpperCase()}</span>
           <span>情报数据合同：{topicId ? "newma-desk.global-topic.v1" : "newma-desk.global-intelligence.v1"}</span>

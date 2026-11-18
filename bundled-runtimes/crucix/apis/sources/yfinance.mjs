@@ -1,6 +1,5 @@
-// Yahoo Finance — Live market quotes (no API key required)
-// Provides real-time prices for stocks, ETFs, crypto, commodities
-// Replaces the need for Alpaca or any paid market data provider
+// Yahoo Finance public chart quotes; availability and delay vary by market.
+// A collection time is not the quote's observation time.
 
 import { safeFetch } from '../utils/fetch.mjs';
 
@@ -30,6 +29,22 @@ const SYMBOLS = {
   '^VIX': 'VIX',
 };
 
+const rounded = value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
+function observationTime(seconds) {
+  const date = new Date(seconds * 1000);
+  return Number.isFinite(seconds) && seconds > 0 && Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+function sessionDate(seconds, timeZone) {
+  if (!observationTime(seconds) || !timeZone) return null;
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(seconds * 1000));
+  } catch { return null; }
+}
+function failedQuote(symbol, errorCode, error, httpStatus) {
+  return { symbol, name: SYMBOLS[symbol] || symbol, errorCode, error,
+    ...(httpStatus ? { httpStatus } : {}) };
+}
+
 async function fetchQuote(symbol) {
   try {
     const url = `${BASE}/${encodeURIComponent(symbol)}?range=5d&interval=1d&includePrePost=false`;
@@ -40,28 +55,46 @@ async function fetchQuote(symbol) {
       },
     });
 
+    if (data?.error) {
+      const status = Number.isInteger(data.status) && data.status >= 400 && data.status <= 599 ? data.status : null;
+      return failedQuote(symbol, status ? 'HTTP_ERROR' : 'REQUEST_FAILED',
+        status ? `行情请求被拒绝（HTTP ${status}）` : '行情请求失败或超时', status);
+    }
+    if (data?.chart?.error) return failedQuote(symbol, 'PROVIDER_ERROR', '来源返回行情错误');
     const result = data?.chart?.result?.[0];
-    if (!result) return { symbol, error: 'No quote returned' };
+    if (!result) return failedQuote(symbol, 'INVALID_RESPONSE', '未返回有效行情结构');
 
     const meta = result.meta || {};
     const quotes = result.indicators?.quote?.[0] || {};
-    const closes = quotes.close || [];
-    const timestamps = result.timestamp || [];
+    const closes = Array.isArray(quotes.close) ? quotes.close : [];
+    const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
 
     // Get current price and previous close
-    const price = meta.regularMarketPrice ?? closes[closes.length - 1];
-    if (!Number.isFinite(price)) return { symbol, error: 'No valid quote price' };
-    const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? closes[closes.length - 2];
-    const change = price && prevClose ? price - prevClose : 0;
-    const changePct = prevClose ? (change / prevClose) * 100 : 0;
+    // Do not silently promote an old daily bar to a current market quote.
+    const price = meta.regularMarketPrice;
+    if (!Number.isFinite(price)) return failedQuote(symbol, 'INVALID_PRICE', '缺少有效行情价格');
+    const timeZone = meta.exchangeTimezoneName;
+    const quoteDate = sessionDate(meta.regularMarketTime, timeZone);
+    const currentIndex = quoteDate ? timestamps.findLastIndex(ts => sessionDate(ts, timeZone) === quoteDate) : -1;
+    // chartPreviousClose is the close BEFORE the requested five-day range.
+    // Only use the immediately preceding daily bar; never bridge missing bars.
+    const priorIndex = currentIndex - 1;
+    const priorDate = priorIndex >= 0 ? sessionDate(timestamps[priorIndex], timeZone) : null;
+    const dailyPrevious = priorDate && priorDate < quoteDate && Number.isFinite(closes[priorIndex])
+      ? closes[priorIndex] : null;
+    const providerPrevious = Number.isFinite(meta.previousClose) ? meta.previousClose : null;
+    const prevClose = providerPrevious ?? dailyPrevious;
+    const change = prevClose !== null ? price - prevClose : null;
+    const changePct = prevClose !== null && prevClose > 0 ? (change / prevClose) * 100 : null;
 
     // Build 5-day history
     const history = [];
     for (let i = 0; i < timestamps.length; i++) {
-      if (closes[i] != null) {
+      const date = sessionDate(timestamps[i], timeZone);
+      if (date && Number.isFinite(closes[i])) {
         history.push({
-          date: new Date(timestamps[i] * 1000).toISOString().split('T')[0],
-          close: Math.round(closes[i] * 100) / 100,
+          date,
+          close: rounded(closes[i]),
         });
       }
     }
@@ -69,19 +102,20 @@ async function fetchQuote(symbol) {
     return {
       symbol,
       name: SYMBOLS[symbol] || meta.shortName || symbol,
-      price: Math.round(price * 100) / 100,
-      prevClose: Math.round((prevClose || 0) * 100) / 100,
-      change: Math.round(change * 100) / 100,
-      changePct: Math.round(changePct * 100) / 100,
-      currency: meta.currency || 'USD',
+      price: rounded(price),
+      prevClose: rounded(prevClose),
+      previousCloseBasis: providerPrevious !== null ? 'provider' : dailyPrevious !== null ? 'daily-bars' : null,
+      change: rounded(change),
+      changePct: rounded(changePct),
+      currency: typeof meta.currency === 'string' ? meta.currency : null,
       exchange: meta.exchangeName || '',
       marketState: meta.marketState || 'UNKNOWN',
-      observedAt: Number.isFinite(meta.regularMarketTime) && meta.regularMarketTime > 0
-        ? new Date(meta.regularMarketTime * 1000).toISOString() : null,
+      observedAt: observationTime(meta.regularMarketTime),
+      source: 'Yahoo Finance',
       history,
     };
   } catch (e) {
-    return { symbol, name: SYMBOLS[symbol] || symbol, error: e.message };
+    return failedQuote(symbol, 'REQUEST_FAILED', '行情请求失败或超时');
   }
 }
 

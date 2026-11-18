@@ -15,7 +15,9 @@ from datetime import datetime, timezone
 logger = logging.getLogger("world-intel-mcp.analysis.spikes")
 
 _DB_PATH = os.path.join(
-    os.path.expanduser("~"), ".cache", "world-intel-mcp", "keyword_spikes.db"
+    os.path.dirname(os.path.abspath(os.environ["WORLD_INTEL_CACHE_DB"])) if os.environ.get("WORLD_INTEL_CACHE_DB")
+    else os.path.join(os.path.expanduser("~"), ".cache", "world-intel-mcp"),
+    "keyword_spikes.db",
 )
 
 _CVE_RE = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE)
